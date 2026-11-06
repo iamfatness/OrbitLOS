@@ -11,3 +11,7 @@ export async function loadWorkspace() {
 export async function updateWorkspace(input: unknown) {
   return demoWorkspace().write(input);
 }
+
+export async function updateBorrowerApplication(input: unknown) {
+  return demoWorkspace().borrower(input);
+}

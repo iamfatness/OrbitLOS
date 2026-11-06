@@ -1,5 +1,6 @@
 import type { Activity, Contact, Loan, Submission, Workspace } from "./model";
 import { demoRecords } from "./seed";
+import { staffApplications } from "./applications";
 
 export type SqlValue = string | number | null;
 
@@ -35,6 +36,12 @@ export function initializeStore(db: Store) {
       text TEXT NOT NULL, createdAt TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS applications (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL, draft TEXT NOT NULL,
+      step INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT NOT NULL, submittedAt TEXT, reviewedAt TEXT, uwmReference TEXT
+    );
   `);
   db.transaction(() => {
     if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
@@ -73,6 +80,7 @@ export function workspace(db: Store): Workspace {
     submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, "SELECT * FROM submissions ORDER BY lender, id")
       .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) })),
     activity: rows<Activity>(db, "SELECT * FROM activity ORDER BY createdAt DESC, id"),
+    applications: staffApplications(db),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
 }

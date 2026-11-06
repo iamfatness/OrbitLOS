@@ -159,6 +159,42 @@ button:disabled { cursor: default; }
 .note { margin-top: 6px; border: 1px solid var(--line); padding: 7px; border-radius: 7px; overflow-wrap: anywhere; }
 .note p { white-space: pre-wrap; }
 
+.application-shell { width: min(100% - 32px, 780px); margin: 0 auto; padding: 22px 0 42px; }
+.application-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.application-top .brand { padding: 0; }
+.application-intro { margin: 27px 0 13px; }
+.application-intro h1 { font-size: clamp(30px, 5vw, 46px); font-weight: 760; letter-spacing: -.05em; line-height: 1.1; }
+.application-intro h1 + p { margin-top: 7px; color: var(--muted); }
+.application-warning, .application-message { padding: 10px 12px; border-radius: 9px; margin-bottom: 12px; background: #f0ebfd; color: #503b91; }
+.application-warning { background: #fff4dd; color: #75530f; }
+.application-message.banner-error { background: #fff0f2; color: #91253a; }
+.application-panel { background: white; border: 1px solid var(--line); border-radius: 15px; overflow: hidden; }
+.application-progress { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; padding: 13px 15px; background: #faf8fd; border-bottom: 1px solid var(--line); }
+.application-progress li { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.application-progress li > span { display: grid; place-items: center; flex-shrink: 0; height: 22px; width: 22px; border-radius: 8px; background: #eeeaf6; }
+.application-progress li[aria-current="step"] { color: #5537ba; font-weight: 750; }
+.application-progress li[aria-current="step"] > span { color: white; background: var(--accent); }
+.application-progress li[data-complete="true"] > span { background: #e4f5ed; color: #23734e; }
+.application-form { padding: 17px; }
+.application-step { display: grid; gap: 11px; min-width: 0; }
+.application-step-meta, .application-actions, .loan-application-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.application-step-meta { justify-content: space-between; color: var(--muted); }
+.application-step h2, .application-receipt h2 { font-size: 21px; font-weight: 750; letter-spacing: -.025em; }
+.application-actions { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); }
+.application-answers { display: grid; gap: 7px; }
+.application-answers section { border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: #fff; }
+.application-answers h4 { font-size: 12px; font-weight: 750; margin-bottom: 6px; }
+.application-answers dt { font-size: 11px; color: var(--muted); }
+.application-answers dd { overflow-wrap: anywhere; font-size: 13px; font-weight: 650; }
+.demo-confirm { display: flex; align-items: flex-start; gap: 7px; font-size: 13px; }
+.demo-confirm input { accent-color: var(--accent); margin-top: 3px; }
+.application-receipt { display: grid; gap: 7px; padding: 22px; }
+.loan-application-box { display: grid; justify-items: start; gap: 8px; padding: 11px; border-radius: 10px; background: #faf8fd; border: 1px solid var(--line); }
+.application-review, .application-link-help { width: 100%; min-width: 0; }
+.application-review summary, .application-link-help summary { cursor: pointer; color: #503b91; font-size: 12px; font-weight: 700; }
+.application-review[open] summary, .application-link-help[open] summary { margin-bottom: 6px; }
+.application-sent { display: flex; align-items: center; gap: 6px; color: #217348; font-size: 12px; font-weight: 700; }
+
 @media (max-width: 970px) {
   .shell { grid-template-columns: 171px minmax(0, 1fr); }
   .topbar, .content { padding-inline: 18px; }
@@ -186,4 +222,11 @@ button:disabled { cursor: default; }
   .toolbar { padding-inline: 9px; }
   .toolbar .search { flex: 1 1 140px; }
   .board { padding-inline: 8px; grid-auto-columns: 198px; }
+}
+@media (max-width: 520px) {
+  .application-shell { width: calc(100% - 20px); }
+  .application-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .application-form { padding: 12px; }
+  .application-step > .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .application-actions > .spacer { display: none; }
 }

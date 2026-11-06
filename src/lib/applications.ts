@@ -1,0 +1,102 @@
+import { z } from "zod";
+import { applicationDraft, applicationIssues, applicationSteps, blankApplication, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
+import type { Store } from "./store";
+
+type ApplicationRow = Omit<StaffApplication, "draft"> & { draft: string; step: number; revision: number };
+
+export function getApplication(db: Store, loanId: string) {
+  return db.prepare("SELECT * FROM applications WHERE loanId = ?").get(loanId) as ApplicationRow | undefined;
+}
+
+export function staffApplications(db: Store): StaffApplication[] {
+  return db.prepare("SELECT * FROM applications").all().map((value) => {
+    const row = value as ApplicationRow;
+    return {
+      loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, updatedAt: row.updatedAt,
+      submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, uwmReference: row.uwmReference,
+      draft: row.submittedAt ? JSON.parse(row.draft) as ApplicationDraft : null,
+    };
+  });
+}
+
+export function addApplicationActivity(db: Store, loanId: string, text: string, now: string) {
+  db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)")
+    .run(crypto.randomUUID(), loanId, text, now);
+}
+
+export function startApplication(db: Store, loanId: string, now: string) {
+  const loan = db.prepare("SELECT loans.address, loans.amount, loans.purpose, contacts.name FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?").get(loanId);
+  if (!loan) return false;
+  const existing = getApplication(db, loanId);
+  if (existing && existing.expiresAt > now) return true;
+
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const expiresAt = new Date(Date.parse(now) + 7 * 86_400_000).toISOString();
+  if (existing) {
+    db.prepare("UPDATE applications SET token = ?, expiresAt = ? WHERE loanId = ?").run(token, expiresAt, loanId);
+    return true;
+  }
+  const draft: ApplicationDraft = {
+    ...blankApplication(), borrowerName: String(loan.name), propertyAddress: String(loan.address),
+    loanAmount: Number(loan.amount) > 0 ? String(loan.amount) : "",
+    purpose: loan.purpose === "Refinance" ? "Refinance" : "Purchase",
+  };
+  db.prepare("INSERT INTO applications (loanId, token, expiresAt, draft, updatedAt) VALUES (?, ?, ?, ?, ?)")
+    .run(loanId, token, expiresAt, JSON.stringify(draft), now);
+  addApplicationActivity(db, loanId, "Demo 1003 link created.", now);
+  return true;
+}
+
+const token = z.string().regex(/^[a-f0-9]{64}$/);
+const write = {
+  token, draft: applicationDraft,
+  revision: z.number().int().min(0),
+  step: z.number().int().min(0).max(applicationSteps.length - 1),
+};
+const borrowerCommand = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("read"), token }),
+  z.object({ type: z.literal("save"), ...write }),
+  z.object({ type: z.literal("submit"), ...write }),
+]);
+
+function borrowerResult(row: ApplicationRow): BorrowerResult {
+  return { application: {
+    draft: JSON.parse(row.draft) as ApplicationDraft,
+    step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt,
+  } };
+}
+
+export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult {
+  const parsed = borrowerCommand.safeParse(input);
+  if (!parsed.success) return { status: 400, error: "Check the length of your answers and use valid amounts, then try again." };
+  const data = parsed.data;
+  const now = new Date().toISOString();
+  return db.transaction(() => {
+    const row = db.prepare("SELECT * FROM applications WHERE token = ? AND expiresAt > ?")
+      .get(data.token, now) as ApplicationRow | undefined;
+    if (!row) return { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
+    if (data.type === "read" || (data.type === "submit" && row.submittedAt)) return borrowerResult(row);
+    if (row.submittedAt) return { status: 409, error: "This application has been submitted. Reopen the link to see your receipt." };
+    if (row.revision !== data.revision) {
+      return { status: 409, error: "This application was updated in another tab. Reopen the link to continue from the latest saved draft." };
+    }
+
+    const submitted = data.type === "submit";
+    if (submitted) {
+      const issues = applicationIssues(data.draft);
+      if (issues.length) return { status: 422, error: `Complete these items before submitting: ${issues.join("; ")}.` };
+    }
+    const next: ApplicationRow = {
+      ...row, draft: JSON.stringify(data.draft), step: data.step, revision: row.revision + 1,
+      updatedAt: now, submittedAt: submitted ? now : null,
+    };
+    db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ? WHERE loanId = ?")
+      .run(next.draft, next.step, next.revision, next.updatedAt, next.submittedAt, next.loanId);
+    if (submitted) {
+      db.prepare("UPDATE loans SET stage = 'Application', stageSince = ? WHERE id = ? AND stage IN ('Lead', 'Pre-qual')")
+        .run(now, row.loanId);
+      addApplicationActivity(db, row.loanId, "Demo 1003 received. Loan officer review is due.", now);
+    }
+    return borrowerResult(next);
+  });
+}

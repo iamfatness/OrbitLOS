@@ -20,6 +20,15 @@ Open [Orbit on localhost](http://127.0.0.1:3000). The app binds to localhost and
 3. Click **Sync UWM**. The first sync refreshes Charlotte Kim and Amelia Davis and imports Benjamin Cole. Open Charlotte's loan to see the lender status, two outstanding conditions, and one cleared condition.
 4. Sync again to refresh the same lender records. UWM status and CRM stage are separate fields, so a sync preserves broker-managed stages.
 
+## Try the demo 1003
+
+1. Open a loan without a UWM submission, such as Olivia Parker, and choose **Start 1003**. Open the borrower view or copy its scoped link. It expires after seven days.
+2. Choose **Load sample answers** or enter fictional answers. Use **Save draft**, then reopen the same link to resume. **Continue** also saves progress. Review and submit to see the borrower receipt.
+3. On the original loan, choose **Refresh application**, review the submitted answers, and select **Mark reviewed**.
+4. Choose **Send to UWM (mock)**. The lender card shows a demo reference, an approved-with-conditions status, two outstanding conditions, and one cleared condition. **Sync UWM** refreshes the same lender record.
+
+The 1003 screen covers a representative subset of fields for this demo. The borrower link does not require the staff password and grants access only to its assigned application. Use fictional data. The demo collects no SSNs or document uploads, and the UWM handoff uses fixtures.
+
 ## How it fits together
 
 - `src/components` contains the Next.js workspace UI. Typed server actions in `src/app/actions.ts` validate and save changes.

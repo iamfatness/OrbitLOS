@@ -1,3 +1,5 @@
+import type { StaffApplication } from "./application-model";
+
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
 ] as const;
@@ -57,5 +59,6 @@ export interface Workspace {
   loans: Loan[];
   submissions: Submission[];
   activity: Activity[];
+  applications: StaffApplication[];
   uwmSyncedAt: string | null;
 }

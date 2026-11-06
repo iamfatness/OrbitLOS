@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
+import { borrowerCommandResult } from "./applications";
 import { initializeStore, workspace, type SqlValue, type Store } from "./store";
 
 let connection: Store | undefined;
@@ -52,4 +53,8 @@ export function loadWorkspace() {
 
 export async function updateWorkspace(input: unknown) {
   return executeCommand(database(), input);
+}
+
+export async function updateBorrowerApplication(input: unknown) {
+  return borrowerCommandResult(database(), input);
 }

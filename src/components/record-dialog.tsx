@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, CheckCircle2, Circle, ClipboardList, Clock3, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { stages, type Contact, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { dateTime, initials, money } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { ApplicationAnswers } from "./application-fields";
 
 export type Modal =
   | { kind: "details"; loanId: string }
@@ -109,6 +110,59 @@ function SubmissionCard({ submission, onEdit }: { submission: Submission; onEdit
   );
 }
 
+function LoanApplication({ loanId, state, busy, save }: { loanId: string; state: Workspace; busy: boolean; save: Save }) {
+  const [copyStatus, setCopyStatus] = useState("");
+  const application = state.applications.find((item) => item.loanId === loanId);
+  const path = application ? `/apply#${application.token}` : "";
+  const status = application?.uwmReference ? "Sent to UWM · Mock" : application?.reviewedAt ? "Reviewed" : application?.submittedAt ? "Needs review" : "Draft";
+  const run = (type: string) => void save({ type, loanId });
+
+  async function copy() {
+    setCopyStatus("");
+    try {
+      await navigator.clipboard.writeText(new URL(path, window.location.origin).href);
+      setCopyStatus("Borrower link copied.");
+    } catch {
+      setCopyStatus("Open the borrower view and copy the address from your browser.");
+    }
+  }
+
+  return <section className="details-section" aria-label="1003 application">
+    <div className="section-heading">
+      <h3><ClipboardList size={17} /> 1003 application</h3>
+      {application && <span className="pill">{status}</span>}
+    </div>
+    {!application ? <div className="loan-application-box">
+      <p className="muted">Create a link for a borrower to complete a sample application. Use fictional information.</p>
+      <Button size="sm" disabled={busy} onClick={() => run("startApplication")}><Plus /> Start 1003</Button>
+    </div> : <div className="loan-application-box">
+      {!application.submittedAt ? <>
+        <p className="muted">The borrower can save a draft and return to the same link. Link expires {dateTime(application.expiresAt)} ET.</p>
+        <div className="loan-application-actions">
+          <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> Open borrower view</a></Button>
+          <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy link</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => run("refreshApplication")}><RefreshCw /> Refresh application</Button>
+        </div>
+        <p className="muted timestamp">Last saved {dateTime(application.updatedAt)} ET</p>
+        <details className="application-link-help">
+          <summary>Expired link?</summary>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => run("startApplication")}>Renew expired link</Button>
+        </details>
+        {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
+      </> : <>
+        <p className="muted">Received {dateTime(application.submittedAt)} ET</p>
+        {application.draft && <details className="application-review" open={!application.reviewedAt}>
+          <summary>Review submitted answers</summary>
+          <ApplicationAnswers draft={application.draft} />
+        </details>}
+        {application.uwmReference ? <p className="application-sent"><CheckCircle2 size={16} /> Mock UWM import confirmed · {application.uwmReference}</p> :
+          application.reviewedAt ? <Button size="sm" disabled={busy} onClick={() => run("sendApplication")}><Send /> Send to UWM (mock)</Button> :
+            <Button size="sm" disabled={busy} onClick={() => run("reviewApplication")}><CheckCircle2 /> Mark reviewed</Button>}
+      </>}
+    </div>}
+  </section>;
+}
+
 function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Workspace; busy: boolean; save: Save; show: (modal: Modal) => void }) {
   const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
@@ -127,6 +181,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         <div><span>Realtor</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
       </div>
       <Field label="CRM stage"><select value={loan.stage} disabled={busy} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
+      <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
       <section className="details-section">
         <div className="section-heading"><h3>Lender submissions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         {submissions.length === 0 && <p className="empty-inline">No lender submissions yet.</p>}
@@ -178,7 +233,7 @@ export function RecordDialog({ modal, state, busy, error, save, show, close }: {
       <div className="dialog-content" key={key}>
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} busy={busy} save={save} show={show} />}
         {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
-          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its submissions and activity?", close) : undefined}
+          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, submissions and activity?", close) : undefined}
           save={(data) => ({
             type: "loan", id: loan?.id, contactId: text(data, "contactId"), borrower: text(data, "borrower"),
             address: text(data, "address"), amount: Number(text(data, "amount")), purpose: text(data, "purpose"),

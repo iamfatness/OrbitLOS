@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, workspace, type Store } from "./store";
 import { stages, type Workspace } from "./model";
-import { syncUwm } from "./uwm";
+import { submitMockApplication, syncUwm } from "./uwm";
+import { addApplicationActivity, getApplication, startApplication } from "./applications";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -27,6 +28,10 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("submission"), id: id.optional(), loanId: id, lender: label, externalId: label, status: label }),
   z.object({ type: z.literal("deleteSubmission"), id }),
   z.object({ type: z.literal("sync") }),
+  z.object({ type: z.literal("startApplication"), loanId: id }),
+  z.object({ type: z.literal("refreshApplication"), loanId: id }),
+  z.object({ type: z.literal("reviewApplication"), loanId: id }),
+  z.object({ type: z.literal("sendApplication"), loanId: id }),
 ]);
 
 class WorkspaceError extends Error {}
@@ -42,7 +47,31 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
     }
     const now = new Date().toISOString();
     return db.transaction(() => {
+      let message = data.type.startsWith("delete") ? "Removed successfully." : "Saved successfully.";
       switch (data.type) {
+        case "startApplication":
+          if (!startApplication(db, data.loanId, now)) throw new WorkspaceError("This loan no longer exists.");
+          message = "Demo application link is ready.";
+          break;
+        case "refreshApplication":
+          message = "Application status refreshed.";
+          break;
+        case "reviewApplication": {
+          const application = getApplication(db, data.loanId);
+          if (!application?.submittedAt) throw new WorkspaceError("The borrower must submit the application before review.");
+          if (!application.reviewedAt) {
+            db.prepare("UPDATE applications SET reviewedAt = ? WHERE loanId = ?").run(now, data.loanId);
+            addApplicationActivity(db, data.loanId, "Loan officer reviewed the demo 1003.", now);
+          }
+          message = "Application marked reviewed.";
+          break;
+        }
+        case "sendApplication": {
+          const result = submitMockApplication(db, data.loanId, now);
+          if (result.error) throw new WorkspaceError(result.error);
+          message = `Mock UWM import confirmed · ${result.reference}`;
+          break;
+        }
         case "contact": {
           if (data.id) {
             const linkedAs = db.prepare("SELECT contactId, partnerId FROM loans WHERE contactId = ? OR partnerId = ?").all(data.id, data.id);
@@ -116,7 +145,7 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
           db.prepare("DELETE FROM submissions WHERE id = ? AND syncedAt IS NULL").run(data.id);
           break;
       }
-      return { state: workspace(db), message: data.type.startsWith("delete") ? "Removed successfully." : "Saved successfully." };
+      return { state: workspace(db), message };
     });
   } catch (error) {
     if (error instanceof WorkspaceError) return { error: error.message };

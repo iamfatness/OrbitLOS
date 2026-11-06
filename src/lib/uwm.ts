@@ -1,5 +1,6 @@
 import { insertContact, insertLoan, insertSubmission, type Store } from "./store";
 import type { Condition, Stage } from "./model";
+import { addApplicationActivity, getApplication } from "./applications";
 
 // The shapes used by the Insights Loans query and the single-loan conditions endpoint.
 interface InsightsLoan {
@@ -88,6 +89,44 @@ function normalizeConditions({ conditionGroups, clearedConditions }: UwmConditio
   ];
 }
 
+const approvedWithConditions = "Wholesale - Approved With Conditions";
+
+function mockApplicationConditions(reference: string, receivedAt: string) {
+  return normalizeConditions({
+    conditionGroups: [{
+      key: "Underwriting", countItems: 2, uploadedConditionsCount: 0,
+      conditions: [
+        sampleCondition(reference, 1, "Income", "Provide the most recent 30 days of pay statements."),
+        sampleCondition(reference, 2, "Assets", "Provide the most recent bank statement for funds to close."),
+      ],
+    }],
+    clearedConditions: [{
+      ...sampleCondition(reference, 3, "Application", "Confirm the application and property details.", true),
+      conditionSatisfactionDate: receivedAt,
+    }],
+  });
+}
+
+// Called inside the workspace transaction after LO review. The mock import
+// acknowledgment and its condition snapshot are recorded together.
+export function submitMockApplication(db: Store, loanId: string, now: string) {
+  const application = getApplication(db, loanId);
+  if (!application?.reviewedAt || !application.submittedAt) return { error: "Review the submitted application before sending it to UWM." };
+  if (application.uwmReference) return { reference: application.uwmReference };
+  if (db.prepare("SELECT 1 FROM submissions WHERE loanId = ? AND lender = 'UWM'").get(loanId)) {
+    return { error: "This loan already has a UWM submission. Start with a loan that has no UWM reference for this demo." };
+  }
+
+  const reference = `DEMO-${crypto.randomUUID().toUpperCase()}`;
+  insertSubmission(db, {
+    id: crypto.randomUUID(), loanId, lender: "UWM", externalId: reference,
+    status: approvedWithConditions, conditions: mockApplicationConditions(reference, application.submittedAt), syncedAt: now,
+  });
+  db.prepare("UPDATE applications SET uwmReference = ? WHERE loanId = ?").run(reference, loanId);
+  addApplicationActivity(db, loanId, `Mock UWM import confirmed. Reference ${reference}.`, now);
+  return { reference };
+}
+
 export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
   const { data: { Loans } } = await connector.listLoans();
   const files = await Promise.all(Loans.map(async (loan) => ({
@@ -97,11 +136,13 @@ export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
     const now = new Date().toISOString();
     let imported = 0;
     let updated = 0;
+    let conditionCount = 0;
+    const update = db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?");
     for (const { loan, conditions } of files) {
+      conditionCount += conditions.length;
       const existing = db.prepare("SELECT id FROM submissions WHERE lender = 'UWM' AND externalId = ?").get(loan.LoanId);
       if (existing) {
-        db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?")
-          .run(loan.LoanStatusDescription, JSON.stringify(conditions), now, existing.id);
+        update.run(loan.LoanStatusDescription, JSON.stringify(conditions), now, existing.id);
         updated++;
         continue;
       }
@@ -121,7 +162,19 @@ export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
       });
       imported++;
     }
+    const applicationFiles = db.prepare(`
+      SELECT submissions.id, submissions.externalId, applications.submittedAt
+      FROM applications JOIN submissions
+      ON submissions.loanId = applications.loanId AND submissions.externalId = applications.uwmReference
+      WHERE submissions.lender = 'UWM' AND applications.submittedAt IS NOT NULL
+    `).all();
+    for (const file of applicationFiles) {
+      const conditions = mockApplicationConditions(String(file.externalId), String(file.submittedAt));
+      update.run(approvedWithConditions, JSON.stringify(conditions), now, file.id);
+      updated++;
+      conditionCount += conditions.length;
+    }
     db.prepare("INSERT INTO settings VALUES ('uwmSyncedAt', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(now);
-    return { imported, updated, conditions: files.reduce((total, file) => total + file.conditions.length, 0) };
+    return { imported, updated, conditions: conditionCount };
   });
 }
