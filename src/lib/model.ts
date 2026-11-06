@@ -54,11 +54,20 @@ export interface Activity {
   createdAt: string;
 }
 
+export interface LoanTask {
+  id: string;
+  loanId: string;
+  title: string;
+  dueAt: string;
+  completedAt: string | null;
+}
+
 export interface Workspace {
   contacts: Contact[];
   loans: Loan[];
   submissions: Submission[];
   activity: Activity[];
+  tasks: LoanTask[];
   applications: StaffApplication[];
   uwmSyncedAt: string | null;
 }

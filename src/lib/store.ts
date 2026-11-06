@@ -1,6 +1,7 @@
-import type { Activity, Contact, Loan, Submission, Workspace } from "./model";
+import type { Activity, Contact, Loan, LoanTask, Submission, Workspace } from "./model";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
+import { createApplicationFollowUps } from "./tasks";
 
 export type SqlValue = string | number | null;
 
@@ -42,8 +43,13 @@ export function initializeStore(db: Store) {
       step INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0,
       updatedAt TEXT NOT NULL, submittedAt TEXT, reviewedAt TEXT, uwmReference TEXT
     );
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
+    );
   `);
   db.transaction(() => {
+    createApplicationFollowUps(db);
     if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();
     for (const contact of demo.contacts) insertContact(db, contact);
@@ -80,6 +86,7 @@ export function workspace(db: Store): Workspace {
     submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, "SELECT * FROM submissions ORDER BY lender, id")
       .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) })),
     activity: rows<Activity>(db, "SELECT * FROM activity ORDER BY createdAt DESC, id"),
+    tasks: rows<LoanTask>(db, "SELECT * FROM tasks ORDER BY completedAt IS NOT NULL, dueAt, id"),
     applications: staffApplications(db),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };

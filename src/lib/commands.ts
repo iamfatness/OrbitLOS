@@ -30,6 +30,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sync") }),
   z.object({ type: z.literal("startApplication"), loanId: id }),
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
+  z.object({ type: z.literal("refreshWorkspace") }),
+  z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
   z.object({ type: z.literal("reviewApplication"), loanId: id }),
   z.object({ type: z.literal("sendApplication"), loanId: id }),
 ]);
@@ -56,6 +58,19 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
         case "refreshApplication":
           message = "Application status refreshed.";
           break;
+        case "refreshWorkspace":
+          message = "Workspace refreshed.";
+          break;
+        case "completeTask": {
+          const task = db.prepare("SELECT loanId, completedAt FROM tasks WHERE id = ?").get(data.id);
+          if (!task) throw new WorkspaceError("This task no longer exists.");
+          message = data.completed ? "Task completed." : "Task reopened.";
+          if (data.completed !== Boolean(task.completedAt)) {
+            db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ?").run(data.completed ? now : null, data.id);
+            addApplicationActivity(db, String(task.loanId), data.completed ? "1003 follow-up task completed." : "1003 follow-up task reopened.", now);
+          }
+          break;
+        }
         case "reviewApplication": {
           const application = getApplication(db, data.loanId);
           if (!application?.submittedAt) throw new WorkspaceError("The borrower must submit the application before review.");

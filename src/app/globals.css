@@ -33,6 +33,7 @@ button:disabled { cursor: default; }
 .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; border-radius: 9px; padding: 11px 12px; color: #595267; text-align: left; font-weight: 600; }
 .nav-item:hover { background: #f6f3fc; }
 .nav-item.selected { color: #5537ba; background: #eee8fe; font-weight: 700; }
+.nav-count { margin-left: auto; padding: 1px 7px; border-radius: 20px; background: #eee8fe; color: #5537ba; font-size: 11px; }
 .sidebar-bottom { margin-top: auto; }
 .demo-label { color: #645978; font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 12px 10px; }
 .demo-label > span, .connection-chip > span { width: 7px; height: 7px; background: #8060dc; border-radius: 50%; }
@@ -158,6 +159,18 @@ button:disabled { cursor: default; }
 .note-form textarea { min-height: 59px; resize: vertical; }
 .note { margin-top: 6px; border: 1px solid var(--line); padding: 7px; border-radius: 7px; overflow-wrap: anywhere; }
 .note p { white-space: pre-wrap; }
+.task-queue { padding: 0 17px 16px; }
+.loan-task-list, .task-queue { display: grid; gap: 7px; }
+.loan-task { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: #faf8fd; }
+.loan-task > svg { flex-shrink: 0; margin-top: 2px; }
+.loan-task-copy { display: grid; gap: 2px; flex: 1; min-width: 0; justify-items: start; overflow-wrap: anywhere; }
+.loan-task-copy span { font-size: 11px; }
+.realtor-preview { border: 1px solid var(--line); border-radius: 11px; padding: 13px; }
+.realtor-preview dl { border-block: 1px solid var(--line); padding: 8px 0; }
+.realtor-preview dl > div { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 5px; padding: 3px 0; }
+.realtor-preview dt { color: var(--muted); font-weight: 700; }
+.realtor-preview dd { overflow-wrap: anywhere; }
+.realtor-message { display: grid; gap: 9px; padding-top: 12px; }
 
 .application-shell { width: min(100% - 32px, 780px); margin: 0 auto; padding: 22px 0 42px; }
 .application-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -209,6 +222,7 @@ button:disabled { cursor: default; }
   .sidebar nav { margin-left: auto; display: flex; gap: 3px; }
   .nav-item { padding: 6px; font-size: 11px; gap: 3px; }
   .nav-item svg { width: 13px; }
+  .nav-count { display: none; }
   .topbar { height: 42px; padding-inline: 12px; }
   .content { padding: 17px 10px; }
   .page-heading { align-items: flex-start; flex-direction: column; gap: 10px; margin-bottom: 12px; }

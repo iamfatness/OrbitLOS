@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { applicationDraft, applicationIssues, applicationSteps, blankApplication, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
 import type { Store } from "./store";
+import { createApplicationFollowUps } from "./tasks";
 
 type ApplicationRow = Omit<StaffApplication, "draft"> & { draft: string; step: number; revision: number };
 
@@ -95,7 +96,8 @@ export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult
     if (submitted) {
       db.prepare("UPDATE loans SET stage = 'Application', stageSince = ? WHERE id = ? AND stage IN ('Lead', 'Pre-qual')")
         .run(now, row.loanId);
-      addApplicationActivity(db, row.loanId, "Demo 1003 received. Loan officer review is due.", now);
+      createApplicationFollowUps(db, row.loanId);
+      addApplicationActivity(db, row.loanId, "Demo 1003 received. Follow-up task created for the loan officer.", now);
     }
     return borrowerResult(next);
   });

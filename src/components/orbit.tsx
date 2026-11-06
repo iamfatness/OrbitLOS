@@ -2,7 +2,7 @@
 
 import { useRef, useState, type DragEvent } from "react";
 import {
-  ArrowDownUp, ArrowRight, CircleCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
+  ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
   List, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, Wallet, X, Zap,
 } from "lucide-react";
 import { mutate } from "@/app/actions";
@@ -10,11 +10,13 @@ import { stages, type Loan, type Stage, type Workspace } from "@/lib/model";
 import { compactMoney, dateTime, initials, money, stageDays } from "@/lib/utils";
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
+import { LoanTaskRow } from "./loan-task";
 
-type Section = "Pipeline" | "Contacts" | "Integrations";
+type Section = "Pipeline" | "Contacts" | "Tasks" | "Integrations";
 const navigation = [
   { label: "Pipeline", icon: LayoutDashboard },
   { label: "Contacts", icon: ContactRound },
+  { label: "Tasks", icon: ClipboardCheck },
   { label: "Integrations", icon: Zap },
 ] as const;
 
@@ -75,8 +77,9 @@ export function Orbit({ initial }: { initial: Workspace }) {
   const visibleContacts = state.contacts.filter((contact) => [contact.name, contact.email, contact.role, contact.phone].some((field) => field.toLowerCase().includes(search)));
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
+  const openTasks = state.tasks.filter((task) => !task.completedAt).length;
 
-  async function save(input: unknown, after?: () => void) {
+  async function save(input: unknown, after?: () => void, announce = true) {
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
@@ -89,7 +92,7 @@ export function Orbit({ initial }: { initial: Workspace }) {
         return;
       }
       setState(result.state);
-      setNotice(result.message);
+      if (announce) setNotice(result.message);
       after?.();
     } catch {
       setError("Could not reach Orbit. Please try again.");
@@ -113,6 +116,7 @@ export function Orbit({ initial }: { initial: Workspace }) {
     setSection(next);
     setQuery("");
     setError("");
+    if (next === "Tasks") void save({ type: "refreshWorkspace" }, undefined, false);
   }
 
   function show(next: Modal) {
@@ -145,7 +149,9 @@ export function Orbit({ initial }: { initial: Workspace }) {
         <div className="workspace-label">WORKSPACE</div>
         <nav aria-label="Workspace navigation">
           {navigation.map(({ label, icon: Icon }) => (
-            <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}><Icon size={18} /><span>{label}</span></button>
+            <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
+              <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
+            </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -162,11 +168,12 @@ export function Orbit({ initial }: { initial: Workspace }) {
           <div className="page-heading">
             <div><p className="eyebrow">ORBIT WORKSPACE</p>
               <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
-              <p>{section === "Pipeline" ? "Manage your loans and keep up with lender updates." : section === "Contacts" ? "Manage borrowers, co-borrowers, and realtor partners." : "Manage your lender connections and refresh loan data."}</p>
+              <p>{section === "Pipeline" ? "Manage your loans and keep up with lender updates." : section === "Contacts" ? "Manage borrowers, co-borrowers, and realtor partners." : section === "Tasks" ? "See which loans need a follow-up and who owns it." : "Manage your lender connections and refresh loan data."}</p>
             </div>
             <div className="heading-actions">
               {section === "Pipeline" && <>{syncButton()}<Button onClick={() => show({ kind: "loan" })}><Plus /> New loan</Button></>}
               {section === "Contacts" && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
+              {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
             </div>
           </div>
 
@@ -236,6 +243,19 @@ export function Orbit({ initial }: { initial: Workspace }) {
             {visibleContacts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Contact type</th><th>Email</th><th>Phone</th></tr></thead><tbody>
               {visibleContacts.map((contact) => <tr key={contact.id}><td><button className="name-link" onClick={() => show({ kind: "contact", contactId: contact.id })}>{contact.name}</button></td><td>{contact.role}</td><td>{contact.email || "—"}</td><td>{contact.phone || "—"}</td></tr>)}
             </tbody></table></div> : <p className="empty-inline no-matches">No contacts match your search.</p>}
+          </section>}
+
+          {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{openTasks} open</span></h2><p>Application follow-ups are due 24 hours after submission.</p></div></div>
+            {state.tasks.length ? <ul className="task-queue">
+              {state.tasks.map((task) => {
+                const loan = state.loans.find((item) => item.id === task.loanId);
+                if (!loan) return null;
+                return <LoanTaskRow key={task.id} task={task} officer={loan.officer} borrower={borrowers(loan)} busy={busy}
+                  openLoan={() => show({ kind: "details", loanId: loan.id })}
+                  onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
+              })}
+            </ul> : <p className="empty-inline no-matches">Borrower 1003 submissions create follow-up tasks here.</p>}
           </section>}
 
           {section === "Integrations" && <section className="integration">

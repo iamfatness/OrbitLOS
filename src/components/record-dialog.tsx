@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Mail, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { stages, type Contact, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { dateTime, initials, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
+import { LoanTaskRow } from "./loan-task";
 
 export type Modal =
   | { kind: "details"; loanId: string }
   | { kind: "loan"; loanId?: string; stage?: Stage }
   | { kind: "contact"; contactId?: string }
+  | { kind: "realtor-preview"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
@@ -168,6 +170,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
   const notes = state.activity.filter((item) => item.loanId === loan.id);
+  const tasks = state.tasks.filter((item) => item.loanId === loan.id);
   return (
     <div className="details-body">
       <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
@@ -182,6 +185,19 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
       </div>
       <Field label="CRM stage"><select value={loan.stage} disabled={busy} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
+      <section className="details-section" aria-label="Loan follow-up tasks">
+        <div className="section-heading"><h3><CheckCircle2 size={17} /> Follow-up tasks</h3></div>
+        {tasks.length ? <ul className="loan-task-list">{tasks.map((task) =>
+          <LoanTaskRow key={task.id} task={task} officer={loan.officer} busy={busy}
+            onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />
+        )}</ul> : <p className="empty-inline">A follow-up task appears when the borrower submits a 1003.</p>}
+      </section>
+      <section className="details-section">
+        <div className="section-heading"><h3><Mail size={17} /> Realtor update</h3>
+          {partner && <Button variant="outline" size="sm" onClick={() => show({ kind: "realtor-preview", loanId: loan.id })}>Preview realtor update</Button>}
+        </div>
+        {!partner && <p className="empty-inline">Link a realtor in Edit loan to preview their update.</p>}
+      </section>
       <section className="details-section">
         <div className="section-heading"><h3>Lender submissions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         {submissions.length === 0 && <p className="empty-inline">No lender submissions yet.</p>}
@@ -203,6 +219,23 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
   );
 }
 
+function RealtorPreview({ loan, partner }: { loan: Loan; partner?: Contact }) {
+  if (!partner) return <p className="empty-inline">Link a realtor in Edit loan to preview their update.</p>;
+  return <div className="realtor-preview">
+    <div className="section-heading"><h3>Loan milestone email</h3><span className="pill">Preview only</span></div>
+    <dl>
+      <div><dt>To</dt><dd>{partner.name} <span className="muted">{partner.email || "· No email on file"}</span></dd></div>
+      <div><dt>Subject</dt><dd>Loan milestone update</dd></div>
+    </dl>
+    <div className="realtor-message">
+      <p>Hi {partner.name},</p>
+      <p>A quick update on your referral. The loan is now at <strong>{loan.stage}</strong>.</p>
+      <p>Please reach out if you have any questions.</p>
+      <p>Thanks,<br />{loan.officer || "Your loan team"}</p>
+    </div>
+  </div>;
+}
+
 export function RecordDialog({ modal, state, busy, error, save, show, close }: {
   modal: Modal; state: Workspace; busy: boolean; error: string; save: Save; show: (modal: Modal) => void; close: () => void;
 }) {
@@ -216,6 +249,7 @@ export function RecordDialog({ modal, state, busy, error, save, show, close }: {
   const title = {
     details: "Loan details", loan: loan ? "Edit loan" : "New loan",
     contact: contact ? "Edit contact" : "New contact", submission: submission ? "Edit lender submission" : "Add lender submission",
+    "realtor-preview": "Realtor update preview",
   }[modal.kind];
   const back = () => loan ? show({ kind: "details", loanId: loan.id }) : close();
   const key = `${modal.kind}-${loan?.id ?? contact?.id ?? "new"}-${submission?.id ?? ""}`;
@@ -232,8 +266,9 @@ export function RecordDialog({ modal, state, busy, error, save, show, close }: {
       {error && <p className="dialog-error" role="alert">{error}</p>}
       <div className="dialog-content" key={key}>
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} busy={busy} save={save} show={show} />}
+        {modal.kind === "realtor-preview" && loan && <RealtorPreview loan={loan} partner={state.contacts.find((item) => item.id === loan.partnerId)} />}
         {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
-          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, submissions and activity?", close) : undefined}
+          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, tasks, submissions and activity?", close) : undefined}
           save={(data) => ({
             type: "loan", id: loan?.id, contactId: text(data, "contactId"), borrower: text(data, "borrower"),
             address: text(data, "address"), amount: Number(text(data, "amount")), purpose: text(data, "purpose"),

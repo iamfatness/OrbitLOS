@@ -27,6 +27,8 @@ Open [Orbit on localhost](http://127.0.0.1:3000). The app binds to localhost and
 3. On the original loan, choose **Refresh application**, review the submitted answers, and select **Mark reviewed**.
 4. Choose **Send to UWM (mock)**. The lender card shows a demo reference, an approved-with-conditions status, two outstanding conditions, and one cleared condition. **Sync UWM** refreshes the same lender record.
 
+Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. For a loan with a linked realtor, **Preview realtor update** shows the current CRM stage in a draft email. The preview is display-only and contains no application or underwriting details.
+
 The 1003 screen covers a representative subset of fields for this demo. The borrower link does not require the staff password and grants access only to its assigned application. Use fictional data. The demo collects no SSNs or document uploads, and the UWM handoff uses fixtures.
 
 ## How it fits together
