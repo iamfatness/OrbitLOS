@@ -1,0 +1,61 @@
+{
+  "name": "orbit",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1",
+    "lint": "eslint .",
+    "typecheck": "next typegen && tsc --noEmit",
+    "build:cloudflare": "vite build",
+    "preview:cloudflare": "wrangler dev --config dist/server/wrangler.json --local --infer-origin-from-routes=false",
+    "deploy:cloudflare": "wrangler deploy --config dist/server/wrangler.json",
+    "types:cloudflare": "wrangler types --include-runtime=false"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "private": true,
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.5.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.70.0",
+    "next": "^16.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.67.0",
+    "@cloudflare/workers-types": "^5.20261106.1",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-rsc": "^0.5.39",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.5",
+    "react-server-dom-webpack": "^19.3.1",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^6.0.3",
+    "vinext": "^1.4.4",
+    "vite": "^8.3.6",
+    "wrangler": "^4.158.0"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    },
+    "satori": {
+      "fflate": "0.8.3"
+    },
+    "@shuding/opentype": {
+      "js": {
+        "fflate": "0.8.3"
+      }
+    }
+  }
+}

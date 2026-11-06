@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+.next-*/
+.orbit/
+.wrangler/
+.vinext/
+.playwright-cli/
+.dev.vars*
+dist/
+.env*
+*.tsbuildinfo
+next-env.d.ts
+UWM-API-Reference.md

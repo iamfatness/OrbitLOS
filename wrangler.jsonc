@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "orbit-crm-demo",
+  "main": "./src/worker.ts",
+  "compatibility_date": "2026-11-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "orbitlos.com", "custom_domain": true }],
+  "assets": { "not_found_handling": "none", "run_worker_first": true, "binding": "ASSETS" },
+  "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "OrbitWorkspace" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OrbitWorkspace"] }],
+  "secrets": { "required": ["DEMO_PASSWORD"] },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}
