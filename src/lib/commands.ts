@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, workspace, type Store } from "./store";
-import { stages, type Workspace } from "./model";
+import { activityKinds, stages, type Workspace } from "./model";
 import { submitMockApplication, syncUwm } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
+import { pricingScenario, type PricingOffer } from "./pricing-model";
+import { PricingError, pricingProvider } from "./pricing-provider";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -24,7 +26,7 @@ const command = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("deleteLoan"), id }),
   z.object({ type: z.literal("move"), id, stage: z.enum(stages) }),
-  z.object({ type: z.literal("note"), loanId: id, text: z.string().trim().min(1, "Write a note first.").max(2000) }),
+  z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000) }),
   z.object({ type: z.literal("submission"), id: id.optional(), loanId: id, lender: label, externalId: label, status: label }),
   z.object({ type: z.literal("deleteSubmission"), id }),
   z.object({ type: z.literal("sync") }),
@@ -32,6 +34,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
   z.object({ type: z.literal("refreshWorkspace") }),
   z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
+  z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120), days: z.union([z.literal(1), z.literal(3), z.literal(7)]) }),
+  z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario }),
+  z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("reviewApplication"), loanId: id }),
   z.object({ type: z.literal("sendApplication"), loanId: id }),
 ]);
@@ -46,6 +51,16 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
     if (data.type === "sync") {
       const result = await syncUwm(db);
       return { state: workspace(db), message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions` };
+    }
+    if (data.type === "runPricing") {
+      if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+      const result = await pricingProvider().quote(data.scenario);
+      return db.transaction(() => {
+        db.prepare("INSERT INTO pricing_runs (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .run(crypto.randomUUID(), data.loanId, result.provider, result.mode, result.reference,
+            JSON.stringify(data.scenario), JSON.stringify(result.offers), JSON.stringify(result.notices), new Date().toISOString());
+        return { state: workspace(db), message: `${result.offers.length} pricing options returned.` };
+      });
     }
     const now = new Date().toISOString();
     return db.transaction(() => {
@@ -62,13 +77,30 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
           message = "Workspace refreshed.";
           break;
         case "completeTask": {
-          const task = db.prepare("SELECT loanId, completedAt FROM tasks WHERE id = ?").get(data.id);
+          const task = db.prepare("SELECT loanId, title, completedAt FROM tasks WHERE id = ?").get(data.id);
           if (!task) throw new WorkspaceError("This task no longer exists.");
           message = data.completed ? "Task completed." : "Task reopened.";
           if (data.completed !== Boolean(task.completedAt)) {
             db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ?").run(data.completed ? now : null, data.id);
-            addApplicationActivity(db, String(task.loanId), data.completed ? "1003 follow-up task completed." : "1003 follow-up task reopened.", now);
+            addApplicationActivity(db, String(task.loanId), `${data.completed ? "Completed task" : "Reopened task"} · ${task.title}`, now);
           }
+          break;
+        }
+        case "createTask":
+          db.prepare("INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, ?, ?)")
+            .run(crypto.randomUUID(), data.loanId, data.title, new Date(Date.parse(now) + data.days * 86_400_000).toISOString());
+          message = "Follow-up task added.";
+          break;
+        case "selectOffer": {
+          const run = db.prepare("SELECT offers, selectedId, mode FROM pricing_runs WHERE id = ? AND loanId = ?").get(data.runId, data.loanId);
+          const offer = run && (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === data.offerId);
+          if (!run || !offer) throw new WorkspaceError("That pricing option is unavailable. Refresh the loan and try again.");
+          const lastSaved = db.prepare("SELECT id, selectedId FROM pricing_runs WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1").get(data.loanId);
+          if (lastSaved?.id !== data.runId || lastSaved.selectedId !== offer.id) {
+            db.prepare("UPDATE pricing_runs SET selectedId = ?, selectedAt = ? WHERE id = ?").run(offer.id, now, data.runId);
+            addApplicationActivity(db, data.loanId, `Saved ${run.mode === "mock" ? "sample" : "stage"} quote · ${offer.product} at ${offer.rate.toFixed(3)}%`, now);
+          }
+          message = "Quote saved on the loan.";
           break;
         }
         case "reviewApplication": {
@@ -138,7 +170,9 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
           db.prepare("UPDATE loans SET stage = ?, stageSince = ? WHERE id = ? AND stage <> ?").run(data.stage, now, data.id, data.stage);
           break;
         case "note":
-          db.prepare("INSERT INTO activity VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), data.loanId, data.text, now);
+          db.prepare("INSERT INTO activity (id, loanId, text, createdAt, kind) VALUES (?, ?, ?, ?, ?)")
+            .run(crypto.randomUUID(), data.loanId, data.text, now, data.kind);
+          message = `${data.kind} logged.`;
           break;
         case "submission": {
           const lender = data.lender.toUpperCase() === "UWM" ? "UWM" : data.lender;
@@ -163,7 +197,8 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
       return { state: workspace(db), message };
     });
   } catch (error) {
-    if (error instanceof WorkspaceError) return { error: error.message };
+    if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };
+    if (data.type === "runPricing") return { error: "Pricing could not be completed. Try again." };
     console.error("Orbit mutation failed", error);
     return { error: "Orbit could not save the change. Please try again." };
   }

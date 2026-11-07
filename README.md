@@ -29,6 +29,14 @@ Open [Orbit on localhost](http://127.0.0.1:3000). The app binds to localhost and
 
 Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. For a loan with a linked realtor, **Preview realtor update** shows the current CRM stage in a draft email. The preview is display-only and contains no application or underwriting details.
 
+## Work a loan and price a scenario
+
+Open **Tasks** to filter by loan officer, due time, or completion. Use **My tasks** for the demo officer Alex Morgan. From a loan, add a follow-up and log notes, calls, email, or texts on its activity timeline.
+
+Open a loan and select **Price loan**, then **Load sample scenario** and **Run pricing**. Compare conventional fixed-rate examples, save an option, and use **Preview borrower quote**. The preview identifies sample pricing and explains what the principal-and-interest payment covers. A new pricing run preserves the last saved quote until the LO selects another.
+
+The server-side pricing provider defaults to sample pricing. The initial UWM Easy Qualifier adapter supports conventional purchase and rate-and-term refinance in UWM stage. To test locally with UWM-issued EQ credentials, set `ORBIT_PRICING_MODE=uwm-stage`, `UWM_EQ_CLIENT_ID`, and `UWM_EQ_CLIENT_SECRET` in the server environment. Optionally set `UWM_EQ_BROKER_ALIAS` and `UWM_EQ_LO_EMAIL` for the broker shop. Use synthetic scenarios and confirm access with UWM. The adapter uses the EQ quote and disclosure endpoints and keeps credentials server-side. Future providers implement the same pricing interface. [UWM pricing documentation](https://developers.uwm.com/portal/instant-price-quote/docs/151)
+
 The 1003 screen covers a representative subset of fields for this demo. The borrower link does not require the staff password and grants access only to its assigned application. Use fictional data. The demo collects no SSNs or document uploads, and the UWM handoff uses fixtures.
 
 ## How it fits together

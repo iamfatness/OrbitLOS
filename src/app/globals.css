@@ -165,12 +165,36 @@ button:disabled { cursor: default; }
 .loan-task > svg { flex-shrink: 0; margin-top: 2px; }
 .loan-task-copy { display: grid; gap: 2px; flex: 1; min-width: 0; justify-items: start; overflow-wrap: anywhere; }
 .loan-task-copy span { font-size: 11px; }
+.loan-task-create { margin-top: 8px; }
+.loan-task-create > summary, .pricing-disclosures > summary { cursor: pointer; color: #503b91; font-size: 12px; font-weight: 700; }
+.task-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; align-items: end; margin-top: 7px; }
+.activity-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+.activity-meta .pill { padding: 2px 6px; }
+.note-form .field { width: min(145px, 100%); justify-self: start; }
 .realtor-preview { border: 1px solid var(--line); border-radius: 11px; padding: 13px; }
 .realtor-preview dl { border-block: 1px solid var(--line); padding: 8px 0; }
 .realtor-preview dl > div { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 5px; padding: 3px 0; }
 .realtor-preview dt { color: var(--muted); font-weight: 700; }
 .realtor-preview dd { overflow-wrap: anywhere; }
 .realtor-message { display: grid; gap: 9px; padding-top: 12px; }
+.record-dialog-wide { max-width: min(660px, 100vw); }
+.pricing-panel { display: grid; gap: 14px; }
+.pricing-heading { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+.pricing-heading h3, .pricing-heading .pill, .quote-saved h3 { display: flex; align-items: center; gap: 6px; }
+.pricing-heading h3 { font-size: 17px; font-weight: 750; }
+.pricing-heading p { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.pricing-form, .quote-saved, .pricing-option { display: grid; gap: 9px; border: 1px solid var(--line); border-radius: 11px; padding: 11px; }
+.pricing-form, .quote-saved { background: #faf8fd; }
+.pricing-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; }
+.pricing-results { display: grid; gap: 7px; }
+.pricing-option .section-heading, .pricing-results > .section-heading, .quote-saved > .section-heading { margin-bottom: 0; }
+.quote-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(113px, 1fr)); gap: 6px; }
+.quote-terms > div { background: #f6f3fc; border-radius: 7px; padding: 6px; }
+.quote-terms dt { font-size: 11px; color: var(--muted); }
+.quote-terms dd { font-weight: 750; }
+.quote-terms small { font-size: 10px; color: var(--muted); margin-left: 3px; }
+.quote-preview { display: grid; gap: 6px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.quote-disclaimer { font-size: 11px; color: var(--muted); margin-top: 5px; }
 
 .application-shell { width: min(100% - 32px, 780px); margin: 0 auto; padding: 22px 0 42px; }
 .application-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -243,4 +267,6 @@ button:disabled { cursor: default; }
   .application-form { padding: 12px; }
   .application-step > .form-grid { grid-template-columns: minmax(0, 1fr); }
   .application-actions > .spacer { display: none; }
+  .task-form { grid-template-columns: minmax(0, 1fr) auto; }
+  .task-form > .field:first-child { grid-column: 1 / -1; }
 }

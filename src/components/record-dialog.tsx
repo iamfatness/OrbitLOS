@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowLeft, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Mail, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
-import { stages, type Contact, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
+import { ArrowLeft, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Mail, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { activityKinds, stages, type ActivityKind, type Contact, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { dateTime, initials, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
 import { LoanTaskRow } from "./loan-task";
+import { LoanPricing } from "./loan-pricing";
 
 export type Modal =
   | { kind: "details"; loanId: string }
   | { kind: "loan"; loanId?: string; stage?: Stage }
   | { kind: "contact"; contactId?: string }
   | { kind: "realtor-preview"; loanId: string }
+  | { kind: "pricing"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
@@ -166,11 +168,15 @@ function LoanApplication({ loanId, state, busy, save }: { loanId: string; state:
 }
 
 function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Workspace; busy: boolean; save: Save; show: (modal: Modal) => void }) {
+  const [activityKind, setActivityKind] = useState<ActivityKind>("Note");
   const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
   const notes = state.activity.filter((item) => item.loanId === loan.id);
   const tasks = state.tasks.filter((item) => item.loanId === loan.id);
+  const savedPricing = state.pricingRuns.filter((item) => item.loanId === loan.id && item.selectedAt)
+    .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
+  const savedOffer = savedPricing?.offers.find((item) => item.id === savedPricing.selectedId);
   return (
     <div className="details-body">
       <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
@@ -184,6 +190,12 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         <div><span>Realtor</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
       </div>
       <Field label="CRM stage"><select value={loan.stage} disabled={busy} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
+      <section className="details-section" aria-label="Loan pricing">
+        <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
+          <Button size="sm" variant="outline" onClick={() => show({ kind: "pricing", loanId: loan.id })}>Price loan</Button>
+        </div>
+        <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
+      </section>
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
       <section className="details-section" aria-label="Loan follow-up tasks">
         <div className="section-heading"><h3><CheckCircle2 size={17} /> Follow-up tasks</h3></div>
@@ -191,6 +203,21 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
           <LoanTaskRow key={task.id} task={task} officer={loan.officer} busy={busy}
             onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />
         )}</ul> : <p className="empty-inline">A follow-up task appears when the borrower submits a 1003.</p>}
+        <details className="loan-task-create"><summary>Add follow-up task</summary>
+          <form className="task-form" onSubmit={(event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const data = new FormData(form);
+            void save({ type: "createTask", loanId: loan.id, title: text(data, "title"), days: Number(text(data, "days")) }, () => {
+              form.reset();
+              form.closest("details")?.removeAttribute("open");
+            });
+          }}>
+            <Field label="Task title"><input name="title" required maxLength={120} placeholder="e.g. Call about the quote" /></Field>
+            <Field label="Due in"><select name="days"><option value="1">1 day</option><option value="3">3 days</option><option value="7">7 days</option></select></Field>
+            <Button size="sm" type="submit" disabled={busy}><Plus /> Add task</Button>
+          </form>
+        </details>
       </section>
       <section className="details-section">
         <div className="section-heading"><h3><Mail size={17} /> Realtor update</h3>
@@ -208,12 +235,13 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         <form className="note-form" onSubmit={(event) => {
           event.preventDefault();
           const form = event.currentTarget;
-          void save({ type: "note", loanId: loan.id, text: text(new FormData(form), "note") }, () => form.reset());
+          void save({ type: "note", loanId: loan.id, kind: activityKind, text: text(new FormData(form), "note") }, () => form.reset());
         }}>
-          <textarea name="note" aria-label="Activity note" placeholder="Write a note about this loan…" maxLength={2000} required />
-          <Button type="submit" variant="outline" size="sm" disabled={busy}>Add note</Button>
+          <Field label="Activity type"><select value={activityKind} onChange={(event) => setActivityKind(event.target.value as ActivityKind)}>{activityKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></Field>
+          <textarea name="note" aria-label="Activity note" placeholder={activityKind === "Note" ? "Write a note about this loan…" : `Summarize the ${activityKind.toLowerCase()}…`} maxLength={2000} required />
+          <Button type="submit" variant="outline" size="sm" disabled={busy}>{activityKind === "Note" ? "Add note" : `Log ${activityKind.toLowerCase()}`}</Button>
         </form>
-        {notes.map((note) => <div className="note" key={note.id}><small>{dateTime(note.createdAt)} ET</small><p>{note.text}</p></div>)}
+        {notes.map((note) => <div className="note" key={note.id}><div className="activity-meta"><span className="pill">{note.kind}</span><small>{dateTime(note.createdAt)} ET</small></div><p>{note.text}</p></div>)}
       </section>
     </div>
   );
@@ -250,6 +278,7 @@ export function RecordDialog({ modal, state, busy, error, save, show, close }: {
     details: "Loan details", loan: loan ? "Edit loan" : "New loan",
     contact: contact ? "Edit contact" : "New contact", submission: submission ? "Edit lender submission" : "Add lender submission",
     "realtor-preview": "Realtor update preview",
+    pricing: "Loan pricing",
   }[modal.kind];
   const back = () => loan ? show({ kind: "details", loanId: loan.id }) : close();
   const key = `${modal.kind}-${loan?.id ?? contact?.id ?? "new"}-${submission?.id ?? ""}`;
@@ -257,7 +286,7 @@ export function RecordDialog({ modal, state, busy, error, save, show, close }: {
     if (window.confirm(question)) void save(input, after);
   };
   return (
-    <dialog ref={dialog} className="record-dialog" aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
+    <dialog ref={dialog} className={modal.kind === "pricing" ? "record-dialog record-dialog-wide" : "record-dialog"} aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
       <div className="dialog-head">
         {loan && modal.kind !== "details" && <Button variant="ghost" size="icon" aria-label="Back to loan details" onClick={back}><ArrowLeft /></Button>}
         <h2 id="record-title">{title}</h2>
@@ -267,6 +296,7 @@ export function RecordDialog({ modal, state, busy, error, save, show, close }: {
       <div className="dialog-content" key={key}>
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} busy={busy} save={save} show={show} />}
         {modal.kind === "realtor-preview" && loan && <RealtorPreview loan={loan} partner={state.contacts.find((item) => item.id === loan.partnerId)} />}
+        {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save} />}
         {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, tasks, submissions and activity?", close) : undefined}
           save={(data) => ({

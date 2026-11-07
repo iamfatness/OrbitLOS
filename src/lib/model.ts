@@ -1,4 +1,5 @@
 import type { StaffApplication } from "./application-model";
+import type { PricingRun } from "./pricing-model";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -52,7 +53,11 @@ export interface Activity {
   loanId: string;
   text: string;
   createdAt: string;
+  kind: ActivityKind;
 }
+
+export const activityKinds = ["Note", "Call", "Email", "Text"] as const;
+export type ActivityKind = (typeof activityKinds)[number];
 
 export interface LoanTask {
   id: string;
@@ -69,5 +74,6 @@ export interface Workspace {
   activity: Activity[];
   tasks: LoanTask[];
   applications: StaffApplication[];
+  pricingRuns: PricingRun[];
   uwmSyncedAt: string | null;
 }

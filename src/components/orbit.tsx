@@ -13,6 +13,9 @@ import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
 
 type Section = "Pipeline" | "Contacts" | "Tasks" | "Integrations";
+const demoOfficer = "Alex Morgan";
+const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
+type TaskView = (typeof taskViews)[number];
 const navigation = [
   { label: "Pipeline", icon: LayoutDashboard },
   { label: "Contacts", icon: ContactRound },
@@ -53,6 +56,8 @@ export function Orbit({ initial }: { initial: Workspace }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [dropStage, setDropStage] = useState<Stage | null>(null);
+  const [taskView, setTaskView] = useState<TaskView>("Open");
+  const [taskOfficer, setTaskOfficer] = useState("");
   const pending = useRef(false);
   const dragged = useRef<string | null>(null);
   const board = useRef<HTMLDivElement>(null);
@@ -78,6 +83,20 @@ export function Orbit({ initial }: { initial: Workspace }) {
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
   const openTasks = state.tasks.filter((task) => !task.completedAt).length;
+  const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
+  const officers = [...new Set(state.loans.map((loan) => loan.officer).filter(Boolean))].sort();
+  const taskNow = Date.parse(new Date().toISOString());
+  const visibleTasks = state.tasks.filter((task) => {
+    const loan = taskLoans.get(task.loanId);
+    if (!loan || (taskOfficer && loan.officer !== taskOfficer)) return false;
+    if (taskView === "All") return true;
+    if (taskView === "Completed") return !!task.completedAt;
+    if (task.completedAt) return false;
+    const due = Date.parse(task.dueAt);
+    if (taskView === "Overdue") return due < taskNow;
+    if (taskView === "Due in 24 hours") return due >= taskNow && due <= taskNow + 86_400_000;
+    return true;
+  });
 
   async function save(input: unknown, after?: () => void, announce = true) {
     if (pending.current) return;
@@ -156,7 +175,7 @@ export function Orbit({ initial }: { initial: Workspace }) {
         </nav>
         <div className="sidebar-bottom">
           <div className="demo-label"><span /> Demo workspace</div>
-          <div className="profile"><span className="avatar">AM</span><div><strong>Alex Morgan</strong><small>Loan officer</small></div></div>
+          <div className="profile"><span className="avatar">AM</span><div><strong>{demoOfficer}</strong><small>Loan officer</small></div></div>
         </div>
       </aside>
       <main className="main">
@@ -246,16 +265,24 @@ export function Orbit({ initial }: { initial: Workspace }) {
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{openTasks} open</span></h2><p>Application follow-ups are due 24 hours after submission.</p></div></div>
-            {state.tasks.length ? <ul className="task-queue">
-              {state.tasks.map((task) => {
-                const loan = state.loans.find((item) => item.id === task.loanId);
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length} shown</span></h2><p>Review upcoming work and follow up on open loans.</p></div></div>
+            <div className="filter-row">
+              <Button size="sm" variant={taskOfficer === demoOfficer ? "default" : "outline"} aria-pressed={taskOfficer === demoOfficer}
+                onClick={() => setTaskOfficer(taskOfficer === demoOfficer ? "" : demoOfficer)}>My tasks</Button>
+              <select aria-label="Task status" value={taskView} onChange={(event) => setTaskView(event.target.value as TaskView)}>{taskViews.map((item) => <option key={item}>{item}</option>)}</select>
+              <select aria-label="Task owner" value={taskOfficer} onChange={(event) => setTaskOfficer(event.target.value)}>
+                <option value="">All officers</option>{[...new Set([demoOfficer, ...officers])].map((officer) => <option key={officer}>{officer}</option>)}
+              </select>
+            </div>
+            {visibleTasks.length ? <ul className="task-queue">
+              {visibleTasks.map((task) => {
+                const loan = taskLoans.get(task.loanId);
                 if (!loan) return null;
                 return <LoanTaskRow key={task.id} task={task} officer={loan.officer} borrower={borrowers(loan)} busy={busy}
                   openLoan={() => show({ kind: "details", loanId: loan.id })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">Borrower 1003 submissions create follow-up tasks here.</p>}
+            </ul> : <p className="empty-inline no-matches">{state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
 
           {section === "Integrations" && <section className="integration">

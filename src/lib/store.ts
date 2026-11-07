@@ -2,6 +2,7 @@ import type { Activity, Contact, Loan, LoanTask, Submission, Workspace } from ".
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
+import type { PricingRun } from "./pricing-model";
 
 export type SqlValue = string | number | null;
 
@@ -34,7 +35,7 @@ export function initializeStore(db: Store) {
     );
     CREATE TABLE IF NOT EXISTS activity (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-      text TEXT NOT NULL, createdAt TEXT NOT NULL
+      text TEXT NOT NULL, createdAt TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'Note'
     );
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS applications (
@@ -47,8 +48,17 @@ export function initializeStore(db: Store) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
     );
+    CREATE TABLE IF NOT EXISTS pricing_runs (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL, mode TEXT NOT NULL, reference TEXT, scenario TEXT NOT NULL,
+      offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT
+    );
+    CREATE INDEX IF NOT EXISTS pricing_by_loan ON pricing_runs(loanId, quotedAt);
   `);
   db.transaction(() => {
+    if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "kind")) {
+      db.exec("ALTER TABLE activity ADD COLUMN kind TEXT NOT NULL DEFAULT 'Note'");
+    }
     createApplicationFollowUps(db);
     if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();
@@ -88,6 +98,12 @@ export function workspace(db: Store): Workspace {
     activity: rows<Activity>(db, "SELECT * FROM activity ORDER BY createdAt DESC, id"),
     tasks: rows<LoanTask>(db, "SELECT * FROM tasks ORDER BY completedAt IS NOT NULL, dueAt, id"),
     applications: staffApplications(db),
+    pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
+      SELECT run.* FROM pricing_runs run
+      WHERE run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
+         OR run.id = (SELECT chosen.id FROM pricing_runs chosen WHERE chosen.loanId = run.loanId AND chosen.selectedId IS NOT NULL ORDER BY chosen.selectedAt DESC, chosen.rowid DESC LIMIT 1)
+      ORDER BY run.quotedAt DESC, run.rowid DESC
+    `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
 }
