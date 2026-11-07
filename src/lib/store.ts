@@ -135,6 +135,12 @@ export function initializeStore(db: Store) {
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
       receipt TEXT NOT NULL UNIQUE, sentAt TEXT NOT NULL, mockClearedAt TEXT
     )`);
+    const rateColumns = new Set(db.prepare("PRAGMA table_info(mock_uwm_rates)").all().map((column) => column.name));
+    for (const [column, type] of Object.entries({
+      lockExtensionReference: "TEXT", lockExtensionDays: "INTEGER", lockCancellationReference: "TEXT", lockCancelledAt: "TEXT",
+    })) {
+      if (!rateColumns.has(column)) db.exec(`ALTER TABLE mock_uwm_rates ADD COLUMN ${column} ${type}`);
+    }
     createApplicationFollowUps(db);
     if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();

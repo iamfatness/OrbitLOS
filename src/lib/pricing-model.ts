@@ -67,6 +67,9 @@ export interface PublishedQuote extends BorrowerQuote {
 
 export const mockLockPeriods = [15, 30, 45] as const;
 export type MockLockPeriod = (typeof mockLockPeriods)[number];
+export const mockLockExtensionPeriods = [7, 15] as const;
+export type MockLockExtensionPeriod = (typeof mockLockExtensionPeriods)[number];
+export const mockLockNoticeDays = 7;
 
 export interface MockUwmRate {
   loanId: string;
@@ -83,9 +86,19 @@ export interface MockUwmRate {
   lockedAt: string | null;
   lockDays: MockLockPeriod | null;
   lockExpiresAt: string | null;
+  lockExtensionReference: string | null;
+  lockExtensionDays: MockLockExtensionPeriod | null;
+  lockCancellationReference: string | null;
+  lockCancelledAt: string | null;
 }
 
 export function mockRateStatus(rate: MockUwmRate, now: string) {
+  if (rate.lockCancelledAt) return "Mock lock cancelled";
   if (!rate.lockExpiresAt) return "Floating";
   return rate.lockExpiresAt > now ? "Mock locked" : "Mock lock expired";
+}
+
+export function lockExpiringSoon(rate: MockUwmRate, now: string) {
+  return rate.lockExpiresAt !== null && mockRateStatus(rate, now) === "Mock locked" &&
+    Date.parse(rate.lockExpiresAt) - Date.parse(now) <= mockLockNoticeDays * 86_400_000;
 }

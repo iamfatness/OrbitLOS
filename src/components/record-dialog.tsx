@@ -26,7 +26,7 @@ export type Modal =
   | { kind: "contact"; contactId?: string }
   | { kind: "communication"; loanId: string; audience: DraftAudience; draftId?: string }
   | { kind: "documentFollowUp"; loanId: string }
-  | { kind: "pricing"; loanId: string }
+  | { kind: "pricing"; loanId: string; target?: string }
   | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
@@ -249,7 +249,8 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
           <Button size="sm" variant="outline" onClick={() => show({ kind: "pricing", loanId: loan.id })}>Price loan</Button>
         </div>
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
-        {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
+        {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
+          ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
       <LoanDocuments loanId={loan.id} requests={requests} openConditionRequests={openConditionRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
@@ -309,7 +310,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
-  const target = modal.kind === "details" ? modal.target : undefined;
+  const target = "target" in modal ? modal.target : undefined;
   useEffect(() => {
     if (!target) return;
     const item = document.getElementById(target);

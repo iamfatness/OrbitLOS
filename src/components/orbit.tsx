@@ -306,7 +306,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
               </select>
             </div>
             {(taskView === "Open" || taskView === "All") && <LoanWorkQueue loans={state.loans.filter(taskScope)} state={state} borrower={borrowers}
-              open={(loanId, target) => show({ kind: "details", loanId, target })} />}
+              open={(loanId, target) => show({ kind: target === "uwm-rate-lock" ? "pricing" : "details", loanId, target })} />}
             {visibleTasks.length ? <ul className="task-queue">
               {visibleTasks.map((task) => {
                 const loan = taskLoans.get(task.loanId);

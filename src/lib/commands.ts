@@ -3,8 +3,8 @@ import { insertContact, insertLoan, insertSubmission, readWorkspace, savedPricin
 import { activityKinds, stages, type Loan, type Workspace } from "./model";
 import { sendMockConditionDocument, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
-import { mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
-import { floatMockRate, lockMockRate } from "./uwm-rate-locks";
+import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
+import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider } from "./pricing-provider";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 import { createMilestoneDrafts, recordDraftCopy } from "./communications";
@@ -15,6 +15,7 @@ import { documentKinds } from "./document-model";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
+const lockChange = { loanId: id, lockReference: id, expectedExpiresAt: z.iso.datetime() };
 const contactFields = {
   name: label,
   email: z.union([z.email(), z.literal("")]),
@@ -56,6 +57,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("floatMockRate"), loanId: id, submissionId: id, runId: id, offerId: id, previousFloatReference: id.nullable() }),
   z.object({ type: z.literal("lockMockRate"), loanId: id, floatReference: id, days: z.literal(mockLockPeriods) }),
+  z.object({ type: z.literal("extendMockLock"), ...lockChange, days: z.literal(mockLockExtensionPeriods) }),
+  z.object({ type: z.literal("cancelMockLock"), ...lockChange }),
   z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
   z.object({ type: z.literal("reviewApplication"), loanId: id }),
@@ -210,6 +213,13 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
         case "floatMockRate":
         case "lockMockRate": {
           const result = data.type === "floatMockRate" ? floatMockRate(db, data, now) : lockMockRate(db, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
+        case "extendMockLock":
+        case "cancelMockLock": {
+          const result = data.type === "extendMockLock" ? extendMockLock(db, data, now) : cancelMockLock(db, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;

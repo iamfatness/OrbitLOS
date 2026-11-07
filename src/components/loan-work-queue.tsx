@@ -1,5 +1,6 @@
 import type { Loan, Workspace } from "@/lib/model";
 import { needsBorrowerDocument } from "@/lib/document-model";
+import { lockExpiringSoon, mockLockNoticeDays } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -22,14 +23,23 @@ export function LoanWorkQueue({ loans, state, borrower, open }: {
       since: request.status === "Received" ? request.submittedAt ?? request.requestedAt : request.requestedAt,
     }] : [];
   });
-  const items = [...applications, ...documents].sort((a, b) => a.status.localeCompare(b.status) || a.since.localeCompare(b.since));
+  const now = new Date().toISOString();
+  const locks = state.mockUwmRates.flatMap((rate) => {
+    const loan = assigned.get(rate.loanId);
+    return loan && rate.lockExpiresAt && lockExpiringSoon(rate, now) ? [{
+      loan, target: "uwm-rate-lock", title: "UWM lock expiring", status: "Expires", since: rate.lockExpiresAt,
+    }] : [];
+  }).sort((a, b) => a.since.localeCompare(b.since));
+  const followUps = [...applications, ...documents].sort((a, b) => a.status.localeCompare(b.status) || a.since.localeCompare(b.since));
+  const items = [...locks, ...followUps];
 
   return <div className="work-queue">
     <div className="section-heading"><h3>Loan work queue</h3><span className="pill">{items.length} open</span></div>
+    <p className="muted work-queue-note">Includes active mock locks expiring in the next {mockLockNoticeDays} days.</p>
     {items.length ? <ul className="loan-task-list">{items.map((item) => <li className="loan-task" key={`${item.loan.id}:${item.target}`}>
       <div className="loan-task-copy"><strong>{item.title}</strong><span>{borrower(item.loan)} · {item.loan.officer || "Unassigned"}</span>
         <span className="muted">{item.status} · {dateTime(item.since)} ET</span></div>
       <Button variant="outline" size="sm" onClick={() => open(item.loan.id, item.target)}>Open item</Button>
-    </li>)}</ul> : <p className="empty-inline">No applications or documents need attention in this view.</p>}
+    </li>)}</ul> : <p className="empty-inline">No loan work items in this view.</p>}
   </div>;
 }

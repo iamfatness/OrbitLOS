@@ -3,9 +3,31 @@
 import { useState } from "react";
 import { LockKeyhole } from "lucide-react";
 import type { Submission } from "@/lib/model";
-import { mockLockPeriods, mockRateStatus, type MockLockPeriod, type MockUwmRate, type PricingOffer, type PricingRun } from "@/lib/pricing-model";
+import { mockLockExtensionPeriods, mockLockPeriods, mockRateStatus, type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer, type PricingRun } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+
+function ActiveLockActions({ rate, busy, save }: { rate: MockUwmRate; busy: boolean; save: (input: unknown) => Promise<void> }) {
+  const [extension, setExtension] = useState<MockLockExtensionPeriod>(7);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const lock = { loanId: rate.loanId, lockReference: rate.lockReference, expectedExpiresAt: rate.lockExpiresAt };
+  return <div className="rate-lock-management">
+    <div className="rate-lock-actions">
+      <label className="field"><span>Extend by</span><select value={extension} onChange={(event) => setExtension(Number(event.target.value) as MockLockExtensionPeriod)} disabled={busy}>
+        {mockLockExtensionPeriods.map((period) => <option key={period} value={period}>{period} days</option>)}
+      </select></label>
+      <Button size="sm" variant="outline" disabled={busy || confirmCancel} onClick={() => void save({ type: "extendMockLock", ...lock, days: extension })}>Extend lock (mock)</Button>
+      {!confirmCancel && <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmCancel(true)}>Cancel lock (mock)</Button>}
+    </div>
+    {confirmCancel && <div className="quote-preview" role="group" aria-label="Confirm mock lock cancellation">
+      <p>Cancel the mock lock on {rate.product} at {rate.rate.toFixed(3)}%?</p>
+      <div className="rate-lock-actions">
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmCancel(false)}>Keep lock</Button>
+        <Button size="sm" disabled={busy} onClick={() => void save({ type: "cancelMockLock", ...lock })}>Confirm cancellation (mock)</Button>
+      </div>
+    </div>}
+  </div>;
+}
 
 export function UwmRateLock({ loanId, submissions, rate, saved, offer, busy, save }: {
   loanId: string; submissions: Submission[]; rate?: MockUwmRate; saved?: PricingRun; offer?: PricingOffer;
@@ -19,18 +41,21 @@ export function UwmRateLock({ loanId, submissions, rate, saved, offer, busy, sav
   const status = rate && mockRateStatus(rate, new Date().toISOString());
   const matchingFloat = status === "Floating" && rate?.submissionId === fileId && rate.runId === saved?.id && rate.offerId === offer?.id;
 
-  return <section className="quote-saved" aria-label="Mock UWM rate lock">
+  return <section className="quote-saved" aria-label="Mock UWM rate lock" id="uwm-rate-lock" tabIndex={-1}>
     <div className="section-heading"><h3><LockKeyhole size={17} /> UWM rate lock</h3><span className="pill">Mock</span></div>
     {rate && <div className="quote-preview">
       <div className="section-heading"><strong>{rate.product} at {rate.rate.toFixed(3)}%</strong><span className="pill">{status}</span></div>
       <p className="muted">UWM file {rate.loanNumber} · Quoted {dateTime(rate.quotedAt)} ET</p>
       <p className="rate-receipt">Floated {dateTime(rate.floatedAt)} ET · {rate.floatReference}</p>
       {rate.lockReference && rate.lockedAt && rate.lockExpiresAt && <>
-        <p>Mock lock confirmed {dateTime(rate.lockedAt)} ET · {rate.lockDays} days</p>
-        <p>Expires {dateTime(rate.lockExpiresAt)} ET</p>
+        <p>Mock lock confirmed {dateTime(rate.lockedAt)} ET · Initial period {rate.lockDays} days</p>
+        <p>{rate.lockCancelledAt ? "Scheduled expiration" : "Expires"} {dateTime(rate.lockExpiresAt)} ET</p>
         <p className="rate-receipt">Confirmation {rate.lockReference}</p>
+        {rate.lockExtensionReference && <p className="rate-receipt">Latest extension · {rate.lockExtensionDays} days · {rate.lockExtensionReference}</p>}
+        {rate.lockCancelledAt && <p className="rate-receipt">Cancelled {dateTime(rate.lockCancelledAt)} ET · {rate.lockCancellationReference}</p>}
       </>}
     </div>}
+    {status === "Mock locked" && rate && <ActiveLockActions key={rate.lockReference} rate={rate} busy={busy} save={save} />}
     {status !== "Mock locked" && (!saved || !offer || saved.mode !== "mock"
       ? <p className="muted">Save a sample pricing option to start the mock float and lock flow.</p>
       : !files.length ? <p className="muted">Use Sync UWM for a sample UWM file, or send a reviewed 1003 to UWM (mock) from this loan first.</p>
