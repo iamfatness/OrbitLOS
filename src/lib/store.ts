@@ -1,4 +1,4 @@
-import type { Activity, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, RealtorPortal, Submission, Workspace } from "./model";
+import type { Activity, ClosingItem, ClosingPlan, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, RealtorPortal, Submission, Workspace } from "./model";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
@@ -82,6 +82,14 @@ export function initializeStore(db: Store) {
       watchEnabled INTEGER NOT NULL DEFAULT 0, rateTriggered INTEGER NOT NULL DEFAULT 0,
       note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS closing_plans (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, targetDate TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS closing_items (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, owner TEXT NOT NULL, dueDate TEXT NOT NULL, completedAt TEXT, revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS closing_items_by_loan ON closing_items(loanId, dueDate);
     CREATE TABLE IF NOT EXISTS realtor_portals (
       realtorId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
       token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL
@@ -187,6 +195,8 @@ export function workspace(db: Store): Workspace {
     communicationDrafts: rows<CommunicationDraft>(db, "SELECT * FROM communication_drafts ORDER BY createdAt DESC, rowid DESC"),
     pastClients: rows<Omit<PastClientProfile, "watchEnabled"> & { watchEnabled: number }>(db, "SELECT loanId, closingDate, currentRate, targetRate, observedRate, checkedAt, watchEnabled, note, revision FROM past_client_profiles")
       .map((profile) => ({ ...profile, watchEnabled: Boolean(profile.watchEnabled) })),
+    closingPlans: rows<ClosingPlan>(db, "SELECT loanId, targetDate FROM closing_plans"),
+    closingItems: rows<ClosingItem>(db, "SELECT * FROM closing_items ORDER BY completedAt IS NOT NULL, dueDate, id"),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt FROM realtor_portals"),
     applications: staffApplications(db),
     documentRequests: rows<LoanDocumentRequest>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt

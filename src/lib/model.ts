@@ -70,7 +70,7 @@ export interface LoanTask {
 }
 
 export type DraftAudience = "Borrower" | "Realtor";
-export type DraftMilestone = Stage | "Application received";
+export type DraftMilestone = Stage | "Application received" | "Closing complete";
 export type DraftChannel = "Email" | "Text";
 
 export interface CommunicationDraft {
@@ -96,6 +96,21 @@ export interface PastClientProfile {
   revision: number;
 }
 
+export interface ClosingPlan {
+  loanId: string;
+  targetDate: string;
+}
+
+export interface ClosingItem {
+  id: string;
+  loanId: string;
+  title: string;
+  owner: string;
+  dueDate: string;
+  completedAt: string | null;
+  revision: number;
+}
+
 export interface RealtorPortal {
   realtorId: string;
   token: string;
@@ -115,6 +130,8 @@ export interface Workspace {
   tasks: LoanTask[];
   communicationDrafts: CommunicationDraft[];
   pastClients: PastClientProfile[];
+  closingPlans: ClosingPlan[];
+  closingItems: ClosingItem[];
   realtorPortals: RealtorPortal[];
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];

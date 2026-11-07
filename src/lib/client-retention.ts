@@ -39,6 +39,10 @@ export function dateLabel(date: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" }).format(new Date(date + "T12:00:00Z"));
 }
 
+export function clearPendingAnniversaries(db: Store, loanId: string) {
+  db.prepare("DELETE FROM tasks WHERE loanId = ? AND id LIKE 'closing-anniversary:%' AND completedAt IS NULL").run(loanId);
+}
+
 export function rateTargetReached(profile: Pick<PastClientProfile, "watchEnabled" | "targetRate" | "observedRate">) {
   return profile.watchEnabled && profile.targetRate !== null && profile.observedRate !== null && profile.observedRate <= profile.targetRate;
 }
@@ -61,7 +65,7 @@ export function synchronizeRetentionTasks(db: Store, now = new Date()) {
       db.prepare("UPDATE past_client_profiles SET rateTriggered = ? WHERE loanId = ?").run(rateReady ? 1 : 0, profile.loanId);
     }
     if (!active || !profile.closingDate) {
-      db.prepare("DELETE FROM tasks WHERE loanId = ? AND id LIKE 'closing-anniversary:%' AND completedAt IS NULL").run(profile.loanId);
+      clearPendingAnniversaries(db, profile.loanId);
       continue;
     }
     const date = nextAnniversary(profile.closingDate, today);

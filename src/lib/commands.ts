@@ -10,7 +10,7 @@ import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } 
 import { createMilestoneDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
 import type { StaffIdentity } from "./staff-store";
-import { easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
+import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { documentKinds } from "./document-model";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
@@ -35,8 +35,13 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("deleteLoan"), id }),
   z.object({ type: z.literal("move"), id, stage: z.enum(stages) }),
   z.object({ type: z.literal("copyDraft"), loanId: id, contactId: id, audience: z.enum(["Borrower", "Realtor"]),
-    milestone: z.enum([...stages, "Application received"]), channel: z.enum(draftChannels) }),
+    milestone: z.enum([...stages, "Application received", "Closing complete"]), channel: z.enum(draftChannels) }),
   retentionInput,
+  z.object({ type: z.literal("saveClosingTarget"), loanId: id, targetDate: z.iso.date().nullable(), previous: z.iso.date().nullable() }),
+  z.object({ type: z.literal("saveClosingItem"), loanId: id, itemId: z.uuid(), revision: z.number().int().nonnegative(),
+    title: z.string().trim().min(1).max(120), owner: z.string().trim().min(1).max(120), dueDate: z.iso.date() }),
+  z.object({ type: z.literal("completeClosingItem"), loanId: id, itemId: z.uuid(), revision: z.number().int().positive(), completed: z.boolean() }),
+  z.object({ type: z.literal("recordClosing"), loanId: id, revision: z.number().int().nonnegative(), closingDate: z.iso.date() }),
   z.object({ type: z.literal("createRealtorPortal"), realtorId: id }),
   z.object({ type: z.literal("revokeRealtorPortal"), realtorId: id }),
   z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000) }),
@@ -98,7 +103,7 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           const previous = db.prepare("SELECT revision, closingDate, observedRate, checkedAt FROM past_client_profiles WHERE loanId = ?").get(data.loanId);
           if (Number(previous?.revision ?? 0) !== data.revision) throw new WorkspaceError("Past-client details changed. Refresh before saving.");
           if (previous?.closingDate !== (data.closingDate || null)) {
-            db.prepare("DELETE FROM tasks WHERE loanId = ? AND id LIKE 'closing-anniversary:%' AND completedAt IS NULL").run(data.loanId);
+            clearPendingAnniversaries(db, data.loanId);
           }
           const observedRate = data.observedRate ? Number(data.observedRate) : null;
           const checkedAt = observedRate === null ? null : observedRate === previous?.observedRate ? previous.checkedAt : now;
@@ -113,6 +118,61 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
               checkedAt, data.watchEnabled ? 1 : 0, data.note, data.revision + 1);
           addApplicationActivity(db, data.loanId, "Past-client follow-up details updated.", now);
           message = "Past-client details and reminders saved.";
+          break;
+        }
+        case "saveClosingTarget": {
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          const current = db.prepare("SELECT targetDate FROM closing_plans WHERE loanId = ?").get(data.loanId)?.targetDate ?? null;
+          if (current !== data.targetDate) {
+            if (current !== data.previous) throw new WorkspaceError("The target closing date changed. Refresh the loan before saving.");
+            if (data.targetDate) {
+              db.prepare(`INSERT INTO closing_plans (loanId, targetDate) VALUES (?, ?)
+                ON CONFLICT(loanId) DO UPDATE SET targetDate = excluded.targetDate`).run(data.loanId, data.targetDate);
+            } else db.prepare("DELETE FROM closing_plans WHERE loanId = ?").run(data.loanId);
+            addApplicationActivity(db, data.loanId, data.targetDate ? `Target closing date set · ${data.targetDate}` : "Target closing date cleared.", now);
+          }
+          message = "Target closing date saved.";
+          break;
+        }
+        case "saveClosingItem": {
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          const item = db.prepare("SELECT loanId, revision, title, owner, dueDate FROM closing_items WHERE id = ?").get(data.itemId);
+          if (item && item.loanId !== data.loanId) throw new WorkspaceError("This closing item is unavailable on the loan.");
+          if (!item || item.title !== data.title || item.owner !== data.owner || item.dueDate !== data.dueDate) {
+            if (Number(item?.revision ?? 0) !== data.revision) throw new WorkspaceError("This closing item changed. Refresh the loan before saving.");
+            db.prepare(`INSERT INTO closing_items (id, loanId, title, owner, dueDate) VALUES (?, ?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET title = excluded.title, owner = excluded.owner, dueDate = excluded.dueDate, revision = revision + 1`)
+              .run(data.itemId, data.loanId, data.title, data.owner, data.dueDate);
+            addApplicationActivity(db, data.loanId, `${item ? "Updated closing item" : "Added closing item"} · ${data.title}`, now);
+          }
+          message = "Closing checklist item saved.";
+          break;
+        }
+        case "completeClosingItem": {
+          const item = db.prepare("SELECT title, completedAt, revision FROM closing_items WHERE id = ? AND loanId = ?").get(data.itemId, data.loanId);
+          if (!item) throw new WorkspaceError("This closing item is unavailable on the loan.");
+          if (Boolean(item.completedAt) !== data.completed) {
+            if (item.revision !== data.revision) throw new WorkspaceError("This closing item changed. Refresh the loan before updating it.");
+            db.prepare("UPDATE closing_items SET completedAt = ?, revision = revision + 1 WHERE id = ?")
+              .run(data.completed ? now : null, data.itemId);
+            addApplicationActivity(db, data.loanId, `${data.completed ? "Completed closing item" : "Reopened closing item"} · ${item.title}`, now);
+          }
+          message = data.completed ? "Closing item completed." : "Closing item reopened.";
+          break;
+        }
+        case "recordClosing": {
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          if (data.closingDate > easternDate(new Date(now))) throw new WorkspaceError("Enter the actual closing date on or before today.");
+          const profile = db.prepare("SELECT closingDate, revision FROM past_client_profiles WHERE loanId = ?").get(data.loanId);
+          if (profile?.closingDate !== data.closingDate) {
+            if (Number(profile?.revision ?? 0) !== data.revision) throw new WorkspaceError("The closing date changed. Refresh the loan before recording it.");
+            clearPendingAnniversaries(db, data.loanId);
+            db.prepare(`INSERT INTO past_client_profiles (loanId, closingDate, revision) VALUES (?, ?, 1)
+              ON CONFLICT(loanId) DO UPDATE SET closingDate = excluded.closingDate, revision = revision + 1`).run(data.loanId, data.closingDate);
+            addApplicationActivity(db, data.loanId, `Closing recorded · ${data.closingDate}`, now);
+          }
+          createMilestoneDrafts(db, data.loanId, "Closing complete", now);
+          message = "Closing recorded. Milestone drafts are ready to preview.";
           break;
         }
         case "createRealtorPortal": {

@@ -20,6 +20,7 @@ export function recordDraftCopy(db: Store, input: {
   const { loanId, audience, milestone, contactId, channel } = input;
   const loan = db.prepare("SELECT stage, contactId, partnerId FROM loans WHERE id = ?").get(loanId);
   if (!loan || contactId !== (audience === "Borrower" ? loan.contactId : loan.partnerId)) return false;
+  if (milestone === "Closing complete" && !db.prepare("SELECT closingDate FROM past_client_profiles WHERE loanId = ?").get(loanId)?.closingDate) return false;
   const find = () => db.prepare("SELECT * FROM communication_drafts WHERE loanId = ? AND contactId = ? AND audience = ? AND milestone = ?")
     .get(loanId, contactId, audience, milestone) as CommunicationDraft | undefined;
   let draft = find();

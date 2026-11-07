@@ -19,6 +19,7 @@ import { DocumentFollowUp } from "./document-follow-up";
 import { DocumentStatusPill } from "./sample-document";
 import type { LoanDocumentRequest } from "@/lib/document-model";
 import { mockRateStatus } from "@/lib/pricing-model";
+import { ClosingWorkbench } from "./closing-workbench";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string }
@@ -252,6 +253,8 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
+      <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
+        preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
       <LoanDocuments loanId={loan.id} requests={requests} openConditionRequests={openConditionRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
@@ -354,7 +357,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             watchEnabled: data.has("watchEnabled"), note: text(data, "note"),
           })}><RetentionFields profile={retention} /></Form>}
         {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
-          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, document requests, tasks, submissions and activity?", close) : undefined}
+          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its closing checklist, application, document requests, tasks, submissions and activity?", close) : undefined}
           save={(data) => ({
             type: "loan", id: loan?.id, contactId: text(data, "contactId"), borrower: text(data, "borrower"),
             address: text(data, "address"), amount: Number(text(data, "amount")), purpose: text(data, "purpose"),

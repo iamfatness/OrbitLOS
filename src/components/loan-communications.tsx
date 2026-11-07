@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Copy, Mail } from "lucide-react";
-import { draftChannels, draftCopied, draftRecipient, renderDraft } from "@/lib/communication-templates";
+import { currentDraftMilestone, draftChannels, draftCopied, draftRecipient, renderDraft } from "@/lib/communication-templates";
 import type { CommunicationDraft, DraftAudience, DraftChannel, Loan, Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -25,7 +25,7 @@ function DraftRows({ drafts, state, preview, showLoan }: {
       const recipient = state.contacts.find((item) => item.id === draft.contactId);
       const borrower = state.contacts.find((item) => item.id === loan.contactId);
       const copied = [draft.emailCopiedAt && "Email", draft.textCopiedAt && "Text"].filter(Boolean).join(" and ");
-      const earlier = draft.milestone !== "Application received" && draft.milestone !== loan.stage;
+      const earlier = !currentDraftMilestone(draft.milestone, loan.stage, hasClosingDate(state, loan.id));
       const linked = stillLinked(draft, loan);
       return <li key={draft.id} className="communication-draft-row">
         <div>
@@ -34,11 +34,15 @@ function DraftRows({ drafts, state, preview, showLoan }: {
           <small className="muted">{dateTime(draft.createdAt)} ET · {copied ? `${copied} copied` : "Draft"}
             {!linked ? " · Recipient changed" : earlier ? " · Earlier milestone" : ""}</small>
         </div>
-        <Button variant="outline" size="sm" disabled={!linked} aria-label={`Preview ${draft.audience.toLowerCase()} draft for ${draft.milestone}`}
+        <Button variant="outline" size="sm" disabled={!linked || (earlier && draft.milestone === "Closing complete")} aria-label={`Preview ${draft.audience.toLowerCase()} draft for ${draft.milestone}`}
           onClick={() => preview(draft.loanId, draft.audience, draft.id)}>Preview</Button>
       </li>;
     })}
   </ul>;
+}
+
+function hasClosingDate(state: Workspace, loanId: string) {
+  return state.pastClients.some((profile) => profile.loanId === loanId && Boolean(profile.closingDate));
 }
 
 export function CommunicationQueue({ state, preview }: { state: Workspace; preview: Preview }) {
@@ -47,7 +51,7 @@ export function CommunicationQueue({ state, preview }: { state: Workspace; previ
     const loan = state.loans.find((item) => item.id === draft.loanId);
     if (!loan || view === "All drafts") return Boolean(loan);
     if (view === "Copied") return draftCopied(draft);
-    return stillLinked(draft, loan) && !draftCopied(draft) && (draft.milestone === loan.stage || draft.milestone === "Application received");
+    return stillLinked(draft, loan) && !draftCopied(draft) && currentDraftMilestone(draft.milestone, loan.stage, hasClosingDate(state, loan.id));
   });
   return <section className="pipeline" aria-label="Milestone draft queue">
     <div className="pipeline-heading"><div><h2>Milestone drafts <span>{drafts.length} shown</span></h2>
@@ -92,7 +96,8 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
   const destination = channel === "Email" ? contact.email : contact.phone;
   const saved = draft ?? state.communicationDrafts.find((item) => item.loanId === loan.id && item.contactId === contact.id && item.audience === audience && item.milestone === milestone);
   const copiedAt = channel === "Email" ? saved?.emailCopiedAt : saved?.textCopiedAt;
-  const earlier = milestone !== loan.stage && milestone !== "Application received";
+  const earlier = !currentDraftMilestone(milestone, loan.stage, hasClosingDate(state, loan.id));
+  if (earlier && milestone === "Closing complete") return <p className="empty-inline">Record the actual closing date to preview this draft.</p>;
 
   async function copy() {
     try {

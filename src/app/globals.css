@@ -169,6 +169,11 @@ button:disabled { cursor: default; }
 .task-queue { padding: 0 17px 16px; }
 .work-queue { margin: 0 17px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; }
 .work-queue-note { margin-bottom: 8px; font-size: 12px; }
+#closing-workbench { scroll-margin-block-start: 12px; }
+.closing-dates { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 8px; }
+.closing-dates form { display: grid; justify-items: start; gap: 6px; padding: 9px; background: #faf8fd; border: 1px solid var(--line); border-radius: 9px; }
+.closing-dates label { width: 100%; font-weight: 650; }
+#closing-workbench .loan-application-actions:has(.document-form[open]) { align-items: flex-start; }
 #loan-application { scroll-margin-block-start: 12px; }
 .loan-task-list, .task-queue { display: grid; gap: 7px; }
 .loan-task { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: #faf8fd; }
