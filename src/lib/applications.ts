@@ -4,6 +4,7 @@ import type { Store } from "./store";
 import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
 import { lenderDetailsSchema, normalizeUrla } from "./urla";
+import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "lender"> & { draft: string; step: number; revision: number };
 
@@ -65,12 +66,20 @@ const borrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
   z.object({ type: z.literal("save"), ...write }),
   z.object({ type: z.literal("submit"), ...write }),
+  z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
 ]);
 
-function borrowerResult(row: ApplicationRow): BorrowerResult {
+function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
+  const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
+  const loanStatus: BorrowerLoanStatus | null = loan ? {
+    stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
+    documents: db.prepare(`SELECT id, kind, instructions, status, replacementNote, submittedAt, revision
+      FROM document_requests WHERE loanId = ? ORDER BY requestedAt, id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
+  } : null;
   return { application: {
     draft: applicationDraft.parse(JSON.parse(row.draft)),
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt,
+    loanStatus,
   } };
 }
 
@@ -83,8 +92,22 @@ export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult
     const row = db.prepare("SELECT * FROM applications WHERE token = ? AND expiresAt > ?")
       .get(data.token, now) as ApplicationRow | undefined;
     if (!row) return { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
-    if (data.type === "read" || (data.type === "submit" && row.submittedAt)) return borrowerResult(row);
-    if (row.submittedAt) return { status: 409, error: "This application has been submitted. Reopen the link to see your receipt." };
+    if (data.type === "read" || (data.type === "submit" && row.submittedAt)) return borrowerResult(db, row);
+    if (data.type === "attachSample") {
+      if (!row.submittedAt) return { status: 409, error: "Submit your application to open the document checklist." };
+      const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
+        .get(data.requestId, row.loanId);
+      if (!request) return { status: 404, error: "This document request is unavailable." };
+      if (request.status === "Received" && request.revision === data.revision + 1) return borrowerResult(db, row);
+      if (request.revision !== data.revision || !needsBorrowerDocument(request.status as DocumentRequest["status"])) {
+        return { status: 409, error: "This document request changed. Refresh status before attaching a sample." };
+      }
+      db.prepare("UPDATE document_requests SET status = 'Received', submittedAt = ?, revision = revision + 1 WHERE id = ?")
+        .run(now, data.requestId);
+      addApplicationActivity(db, row.loanId, `Sample document received · ${request.kind}`, now);
+      return borrowerResult(db, row);
+    }
+    if (row.submittedAt) return { status: 409, error: "This application has been submitted. Reopen the link to see your status." };
     if (row.revision !== data.revision) {
       return { status: 409, error: "This application was updated in another tab. Reopen the link to continue from the latest saved draft." };
     }
@@ -121,6 +144,6 @@ export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult
       createMilestoneDrafts(db, row.loanId, "Application received", now);
       addApplicationActivity(db, row.loanId, "Demo 1003 received. Follow-up task created for the loan officer.", now);
     }
-    return borrowerResult(next);
+    return borrowerResult(db, next);
   });
 }

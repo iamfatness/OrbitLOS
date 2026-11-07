@@ -14,6 +14,7 @@ import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetai
 import type { StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
+import { LoanDocuments } from "./loan-documents";
 
 export type Modal =
   | { kind: "details"; loanId: string }
@@ -152,20 +153,18 @@ function LoanApplication({ loanId, state, busy, save }: { loanId: string; state:
       <p className="muted">Create a link for a borrower to complete a sample application. Use fictional information.</p>
       <Button size="sm" disabled={busy} onClick={() => run("startApplication")}><Plus /> Start 1003</Button>
     </div> : <div className="loan-application-box">
-      {!application.submittedAt ? <>
-        <p className="muted">The borrower can save a draft and return to the same link. Link expires {dateTime(application.expiresAt)} ET.</p>
-        <div className="loan-application-actions">
-          <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> Open borrower view</a></Button>
-          <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy link</Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => run("refreshApplication")}><RefreshCw /> Refresh application</Button>
-        </div>
-        <p className="muted timestamp">Last saved {dateTime(application.updatedAt)} ET</p>
-        <details className="application-link-help">
-          <summary>Expired link?</summary>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => run("startApplication")}>Renew expired link</Button>
-        </details>
-        {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
-      </> : <>
+      <p className="muted">{application.submittedAt ? "The borrower can use this link to check their loan status and attach sample documents." : "The borrower can save a draft and return to the same link."} Link expires {dateTime(application.expiresAt)} ET.</p>
+      <div className="loan-application-actions">
+        <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> {application.submittedAt ? "Open borrower status" : "Open borrower view"}</a></Button>
+        <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy link</Button>
+        {!application.submittedAt && <Button size="sm" variant="ghost" disabled={busy} onClick={() => run("refreshApplication")}><RefreshCw /> Refresh application</Button>}
+      </div>
+      <details className="application-link-help">
+        <summary>Expired link?</summary>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => run("startApplication")}>Renew expired link</Button>
+      </details>
+      {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
+      {!application.submittedAt ? <p className="muted timestamp">Last saved {dateTime(application.updatedAt)} ET</p> : <>
         <p className="muted">Received {dateTime(application.submittedAt)} ET</p>
         {application.draft && <details className="application-review" open={!application.reviewedAt}>
           <summary>Review submitted answers</summary>
@@ -229,6 +228,8 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         </div>
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
       </section>
+      <LoanDocuments loanId={loan.id} requests={state.documentRequests.filter((item) => item.loanId === loan.id)}
+        applicationStarted={state.applications.some((item) => item.loanId === loan.id)} busy={busy} save={save} />
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
       <LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} />
       <section className="details-section" aria-label="Loan follow-up tasks">
@@ -318,7 +319,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             watchEnabled: data.has("watchEnabled"), note: text(data, "note"),
           })}><RetentionFields profile={retention} /></Form>}
         {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
-          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, tasks, submissions and activity?", close) : undefined}
+          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, document requests, tasks, submissions and activity?", close) : undefined}
           save={(data) => ({
             type: "loan", id: loan?.id, contactId: text(data, "contactId"), borrower: text(data, "borrower"),
             address: text(data, "address"), amount: Number(text(data, "amount")), purpose: text(data, "purpose"),

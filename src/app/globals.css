@@ -131,7 +131,7 @@ button:disabled { cursor: default; }
 .record-form, .details-body { display: grid; gap: 13px; }
 .field { display: grid; gap: 5px; min-width: 0; }
 .field > span { font-weight: 700; color: #4c445c; font-size: 12px; }
-.field input, .field select, .note-form textarea { width: 100%; min-width: 0; min-height: 38px; border: 1px solid #e4deec; border-radius: 8px; padding: 7px 9px; background: #fff; }
+.field input, .field select, .note-form textarea, .document-form select, .document-form textarea { width: 100%; min-width: 0; min-height: 38px; border: 1px solid #e4deec; border-radius: 8px; padding: 7px 9px; background: #fff; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .dialog-footer { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; padding-top: 13px; border-top: 1px solid var(--line); }
 .details-person { display: flex; align-items: center; gap: 8px; }
@@ -262,6 +262,25 @@ button:disabled { cursor: default; }
 .demo-confirm { display: flex; align-items: flex-start; gap: 7px; font-size: 13px; }
 .demo-confirm input { accent-color: var(--accent); margin-top: 3px; }
 .application-receipt { display: grid; gap: 7px; padding: 22px; }
+.borrower-status, .document-section, .document-list { display: grid; gap: 10px; }
+.borrower-next, .document-item { display: grid; min-width: 0; gap: 7px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: #faf8fd; overflow-wrap: anywhere; }
+.borrower-next { margin-top: 5px; }
+.document-section > .section-heading { margin-bottom: 0; }
+.document-section h2 { display: flex; align-items: center; gap: 7px; }
+.document-item-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 7px; }
+.document-counts { font-size: 12px; font-weight: 700; color: #503b91; }
+.document-item p { white-space: pre-wrap; }
+.document-item > button { justify-self: start; }
+.document-pill[data-status="Requested"], .document-pill[data-status="Needs replacement"] { background: #fff0d8; color: #754c00; }
+.document-pill[data-status="Accepted"] { background: #e4f5ed; color: #217348; }
+.document-form > summary, .sample-document > summary, .sample-document > a { width: fit-content; cursor: pointer; color: #503b91; font-size: 12px; font-weight: 700; }
+.document-form > summary svg { display: inline; vertical-align: middle; }
+.document-form form, .document-form label, .document-review { display: grid; justify-items: start; gap: 6px; }
+.document-form form { margin-top: 7px; }
+.document-form label { width: 100%; font-size: 12px; font-weight: 650; }
+.document-form textarea { resize: vertical; }
+.sample-document pre { white-space: pre-wrap; margin: 6px 0; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 12px; }
+.sample-document > a { text-decoration: underline; text-underline-offset: 2px; }
 .loan-application-box { display: grid; justify-items: start; gap: 8px; padding: 11px; border-radius: 10px; background: #faf8fd; border: 1px solid var(--line); }
 .application-review, .application-link-help { width: 100%; min-width: 0; }
 .application-review summary, .application-link-help summary { cursor: pointer; color: #503b91; font-size: 12px; font-weight: 700; }

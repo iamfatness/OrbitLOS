@@ -23,9 +23,11 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 ## Try the demo 1003
 
 1. Open a loan without a UWM submission, such as Olivia Parker, and choose **Start 1003**. Open the borrower view or copy its scoped link. It expires after seven days.
-2. Choose **Load sample answers** or enter fictional answers. Use **Save draft**, then reopen the same link to resume. **Continue** also saves progress. Review and submit to see the borrower receipt.
+2. Choose **Load sample answers** or enter fictional answers. Use **Save draft**, then reopen the same link to resume. **Continue** also saves progress. Review and submit to open the borrower status page and document checklist.
 3. On the original loan, choose **Refresh application**, review the submitted answers, and select **Mark reviewed**.
 4. Choose **Send to UWM (mock)**. The lender card shows a demo reference, an approved-with-conditions status, two outstanding conditions, and one cleared condition. **Sync UWM** refreshes the same lender record.
+
+On the loan, open **Document checklist** and choose **Request document** to add a sample document type with optional borrower instructions. The borrower reopens the same 1003 link, selects **Refresh status** as needed, and previews and attaches a built-in fictional sample. Back on the loan, select **Refresh checklist** to see what's waiting on the borrower, ready to review, or accepted. Open a received sample to preview or download it, then accept it or request a replacement with a message. The existing seven-day borrower link can be renewed on the loan.
 
 Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. **My Tasks** uses your signed-in account for matching. New loans start assigned to you. For existing loans, open **Edit loan** and select **Assign to my account** to connect the assignment to your login.
 

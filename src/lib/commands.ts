@@ -10,6 +10,7 @@ import { createMilestoneDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
 import type { StaffIdentity } from "./staff-store";
 import { easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
+import { documentKinds } from "./document-model";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -42,6 +43,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sync") }),
   z.object({ type: z.literal("startApplication"), loanId: id }),
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
+  z.object({ type: z.literal("requestDocument"), loanId: id, kind: z.enum(documentKinds), instructions: z.string().trim().max(500) }),
+  z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
+    decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500) }),
   z.object({ type: z.literal("refreshWorkspace") }),
   z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120), days: z.union([z.literal(1), z.literal(3), z.literal(7)]) }),
@@ -119,8 +123,31 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           message = "Demo application link is ready.";
           break;
         case "refreshApplication":
-          message = "Application status refreshed.";
+          message = "Application and checklist refreshed.";
           break;
+        case "requestDocument":
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ?").get(data.loanId, data.kind)) {
+            throw new WorkspaceError("This document is already on the checklist. Refresh the loan to see its status.");
+          }
+          db.prepare("INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt) VALUES (?, ?, ?, ?, ?)")
+            .run(crypto.randomUUID(), data.loanId, data.kind, data.instructions, now);
+          addApplicationActivity(db, data.loanId, `Document requested · ${data.kind}`, now);
+          message = "Document added to the borrower checklist.";
+          break;
+        case "reviewDocument": {
+          const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
+            .get(data.requestId, data.loanId);
+          if (request?.status !== "Received" || request.revision !== data.revision) {
+            throw new WorkspaceError("This document request changed. Refresh the checklist before reviewing it.");
+          }
+          if (data.decision === "Needs replacement" && !data.replacementNote) throw new WorkspaceError("Tell the borrower what to replace.");
+          db.prepare("UPDATE document_requests SET status = ?, replacementNote = ?, revision = revision + 1 WHERE id = ?")
+            .run(data.decision, data.decision === "Accepted" ? "" : data.replacementNote, data.requestId);
+          addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? "Sample document accepted" : "Replacement requested"} · ${request.kind}`, now);
+          message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
+          break;
+        }
         case "refreshWorkspace":
           message = "Workspace refreshed.";
           break;

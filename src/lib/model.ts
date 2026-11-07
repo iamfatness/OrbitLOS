@@ -1,4 +1,5 @@
 import type { StaffApplication } from "./application-model";
+import type { LoanDocumentRequest } from "./document-model";
 import type { PricingRun } from "./pricing-model";
 
 export const stages = [
@@ -116,6 +117,7 @@ export interface Workspace {
   pastClients: PastClientProfile[];
   realtorPortals: RealtorPortal[];
   applications: StaffApplication[];
+  documentRequests: LoanDocumentRequest[];
   pricingRuns: PricingRun[];
   uwmSyncedAt: string | null;
 }

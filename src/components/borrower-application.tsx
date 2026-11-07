@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, Orbit as OrbitIcon, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Orbit as OrbitIcon, Save } from "lucide-react";
 import { applicationIssues, applicationSteps, sampleApplication, type BorrowerApplication } from "@/lib/application-model";
-import { dateTime } from "@/lib/utils";
+import type { DocumentRequest } from "@/lib/document-model";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
+import { BorrowerStatus } from "./borrower-status";
 
 async function requestApplication(input: object, signal?: AbortSignal) {
   const token = window.location.hash.slice(1);
@@ -39,23 +40,36 @@ export function BorrowerApplicationForm() {
     return () => controller.abort();
   }, []);
 
-  async function save(type: "save" | "submit", step: number, advance = false) {
-    if (!application || pending.current) return;
+  async function perform(input: object, onSuccess: (next: BorrowerApplication) => void) {
+    if (pending.current) return;
     pending.current = true;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const next = await requestApplication({ type, step, revision: application.revision, draft: application.draft });
+      const next = await requestApplication(input);
       setApplication(next);
-      if (advance || next.submittedAt) window.scrollTo(0, 0);
-      else setNotice("Draft saved. Reopen this same link to resume.");
+      onSuccess(next);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Could not save the application. Try again.");
     } finally {
       pending.current = false;
       setBusy(false);
     }
+  }
+
+  function save(type: "save" | "submit", step: number, advance = false) {
+    if (!application) return;
+    void perform({ type, step, revision: application.revision, draft: application.draft }, (next) => {
+      if (advance || next.submittedAt) window.scrollTo(0, 0);
+      else setNotice("Draft saved. Reopen this same link to resume.");
+    });
+  }
+
+  function attach(request: DocumentRequest) {
+    void perform({ type: "attachSample", requestId: request.id, revision: request.revision }, () => {
+      setNotice(`Sample attached for ${request.kind.toLowerCase()}.`);
+    });
   }
 
   const step = application?.step ?? 0;
@@ -85,19 +99,16 @@ export function BorrowerApplicationForm() {
     <header className="application-top"><div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div><span className="pill">Demo only</span></header>
     <div className="application-intro">
       <p className="eyebrow">BORROWER WORKSPACE</p>
-      <h1>Mortgage application</h1>
-      <p>Walk through a sample 1003 and send it to your loan officer for review.</p>
+      <h1>{application?.submittedAt ? "Your loan status" : "Mortgage application"}</h1>
+      <p>{application?.submittedAt ? "See where your loan stands and what your loan team needs from you." : "Walk through a sample 1003 and send it to your loan officer for review."}</p>
     </div>
-    <aside className="application-warning">Use fictional information. Enter only a test tax ID in the format 000-00-1234. Keep real Social Security numbers, account numbers, and documents out of the demo.</aside>
+    <aside className="application-warning">{application?.submittedAt ? "This checklist uses built-in fictional sample documents." : "Use fictional information. Enter only a test tax ID in the format 000-00-1234. Keep real Social Security numbers, account numbers, and documents out of the demo."}</aside>
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!application && !error && <p role="status" className="application-message">Opening your application…</p>}
-    {application?.submittedAt ? <section className="application-panel application-receipt">
-      <CheckCircle2 size={36} className="text-emerald-700" />
-      <h2>Application received</h2>
-      <p>Your demo application is ready for your loan officer to review.</p>
-      <p className="muted">Submitted {dateTime(application.submittedAt)} ET</p>
-    </section> : application && <section className="application-panel">
+    {application?.submittedAt ? application.loanStatus && <BorrowerStatus status={application.loanStatus} submittedAt={application.submittedAt}
+      busy={busy} attach={attach} refresh={() => void perform({ type: "read" }, () => setNotice("Loan status refreshed."))} />
+      : application && <section className="application-panel">
       <ol className="application-progress" aria-label="Application progress">
         {applicationSteps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} data-complete={index < step}>
           <button type="button" disabled={busy} onClick={() => { if (index !== step) void save("save", index, true); }}>

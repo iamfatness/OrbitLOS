@@ -3,6 +3,7 @@ import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
 import type { PricingRun } from "./pricing-model";
+import type { LoanDocumentRequest } from "./document-model";
 import { synchronizeRetentionTasks } from "./client-retention";
 
 export type SqlValue = string | number | null;
@@ -52,6 +53,13 @@ export function initializeStore(db: Store) {
     CREATE TABLE IF NOT EXISTS application_lender_details (
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       details TEXT NOT NULL, revision INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS document_requests (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL, instructions TEXT NOT NULL, requestedAt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested', 'Received', 'Accepted', 'Needs replacement')),
+      replacementNote TEXT NOT NULL DEFAULT '', submittedAt TEXT, revision INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (loanId, kind)
     );
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
@@ -137,6 +145,7 @@ export function workspace(db: Store): Workspace {
       .map((profile) => ({ ...profile, watchEnabled: Boolean(profile.watchEnabled) })),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt FROM realtor_portals"),
     applications: staffApplications(db),
+    documentRequests: rows<LoanDocumentRequest>(db, "SELECT * FROM document_requests ORDER BY requestedAt, id"),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run
       WHERE run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
