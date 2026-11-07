@@ -9,6 +9,8 @@ import { synchronizeRetentionTasks } from "./client-retention";
 import { referralMatches } from "./referral-matches";
 import { mockCreditAusRuns } from "./mock-credit-aus";
 import type { UwmAlert } from "./uwm-alert-model";
+import type { InboxLead } from "./model";
+import { leadFollowUp, leadRouting } from "./lead-inbox";
 
 export type SqlValue = string | number | null;
 
@@ -120,10 +122,10 @@ export function initializeStore(db: Store, seedDemo = true) {
       token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL, officerEmail TEXT, officer TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS referral_leads (
-      id TEXT PRIMARY KEY, requestId TEXT NOT NULL, realtorId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      id TEXT PRIMARY KEY, requestId TEXT NOT NULL, realtorId TEXT REFERENCES contacts(id) ON DELETE CASCADE,
       name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, purpose TEXT NOT NULL,
       officer TEXT NOT NULL, officerEmail TEXT, createdAt TEXT NOT NULL, dueAt TEXT NOT NULL,
-      resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, UNIQUE (realtorId, requestId)
+      resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, zip TEXT NOT NULL DEFAULT '', UNIQUE (realtorId, requestId)
     );
     CREATE INDEX IF NOT EXISTS referral_leads_by_realtor ON referral_leads(realtorId, createdAt);
     CREATE TABLE IF NOT EXISTS pilot_scenario (
@@ -182,6 +184,31 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
   `);
   db.transaction(() => {
+    if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "zip")) {
+      db.exec(`CREATE TABLE referral_leads_next (
+        id TEXT PRIMARY KEY, requestId TEXT NOT NULL, realtorId TEXT REFERENCES contacts(id) ON DELETE CASCADE,
+        name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, purpose TEXT NOT NULL,
+        officer TEXT NOT NULL, officerEmail TEXT, createdAt TEXT NOT NULL, dueAt TEXT NOT NULL,
+        resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, zip TEXT NOT NULL DEFAULT '',
+        UNIQUE (realtorId, requestId)
+      );
+      INSERT INTO referral_leads_next (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, resolvedAt, loanId)
+        SELECT id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, resolvedAt, loanId FROM referral_leads;
+      DROP TABLE referral_leads;
+      ALTER TABLE referral_leads_next RENAME TO referral_leads;
+      CREATE INDEX referral_leads_by_realtor ON referral_leads(realtorId, createdAt);`);
+    }
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS website_request_id ON referral_leads(requestId) WHERE realtorId IS NULL;
+      CREATE TABLE IF NOT EXISTS lead_follow_up (
+        leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'Not started', revision INTEGER NOT NULL DEFAULT 0,
+        nextStep INTEGER NOT NULL DEFAULT 0, nextAt TEXT, pausedAt TEXT, firstContactAt TEXT
+      );
+      CREATE TABLE IF NOT EXISTS lead_events (
+        id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
+        at TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT, text TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS lead_events_by_lead ON lead_events(leadId, at);`);
     if (!db.prepare("PRAGMA table_info(staff_google_attempts)").all().some((column) => column.name === "brokerageId")) {
       db.exec("ALTER TABLE staff_google_attempts ADD COLUMN brokerageId TEXT");
     }
@@ -330,6 +357,11 @@ export function workspace(db: Store): Workspace {
     FROM referral_leads lead JOIN contacts ON contacts.id = lead.realtorId
     WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
     .map((lead) => ({ ...lead, matches: referralMatches(lead, contacts), restrictedMatch: false }));
+  const inboxLeads = rows<Omit<InboxLead, "followUp" | "matches" | "restrictedMatch">>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
+      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip
+    FROM referral_leads lead LEFT JOIN contacts ON contacts.id = lead.realtorId
+    WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
+    .map((lead) => ({ ...lead, followUp: leadFollowUp(db, lead.id), matches: referralMatches(lead, contacts), restrictedMatch: false }));
   return {
     contacts,
     loans: rows<Loan>(db, `SELECT loans.*,
@@ -348,8 +380,10 @@ export function workspace(db: Store): Workspace {
     closingProgress: rows<ClosingProgress>(db, "SELECT * FROM closing_progress"),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt, officerEmail FROM realtor_portals"),
     referralLeads,
+    inboxLeads,
+    leadRouting: leadRouting(db),
     unlinkedReferrals: rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt, officer, officerEmail
-      FROM referral_leads WHERE loanId IS NULL ORDER BY createdAt DESC, id`),
+      FROM referral_leads WHERE loanId IS NULL AND realtorId IS NOT NULL ORDER BY createdAt DESC, id`),
     applications: staffApplications(db),
     documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries">>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
       failures.failedAt AS uwmDeliveryFailedAt, ${pdfColumns()}

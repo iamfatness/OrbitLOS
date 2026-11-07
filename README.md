@@ -22,6 +22,14 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 
 The loan header shows its owner, stage age, next action, due date, and blocker. Use **Filters** in the pipeline or **Loan work status** in Tasks to find overdue, stalled, unassigned, or paused files. **Change loan status** records a hold, withdrawal, or lost lead with a reason. A hold can have a revisit date. Reopening brings the existing open work back to the assigned staff member.
 
+### Try the lead inbox
+
+1. In a fictional pilot workspace, open **Lead Inbox → Lead routing and quote form** as an admin. Choose an active loan officer or the shared inbox for website leads. Realtor referrals can keep the link owner, use the shared inbox, or route to a selected officer. Set the first-contact deadline and mock follow-up intervals.
+2. Choose **Enable link**, save routing, and open or copy the public quote form. Submit a fictional request with a name and an email or phone. A ZIP is optional. The form is scoped to this brokerage. Replace or disable the link to retire it.
+3. Refresh **Lead Inbox**. An LO can claim an unassigned website lead. A brokerage admin can assign a lead to an active officer. Overdue first contacts surface in **Tasks** and open the lead directly.
+4. In **Work lead**, record a mock sequence step, pause or resume the sequence, or stop it. Log a sample outreach outcome to clear the first-contact deadline. A connected conversation or reply stops the sequence. Mock sends stay in Orbit.
+5. Review possible contact matches, then choose **Create loan and prefill 1003**. The loan retains its source, owner, and outreach history.
+
 ### Try UWM alerts
 
 After the first mock sync, assign Charlotte Kim’s loan to your account from **Edit loan** or **Team**. In **Integrations**, choose **Simulate UWM changes**. This one-time update for the workspace changes her UWM status, adds an insurance condition, and reopens the property condition.

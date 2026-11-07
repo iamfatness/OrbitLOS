@@ -8,6 +8,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import { scopeWorkspace } from "./workspace-access";
 import { realtorReferrals } from "./realtor-portal";
 import { initializeStore, readWorkspace, type SqlValue, type Store } from "./store";
+import { leadRouting, receiveQuoteLead } from "./lead-inbox";
 
 let connection: Store | undefined;
 
@@ -73,4 +74,9 @@ export function reserveBorrowerAddressLookup(token: string) {
 
 export async function loadRealtorReferrals(input: unknown) {
   return realtorReferrals(database(), input);
+}
+
+export async function submitQuoteRequest(input: unknown) {
+  const db = database();
+  return receiveQuoteLead(db, input, leadRouting(db), null);
 }

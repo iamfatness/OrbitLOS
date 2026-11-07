@@ -18,6 +18,8 @@ import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorro
 import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
 import { loadPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback } from "./lib/pilot";
+import { assignInboxLeadInput, quoteLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
+import { leadRouting, receiveQuoteLead } from "./lib/lead-inbox";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -60,6 +62,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   async write(input: unknown, staff: WorkspaceStaff | null) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     let referralOwner: StaffIdentity | undefined;
+    let leadMembers: StaffIdentity[] = [];
     if (staff?.brokerage.role === "Admin" && input && typeof input === "object" && "type" in input &&
       input.type === "createRealtorPortal" && "officerEmail" in input && typeof input.officerEmail === "string" &&
       input.officerEmail !== staff.email) {
@@ -69,7 +72,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       referralOwner = team.members.find((member) => member.email === input.officerEmail && member.status === "Active" && member.role !== "Processor");
       if (!referralOwner) return { error: "Select an active staff member in this brokerage." };
     }
-    const result = await executeCommand(this.#store, input, staff, referralOwner);
+    if (staff?.brokerage.role === "Admin" && (saveLeadRoutingInput.safeParse(input).success || assignInboxLeadInput.safeParse(input).success)) {
+      const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+      const team = this.#id === demoBrokerageId ? this.team(staff, emails)
+        : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);
+      leadMembers = team.members.filter((member) => member.status === "Active" && member.role !== "Processor");
+    }
+    const result = await executeCommand(this.#store, input, staff, referralOwner, leadMembers);
     if ("state" in result && input && typeof input === "object" && "type" in input && input.type === "deleteLoan") await this.#scheduleCleanup();
     return result;
   }
@@ -149,6 +158,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return row ? { pilot: Boolean(row.pilot) } : null;
   }
   hasBrokerage(id: string) { return !!this.brokerageDetails(id); }
+  leadOwner(id: string, email: string, emails: string[]): StaffIdentity | null {
+    if (this.#id !== demoBrokerageId) return null;
+    const member = brokerageMembers(this.#store, id, emails).find((item) => item.email === email && item.status === "Active" && item.role !== "Processor");
+    return member ? { email: member.email, name: member.name } : null;
+  }
   team(staff: WorkspaceStaff, emails: string[]) {
     if (!activeBrokerages(this.#store, staff.email, emails).some((entry) => entry.id === staff.brokerage.id && entry.role === "Admin")) return { members: [], history: [] };
     return { members: brokerageMembers(this.#store, staff.brokerage.id, emails), history: brokerageHistory(this.#store, staff.brokerage.id) };
@@ -185,8 +199,30 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return borrowerCommandResult(this.#store, input,
       pilot || this.#id === demoBrokerageId || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot);
   }
-  realtor(input: unknown, pilot = false) {
-    return realtorReferrals(this.#store, input, undefined, pilot);
+  async #resolveLeadOwner(email: string | null, emails: string[]) {
+    if (!email) return null;
+    return this.#id === demoBrokerageId ? this.leadOwner(this.#id, email, emails)
+      : await this.env.WORKSPACE.getByName(demoBrokerageId).leadOwner(this.#id, email, emails);
+  }
+  async realtor(input: unknown, pilot = false, emails: string[] = []) {
+    if (!input || typeof input !== "object" || !("type" in input) || input.type !== "submit") {
+      return realtorReferrals(this.#store, input, undefined, pilot);
+    }
+    const routing = leadRouting(this.#store);
+    let target = routing.realtorOwner;
+    if (routing.realtorRoute === "Link owner") {
+      if (!googleSettings(this.env) || !("token" in input) || typeof input.token !== "string") return realtorReferrals(this.#store, input, undefined, pilot);
+      const portal = this.#store.prepare("SELECT officerEmail FROM realtor_portals WHERE token = ?").get(input.token);
+      target = typeof portal?.officerEmail === "string" ? portal.officerEmail : null;
+    }
+    const owner = await this.#resolveLeadOwner(target, emails);
+    return realtorReferrals(this.#store, input, undefined, pilot, { revision: routing.revision, owner });
+  }
+  async quoteLead(input: unknown, emails: string[]) {
+    const routing = leadRouting(this.#store);
+    const parsed = quoteLeadInput.safeParse(input);
+    const owner = parsed.success && routing.quoteToken === parsed.data.token ? await this.#resolveLeadOwner(routing.websiteOwner, emails) : null;
+    return receiveQuoteLead(this.#store, input, routing, owner);
   }
 
   reserveAddressLookup(token: string) {
@@ -273,10 +309,17 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/realtor-referrals") {
       return realtorHttp(request, async (input) => {
         const link = await linkedWorkspace(input);
-        return link ? link.store.realtor(input, link.pilot) : { status: 404, error: "This referral link is invalid or expired." };
+        return link ? link.store.realtor(input, link.pilot, bootstrapEmails) : { status: 404, error: "This referral link is invalid or expired." };
       });
     }
-    const tokenPage = reading && (url.pathname === "/apply" || url.pathname === "/referrals");
+    if (request.method === "POST" && url.pathname === "/api/quote-requests") {
+      return borrowerJson(request, async (input) => {
+        const link = await linkedWorkspace(input);
+        return link && (link.pilot || link.id === demoBrokerageId) ? link.store.quoteLead(input, bootstrapEmails)
+          : { status: 404, error: "This quote request link is unavailable." };
+      }, 2048);
+    }
+    const tokenPage = reading && (url.pathname === "/apply" || url.pathname === "/referrals" || url.pathname === "/quote");
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
       return handleStaffAuth(request, url, google, directory, (staff) => directory.activateStaff(staff, bootstrapEmails));
     }

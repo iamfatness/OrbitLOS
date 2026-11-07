@@ -3,23 +3,23 @@ import type { Store } from "./store";
 import type { RealtorReferrals } from "./model";
 import { borrowerJson } from "./borrower-http";
 import { portalTokenPattern } from "./brokerage-model";
-import { referralPhone } from "./referral-matches";
 import { accessEvent } from "./workspace-access";
+import { leadContactFields } from "./lead-inbox-model";
+import { firstContactDue, leadRouting, startLeadFollowUp } from "./lead-inbox";
+import type { StaffIdentity } from "./staff-store";
 
 export type RealtorPortalResult = { value: RealtorReferrals } | { status: number; error: string };
 
 const token = z.string().regex(portalTokenPattern);
 const referralSubmission = z.object({
   type: z.literal("submit"), token, requestId: z.uuid(),
-  name: z.string().trim().min(1).max(160),
-  email: z.string().trim().max(160).refine((value) => !value || z.email().safeParse(value).success),
-  phone: z.string().trim().max(40).refine((value) => !value || /^[+\d().\s-]+$/.test(value) && /^\d{10,15}$/.test(referralPhone(value))),
-  purpose: z.enum(["Purchase", "Refinance"]), consent: z.literal(true),
+  ...leadContactFields, consent: z.literal(true),
 }).refine((value) => !!(value.email || value.phone));
 const portalCommand = z.union([referralSubmission, z.object({ type: z.literal("read").optional(), token })]);
 const hour = 3_600_000;
 
-export function realtorReferrals(db: Store, input: unknown, now = new Date().toISOString(), pilot = false): RealtorPortalResult {
+export function realtorReferrals(db: Store, input: unknown, now = new Date().toISOString(), pilot = false,
+  routed?: { revision: number; owner: StaffIdentity | null }): RealtorPortalResult {
   const parsed = portalCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check your referral link and enter a name, a valid email or phone number, and permission to share." };
   const data = parsed.data;
@@ -35,10 +35,15 @@ export function realtorReferrals(db: Store, input: unknown, now = new Date().toI
       const recent = db.prepare("SELECT count(*) AS total FROM referral_leads WHERE realtorId = ? AND createdAt > ?")
         .get(portal.realtorId, new Date(nowMs - hour).toISOString());
       if (Number(recent?.total) >= 20) return { status: 429, error: "This referral link has reached its hourly limit. Try again later." };
+      const routing = leadRouting(db);
+      if (routed && routed.revision !== routing.revision) return { status: 409, error: "Routing changed. Submit the referral again." };
+      const useLinkOwner = !routed && routing.realtorRoute === "Link owner";
       const id = crypto.randomUUID();
       db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, data.requestId, portal.realtorId, data.name,
-        data.email, data.phone, data.purpose, portal.officer, portal.officerEmail, now, new Date(nowMs + 24 * hour).toISOString());
+        data.email, data.phone, data.purpose, useLinkOwner ? portal.officer : routed?.owner?.name.slice(0, 160) ?? "",
+        useLinkOwner ? portal.officerEmail : routed?.owner?.email ?? null, now, firstContactDue(now, routing));
+      startLeadFollowUp(db, id, now);
       if (pilot) accessEvent(db, { name: "Realtor", email: "Realtor" }, "Pilot referral received", id, now);
     }
 

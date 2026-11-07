@@ -50,7 +50,7 @@ export function addApplicationActivity(db: Store, loanId: string, text: string, 
     .run(crypto.randomUUID(), loanId, text, now);
 }
 
-export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string, contact?: Pick<Contact, "email" | "phone">) {
+export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string, contact?: Pick<Contact, "email" | "phone">, propertyZip?: string) {
   const loan = db.prepare("SELECT loans.address, loans.amount, loans.purpose, contacts.name FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?").get(loanId);
   if (!loan) return false;
   const existing = getApplication(db, loanId);
@@ -64,7 +64,8 @@ export function startApplication(db: Store, loanId: string, now: string, brokera
   }
   const property = splitLegacyAddress(String(loan.address));
   const draft: ApplicationDraft = {
-    ...blankApplication(), borrowerName: String(loan.name), propertyAddress: property.street, propertyLocation: property.location,
+    ...blankApplication(), borrowerName: String(loan.name), propertyAddress: property.street,
+    propertyLocation: { ...property.location, zip: property.location.zip || propertyZip || "" },
     email: contact && contact.email.length <= 160 ? contact.email : "", phone: contact?.phone ?? "",
     loanAmount: Number(loan.amount) > 0 ? String(loan.amount) : "",
     purpose: loan.purpose === "Refinance" ? "Refinance" : "Purchase",

@@ -18,6 +18,8 @@ import { referralMatches } from "./referral-matches";
 import { mockAusInput, mockCreditInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
 import { trackPilotBorrower } from "./pilot";
 import { contactDuplicate, contactImportLimit, contactImportRow } from "./contact-csv";
+import { assignInboxLeadInput, leadContactInput, leadSequenceInput, saveLeadRoutingInput } from "./lead-inbox-model";
+import { carryLeadHistory, changeLeadRouting, stopLeadFollowUp, updateInboxLead } from "./lead-inbox";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -62,6 +64,10 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("revokeRealtorPortal"), realtorId: id }),
   z.object({ type: z.literal("convertReferral"), referralId: z.uuid(), contactId: id.nullable(), allowDuplicate: z.boolean().default(false) }),
   z.object({ type: z.literal("dismissReferral"), referralId: z.uuid() }),
+  saveLeadRoutingInput,
+  assignInboxLeadInput,
+  leadContactInput,
+  leadSequenceInput,
   z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000),
     eventId: z.uuid().optional(), outcome: z.enum(contactOutcomes).optional(), followUp: z.iso.date().optional() }),
   z.object({ type: z.literal("saveBrokerageTemplate"), audience: z.enum(["Borrower", "Realtor"]), milestone: z.enum(draftMilestones),
@@ -154,7 +160,7 @@ export interface WorkspaceMutationSuccess {
   applicationLoanId?: string;
 }
 
-export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity):
+export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity, leadMembers: StaffIdentity[] = []):
   Promise<WorkspaceMutationSuccess | { error: string }> {
   const parsed = command.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Check the form and try again." };
@@ -356,16 +362,36 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare("DELETE FROM realtor_portals WHERE realtorId = ?").run(data.realtorId);
           message = "Realtor referral link revoked.";
           break;
+        case "saveLeadRouting": {
+          const result = changeLeadRouting(db, staff, data, leadMembers);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          accessEvent(db, staff, "Updated lead routing", staff?.brokerage.id ?? demoBrokerageId, now);
+          message = result.message;
+          break;
+        }
+        case "assignInboxLead":
+        case "leadSequence":
+        case "leadContact": {
+          const result = updateInboxLead(db, staff, data, leadMembers, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
         case "convertReferral":
         case "dismissReferral": {
           const lead = db.prepare("SELECT * FROM referral_leads WHERE id = ?").get(data.referralId);
           const limited = staff?.brokerage.role === "LO";
-          if (!lead || (limited && lead.officerEmail !== staff.email)) throw new WorkspaceError("This referral is unavailable.");
+          if (!lead || (limited && lead.officerEmail !== staff.email)) throw new WorkspaceError("This lead is unavailable.");
+          const realtorId = typeof lead.realtorId === "string" ? lead.realtorId : null;
+          const source = realtorId ? "Realtor referral" : "Website quote request";
           if (data.type === "dismissReferral") {
             if (lead.loanId) throw new WorkspaceError("This referral has already been converted.");
             db.prepare("UPDATE referral_leads SET resolvedAt = ? WHERE id = ? AND resolvedAt IS NULL").run(now, data.referralId);
-            if (!lead.resolvedAt) accessEvent(db, staff, "Dismissed referral", data.referralId, now);
-            message = "Referral dismissed.";
+            if (!lead.resolvedAt) {
+              stopLeadFollowUp(db, data.referralId);
+              accessEvent(db, staff, realtorId ? "Dismissed referral" : "Dismissed quote request", data.referralId, now);
+            }
+            message = realtorId ? "Referral dismissed." : "Quote request dismissed.";
             break;
           }
           if (lead.resolvedAt) {
@@ -392,19 +418,22 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             if (matches.length && !data.allowDuplicate) throw new WorkspaceError("A possible contact match exists. Refresh tasks and choose how to handle it.");
             contact = { id: crypto.randomUUID(), name: String(lead.name), email, phone, role: "Borrower" };
             insertContact(db, contact);
-            if (staff?.brokerage.pilot) trackPilotBorrower(db, String(lead.realtorId), contact.id);
+            if (staff?.brokerage.pilot && realtorId) trackPilotBorrower(db, realtorId, contact.id);
           }
           const loanId = crypto.randomUUID();
-          insertLoan(db, { id: loanId, contactId: contact.id, partnerId: String(lead.realtorId), officer: staff?.name.slice(0, 160) || "Alex Morgan",
-            officerEmail: staff?.email ?? null, address: "", amount: 0, purpose: lead.purpose as Purpose, stage: "Lead", stageSince: now, createdAt: String(lead.createdAt) });
-          db.prepare("INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Make first contact', ?)")
-            .run(`first-contact:${loanId}`, loanId, lead.dueAt);
-          if (!startApplication(db, loanId, now, staff?.brokerage.id, contact)) throw new WorkspaceError("Orbit could not create the borrower link.");
+          const assignedEmail = typeof lead.officerEmail === "string" ? lead.officerEmail : staff?.email ?? null;
+          insertLoan(db, { id: loanId, contactId: contact.id, partnerId: realtorId, officer: String(lead.officer || staff?.name || "Alex Morgan").slice(0, 160),
+            officerEmail: assignedEmail, address: "", amount: 0, purpose: lead.purpose as Purpose,
+            stage: "Lead", stageSince: now, createdAt: String(lead.createdAt), leadSource: source });
+          const firstContactAt = carryLeadHistory(db, data.referralId, loanId);
+          db.prepare("INSERT INTO tasks (id, loanId, title, dueAt, completedAt) VALUES (?, ?, 'Make first contact', ?, ?)")
+            .run(`first-contact:${loanId}`, loanId, lead.dueAt, firstContactAt);
+          if (!startApplication(db, loanId, now, staff?.brokerage.id, contact, String(lead.zip ?? ""))) throw new WorkspaceError("Orbit could not create the borrower link.");
           db.prepare("UPDATE referral_leads SET resolvedAt = ?, loanId = ? WHERE id = ?").run(now, loanId, data.referralId);
-          addApplicationActivity(db, loanId, "Converted realtor referral to a loan with a prefilled 1003.", now);
-          accessEvent(db, staff, "Converted referral", data.referralId, now);
+          addApplicationActivity(db, loanId, `Converted ${source.toLowerCase()} to a loan with a prefilled 1003.`, now);
+          accessEvent(db, staff, realtorId ? "Converted referral" : "Converted quote request", data.referralId, now);
           referralLoanId = loanId;
-          message = "Referral converted. The prefilled 1003 is ready to share.";
+          message = realtorId ? "Referral converted. The prefilled 1003 is ready to share." : "Quote request converted. The prefilled 1003 is ready to share.";
           break;
         }
         case "startApplication": {

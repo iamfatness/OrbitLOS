@@ -3,6 +3,7 @@ import type { LoanDocumentRequest } from "./document-model";
 import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
 import type { MockCreditAusRun } from "./credit-aus-model";
 import type { UwmAlert } from "./uwm-alert-model";
+import type { LeadFollowUp, LeadRouting } from "./lead-inbox-model";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -13,7 +14,7 @@ export const dispositions = ["Active", "On hold", "Withdrawn", "Lost"] as const;
 export type Disposition = (typeof dispositions)[number];
 export type ContactRole = "Borrower" | "Co-borrower" | "Realtor";
 export type Purpose = "Purchase" | "Refinance";
-export const leadSources = ["Direct", "Realtor referral", "Returning client", "Other"] as const;
+export const leadSources = ["Direct", "Realtor referral", "Returning client", "Website quote request", "Other"] as const;
 
 export interface Contact {
   id: string;
@@ -173,6 +174,15 @@ export interface ReferralLead {
   dueAt: string;
 }
 
+export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName"> {
+  realtorId: string | null;
+  realtorName: string | null;
+  zip: string;
+  followUp: LeadFollowUp;
+  matches: ReferralReview["matches"];
+  restrictedMatch: boolean;
+}
+
 export interface ReferralReview extends ReferralLead {
   matches: { id: string; name: string; reason: string }[];
   restrictedMatch: boolean;
@@ -202,6 +212,8 @@ export interface Workspace {
   closingProgress: ClosingProgress[];
   realtorPortals: RealtorPortal[];
   referralLeads: ReferralReview[];
+  inboxLeads: InboxLead[];
+  leadRouting: LeadRouting | null;
   unlinkedReferrals: UnlinkedReferral[];
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];

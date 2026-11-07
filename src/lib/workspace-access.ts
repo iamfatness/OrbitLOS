@@ -16,8 +16,13 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
     const matches = lead.matches.filter((match) => contacts.has(match.id));
     return { ...lead, matches, restrictedMatch: matches.length !== lead.matches.length };
   });
+  const inboxLeads = state.inboxLeads.filter((lead) => staff.brokerage.role === "LO" &&
+    (lead.officerEmail === staff.email || (!lead.officerEmail && !lead.realtorId))).map((lead) => {
+    const matches = lead.matches.filter((match) => contacts.has(match.id));
+    return { ...lead, matches, restrictedMatch: matches.length !== lead.matches.length };
+  });
   return { ...state, loans, contacts: state.contacts.filter((contact) => contacts.has(contact.id)), realtorPortals: [],
-    referralLeads, unlinkedReferrals: [],
+    referralLeads, inboxLeads, leadRouting: null, unlinkedReferrals: [],
     submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: scoped(state.tasks),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),
     closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scoped(state.applications),

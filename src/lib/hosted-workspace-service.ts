@@ -32,3 +32,8 @@ export async function reserveBorrowerAddressLookup(token: string) {
 export async function loadRealtorReferrals(input: unknown) {
   return (await linkedWorkspace(input))?.realtor(input) ?? { status: 404, error: "This referral link is invalid or expired." };
 }
+
+export async function submitQuoteRequest(input: unknown) {
+  const workspace = await linkedWorkspace(input);
+  return workspace?.quoteLead(input, [...(googleSettings(env)?.allowedEmails ?? [])]) ?? { status: 404, error: "This quote request link is unavailable." };
+}

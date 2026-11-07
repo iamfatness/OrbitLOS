@@ -21,16 +21,18 @@ import { BrokerageTemplates, CommunicationQueue } from "./loan-communications";
 import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
 import { ReferralQueue } from "./referral-queue";
+import { LeadInbox, firstContactOverdue } from "./lead-inbox";
 import { UwmAlertQueue } from "./uwm-alert-queue";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 
-type Section = "Pipeline" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team";
+type Section = "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team";
 const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
 const navigation = [
   { label: "Pipeline", icon: LayoutDashboard },
+  { label: "Lead Inbox", icon: ContactRound },
   { label: "Contacts", icon: ContactRound },
   { label: "Realtors", icon: UsersRound },
   { label: "Past Clients", icon: HeartHandshake },
@@ -45,6 +47,7 @@ const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: ""
 const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
 const descriptions: Record<Section, string> = {
   Pipeline: "Manage your loans and keep up with lender updates.",
+  "Lead Inbox": "Route quote requests and referrals, follow up, and start a 1003.",
   Contacts: "Manage borrowers, co-borrowers, and realtor partners.",
   Realtors: "Track referred loans and share milestone updates with realtor partners.",
   "Past Clients": "Keep in touch after closing with anniversary reminders and rate targets.",
@@ -88,6 +91,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const [dropStage, setDropStage] = useState<Stage | null>(null);
   const [taskView, setTaskView] = useState<TaskView>("Open");
   const [taskOfficer, setTaskOfficer] = useState("");
+  const [focusLeadId, setFocusLeadId] = useState<string>();
   const [taskFocus, setTaskFocus] = useState<WorkFilter | "">("");
   const pending = useRef(false);
   const dragged = useRef<string | null>(null);
@@ -121,9 +125,10 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
   const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
-  const openTasks = state.tasks.filter((task) => !task.completedAt && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + state.referralLeads.length
+  const pendingContact = state.inboxLeads.filter((lead) => !lead.followUp.firstContactAt);
+  const openTasks = state.tasks.filter((task) => !task.completedAt && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + pendingContact.length
     + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length;
-  const officers = new Map([...state.loans, ...state.referralLeads].filter((loan) => loan.officer).map((loan) => [
+  const officers = new Map([...state.loans, ...state.inboxLeads].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
   ]));
   const mine = staff ? `account:${staff.email}` : `name:${demoOfficer}`;
@@ -138,7 +143,19 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   }
   const visibleReferrals = state.referralLeads.filter((lead) => {
     const brokerageQueue = !lead.officerEmail && (!staff || staff.brokerage.role === "Admin");
-    return taskView !== "Completed" && (taskScope(lead) || (taskOfficer === "mine" && brokerageQueue)) && dueInView(lead.dueAt);
+    return taskView !== "Completed" && pendingContact.some((item) => item.id === lead.id) &&
+      (taskScope(lead) || (taskOfficer === "mine" && brokerageQueue)) && dueInView(lead.dueAt);
+  });
+  const incomingLeadTasks = taskView === "Completed" ? [] : state.inboxLeads.flatMap((lead) => {
+    const shared = !lead.officerEmail && admin && taskOfficer === "mine";
+    if (!taskScope(lead) && !shared) return [];
+    const due = firstContactOverdue(lead, taskNow);
+    if (!lead.followUp.firstContactAt && (due || !lead.realtorId) && dueInView(lead.dueAt)) {
+      return [{ lead, title: due ? "First contact overdue" : "Contact new quote request", dueAt: lead.dueAt }];
+    }
+    const nextAt = lead.followUp.nextAt;
+    return lead.followUp.status === "Active" && nextAt && Date.parse(nextAt) <= taskNow && dueInView(nextAt)
+      ? [{ lead, title: "Mock follow-up step due", dueAt: nextAt }] : [];
   });
   const showUwmAlerts = taskView === "Open" || taskView === "Completed" || taskView === "All";
   const visibleUwmAlerts = showUwmAlerts ? state.uwmAlerts.flatMap((alert) => {
@@ -178,6 +195,12 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
     }
   }
 
+  function convertLead(id: string, contactId: string | null, allowDuplicate: boolean) {
+    void save({ type: "convertReferral", referralId: id, contactId, allowDuplicate }, ({ referralLoanId }) => {
+      if (referralLoanId) setModal({ kind: "details", loanId: referralLoanId, target: "loan-application" });
+    });
+  }
+
   async function sync() {
     if (pending.current) return;
     setSyncing(true);
@@ -190,9 +213,10 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
 
   function navigate(next: Section) {
     setSection(next);
+    setFocusLeadId(undefined);
     setQuery("");
     setError("");
-    if (next === "Tasks" || next === "Communications" || next === "Realtors" || next === "Past Clients") {
+    if (next === "Lead Inbox" || next === "Tasks" || next === "Communications" || next === "Realtors" || next === "Past Clients") {
       void save({ type: "refreshWorkspace" }, undefined, false);
     }
   }
@@ -235,7 +259,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
         <div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
         <div className="workspace-label">WORKSPACE</div>
         <nav aria-label="Workspace navigation">
-          {navigation.filter(({ label }) => (label !== "Team" || staff) && (admin || label !== "Realtors")).map(({ label, icon: Icon }) => (
+          {navigation.filter(({ label }) => (label !== "Team" || staff) && (admin || label !== "Realtors") && (!processor || label !== "Lead Inbox")).map(({ label, icon: Icon }) => (
             <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
               <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
             </button>
@@ -335,6 +359,9 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
             </section>
           </>}
 
+          {section === "Lead Inbox" && <LeadInbox leads={state.inboxLeads} routing={state.leadRouting} staff={staff} now={taskNow} busy={busy}
+            focusLeadId={focusLeadId} save={save} convert={convertLead} />}
+
           {section === "Contacts" && <section className="pipeline">
             <div className="pipeline-heading"><div><h2>All contacts <span>{visibleContacts.length}</span></h2><p>Your borrowers and referral partners.</p></div></div>
             <div className="toolbar"><label className="search"><Search size={17} /><input aria-label="Search contacts" placeholder="Search contacts…" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>
@@ -346,7 +373,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length} shown</span></h2><p>Review referrals, lender updates, and loan follow-ups.</p></div></div>
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
@@ -359,11 +386,16 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
             </div>
             {showUwmAlerts && <UwmAlertQueue items={visibleUwmAlerts} borrower={borrowers} open={openUwmAlert} busy={busy}
               review={(alert) => void save({ type: "reviewUwmAlert", loanId: alert.loanId, alertId: alert.id })} />}
+            {incomingLeadTasks.length > 0 && <div className="work-queue" aria-label="Lead follow-ups">
+              <div className="section-heading"><h3>Lead follow-ups</h3><span className="pill">{incomingLeadTasks.length} open</span></div>
+              <ul className="loan-task-list">{incomingLeadTasks.map(({ lead, title, dueAt }) => <li className="loan-task" key={lead.id}>
+                <div className="loan-task-copy"><strong>{title}</strong><span>{lead.name} · {lead.officer || "Shared inbox"}</span><span>{dateTime(dueAt)} ET</span></div>
+                <Button size="sm" variant="outline" onClick={() => { navigate("Lead Inbox"); setFocusLeadId(lead.id); }}>Open lead</Button>
+              </li>)}</ul>
+            </div>}
             {taskView !== "Completed" && <ReferralQueue leads={visibleReferrals} now={taskNow} busy={busy}
               refresh={() => void save({ type: "refreshWorkspace" }, undefined, false)}
-              convert={(lead, contactId, allowDuplicate) => void save({ type: "convertReferral", referralId: lead.id, contactId, allowDuplicate }, ({ referralLoanId }) => {
-                if (referralLoanId) setModal({ kind: "details", loanId: referralLoanId, target: "loan-application" });
-              })}
+              convert={(lead, contactId, allowDuplicate) => convertLead(lead.id, contactId, allowDuplicate)}
               dismiss={(lead) => void save({ type: "dismissReferral", referralId: lead.id })} />}
             {taskView !== "Completed" && (focusedLoans.length > 0 || taskFocus) && <div className="work-queue">
               <div className="section-heading"><h3>{taskFocus || "Holds to revisit"}</h3><span className="pill">{focusedLoans.length} loans</span></div>
@@ -385,7 +417,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                   openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id) })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
+            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
               ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
               : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
