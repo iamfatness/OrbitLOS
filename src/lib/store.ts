@@ -1,4 +1,4 @@
-import type { Activity, ClosingItem, ClosingPlan, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, RealtorPortal, Submission, Workspace } from "./model";
+import type { Activity, ClosingItem, ClosingPlan, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, Workspace } from "./model";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
@@ -6,6 +6,7 @@ import type { MockUwmRate, PricingRun, PublishedQuote } from "./pricing-model";
 import type { LoanDocumentRequest } from "./document-model";
 import { pdfColumns } from "./document-files-model";
 import { synchronizeRetentionTasks } from "./client-retention";
+import { referralMatches } from "./referral-matches";
 
 export type SqlValue = string | number | null;
 
@@ -96,8 +97,15 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE INDEX IF NOT EXISTS closing_items_by_loan ON closing_items(loanId, dueDate);
     CREATE TABLE IF NOT EXISTS realtor_portals (
       realtorId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
-      token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL
+      token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL, officerEmail TEXT, officer TEXT NOT NULL DEFAULT ''
     );
+    CREATE TABLE IF NOT EXISTS referral_leads (
+      id TEXT PRIMARY KEY, requestId TEXT NOT NULL, realtorId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, purpose TEXT NOT NULL,
+      officer TEXT NOT NULL, officerEmail TEXT, createdAt TEXT NOT NULL, dueAt TEXT NOT NULL,
+      resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, UNIQUE (realtorId, requestId)
+    );
+    CREATE INDEX IF NOT EXISTS referral_leads_by_realtor ON referral_leads(realtorId, createdAt);
     CREATE TABLE IF NOT EXISTS pricing_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       provider TEXT NOT NULL, mode TEXT NOT NULL, reference TEXT, scenario TEXT NOT NULL,
@@ -130,6 +138,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "officerEmail")) {
       db.exec("ALTER TABLE loans ADD COLUMN officerEmail TEXT");
+    }
+    const portalColumns = db.prepare("PRAGMA table_info(realtor_portals)").all();
+    if (!portalColumns.some((column) => column.name === "officerEmail")) {
+      db.exec("ALTER TABLE realtor_portals ADD COLUMN officerEmail TEXT; ALTER TABLE realtor_portals ADD COLUMN officer TEXT NOT NULL DEFAULT '';");
     }
     if (!db.prepare("PRAGMA table_info(applications)").all().some((column) => column.name === "revokedAt")) {
       db.exec("ALTER TABLE applications ADD COLUMN revokedAt TEXT");
@@ -212,8 +224,14 @@ function rows<T>(db: Store, query: string) {
 }
 
 export function workspace(db: Store): Workspace {
+  const contacts = rows<Contact>(db, "SELECT * FROM contacts ORDER BY name COLLATE NOCASE");
+  const referralLeads = rows<ReferralLead>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
+      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt
+    FROM referral_leads lead JOIN contacts ON contacts.id = lead.realtorId
+    WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
+    .map((lead) => ({ ...lead, matches: referralMatches(lead, contacts), restrictedMatch: false }));
   return {
-    contacts: rows<Contact>(db, "SELECT * FROM contacts ORDER BY name COLLATE NOCASE"),
+    contacts,
     loans: rows<Loan>(db, "SELECT * FROM loans ORDER BY stageSince DESC, id"),
     submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, "SELECT * FROM submissions ORDER BY lender, id")
       .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) })),
@@ -224,7 +242,8 @@ export function workspace(db: Store): Workspace {
       .map((profile) => ({ ...profile, watchEnabled: Boolean(profile.watchEnabled) })),
     closingPlans: rows<ClosingPlan>(db, "SELECT loanId, targetDate FROM closing_plans"),
     closingItems: rows<ClosingItem>(db, "SELECT * FROM closing_items ORDER BY completedAt IS NOT NULL, dueDate, id"),
-    realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt FROM realtor_portals"),
+    realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt, officerEmail FROM realtor_portals"),
+    referralLeads,
     applications: staffApplications(db),
     documentRequests: rows<LoanDocumentRequest>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id

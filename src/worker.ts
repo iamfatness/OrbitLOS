@@ -58,7 +58,17 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   async write(input: unknown, staff: WorkspaceStaff | null) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
-    const result = await executeCommand(this.#store, input, staff);
+    let referralOwner: StaffIdentity | undefined;
+    if (staff?.brokerage.role === "Admin" && input && typeof input === "object" && "type" in input &&
+      input.type === "createRealtorPortal" && "officerEmail" in input && typeof input.officerEmail === "string" &&
+      input.officerEmail !== staff.email) {
+      const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+      const team = this.#id === demoBrokerageId ? this.team(staff, emails)
+        : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);
+      referralOwner = team.members.find((member) => member.email === input.officerEmail && member.status === "Active");
+      if (!referralOwner) return { error: "Select an active staff member in this brokerage." };
+    }
+    const result = await executeCommand(this.#store, input, staff, referralOwner);
     if ("state" in result && input && typeof input === "object" && "type" in input && input.type === "deleteLoan") await this.#scheduleCleanup();
     return result;
   }

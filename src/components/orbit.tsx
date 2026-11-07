@@ -18,6 +18,7 @@ import { BrokerageTeam } from "./brokerage-team";
 import { CommunicationQueue } from "./loan-communications";
 import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
+import { ReferralQueue } from "./referral-queue";
 
 type Section = "Pipeline" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team";
 const demoOfficer = "Alex Morgan";
@@ -36,7 +37,7 @@ const navigation = [
 
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
 const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: "" };
-const taskOwner = (loan: Loan) => loan.officerEmail ? `account:${loan.officerEmail}` : `name:${loan.officer}`;
+const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
 const descriptions: Record<Section, string> = {
   Pipeline: "Manage your loans and keep up with lender updates.",
   Contacts: "Manage borrowers, co-borrowers, and realtor partners.",
@@ -104,27 +105,34 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const visibleContacts = state.contacts.filter((contact) => [contact.name, contact.email, contact.role, contact.phone].some((field) => field.toLowerCase().includes(search)));
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
-  const openTasks = state.tasks.filter((task) => !task.completedAt).length;
+  const openTasks = state.tasks.filter((task) => !task.completedAt).length + state.referralLeads.length;
   const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
-  const officers = new Map(state.loans.filter((loan) => loan.officer).map((loan) => [
+  const officers = new Map([...state.loans, ...state.referralLeads].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
   ]));
   const mine = staff ? `account:${staff.email}` : `name:${demoOfficer}`;
-  const taskScope = (loan: Loan) => !taskOfficer || taskOwner(loan) === (taskOfficer === "mine" ? mine : taskOfficer);
+  const taskScope = (item: Pick<Loan, "officer" | "officerEmail">) => !taskOfficer || taskOwner(item) === (taskOfficer === "mine" ? mine : taskOfficer);
   const taskNow = Date.parse(new Date().toISOString());
+  function dueInView(dueAt: string) {
+    const due = Date.parse(dueAt);
+    if (taskView === "Overdue") return due < taskNow;
+    if (taskView === "Due in 24 hours") return due >= taskNow && due <= taskNow + 86_400_000;
+    return true;
+  }
+  const visibleReferrals = state.referralLeads.filter((lead) => {
+    const brokerageQueue = !lead.officerEmail && (!staff || staff.brokerage.role === "Admin");
+    return taskView !== "Completed" && (taskScope(lead) || (taskOfficer === "mine" && brokerageQueue)) && dueInView(lead.dueAt);
+  });
   const visibleTasks = state.tasks.filter((task) => {
     const loan = taskLoans.get(task.loanId);
     if (!loan || !taskScope(loan)) return false;
     if (taskView === "All") return true;
     if (taskView === "Completed") return !!task.completedAt;
     if (task.completedAt) return false;
-    const due = Date.parse(task.dueAt);
-    if (taskView === "Overdue") return due < taskNow;
-    if (taskView === "Due in 24 hours") return due >= taskNow && due <= taskNow + 86_400_000;
-    return true;
+    return dueInView(task.dueAt);
   });
 
-  async function save(input: unknown, after?: () => void, announce = true) {
+  async function save(input: unknown, after?: (result: { referralLoanId?: string }) => void, announce = true) {
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
@@ -138,7 +146,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
       }
       setState(result.state);
       if (announce) setNotice(result.message);
-      after?.();
+      after?.(result);
     } catch {
       setError("Could not reach Orbit. Please try again.");
     } finally {
@@ -300,7 +308,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length} shown</span></h2><p>Review upcoming work and follow up on open loans.</p></div></div>
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length} shown</span></h2><p>Review new referrals and follow up on open loans.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
@@ -310,6 +318,12 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                 {[...officers].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
             </div>
+            {taskView !== "Completed" && <ReferralQueue leads={visibleReferrals} now={taskNow} busy={busy}
+              refresh={() => void save({ type: "refreshWorkspace" }, undefined, false)}
+              convert={(lead, contactId, allowDuplicate) => void save({ type: "convertReferral", referralId: lead.id, contactId, allowDuplicate }, ({ referralLoanId }) => {
+                if (referralLoanId) setModal({ kind: "details", loanId: referralLoanId, target: "loan-application" });
+              })}
+              dismiss={(lead) => void save({ type: "dismissReferral", referralId: lead.id })} />}
             {(taskView === "Open" || taskView === "All") && <LoanWorkQueue loans={state.loans.filter(taskScope)} state={state} borrower={borrowers}
               open={(loanId, target) => show({ kind: target === "uwm-rate-lock" ? "pricing" : "details", loanId, target })} />}
             {visibleTasks.length ? <ul className="task-queue">
@@ -320,7 +334,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                   openLoan={() => show({ kind: "details", loanId: loan.id })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
+            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length ? "No loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
               ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
               : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
@@ -328,7 +342,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           {section === "Communications" && <CommunicationQueue state={state}
             preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />}
 
-          {section === "Realtors" && <RealtorCrm state={state} busy={busy} save={save}
+          {section === "Realtors" && <RealtorCrm state={state} staff={staff} busy={busy} save={save}
             openLoan={(loanId) => show({ kind: "details", loanId })} editRealtor={(contactId) => show({ kind: "contact", contactId })} />}
 
           {section === "Past Clients" && <PastClients state={state} openLoan={(loanId) => show({ kind: "details", loanId })}

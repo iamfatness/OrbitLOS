@@ -207,6 +207,7 @@ button:disabled { cursor: default; }
 .referral-portal { width: min(100% - 24px, 790px); margin: 24px auto; }
 .referral-portal > .page-heading { margin-top: 24px; }
 .referral-portal-help { margin-top: 12px; }
+.referral-intake-form { display: grid; gap: 12px; }
 .record-form .field textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
 .record-dialog-wide { max-width: min(660px, 100vw); }
 .pricing-panel { display: grid; gap: 14px; }
@@ -342,7 +343,7 @@ button:disabled { cursor: default; }
   .application-shell { width: calc(100% - 20px); }
   .application-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .application-form { padding: 12px; }
-  .application-step > .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .application-step > .form-grid, .referral-intake-form > .form-grid { grid-template-columns: minmax(0, 1fr); }
   .application-actions > .spacer { display: none; }
   .task-form { grid-template-columns: minmax(0, 1fr) auto; }
   .task-form > .field:first-child { grid-column: 1 / -1; }

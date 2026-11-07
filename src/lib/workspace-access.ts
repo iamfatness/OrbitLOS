@@ -9,7 +9,12 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
   const loanIds = new Set(loans.map((loan) => loan.id));
   const contacts = new Set(loans.flatMap((loan) => [loan.contactId, loan.partnerId]));
   const scoped = <T extends { loanId: string }>(items: T[]) => items.filter((item) => loanIds.has(item.loanId));
+  const referralLeads = state.referralLeads.filter((lead) => lead.officerEmail === staff.email).map((lead) => {
+    const matches = lead.matches.filter((match) => contacts.has(match.id));
+    return { ...lead, matches, restrictedMatch: matches.length !== lead.matches.length };
+  });
   return { ...state, loans, contacts: state.contacts.filter((contact) => contacts.has(contact.id)), realtorPortals: [],
+    referralLeads,
     submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: scoped(state.tasks),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),
     closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scoped(state.applications),

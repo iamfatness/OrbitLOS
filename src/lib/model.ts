@@ -115,11 +115,31 @@ export interface RealtorPortal {
   realtorId: string;
   token: string;
   expiresAt: string;
+  officerEmail: string | null;
 }
 
 export interface RealtorReferrals {
   realtorName: string;
-  referrals: { borrowerName: string; stage: Stage; updatedAt: string }[];
+  referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string }[];
+}
+
+export interface ReferralLead {
+  id: string;
+  realtorId: string;
+  realtorName: string;
+  name: string;
+  email: string;
+  phone: string;
+  purpose: Purpose;
+  officer: string;
+  officerEmail: string | null;
+  createdAt: string;
+  dueAt: string;
+}
+
+export interface ReferralReview extends ReferralLead {
+  matches: { id: string; name: string; reason: string }[];
+  restrictedMatch: boolean;
 }
 
 export interface Workspace {
@@ -133,6 +153,7 @@ export interface Workspace {
   closingPlans: ClosingPlan[];
   closingItems: ClosingItem[];
   realtorPortals: RealtorPortal[];
+  referralLeads: ReferralReview[];
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];
   pricingRuns: PricingRun[];

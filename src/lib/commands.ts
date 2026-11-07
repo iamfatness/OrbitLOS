@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, readWorkspace, savedPricingRun, workspace, type Store } from "./store";
-import { activityKinds, stages, type Loan, type Workspace } from "./model";
+import { activityKinds, stages, type Contact, type Loan, type Purpose, type Workspace } from "./model";
 import { sendMockConditionDocument, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
@@ -9,11 +9,12 @@ import { PricingError, pricingProvider } from "./pricing-provider";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 import { createMilestoneDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
-import type { WorkspaceStaff } from "./staff-store";
+import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { accessEvent, isDemoStaff, scopeWorkspace } from "./workspace-access";
 import { demoBrokerageId, portalToken, portalTokenPattern } from "./brokerage-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { documentKinds } from "./document-model";
+import { referralMatches } from "./referral-matches";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -44,8 +45,10 @@ const command = z.discriminatedUnion("type", [
     title: z.string().trim().min(1).max(120), owner: z.string().trim().min(1).max(120), dueDate: z.iso.date() }),
   z.object({ type: z.literal("completeClosingItem"), loanId: id, itemId: z.uuid(), revision: z.number().int().positive(), completed: z.boolean() }),
   z.object({ type: z.literal("recordClosing"), loanId: id, revision: z.number().int().nonnegative(), closingDate: z.iso.date() }),
-  z.object({ type: z.literal("createRealtorPortal"), realtorId: id }),
+  z.object({ type: z.literal("createRealtorPortal"), realtorId: id, officerEmail: z.email().optional() }),
   z.object({ type: z.literal("revokeRealtorPortal"), realtorId: id }),
+  z.object({ type: z.literal("convertReferral"), referralId: z.uuid(), contactId: id.nullable(), allowDuplicate: z.boolean().default(false) }),
+  z.object({ type: z.literal("dismissReferral"), referralId: z.uuid() }),
   z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000) }),
   z.object({ type: z.literal("submission"), id: id.optional(), loanId: id, lender: label, externalId: label, status: label }),
   z.object({ type: z.literal("deleteSubmission"), id }),
@@ -95,7 +98,8 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
   }
 }
 
-export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null): Promise<{ state: Workspace; message: string } | { error: string }> {
+export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity):
+  Promise<{ state: Workspace; message: string; referralLoanId?: string } | { error: string }> {
   const parsed = command.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Check the form and try again." };
   const data = parsed.data;
@@ -119,6 +123,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     const now = new Date().toISOString();
     return db.transaction(() => {
       let message = data.type.startsWith("delete") ? "Removed successfully." : "Saved successfully.";
+      let referralLoanId: string | undefined;
       switch (data.type) {
         case "saveRetention": {
           const loan = db.prepare("SELECT stage FROM loans WHERE id = ?").get(data.loanId);
@@ -201,10 +206,14 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "createRealtorPortal": {
           if (!db.prepare("SELECT 1 FROM contacts WHERE id = ? AND role = 'Realtor'").get(data.realtorId)) throw new WorkspaceError("Choose a realtor contact.");
+          const owner = referralOwner ?? staff;
+          if (data.officerEmail && owner?.email !== data.officerEmail) throw new WorkspaceError("Select an active staff member in this brokerage.");
           const token = portalToken(staff?.brokerage.id);
           const expiresAt = new Date(Date.parse(now) + 7 * 86_400_000).toISOString();
-          db.prepare(`INSERT INTO realtor_portals (realtorId, token, expiresAt) VALUES (?, ?, ?)
-            ON CONFLICT(realtorId) DO UPDATE SET token = excluded.token, expiresAt = excluded.expiresAt`).run(data.realtorId, token, expiresAt);
+          db.prepare(`INSERT INTO realtor_portals (realtorId, token, expiresAt, officer, officerEmail) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(realtorId) DO UPDATE SET token = excluded.token, expiresAt = excluded.expiresAt,
+              officer = excluded.officer, officerEmail = excluded.officerEmail`)
+            .run(data.realtorId, token, expiresAt, owner?.name.slice(0, 160) || "Alex Morgan", owner?.email ?? null);
           accessEvent(db, staff, "Issued realtor link", data.realtorId, now);
           message = "Realtor referral link is ready. It expires in seven days.";
           break;
@@ -214,6 +223,53 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare("DELETE FROM realtor_portals WHERE realtorId = ?").run(data.realtorId);
           message = "Realtor referral link revoked.";
           break;
+        case "convertReferral":
+        case "dismissReferral": {
+          const lead = db.prepare("SELECT * FROM referral_leads WHERE id = ?").get(data.referralId);
+          const limited = staff?.brokerage.role === "LO";
+          if (!lead || (limited && lead.officerEmail !== staff.email)) throw new WorkspaceError("This referral is unavailable.");
+          if (data.type === "dismissReferral") {
+            if (lead.loanId) throw new WorkspaceError("This referral has already been converted.");
+            db.prepare("UPDATE referral_leads SET resolvedAt = ? WHERE id = ? AND resolvedAt IS NULL").run(now, data.referralId);
+            if (!lead.resolvedAt) accessEvent(db, staff, "Dismissed referral", data.referralId, now);
+            message = "Referral dismissed.";
+            break;
+          }
+          if (lead.resolvedAt) {
+            const owner = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(lead.loanId);
+            if (!owner || (limited && owner.officerEmail !== staff.email)) throw new WorkspaceError("This referral has already been closed.");
+            referralLoanId = String(lead.loanId);
+            message = "The referral’s 1003 is already on the loan.";
+            break;
+          }
+          const email = String(lead.email);
+          const phone = String(lead.phone);
+          const contacts = db.prepare("SELECT * FROM contacts WHERE role <> 'Realtor'").all().map((row) => ({
+            id: String(row.id), name: String(row.name), email: String(row.email), phone: String(row.phone), role: row.role as Contact["role"],
+          }));
+          const matches = referralMatches({ email, phone }, contacts);
+          const canUse = (id: string) => !limited || !!db.prepare("SELECT 1 FROM loans WHERE contactId = ? AND officerEmail = ?").get(id, staff.email);
+          let contact = contacts.find((item) => item.id === data.contactId);
+          if (data.contactId && (!contact || !canUse(data.contactId) || !matches.some((match) => match.id === data.contactId))) {
+            throw new WorkspaceError("That contact match is unavailable. Refresh tasks and review the referral again.");
+          }
+          if (!contact) {
+            if (matches.some((match) => !canUse(match.id))) throw new WorkspaceError("A possible match is outside your assigned loans. Ask a brokerage admin to review this referral.");
+            if (matches.length && !data.allowDuplicate) throw new WorkspaceError("A possible contact match exists. Refresh tasks and choose how to handle it.");
+            contact = { id: crypto.randomUUID(), name: String(lead.name), email, phone, role: "Borrower" };
+            insertContact(db, contact);
+          }
+          const loanId = crypto.randomUUID();
+          insertLoan(db, { id: loanId, contactId: contact.id, partnerId: String(lead.realtorId), officer: staff?.name.slice(0, 160) || "Alex Morgan",
+            officerEmail: staff?.email ?? null, address: "", amount: 0, purpose: lead.purpose as Purpose, stage: "Lead", stageSince: now });
+          if (!startApplication(db, loanId, now, staff?.brokerage.id, contact)) throw new WorkspaceError("Orbit could not create the borrower link.");
+          db.prepare("UPDATE referral_leads SET resolvedAt = ?, loanId = ? WHERE id = ?").run(now, loanId, data.referralId);
+          addApplicationActivity(db, loanId, "Converted realtor referral to a loan with a prefilled 1003.", now);
+          accessEvent(db, staff, "Converted referral", data.referralId, now);
+          referralLoanId = loanId;
+          message = "Referral converted. The prefilled 1003 is ready to share.";
+          break;
+        }
         case "startApplication": {
           const before = getApplication(db, data.loanId);
           if (!startApplication(db, data.loanId, now, staff?.brokerage.id)) throw new WorkspaceError("This loan no longer exists.");
@@ -387,7 +443,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "contact": {
           if (data.id) {
             const linkedAs = db.prepare("SELECT contactId, partnerId FROM loans WHERE contactId = ? OR partnerId = ?").all(data.id, data.id);
-            if (linkedAs.some((row) => data.role === "Realtor" ? row.contactId === data.id : row.partnerId === data.id)) {
+            if (linkedAs.some((row) => data.role === "Realtor" ? row.contactId === data.id : row.partnerId === data.id) ||
+              (data.role !== "Realtor" && db.prepare("SELECT 1 FROM referral_leads WHERE realtorId = ? AND resolvedAt IS NULL").get(data.id))) {
               throw new WorkspaceError("Change this contact’s role after updating the linked loans.");
             }
             db.prepare("UPDATE contacts SET name = ?, email = ?, phone = ?, role = ? WHERE id = ?")
@@ -398,6 +455,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "deleteContact":
+          if (db.prepare("SELECT 1 FROM referral_leads WHERE realtorId = ? AND resolvedAt IS NULL").get(data.id)) {
+            throw new WorkspaceError("Review this realtor’s open referrals before deleting the contact.");
+          }
           if (db.prepare("SELECT 1 FROM loans WHERE contactId = ? OR partnerId = ?").get(data.id, data.id)) {
             throw new WorkspaceError("This contact is linked to a loan. Update the loan before deleting the contact.");
           }
@@ -483,7 +543,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
       }
       synchronizeRetentionTasks(db);
-      return { state: scopeWorkspace(workspace(db), staff), message };
+      return { state: scopeWorkspace(workspace(db), staff), message, referralLoanId };
     });
   } catch (error) {
     if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };

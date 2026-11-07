@@ -41,7 +41,11 @@ Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the l
 
 When a 1003 is submitted or a loan changes pipeline stage, Orbit creates a draft for the borrower and any linked realtor. Open **Communications** to see the queue or open a loan to see its draft history. Preview email or text and copy it to use in your messaging app. The history records when each channel was first copied. Realtor drafts contain only a milestone update. Drafts from earlier stages remain in the history.
 
-Open **Realtors** to review a partner's referred loans and open tasks. **Create referral link** gives that partner a seven-day view of the borrower names and milestones on their linked loans. Staff can copy, replace, or revoke the link.
+Open **Realtors**, select a partner and the receiving loan officer, then choose **Create referral link**. The private link expires after seven days. From **Open realtor view**, submit a fictional prospect with an email or phone number and permission to share it. The portal shows **Referral received** and later shows the loan’s milestone.
+
+The receiving officer opens **Tasks → My Tasks** and reviews **Incoming referrals**. A first-contact follow-up is due in 24 hours. Orbit flags existing borrower or co-borrower contacts with matching email or phone. The LO can use a match they have access to or choose a separate contact. A brokerage admin can review matches outside the LO’s assigned loans. Referrals from older links with no assigned officer appear in the brokerage admin queue.
+
+Choose **Create loan and prefill 1003** to open the new loan’s application panel. Share its borrower link using **Copy link**. The draft starts with the contact’s saved name, email and phone and the referred loan purpose. The borrower can edit those fields and save and resume as usual. Email and document scanning are simulated in the original demo.
 
 **Past Clients** lists funded and closed loans. Choose **Edit follow-up** to record the actual closing date. Orbit schedules an annual task for the assigned loan officer and adds the next year's reminder when the workspace is opened after the anniversary. February 29 closings use February 28 in non-leap years. To enable the rate watchlist, record the current note rate and a lower target. Enter an observed rate to compare against that target. When it meets the target, Orbit adds a follow-up task.
 
