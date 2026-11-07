@@ -21,7 +21,7 @@ export function contactDuplicate(row: ContactImportRow, contacts: Pick<Contact, 
       (!email && !phone && existing.name.trim().toLowerCase() === row.name.toLowerCase())));
 }
 
-export function parseContactCsv(input: string) {
+export function readCsv(input: string) {
   if (input.length > 200_000) throw new Error("Choose a smaller CSV file.");
   const rows: string[][] = [];
   let fields: string[] = [];
@@ -49,6 +49,11 @@ export function parseContactCsv(input: string) {
     else value += character;
   }
   if (quoted) throw new Error("Close the quoted CSV field before importing.");
+  return rows;
+}
+
+export function parseContactCsv(input: string) {
+  const rows = readCsv(input);
   const header = rows.shift()?.map((field) => field.toLowerCase()) ?? [];
   const position = (column: string) => header.indexOf(column);
   if (position("name") < 0 || position("role") < 0) throw new Error("Include name and role column headers.");

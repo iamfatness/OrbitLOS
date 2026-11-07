@@ -25,7 +25,8 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
     return { ...lead, matches, restrictedMatch: matches.length !== lead.matches.length };
   });
   return { ...state, loans, contacts: state.contacts.filter((contact) => contacts.has(contact.id)), realtorPortals: [],
-    referralLeads, inboxLeads, leadRouting: null, unlinkedReferrals: [],
+    referralLeads, inboxLeads, leadRouting: null, unlinkedReferrals: [], managerReports: null,
+    mismoLoans: state.mismoLoans.filter((id) => owned.has(id)),
     submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: state.tasks.filter((item) => owned.has(item.loanId)),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),
     closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scoped(state.applications),

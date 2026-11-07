@@ -10,6 +10,7 @@ import { referralMatches } from "./referral-matches";
 import { mockCreditAusRuns } from "./mock-credit-aus";
 import type { UwmAlert } from "./uwm-alert-model";
 import type { InboxLead } from "./model";
+import { managerReports } from "./manager-reports";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
 import type { LoanProcessing } from "./processing-model";
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
@@ -210,6 +211,24 @@ export function initializeStore(db: Store, seedDemo = true) {
       ALTER TABLE referral_leads_next RENAME TO referral_leads;
       CREATE INDEX referral_leads_by_realtor ON referral_leads(realtorId, createdAt);`);
     }
+    if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "importSource")) {
+      db.exec(`ALTER TABLE referral_leads ADD COLUMN importSource TEXT;
+        ALTER TABLE referral_leads ADD COLUMN importedContactId TEXT REFERENCES contacts(id) ON DELETE SET NULL;`);
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS migration_records (
+        origin TEXT NOT NULL, recordKey TEXT NOT NULL, targetId TEXT NOT NULL, PRIMARY KEY (origin, recordKey)
+      );
+      CREATE TABLE IF NOT EXISTS lead_import_tasks (
+        id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
+        title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
+      );
+      CREATE INDEX IF NOT EXISTS lead_import_tasks_by_lead ON lead_import_tasks(leadId);
+      CREATE TABLE IF NOT EXISTS manager_report_views (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS mismo_rehearsals (
+        loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, requestId TEXT NOT NULL UNIQUE, fields TEXT NOT NULL
+      );`);
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS website_request_id ON referral_leads(requestId) WHERE realtorId IS NULL;
       CREATE TABLE IF NOT EXISTS lead_follow_up (
         leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
@@ -370,18 +389,22 @@ function quoteRows<T extends PublishedQuote>(db: Store, query: string) {
     .map((row) => ({ ...row, presentation: row.presentation ? JSON.parse(row.presentation) as QuotePresentation : null }));
 }
 
-export function workspace(db: Store): Workspace {
+export function workspace(db: Store, includeReports = false): Workspace {
   const contacts = rows<Contact>(db, "SELECT * FROM contacts ORDER BY name COLLATE NOCASE");
   const referralLeads = rows<ReferralLead>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
       lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt
     FROM referral_leads lead JOIN contacts ON contacts.id = lead.realtorId
     WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
     .map((lead) => ({ ...lead, matches: referralMatches(lead, contacts), restrictedMatch: false }));
-  const inboxLeads = rows<Omit<InboxLead, "followUp" | "matches" | "restrictedMatch">>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
-      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip
+  const inboxLeads = rows<Omit<InboxLead, "followUp" | "matches" | "restrictedMatch" | "importedTasks">>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
+      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.importedContactId,
+      coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source
     FROM referral_leads lead LEFT JOIN contacts ON contacts.id = lead.realtorId
     WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
-    .map((lead) => ({ ...lead, followUp: leadFollowUp(db, lead.id), matches: referralMatches(lead, contacts), restrictedMatch: false }));
+    .map((lead) => ({ ...lead, followUp: leadFollowUp(db, lead.id),
+      importedTasks: db.prepare("SELECT id, title, dueAt, completedAt FROM lead_import_tasks WHERE leadId = ? ORDER BY dueAt, id")
+        .all(lead.id) as unknown as InboxLead["importedTasks"],
+      matches: referralMatches(lead, contacts), restrictedMatch: false }));
   return {
     contacts,
     loans: rows<Loan>(db, `SELECT loans.*,
@@ -403,6 +426,8 @@ export function workspace(db: Store): Workspace {
     referralLeads,
     inboxLeads,
     leadRouting: leadRouting(db),
+    managerReports: includeReports ? managerReports(db) : null,
+    mismoLoans: rows<{ loanId: string }>(db, "SELECT loanId FROM mismo_rehearsals").map((row) => row.loanId),
     unlinkedReferrals: rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt, officer, officerEmail
       FROM referral_leads WHERE loanId IS NULL AND realtorId IS NOT NULL ORDER BY createdAt DESC, id`),
     applications: staffApplications(db),
@@ -432,9 +457,9 @@ export function workspace(db: Store): Workspace {
   };
 }
 
-export function readWorkspace(db: Store) {
+export function readWorkspace(db: Store, includeReports = false) {
   return db.transaction(() => {
     synchronizeRetentionTasks(db);
-    return workspace(db);
+    return workspace(db, includeReports);
   });
 }

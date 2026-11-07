@@ -24,6 +24,7 @@ import { mockRateStatus } from "@/lib/pricing-model";
 import { ClosingWorkbench } from "./closing-workbench";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
+import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { pausedLoan } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
@@ -316,6 +317,13 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
       <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)} busy={busy} readOnly={processor} save={save} />
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
+      {staff?.brokerage.pilot && state.mismoLoans.includes(loan.id) && <section className="details-section" aria-label="Synthetic loan file">
+        <h3>Synthetic loan file</h3>
+        <p className="muted">Download the original reviewed field mapping for this fictional 1003 rehearsal.</p>
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => void save({ type: "exportMismo", loanId: loan.id }, ({ mismoXml }) => {
+          if (mismoXml) downloadSampleFile(mismoXml, "orbit-fictional-rehearsal.xml", "application/xml");
+        })}>Export original XML mapping</Button>
+      </section>}
       <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />

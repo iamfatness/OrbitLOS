@@ -43,6 +43,13 @@ export default function Product() {
           ))}
         </ol>
       </section>
+      <section className="marketing-section marketing-wrap marketing-story">
+        <div>
+          <p className="marketing-kicker">Brokerage management</p>
+          <h2>Bring over your pipeline and see where it stands.</h2>
+        </div>
+        <p>In the fictional pilot, admins can map a CRM export, review matching contacts, and bring open leads, owners, notes, and tasks into Orbit. Managers can save reports on lead response, 1003 conversion, and projected and recorded funding, with links to the files behind the numbers.</p>
+      </section>
       <section className="marketing-section marketing-wrap marketing-banner-wrap">
         <div className="marketing-banner">
           <div>

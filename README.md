@@ -67,6 +67,14 @@ In **Realtors → Partner conversion**, filter the cohort by lead date, current 
 
 **Past Clients** lists funded and closed loans. Choose **Edit follow-up** to record the actual closing date. Orbit schedules an annual task for the assigned loan officer and adds the next year's reminder when the workspace is opened after the anniversary. February 29 closings use February 28 in non-leap years. To enable the rate watchlist, record the current note rate and a lower target. Enter an observed rate to compare against that target. When it meets the target, Orbit adds a follow-up task.
 
+## Rehearse a brokerage migration
+
+1. As an admin in a fictional pilot brokerage, open **Migration**. Load the sample CSV or download the template. A lead can point to a contact's external ID. Each note or task points to a lead's external ID. Use active brokerage staff email addresses to assign owners, or leave them blank for the shared inbox.
+2. Review the mapping and choose **Preview migration**. Resolve duplicate contacts by reusing an existing contact or skipping the flagged row. Review the counts and choose **Import reviewed records**. Keep the source key stable across batches so the same external IDs reconcile without creating more records.
+3. As the assigned LO, find imported tasks under **Tasks**, then open the lead. Converting the lead carries the notes and tasks onto the loan and prefills its 1003.
+4. As a brokerage admin, open **Reports**. Choose an officer, source, or date range and save the view. Select a count to open its leads or loans. Lead response and conversion use a lead creation cohort. The funding totals use the target closing date and recorded funding date, respectively.
+5. In **Migration**, load the synthetic MISMO 3.4 sample, review the ten mapped fields, and confirm the values are fictional. Create the 1003 draft, then use **Export original XML mapping** on the loan to download the reviewed fields and load them back into the preview. This is a limited mapping rehearsal. Lender submission requires the applicable full mapping, schemas, and validation. [Fannie Mae Form 1003 and ULAD resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
+
 ## Try mock credit and automated underwriting
 
 Open any sample loan and find **Credit & AUS** in its details. Select **Confirm mock credit authorization** and **Run mock credit** to generate a fictional score and report reference. With that report available, run **Desktop Underwriter (DU)** or **Loan Product Advisor (LPA)** and review the sample findings.

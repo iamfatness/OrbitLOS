@@ -16,7 +16,7 @@ export const dispositions = ["Active", "On hold", "Withdrawn", "Lost"] as const;
 export type Disposition = (typeof dispositions)[number];
 export type ContactRole = "Borrower" | "Co-borrower" | "Realtor";
 export type Purpose = "Purchase" | "Refinance";
-export const leadSources = ["Direct", "Realtor referral", "Returning client", "Website quote request", "Other"] as const;
+export const leadSources = ["Direct", "Realtor referral", "Returning client", "Website quote request", "Imported CRM", "Other"] as const;
 
 export interface Contact {
   id: string;
@@ -180,9 +180,19 @@ export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName
   realtorId: string | null;
   realtorName: string | null;
   zip: string;
+  importedContactId: string | null;
+  source: (typeof leadSources)[number];
+  importedTasks: ImportedLeadTask[];
   followUp: LeadFollowUp;
   matches: ReferralReview["matches"];
   restrictedMatch: boolean;
+}
+
+export interface ImportedLeadTask {
+  id: string;
+  title: string;
+  dueAt: string;
+  completedAt: string | null;
 }
 
 export interface ReferralReview extends ReferralLead {
@@ -217,6 +227,8 @@ export interface Workspace {
   referralLeads: ReferralReview[];
   inboxLeads: InboxLead[];
   leadRouting: LeadRouting | null;
+  managerReports: import("./manager-report-model").ManagerReports | null;
+  mismoLoans: string[];
   unlinkedReferrals: UnlinkedReferral[];
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];

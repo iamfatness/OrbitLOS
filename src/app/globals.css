@@ -28,7 +28,7 @@ button:disabled { cursor: default; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 10px; font-size: 27px; font-weight: 760; letter-spacing: -.07em; line-height: 1; }
 .brand-icon { background: var(--accent); color: white; border-radius: 12px; width: 36px; height: 36px; display: grid; place-items: center; box-shadow: 0 3px 8px #6749d333; }
 .workspace-label { color: #706781; padding: 0 12px; margin: 42px 0 10px; font-size: 10px; font-weight: 750; letter-spacing: .13em; }
-.sidebar nav { display: grid; gap: 4px; }
+.sidebar nav { display: grid; gap: 4px; overflow-y: auto; }
 .mobile-nav-toggle { display: none; }
 .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; border-radius: 9px; padding: 11px 12px; color: #595267; text-align: left; font-weight: 600; }
 .nav-item:hover { background: #f6f3fc; }
@@ -117,6 +117,9 @@ button:disabled { cursor: default; }
 .banner { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 8px 2px 12px; margin-bottom: 13px; border: 1px solid #dfd5f9; background: #f0ebfd; border-radius: 10px; color: #49348c; font-weight: 600; }
 .banner-error, .dialog-error { color: #91253a; background: #fff0f2; border-color: #f2c5ce; }
 .integration { max-width: 640px; padding: 19px; }
+.manager-panel { max-width: 1080px; grid-template-columns: minmax(0, 1fr); }
+.manager-panel .record-form { min-width: 0; }
+.manager-panel .data-table caption { text-align: left; padding: 8px 0; font-weight: 650; }
 .integration-head { display: flex; align-items: center; gap: 10px; }
 .integration-head .pill { margin-left: auto; }
 .integration-head p, .integration-description { color: var(--muted); }

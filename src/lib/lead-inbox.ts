@@ -70,6 +70,8 @@ export function stopLeadFollowUp(db: Store, leadId: string) {
 export function carryLeadHistory(db: Store, leadId: string, loanId: string) {
   db.prepare(`INSERT INTO activity (id, loanId, text, createdAt, kind, outcome)
     SELECT id, ?, text || ' · ' || actor, at, kind, outcome FROM lead_events WHERE leadId = ?`).run(loanId, leadId);
+  db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt, completedAt)
+    SELECT id, ?, title, dueAt, completedAt FROM lead_import_tasks WHERE leadId = ?`).run(loanId, leadId);
   stopLeadFollowUp(db, leadId);
   return followUpRow(db, leadId).firstContactAt;
 }

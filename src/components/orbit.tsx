@@ -16,6 +16,8 @@ import { loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilt
 import { LoanWorkQueue } from "./loan-work-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
+import { ManagerReports } from "./manager-reports";
+import { MigrationWorkspace } from "./migration-workspace";
 import { BrokerageTeam } from "./brokerage-team";
 import { BrokerageTemplates, CommunicationQueue } from "./loan-communications";
 import { RealtorCrm } from "./realtor-crm";
@@ -26,7 +28,7 @@ import { UwmAlertQueue } from "./uwm-alert-queue";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 
-type Section = "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team";
+type Section = "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration";
 const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
@@ -39,6 +41,8 @@ const navigation = [
   { label: "Tasks", icon: ClipboardCheck },
   { label: "Communications", icon: Mail },
   { label: "Integrations", icon: Zap },
+  { label: "Reports", icon: FileCheck2 },
+  { label: "Migration", icon: ArrowDownUp },
   { label: "Team", icon: UsersRound },
 ] as const;
 
@@ -55,6 +59,8 @@ const descriptions: Record<Section, string> = {
   Communications: "Preview and copy milestone drafts for borrowers and realtors.",
   Integrations: "Manage your lender connections and refresh loan data.",
   Team: "Switch brokerages and manage access to your loans.",
+  Reports: "Review lead response, application conversion, and funding across your brokerage.",
+  Migration: "Rehearse moving brokerage records and loan files with fictional data.",
 };
 
 function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEnd }: {
@@ -100,6 +106,8 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const mobileMenu = useRef<HTMLButtonElement>(null);
   const admin = !staff || staff.brokerage.role === "Admin";
   const processor = staff?.brokerage.role === "Processor";
+  const canReport = staff?.brokerage.role === "Admin";
+  const canMigrate = canReport && staff.brokerage.pilot;
 
   const names = new Map(state.contacts.map((contact) => [contact.id, contact.name]));
   const borrowers = (loan: Loan) => names.get(loan.contactId) ?? "Unknown borrower";
@@ -133,6 +141,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
     ? item.status === "Ready for processing" || item.status === "In processing" || item.status === "Returned to LO"
     : processor ? assignedProcessing.has(item.loanId) && (item.status === "Ready for processing" || item.status === "In processing") : item.status === "Returned to LO");
   const openTasks = state.tasks.filter((task) => !task.completedAt && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + pendingContact.length
+    + state.inboxLeads.flatMap((lead) => lead.importedTasks).filter((task) => !task.completedAt).length
     + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length + actionableProcessing.length;
   const officers = new Map([...state.loans, ...state.inboxLeads].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
@@ -162,11 +171,17 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
     if (!taskScope(lead) && !shared) return [];
     const due = firstContactOverdue(lead, taskNow);
     if (!lead.followUp.firstContactAt && (due || !lead.realtorId) && dueInView(lead.dueAt)) {
-      return [{ lead, title: due ? "First contact overdue" : "Contact new quote request", dueAt: lead.dueAt }];
+      return [{ lead, title: due ? "First contact overdue" : "Contact new lead", dueAt: lead.dueAt }];
     }
     const nextAt = lead.followUp.nextAt;
     return lead.followUp.status === "Active" && nextAt && Date.parse(nextAt) <= taskNow && dueInView(nextAt)
       ? [{ lead, title: "Mock follow-up step due", dueAt: nextAt }] : [];
+  });
+  const importedLeadTasks = state.inboxLeads.flatMap((lead) => {
+    const shared = !lead.officerEmail && admin && taskOfficer === "mine";
+    if (!taskScope(lead) && !shared) return [];
+    return lead.importedTasks.filter((task) => taskView === "All" || (taskView === "Completed" ? task.completedAt : !task.completedAt && dueInView(task.dueAt)))
+      .map((task) => ({ lead, task }));
   });
   const showUwmAlerts = taskView === "Open" || taskView === "Completed" || taskView === "All";
   const visibleUwmAlerts = showUwmAlerts ? state.uwmAlerts.flatMap((alert) => {
@@ -284,7 +299,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
             mobileMenu.current?.focus();
           }
         }}>
-          {navigation.filter(({ label }) => (label !== "Team" || staff) && (admin || label !== "Realtors") && (!processor || label !== "Lead Inbox")).map(({ label, icon: Icon }) => (
+          {navigation.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || label !== "Realtors") && (!processor || label !== "Lead Inbox")).map(({ label, icon: Icon }) => (
             <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
               <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
             </button>
@@ -398,7 +413,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length + visibleProcessing.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length + importedLeadTasks.length + visibleProcessing.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
@@ -422,6 +437,14 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
               <div className="section-heading"><h3>Lead follow-ups</h3><span className="pill">{incomingLeadTasks.length} open</span></div>
               <ul className="loan-task-list">{incomingLeadTasks.map(({ lead, title, dueAt }) => <li className="loan-task" key={lead.id}>
                 <div className="loan-task-copy"><strong>{title}</strong><span>{lead.name} · {lead.officer || "Shared inbox"}</span><span>{dateTime(dueAt)} ET</span></div>
+                <Button size="sm" variant="outline" onClick={() => { navigate("Lead Inbox"); setFocusLeadId(lead.id); }}>Open lead</Button>
+              </li>)}</ul>
+            </div>}
+            {importedLeadTasks.length > 0 && <div className="work-queue" aria-label="Imported lead tasks">
+              <div className="section-heading"><h3>Imported lead tasks</h3><span className="pill">{importedLeadTasks.length} shown</span></div>
+              <ul className="loan-task-list">{importedLeadTasks.map(({ lead, task }) => <li className="loan-task" key={task.id}>
+                <div className="loan-task-copy"><strong>{task.title}</strong><span>{lead.name} · {lead.officer || "Shared inbox"}</span>
+                  <span>{task.completedAt ? "Completed" : "Due"} {dateTime(task.completedAt ?? task.dueAt)} ET</span></div>
                 <Button size="sm" variant="outline" onClick={() => { navigate("Lead Inbox"); setFocusLeadId(lead.id); }}>Open lead</Button>
               </li>)}</ul>
             </div>}
@@ -449,7 +472,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                   openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id) })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || visibleProcessing.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email || assignedProcessing.has(loan.id))
+            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email || assignedProcessing.has(loan.id))
               ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
               : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
@@ -463,6 +486,13 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
 
           {section === "Past Clients" && <PastClients state={state} openLoan={(loanId) => show({ kind: "details", loanId })}
             editRetention={(loanId) => show({ kind: "retention", loanId })} />}
+
+          {section === "Reports" && canReport && state.managerReports && <ManagerReports data={state.managerReports} busy={busy} now={taskNow}
+            save={save} openLoan={(loanId) => show({ kind: "details", loanId })}
+            openLead={(leadId) => { navigate("Lead Inbox"); setFocusLeadId(leadId); }} />}
+
+          {section === "Migration" && canMigrate && <MigrationWorkspace busy={busy} save={save}
+            openLoan={(loanId) => show({ kind: "details", loanId, target: "loan-application" })} />}
 
           {section === "Team" && staff && <BrokerageTeam staff={staff} state={state} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)}
             openLoan={(loanId) => show({ kind: "details", loanId })} />}

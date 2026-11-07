@@ -57,7 +57,7 @@ function database(): Store {
 }
 
 export function loadWorkspace(staff: WorkspaceStaff | null = null) {
-  return scopeWorkspace(readWorkspace(database()), staff);
+  return scopeWorkspace(readWorkspace(database(), staff?.brokerage.role === "Admin"), staff);
 }
 
 export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | null) {

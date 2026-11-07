@@ -18,6 +18,7 @@ import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorro
 import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
 import { loadPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback } from "./lib/pilot";
+import { migrationInput } from "./lib/pipeline-migration-model";
 import { assignInboxLeadInput, quoteLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
 import { leadRouting, receiveQuoteLead } from "./lib/lead-inbox";
 import { assignProcessor } from "./lib/loan-processing";
@@ -57,7 +58,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   read(staff: WorkspaceStaff | null) {
     if (!this.#accepts(staff)) throw new Error("Workspace access denied.");
-    return scopeWorkspace(readWorkspace(this.#store), staff);
+    return scopeWorkspace(readWorkspace(this.#store, staff?.brokerage.role === "Admin"), staff);
   }
 
   async write(input: unknown, staff: WorkspaceStaff | null) {
@@ -73,7 +74,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       referralOwner = team.members.find((member) => member.email === input.officerEmail && member.status === "Active" && member.role !== "Processor");
       if (!referralOwner) return { error: "Select an active staff member in this brokerage." };
     }
-    if (staff?.brokerage.role === "Admin" && (saveLeadRoutingInput.safeParse(input).success || assignInboxLeadInput.safeParse(input).success)) {
+    if (staff?.brokerage.role === "Admin" && (saveLeadRoutingInput.safeParse(input).success || assignInboxLeadInput.safeParse(input).success || (staff.brokerage.pilot && migrationInput.safeParse(input).success))) {
       const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
       const team = this.#id === demoBrokerageId ? this.team(staff, emails)
         : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);

@@ -84,7 +84,7 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
   const isAdmin = !staff || staff.brokerage.role === "Admin";
   const canWork = isAdmin || lead.officerEmail === staff?.email;
   const followUp = lead.followUp;
-  const flagged = lead.matches.length > 0 || lead.restrictedMatch;
+  const flagged = !lead.importedContactId && (lead.matches.length > 0 || lead.restrictedMatch);
   const chosen = lead.matches.find((item) => item.id === match);
   const canCreate = !flagged || (match === "new" && !lead.restrictedMatch);
   const step = leadSequenceSteps[followUp.nextStep];
@@ -103,7 +103,7 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
   return <li className="document-item" id={`inbox-lead-${lead.id}`} tabIndex={-1}>
     <div className="document-item-head"><strong>{lead.name}</strong><span className={overdue ? "open-chip" : "pill"}>
       {overdue ? "First contact overdue" : followUp.firstContactAt ? "Outreach logged" : "First contact due"}</span></div>
-    <p>{lead.realtorName ? `Realtor referral · ${lead.realtorName}` : "Website quote request"} · {lead.purpose}{lead.zip && ` · ZIP ${lead.zip}`}</p>
+    <p>{lead.realtorName ? `Realtor referral · ${lead.realtorName}` : lead.source} · {lead.purpose}{lead.zip && ` · ZIP ${lead.zip}`}</p>
     <p className="muted">{lead.officer || "Shared inbox"} · {dateTime(followUp.firstContactAt ?? lead.dueAt)} ET{flagged && " · Possible duplicate"}</p>
     {!canWork && staff && <Button variant="outline" size="sm" disabled={busy} onClick={() => assign(staff.email)}>Claim lead</Button>}
     {canWork && <details className="document-form" open={focused || undefined}>
@@ -156,7 +156,17 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
           <h4>Lead activity</h4>
           <ul>{followUp.events.map((item) => <li key={item.id}>{item.text} · {item.actor} · {dateTime(item.at)} ET</li>)}</ul>
         </div>}
-        {lead.restrictedMatch && <p className="muted">A possible match needs brokerage admin review.</p>}
+        {lead.importedTasks.length > 0 && <div className="work-queue">
+          <h4>Imported tasks</h4>
+          <ul className="loan-task-list">{lead.importedTasks.map((task) => <li className="loan-task" key={task.id}>
+            <div className="loan-task-copy"><strong>{task.title}</strong><span>{task.completedAt ? "Completed" : "Due"} {dateTime(task.completedAt ?? task.dueAt)} ET</span></div>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
+              type: "completeLeadTask", leadId: lead.id, taskId: task.id, completed: !task.completedAt,
+            })}>{task.completedAt ? "Reopen task" : "Complete task"}</Button>
+          </li>)}</ul>
+        </div>}
+        {lead.importedContactId && <p className="muted">The migration review linked this lead to its borrower contact.</p>}
+        {flagged && lead.restrictedMatch && <p className="muted">A possible match needs brokerage admin review.</p>}
         {flagged && (lead.matches.length > 0 || !lead.restrictedMatch) && <label className="field">Contact to use
           <select value={match} onChange={(event) => setMatch(event.target.value)}>
             <option value="">Choose how to handle the match</option>
@@ -165,7 +175,7 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
           </select>
         </label>}
         <div className="loan-application-actions">
-          <Button size="sm" disabled={busy || (!chosen && !canCreate)}
+          <Button size="sm" disabled={busy || (!lead.importedContactId && !chosen && !canCreate)}
             onClick={() => convert(lead.id, chosen?.id ?? null, flagged && canCreate)}>Create loan and prefill 1003</Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
             if (window.confirm(`Dismiss the lead for ${lead.name}?`)) void save({ type: "dismissReferral", referralId: lead.id });
