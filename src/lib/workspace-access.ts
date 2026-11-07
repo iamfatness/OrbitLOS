@@ -20,6 +20,7 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
     closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scoped(state.applications),
     documentRequests: scoped(state.documentRequests), pricingRuns: scoped(state.pricingRuns), publishedQuotes: scoped(state.publishedQuotes),
     mockUwmRates: scoped(state.mockUwmRates), mockCreditAusRuns: scoped(state.mockCreditAusRuns),
+    uwmAlerts: scoped(state.uwmAlerts),
   };
 }
 

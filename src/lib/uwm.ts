@@ -1,6 +1,7 @@
 import { insertContact, insertLoan, insertSubmission, type Store } from "./store";
-import type { Condition, Stage } from "./model";
+import type { Condition, Stage, Submission } from "./model";
 import { addApplicationActivity, getApplication } from "./applications";
+import { recordUwmAlerts } from "./uwm-alerts";
 
 // The shapes used by the Insights Loans query and the single-loan conditions endpoint.
 interface InsightsLoan {
@@ -42,29 +43,26 @@ function sampleCondition(loanNumber: string, index: number, category: string, de
   };
 }
 
-const mockUwm: UwmConnector = {
-  async listLoans() {
-    return { data: { Loans: mockLoans } };
-  },
-  async getConditions(loanNumber) {
-    if (loanNumber === "9000001001") {
-      return {
-        conditionGroups: [{
-          key: "Underwriting", countItems: 2, uploadedConditionsCount: 0,
-          conditions: [
-            sampleCondition(loanNumber, 1, "Income", "Provide the most recent 30 days of pay statements."),
-            sampleCondition(loanNumber, 2, "Assets", "Provide a complete copy of the latest bank statement."),
-          ],
-        }],
-        clearedConditions: [sampleCondition(loanNumber, 3, "Property", "Confirm the subject property address.", true)],
-      };
-    }
-    if (loanNumber === "9000001002") {
-      return { conditionGroups: [], clearedConditions: [sampleCondition(loanNumber, 1, "Title", "Provide the preliminary title commitment.", true)] };
-    }
-    return { conditionGroups: [], clearedConditions: [] };
-  },
-};
+const mockUpdateLoan = "9000001001";
+
+function mockConditions(loanNumber: string, changed: boolean): UwmConditions {
+  if (loanNumber === mockUpdateLoan) {
+    const property = sampleCondition(loanNumber, 3, "Property", "Confirm the subject property address.", !changed);
+    const outstanding = [
+      sampleCondition(loanNumber, 1, "Income", "Provide the most recent 30 days of pay statements."),
+      sampleCondition(loanNumber, 2, "Assets", "Provide a complete copy of the latest bank statement."),
+    ];
+    if (changed) outstanding.push(sampleCondition(loanNumber, 4, "Insurance", "Provide a current homeowners insurance binder."), property);
+    return {
+      conditionGroups: [{ key: "Underwriting", countItems: outstanding.length, uploadedConditionsCount: 0, conditions: outstanding }],
+      clearedConditions: changed ? [] : [property],
+    };
+  }
+  if (loanNumber === "9000001002") {
+    return { conditionGroups: [], clearedConditions: [sampleCondition(loanNumber, 1, "Title", "Provide the preliminary title commitment.", true)] };
+  }
+  return { conditionGroups: [], clearedConditions: [] };
+}
 
 const initialStage: Record<string, Stage> = {
   "Wholesale - File Imported": "Application",
@@ -83,10 +81,11 @@ function normalizeConditions({ conditionGroups, clearedConditions }: UwmConditio
       uploaded: item.isConditionUploaded, satisfiedAt: item.conditionSatisfactionDate,
     };
   }
-  return [
+  const conditions = [
     ...conditionGroups.flatMap((group) => group.conditions.map((item) => normalize(item, group.key))),
     ...clearedConditions.map((item) => normalize(item, null)),
   ];
+  return [...new Map(conditions.map((condition) => [condition.id, condition])).values()];
 }
 
 const approvedWithConditions = "Wholesale - Approved With Conditions";
@@ -143,74 +142,112 @@ export function submitMockApplication(db: Store, loanId: string, now: string) {
   }
 
   const reference = `DEMO-${crypto.randomUUID().toUpperCase()}`;
-  insertSubmission(db, {
+  const submission = {
     id: crypto.randomUUID(), loanId, lender: "UWM", externalId: reference,
     status: approvedWithConditions, conditions: mockApplicationConditions(reference, application.submittedAt), syncedAt: now,
-  });
+  };
+  insertSubmission(db, submission);
+  recordUwmAlerts(db, submission, null, now);
   db.prepare("UPDATE applications SET uwmReference = ? WHERE loanId = ?").run(reference, loanId);
   addApplicationActivity(db, loanId, `Mock UWM import confirmed. Reference ${reference}.`, now);
   return { reference };
 }
 
-export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
-  const { data: { Loans } } = await connector.listLoans();
-  const files = await Promise.all(Loans.map(async (loan) => ({
-    loan, conditions: normalizeConditions(await connector.getConditions(loan.LoanId)),
-  })));
-  return db.transaction(() => {
-    const now = new Date().toISOString();
-    if (connector === mockUwm) db.prepare("UPDATE uwm_document_deliveries SET mockClearedAt = ? WHERE mockClearedAt IS NULL").run(now);
-    const mockClearances = db.prepare(`SELECT requests.conditionId, deliveries.mockClearedAt FROM document_requests requests
-      JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id WHERE requests.submissionId = ?`);
-    function conditionSnapshot(submissionId: string, conditions: Condition[]) {
-      if (connector !== mockUwm) return JSON.stringify(conditions);
-      const cleared = new Map(mockClearances.all(submissionId).map((item) => [item.conditionId, String(item.mockClearedAt)]));
-      return JSON.stringify(conditions.map((condition) => {
-        const satisfiedAt = cleared.get(condition.id);
-        return satisfiedAt && !condition.satisfiedAt ? { ...condition, uploaded: true, satisfiedAt } : condition;
-      }));
+type UwmFile = { loan: InsightsLoan; conditions: Condition[] };
+type SavedUwmSubmission = Pick<Submission, "id" | "loanId" | "status"> & { conditions: string };
+
+function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
+  const now = new Date().toISOString();
+  if (mock) db.prepare("UPDATE uwm_document_deliveries SET mockClearedAt = ? WHERE mockClearedAt IS NULL").run(now);
+  const mockClearances = db.prepare(`SELECT requests.conditionId, deliveries.mockClearedAt FROM document_requests requests
+    JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id WHERE requests.submissionId = ?`);
+  let imported = 0;
+  let updated = 0;
+  let conditionCount = 0;
+  let alerts = 0;
+  const update = db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?");
+  function refresh(existing: SavedUwmSubmission, status: string, incoming: Condition[]) {
+    const cleared = new Map(mock ? mockClearances.all(existing.id).map((item) => [String(item.conditionId), String(item.mockClearedAt)]) : []);
+    const conditions = incoming.map((condition) => {
+      const satisfiedAt = cleared.get(condition.id);
+      return satisfiedAt && !condition.satisfiedAt ? { ...condition, uploaded: true, satisfiedAt } : condition;
+    });
+    alerts += recordUwmAlerts(db, { id: existing.id, loanId: existing.loanId, status, conditions },
+      { status: existing.status, conditions: JSON.parse(existing.conditions) }, now);
+    update.run(status, JSON.stringify(conditions), now, existing.id);
+    conditionCount += conditions.length;
+    updated++;
+  }
+
+  const findSubmission = db.prepare("SELECT id, loanId, status, conditions FROM submissions WHERE lender = 'UWM' AND externalId = ?");
+  for (const { loan, conditions } of files) {
+    const existing = findSubmission.get(loan.LoanId) as SavedUwmSubmission | undefined;
+    if (existing) {
+      refresh(existing, loan.LoanStatusDescription, conditions);
+      continue;
     }
-    let imported = 0;
-    let updated = 0;
-    let conditionCount = 0;
-    const update = db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?");
-    for (const { loan, conditions } of files) {
-      conditionCount += conditions.length;
-      const existing = db.prepare("SELECT id FROM submissions WHERE lender = 'UWM' AND externalId = ?").get(loan.LoanId);
-      if (existing) {
-        update.run(loan.LoanStatusDescription, conditionSnapshot(String(existing.id), conditions), now, existing.id);
-        updated++;
-        continue;
-      }
-      const contactId = crypto.randomUUID();
-      const loanId = crypto.randomUUID();
-      insertContact(db, {
-        id: contactId, name: `${loan.PrimaryBorrowerFirstName} ${loan.PrimaryBorrowerLastName}`,
-        email: "", phone: "", role: "Borrower",
-      });
-      insertLoan(db, {
-        id: loanId, contactId, partnerId: null, officer: "", officerEmail: null, address: "", amount: 0, purpose: "Purchase",
-        stage: initialStage[loan.LoanStatusDescription] ?? "Application", stageSince: now,
-      });
-      insertSubmission(db, {
-        id: crypto.randomUUID(), loanId, lender: "UWM", externalId: loan.LoanId, status: loan.LoanStatusDescription,
-        conditions, syncedAt: now,
-      });
-      imported++;
-    }
+    const contactId = crypto.randomUUID();
+    const loanId = crypto.randomUUID();
+    insertContact(db, {
+      id: contactId, name: `${loan.PrimaryBorrowerFirstName} ${loan.PrimaryBorrowerLastName}`,
+      email: "", phone: "", role: "Borrower",
+    });
+    insertLoan(db, {
+      id: loanId, contactId, partnerId: null, officer: "", officerEmail: null, address: "", amount: 0, purpose: "Purchase",
+      stage: initialStage[loan.LoanStatusDescription] ?? "Application", stageSince: now,
+    });
+    const submission = {
+      id: crypto.randomUUID(), loanId, lender: "UWM", externalId: loan.LoanId, status: loan.LoanStatusDescription, conditions, syncedAt: now,
+    };
+    insertSubmission(db, submission);
+    alerts += recordUwmAlerts(db, submission, null, now);
+    conditionCount += conditions.length;
+    imported++;
+  }
+  if (mock) {
     const applicationFiles = db.prepare(`
-      SELECT submissions.id, submissions.externalId, applications.submittedAt
+      SELECT submissions.id, submissions.loanId, submissions.status, submissions.conditions, submissions.externalId, applications.submittedAt
       FROM applications JOIN submissions
       ON submissions.loanId = applications.loanId AND submissions.externalId = applications.uwmReference
       WHERE submissions.lender = 'UWM' AND applications.submittedAt IS NOT NULL
     `).all();
     for (const file of applicationFiles) {
       const conditions = mockApplicationConditions(String(file.externalId), String(file.submittedAt));
-      update.run(approvedWithConditions, conditionSnapshot(String(file.id), conditions), now, file.id);
-      updated++;
-      conditionCount += conditions.length;
+      refresh(file as SavedUwmSubmission, approvedWithConditions, conditions);
     }
-    db.prepare("INSERT INTO settings VALUES ('uwmSyncedAt', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(now);
-    return { imported, updated, conditions: conditionCount };
+  }
+  db.prepare("INSERT INTO settings VALUES ('uwmSyncedAt', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(now);
+  return { imported, updated, conditions: conditionCount, alerts };
+}
+
+function saveMockUwmSync(db: Store, changed: boolean) {
+  return saveUwmSync(db, mockLoans.map((loan) => ({
+    loan: changed && loan.LoanId === mockUpdateLoan ? { ...loan, LoanStatusDescription: "Wholesale - Underwriting" } : loan,
+    conditions: normalizeConditions(mockConditions(loan.LoanId, changed)),
+  })), true);
+}
+
+function changesApplied(db: Store) {
+  return !!db.prepare("SELECT 1 FROM settings WHERE key = 'mockUwmChangesApplied'").get();
+}
+
+export function simulateMockUwmChanges(db: Store) {
+  return db.transaction(() => {
+    if (!db.prepare("SELECT 1 FROM submissions WHERE lender = 'UWM' AND externalId = ? AND syncedAt IS NOT NULL").get(mockUpdateLoan)) {
+      return { error: "Sync the mock UWM pipeline first to load Charlotte Kim’s baseline." } as const;
+    }
+    if (changesApplied(db)) return { error: "The sample UWM changes are already applied in this workspace." } as const;
+    const result = saveMockUwmSync(db, true);
+    db.prepare("INSERT INTO settings VALUES ('mockUwmChangesApplied', '1')").run();
+    return result;
   });
+}
+
+export async function syncUwm(db: Store, connector?: UwmConnector) {
+  if (!connector) return db.transaction(() => saveMockUwmSync(db, changesApplied(db)));
+  const { data: { Loans } } = await connector.listLoans();
+  const files = await Promise.all(Loans.map(async (loan) => ({
+    loan, conditions: normalizeConditions(await connector.getConditions(loan.LoanId)),
+  })));
+  return db.transaction(() => saveUwmSync(db, files, false));
 }

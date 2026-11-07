@@ -8,6 +8,7 @@ import { pdfColumns } from "./document-files-model";
 import { synchronizeRetentionTasks } from "./client-retention";
 import { referralMatches } from "./referral-matches";
 import { mockCreditAusRuns } from "./mock-credit-aus";
+import type { UwmAlert } from "./uwm-alert-model";
 
 export type SqlValue = string | number | null;
 
@@ -52,6 +53,15 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       text TEXT NOT NULL, createdAt TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'Note'
     );
+    CREATE TABLE IF NOT EXISTS uwm_alerts (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      submissionId TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('Status changed', 'New condition', 'Reopened condition')),
+      conditionId TEXT, message TEXT NOT NULL, detectedAt TEXT NOT NULL, reviewedAt TEXT,
+      CHECK ((kind = 'Status changed') = (conditionId IS NULL))
+    );
+    CREATE INDEX IF NOT EXISTS uwm_alerts_by_loan ON uwm_alerts(loanId);
+    CREATE INDEX IF NOT EXISTS uwm_alerts_by_submission ON uwm_alerts(submissionId);
     CREATE TABLE IF NOT EXISTS workspace_access_history (
       id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, subject TEXT NOT NULL, createdAt TEXT NOT NULL
     );
@@ -267,6 +277,8 @@ export function workspace(db: Store): Workspace {
     publishedQuotes: rows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
     mockUwmRates: rows<MockUwmRate>(db, "SELECT * FROM mock_uwm_rates"),
     mockCreditAusRuns: mockCreditAusRuns(db),
+    uwmAlerts: rows<UwmAlert>(db, "SELECT * FROM uwm_alerts ORDER BY detectedAt DESC, rowid DESC"),
+    mockUwmChangesApplied: !!db.prepare("SELECT 1 FROM settings WHERE key = 'mockUwmChangesApplied'").get(),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
 }

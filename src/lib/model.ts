@@ -2,6 +2,7 @@ import type { StaffApplication } from "./application-model";
 import type { LoanDocumentRequest } from "./document-model";
 import type { MockUwmRate, PricingRun, PublishedQuote } from "./pricing-model";
 import type { MockCreditAusRun } from "./credit-aus-model";
+import type { UwmAlert } from "./uwm-alert-model";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -161,5 +162,7 @@ export interface Workspace {
   publishedQuotes: PublishedQuote[];
   mockUwmRates: MockUwmRate[];
   mockCreditAusRuns: MockCreditAusRun[];
+  uwmAlerts: UwmAlert[];
+  mockUwmChangesApplied: boolean;
   uwmSyncedAt: string | null;
 }

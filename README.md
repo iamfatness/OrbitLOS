@@ -20,6 +20,12 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 3. Click **Sync UWM**. The first sync refreshes Charlotte Kim and Amelia Davis and imports Benjamin Cole. Open Charlotte's loan to see the lender status, two outstanding conditions, and one cleared condition.
 4. Sync again to refresh the same lender records. UWM status and pipeline stage are separate fields, so a sync preserves broker-managed stages.
 
+### Try UWM alerts
+
+After the first mock sync, assign Charlotte Kim’s loan to your account from **Edit loan** or **Team**. In **Integrations**, choose **Simulate UWM changes**. This one-time update for the workspace changes her UWM status, adds an insurance condition, and reopens the property condition.
+
+Open **Tasks → My Tasks → UWM alerts**. **Open lender status** jumps to the UWM submission. **Open condition** jumps to the specific condition on that submission. **Mark reviewed** moves the alert to the **Completed** view. Regular syncs compare the saved lender status and conditions with the refreshed snapshot, so refreshing the same data leaves the alert count unchanged.
+
 ## Try the demo 1003
 
 1. Open a loan without a UWM submission, such as Olivia Parker, and choose **Start 1003**. Open the borrower view or copy its scoped link. It expires after seven days.

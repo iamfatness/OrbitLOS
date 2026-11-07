@@ -19,6 +19,8 @@ import { CommunicationQueue } from "./loan-communications";
 import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
 import { ReferralQueue } from "./referral-queue";
+import { UwmAlertQueue } from "./uwm-alert-queue";
+import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 
 type Section = "Pipeline" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team";
 const demoOfficer = "Alex Morgan";
@@ -105,7 +107,8 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const visibleContacts = state.contacts.filter((contact) => [contact.name, contact.email, contact.role, contact.phone].some((field) => field.toLowerCase().includes(search)));
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
-  const openTasks = state.tasks.filter((task) => !task.completedAt).length + state.referralLeads.length;
+  const openTasks = state.tasks.filter((task) => !task.completedAt).length + state.referralLeads.length
+    + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length;
   const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
   const officers = new Map([...state.loans, ...state.referralLeads].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
@@ -123,6 +126,12 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
     const brokerageQueue = !lead.officerEmail && (!staff || staff.brokerage.role === "Admin");
     return taskView !== "Completed" && (taskScope(lead) || (taskOfficer === "mine" && brokerageQueue)) && dueInView(lead.dueAt);
   });
+  const showUwmAlerts = taskView === "Open" || taskView === "Completed" || taskView === "All";
+  const visibleUwmAlerts = showUwmAlerts ? state.uwmAlerts.flatMap((alert) => {
+    const loan = taskLoans.get(alert.loanId);
+    const matchesView = taskView === "All" || (taskView === "Completed" ? !!alert.reviewedAt : !alert.reviewedAt);
+    return loan && taskScope(loan) && matchesView ? [{ loan, alert }] : [];
+  }) : [];
   const visibleTasks = state.tasks.filter((task) => {
     const loan = taskLoans.get(task.loanId);
     if (!loan || !taskScope(loan)) return false;
@@ -177,6 +186,14 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   function show(next: Modal) {
     setError("");
     setModal(next);
+  }
+
+  function openUwmAlert(alert: UwmAlert) {
+    const submission = state.submissions.find((item) => item.id === alert.submissionId);
+    const condition = submission?.conditions.find((item) => item.id === alert.conditionId);
+    let target = "lender-submissions";
+    if (submission) target = condition ? conditionTarget(submission.id, condition.id) : submissionTarget(submission.id);
+    show({ kind: "details", loanId: alert.loanId, target });
   }
 
   function close() {
@@ -308,7 +325,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length} shown</span></h2><p>Review new referrals and follow up on open loans.</p></div></div>
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length} shown</span></h2><p>Review referrals, lender updates, and loan follow-ups.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
@@ -318,6 +335,8 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                 {[...officers].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
             </div>
+            {showUwmAlerts && <UwmAlertQueue items={visibleUwmAlerts} borrower={borrowers} open={openUwmAlert} busy={busy}
+              review={(alert) => void save({ type: "reviewUwmAlert", loanId: alert.loanId, alertId: alert.id })} />}
             {taskView !== "Completed" && <ReferralQueue leads={visibleReferrals} now={taskNow} busy={busy}
               refresh={() => void save({ type: "refreshWorkspace" }, undefined, false)}
               convert={(lead, contactId, allowDuplicate) => void save({ type: "convertReferral", referralId: lead.id, contactId, allowDuplicate }, ({ referralLoanId }) => {
@@ -334,7 +353,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                   openLoan={() => show({ kind: "details", loanId: loan.id })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length ? "No loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
+            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
               ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
               : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
@@ -354,7 +373,13 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
             <div className="integration-head"><span className="metric-icon lavender"><Zap size={20} /></span><div><h2>United Wholesale Mortgage</h2><p>Mock lender connection</p></div><span className="pill">Demo mode</span></div>
             <p className="integration-description">Import sample pipeline loans and refresh their lender status and underwriting conditions.</p>
             <div className="integration-stats"><span><CircleCheck size={17} /> {uwmCount} linked loans</span><span><ArrowDownUp size={17} /> {state.uwmSyncedAt ? `Last sync ${dateTime(state.uwmSyncedAt)} ET` : "Waiting for first sync"}</span></div>
-            {syncButton()}
+            <div className="loan-application-actions">{syncButton()}
+              {staff?.brokerage.role !== "LO" && <Button variant="outline" disabled={busy || !state.uwmSyncedAt || state.mockUwmChangesApplied}
+                onClick={() => void save({ type: "simulateUwmChanges" })}>Simulate UWM changes</Button>}
+            </div>
+            {staff?.brokerage.role !== "LO" && <p className="muted">{state.mockUwmChangesApplied
+              ? "Sample lender changes applied. Review Charlotte Kim’s alerts under Tasks. My Tasks shows alerts for your assigned loans."
+              : "After the first sync, simulate three lender changes on Charlotte Kim’s loan. Assign her loan to yourself to see the alerts in My Tasks."}</p>}
           </section>}
         </div>
       </main>

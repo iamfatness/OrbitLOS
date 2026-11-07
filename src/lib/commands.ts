@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, readWorkspace, savedPricingRun, workspace, type Store } from "./store";
 import { activityKinds, stages, type Contact, type Loan, type Purpose, type Workspace } from "./model";
-import { sendMockConditionDocument, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
+import { sendMockConditionDocument, simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
@@ -54,6 +54,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("submission"), id: id.optional(), loanId: id, lender: label, externalId: label, status: label }),
   z.object({ type: z.literal("deleteSubmission"), id }),
   z.object({ type: z.literal("sync") }),
+  z.object({ type: z.literal("simulateUwmChanges") }),
+  z.object({ type: z.literal("reviewUwmAlert"), loanId: id, alertId: z.uuid() }),
   z.object({ type: z.literal("startApplication"), loanId: id }),
   z.object({ type: z.literal("revokeApplication"), loanId: id, token: z.string().regex(portalTokenPattern) }),
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
@@ -87,7 +89,7 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
   if (staff?.brokerage.role !== "LO") return;
   const denied = () => { throw new WorkspaceError("You don’t have access to this workspace action or loan."); };
   const owns = (loanId: unknown) => typeof loanId === "string" && !!db.prepare("SELECT 1 FROM loans WHERE id = ? AND officerEmail = ?").get(loanId, staff.email);
-  if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" ||
+  if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" || data.type === "simulateUwmChanges" ||
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if ("loanId" in data && !owns(data.loanId)) denied();
   if (data.type === "move" && !owns(data.id)) denied();
@@ -109,9 +111,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
   const data = parsed.data;
   try {
     authorizeLoanOfficer(db, data, staff);
-    if (data.type === "sync") {
-      const result = await syncUwm(db);
-      return { state: scopeWorkspace(readWorkspace(db), staff), message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions` };
+    if (data.type === "sync" || data.type === "simulateUwmChanges") {
+      const result = data.type === "sync" ? await syncUwm(db) : simulateMockUwmChanges(db);
+      if ("error" in result) throw new WorkspaceError(result.error);
+      return { state: scopeWorkspace(readWorkspace(db), staff),
+        message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions · ${result.alerts} new alerts` };
     }
     if (data.type === "runPricing") {
       if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
@@ -129,6 +133,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       let message = data.type.startsWith("delete") ? "Removed successfully." : "Saved successfully.";
       let referralLoanId: string | undefined;
       switch (data.type) {
+        case "reviewUwmAlert": {
+          const alert = db.prepare("SELECT reviewedAt FROM uwm_alerts WHERE id = ? AND loanId = ?").get(data.alertId, data.loanId);
+          if (!alert) throw new WorkspaceError("This alert is unavailable on the loan.");
+          if (!alert.reviewedAt) db.prepare("UPDATE uwm_alerts SET reviewedAt = ? WHERE id = ?").run(now, data.alertId);
+          message = "UWM alert marked reviewed.";
+          break;
+        }
         case "runMockCredit":
         case "runMockAus":
         case "retryMockCreditAus": {

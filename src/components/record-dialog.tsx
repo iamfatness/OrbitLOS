@@ -22,6 +22,7 @@ import type { LoanDocumentRequest } from "@/lib/document-model";
 import { mockRateStatus } from "@/lib/pricing-model";
 import { ClosingWorkbench } from "./closing-workbench";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
+import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string }
@@ -116,7 +117,7 @@ function SubmissionCard({ submission, requests, busy, save, onEdit }: {
   const open = submission.conditions.filter((item) => !item.satisfiedAt);
   const cleared = submission.conditions.filter((item) => item.satisfiedAt);
   return (
-    <article className="submission">
+    <article className="submission" id={submissionTarget(submission.id)} tabIndex={-1}>
       <div className="submission-head">
         <div><strong>{submission.lender}</strong><p>Reference {submission.externalId}</p></div>
         <span className="pill">{submission.syncedAt ? "Mock sync" : "Manual"}</span>
@@ -129,7 +130,7 @@ function SubmissionCard({ submission, requests, busy, save, onEdit }: {
         {submission.conditions.length === 0 && <p className="muted">No conditions were returned for this loan.</p>}
         {[...open, ...cleared].map((item) => {
           const request = requests.find((entry) => entry.submissionId === submission.id && entry.conditionId === item.id);
-          return <div className="condition" key={item.id}>
+          return <div className="condition" key={item.id} id={conditionTarget(submission.id, item.id)} tabIndex={-1}>
             {item.satisfiedAt ? <CheckCircle2 size={16} className="text-emerald-700" /> : <Circle size={16} className="text-amber-600" />}
             <div><strong>{item.category}{item.group && ` · ${item.group}`}</strong><p>{item.description}</p>
               <small>{submission.lender === "UWM" && "UWM · "}{item.satisfiedAt ? `Cleared ${dateTime(item.satisfiedAt)} ET` : item.uploaded ? "Document uploaded" : "Outstanding"}</small>
@@ -292,7 +293,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         </details>
       </section>
       <LoanCommunications loan={loan} state={state} preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />
-      <section className="details-section">
+      <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender submissions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         {submissions.length === 0 && <p className="empty-inline">No lender submissions yet.</p>}
         {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
