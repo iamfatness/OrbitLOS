@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
-  List, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, Wallet, X, Zap,
+  List, LogOut, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, Wallet, X, Zap,
 } from "lucide-react";
 import { mutate } from "@/app/actions";
 import { stages, type Loan, type Stage, type Workspace } from "@/lib/model";
@@ -11,6 +11,7 @@ import { compactMoney, dateTime, initials, money, stageDays } from "@/lib/utils"
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
+import type { StaffIdentity } from "@/lib/staff-store";
 
 type Section = "Pipeline" | "Contacts" | "Tasks" | "Integrations";
 const demoOfficer = "Alex Morgan";
@@ -43,7 +44,7 @@ function LoanCard({ loan, name, lenders, count, onOpen, onDrag, onDragEnd }: {
   );
 }
 
-export function Orbit({ initial }: { initial: Workspace }) {
+export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIdentity | null }) {
   const [state, setState] = useState(initial);
   const [section, setSection] = useState<Section>("Pipeline");
   const [view, setView] = useState<"Board" | "List">("Board");
@@ -175,13 +176,18 @@ export function Orbit({ initial }: { initial: Workspace }) {
         </nav>
         <div className="sidebar-bottom">
           <div className="demo-label"><span /> Demo workspace</div>
-          <div className="profile"><span className="avatar">AM</span><div><strong>{demoOfficer}</strong><small>Loan officer</small></div></div>
+          <div className="profile"><span className="avatar">{staff ? initials(staff.name) : "AM"}</span><div>
+            <strong>{staff?.name || demoOfficer}</strong><small>{staff?.email || "Loan officer"}</small>
+          </div></div>
         </div>
       </aside>
       <main className="main">
         <header className="topbar">
           <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section}</strong></span>
-          <button className="connection-chip" onClick={() => navigate("Integrations")}><span /> UWM mock</button>
+          <div className="topbar-actions">
+            <button className="connection-chip" onClick={() => navigate("Integrations")}><span /> UWM mock</button>
+            {staff && <form method="post" action="/auth/logout"><Button type="submit" size="sm" variant="ghost"><LogOut /> Sign out</Button></form>}
+          </div>
         </header>
         <div className="content">
           <div className="page-heading">
@@ -268,7 +274,7 @@ export function Orbit({ initial }: { initial: Workspace }) {
             <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length} shown</span></h2><p>Review upcoming work and follow up on open loans.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === demoOfficer ? "default" : "outline"} aria-pressed={taskOfficer === demoOfficer}
-                onClick={() => setTaskOfficer(taskOfficer === demoOfficer ? "" : demoOfficer)}>My tasks</Button>
+                onClick={() => setTaskOfficer(taskOfficer === demoOfficer ? "" : demoOfficer)}>{staff ? "Alex Morgan’s tasks" : "My tasks"}</Button>
               <select aria-label="Task status" value={taskView} onChange={(event) => setTaskView(event.target.value as TaskView)}>{taskViews.map((item) => <option key={item}>{item}</option>)}</select>
               <select aria-label="Task owner" value={taskOfficer} onChange={(event) => setTaskOfficer(event.target.value)}>
                 <option value="">All officers</option>{[...new Set([demoOfficer, ...officers])].map((officer) => <option key={officer}>{officer}</option>)}

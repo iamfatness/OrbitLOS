@@ -54,6 +54,12 @@ export function initializeStore(db: Store) {
       offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT
     );
     CREATE INDEX IF NOT EXISTS pricing_by_loan ON pricing_runs(loanId, quotedAt);
+    CREATE TABLE IF NOT EXISTS staff_google_attempts (
+      state TEXT PRIMARY KEY, browserHash TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, expiresAt INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS staff_sessions (
+      tokenHash TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL, expiresAt INTEGER NOT NULL
+    );
   `);
   db.transaction(() => {
     if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "kind")) {

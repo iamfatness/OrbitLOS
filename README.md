@@ -54,4 +54,14 @@ Use `npm run build:cloudflare` for a hosted build. To preview it locally, set a 
 
 The deployment command is `npm run deploy:cloudflare`. The first deployment requires a Cloudflare Worker secret named `DEMO_PASSWORD`, which can be supplied with `--secrets-file`. The Worker rejects access until a password is configured.
 
+### Google sign-in for staff
+
+Orbit follows Pal Panel's verified-email and approved-account pattern. Each approved staff member gets an individual eight-hour session in the shared demo workspace. **Sign out** revokes that session. Removing an address from the approved list also blocks its active sessions.
+
+1. Create an Orbit-specific **Web application** OAuth client in Google Cloud. Add `https://orbitlos.com/auth/google/callback` as an authorized redirect URI. For a Google app in testing, add the approved staff as Google test users.
+2. Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `ORBIT_STAFF_EMAILS` to the Orbit Worker using Cloudflare secrets. Set `ORBIT_STAFF_EMAILS` to a comma-separated list of approved Gmail or Google Workspace addresses.
+3. Set the Worker binding `ORBIT_AUTH_MODE` to `google` after the other values are in place. Open the site in a private window to verify an approved account can sign in and an unapproved account is denied. The Google sign-in mode uses Google sessions for staff. The demo mode uses the shared password.
+
+Borrower application links continue to use their own scoped access. Google sign-in identifies staff in the demo workspace. Brokerage isolation and per-user loan permissions are separate pilot work.
+
 Run `npm run lint`, `npm run typecheck`, and `npm run build` to check the scaffold.

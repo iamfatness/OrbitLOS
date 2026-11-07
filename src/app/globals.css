@@ -39,10 +39,12 @@ button:disabled { cursor: default; }
 .demo-label > span, .connection-chip > span { width: 7px; height: 7px; background: #8060dc; border-radius: 50%; }
 .profile { border-top: 1px solid var(--line); padding: 15px 8px 2px; display: flex; gap: 9px; align-items: center; }
 .profile strong, .profile small { display: block; }
+.profile > div { min-width: 0; overflow-wrap: anywhere; }
 .profile strong { font-size: 13px; }
 .profile small { color: var(--muted); margin-top: 2px; font-size: 11px; }
 .main { min-width: 0; }
 .topbar { display: flex; justify-content: space-between; align-items: center; height: 62px; background: #fff; border-bottom: 1px solid var(--line); padding: 0 30px; }
+.topbar-actions { display: flex; align-items: center; gap: 5px; }
 .slash { margin-inline: 10px; color: #a49bb1; }
 .connection-chip, .pill { border-radius: 100px; background: #f1ebfd; color: #563eaa; font-size: 11px; font-weight: 700; padding: 6px 10px; white-space: nowrap; }
 .connection-chip { display: inline-flex; align-items: center; gap: 7px; }
