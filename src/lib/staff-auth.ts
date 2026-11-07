@@ -131,8 +131,9 @@ async function completeGoogle(request: Request, url: URL, settings: GoogleSettin
   const code = url.searchParams.get("code");
   if (!attempt || !code || code.length > 4096 || url.searchParams.has("error")) return restart();
 
+  // Workers rejects redirect: "error". Reject non-OK responses without following redirects.
   const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST", redirect: "error", signal: AbortSignal.timeout(8000),
+    method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000),
     body: new URLSearchParams({
       grant_type: "authorization_code", code, redirect_uri: new URL(googleCallback, url.origin).href,
       client_id: settings.clientId, client_secret: settings.clientSecret, code_verifier: attempt.verifier,
