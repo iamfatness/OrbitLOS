@@ -3,16 +3,20 @@ import { timingSafeEqual } from "node:crypto";
 import app from "vinext/server/app-router-entry";
 import { executeCommand } from "./lib/commands";
 import { borrowerCommandResult } from "./lib/applications";
-import { borrowerHttp } from "./lib/borrower-http";
+import { borrowerHttp, borrowerJson } from "./lib/borrower-http";
 import { initializeStore, readWorkspace, type SqlValue, type Store } from "./lib/store";
 import { googleSettings, handleStaffAuth, runtimeSetting, signedInStaff } from "./lib/staff-auth";
-import { staffAuthStore, type StaffAuthStore, type StaffIdentity } from "./lib/staff-store";
+import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
+import { brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage } from "./lib/brokerage-model";
+import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, initializeBrokerages } from "./lib/brokerages";
+import { assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
 import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
   readonly #auth: StaffAuthStore;
+  readonly #id: string;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -29,16 +33,44 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       },
       transaction: (run) => storage.transactionSync(run),
     };
-    initializeStore(this.#store);
+    if (!ctx.id.name || !brokerageIdPattern.test(ctx.id.name)) throw new Error("Invalid Orbit workspace name.");
+    this.#id = ctx.id.name;
+    initializeStore(this.#store, this.#id === demoBrokerageId);
+    if (this.#id === demoBrokerageId) initializeBrokerages(this.#store);
     this.#auth = staffAuthStore(this.#store);
   }
 
-  read() {
-    return readWorkspace(this.#store);
+  #accepts(staff: WorkspaceStaff | null) {
+    return staff ? staff.brokerage.id === this.#id : this.#id === demoBrokerageId;
   }
 
-  async write(input: unknown, staff: StaffIdentity | null) {
+  read(staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) throw new Error("Workspace access denied.");
+    return scopeWorkspace(readWorkspace(this.#store), staff);
+  }
+
+  async write(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return executeCommand(this.#store, input, staff);
+  }
+
+  activateStaff(staff: StaffIdentity, emails: string[]) { return activateBrokerages(this.#store, staff, emails); }
+  staffBrokerages(email: string, emails: string[]) {
+    return this.#store.transaction(() => {
+      bootstrapDemoMembers(this.#store, emails);
+      return activeBrokerages(this.#store, email, emails);
+    });
+  }
+  hasBrokerage(id: string) { return !!this.#store.prepare("SELECT 1 FROM brokerages WHERE id = ?").get(id); }
+  team(staff: WorkspaceStaff, emails: string[]) {
+    if (!activeBrokerages(this.#store, staff.email, emails).some((entry) => entry.id === staff.brokerage.id && entry.role === "Admin")) return { members: [], history: [] };
+    return { members: brokerageMembers(this.#store, staff.brokerage.id, emails), history: brokerageHistory(this.#store, staff.brokerage.id) };
+  }
+  manage(staff: WorkspaceStaff, emails: string[], input: unknown) { return changeBrokerage(this.#store, staff.brokerage.id, staff, emails, input); }
+  audit(staff: WorkspaceStaff) { return this.#accepts(staff) && staff.brokerage.role === "Admin" ? workspaceAccessHistory(this.#store) : []; }
+  reassign(staff: WorkspaceStaff, target: Parameters<typeof assignLoan>[2]) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." };
+    return assignLoan(this.#store, staff, target);
   }
 
   borrower(input: unknown) {
@@ -96,26 +128,53 @@ export default {
     if (!google && !demoPassword) {
       return new Response("Orbit demo is being configured.", { status: 503, headers: { "Cache-Control": "no-store" } });
     }
-    const workspaceStore = () => env.WORKSPACE.getByName("orbit-demo");
+    const directory = env.WORKSPACE.getByName(demoBrokerageId);
+    const bootstrapEmails = [...(google?.allowedEmails ?? [])];
+    async function linkedWorkspace(input: unknown) {
+      const id = portalBrokerage(input && typeof input === "object" && "token" in input ? input.token : input);
+      if (!id || (id !== demoBrokerageId && !await directory.hasBrokerage(id))) return null;
+      return env.WORKSPACE.getByName(id);
+    }
     const placesKey = runtimeSetting(env, "GOOGLE_PLACES_API_KEY").trim();
     // This endpoint can reach only the token-scoped borrower command.
     if (request.method === "POST" && url.pathname === "/api/demo-application") {
-      return borrowerHttp(request, (input) => workspaceStore().borrower(input), Boolean(placesKey));
+      return borrowerHttp(request, async (input) => {
+        const workspace = await linkedWorkspace(input);
+        return workspace ? workspace.borrower(input) : { status: 404, error: "This application link is invalid or expired." };
+      }, Boolean(placesKey));
     }
     if (request.method === "POST" && url.pathname === "/api/demo-address") {
-      return placesHttp(request, placesKey, (token) => workspaceStore().reserveAddressLookup(token));
+      return placesHttp(request, placesKey, async (token) => (await linkedWorkspace(token))?.reserveAddressLookup(token) ?? 404);
     }
     if (request.method === "POST" && url.pathname === "/api/realtor-referrals") {
-      return realtorHttp(request, (input) => workspaceStore().realtor(input));
+      return realtorHttp(request, async (input) => {
+        const workspace = await linkedWorkspace(input);
+        return workspace ? workspace.realtor(input) : { status: 404, error: "This referral link is invalid or expired." };
+      });
     }
     const tokenPage = reading && (url.pathname === "/apply" || url.pathname === "/referrals");
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
-      return handleStaffAuth(request, url, google, workspaceStore());
+      return handleStaffAuth(request, url, google, directory, (staff) => directory.activateStaff(staff, bootstrapEmails));
     }
-    let staff: StaffIdentity | null = null;
+    let staff: WorkspaceStaff | null = null;
+    let brokerages: WorkspaceStaff["brokerage"][] = [];
     if (!tokenPage) {
       if (google) {
-        try { staff = await signedInStaff(request, google, workspaceStore()); }
+        try {
+          const identity = await signedInStaff(request, google, directory);
+          if (identity) {
+            brokerages = await directory.staffBrokerages(identity.email, bootstrapEmails);
+            const requested = url.searchParams.get("brokerage");
+            const brokerage = requested === null ? brokerages[0] : brokerages.find((entry) => entry.id === requested);
+            if (requested !== null && !brokerage && brokerages.length) {
+              return new Response("You don’t have access to this brokerage.", { status: 403, headers: { "Cache-Control": "no-store" } });
+            }
+            if (brokerage) staff = { ...identity, brokerage };
+            if (staff && requested === null && staff.brokerage.id !== demoBrokerageId && reading && url.pathname === "/workspace") {
+              return new Response(null, { status: 303, headers: { Location: brokerageUrl(staff.brokerage.id), "Cache-Control": "no-store" } });
+            }
+          }
+        }
         catch { return new Response("Orbit sign-in is temporarily unavailable.", { status: 503, headers: { "Cache-Control": "no-store" } }); }
         if (!staff) {
           if (reading) return new Response(null, { status: 303, headers: { Location: "/login", "Cache-Control": "no-store" } });
@@ -126,17 +185,41 @@ export default {
           status: 401,
           headers: { "WWW-Authenticate": 'Basic realm="Orbit Demo", charset="UTF-8"', "Cache-Control": "no-store" },
         });
+      } else if (url.searchParams.has("brokerage") && url.searchParams.get("brokerage") !== demoBrokerageId) {
+        return new Response("Google staff sign-in is required for this brokerage.", { status: 403, headers: { "Cache-Control": "no-store" } });
       }
     }
     if (!reading && request.headers.get("Origin") !== url.origin) {
       return new Response("This action must come from Orbit.", { status: 403, headers: { "Cache-Control": "no-store" } });
     }
+    if (url.pathname === "/api/brokerages") {
+      const headers = { "Cache-Control": "private, no-store" };
+      if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
+      const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
+      if (request.method === "GET") {
+        const [team, localHistory] = await Promise.all([directory.team(staff, bootstrapEmails), workspace.audit(staff)]);
+        const history = [...team.history, ...localHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
+        return Response.json({ brokerages, members: team.members, history }, { headers });
+      }
+      if (request.method === "POST") return borrowerJson<{ message?: string; created?: string }>(request, async (input) => {
+        const result = await directory.manage(staff, bootstrapEmails, input);
+        if (result.error) return { status: 403, error: result.error };
+        if (result.assignment) {
+          const assigned = await workspace.reassign(staff, result.assignment);
+          return assigned.error ? { status: 409, error: assigned.error } : { value: { message: assigned.message } };
+        }
+        return { value: { message: result.message, created: result.created } };
+      }, 8192);
+      return new Response("Method not allowed.", { status: 405, headers });
+    }
     const appHeaders = new Headers(request.headers);
     appHeaders.delete("x-orbit-staff-email");
     appHeaders.delete("x-orbit-staff-name");
+    appHeaders.delete("x-orbit-brokerage");
     if (staff) {
       appHeaders.set("x-orbit-staff-email", encodeURIComponent(staff.email));
       appHeaders.set("x-orbit-staff-name", encodeURIComponent(staff.name.toWellFormed()));
+      appHeaders.set("x-orbit-brokerage", encodeURIComponent(JSON.stringify(staff.brokerage)));
     }
     const response = url.pathname.startsWith("/_next/static/")
       ? await env.ASSETS.fetch(request)

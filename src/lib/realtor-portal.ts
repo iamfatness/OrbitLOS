@@ -2,11 +2,12 @@ import { z } from "zod";
 import type { Store } from "./store";
 import type { RealtorReferrals, Stage } from "./model";
 import { borrowerJson } from "./borrower-http";
+import { portalTokenPattern } from "./brokerage-model";
 
 export type RealtorPortalResult = { value: RealtorReferrals } | { status: number; error: string };
 
 export function realtorReferrals(db: Store, input: unknown, now = new Date().toISOString()): RealtorPortalResult {
-  const parsed = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(input);
+  const parsed = z.object({ token: z.string().regex(portalTokenPattern) }).safeParse(input);
   if (!parsed.success) return { status: 400, error: "Open the complete referral link from your loan officer." };
   const portal = db.prepare(`SELECT portal.realtorId, contacts.name FROM realtor_portals portal
     JOIN contacts ON contacts.id = portal.realtorId AND contacts.role = 'Realtor'

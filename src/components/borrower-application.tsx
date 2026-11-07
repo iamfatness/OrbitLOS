@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Orbit as OrbitIcon, Save } from "lucide-react";
 import { applicationIssues, applicationSteps, sampleApplication, type BorrowerApplication } from "@/lib/application-model";
 import type { DocumentRequest } from "@/lib/document-model";
+import { portalTokenPattern } from "@/lib/brokerage-model";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
@@ -11,7 +12,7 @@ import { BorrowerStatus } from "./borrower-status";
 
 async function requestApplication(input: object, signal?: AbortSignal) {
   const token = window.location.hash.slice(1);
-  if (!/^[a-f0-9]{64}$/.test(token)) throw new Error("Open the complete application link from your loan officer.");
+  if (!portalTokenPattern.test(token)) throw new Error("Open the complete application link from your loan officer.");
   const response = await fetch("/api/demo-application", {
     method: "POST", credentials: "omit", signal,
     headers: { "Content-Type": "application/json" },

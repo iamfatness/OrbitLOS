@@ -117,12 +117,11 @@ export async function googleIdentity(token: string, nonce: string, settings: Goo
   // Google is authoritative for Gmail and hosted Workspace accounts. A
   // verified third-party address can change owners outside Google.
   if (!email.endsWith("@gmail.com") && !(typeof payload.hd === "string" && payload.hd)) return null;
-  if (!settings.allowedEmails.has(email)) return null;
   const name = typeof payload.name === "string" ? payload.name.trim().slice(0, 100) : "";
   return { email, name: name || email };
 }
 
-async function completeGoogle(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore) {
+async function completeGoogle(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: (staff: StaffIdentity) => Promise<boolean>) {
   const cleared = cookie(attemptCookie, "", 0);
   const restart = () => redirect("/login?error=restart", [cleared]);
   const browser = readCookie(request, attemptCookie);
@@ -144,7 +143,7 @@ async function completeGoogle(request: Request, url: URL, settings: GoogleSettin
   const token: unknown = await response.json();
   if (!token || typeof token !== "object" || !("id_token" in token) || typeof token.id_token !== "string") return restart();
   const identity = await googleIdentity(token.id_token, attempt.nonce, settings);
-  if (!identity) return redirect("/login?error=denied", [cleared]);
+  if (!identity || !await authorize(identity)) return redirect("/login?error=denied", [cleared]);
   const session = randomToken();
   const now = Date.now();
   const previous = readCookie(request, sessionCookie);
@@ -156,16 +155,15 @@ async function completeGoogle(request: Request, url: URL, settings: GoogleSettin
 export async function signedInStaff(request: Request, settings: GoogleSettings, store: StaffAuthStore): Promise<StaffIdentity | null> {
   const token = readCookie(request, sessionCookie);
   if (!token || !configured(settings)) return null;
-  const staff = await store.getStaffSession(await hash(token), Date.now());
-  return staff && settings.allowedEmails.has(staff.email) ? staff : null;
+  return store.getStaffSession(await hash(token), Date.now());
 }
 
-export async function handleStaffAuth(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore) {
+export async function handleStaffAuth(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: (staff: StaffIdentity) => Promise<boolean>) {
   if (url.pathname === "/login" && request.method === "GET") return loginPage(settings, url);
   if (!configured(settings)) return redirect("/login");
   try {
     if (url.pathname === "/auth/google" && request.method === "GET") return await beginGoogle(settings, url, store);
-    if (url.pathname === googleCallback && request.method === "GET") return await completeGoogle(request, url, settings, store);
+    if (url.pathname === googleCallback && request.method === "GET") return await completeGoogle(request, url, settings, store, authorize);
     if (url.pathname === "/auth/logout" && request.method === "POST") {
       if (request.headers.get("Origin") !== url.origin) return new Response("This action must come from Orbit.", { status: 403, headers: noStore });
       const token = readCookie(request, sessionCookie);

@@ -4,11 +4,16 @@ import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
 import { borrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
-import type { StaffIdentity } from "./staff-store";
+import type { WorkspaceStaff } from "./staff-store";
+import { scopeWorkspace } from "./workspace-access";
 import { realtorReferrals } from "./realtor-portal";
 import { initializeStore, readWorkspace, type SqlValue, type Store } from "./store";
 
 let connection: Store | undefined;
+
+export async function currentStaff(): Promise<WorkspaceStaff | null> {
+  return null;
+}
 
 function database(): Store {
   if (connection) return connection;
@@ -50,11 +55,11 @@ function database(): Store {
   return store;
 }
 
-export function loadWorkspace() {
-  return readWorkspace(database());
+export function loadWorkspace(staff: WorkspaceStaff | null = null) {
+  return scopeWorkspace(readWorkspace(database()), staff);
 }
 
-export async function updateWorkspace(input: unknown, staff: StaffIdentity | null) {
+export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | null) {
   return executeCommand(database(), input, staff);
 }
 

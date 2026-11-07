@@ -9,7 +9,9 @@ import { PricingError, pricingProvider } from "./pricing-provider";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 import { createMilestoneDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
-import type { StaffIdentity } from "./staff-store";
+import type { WorkspaceStaff } from "./staff-store";
+import { accessEvent, isDemoStaff, scopeWorkspace } from "./workspace-access";
+import { portalToken, portalTokenPattern } from "./brokerage-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { documentKinds } from "./document-model";
 
@@ -49,6 +51,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("deleteSubmission"), id }),
   z.object({ type: z.literal("sync") }),
   z.object({ type: z.literal("startApplication"), loanId: id }),
+  z.object({ type: z.literal("revokeApplication"), loanId: id, token: z.string().regex(portalTokenPattern) }),
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
   z.object({ type: z.literal("requestDocument"), loanId: id, kind: z.enum(documentKinds), instructions: z.string().trim().max(500),
     condition: z.object({ submissionId: id, conditionId: z.string().min(1).max(240) }).optional() }),
@@ -73,23 +76,44 @@ const command = z.discriminatedUnion("type", [
 
 class WorkspaceError extends Error {}
 
-export async function executeCommand(db: Store, input: unknown, staff: StaffIdentity | null = null): Promise<{ state: Workspace; message: string } | { error: string }> {
+function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: WorkspaceStaff | null) {
+  if (staff?.brokerage.role !== "LO") return;
+  const denied = () => { throw new WorkspaceError("You don’t have access to this workspace action or loan."); };
+  const owns = (loanId: unknown) => typeof loanId === "string" && !!db.prepare("SELECT 1 FROM loans WHERE id = ? AND officerEmail = ?").get(loanId, staff.email);
+  if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" ||
+    data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
+  if ("loanId" in data && !owns(data.loanId)) denied();
+  if (data.type === "move" && !owns(data.id)) denied();
+  if (data.type === "completeTask" && !owns(db.prepare("SELECT loanId FROM tasks WHERE id = ?").get(data.id)?.loanId)) denied();
+  if (data.type === "deleteSubmission" && !owns(db.prepare("SELECT loanId FROM submissions WHERE id = ?").get(data.id)?.loanId)) denied();
+  if (data.type === "submission" && data.id && db.prepare("SELECT loanId FROM submissions WHERE id = ?").get(data.id)?.loanId !== data.loanId) denied();
+  if (data.type === "loan") {
+    if (data.id && !owns(data.id)) denied();
+    for (const contactId of [data.contactId, data.partnerId]) {
+      if (contactId && !db.prepare("SELECT 1 FROM loans WHERE officerEmail = ? AND (contactId = ? OR partnerId = ?)").get(staff.email, contactId, contactId)) denied();
+    }
+  }
+}
+
+export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null): Promise<{ state: Workspace; message: string } | { error: string }> {
   const parsed = command.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Check the form and try again." };
   const data = parsed.data;
   try {
+    authorizeLoanOfficer(db, data, staff);
     if (data.type === "sync") {
       const result = await syncUwm(db);
-      return { state: readWorkspace(db), message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions` };
+      return { state: scopeWorkspace(readWorkspace(db), staff), message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions` };
     }
     if (data.type === "runPricing") {
       if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
-      const result = await pricingProvider().quote(data.scenario);
+      const result = await pricingProvider(isDemoStaff(staff) ? process.env : {}).quote(data.scenario);
       return db.transaction(() => {
+        authorizeLoanOfficer(db, data, staff);
         db.prepare("INSERT INTO pricing_runs (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .run(crypto.randomUUID(), data.loanId, result.provider, result.mode, result.reference,
             JSON.stringify(data.scenario), JSON.stringify(result.offers), JSON.stringify(result.notices), new Date().toISOString());
-        return { state: workspace(db), message: `${result.offers.length} pricing options returned.` };
+        return { state: scopeWorkspace(workspace(db), staff), message: `${result.offers.length} pricing options returned.` };
       });
     }
     const now = new Date().toISOString();
@@ -177,21 +201,36 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
         }
         case "createRealtorPortal": {
           if (!db.prepare("SELECT 1 FROM contacts WHERE id = ? AND role = 'Realtor'").get(data.realtorId)) throw new WorkspaceError("Choose a realtor contact.");
-          const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+          const token = portalToken(staff?.brokerage.id);
           const expiresAt = new Date(Date.parse(now) + 7 * 86_400_000).toISOString();
           db.prepare(`INSERT INTO realtor_portals (realtorId, token, expiresAt) VALUES (?, ?, ?)
             ON CONFLICT(realtorId) DO UPDATE SET token = excluded.token, expiresAt = excluded.expiresAt`).run(data.realtorId, token, expiresAt);
+          accessEvent(db, staff, "Issued realtor link", data.realtorId, now);
           message = "Realtor referral link is ready. It expires in seven days.";
           break;
         }
         case "revokeRealtorPortal":
+          if (db.prepare("SELECT 1 FROM realtor_portals WHERE realtorId = ?").get(data.realtorId)) accessEvent(db, staff, "Revoked realtor link", data.realtorId, now);
           db.prepare("DELETE FROM realtor_portals WHERE realtorId = ?").run(data.realtorId);
           message = "Realtor referral link revoked.";
           break;
-        case "startApplication":
-          if (!startApplication(db, data.loanId, now)) throw new WorkspaceError("This loan no longer exists.");
+        case "startApplication": {
+          const before = getApplication(db, data.loanId);
+          if (!startApplication(db, data.loanId, now, staff?.brokerage.id)) throw new WorkspaceError("This loan no longer exists.");
+          if (!before || before.revokedAt || before.expiresAt <= now) accessEvent(db, staff, before ? "Replaced borrower link" : "Issued borrower link", data.loanId, now);
           message = "Demo application link is ready.";
           break;
+        }
+        case "revokeApplication": {
+          const application = getApplication(db, data.loanId);
+          if (!application || application.token !== data.token) throw new WorkspaceError("The borrower link changed. Refresh before revoking it.");
+          if (!application.revokedAt) {
+            db.prepare("UPDATE applications SET revokedAt = ? WHERE loanId = ?").run(now, data.loanId);
+            accessEvent(db, staff, "Revoked borrower link", data.loanId, now);
+          }
+          message = "Borrower link revoked.";
+          break;
+        }
         case "refreshApplication":
           message = "Application and checklist refreshed.";
           break;
@@ -382,16 +421,18 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
             insertContact(db, { id: contactId, name: data.borrower, email: "", phone: "", role: "Borrower" });
           }
           if (data.assignToSelf && !staff) throw new WorkspaceError("Sign in to assign this loan to your account.");
-          const owner = data.assignToSelf ? staff : null;
-          const officer = owner?.name.slice(0, 160) ?? data.officer;
+          const managed = !isDemoStaff(staff) || staff?.brokerage.role === "LO";
+          const owner = (managed ? !current : data.assignToSelf) ? staff : null;
+          const officer = owner?.name.slice(0, 160) ?? (managed && current ? String(current.officer) : data.officer);
           const unlinkSelf = data.assignToSelf === false && staff?.email === current?.officerEmail;
           const keepOwner = !unlinkSelf && data.officer === current?.officer && typeof current.officerEmail === "string";
-          const officerEmail = owner?.email ?? (keepOwner ? String(current.officerEmail) : null);
+          const officerEmail = owner?.email ?? (managed && current ? current.officerEmail as string | null : keepOwner ? String(current.officerEmail) : null);
           const stageSince = current?.stage === data.stage ? String(current.stageSince) : now;
           const loanId = data.id ?? crypto.randomUUID();
           if (data.id) {
             db.prepare("UPDATE loans SET contactId = ?, partnerId = ?, officer = ?, officerEmail = ?, address = ?, amount = ?, purpose = ?, stage = ?, stageSince = ? WHERE id = ?")
               .run(contactId, data.partnerId, officer, officerEmail, data.address, data.amount, data.purpose, data.stage, stageSince, loanId);
+            if ((current?.officerEmail ?? null) !== officerEmail) accessEvent(db, staff, "Changed loan owner", `${loanId} · ${officerEmail ?? "Unassigned"}`, now);
           } else {
             insertLoan(db, { ...data, id: loanId, officer, officerEmail, contactId, stageSince });
           }
@@ -440,7 +481,7 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           break;
       }
       synchronizeRetentionTasks(db);
-      return { state: workspace(db), message };
+      return { state: scopeWorkspace(workspace(db), staff), message };
     });
   } catch (error) {
     if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };

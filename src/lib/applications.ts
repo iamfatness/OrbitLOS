@@ -5,6 +5,7 @@ import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
 import { lenderDetailsSchema, normalizeUrla } from "./urla";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
+import { portalToken, portalTokenPattern } from "./brokerage-model";
 import type { BorrowerQuote } from "./pricing-model";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "lender"> & { draft: string; step: number; revision: number };
@@ -20,7 +21,7 @@ export function staffApplications(db: Store): StaffApplication[] {
   return db.prepare("SELECT * FROM applications").all().map((value) => {
     const row = value as ApplicationRow;
     return {
-      loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, updatedAt: row.updatedAt,
+      loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, uwmReference: row.uwmReference,
       draft: row.submittedAt ? applicationDraft.parse(JSON.parse(row.draft)) : null,
       lender: lender.get(row.loanId) ?? null,
@@ -33,16 +34,16 @@ export function addApplicationActivity(db: Store, loanId: string, text: string, 
     .run(crypto.randomUUID(), loanId, text, now);
 }
 
-export function startApplication(db: Store, loanId: string, now: string) {
+export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string) {
   const loan = db.prepare("SELECT loans.address, loans.amount, loans.purpose, contacts.name FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?").get(loanId);
   if (!loan) return false;
   const existing = getApplication(db, loanId);
-  if (existing && existing.expiresAt > now) return true;
+  if (existing && !existing.revokedAt && existing.expiresAt > now) return true;
 
-  const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const token = portalToken(brokerageId);
   const expiresAt = new Date(Date.parse(now) + 7 * 86_400_000).toISOString();
   if (existing) {
-    db.prepare("UPDATE applications SET token = ?, expiresAt = ? WHERE loanId = ?").run(token, expiresAt, loanId);
+    db.prepare("UPDATE applications SET token = ?, expiresAt = ?, revokedAt = NULL WHERE loanId = ?").run(token, expiresAt, loanId);
     return true;
   }
   const property = splitLegacyAddress(String(loan.address));
@@ -57,7 +58,7 @@ export function startApplication(db: Store, loanId: string, now: string) {
   return true;
 }
 
-const token = z.string().regex(/^[a-f0-9]{64}$/);
+const token = z.string().regex(portalTokenPattern);
 const write = {
   token, draft: applicationDraft,
   revision: z.number().int().min(0),
@@ -92,7 +93,7 @@ export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult
   const data = parsed.data;
   const now = new Date().toISOString();
   return db.transaction(() => {
-    const row = db.prepare("SELECT * FROM applications WHERE token = ? AND expiresAt > ?")
+    const row = db.prepare("SELECT * FROM applications WHERE token = ? AND expiresAt > ? AND revokedAt IS NULL")
       .get(data.token, now) as ApplicationRow | undefined;
     if (!row) return { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
     if (data.type === "read" || (data.type === "submit" && row.submittedAt)) return borrowerResult(db, row);

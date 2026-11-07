@@ -158,6 +158,7 @@ export interface StaffApplication {
   loanId: string;
   token: string;
   expiresAt: string;
+  revokedAt: string | null;
   updatedAt: string;
   submittedAt: string | null;
   reviewedAt: string | null;

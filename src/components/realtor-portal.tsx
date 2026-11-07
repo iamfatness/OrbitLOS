@@ -5,10 +5,11 @@ import { Orbit } from "lucide-react";
 import type { RealtorReferrals } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { portalTokenPattern } from "@/lib/brokerage-model";
 
 async function requestReferrals(signal?: AbortSignal) {
   const token = window.location.hash.slice(1);
-  if (!/^[a-f0-9]{64}$/.test(token)) throw new Error("Open the complete referral link from your loan officer.");
+  if (!portalTokenPattern.test(token)) throw new Error("Open the complete referral link from your loan officer.");
   const response = await fetch("/api/realtor-referrals", { method: "POST", credentials: "omit", signal,
     headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
   if (!response.ok) {

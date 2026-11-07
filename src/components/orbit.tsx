@@ -12,12 +12,14 @@ import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
 import { LoanWorkQueue } from "./loan-work-queue";
-import type { StaffIdentity } from "@/lib/staff-store";
+import type { WorkspaceStaff } from "@/lib/staff-store";
+import { demoBrokerageId } from "@/lib/brokerage-model";
+import { BrokerageTeam } from "./brokerage-team";
 import { CommunicationQueue } from "./loan-communications";
 import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
 
-type Section = "Pipeline" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations";
+type Section = "Pipeline" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team";
 const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
@@ -29,6 +31,7 @@ const navigation = [
   { label: "Tasks", icon: ClipboardCheck },
   { label: "Communications", icon: Mail },
   { label: "Integrations", icon: Zap },
+  { label: "Team", icon: UsersRound },
 ] as const;
 
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
@@ -42,6 +45,7 @@ const descriptions: Record<Section, string> = {
   Tasks: "See which loans need a follow-up and who owns it.",
   Communications: "Preview and copy milestone drafts for borrowers and realtors.",
   Integrations: "Manage your lender connections and refresh loan data.",
+  Team: "Switch brokerages and manage access to your loans.",
 };
 
 function LoanCard({ loan, name, lenders, count, onOpen, onDrag, onDragEnd }: {
@@ -61,7 +65,7 @@ function LoanCard({ loan, name, lenders, count, onOpen, onDrag, onDragEnd }: {
   );
 }
 
-export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIdentity | null }) {
+export function Orbit({ initial, staff }: { initial: Workspace; staff: WorkspaceStaff | null }) {
   const [state, setState] = useState(initial);
   const [section, setSection] = useState<Section>("Pipeline");
   const [view, setView] = useState<"Board" | "List">("Board");
@@ -127,7 +131,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
     setError("");
     setNotice("");
     try {
-      const result = await mutate(input);
+      const result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId);
       if ("error" in result) {
         setError(result.error);
         return;
@@ -182,6 +186,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
   }
 
   function syncButton() {
+    if (staff?.brokerage.role === "LO") return null;
     return <Button variant="outline" onClick={() => void sync()} disabled={busy}><RefreshCw className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync UWM"}</Button>;
   }
 
@@ -191,14 +196,14 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
         <div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
         <div className="workspace-label">WORKSPACE</div>
         <nav aria-label="Workspace navigation">
-          {navigation.map(({ label, icon: Icon }) => (
+          {navigation.filter(({ label }) => (label !== "Team" || staff) && (staff?.brokerage.role !== "LO" || label !== "Realtors")).map(({ label, icon: Icon }) => (
             <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
               <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="demo-label"><span /> Demo workspace</div>
+          <div className="demo-label"><span /> {staff?.brokerage.name ?? "Demo workspace"}</div>
           <div className="profile"><span className="avatar">{staff ? initials(staff.name) : "AM"}</span><div>
             <strong>{staff?.name || demoOfficer}</strong><small>{staff?.email || "Loan officer"}</small>
           </div></div>
@@ -220,7 +225,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
             </div>
             <div className="heading-actions">
               {section === "Pipeline" && <>{syncButton()}<Button onClick={() => show({ kind: "loan" })}><Plus /> New loan</Button></>}
-              {section === "Contacts" && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
+              {section === "Contacts" && staff?.brokerage.role !== "LO" && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
               {section === "Communications" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh drafts</Button>}
             </div>
@@ -290,7 +295,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
             <div className="pipeline-heading"><div><h2>All contacts <span>{visibleContacts.length}</span></h2><p>Your borrowers and referral partners.</p></div></div>
             <div className="toolbar"><label className="search"><Search size={17} /><input aria-label="Search contacts" placeholder="Search contacts…" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>
             {visibleContacts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Contact type</th><th>Email</th><th>Phone</th></tr></thead><tbody>
-              {visibleContacts.map((contact) => <tr key={contact.id}><td><button className="name-link" onClick={() => show({ kind: "contact", contactId: contact.id })}>{contact.name}</button></td><td>{contact.role}</td><td>{contact.email || "—"}</td><td>{contact.phone || "—"}</td></tr>)}
+              {visibleContacts.map((contact) => <tr key={contact.id}><td>{staff?.brokerage.role === "LO" ? contact.name : <button className="name-link" onClick={() => show({ kind: "contact", contactId: contact.id })}>{contact.name}</button>}</td><td>{contact.role}</td><td>{contact.email || "—"}</td><td>{contact.phone || "—"}</td></tr>)}
             </tbody></table></div> : <p className="empty-inline no-matches">No contacts match your search.</p>}
           </section>}
 
@@ -328,6 +333,8 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
 
           {section === "Past Clients" && <PastClients state={state} openLoan={(loanId) => show({ kind: "details", loanId })}
             editRetention={(loanId) => show({ kind: "retention", loanId })} />}
+
+          {section === "Team" && staff && <BrokerageTeam staff={staff} state={state} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)} />}
 
           {section === "Integrations" && <section className="integration">
             <div className="integration-head"><span className="metric-icon lavender"><Zap size={20} /></span><div><h2>United Wholesale Mortgage</h2><p>Mock lender connection</p></div><span className="pill">Demo mode</span></div>

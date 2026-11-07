@@ -1,9 +1,12 @@
 import type { Store } from "./store";
+import type { Brokerage } from "./brokerage-model";
 
 export interface StaffIdentity {
   email: string;
   name: string;
 }
+
+export type WorkspaceStaff = StaffIdentity & { brokerage: Brokerage };
 
 export interface GoogleAttempt {
   state: string;

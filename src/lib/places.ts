@@ -2,7 +2,9 @@ import { z } from "zod";
 import { borrowerJson } from "./borrower-http";
 import type { Store } from "./store";
 
-const access = { token: z.string().regex(/^[a-f0-9]{64}$/), session: z.uuid() };
+import { portalTokenPattern } from "./brokerage-model";
+
+const access = { token: z.string().regex(portalTokenPattern), session: z.uuid() };
 const addressCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("search"), query: z.string().trim().min(4).max(240), zip: z.string().regex(/^(?:\d{5}(?:-\d{4})?)?$/), ...access }),
   z.object({ type: z.literal("select"), id: z.string().regex(/^[A-Za-z0-9_-]{1,240}$/), ...access }),
@@ -21,7 +23,7 @@ export function reserveAddressLookup(db: Store, token: string, time = Date.now()
   const now = new Date(time).toISOString();
   const window = Math.floor(time / windowMs);
   return db.transaction(() => {
-    const application = db.prepare("SELECT loanId FROM applications WHERE token = ? AND expiresAt > ? AND submittedAt IS NULL").get(token, now);
+    const application = db.prepare("SELECT loanId FROM applications WHERE token = ? AND expiresAt > ? AND submittedAt IS NULL AND revokedAt IS NULL").get(token, now);
     if (!application) return 404;
     const attempt = db.prepare("SELECT window, requests FROM application_address_quota WHERE loanId = ?").get(application.loanId);
     const requests = attempt?.window === window ? Number(attempt.requests) + 1 : 1;

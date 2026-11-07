@@ -347,3 +347,5 @@ button:disabled { cursor: default; }
   .task-form { grid-template-columns: minmax(0, 1fr) auto; }
   .task-form > .field:first-child { grid-column: 1 / -1; }
 }
+.brokerage-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.brokerage-form .field { flex: 1 1 145px; font-size: 12px; }

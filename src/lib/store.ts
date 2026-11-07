@@ -28,7 +28,7 @@ const documentRequestColumns = `
   UNIQUE (submissionId, conditionId)
 `;
 
-export function initializeStore(db: Store) {
+export function initializeStore(db: Store, seedDemo = true) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, role TEXT NOT NULL
@@ -48,6 +48,9 @@ export function initializeStore(db: Store) {
     CREATE TABLE IF NOT EXISTS activity (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       text TEXT NOT NULL, createdAt TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'Note'
+    );
+    CREATE TABLE IF NOT EXISTS workspace_access_history (
+      id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, subject TEXT NOT NULL, createdAt TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS applications (
@@ -127,6 +130,9 @@ export function initializeStore(db: Store) {
     if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "officerEmail")) {
       db.exec("ALTER TABLE loans ADD COLUMN officerEmail TEXT");
     }
+    if (!db.prepare("PRAGMA table_info(applications)").all().some((column) => column.name === "revokedAt")) {
+      db.exec("ALTER TABLE applications ADD COLUMN revokedAt TEXT");
+    }
     if (!db.prepare("PRAGMA table_info(document_requests)").all().some((column) => column.name === "conditionId")) {
       // Preserve the original checklist while allowing each condition its own request.
       const columns = "id, loanId, kind, instructions, requestedAt, status, replacementNote, submittedAt, revision";
@@ -150,7 +156,7 @@ export function initializeStore(db: Store) {
       if (!rateColumns.has(column)) db.exec(`ALTER TABLE mock_uwm_rates ADD COLUMN ${column} ${type}`);
     }
     createApplicationFollowUps(db);
-    if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
+    if (!seedDemo || db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();
     for (const contact of demo.contacts) insertContact(db, contact);
     for (const loan of demo.loans) insertLoan(db, loan);

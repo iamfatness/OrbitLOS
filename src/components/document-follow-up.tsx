@@ -17,7 +17,7 @@ export function DocumentFollowUp({ loan, state }: { loan: Loan; state: Workspace
   if (!borrower || !outstanding.length) return <p className="empty-inline">There are no borrower requests to follow up on.</p>;
   if (!application?.submittedAt) return <p className="empty-inline">The borrower can open the checklist after submitting their 1003.</p>;
   const expiresAt = application.expiresAt;
-  if (expiresAt <= new Date().toISOString()) return <p className="empty-inline">Renew the borrower link in the 1003 section before copying this follow-up.</p>;
+  if (application.revokedAt || expiresAt <= new Date().toISOString()) return <p className="empty-inline">Issue a new borrower link in the 1003 section before copying this follow-up.</p>;
 
   const link = new URL(`/apply#${application.token}`, window.location.origin).href;
   const officer = loan.officer || "Your loan team";

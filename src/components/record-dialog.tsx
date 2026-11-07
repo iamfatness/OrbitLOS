@@ -9,7 +9,8 @@ import { ApplicationAnswers } from "./application-fields";
 import { LoanTaskRow } from "./loan-task";
 import { LoanPricing } from "./loan-pricing";
 import { CommunicationPreview, LoanCommunications } from "./loan-communications";
-import type { StaffIdentity } from "@/lib/staff-store";
+import type { WorkspaceStaff } from "@/lib/staff-store";
+import { demoBrokerageId } from "@/lib/brokerage-model";
 import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetails } from "@/lib/urla";
 import type { StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
@@ -62,11 +63,12 @@ function Form({ children, save, busy, done, onCancel, remove }: {
   );
 }
 
-function LoanFields({ loan, state, stage, staff }: { loan?: Loan; state: Workspace; stage?: Stage; staff: StaffIdentity | null }) {
+function LoanFields({ loan, state, stage, staff }: { loan?: Loan; state: Workspace; stage?: Stage; staff: WorkspaceStaff | null }) {
   const [contactId, setContactId] = useState(loan?.contactId ?? "");
   const [assignToSelf, setAssignToSelf] = useState(Boolean(staff && (!loan || loan.officerEmail === staff.email)));
   const [manualOfficer, setManualOfficer] = useState(loan?.officer ?? (staff ? "" : "Alex Morgan"));
   const borrowerLocked = loan && state.applications.some((application) => application.loanId === loan.id);
+  const managed = staff && (staff.brokerage.id !== demoBrokerageId || staff.brokerage.role === "LO");
   return (
     <>
       <Field label="Borrower contact">
@@ -83,9 +85,9 @@ function LoanFields({ loan, state, stage, staff }: { loan?: Loan; state: Workspa
         <Field label="Loan purpose"><select name="purpose" defaultValue={loan?.purpose ?? "Purchase"}><option>Purchase</option><option>Refinance</option></select></Field>
         <Field label="Pipeline stage"><select name="stage" defaultValue={loan?.stage ?? stage ?? "Lead"}>{stages.map((item) => <option key={item}>{item}</option>)}</select></Field>
         <Field label="Loan officer"><input name="officer" list="loan-officers" maxLength={160} placeholder="Unassigned"
-          readOnly={assignToSelf} value={assignToSelf ? staff?.name.slice(0, 160) ?? "" : manualOfficer} onChange={(event) => setManualOfficer(event.target.value)} /></Field>
+          readOnly={assignToSelf || Boolean(managed)} value={managed ? loan?.officer ?? staff.name : assignToSelf ? staff?.name.slice(0, 160) ?? "" : manualOfficer} onChange={(event) => setManualOfficer(event.target.value)} /></Field>
       </div>
-      {staff && <label className="demo-confirm"><input type="checkbox" name="assignToSelf" checked={assignToSelf} onChange={(event) => setAssignToSelf(event.target.checked)} />
+      {staff && !managed && <label className="demo-confirm"><input type="checkbox" name="assignToSelf" checked={assignToSelf} onChange={(event) => setAssignToSelf(event.target.checked)} />
         Assign to my account ({staff.email})</label>}
       <datalist id="loan-officers">{[...new Set(state.loans.map((item) => item.officer).filter(Boolean))].sort().map((officer) => <option key={officer} value={officer} />)}</datalist>
       <Field label="Realtor partner">
@@ -147,6 +149,7 @@ function SubmissionCard({ submission, requests, busy, save, onEdit }: {
 function LoanApplication({ loanId, state, busy, save }: { loanId: string; state: Workspace; busy: boolean; save: Save }) {
   const [copyStatus, setCopyStatus] = useState("");
   const application = state.applications.find((item) => item.loanId === loanId);
+  const linkStatus = application?.revokedAt ? "Revoked" : application && application.expiresAt <= new Date().toISOString() ? "Expired" : "Active";
   const path = application ? `/apply#${application.token}` : "";
   const status = application?.uwmReference ? "Sent to UWM · Mock" : application?.reviewedAt ? "Reviewed" : application?.submittedAt ? "Needs review" : "Draft";
   const run = (type: string) => void save({ type, loanId });
@@ -170,16 +173,20 @@ function LoanApplication({ loanId, state, busy, save }: { loanId: string; state:
       <p className="muted">Create a link for a borrower to complete a sample application. Use fictional information.</p>
       <Button size="sm" disabled={busy} onClick={() => run("startApplication")}><Plus /> Start 1003</Button>
     </div> : <div className="loan-application-box">
-      <p className="muted">{application.submittedAt ? "The borrower can use this link to check their loan status and attach sample documents." : "The borrower can save a draft and return to the same link."} Link expires {dateTime(application.expiresAt)} ET.</p>
+      <p className="muted">Borrower link · <strong>{linkStatus}</strong>{linkStatus === "Active" && ` · Expires ${dateTime(application.expiresAt)} ET`}</p>
       <div className="loan-application-actions">
-        <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> {application.submittedAt ? "Open borrower status" : "Open borrower view"}</a></Button>
-        <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy link</Button>
+        {linkStatus === "Active" ? <>
+          <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> {application.submittedAt ? "Open borrower status" : "Open borrower view"}</a></Button>
+          <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy link</Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
+            if (window.confirm("Revoke this borrower link? The borrower will need a new link to return.")) {
+              setCopyStatus("");
+              void save({ type: "revokeApplication", loanId, token: application.token });
+            }
+          }}>Revoke borrower link</Button>
+        </> : <Button size="sm" variant="outline" disabled={busy} onClick={() => run("startApplication")}>Issue replacement link</Button>}
         {!application.submittedAt && <Button size="sm" variant="ghost" disabled={busy} onClick={() => run("refreshApplication")}><RefreshCw /> Refresh application</Button>}
       </div>
-      <details className="application-link-help">
-        <summary>Expired link?</summary>
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => run("startApplication")}>Renew expired link</Button>
-      </details>
       {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
       {!application.submittedAt ? <p className="muted timestamp">Last saved {dateTime(application.updatedAt)} ET</p> : <>
         <p className="muted">Received {dateTime(application.submittedAt)} ET</p>
@@ -307,7 +314,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
 }
 
 export function RecordDialog({ modal, state, staff, busy, error, save, show, close }: {
-  modal: Modal; state: Workspace; staff: StaffIdentity | null; busy: boolean; error: string; save: Save; show: (modal: Modal) => void; close: () => void;
+  modal: Modal; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; error: string; save: Save; show: (modal: Modal) => void; close: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -357,7 +364,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             watchEnabled: data.has("watchEnabled"), note: text(data, "note"),
           })}><RetentionFields profile={retention} /></Form>}
         {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
-          remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its closing checklist, application, document requests, tasks, submissions and activity?", close) : undefined}
+          remove={loan && staff?.brokerage.role !== "LO" ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its closing checklist, application, document requests, tasks, submissions and activity?", close) : undefined}
           save={(data) => ({
             type: "loan", id: loan?.id, contactId: text(data, "contactId"), borrower: text(data, "borrower"),
             address: text(data, "address"), amount: Number(text(data, "amount")), purpose: text(data, "purpose"),
