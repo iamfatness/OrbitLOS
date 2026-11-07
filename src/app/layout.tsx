@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Orbit · Mortgage CRM",
-  description: "A workspace for mortgage brokers to manage borrowers, loans and lender updates.",
+  title: "OrbitLOS · Mortgage Broker Workspace",
+  description: "Manage borrowers, applications, loan pricing, and lender updates in one mortgage broker workspace.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

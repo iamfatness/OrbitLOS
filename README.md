@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open [Orbit on localhost](http://127.0.0.1:3000). The app binds to localhost and saves records in `.orbit/orbit.sqlite`. Set `ORBIT_DB_PATH` before starting the app to use a different database file, such as one for a clean test workspace.
+Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open the local workspace. The app binds to localhost and saves records in `.orbit/orbit.sqlite`. Set `ORBIT_DB_PATH` before starting the app to use a different database file, such as one for a clean test workspace.
 
 ## Try the pipeline
 
@@ -48,11 +48,11 @@ The 1003 screen covers a representative subset of fields for this demo. The borr
 
 ## Hosted demo
 
-The demo address is [orbitlos.com](https://orbitlos.com/). The Cloudflare Worker uses a shared demo password. Its SQLite database lives in a Durable Object and is separate from the local workspace. Use sample data for the demo.
+The public site is [orbitlos.com](https://orbitlos.com/). Choose **Log in** to open the protected staff workspace at `/workspace`. The Cloudflare Worker uses a shared demo password until Google sign-in is enabled. Its SQLite database lives in a Durable Object and is separate from the local workspace. Use sample data for the demo.
 
 Use `npm run build:cloudflare` for a hosted build. To preview it locally, set a disposable `DEMO_PASSWORD` in `dist/server/.dev.vars` after the build, then run `npm run preview:cloudflare`. The preview uses local storage and signs in with the username `orbit`.
 
-The deployment command is `npm run deploy:cloudflare`. The first deployment requires a Cloudflare Worker secret named `DEMO_PASSWORD`, which can be supplied with `--secrets-file`. The Worker rejects access until a password is configured.
+The deployment command is `npm run deploy:cloudflare`. The first deployment requires a Cloudflare Worker secret named `DEMO_PASSWORD`, which can be supplied with `--secrets-file`. The staff workspace requires configured sign-in.
 
 ### Google sign-in for staff
 

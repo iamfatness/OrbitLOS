@@ -68,28 +68,35 @@ export default {
       url.protocol = "https:";
       return Response.redirect(url, 308);
     }
+    const reading = request.method === "GET" || request.method === "HEAD";
+    const marketingPage = /^\/(?:product\/?|integrations\/?)?$/.test(url.pathname);
+    const publicIcon = url.pathname === "/icon.svg";
+    // Public documents render independently of the workspace and sign-in.
+    // Forward only the URL and method so routing and action headers cannot
+    // change the destination of a public request.
+    if (reading && (marketingPage || publicIcon)) {
+      return app.fetch(new Request(url, { method: request.method }), env, context);
+    }
+    // Build assets are shared by the public site and the workspace.
+    if (reading && /^\/_next\/static\/(?:css|chunks)\/[\w.-]+\.(?:js|css)$/.test(url.pathname)) {
+      return env.ASSETS.fetch(request);
+    }
     const google = googleSettings(env);
     const demoPassword = runtimeSetting(env, "DEMO_PASSWORD");
     if (!google && !demoPassword) {
       return new Response("Orbit demo is being configured.", { status: 503, headers: { "Cache-Control": "no-store" } });
     }
-    const reading = request.method === "GET" || request.method === "HEAD";
     const workspaceStore = () => env.WORKSPACE.getByName("orbit-demo");
-    // Shared build assets carry no workspace data. The public write endpoint can
-    // reach only the token-scoped borrower command, never the staff server action.
-    if (reading && /^\/_next\/static\/(?:css|chunks)\/[\w.-]+\.(?:js|css)$/.test(url.pathname)) {
-      return env.ASSETS.fetch(request);
-    }
+    // This endpoint can reach only the token-scoped borrower command.
     if (request.method === "POST" && url.pathname === "/api/demo-application") {
       return borrowerHttp(request, (input) => workspaceStore().borrower(input));
     }
     const borrowerPage = reading && url.pathname === "/apply";
-    const publicIcon = reading && url.pathname === "/icon.svg";
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
       return handleStaffAuth(request, url, google, workspaceStore());
     }
     let staff: StaffIdentity | null = null;
-    if (!borrowerPage && !publicIcon) {
+    if (!borrowerPage) {
       if (google) {
         try { staff = await signedInStaff(request, google, workspaceStore()); }
         catch { return new Response("Orbit sign-in is temporarily unavailable.", { status: 503, headers: { "Cache-Control": "no-store" } }); }
