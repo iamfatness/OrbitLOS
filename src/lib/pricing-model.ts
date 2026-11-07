@@ -86,6 +86,7 @@ export interface PricingRun extends PricingResult {
   quotedAt: string;
   selectedId: string | null;
   selectedAt: string | null;
+  applicationRevision: number | null;
 }
 
 export interface BorrowerQuote {
@@ -100,6 +101,10 @@ export interface PublishedQuote extends BorrowerQuote {
   loanId: string;
   runId: string;
   offerId: string;
+}
+export interface SharedQuoteEvent extends PublishedQuote {
+  endedAt: string;
+  outcome: "Replaced" | "Removed";
 }
 
 export const mockLockPeriods = [15, 30, 45] as const;

@@ -9,7 +9,7 @@ export async function currentStaff(): Promise<WorkspaceStaff | null> {
     const name = decodeURIComponent(request.get("x-orbit-staff-name") ?? "");
     const brokerage = JSON.parse(decodeURIComponent(request.get("x-orbit-brokerage") ?? "null"));
     return email && brokerage && typeof brokerage.id === "string" && brokerageIdPattern.test(brokerage.id) &&
-      typeof brokerage.name === "string" && (brokerage.role === "Admin" || brokerage.role === "LO")
+      typeof brokerage.name === "string" && (brokerage.role === "Admin" || brokerage.role === "LO" || brokerage.role === "Processor")
       ? { email, name: name || email, brokerage } : null;
   } catch {
     return null;

@@ -3,7 +3,7 @@
 import { useRef, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
-import type { ClosingItem, DraftAudience, Loan, Workspace } from "@/lib/model";
+import { disclosureStatuses, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
@@ -43,6 +43,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview }: {
   const target = state.closingPlans.find((plan) => plan.loanId === loan.id)?.targetDate;
   const profile = state.pastClients.find((item) => item.loanId === loan.id);
   const actual = profile?.closingDate;
+  const progress = state.closingProgress.find((item) => item.loanId === loan.id);
   const items = state.closingItems.filter((item) => item.loanId === loan.id);
   const drafts = state.communicationDrafts.filter((draft) => draft.loanId === loan.id && draft.milestone === "Closing complete");
   const borrowerDraft = drafts.find((draft) => draft.audience === "Borrower" && draft.contactId === loan.contactId);
@@ -69,12 +70,44 @@ export function ClosingWorkbench({ loan, state, busy, save, preview }: {
         <label className="field">Actual closing date<input type="date" name="closingDate" required max={today} defaultValue={actual ?? undefined} /></label>
         <Button size="sm" type="submit" variant="outline" disabled={busy}>{actual ? "Save closing date" : "Record closing"}</Button>
       </form>
+      {actual && <form key={progress?.revision ?? 0} onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        void save({ type: "recordFunding", loanId: loan.id, fundingDate: data.get("fundingDate"), revision: progress?.revision ?? 0 });
+      }}>
+        <label className="field">Funding date<input name="fundingDate" type="date" required min={actual} max={today} defaultValue={progress?.fundingDate ?? ""} /></label>
+        <Button size="sm" type="submit" variant="outline" disabled={busy}>{progress?.fundingDate ? "Save funding date" : "Record funding"}</Button>
+      </form>}
     </div>
+    <details className="document-form"><summary>Track disclosure and signature status</summary>
+      <form key={progress?.revision ?? 0} onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        void save({ type: "saveDisclosureStatus", loanId: loan.id, status: data.get("status"), date: data.get("date") || null, revision: progress?.revision ?? 0 });
+      }}>
+        <label className="field">Manual disclosure status<select name="status" defaultValue={progress?.disclosureStatus}>
+          {disclosureStatuses.map((value) => <option key={value}>{value}</option>)}
+        </select></label>
+        <label className="field">Date completed<input name="date" type="date" max={today} defaultValue={progress?.disclosureDate ?? ""} /></label>
+        <Button size="sm" type="submit" variant="outline" disabled={busy}>Save disclosure status</Button>
+      </form>
+      {progress?.disclosureDate && <p>{progress.disclosureStatus} · {dateLabel(progress.disclosureDate)}</p>}
+    </details>
     {actual && <div className="loan-application-actions">
       {borrowerDraft && <Button size="sm" variant="outline" onClick={() => preview("Borrower", borrowerDraft.id)}>Preview borrower closing update</Button>}
       {realtorDraft && <Button size="sm" variant="outline" onClick={() => preview("Realtor", realtorDraft.id)}>Preview realtor closing update</Button>}
     </div>}
     <div className="section-heading"><h4>Closing checklist</h4><span className="pill">{outstanding} outstanding</span></div>
+    <details className="document-form"><summary>Prepare LO and processor handoff</summary>
+      <p className="muted">Set the checklist date. A brokerage admin can assign the file to its next owner from Team.</p>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        void save({ type: "prepareClosingHandoff", loanId: loan.id, dueDate: new FormData(event.currentTarget).get("date") });
+      }}>
+        <label className="field">Handoff checklist due date<input name="date" type="date" required defaultValue={target ?? today} /></label>
+        <Button size="sm" type="submit" variant="outline" disabled={busy}>Add handoff checklist</Button>
+      </form>
+    </details>
     <ClosingItemForm loan={loan} targetDate={target} busy={busy} save={save} />
     {items.length ? <ul className="document-list">{items.map((item) => <li className="document-item" key={`${item.id}:${item.revision}`}>
       <div className="document-item-head"><strong>{item.title}</strong><span className="pill">{item.completedAt ? "Complete" : item.dueDate < today ? "Overdue" : "Open"}</span></div>

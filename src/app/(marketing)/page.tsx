@@ -1,10 +1,10 @@
 import { ArrowRight, ClipboardList, Layers3, Radio, UsersRound } from "lucide-react";
 
 const tools = [
-  { icon: UsersRound, title: "Client relationships", copy: "Keep borrower and realtor contacts, conversations, and next steps on the loan record." },
-  { icon: ClipboardList, title: "Borrower applications", copy: "Give borrowers a link to save and resume their application. Review the answers in Orbit and follow up from the same file." },
-  { icon: Layers3, title: "Pipeline and pricing", copy: "Move loans through your stages, compare sample pricing, and save a quote option to the loan." },
-  { icon: Radio, title: "Lender activity", copy: "Follow a simulated UWM handoff and see lender milestones and conditions alongside your own pipeline stage." },
+  { icon: UsersRound, title: "Referrals and relationships", copy: "Give realtors a referral link, see which referrals turn into loans, and keep in touch with past clients after closing." },
+  { icon: ClipboardList, title: "Borrower applications and documents", copy: "Start a 1003 from a lead. Borrowers can save and resume, check their status, and respond to document requests." },
+  { icon: Layers3, title: "Pipeline, pricing, and closing", copy: "Assign work, compare sample pricing, and track what still needs to happen before closing." },
+  { icon: Radio, title: "Lender conditions", copy: "Try the mock UWM workflow from document request and review through delivery and lender clearance." },
 ];
 
 export default function Home() {
@@ -13,9 +13,9 @@ export default function Home() {
       <section className="marketing-hero">
         <div className="marketing-wrap marketing-hero-grid">
           <div className="marketing-hero-copy">
-            <p className="marketing-kicker"><span /> The mortgage broker workspace</p>
-            <h1>From first conversation to <em>clear to close.</em></h1>
-            <p>Manage clients, collect applications, price scenarios, and track lender updates in one workspace built for independent mortgage brokers.</p>
+            <p className="marketing-kicker"><span /> Loan origination and CRM for mortgage brokers</p>
+            <h1>Take a lead to closing. <em>Keep the relationship.</em></h1>
+            <p>OrbitLOS brings referrals, applications, pricing, loan processing, and client follow-up into one workspace for independent wholesale mortgage brokers.</p>
             <div className="marketing-actions">
               <a className="marketing-button" href="/product">Explore the product <ArrowRight size={17} aria-hidden="true" /></a>
               <a className="marketing-button marketing-button-quiet" href="/login">Log in to OrbitLOS</a>
@@ -26,7 +26,7 @@ export default function Home() {
       </section>
       <section className="marketing-section marketing-wrap">
         <p className="marketing-kicker">The broker workflow</p>
-        <h2>Everything you need to work a loan stays with the file.</h2>
+        <h2>Manage the loan and the relationship in one place.</h2>
         <div className="marketing-features">
           {tools.map(({ icon: Icon, title, copy }) => (
             <article key={title}>

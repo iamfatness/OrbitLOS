@@ -89,6 +89,8 @@ export function LoanPricing({ loan, state, busy, save }: {
   const application = state.applications.find((item) => item.loanId === loan.id);
   const draft = application?.draft;
   const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
+  const publishedRun = runs.find((run) => run.id === published?.runId);
+  const sharedHistory = state.sharedQuoteHistory.filter((quote) => quote.loanId === loan.id);
   const alreadyShared = published?.runId === saved?.id && published?.offerId === selected?.id;
   const [form, setForm] = useState(() => defaults(loan, draft, current));
   const [preview, setPreview] = useState(false);
@@ -96,6 +98,12 @@ export function LoanPricing({ loan, state, busy, save }: {
   const change = (name: keyof typeof form, value: string | boolean) => setForm((last) => ({ ...last, [name]: value }));
   const dscr = form.program === "DSCR";
   const bank = form.program === "Bank statement";
+  const applicationChanged = (run: PricingRun | undefined) => run?.applicationRevision != null &&
+    (run.applicationRevision !== application?.revision || !!application.correctionNote);
+  const savedAssumptionsChanged = !!saved && JSON.stringify(form) !== JSON.stringify(defaults(loan, draft, saved));
+  const publishedAssumptionsChanged = !!publishedRun && !!current && current.quotedAt > publishedRun.quotedAt &&
+    JSON.stringify(current.scenario) !== JSON.stringify(publishedRun.scenario);
+  const comparison = runs.filter((run) => run.selectedId);
 
   async function price(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -194,6 +202,7 @@ export function LoanPricing({ loan, state, busy, save }: {
       </div>
       <p>{selected.product} · {percentage(selected.rate)} · {cash(selected.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">{saved.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced {dateTime(saved.quotedAt)} ET</p>
+      {(savedAssumptionsChanged || applicationChanged(saved)) && <p className="quote-disclaimer">The application or pricing inputs have changed since this quote. Review the assumptions and reprice as needed.</p>}
       {preview && <div className="quote-preview">
         <p className="eyebrow">{saved.mode === "mock" ? "SAMPLE BORROWER QUOTE" : "UWM STAGE QUOTE"}</p>
         <strong>{selected.product}</strong>
@@ -215,7 +224,35 @@ export function LoanPricing({ loan, state, busy, save }: {
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>
       <p>{published.product} · {percentage(published.rate)} · {cash(published.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">Sample quote · Shared {dateTime(published.publishedAt)} ET</p>
+      {(publishedAssumptionsChanged || applicationChanged(publishedRun)) && <p className="quote-disclaimer">The borrower still sees these terms. Pricing assumptions or the application have changed.</p>}
     </section>}
+    {sharedHistory.length > 0 && <details className="quote-saved"><summary>Previously shared quotes</summary>
+      <ul className="loan-task-list">{sharedHistory.map((quote) => <li key={`${quote.runId}:${quote.offerId}:${quote.publishedAt}`}>
+        {quote.product} · {percentage(quote.rate)} · {cash(quote.principalAndInterest)} monthly P&amp;I · Shared {dateTime(quote.publishedAt)} ET · {quote.outcome} {dateTime(quote.endedAt)} ET
+      </li>)}</ul>
+    </details>}
+    {comparison.length > 1 && <details className="quote-saved">
+      <summary>Compare saved scenarios ({comparison.length})</summary>
+      <div className="table-scroll"><table className="data-table">
+        <thead><tr><th>Program</th><th>Scenario inputs</th><th>Saved terms</th><th>Choice</th></tr></thead>
+        <tbody>{comparison.map((run) => {
+          const offer = run.offers.find((item) => item.id === run.selectedId);
+          if (!offer) return null;
+          const scenario = run.scenario;
+          return <tr key={run.id}>
+            <td>{scenario.nonAgency?.program ?? "Conventional"}<small>{run.mode === "mock" ? "Sample pricing" : "UWM stage"} · {dateTime(run.quotedAt)} ET</small></td>
+            <td>{scenario.purpose} · {scenario.occupancy}<small>{cash(scenario.loanAmount)} loan · {cash(scenario.propertyValue)} value · ZIP {scenario.zip}</small>
+              <small>Credit score {scenario.creditScore} · {scenario.propertyType}</small>
+              {scenario.nonAgency && <small>{scenario.nonAgency.program === "DSCR" ? `${cash(scenario.nonAgency.monthlyRent)} monthly rent` :
+                `${scenario.nonAgency.statementMonths} months · ${scenario.nonAgency.source.type.toLowerCase()} · ${cash(scenario.nonAgency.averageMonthlyDeposits)} monthly deposits`}</small>}
+            </td>
+            <td>{offer.product}<Terms offer={offer} /><SampleMetrics scenario={scenario} offer={offer} /></td>
+            <td>{saved?.id === run.id ? "Chosen quote" : <Button size="sm" variant="outline" disabled={busy}
+              onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: run.id, offerId: offer.id })}>Choose quote</Button>}</td>
+          </tr>;
+        })}</tbody>
+      </table></div>
+    </details>}
     {current && <section className="pricing-results" aria-label="Pricing results">
       <div className="section-heading"><h3>Pricing options</h3><span className="pill">{current.offers.length} returned</span></div>
       <p className="muted timestamp">{cash(current.scenario.loanAmount)} · {current.scenario.purpose} · {dateTime(current.quotedAt)} ET</p>

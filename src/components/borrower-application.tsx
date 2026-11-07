@@ -118,6 +118,8 @@ function BorrowerApplication({ token }: { token: string | null }) {
       <p>{application?.submittedAt ? "See where your loan stands and what your loan team needs from you." : "Walk through a sample 1003 and send it to your loan officer for review."}</p>
     </div>
     <aside className="application-warning">{application?.submittedAt ? (application.documentUploadsMode === "mock" ? "Demo verification and scanning use built-in fictional files." : application.documentUploadsEnabled ? "Use fictional PDFs when testing the document checklist." : "This checklist uses built-in fictional sample documents.") : "Use fictional information. Enter only a test tax ID in the format 000-00-1234. Keep real Social Security numbers, account numbers, and documents out of the demo."}</aside>
+    {application?.correctionNote && <aside className="application-warning"><strong>Corrections requested</strong><p>{application.correctionNote}</p>
+      <p>Your previous answers are filled in. Make the requested changes, then submit the 1003 again to return to your loan status and checklist.</p></aside>}
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!application && !error && <p role="status" className="application-message">Opening your application…</p>}

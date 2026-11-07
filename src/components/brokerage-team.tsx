@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { brokerageRoles, brokerageUrl, pilotSteps, type BrokerageSettings } from "@/lib/brokerage-model";
+import { brokerageRoles, brokerageUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
 import type { Workspace } from "@/lib/model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
@@ -19,10 +19,12 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
   const [copyStatus, setCopyStatus] = useState("");
   const creating = useRef<string | null>(null);
   const feedbackAttempt = useRef<{ id: string; fields: string } | null>(null);
+  const measurementAttempt = useRef<{ id: string; fields: string } | null>(null);
   const loan = state.loans.find((item) => item.id === loanId);
   const admin = staff.brokerage.role === "Admin";
   const pilot = staff.brokerage.pilot;
   const activeMembers = settings?.members.filter((member) => member.status === "Active") ?? [];
+  const scenarioOwners = activeMembers.filter((member) => member.role !== "Processor");
   const scenario = settings?.pilotScenario;
 
   useEffect(() => {
@@ -110,10 +112,10 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
       {admin && settings && <>
         {scenario && <p className="muted">Loaded {dateTime(scenario.loadedAt)} ET for {scenario.officerEmail}.</p>}
         <form className="brokerage-form" onSubmit={loadScenario} key={scenario?.id ?? "new"}>
-          <label className="field">Assign the scenario to<select name="officerEmail" required defaultValue={activeMembers.some((member) => member.email === scenario?.officerEmail) ? scenario?.officerEmail : staff.email}>
-            {activeMembers.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
+          <label className="field">Assign the scenario to<select name="officerEmail" required defaultValue={scenarioOwners.some((member) => member.email === scenario?.officerEmail) ? scenario?.officerEmail : staff.email}>
+            {scenarioOwners.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
           </select></label>
-          <Button size="sm" type="submit" disabled={busy || !activeMembers.length}>{scenario ? "Reset fictional scenario" : "Load fictional scenario"}</Button>
+          <Button size="sm" type="submit" disabled={busy || !scenarioOwners.length}>{scenario ? "Reset fictional scenario" : "Load fictional scenario"}</Button>
         </form>
         <div><Button variant="outline" size="sm" onClick={() => void copyWorkspace()}>Copy pilot workspace link</Button></div>
         {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
@@ -124,6 +126,39 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
         <li>Send the reviewed application to mock UWM and request a condition document. Use a demo code and try the blocked and clean PDFs.</li>
         <li>Accept the clean PDF, record mock delivery, and check UWM clearance from the checklist.</li>
       </ol>
+    </section>}
+    {pilot && admin && settings && <section className="pipeline relationship-panel" aria-label="Pilot measurements">
+      <h2>Pilot measurements</h2>
+      <ul>{settings.pilotMetrics?.map((item) => <li key={item.label}>{item.label} · {item.minutes === null ? "No completed samples" :
+        `${item.minutes.toFixed(1)} min average across ${item.count} completed samples`}</li>)}</ul>
+      <details className="loan-task-create"><summary>Record a timed walkthrough</summary>
+        <form className="record-form" onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const data = new FormData(form);
+          const input = { type: "recordPilotMeasurement", walkthrough: data.get("walkthrough"), workflow: data.get("workflow"),
+            seconds: Number(data.get("seconds")), repeatEntries: Number(data.get("repeatEntries")), systemSwitches: Number(data.get("systemSwitches")) };
+          const fields = JSON.stringify(input);
+          if (measurementAttempt.current?.fields !== fields) measurementAttempt.current = { id: crypto.randomUUID(), fields };
+          void change({ ...input, id: measurementAttempt.current.id }, () => { measurementAttempt.current = null; form.reset(); });
+        }}>
+          <label className="field">Walkthrough<select name="walkthrough">{pilotWalkthroughs.map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label className="field">Workflow<select name="workflow"><option>Orbit</option><option>Current brokerage workflow</option></select></label>
+          <div className="form-grid">
+            <label className="field">Elapsed seconds<input type="number" name="seconds" required min={1} max={86400} /></label>
+            <label className="field">Fields entered again<input type="number" name="repeatEntries" required min={0} max={2000} defaultValue={0} /></label>
+            <label className="field">System switches<input type="number" name="systemSwitches" required min={0} max={2000} defaultValue={0} /></label>
+          </div>
+          <div><Button size="sm" type="submit" disabled={busy}>Save walkthrough measurement</Button></div>
+        </form>
+      </details>
+      {!!settings.pilotMeasurements?.length && <div className="table-scroll"><table className="data-table">
+        <thead><tr><th>Walkthrough</th><th>Workflow</th><th>Elapsed</th><th>Repeated fields</th><th>Switches</th></tr></thead>
+        <tbody>{settings.pilotMeasurements.map((entry) => <tr key={entry.id}>
+          <td>{entry.walkthrough}<small>{dateTime(entry.createdAt)} ET</small></td><td>{entry.workflow}</td>
+          <td>{entry.seconds}s</td><td>{entry.repeatEntries}</td><td>{entry.systemSwitches}</td>
+        </tr>)}</tbody>
+      </table></div>}
     </section>}
     {pilot && <section className="pipeline relationship-panel" aria-label="Pilot feedback">
       <h2>Pilot feedback</h2>
@@ -136,7 +171,24 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
         <div><Button size="sm" type="submit" disabled={busy}>Send pilot feedback</Button></div>
       </form>
       {admin && settings && (settings.pilotFeedback?.length ? <ul className="document-list">{settings.pilotFeedback.map((item) => <li className="document-item" key={item.id}>
-        <strong>{item.step}</strong><p>{item.message}</p><small className="muted">{item.author} · {dateTime(item.createdAt)} ET</small>
+        <div className="document-item-head"><strong>{item.step}</strong><span className="pill">{item.priority} · {item.status}</span></div>
+        <p>{item.message}</p><small className="muted">{item.author} · {dateTime(item.createdAt)} ET</small>
+        <details className="loan-task-create"><summary>Update feedback</summary>
+          <form className="record-form" key={item.revision} onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            void change({ type: "triagePilotFeedback", id: item.id, revision: item.revision, owner: data.get("owner") || null,
+              status: data.get("status"), priority: data.get("priority"), retest: data.get("retest") });
+          }}>
+            <label className="field">Issue owner<select name="owner" defaultValue={item.owner ?? ""}>
+              <option value="">Unassigned</option>{activeMembers.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
+            </select></label>
+            <label className="field">Priority<select name="priority" defaultValue={item.priority}>{pilotPriorities.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="field">Issue status<select name="status" defaultValue={item.status}>{pilotFeedbackStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label className="field">Retest result<textarea name="retest" maxLength={500} defaultValue={item.retest} rows={2} /></label>
+            <div><Button type="submit" size="sm" disabled={busy}>Save feedback status</Button></div>
+          </form>
+        </details>
       </li>)}</ul> : <p className="muted">Staff feedback will appear here.</p>)}
     </section>}
     {admin && settings && <>

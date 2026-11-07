@@ -27,13 +27,13 @@ export function currentDraftMilestone(milestone: DraftMilestone, stage: Stage, h
   return milestone === "Closing complete" ? hasClosingDate : milestone === "Application received" || milestone === stage;
 }
 
-export function renderDraft(audience: DraftAudience, milestone: DraftMilestone, channel: DraftChannel, recipientName: string, officerName: string) {
+export function renderDraft(audience: DraftAudience, milestone: DraftMilestone, channel: DraftChannel, recipientName: string, officerName: string, customBody?: string) {
   const officer = officerName || "Your loan team";
   const realtorUpdate = milestone === "Application received"
     ? "A quick milestone update on your referral. The application was received."
     : milestone === "Closing complete" ? "A quick milestone update on your referral. The closing is complete."
       : `A quick milestone update on your referral. The loan reached ${milestone}.`;
-  const message = audience === "Borrower" ? borrowerUpdates[milestone] : realtorUpdate;
+  const message = customBody ? customBody.replaceAll("{{milestone}}", milestone) : audience === "Borrower" ? borrowerUpdates[milestone] : realtorUpdate;
   const subject = milestone === "Closing complete" ? "Closing complete"
     : audience === "Borrower" && milestone === "Application received" ? "We received your mortgage application" : "Loan milestone update";
   return channel === "Email"

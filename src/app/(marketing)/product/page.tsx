@@ -3,14 +3,15 @@ import { ArrowRight } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Product · OrbitLOS",
-  description: "See how mortgage brokers manage contacts, borrower applications, pricing, and lender milestones in OrbitLOS.",
+  description: "See the OrbitLOS workflow from realtor referral and borrower 1003 through processing, closing, and past-client follow-up.",
 };
 
 const workflow = [
-  { title: "Track the relationship", copy: "Create a loan from a new or existing borrower. Link a realtor, assign a loan officer, and log calls, emails, texts, and notes on the loan timeline." },
-  { title: "Collect and review the application", copy: "Share a borrower link for the demo 1003. The borrower can save and resume. Submission puts the answers on the loan record for review and creates a follow-up task for the assigned loan officer." },
-  { title: "Price the scenario", copy: "Enter a scenario, compare sample fixed-rate options, and save one to the loan. Preview the borrower quote with its payment breakdown and sample pricing label." },
-  { title: "Follow the lender and keep partners informed", copy: "Try a simulated UWM submission and refresh the lender status and conditions. Manage your own pipeline stage and preview a status-only update for the linked realtor." },
+  { title: "Bring in the lead", copy: "Start a lead directly or convert a realtor referral into a prefilled 1003. Review contact matches, assign an officer, and keep the original referral attached to the file." },
+  { title: "Collect and review the 1003", copy: "Share an application the borrower can save and resume. Request corrections, compare versions, and see the application and document checklist together before handing off the file." },
+  { title: "Work from the loan and My Tasks", copy: "See who owns the file, what’s due, and what is blocking it. Compare saved sample conventional, DSCR, and bank statement scenarios. Review mock credit, DU, and LPA findings from the same loan." },
+  { title: "Work conditions and prepare for closing", copy: "Keep delivery and lender clearance separate. In the pilot, try mock UWM conditions or track another lender manually. Hand off the closing checklist and record signing, closing, and funding." },
+  { title: "Keep the relationship after closing", copy: "Use a shared contact history to start a repeat loan. See which referrals reached funding, log outreach, and plan follow-ups using closing anniversaries and rate-watch targets." },
 ];
 
 export default function Product() {
@@ -19,9 +20,16 @@ export default function Product() {
       <section className="marketing-interior">
         <div className="marketing-wrap">
           <p className="marketing-kicker"><span /> Product</p>
-          <h1>One file for the <em>whole conversation.</em></h1>
-          <p>See who you’re working with, what the borrower has submitted, and what needs to happen next. The people and lender milestones stay connected to the loan.</p>
+          <h1>One workspace from <em>referral to repeat business.</em></h1>
+          <p>Work a loan from the first conversation through closing. Keep the borrower, realtor, team, and lender activity connected to the same file.</p>
         </div>
+      </section>
+      <section className="marketing-section marketing-wrap marketing-story">
+        <div>
+          <p className="marketing-kicker">Review before sharing</p>
+          <h2>Start with the facts already in the file.</h2>
+        </div>
+        <p>Prepare a condition response from the lender request and document review, or draft a realtor update from the current milestone. Edit the message before copying it. Orbit also shows the observed rate and target behind a past-client follow-up.</p>
       </section>
       <section className="marketing-section marketing-wrap marketing-story">
         <div>
@@ -40,7 +48,7 @@ export default function Product() {
           <div>
             <p className="marketing-kicker">Demo workspace</p>
             <h2>Walk through a sample loan.</h2>
-            <p>Use fictional data to walk through the 1003 sections and preview a realtor status update from the loan.</p>
+            <p>Invited staff can walk through a fictional loan, from referral and 1003 through sample pricing, mock UWM conditions, and borrower and realtor follow-up.</p>
           </div>
           <a className="marketing-button" href="/login">Staff login <ArrowRight size={17} aria-hidden="true" /></a>
         </div>

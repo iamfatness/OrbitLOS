@@ -76,6 +76,26 @@ export const applicationDraft = storedApplicationDraft.transform((draft) => {
 });
 
 export type ApplicationDraft = z.infer<typeof applicationDraft>;
+export function changedApplicationSections(previous: ApplicationDraft, current: ApplicationDraft) {
+  const sections = (draft: ApplicationDraft) => {
+    const borrowers = [draft.urla.primary, ...draft.urla.additional];
+    return {
+      Borrowers: [draft.borrowerName, draft.email, draft.phone, draft.currentAddress, draft.currentLocation, draft.priorAddress, draft.priorLocation,
+        draft.urla.credit, borrowers.map((person) => [person.identity, person.joint])],
+      Employment: borrowers.map((person) => person.work),
+      Finances: borrowers.map((person) => person.finances),
+      Property: [draft.urla.property, draft.propertyAddress, draft.propertyLocation, draft.estimatedValue, draft.loanAmount, draft.purpose, draft.occupancy],
+      Declarations: borrowers.map((person) => person.declarations),
+      "Real estate": borrowers.map((person) => person.realEstate),
+      Military: borrowers.map((person) => person.military),
+      Demographics: borrowers.map((person) => person.demographics),
+      Acknowledgment: borrowers.map((person) => person.acknowledgment),
+    };
+  };
+  const before = sections(previous);
+  const after = sections(current);
+  return (Object.keys(after) as (keyof typeof after)[]).filter((section) => JSON.stringify(before[section]) !== JSON.stringify(after[section]));
+}
 export const applicationSteps = ["Borrowers", "Employment", "Finances", "Property", "Declarations", "Real estate", "Military", "Demographics", "Acknowledgment", "Review"] as const;
 
 export function blankApplication(): ApplicationDraft {
@@ -146,6 +166,7 @@ export function applicationIssues(draft: ApplicationDraft) {
 }
 
 export interface BorrowerApplication {
+  correctionNote?: string;
   draft: ApplicationDraft;
   step: number;
   revision: number;
@@ -158,6 +179,10 @@ export interface BorrowerApplication {
 }
 
 export interface StaffApplication {
+  revision: number;
+  correctionNote: string;
+  versions: { revision: number; submittedAt: string; reviewedAt: string | null }[];
+  previousAnswers: ApplicationDraft | null;
   loanId: string;
   token: string;
   expiresAt: string;

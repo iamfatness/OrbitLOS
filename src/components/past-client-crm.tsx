@@ -49,7 +49,8 @@ export function PastClients({ state, openLoan, editRetention }: {
         {view === "Rate watchlist" ? <>
           <td>{rate(profile?.currentRate)}</td><td>{rate(profile?.targetRate)}</td>
           <td>{rate(profile?.observedRate)}{profile?.checkedAt && <small>{dateTime(profile.checkedAt)} ET</small>}</td>
-          <td><span className={reached ? "open-chip" : "pill"}>{reached ? "Target met" : profile?.observedRate != null ? "Watching" : "Awaiting rate"}</span></td>
+          <td><span className={reached ? "open-chip" : "pill"}>{reached ? "Review follow-up" : profile?.observedRate != null ? "Watching" : "Awaiting rate"}</span>
+            {reached && <small>{rate(profile?.observedRate)} observed at or below the {rate(profile?.targetRate)} target</small>}</td>
         </> : <>
           <td>{profile?.closingDate ? dateLabel(profile.closingDate) : "Add closing date"}</td>
           <td>{anniversary ? dateLabel(anniversary) : "—"}</td>
@@ -90,6 +91,7 @@ export function LoanRetention({ loan, profile, edit }: { loan: Loan; profile?: P
     <div className="section-heading"><h3>Past-client follow-up</h3><Button variant="outline" size="sm" onClick={edit}>Edit follow-up</Button></div>
     <p className="muted">{profile?.closingDate ? `Next anniversary ${dateLabel(nextAnniversary(profile.closingDate, easternDate()))}` : "Add the closing date to schedule a reminder."}</p>
     {profile?.watchEnabled && <p className="muted">Rate target {rate(profile.targetRate)} · {rateTargetReached(profile) ? "Target met" : "Watching"}</p>}
+    {profile && rateTargetReached(profile) && <p className="relationship-note">Suggested follow-up. You recorded an observed rate of {rate(profile.observedRate)}{profile.checkedAt && ` on ${dateTime(profile.checkedAt)} ET`}, at or below the {rate(profile.targetRate)} target. Review the borrower’s situation before reaching out.</p>}
     {profile?.note && <p className="relationship-note">{profile.note}</p>}
   </section>;
 }

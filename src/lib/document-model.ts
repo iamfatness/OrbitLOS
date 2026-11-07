@@ -3,6 +3,19 @@ import type { BorrowerQuote } from "./pricing-model";
 
 export const documentKinds = ["Pay stub", "Bank statement", "Tax form", "Photo ID", "Homeowners insurance"] as const;
 export type DocumentKind = (typeof documentKinds)[number];
+export const checklistPresets = {
+  "Wage income": ["Photo ID", "Pay stub", "Bank statement"],
+  "Self-employed": ["Photo ID", "Tax form", "Bank statement"],
+  "Investment property": ["Photo ID", "Bank statement", "Homeowners insurance"],
+} as const satisfies Record<string, readonly DocumentKind[]>;
+export const checklistPresetNames = ["Wage income", "Self-employed", "Investment property"] as const;
+export const checklistInstructions: Record<DocumentKind, string> = {
+  "Pay stub": "Provide a sample pay statement showing pay period and earnings.",
+  "Bank statement": "Provide a sample statement showing the statement period and deposits.",
+  "Tax form": "Provide a sample tax form showing the reporting year.",
+  "Photo ID": "Provide the fictional sample identification.",
+  "Homeowners insurance": "Provide a sample declarations page for the subject property.",
+};
 export type DocumentStatus = "Requested" | "Received" | "Accepted" | "Needs replacement";
 
 export interface DocumentRequest {
@@ -24,6 +37,8 @@ export interface LoanDocumentRequest extends DocumentRequest {
   conditionId: string | null;
   uwmReceipt: string | null;
   uwmSentAt: string | null;
+  uwmDeliveryFailedAt: string | null;
+  previousUwmDeliveries: { receipt: string; sentAt: string; documentRevision: number | null }[];
 }
 
 export interface BorrowerLoanStatus {

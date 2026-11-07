@@ -28,7 +28,7 @@ export function RealtorCrm({ state, staff, busy, save, openLoan, editRealtor }: 
     void fetch(`/api/brokerages?brokerage=${brokerageId}`, { signal: controller.signal }).then(async (response) => {
       if (!response.ok) throw new Error();
       const settings = await response.json() as BrokerageSettings;
-      if (!controller.signal.aborted) setMembers(settings.members.filter((member) => member.status === "Active"));
+      if (!controller.signal.aborted) setMembers(settings.members.filter((member) => member.status === "Active" && member.role !== "Processor"));
     }).catch(() => { if (!controller.signal.aborted) setRoutingError("Could not load your team. You can still route new referrals to yourself."); });
     return () => controller.abort();
   }, [admin, brokerageId]);

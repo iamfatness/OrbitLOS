@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, readWorkspace, savedPricingRun, workspace, type Store } from "./store";
-import { activityKinds, stages, type Contact, type Loan, type Purpose, type Workspace } from "./model";
+import { activityKinds, contactOutcomes, disclosureStatuses, dispositions, draftMilestones, leadSources, stages, type Condition, type Contact, type Loan, type Purpose, type Workspace } from "./model";
 import { refreshMockUwmClearance, sendMockConditionDocument, simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
-import { addApplicationActivity, getApplication, startApplication } from "./applications";
+import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider } from "./pricing-provider";
@@ -13,10 +13,11 @@ import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { accessEvent, isDemoStaff, scopeWorkspace } from "./workspace-access";
 import { demoBrokerageId, portalToken, portalTokenPattern } from "./brokerage-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
-import { documentKinds } from "./document-model";
+import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds } from "./document-model";
 import { referralMatches } from "./referral-matches";
 import { mockAusInput, mockCreditInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
 import { trackPilotBorrower } from "./pilot";
+import { contactDuplicate, contactImportLimit, contactImportRow } from "./contact-csv";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -30,6 +31,7 @@ const contactFields = {
 const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("contact"), id: id.optional(), ...contactFields }),
   z.object({ type: z.literal("deleteContact"), id }),
+  z.object({ type: z.literal("importContacts"), batchId: z.uuid(), rows: z.array(contactImportRow).min(1).max(contactImportLimit) }),
   z.object({
     type: z.literal("loan"), id: id.optional(), contactId: z.union([id, z.literal("")]),
     borrower: z.string().trim().max(160), partnerId: id.nullable(),
@@ -38,23 +40,39 @@ const command = z.discriminatedUnion("type", [
     officer: z.string().trim().max(160), assignToSelf: z.boolean().optional(), address: z.string().trim().max(240),
     amount: z.number().int().min(0).max(1_000_000_000),
     purpose: z.enum(["Purchase", "Refinance"]), stage: z.enum(stages),
+    leadSource: z.enum(leadSources).optional(),
   }),
   z.object({ type: z.literal("deleteLoan"), id }),
   z.object({ type: z.literal("move"), id, stage: z.enum(stages) }),
+  z.object({ type: z.literal("loanDisposition"), loanId: id, disposition: z.enum(dispositions),
+    reason: z.string().trim().max(500), revisitDate: z.iso.date().nullable(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("copyDraft"), loanId: id, contactId: id, audience: z.enum(["Borrower", "Realtor"]),
     milestone: z.enum([...stages, "Application received", "Closing complete"]), channel: z.enum(draftChannels) }),
   retentionInput,
   z.object({ type: z.literal("saveClosingTarget"), loanId: id, targetDate: z.iso.date().nullable(), previous: z.iso.date().nullable() }),
-  z.object({ type: z.literal("saveClosingItem"), loanId: id, itemId: z.uuid(), revision: z.number().int().nonnegative(),
+  z.object({ type: z.literal("saveClosingItem"), loanId: id, itemId: id, revision: z.number().int().nonnegative(),
     title: z.string().trim().min(1).max(120), owner: z.string().trim().min(1).max(120), dueDate: z.iso.date() }),
-  z.object({ type: z.literal("completeClosingItem"), loanId: id, itemId: z.uuid(), revision: z.number().int().positive(), completed: z.boolean() }),
+  z.object({ type: z.literal("completeClosingItem"), loanId: id, itemId: id, revision: z.number().int().positive(), completed: z.boolean() }),
   z.object({ type: z.literal("recordClosing"), loanId: id, revision: z.number().int().nonnegative(), closingDate: z.iso.date() }),
+  z.object({ type: z.literal("recordFunding"), loanId: id, revision: z.number().int().nonnegative(), fundingDate: z.iso.date() }),
+  z.object({ type: z.literal("saveDisclosureStatus"), loanId: id, revision: z.number().int().nonnegative(),
+    status: z.enum(disclosureStatuses), date: z.iso.date().nullable() }),
+  z.object({ type: z.literal("prepareClosingHandoff"), loanId: id, dueDate: z.iso.date() }),
   z.object({ type: z.literal("createRealtorPortal"), realtorId: id, officerEmail: z.email().optional() }),
   z.object({ type: z.literal("revokeRealtorPortal"), realtorId: id }),
   z.object({ type: z.literal("convertReferral"), referralId: z.uuid(), contactId: id.nullable(), allowDuplicate: z.boolean().default(false) }),
   z.object({ type: z.literal("dismissReferral"), referralId: z.uuid() }),
-  z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000) }),
+  z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000),
+    eventId: z.uuid().optional(), outcome: z.enum(contactOutcomes).optional(), followUp: z.iso.date().optional() }),
+  z.object({ type: z.literal("saveBrokerageTemplate"), audience: z.enum(["Borrower", "Realtor"]), milestone: z.enum(draftMilestones),
+    body: z.string().trim().max(800), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("submission"), id: id.optional(), loanId: id, lender: label, externalId: label, status: label }),
+  z.object({ type: z.literal("saveManualCondition"), loanId: id, submissionId: id, conditionId: z.uuid(),
+    revision: z.number().int().nonnegative(), category: label, owner: label, description: z.string().trim().min(1).max(500) }),
+  z.object({ type: z.literal("recordManualDelivery"), loanId: id, submissionId: id, conditionId: z.uuid(),
+    revision: z.number().int().positive(), documentRevision: z.number().int().nonnegative(), reference: label }),
+  z.object({ type: z.literal("recordManualClearance"), loanId: id, submissionId: id, conditionId: z.uuid(),
+    revision: z.number().int().positive(), cleared: z.boolean(), confirmation: label }),
   z.object({ type: z.literal("deleteSubmission"), id }),
   z.object({ type: z.literal("sync") }),
   z.object({ type: z.literal("simulateUwmChanges") }),
@@ -66,7 +84,11 @@ const command = z.discriminatedUnion("type", [
     condition: z.object({ submissionId: id, conditionId: z.string().min(1).max(240) }).optional() }),
   z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500) }),
+  z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames) }),
+  z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
+    outcome: z.enum(["Prepared", "Delivered manually", "Acknowledged", "Returned for changes"]), note: z.string().trim().max(500) }),
   z.object({ type: z.literal("sendConditionDocument"), loanId: id, requestId: z.uuid() }),
+  z.object({ type: z.literal("simulateDeliveryFailure"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("refreshMockUwmClearance"), loanId: id, submissionId: id }),
   z.object({ type: z.literal("refreshWorkspace") }),
   z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
@@ -82,7 +104,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("cancelMockLock"), ...lockChange }),
   z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
-  z.object({ type: z.literal("reviewApplication"), loanId: id }),
+  z.object({ type: z.literal("reviewApplication"), loanId: id, revision: z.number().int().nonnegative().optional() }),
+  z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
+    note: z.string().trim().min(1).max(500) }),
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
   z.object({ type: z.literal("sendApplication"), loanId: id }),
 ]);
@@ -90,11 +114,19 @@ const command = z.discriminatedUnion("type", [
 class WorkspaceError extends Error {}
 
 function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: WorkspaceStaff | null) {
-  if (staff?.brokerage.role !== "LO") return;
+  if (!staff || staff.brokerage.role === "Admin") return;
   const denied = () => { throw new WorkspaceError("You don’t have access to this workspace action or loan."); };
   const owns = (loanId: unknown) => typeof loanId === "string" && !!db.prepare("SELECT 1 FROM loans WHERE id = ? AND officerEmail = ?").get(loanId, staff.email);
-  if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" || data.type === "simulateUwmChanges" ||
+  if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" || data.type === "simulateUwmChanges" || data.type === "saveBrokerageTemplate" ||
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
+  if (staff.brokerage.role === "Processor") {
+    const permitted = ["refreshWorkspace", "refreshApplication", "reviewApplication", "requestApplicationCorrection",
+      "saveLenderDetails", "requestDocument", "applyDocumentPreset", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
+      "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
+      "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
+      "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "saveManualCondition", "recordManualDelivery", "recordManualClearance"];
+    if (!permitted.includes(data.type)) denied();
+  }
   if ("loanId" in data && !owns(data.loanId)) denied();
   if (data.type === "move" && !owns(data.id)) denied();
   if (data.type === "completeTask" && !owns(db.prepare("SELECT loanId FROM tasks WHERE id = ?").get(data.id)?.loanId)) denied();
@@ -103,7 +135,8 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
   if (data.type === "loan") {
     if (data.id && !owns(data.id)) denied();
     for (const contactId of [data.contactId, data.partnerId]) {
-      if (contactId && !db.prepare("SELECT 1 FROM loans WHERE officerEmail = ? AND (contactId = ? OR partnerId = ?)").get(staff.email, contactId, contactId)) denied();
+      if (contactId && !db.prepare("SELECT 1 FROM loans WHERE officerEmail = ? AND (contactId = ? OR partnerId = ?)").get(staff.email, contactId, contactId) &&
+        !db.prepare("SELECT 1 FROM contacts WHERE id = ? AND addedBy = ?").get(contactId, staff.email)) denied();
     }
   }
 }
@@ -136,12 +169,15 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     }
     if (data.type === "runPricing") {
       if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+      const application = getApplication(db, data.loanId);
       const result = await pricingProvider(isDemoStaff(staff) ? process.env : {}).quote(data.scenario);
       return db.transaction(() => {
         authorizeLoanOfficer(db, data, staff);
-        db.prepare("INSERT INTO pricing_runs (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        db.prepare(`INSERT INTO pricing_runs
+          (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt, applicationRevision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(crypto.randomUUID(), data.loanId, result.provider, result.mode, result.reference,
-            JSON.stringify(data.scenario), JSON.stringify(result.offers), JSON.stringify(result.notices), new Date().toISOString());
+            JSON.stringify(data.scenario), JSON.stringify(result.offers), JSON.stringify(result.notices), new Date().toISOString(),
+            application?.submittedAt ? application.revision : null);
         if (staff?.brokerage.pilot) accessEvent(db, staff, "Ran sample pricing", data.loanId, new Date().toISOString());
         return { state: scopeWorkspace(workspace(db), staff), message: `${result.offers.length} pricing options returned.` };
       });
@@ -208,6 +244,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "saveClosingItem": {
           if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
           const item = db.prepare("SELECT loanId, revision, title, owner, dueDate FROM closing_items WHERE id = ?").get(data.itemId);
+          if (!item && !z.uuid().safeParse(data.itemId).success) throw new WorkspaceError("This closing item no longer exists.");
           if (item && item.loanId !== data.loanId) throw new WorkspaceError("This closing item is unavailable on the loan.");
           if (!item || item.title !== data.title || item.owner !== data.owner || item.dueDate !== data.dueDate) {
             if (Number(item?.revision ?? 0) !== data.revision) throw new WorkspaceError("This closing item changed. Refresh the loan before saving.");
@@ -234,6 +271,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "recordClosing": {
           if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
           if (data.closingDate > easternDate(new Date(now))) throw new WorkspaceError("Enter the actual closing date on or before today.");
+          const funding = db.prepare("SELECT fundingDate FROM closing_progress WHERE loanId = ?").get(data.loanId)?.fundingDate;
+          if (typeof funding === "string" && data.closingDate > funding) throw new WorkspaceError("The closing date cannot be after the recorded funding date.");
           const profile = db.prepare("SELECT closingDate, revision FROM past_client_profiles WHERE loanId = ?").get(data.loanId);
           if (profile?.closingDate !== data.closingDate) {
             if (Number(profile?.revision ?? 0) !== data.revision) throw new WorkspaceError("The closing date changed. Refresh the loan before recording it.");
@@ -244,6 +283,58 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           createMilestoneDrafts(db, data.loanId, "Closing complete", now);
           message = "Closing recorded. Milestone drafts are ready to preview.";
+          break;
+        }
+        case "recordFunding": {
+          const loan = db.prepare("SELECT stage, disposition FROM loans WHERE id = ?").get(data.loanId);
+          const closing = db.prepare("SELECT closingDate FROM past_client_profiles WHERE loanId = ?").get(data.loanId)?.closingDate;
+          if (!loan || loan.disposition !== "Active" || typeof closing !== "string" || data.fundingDate < closing || data.fundingDate > easternDate(new Date(now))) {
+            throw new WorkspaceError("Record actual closing first. Funding must fall between closing and today on an active file.");
+          }
+          const previous = db.prepare("SELECT fundingDate, revision FROM closing_progress WHERE loanId = ?").get(data.loanId);
+          if (previous?.fundingDate !== data.fundingDate) {
+            if (Number(previous?.revision ?? 0) !== data.revision) throw new WorkspaceError("Funding status changed. Refresh the loan first.");
+            db.prepare(`INSERT INTO closing_progress (loanId, fundingDate, revision) VALUES (?, ?, 1)
+              ON CONFLICT(loanId) DO UPDATE SET fundingDate = excluded.fundingDate, revision = revision + 1`).run(data.loanId, data.fundingDate);
+            if (loan.stage !== "Funded" && loan.stage !== "Closed") db.prepare("UPDATE loans SET stage = 'Funded', stageSince = ? WHERE id = ?").run(now, data.loanId);
+            createMilestoneDrafts(db, data.loanId, "Funded", now);
+            addApplicationActivity(db, data.loanId, `Funding recorded · ${data.fundingDate}`, now);
+            accessEvent(db, staff, "Recorded loan funding", data.loanId, now);
+          }
+          message = "Funding recorded. Milestone drafts and past-client follow-up are ready.";
+          break;
+        }
+        case "saveDisclosureStatus": {
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          if (data.status !== "Not started" && (!data.date || data.date > easternDate(new Date(now)))) throw new WorkspaceError("Enter the date this step was completed.");
+          const date = data.status === "Not started" ? null : data.date;
+          const previous = db.prepare("SELECT disclosureStatus, disclosureDate, revision FROM closing_progress WHERE loanId = ?").get(data.loanId);
+          if ((previous?.disclosureStatus ?? "Not started") !== data.status || (previous?.disclosureDate ?? null) !== date) {
+            if (Number(previous?.revision ?? 0) !== data.revision) throw new WorkspaceError("Disclosure status changed. Refresh the loan first.");
+            db.prepare(`INSERT INTO closing_progress (loanId, disclosureStatus, disclosureDate, revision) VALUES (?, ?, ?, 1)
+              ON CONFLICT(loanId) DO UPDATE SET disclosureStatus = excluded.disclosureStatus, disclosureDate = excluded.disclosureDate, revision = revision + 1`)
+              .run(data.loanId, data.status, date);
+            addApplicationActivity(db, data.loanId, `Manual disclosure status · ${data.status}${date ? ` · ${date}` : ""}`, now);
+          }
+          message = "Manual disclosure status saved.";
+          break;
+        }
+        case "prepareClosingHandoff": {
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          const steps = [
+            ["lo", "Review borrower and lender handoff", "Loan officer"],
+            ["processor", "Confirm conditions and closing package", "Processor"],
+            ["funding", "Confirm funding and prepare follow-up", "Loan officer"],
+          ];
+          let added = 0;
+          for (const [key, title, owner] of steps) {
+            const itemId = `closing-handoff:${data.loanId}:${key}`;
+            if (db.prepare("SELECT 1 FROM closing_items WHERE id = ?").get(itemId)) continue;
+            db.prepare("INSERT INTO closing_items (id, loanId, title, owner, dueDate) VALUES (?, ?, ?, ?, ?)").run(itemId, data.loanId, title, owner, data.dueDate);
+            added++;
+          }
+          if (added) addApplicationActivity(db, data.loanId, "Prepared closing handoff checklist.", now);
+          message = added ? "Closing handoff checklist added." : "Closing handoff checklist is already in place.";
           break;
         }
         case "createRealtorPortal": {
@@ -290,7 +381,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             id: String(row.id), name: String(row.name), email: String(row.email), phone: String(row.phone), role: row.role as Contact["role"],
           }));
           const matches = referralMatches({ email, phone }, contacts);
-          const canUse = (id: string) => !limited || !!db.prepare("SELECT 1 FROM loans WHERE contactId = ? AND officerEmail = ?").get(id, staff.email);
+          const canUse = (id: string) => !limited || !!db.prepare("SELECT 1 FROM loans WHERE contactId = ? AND officerEmail = ?").get(id, staff.email) ||
+            !!db.prepare("SELECT 1 FROM contacts WHERE id = ? AND addedBy = ?").get(id, staff.email);
           let contact = contacts.find((item) => item.id === data.contactId);
           if (data.contactId && (!contact || !canUse(data.contactId) || !matches.some((match) => match.id === data.contactId))) {
             throw new WorkspaceError("That contact match is unavailable. Refresh tasks and review the referral again.");
@@ -304,7 +396,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           const loanId = crypto.randomUUID();
           insertLoan(db, { id: loanId, contactId: contact.id, partnerId: String(lead.realtorId), officer: staff?.name.slice(0, 160) || "Alex Morgan",
-            officerEmail: staff?.email ?? null, address: "", amount: 0, purpose: lead.purpose as Purpose, stage: "Lead", stageSince: now });
+            officerEmail: staff?.email ?? null, address: "", amount: 0, purpose: lead.purpose as Purpose, stage: "Lead", stageSince: now, createdAt: String(lead.createdAt) });
+          db.prepare("INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Make first contact', ?)")
+            .run(`first-contact:${loanId}`, loanId, lead.dueAt);
           if (!startApplication(db, loanId, now, staff?.brokerage.id, contact)) throw new WorkspaceError("Orbit could not create the borrower link.");
           db.prepare("UPDATE referral_leads SET resolvedAt = ?, loanId = ? WHERE id = ?").run(now, loanId, data.referralId);
           addApplicationActivity(db, loanId, "Converted realtor referral to a loan with a prefilled 1003.", now);
@@ -336,14 +430,17 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "requestDocument": {
           const source = data.condition;
           if (source) {
-            const conditions = uwmSubmissionConditions(db, data.loanId, source.submissionId);
-            if (!conditions) throw new WorkspaceError("This UWM submission is unavailable on this loan.");
+            const manual = db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ? AND syncedAt IS NULL")
+              .get(source.submissionId, data.loanId);
+            const conditions = manual ? (JSON.parse(String(manual.conditions)) as Condition[]).filter((item) => item.manual)
+              : uwmSubmissionConditions(db, data.loanId, source.submissionId);
+            if (!conditions) throw new WorkspaceError("This lender submission is unavailable on this loan.");
             if (db.prepare("SELECT 1 FROM document_requests WHERE submissionId = ? AND conditionId = ?").get(source.submissionId, source.conditionId)) {
-              message = "This UWM condition already has a checklist request.";
+              message = "This condition already has a checklist request.";
               break;
             }
             if (!conditions.some((item) => item.id === source.conditionId && !item.satisfiedAt)) {
-              throw new WorkspaceError("This UWM condition is no longer outstanding. Refresh the loan to see its status.");
+              throw new WorkspaceError("This condition is no longer outstanding. Refresh the loan to see its status.");
             }
             if (!data.instructions) throw new WorkspaceError("Enter instructions for the borrower.");
           } else {
@@ -355,29 +452,80 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, submissionId, conditionId)
             VALUES (?, ?, ?, ?, ?, ?, ?)`)
             .run(crypto.randomUUID(), data.loanId, data.kind, data.instructions, now, source?.submissionId ?? null, source?.conditionId ?? null);
-          addApplicationActivity(db, data.loanId, `Document requested · ${data.kind}${source ? " · UWM condition" : ""}`, now);
-          message = source ? "UWM condition linked to the borrower checklist." : "Document added to the borrower checklist.";
+          addApplicationActivity(db, data.loanId, `Document requested · ${data.kind}${source ? " · Lender condition" : ""}`, now);
+          message = source ? "Condition linked to the borrower checklist." : "Document added to the borrower checklist.";
           break;
         }
         case "reviewDocument": {
-          const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
+          const request = db.prepare("SELECT kind, status, revision, submissionId, conditionId FROM document_requests WHERE id = ? AND loanId = ?")
             .get(data.requestId, data.loanId);
-          if (request?.status !== "Received" || request.revision !== data.revision) {
+          const submission = request?.submissionId && db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ?").get(request.submissionId, data.loanId);
+          const open = submission && (JSON.parse(String(submission.conditions)) as Condition[]).some((item) => item.id === request?.conditionId && !item.satisfiedAt);
+          const replaceAccepted = request?.status === "Accepted" && data.decision === "Needs replacement" && open;
+          if (!request || (request.status !== "Received" && !replaceAccepted) || request.revision !== data.revision) {
             throw new WorkspaceError("This document request changed. Refresh the checklist before reviewing it.");
           }
           if (data.decision === "Needs replacement" && !data.replacementNote) throw new WorkspaceError("Tell the borrower what to replace.");
           db.prepare("UPDATE document_requests SET status = ?, replacementNote = ?, revision = revision + 1 WHERE id = ?")
             .run(data.decision, data.decision === "Accepted" ? "" : data.replacementNote, data.requestId);
+          if (replaceAccepted) {
+            db.prepare(`INSERT INTO uwm_document_delivery_history (requestId, receipt, sentAt, documentRevision)
+              SELECT requestId, receipt, sentAt, documentRevision FROM uwm_document_deliveries WHERE requestId = ?`).run(data.requestId);
+            db.prepare("DELETE FROM uwm_document_deliveries WHERE requestId = ?").run(data.requestId);
+          }
           const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(data.requestId)?.objectId;
           const accepted = pdf ? (staff?.brokerage.id === demoBrokerageId || staff?.brokerage.pilot ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
           addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? accepted : "Replacement requested"} · ${request.kind}`, now);
           message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
           break;
         }
+        case "applyDocumentPreset": {
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          let added = 0;
+          for (const kind of checklistPresets[data.preset]) {
+            if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ? AND conditionId IS NULL").get(data.loanId, kind)) continue;
+            db.prepare("INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt) VALUES (?, ?, ?, ?, ?)")
+              .run(crypto.randomUUID(), data.loanId, kind, checklistInstructions[kind], now);
+            added++;
+          }
+          if (added) addApplicationActivity(db, data.loanId, `Applied ${data.preset.toLowerCase()} checklist · ${added} added`, now);
+          message = added ? `Added ${added} document requests.` : "This checklist is already in place.";
+          break;
+        }
+        case "recordManualHandoff": {
+          const application = getApplication(db, data.loanId);
+          if (!application?.submittedAt || !application.reviewedAt || application.revision !== data.revision) {
+            throw new WorkspaceError("Review the current submitted application before recording a handoff.");
+          }
+          const detail = `Manual handoff · ${data.outcome} · Application revision ${data.revision}${data.note ? ` · ${data.note}` : ""}`;
+          const previous = db.prepare("SELECT loanId, text FROM activity WHERE id = ?").get(data.eventId);
+          if (previous && (previous.loanId !== data.loanId || previous.text !== detail)) throw new WorkspaceError("Start a new handoff entry.");
+          if (!previous) {
+            db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(data.eventId, data.loanId, detail, now);
+            accessEvent(db, staff, `Manual handoff · ${data.outcome}`, data.loanId, now);
+          }
+          message = "Manual handoff recorded on the loan.";
+          break;
+        }
         case "sendConditionDocument": {
           const result = sendMockConditionDocument(db, data.loanId, data.requestId, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = `Mock UWM document receipt · ${result.receipt}`;
+          break;
+        }
+        case "simulateDeliveryFailure": {
+          const request = db.prepare("SELECT * FROM document_requests WHERE id = ? AND loanId = ?").get(data.requestId, data.loanId);
+          const conditions = typeof request?.submissionId === "string" ? uwmSubmissionConditions(db, data.loanId, request.submissionId) : undefined;
+          if (!request || request.revision !== data.revision || request.status !== "Accepted" ||
+            !conditions?.some((item) => item.id === request.conditionId && !item.satisfiedAt) ||
+            db.prepare("SELECT 1 FROM uwm_document_deliveries WHERE requestId = ?").get(data.requestId)) {
+            throw new WorkspaceError("Select an accepted document with an outstanding mock UWM delivery.");
+          }
+          if (!db.prepare("SELECT 1 FROM mock_delivery_failures WHERE requestId = ? AND revision = ?").get(data.requestId, data.revision)) {
+            db.prepare("INSERT INTO mock_delivery_failures VALUES (?, ?, ?)").run(data.requestId, data.revision, now);
+            addApplicationActivity(db, data.loanId, `Mock UWM delivery failed · ${request.kind} · revision ${data.revision}`, now);
+          }
+          message = "Mock delivery failed. Retry from the document checklist.";
           break;
         }
         case "refreshMockUwmClearance": {
@@ -440,6 +588,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (!offer) throw new WorkspaceError("This sample quote is unavailable.");
           const previous = db.prepare("SELECT runId, offerId FROM published_quotes WHERE loanId = ?").get(data.loanId);
           if (previous?.runId !== data.runId || previous.offerId !== data.offerId) {
+            db.prepare("INSERT INTO shared_quote_history SELECT *, ?, 'Replaced' FROM published_quotes WHERE loanId = ?").run(now, data.loanId);
             db.prepare(`INSERT INTO published_quotes (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId) DO UPDATE SET runId = excluded.runId, offerId = excluded.offerId,
               product = excluded.product, rate = excluded.rate, principalAndInterest = excluded.principalAndInterest,
@@ -454,6 +603,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const previous = db.prepare("SELECT publishedAt FROM published_quotes WHERE loanId = ?").get(data.loanId);
           if (previous && previous.publishedAt !== data.publishedAt) throw new WorkspaceError("The shared quote changed. Refresh before removing it.");
           if (previous) {
+            db.prepare("INSERT INTO shared_quote_history SELECT *, ?, 'Removed' FROM published_quotes WHERE loanId = ?").run(now, data.loanId);
             db.prepare("DELETE FROM published_quotes WHERE loanId = ?").run(data.loanId);
             addApplicationActivity(db, data.loanId, "Sample quote removed from borrower status.", now);
           }
@@ -463,11 +613,27 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "reviewApplication": {
           const application = getApplication(db, data.loanId);
           if (!application?.submittedAt) throw new WorkspaceError("The borrower must submit the application before review.");
+          if (data.revision !== undefined && application.revision !== data.revision) throw new WorkspaceError("Refresh to review the latest application.");
           if (!application.reviewedAt) {
             db.prepare("UPDATE applications SET reviewedAt = ? WHERE loanId = ?").run(now, data.loanId);
+            saveApplicationVersion(db, { ...application, reviewedAt: now });
+            db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ? AND completedAt IS NULL")
+              .run(now, `application-correction:${data.loanId}:${application.revision}`);
             addApplicationActivity(db, data.loanId, "Loan officer reviewed the demo 1003.", now);
           }
           message = "Application marked reviewed.";
+          break;
+        }
+        case "requestApplicationCorrection": {
+          const application = getApplication(db, data.loanId);
+          if (!application?.submittedAt || application.revision !== data.revision) throw new WorkspaceError("Refresh the submitted application before requesting corrections.");
+          saveApplicationVersion(db, application);
+          db.prepare(`UPDATE applications SET correctionNote = ?, submittedAt = NULL, reviewedAt = NULL,
+            revision = revision + 1, step = 0, updatedAt = ? WHERE loanId = ?`).run(data.note, now, data.loanId);
+          db.prepare(`UPDATE tasks SET completedAt = ? WHERE loanId = ? AND completedAt IS NULL
+            AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
+          addApplicationActivity(db, data.loanId, "Loan officer requested 1003 corrections.", now);
+          message = "The borrower can reopen the same link to correct and resubmit the 1003.";
           break;
         }
         case "saveLenderDetails": {
@@ -503,6 +669,27 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           break;
         }
+        case "importContacts": {
+          const batch = `contact-import:${staff?.email ?? "local"}:${data.batchId}`;
+          const prior = db.prepare("SELECT value FROM settings WHERE key = ?").get(batch);
+          if (prior) {
+            message = String(prior.value);
+            break;
+          }
+          const contacts = db.prepare("SELECT name, role, email, phone FROM contacts").all() as unknown as Contact[];
+          let imported = 0;
+          for (const row of data.rows) {
+            if (contactDuplicate(row, contacts) && !row.separate) continue;
+            const contact = { ...row, id: crypto.randomUUID(), addedBy: staff?.email };
+            insertContact(db, contact);
+            contacts.push(contact);
+            imported++;
+          }
+          accessEvent(db, staff, "Imported contacts", `${imported} added · ${data.rows.length - imported} possible duplicates skipped`, now);
+          message = `${imported} contacts imported · ${data.rows.length - imported} possible duplicates skipped.`;
+          db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(batch, message);
+          break;
+        }
         case "deleteContact":
           if (db.prepare("SELECT 1 FROM referral_leads WHERE realtorId = ? AND resolvedAt IS NULL").get(data.id)) {
             throw new WorkspaceError("Review this realtor’s open referrals before deleting the contact.");
@@ -513,8 +700,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare("DELETE FROM contacts WHERE id = ?").run(data.id);
           break;
         case "loan": {
-          const current = data.id ? db.prepare("SELECT contactId, stage, stageSince, officer, officerEmail FROM loans WHERE id = ?").get(data.id) : undefined;
+          const current = data.id ? db.prepare("SELECT contactId, stage, stageSince, officer, officerEmail, disposition FROM loans WHERE id = ?").get(data.id) : undefined;
           if (data.id && !current) throw new WorkspaceError("This loan no longer exists.");
+          if (current && current.stage !== data.stage && current.disposition !== "Active") throw new WorkspaceError("Reopen the loan before changing its stage.");
           if (data.id && data.start1003) throw new WorkspaceError("Start the 1003 from the loan’s application panel.");
           if (data.id && current?.contactId !== data.contactId && getApplication(db, data.id)) {
             throw new WorkspaceError("This loan’s 1003 link belongs to its current borrower. Create a separate loan for another borrower.");
@@ -542,14 +730,22 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const stageSince = current?.stage === data.stage ? String(current.stageSince) : now;
           const loanId = data.id ?? crypto.randomUUID();
           if (data.id) {
-            db.prepare("UPDATE loans SET contactId = ?, partnerId = ?, officer = ?, officerEmail = ?, address = ?, amount = ?, purpose = ?, stage = ?, stageSince = ? WHERE id = ?")
-              .run(contactId, data.partnerId, officer, officerEmail, data.address, data.amount, data.purpose, data.stage, stageSince, loanId);
+            db.prepare(`UPDATE loans SET contactId = ?, partnerId = ?, officer = ?, officerEmail = ?, address = ?, amount = ?,
+              purpose = ?, stage = ?, stageSince = ?, leadSource = coalesce(?, leadSource) WHERE id = ?`)
+              .run(contactId, data.partnerId, officer, officerEmail, data.address, data.amount, data.purpose, data.stage, stageSince, data.leadSource ?? null, loanId);
             if ((current?.officerEmail ?? null) !== officerEmail) accessEvent(db, staff, "Changed loan owner", `${loanId} · ${officerEmail ?? "Unassigned"}`, now);
           } else {
             insertLoan(db, { ...data, id: loanId, officer, officerEmail, contactId, stageSince });
           }
-          if (current?.stage !== data.stage && (current || data.stage !== "Lead")) createMilestoneDrafts(db, loanId, data.stage, now);
+          if (current?.stage !== data.stage && (current || data.stage !== "Lead")) {
+            createMilestoneDrafts(db, loanId, data.stage, now);
+            if (current) addApplicationActivity(db, loanId, `Moved from ${current.stage} to ${data.stage}.`, now);
+          }
           if (!current && staff?.brokerage.pilot) accessEvent(db, staff, "Created lead", loanId, now);
+          if (!current && data.stage === "Lead") {
+            db.prepare("INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Make first contact', ?)")
+              .run(`first-contact:${loanId}`, loanId, new Date(Date.parse(now) + 86_400_000).toISOString());
+          }
           if (data.start1003) {
             const contact = db.prepare("SELECT email, phone FROM contacts WHERE id = ?").get(contactId);
             if (!startApplication(db, loanId, now, staff?.brokerage.id, { email: String(contact?.email ?? ""), phone: String(contact?.phone ?? "") })) {
@@ -565,23 +761,67 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare("DELETE FROM loans WHERE id = ?").run(data.id);
           break;
         case "move": {
-          const loan = db.prepare("SELECT stage FROM loans WHERE id = ?").get(data.id);
+          const loan = db.prepare("SELECT stage, disposition FROM loans WHERE id = ?").get(data.id);
           if (!loan) throw new WorkspaceError("This loan no longer exists.");
           if (loan.stage !== data.stage) {
+            if (loan.disposition !== "Active") throw new WorkspaceError("Reopen the loan before changing its stage.");
             db.prepare("UPDATE loans SET stage = ?, stageSince = ? WHERE id = ?").run(data.stage, now, data.id);
             createMilestoneDrafts(db, data.id, data.stage, now);
+            addApplicationActivity(db, data.id, `Moved from ${loan.stage} to ${data.stage}.`, now);
           }
+          break;
+        }
+        case "loanDisposition": {
+          const loan = db.prepare("SELECT stage, disposition, dispositionReason, revisitDate, dispositionRevision FROM loans WHERE id = ?").get(data.loanId);
+          if (!loan || loan.dispositionRevision !== data.revision) throw new WorkspaceError("Refresh the loan before changing its status.");
+          if (loan.stage === "Closed" || loan.stage === "Funded") throw new WorkspaceError("The loan has reached a closing outcome.");
+          const reason = data.disposition === "Active" ? "" : data.reason;
+          const revisit = data.disposition === "On hold" ? data.revisitDate : null;
+          if (data.disposition !== "Active" && !reason) throw new WorkspaceError("Enter a reason for changing the loan status.");
+          if (loan.disposition === data.disposition && loan.dispositionReason === reason && loan.revisitDate === revisit) break;
+          db.prepare(`UPDATE loans SET disposition = ?, dispositionReason = ?, revisitDate = ?,
+            dispositionRevision = dispositionRevision + 1 WHERE id = ?`).run(data.disposition, reason, revisit, data.loanId);
+          if (data.disposition === "Active" && (loan.stage === "Lead" || loan.stage === "Pre-qual") && getApplication(db, data.loanId)?.submittedAt) {
+            db.prepare("UPDATE loans SET stage = 'Application', stageSince = ? WHERE id = ?").run(now, data.loanId);
+          }
+          message = data.disposition === "Active" ? "Loan reopened. Open work has returned to the queue." : `Loan marked ${data.disposition.toLowerCase()}.`;
+          addApplicationActivity(db, data.loanId, reason ? `${message} ${reason}` : message, now);
+          accessEvent(db, staff, `Loan status set to ${data.disposition}`, data.loanId, now);
           break;
         }
         case "copyDraft":
           if (!recordDraftCopy(db, data, now)) throw new WorkspaceError("This draft or recipient has changed. Refresh the loan before copying again.");
           message = "Draft copy recorded.";
           break;
-        case "note":
-          db.prepare("INSERT INTO activity (id, loanId, text, createdAt, kind) VALUES (?, ?, ?, ?, ?)")
-            .run(crypto.randomUUID(), data.loanId, data.text, now, data.kind);
+        case "note": {
+          if (data.kind === "Note" && (data.outcome || data.followUp)) throw new WorkspaceError("Choose call, email, or text to record an outcome or follow-up.");
+          if (data.followUp && data.followUp < easternDate(new Date(now))) throw new WorkspaceError("Choose today or a future date for follow-up.");
+          const eventId = data.eventId ?? crypto.randomUUID();
+          const previous = db.prepare("SELECT loanId, text, kind, outcome FROM activity WHERE id = ?").get(eventId);
+          if (previous && (previous.loanId !== data.loanId || previous.text !== data.text || previous.kind !== data.kind ||
+            previous.outcome !== (data.outcome ?? null))) throw new WorkspaceError("Start a new activity entry.");
+          if (!previous) {
+            db.prepare("INSERT INTO activity (id, loanId, text, createdAt, kind, outcome) VALUES (?, ?, ?, ?, ?, ?)")
+              .run(eventId, data.loanId, data.text, now, data.kind, data.outcome ?? null);
+            if (data.outcome) db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ? AND completedAt IS NULL")
+              .run(now, `first-contact:${data.loanId}`);
+            if (data.followUp) db.prepare("INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, ?, ?)")
+              .run(`outreach:${eventId}`, data.loanId, `Follow up after ${data.kind.toLowerCase()}`, `${data.followUp}T17:00:00.000Z`);
+          }
           message = `${data.kind} logged.`;
           break;
+        }
+        case "saveBrokerageTemplate": {
+          const current = db.prepare("SELECT body, revision FROM brokerage_templates WHERE audience = ? AND milestone = ?").get(data.audience, data.milestone);
+          if ((current?.body ?? "") !== data.body) {
+            if (Number(current?.revision ?? 0) !== data.revision) throw new WorkspaceError("This template changed. Refresh it before saving.");
+            db.prepare(`INSERT INTO brokerage_templates (audience, milestone, body, revision) VALUES (?, ?, ?, 1)
+              ON CONFLICT(audience, milestone) DO UPDATE SET body = excluded.body, revision = revision + 1`).run(data.audience, data.milestone, data.body);
+            accessEvent(db, staff, "Updated brokerage message template", `${data.audience} · ${data.milestone}`, now);
+          }
+          message = data.body ? "Brokerage template saved." : "Default template restored.";
+          break;
+        }
         case "submission": {
           const lender = data.lender.toUpperCase() === "UWM" ? "UWM" : data.lender;
           if (data.id && db.prepare("SELECT 1 FROM submissions WHERE id = ? AND syncedAt IS NOT NULL").get(data.id)) {
@@ -601,6 +841,46 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "deleteSubmission":
           db.prepare("DELETE FROM submissions WHERE id = ? AND syncedAt IS NULL").run(data.id);
           break;
+        case "saveManualCondition":
+        case "recordManualDelivery":
+        case "recordManualClearance": {
+          const submission = db.prepare("SELECT lender, conditions FROM submissions WHERE id = ? AND loanId = ? AND syncedAt IS NULL")
+            .get(data.submissionId, data.loanId);
+          if (!submission) throw new WorkspaceError("Select a manual lender submission on this loan.");
+          const conditions = JSON.parse(String(submission.conditions)) as Condition[];
+          const prior = conditions.find((item) => item.id === data.conditionId);
+          if ((prior?.manual?.revision ?? 0) !== data.revision) throw new WorkspaceError("This condition changed. Refresh the loan before saving.");
+          const entry: Condition = prior ?? { id: data.conditionId, category: "", description: "", group: null, uploaded: false, satisfiedAt: null };
+          const manual = entry.manual ?? { owner: "", revision: 0, deliveries: [], confirmedDelivery: null };
+          if (data.type === "saveManualCondition") {
+            if (entry.category === data.category && entry.description === data.description && manual.owner === data.owner) break;
+            entry.category = data.category;
+            entry.description = data.description;
+            manual.owner = data.owner;
+            message = "Manual lender condition saved.";
+          } else if (data.type === "recordManualDelivery") {
+            const request = db.prepare(`SELECT status, revision FROM document_requests
+              WHERE submissionId = ? AND conditionId = ? AND loanId = ?`).get(data.submissionId, entry.id, data.loanId);
+            if (entry.satisfiedAt || request?.status !== "Accepted" || request.revision !== data.documentRevision) {
+              throw new WorkspaceError("Accept the current document for the outstanding condition before recording delivery.");
+            }
+            if (manual.deliveries.some((delivery) => delivery.documentRevision === data.documentRevision && delivery.reference === data.reference)) break;
+            manual.deliveries.push({ documentRevision: data.documentRevision, reference: data.reference, at: now });
+            entry.uploaded = true;
+            message = `Manual delivery recorded · document revision ${data.documentRevision}`;
+          } else {
+            if (Boolean(entry.satisfiedAt) === data.cleared) break;
+            entry.satisfiedAt = data.cleared ? now : null;
+            manual.confirmedDelivery = data.cleared ? data.confirmation : null;
+            if (!data.cleared) entry.uploaded = false;
+            message = `Condition ${data.cleared ? "cleared by lender" : "reopened"} · ${data.confirmation}`;
+          }
+          entry.manual = { ...manual, revision: manual.revision + 1 };
+          if (!prior) conditions.push(entry);
+          db.prepare("UPDATE submissions SET conditions = ? WHERE id = ?").run(JSON.stringify(conditions), data.submissionId);
+          addApplicationActivity(db, data.loanId, `${submission.lender} · ${entry.category} · ${message}`, now);
+          break;
+        }
       }
       synchronizeRetentionTasks(db);
       const action = pilotLoanActions[data.type];

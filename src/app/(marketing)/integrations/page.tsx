@@ -23,22 +23,22 @@ export default function Integrations() {
           <article>
             <div className="marketing-card-top"><span className="marketing-feature-icon"><RefreshCw size={22} aria-hidden="true" /></span><span className="marketing-status">Simulated in demo</span></div>
             <h3>Pipeline and conditions</h3>
-            <p>Try a mock submission from a reviewed application. Refresh the UWM loan record to see the lender status, open conditions, and cleared conditions alongside your pipeline stage.</p>
+            <p>Try a mock submission from a reviewed application. Turn a condition into a borrower document request, review the response, and see mock delivery and clearance separately.</p>
           </article>
           <article>
             <div className="marketing-card-top"><span className="marketing-feature-icon"><ChartNoAxesCombined size={22} aria-hidden="true" /></span><span className="marketing-status">Sample rates in demo</span></div>
             <h3>Easy Qualifier pricing</h3>
-            <p>Compare and save example pricing inside the loan. The initial Easy Qualifier connection targets UWM’s test environment and requires UWM-issued credentials for live testing.</p>
+            <p>Compare and save example pricing, then simulate floating, locking, extending, or cancelling a rate. The initial Easy Qualifier connection targets UWM’s test environment and requires UWM-issued credentials.</p>
           </article>
         </div>
-        <p className="marketing-integration-note">The hosted demo uses mock lender data. Live submissions, condition sync, and rate locks are outside the demo.</p>
+        <p className="marketing-integration-note">The hosted pilot uses fictional data, sample rates, and simulated lender activity. Staff can also track other lenders manually from the loan record.</p>
       </section>
       <section className="marketing-section marketing-wrap marketing-banner-wrap">
         <div className="marketing-banner">
           <div>
             <p className="marketing-kicker">Additional providers</p>
-            <h2>More pricing and lender options over time.</h2>
-            <p>Optimal Blue is a candidate for future pricing coverage. Additional wholesale lenders can be connected as their integration access becomes available.</p>
+            <h2>More pricing, lender, and provider connections are planned.</h2>
+            <p>Optimal Blue is a candidate for future pricing coverage. The demo simulates credit and automated underwriting, email verification, and document scanning. Live provider connections and e-signature are planned.</p>
           </div>
           <a className="marketing-button" href="/product">See the broker workflow <ArrowRight size={17} aria-hidden="true" /></a>
         </div>

@@ -11,7 +11,7 @@ import { pdfColumns } from "./document-files-model";
 import type { Contact } from "./model";
 import { accessEvent } from "./workspace-access";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "lender"> & { draft: string; step: number; revision: number };
+type ApplicationRow = Omit<StaffApplication, "draft" | "lender" | "versions" | "previousAnswers"> & { draft: string; step: number };
 
 export function getApplication(db: Store, loanId: string) {
   return db.prepare("SELECT * FROM applications WHERE loanId = ?").get(loanId) as ApplicationRow | undefined;
@@ -23,13 +23,26 @@ export function staffApplications(db: Store): StaffApplication[] {
   }]));
   return db.prepare("SELECT * FROM applications").all().map((value) => {
     const row = value as ApplicationRow;
+    const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
+      ORDER BY reviewedAt IS NOT NULL DESC, revision DESC LIMIT 1`).get(row.loanId, row.revision);
+    const versions = db.prepare("SELECT revision, submittedAt, reviewedAt FROM application_versions WHERE loanId = ? ORDER BY revision DESC")
+      .all(row.loanId).map((item) => ({ revision: Number(item.revision), submittedAt: String(item.submittedAt), reviewedAt: item.reviewedAt as string | null }));
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, uwmReference: row.uwmReference,
       draft: row.submittedAt ? applicationDraft.parse(JSON.parse(row.draft)) : null,
       lender: lender.get(row.loanId) ?? null,
+      revision: row.revision, correctionNote: row.correctionNote, versions,
+      previousAnswers: prior ? applicationDraft.parse(JSON.parse(String(prior.draft))) : null,
     };
   });
+}
+
+export function saveApplicationVersion(db: Store, row: ApplicationRow) {
+  if (!row.submittedAt) return;
+  db.prepare(`INSERT INTO application_versions (loanId, revision, draft, submittedAt, reviewedAt) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (loanId, revision) DO UPDATE SET reviewedAt = excluded.reviewedAt`)
+    .run(row.loanId, row.revision, row.draft, row.submittedAt, row.reviewedAt);
 }
 
 export function addApplicationActivity(db: Store, loanId: string, text: string, now: string) {
@@ -89,6 +102,7 @@ function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
     draft: applicationDraft.parse(JSON.parse(row.draft)),
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt,
     loanStatus,
+    correctionNote: row.correctionNote || undefined,
   } };
 }
 
@@ -146,25 +160,30 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     }
     const next: ApplicationRow = {
       ...row, draft: JSON.stringify(draft), step: data.step, revision: row.revision + 1,
-      updatedAt: now, submittedAt: submitted ? now : null,
+      updatedAt: now, submittedAt: submitted ? now : null, correctionNote: submitted ? "" : row.correctionNote,
     };
-    db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ? WHERE loanId = ?")
-      .run(next.draft, next.step, next.revision, next.updatedAt, next.submittedAt, next.loanId);
+    db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ?, correctionNote = ? WHERE loanId = ?")
+      .run(next.draft, next.step, next.revision, next.updatedAt, next.submittedAt, next.correctionNote, next.loanId);
     if (submitted) {
+      saveApplicationVersion(db, next);
       const { unit, city, state, zip } = draft.propertyLocation;
       const propertyPending = draft.purpose === "Purchase" && draft.urla.property.fields.propertyPending === "Yes";
       const locality = `${city}, ${state.toUpperCase()} ${zip}`;
       const street = [draft.propertyAddress, unit].filter(Boolean).join(", ");
       const address = propertyPending ? "" : `${street.slice(0, 238 - locality.length).trimEnd()}, ${locality}`;
       db.prepare(`UPDATE loans SET
-        stage = CASE WHEN stage IN ('Lead', 'Pre-qual') THEN 'Application' ELSE stage END,
-        stageSince = CASE WHEN stage IN ('Lead', 'Pre-qual') THEN ? ELSE stageSince END,
+        stage = CASE WHEN disposition = 'Active' AND stage IN ('Lead', 'Pre-qual') THEN 'Application' ELSE stage END,
+        stageSince = CASE WHEN disposition = 'Active' AND stage IN ('Lead', 'Pre-qual') THEN ? ELSE stageSince END,
         address = CASE WHEN trim(address) = '' THEN ? ELSE address END,
         amount = CASE WHEN amount = 0 THEN ? ELSE amount END
         WHERE id = ?`).run(now, address, Math.round(Number(draft.loanAmount)), row.loanId);
       createApplicationFollowUps(db, row.loanId);
+      if (row.correctionNote) {
+        db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Review corrected 1003', ?)
+          ON CONFLICT(id) DO NOTHING`).run(`application-correction:${row.loanId}:${next.revision}`, row.loanId, new Date(Date.parse(now) + 86_400_000).toISOString());
+      }
       createMilestoneDrafts(db, row.loanId, "Application received", now);
-      addApplicationActivity(db, row.loanId, "Demo 1003 received. Follow-up task created for the loan officer.", now);
+      addApplicationActivity(db, row.loanId, row.correctionNote ? "Corrected 1003 received." : "Demo 1003 received. Follow-up task created for the loan officer.", now);
       if (pilot) accessEvent(db, { name: "Borrower", email: "Borrower" }, "Pilot 1003 submitted", row.loanId, now);
     }
     return borrowerResult(db, next);

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Copy, Mail } from "lucide-react";
 import { currentDraftMilestone, draftChannels, draftCopied, draftRecipient, renderDraft } from "@/lib/communication-templates";
-import type { CommunicationDraft, DraftAudience, DraftChannel, Loan, Workspace } from "@/lib/model";
+import { draftMilestones, type CommunicationDraft, type DraftAudience, type DraftChannel, type DraftMilestone, type Loan, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -77,11 +77,36 @@ export function LoanCommunications({ loan, state, preview }: { loan: Loan; state
   </section>;
 }
 
+export function BrokerageTemplates({ state, busy, save }: { state: Workspace; busy: boolean; save: Save }) {
+  const [audience, setAudience] = useState<DraftAudience>("Borrower");
+  const [milestone, setMilestone] = useState<DraftMilestone>("Application received");
+  const current = state.brokerageTemplates.find((item) => item.audience === audience && item.milestone === milestone);
+  const sample = renderDraft(audience, milestone, "Email", "Sample recipient", "Sample loan officer", current?.body);
+  return <section className="pipeline relationship-panel" aria-label="Brokerage templates">
+    <h2>Brokerage templates</h2>
+    <p className="muted">Edit the message body used in previews. Use {"{{milestone}}"} to insert the stage. Keep realtor templates limited to milestone updates.</p>
+    <div className="filter-row">
+      <label className="field">Audience<select value={audience} onChange={(event) => setAudience(event.target.value as DraftAudience)}><option>Borrower</option><option>Realtor</option></select></label>
+      <label className="field">Milestone<select value={milestone} onChange={(event) => setMilestone(event.target.value as DraftMilestone)}>
+        {draftMilestones.map((value) => <option key={value}>{value}</option>)}</select></label>
+    </div>
+    <form className="record-form" key={`${audience}:${milestone}:${current?.revision ?? 0}`} onSubmit={(event) => {
+      event.preventDefault();
+      void save({ type: "saveBrokerageTemplate", audience, milestone, body: new FormData(event.currentTarget).get("body"), revision: current?.revision ?? 0 });
+    }}>
+      <label className="field">Message body<textarea name="body" defaultValue={current?.body} rows={3} maxLength={800} placeholder="Leave blank to use the default message" /></label>
+      <div><Button size="sm" type="submit" disabled={busy}>Save template</Button></div>
+    </form>
+    <details><summary>Preview saved template</summary><p className="muted">{sample.subject}</p><textarea aria-label="Saved template preview" rows={5} readOnly value={sample.body} /></details>
+  </section>;
+}
+
 export function CommunicationPreview({ loan, state, audience, draftId, busy, save }: {
   loan: Loan; state: Workspace; audience: DraftAudience; draftId?: string; busy: boolean; save: Save;
 }) {
   const [channel, setChannel] = useState<DraftChannel>("Email");
   const [status, setStatus] = useState("");
+  const [edits, setEdits] = useState<Partial<Record<DraftChannel, string>>>({});
   const message = useRef<HTMLTextAreaElement>(null);
   const draft = draftId ? state.communicationDrafts.find((item) => item.id === draftId && item.loanId === loan.id && item.audience === audience) : undefined;
   const contactId = draftRecipient(loan, audience);
@@ -91,7 +116,8 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
   }
   const recipientId = contact.id;
   const milestone = draft?.milestone ?? loan.stage;
-  const content = renderDraft(audience, milestone, channel, contact.name, loan.officer);
+  const template = state.brokerageTemplates.find((item) => item.audience === audience && item.milestone === milestone);
+  const content = renderDraft(audience, milestone, channel, contact.name, loan.officer, template?.body);
   const copyText = content.subject ? `Subject: ${content.subject}\n\n${content.body}` : content.body;
   const destination = channel === "Email" ? contact.email : contact.phone;
   const saved = draft ?? state.communicationDrafts.find((item) => item.loanId === loan.id && item.contactId === contact.id && item.audience === audience && item.milestone === milestone);
@@ -101,7 +127,7 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(copyText);
+      await navigator.clipboard.writeText(edits[channel] ?? copyText);
     } catch {
       message.current?.focus();
       message.current?.select();
@@ -122,7 +148,9 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
       <div><dt>Milestone</dt><dd>{milestone}</dd></div>
     </dl>
     {earlier && <p className="empty-inline">This draft is for an earlier milestone. The loan is now at {loan.stage}.</p>}
-    <textarea ref={message} readOnly aria-label={`${channel} draft preview`} className="communication-message" value={copyText} rows={channel === "Email" ? 8 : 4} />
+    <p className="muted">Based on the {milestone} milestone recorded on this loan. Review and edit before sharing.</p>
+    <textarea ref={message} aria-label={`${channel} draft preview`} className="communication-message" value={edits[channel] ?? copyText}
+      onChange={(event) => setEdits({ ...edits, [channel]: event.target.value })} rows={channel === "Email" ? 8 : 4} />
     <div className="loan-application-actions">
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void copy()}><Copy /> Copy {channel.toLowerCase()} draft</Button>
       {copiedAt && <small className="muted">First copied {dateTime(copiedAt)} ET</small>}

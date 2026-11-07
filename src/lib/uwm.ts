@@ -97,7 +97,7 @@ export function uwmSubmissionConditions(db: Store, loanId: string, submissionId:
 }
 
 export function sendMockConditionDocument(db: Store, loanId: string, requestId: string, now: string): { receipt: string } | { error: string } {
-  const request = db.prepare(`SELECT requests.kind, requests.status, requests.submissionId, requests.conditionId, deliveries.receipt
+  const request = db.prepare(`SELECT requests.kind, requests.status, requests.submissionId, requests.conditionId, requests.revision, deliveries.receipt
     FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
     WHERE requests.id = ? AND requests.loanId = ?`).get(requestId, loanId);
   if (!request || request.status !== "Accepted" || typeof request.submissionId !== "string") {
@@ -109,7 +109,8 @@ export function sendMockConditionDocument(db: Store, loanId: string, requestId: 
     return { error: "This UWM condition is no longer outstanding. Refresh the loan to see its status." };
   }
   const receipt = `DEMO-DOC-${crypto.randomUUID().toUpperCase()}`;
-  db.prepare("INSERT INTO uwm_document_deliveries (requestId, receipt, sentAt) VALUES (?, ?, ?)").run(requestId, receipt, now);
+  db.prepare("INSERT INTO uwm_document_deliveries (requestId, receipt, sentAt, documentRevision) VALUES (?, ?, ?, ?)")
+    .run(requestId, receipt, now, request.revision);
   const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(requestId)?.objectId;
   addApplicationActivity(db, loanId, `${pdf ? "Mock UWM delivery recorded" : "Sample sent to UWM (mock)"} · ${request.kind} · ${receipt}`, now);
   return { receipt };

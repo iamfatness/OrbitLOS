@@ -1,6 +1,6 @@
 import type { StaffApplication } from "./application-model";
 import type { LoanDocumentRequest } from "./document-model";
-import type { MockUwmRate, PricingRun, PublishedQuote } from "./pricing-model";
+import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
 import type { MockCreditAusRun } from "./credit-aus-model";
 import type { UwmAlert } from "./uwm-alert-model";
 
@@ -9,8 +9,11 @@ export const stages = [
 ] as const;
 
 export type Stage = (typeof stages)[number];
+export const dispositions = ["Active", "On hold", "Withdrawn", "Lost"] as const;
+export type Disposition = (typeof dispositions)[number];
 export type ContactRole = "Borrower" | "Co-borrower" | "Realtor";
 export type Purpose = "Purchase" | "Refinance";
+export const leadSources = ["Direct", "Realtor referral", "Returning client", "Other"] as const;
 
 export interface Contact {
   id: string;
@@ -18,6 +21,7 @@ export interface Contact {
   email: string;
   phone: string;
   role: ContactRole;
+  addedBy?: string | null;
 }
 
 export interface Loan {
@@ -31,6 +35,13 @@ export interface Loan {
   purpose: Purpose;
   stage: Stage;
   stageSince: string;
+  disposition?: Disposition;
+  dispositionReason?: string;
+  revisitDate?: string | null;
+  dispositionRevision?: number;
+  leadSource?: (typeof leadSources)[number];
+  referralSourcePartnerId?: string | null;
+  createdAt?: string | null;
 }
 
 export interface Condition {
@@ -40,6 +51,12 @@ export interface Condition {
   description: string;
   uploaded: boolean;
   satisfiedAt: string | null;
+  manual?: {
+    owner: string;
+    revision: number;
+    deliveries: { documentRevision: number; reference: string; at: string }[];
+    confirmedDelivery: string | null;
+  };
 }
 
 export interface Submission {
@@ -58,9 +75,11 @@ export interface Activity {
   text: string;
   createdAt: string;
   kind: ActivityKind;
+  outcome?: string | null;
 }
 
 export const activityKinds = ["Note", "Call", "Email", "Text"] as const;
+export const contactOutcomes = ["Connected", "Left message", "Sent update", "No response", "Requested callback"] as const;
 export type ActivityKind = (typeof activityKinds)[number];
 
 export interface LoanTask {
@@ -73,6 +92,7 @@ export interface LoanTask {
 
 export type DraftAudience = "Borrower" | "Realtor";
 export type DraftMilestone = Stage | "Application received" | "Closing complete";
+export const draftMilestones = [...stages, "Application received", "Closing complete"] as const;
 export type DraftChannel = "Email" | "Text";
 
 export interface CommunicationDraft {
@@ -84,6 +104,12 @@ export interface CommunicationDraft {
   createdAt: string;
   emailCopiedAt: string | null;
   textCopiedAt: string | null;
+}
+export interface BrokerageTemplate {
+  audience: DraftAudience;
+  milestone: DraftMilestone;
+  body: string;
+  revision: number;
 }
 
 export interface PastClientProfile {
@@ -101,6 +127,14 @@ export interface PastClientProfile {
 export interface ClosingPlan {
   loanId: string;
   targetDate: string;
+}
+export const disclosureStatuses = ["Not started", "Prepared", "Delivered manually", "Signed"] as const;
+export interface ClosingProgress {
+  loanId: string;
+  fundingDate: string | null;
+  disclosureStatus: (typeof disclosureStatuses)[number];
+  disclosureDate: string | null;
+  revision: number;
 }
 
 export interface ClosingItem {
@@ -150,6 +184,8 @@ export interface UnlinkedReferral {
   name: string;
   createdAt: string;
   resolvedAt: string | null;
+  officer: string;
+  officerEmail: string | null;
 }
 
 export interface Workspace {
@@ -159,9 +195,11 @@ export interface Workspace {
   activity: Activity[];
   tasks: LoanTask[];
   communicationDrafts: CommunicationDraft[];
+  brokerageTemplates: BrokerageTemplate[];
   pastClients: PastClientProfile[];
   closingPlans: ClosingPlan[];
   closingItems: ClosingItem[];
+  closingProgress: ClosingProgress[];
   realtorPortals: RealtorPortal[];
   referralLeads: ReferralReview[];
   unlinkedReferrals: UnlinkedReferral[];
@@ -169,6 +207,7 @@ export interface Workspace {
   documentRequests: LoanDocumentRequest[];
   pricingRuns: PricingRun[];
   publishedQuotes: PublishedQuote[];
+  sharedQuoteHistory: SharedQuoteEvent[];
   mockUwmRates: MockUwmRate[];
   mockCreditAusRuns: MockCreditAusRun[];
   uwmAlerts: UwmAlert[];

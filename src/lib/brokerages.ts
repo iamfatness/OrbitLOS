@@ -7,7 +7,7 @@ export function initializeBrokerages(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS brokerages (id TEXT PRIMARY KEY, name TEXT NOT NULL, pilot INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS brokerage_members (
       brokerageId TEXT NOT NULL REFERENCES brokerages(id), email TEXT NOT NULL, name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('Admin', 'LO')), status TEXT NOT NULL CHECK (status IN ('Invited', 'Active', 'Revoked')),
+      role TEXT NOT NULL CHECK (role IN ('Admin', 'LO', 'Processor')), status TEXT NOT NULL CHECK (status IN ('Invited', 'Active', 'Revoked')),
       bootstrap INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (brokerageId, email)
     );
     CREATE INDEX IF NOT EXISTS brokerage_members_by_email ON brokerage_members(email, status);
@@ -18,6 +18,21 @@ export function initializeBrokerages(db: Store) {
     INSERT OR IGNORE INTO brokerages (id, name) VALUES ('orbit-demo', 'Orbit demo');`);
   if (!db.prepare("PRAGMA table_info(brokerages)").all().some((column) => column.name === "pilot")) {
     db.exec("ALTER TABLE brokerages ADD COLUMN pilot INTEGER NOT NULL DEFAULT 0");
+  }
+  const membersSchema = db.prepare("SELECT sql FROM sqlite_schema WHERE name = 'brokerage_members'").get();
+  if (!String(membersSchema?.sql).includes("'Processor'")) {
+    db.transaction(() => db.exec(`
+      CREATE TABLE brokerage_members_next (
+        brokerageId TEXT NOT NULL REFERENCES brokerages(id), email TEXT NOT NULL, name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('Admin', 'LO', 'Processor')),
+        status TEXT NOT NULL CHECK (status IN ('Invited', 'Active', 'Revoked')),
+        bootstrap INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (brokerageId, email)
+      );
+      INSERT INTO brokerage_members_next SELECT brokerageId,email,name,role,status,bootstrap FROM brokerage_members;
+      DROP TABLE brokerage_members;
+      ALTER TABLE brokerage_members_next RENAME TO brokerage_members;
+      CREATE INDEX brokerage_members_by_email ON brokerage_members(email, status);
+    `));
   }
 }
 

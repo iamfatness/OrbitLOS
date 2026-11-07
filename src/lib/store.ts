@@ -1,8 +1,8 @@
-import type { Activity, ClosingItem, ClosingPlan, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, UnlinkedReferral, Workspace } from "./model";
+import type { Activity, BrokerageTemplate, ClosingItem, ClosingPlan, ClosingProgress, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, UnlinkedReferral, Workspace } from "./model";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
-import type { MockUwmRate, PricingRun, PublishedQuote } from "./pricing-model";
+import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
 import type { LoanDocumentRequest } from "./document-model";
 import { pdfColumns } from "./document-files-model";
 import { synchronizeRetentionTasks } from "./client-retention";
@@ -98,12 +98,21 @@ export function initializeStore(db: Store, seedDemo = true) {
       watchEnabled INTEGER NOT NULL DEFAULT 0, rateTriggered INTEGER NOT NULL DEFAULT 0,
       note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS brokerage_templates (
+      audience TEXT NOT NULL, milestone TEXT NOT NULL, body TEXT NOT NULL, revision INTEGER NOT NULL,
+      PRIMARY KEY (audience, milestone)
+    );
     CREATE TABLE IF NOT EXISTS closing_plans (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, targetDate TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS closing_items (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, owner TEXT NOT NULL, dueDate TEXT NOT NULL, completedAt TEXT, revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS closing_progress (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
+      fundingDate TEXT, disclosureStatus TEXT NOT NULL DEFAULT 'Not started', disclosureDate TEXT,
+      revision INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS closing_items_by_loan ON closing_items(loanId, dueDate);
     CREATE TABLE IF NOT EXISTS realtor_portals (
@@ -127,6 +136,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS pilot_feedback (
       id TEXT PRIMARY KEY, author TEXT NOT NULL, step TEXT NOT NULL, message TEXT NOT NULL, createdAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS pilot_measurements (
+      id TEXT PRIMARY KEY, walkthrough TEXT NOT NULL, workflow TEXT NOT NULL, seconds INTEGER NOT NULL,
+      repeatEntries INTEGER NOT NULL, systemSwitches INTEGER NOT NULL, createdAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS mock_credit_aus_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       service TEXT NOT NULL CHECK (service IN ('Credit', 'DU', 'LPA')), reference TEXT NOT NULL,
@@ -145,6 +158,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
       rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS shared_quote_history (
+      loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
+      runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
+      rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL,
+      endedAt TEXT NOT NULL, outcome TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS mock_uwm_rates (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
@@ -169,8 +188,32 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "kind")) {
       db.exec("ALTER TABLE activity ADD COLUMN kind TEXT NOT NULL DEFAULT 'Note'");
     }
+    if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "outcome")) {
+      db.exec("ALTER TABLE activity ADD COLUMN outcome TEXT");
+    }
     if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "officerEmail")) {
       db.exec("ALTER TABLE loans ADD COLUMN officerEmail TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "disposition")) {
+      db.exec(`ALTER TABLE loans ADD COLUMN disposition TEXT NOT NULL DEFAULT 'Active';
+        ALTER TABLE loans ADD COLUMN dispositionReason TEXT NOT NULL DEFAULT '';
+        ALTER TABLE loans ADD COLUMN revisitDate TEXT;
+        ALTER TABLE loans ADD COLUMN dispositionRevision INTEGER NOT NULL DEFAULT 0;`);
+    }
+    if (!db.prepare("PRAGMA table_info(contacts)").all().some((column) => column.name === "addedBy")) {
+      db.exec("ALTER TABLE contacts ADD COLUMN addedBy TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "leadSource")) {
+      db.exec(`ALTER TABLE loans ADD COLUMN leadSource TEXT;
+        ALTER TABLE loans ADD COLUMN createdAt TEXT;
+        UPDATE loans SET leadSource = CASE WHEN partnerId IS NOT NULL THEN 'Realtor referral' ELSE 'Direct' END, createdAt = stageSince;`);
+    }
+    if (!db.prepare("PRAGMA table_info(pilot_feedback)").all().some((column) => column.name === "priority")) {
+      db.exec(`ALTER TABLE pilot_feedback ADD COLUMN owner TEXT;
+        ALTER TABLE pilot_feedback ADD COLUMN priority TEXT NOT NULL DEFAULT 'Normal';
+        ALTER TABLE pilot_feedback ADD COLUMN status TEXT NOT NULL DEFAULT 'Open';
+        ALTER TABLE pilot_feedback ADD COLUMN retest TEXT NOT NULL DEFAULT '';
+        ALTER TABLE pilot_feedback ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;`);
     }
     const portalColumns = db.prepare("PRAGMA table_info(realtor_portals)").all();
     if (!portalColumns.some((column) => column.name === "officerEmail")) {
@@ -179,6 +222,17 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!db.prepare("PRAGMA table_info(applications)").all().some((column) => column.name === "revokedAt")) {
       db.exec("ALTER TABLE applications ADD COLUMN revokedAt TEXT");
     }
+    if (!db.prepare("PRAGMA table_info(applications)").all().some((column) => column.name === "correctionNote")) {
+      db.exec("ALTER TABLE applications ADD COLUMN correctionNote TEXT NOT NULL DEFAULT ''");
+    }
+    if (!db.prepare("PRAGMA table_info(pricing_runs)").all().some((column) => column.name === "applicationRevision")) {
+      db.exec("ALTER TABLE pricing_runs ADD COLUMN applicationRevision INTEGER");
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS application_versions (
+      loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
+      revision INTEGER NOT NULL, draft TEXT NOT NULL, submittedAt TEXT NOT NULL, reviewedAt TEXT,
+      PRIMARY KEY (loanId, revision)
+    )`);
     if (!db.prepare("PRAGMA table_info(document_requests)").all().some((column) => column.name === "conditionId")) {
       // Preserve the original checklist while allowing each condition its own request.
       const columns = "id, loanId, kind, instructions, requestedAt, status, replacementNote, submittedAt, revision";
@@ -194,6 +248,17 @@ export function initializeStore(db: Store, seedDemo = true) {
     db.exec(`CREATE TABLE IF NOT EXISTS uwm_document_deliveries (
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
       receipt TEXT NOT NULL UNIQUE, sentAt TEXT NOT NULL, mockClearedAt TEXT
+    )`);
+    if (!db.prepare("PRAGMA table_info(uwm_document_deliveries)").all().some((column) => column.name === "documentRevision")) {
+      db.exec("ALTER TABLE uwm_document_deliveries ADD COLUMN documentRevision INTEGER");
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS uwm_document_delivery_history (
+      requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE,
+      receipt TEXT PRIMARY KEY, sentAt TEXT NOT NULL, documentRevision INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS mock_delivery_failures (
+      requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL, failedAt TEXT NOT NULL, PRIMARY KEY (requestId, revision)
     )`);
     db.exec(`CREATE TABLE IF NOT EXISTS borrower_upload_access (
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
@@ -232,13 +297,15 @@ export function initializeStore(db: Store, seedDemo = true) {
 }
 
 export function insertContact(db: Store, contact: Contact) {
-  db.prepare("INSERT INTO contacts (id, name, email, phone, role) VALUES (?, ?, ?, ?, ?)")
-    .run(contact.id, contact.name, contact.email, contact.phone, contact.role);
+  db.prepare("INSERT INTO contacts (id, name, email, phone, role, addedBy) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(contact.id, contact.name, contact.email, contact.phone, contact.role, contact.addedBy ?? null);
 }
 
 export function insertLoan(db: Store, loan: Loan) {
-  db.prepare("INSERT INTO loans (id, contactId, partnerId, officer, address, amount, purpose, stage, stageSince, officerEmail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(loan.id, loan.contactId, loan.partnerId, loan.officer, loan.address, loan.amount, loan.purpose, loan.stage, loan.stageSince, loan.officerEmail);
+  db.prepare(`INSERT INTO loans (id, contactId, partnerId, officer, address, amount, purpose, stage, stageSince, officerEmail, leadSource, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(loan.id, loan.contactId, loan.partnerId, loan.officer, loan.address, loan.amount, loan.purpose, loan.stage, loan.stageSince, loan.officerEmail,
+      loan.leadSource ?? (loan.partnerId ? "Realtor referral" : "Direct"), loan.createdAt ?? loan.stageSince);
 }
 
 export function insertSubmission(db: Store, submission: Submission) {
@@ -265,32 +332,40 @@ export function workspace(db: Store): Workspace {
     .map((lead) => ({ ...lead, matches: referralMatches(lead, contacts), restrictedMatch: false }));
   return {
     contacts,
-    loans: rows<Loan>(db, "SELECT * FROM loans ORDER BY stageSince DESC, id"),
+    loans: rows<Loan>(db, `SELECT loans.*,
+      (SELECT realtorId FROM referral_leads WHERE loanId = loans.id ORDER BY createdAt, id LIMIT 1) AS referralSourcePartnerId
+      FROM loans ORDER BY stageSince DESC, id`),
     submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, "SELECT * FROM submissions ORDER BY lender, id")
       .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) })),
     activity: rows<Activity>(db, "SELECT * FROM activity ORDER BY createdAt DESC, id"),
     tasks: rows<LoanTask>(db, "SELECT * FROM tasks ORDER BY completedAt IS NOT NULL, dueAt, id"),
     communicationDrafts: rows<CommunicationDraft>(db, "SELECT * FROM communication_drafts ORDER BY createdAt DESC, rowid DESC"),
+    brokerageTemplates: rows<BrokerageTemplate>(db, "SELECT * FROM brokerage_templates"),
     pastClients: rows<Omit<PastClientProfile, "watchEnabled"> & { watchEnabled: number }>(db, "SELECT loanId, closingDate, currentRate, targetRate, observedRate, checkedAt, watchEnabled, note, revision FROM past_client_profiles")
       .map((profile) => ({ ...profile, watchEnabled: Boolean(profile.watchEnabled) })),
     closingPlans: rows<ClosingPlan>(db, "SELECT loanId, targetDate FROM closing_plans"),
     closingItems: rows<ClosingItem>(db, "SELECT * FROM closing_items ORDER BY completedAt IS NOT NULL, dueDate, id"),
+    closingProgress: rows<ClosingProgress>(db, "SELECT * FROM closing_progress"),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt, officerEmail FROM realtor_portals"),
     referralLeads,
-    unlinkedReferrals: rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt
+    unlinkedReferrals: rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt, officer, officerEmail
       FROM referral_leads WHERE loanId IS NULL ORDER BY createdAt DESC, id`),
     applications: staffApplications(db),
-    documentRequests: rows<LoanDocumentRequest>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt, ${pdfColumns()}
+    documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries">>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
+      failures.failedAt AS uwmDeliveryFailedAt, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
       LEFT JOIN document_files files ON files.requestId = requests.id
-      ORDER BY requests.requestedAt, requests.id`),
+      LEFT JOIN mock_delivery_failures failures ON failures.requestId = requests.id AND failures.revision = requests.revision
+      ORDER BY requests.requestedAt, requests.id`).map((request) => ({ ...request, previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
+        FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run
       WHERE run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
-         OR run.id = (SELECT chosen.id FROM pricing_runs chosen WHERE chosen.loanId = run.loanId AND chosen.selectedId IS NOT NULL ORDER BY chosen.selectedAt DESC, chosen.rowid DESC LIMIT 1)
+         OR run.selectedId IS NOT NULL
       ORDER BY run.quotedAt DESC, run.rowid DESC
     `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
     publishedQuotes: rows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
+    sharedQuoteHistory: rows<SharedQuoteEvent>(db, "SELECT * FROM shared_quote_history ORDER BY endedAt DESC, rowid DESC"),
     mockUwmRates: rows<MockUwmRate>(db, "SELECT * FROM mock_uwm_rates"),
     mockCreditAusRuns: mockCreditAusRuns(db),
     uwmAlerts: rows<UwmAlert>(db, "SELECT * FROM uwm_alerts ORDER BY detectedAt DESC, rowid DESC"),

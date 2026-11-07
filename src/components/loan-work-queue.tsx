@@ -4,6 +4,7 @@ import { needsBorrowerDocument } from "@/lib/document-model";
 import { lockExpiringSoon, mockLockNoticeDays } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { pausedLoan } from "@/lib/loan-workflow";
 
 export function LoanWorkQueue({ loans, state, borrower, open }: {
   loans: Loan[]; state: Workspace; borrower: (loan: Loan) => string; open: (loanId: string, target: string) => void;
@@ -12,13 +13,13 @@ export function LoanWorkQueue({ loans, state, borrower, open }: {
   const submitted = new Set(state.applications.filter((application) => application.submittedAt).map((application) => application.loanId));
   const applications = state.applications.flatMap((application) => {
     const loan = assigned.get(application.loanId);
-    return loan && application.submittedAt && !application.reviewedAt ? [{
+    return loan && !pausedLoan(loan) && application.submittedAt && !application.reviewedAt ? [{
       loan, target: "loan-application", title: "Review submitted 1003", status: "Ready for review", since: application.submittedAt,
     }] : [];
   });
   const documents = state.documentRequests.flatMap((request) => {
     const loan = assigned.get(request.loanId);
-    return loan && request.status !== "Accepted" ? [{
+    return loan && !pausedLoan(loan) && request.status !== "Accepted" ? [{
       loan, target: `document-${request.id}`, title: request.status === "Needs replacement" ? `${request.kind} replacement` : request.kind,
       status: !needsBorrowerDocument(request.status) ? "Ready for review" : submitted.has(loan.id) ? "Waiting on borrower" : "Waiting for 1003",
       since: request.status === "Received" ? request.submittedAt ?? request.requestedAt : request.requestedAt,
@@ -36,7 +37,7 @@ export function LoanWorkQueue({ loans, state, borrower, open }: {
   const closings = state.closingPlans.flatMap((plan) => {
     const loan = assigned.get(plan.loanId);
     const outstanding = outstandingClosingItems.get(plan.loanId);
-    return loan && !pastClientLoan(loan) && !closed.has(loan.id) && outstanding && plan.targetDate <= nextWeek ? [{
+    return loan && !pausedLoan(loan) && !pastClientLoan(loan) && !closed.has(loan.id) && outstanding && plan.targetDate <= nextWeek ? [{
       loan, target: "closing-workbench", title: plan.targetDate < today ? "Target closing date passed" : "Closing soon",
       status: `${outstanding} outstanding`, since: plan.targetDate,
     }] : [];
@@ -48,7 +49,15 @@ export function LoanWorkQueue({ loans, state, borrower, open }: {
     }] : [];
   }).sort((a, b) => a.since.localeCompare(b.since));
   const followUps = [...applications, ...documents].sort((a, b) => a.status.localeCompare(b.status) || a.since.localeCompare(b.since));
-  const items = [...closings, ...locks, ...followUps];
+  const inactiveLeads = loans.flatMap((loan) => {
+    if (pausedLoan(loan) || (loan.stage !== "Lead" && loan.stage !== "Pre-qual")) return [];
+    const lastContact = state.activity.find((event) => event.loanId === loan.id && event.kind !== "Note");
+    const since = lastContact?.createdAt ?? loan.createdAt ?? loan.stageSince;
+    return Date.parse(now) - Date.parse(since) >= 7 * 86_400_000 ? [{
+      loan, target: "loan-activity", title: "Inactive lead", status: lastContact ? "Last outreach" : "No outreach recorded since lead creation", since,
+    }] : [];
+  });
+  const items = [...closings, ...locks, ...followUps, ...inactiveLeads];
 
   return <div className="work-queue">
     <div className="section-heading"><h3>Loan work queue</h3><span className="pill">{items.length} open</span></div>

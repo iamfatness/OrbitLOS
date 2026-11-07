@@ -20,6 +20,8 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 3. Click **Sync UWM**. The first sync refreshes Charlotte Kim and Amelia Davis and imports Benjamin Cole. Open Charlotte's loan to see the lender status, two outstanding conditions, and one cleared condition.
 4. Sync again to refresh the same lender records. UWM status and pipeline stage are separate fields, so a sync preserves broker-managed stages.
 
+The loan header shows its owner, stage age, next action, due date, and blocker. Use **Filters** in the pipeline or **Loan work status** in Tasks to find overdue, stalled, unassigned, or paused files. **Change loan status** records a hold, withdrawal, or lost lead with a reason. A hold can have a revisit date. Reopening brings the existing open work back to the assigned staff member.
+
 ### Try UWM alerts
 
 After the first mock sync, assign Charlotte Kim’s loan to your account from **Edit loan** or **Team**. In **Integrations**, choose **Simulate UWM changes**. This one-time update for the workspace changes her UWM status, adds an insurance condition, and reopens the property condition.
@@ -53,7 +55,7 @@ The receiving officer opens **Tasks → My Tasks** and reviews **Incoming referr
 
 Choose **Create loan and prefill 1003** to open the new loan’s application panel. Share its borrower link using **Copy link**. The draft starts with the contact’s saved name, email and phone and the referred loan purpose. The borrower can edit those fields and save and resume as usual. Email and document scanning are simulated in the original demo.
 
-In **Realtors → Partner conversion**, select a count to list its records and click a borrower name to open the loan. **Referrals** includes realtor-linked loans and intake records without a linked loan. A converted lead counts once. **Submitted 1003s** uses the actual submission timestamp. **Funded / closed** uses the current pipeline stage.
+In **Realtors → Partner conversion**, filter the cohort by lead date, current officer, or source, then select a count to open the underlying records. A converted lead counts once. **Submitted 1003s** uses the first submission even while corrections are outstanding. **Funded loans** uses the recorded funding event. For older files, enter the funding date in **Closing workbench** if you want the file counted as funded.
 
 **Past Clients** lists funded and closed loans. Choose **Edit follow-up** to record the actual closing date. Orbit schedules an annual task for the assigned loan officer and adds the next year's reminder when the workspace is opened after the anniversary. February 29 closings use February 28 in non-leap years. To enable the rate watchlist, record the current note rate and a lower target. Enter an observed rate to compare against that target. When it meets the target, Orbit adds a follow-up task.
 
@@ -92,7 +94,7 @@ Link a billing account to the OrbitLOS Google Cloud project and enable [Places A
 - `src/components` contains the Next.js workspace UI. Typed server actions in `src/app/actions.ts` validate and save changes.
 - `src/lib/store.ts` defines the shared SQLite schema. Contacts, loans, lender submissions, and activity have separate records. Lender references are unique per lender within this workspace.
 - `src/lib/uwm.ts` holds the mock connector, maps UWM's Insights and conditions response shapes, and saves a complete sync in one transaction. A live UWM adapter can implement the same connector. Other lenders can map their own payloads to Orbit's submission model. Syncing may re-import a loan removed locally if it is still present in the mock feed.
-- The [UWM Developer Portal](https://developers.uwm.com/) documents the live integration contracts. The prototype uses sample data and manual sync. Individual user accounts, tenant isolation, live credential storage, webhooks, and MISMO submission are outside this first implementation.
+- The demo uses individual staff accounts, isolated brokerage workspaces, sample lender data, and manual sync. The [UWM Developer Portal](https://developers.uwm.com/) covers the contracts for planned live credentials, events, and MISMO submission.
 
 ## Hosted demo
 
@@ -124,6 +126,15 @@ In **Team → Create brokerage**, select **Create as a fictional pilot workspace
 The pilot walkthrough under **Team** covers referral intake, a prefilled 1003, sample pricing, and mock UWM conditions. The pilot supports on-screen verification codes and built-in clean and blocked PDFs when document upload mode is set to `mock`. Staff can submit feedback by workflow step. Admins can review the feedback and activity from **Team**.
 
 **Reset fictional scenario** replaces the scenario’s seed records and loans converted from its referrals. It revokes the old scenario links and queues the sample files for cleanup. Staff access, feedback, activity history, and unrelated loans remain available.
+
+### Walk through the expanded pilot
+
+1. Create a lead and choose **Save and open 1003**. Save and resume with fictional answers. On the loan, mark the submission reviewed, **Request borrower corrections**, and use the same borrower link to resubmit. Open **Application version history** to compare the previous answers. In **File readiness**, apply a reusable checklist, preview the file summary, and record a manual handoff.
+2. Price and save conventional, DSCR, and bank statement scenarios. Use **Compare saved scenarios** to choose a quote. Publish a sample quote, then replace it to see both the current quote and the terms previously shared.
+3. Send a reviewed sample 1003 to mock UWM. Accept a sample document, choose **Simulate delivery failure**, and retry. Delivery and clearance are recorded separately. For another lender, add a manual condition, link a document request, record the accepted revision's delivery, and record the lender's clearance when it arrives.
+4. Invite a **Processor** in **Team** and reassign the file after the processor accepts the invitation. The processor works assigned files. In **Closing workbench**, prepare the handoff checklist and record the manual disclosure status, actual closing date, and funding date. Funding creates milestone drafts and activates past-client follow-up.
+5. In **Contacts**, preview a CSV with the columns `name,email,phone,role`. Review duplicates before importing. Open a contact's history to start a repeat loan. From the loan's **Activity** section, log an outreach outcome and follow-up date. Admins can customize draft bodies in **Communications**. Review and edit condition and milestone drafts before copying them.
+6. In **Team**, triage pilot feedback and record the retest result. **Pilot measurements** shows elapsed time for core transitions and lets admins record timed Orbit and brokerage walkthroughs for comparison.
 
 ### Private PDF upload preview
 

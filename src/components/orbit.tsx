@@ -11,11 +11,13 @@ import { compactMoney, dateTime, initials, money, stageDays } from "@/lib/utils"
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
+import { ContactImport } from "./contact-crm";
+import { loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilters, type WorkFilter } from "@/lib/loan-workflow";
 import { LoanWorkQueue } from "./loan-work-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { BrokerageTeam } from "./brokerage-team";
-import { CommunicationQueue } from "./loan-communications";
+import { BrokerageTemplates, CommunicationQueue } from "./loan-communications";
 import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
 import { ReferralQueue } from "./referral-queue";
@@ -39,7 +41,7 @@ const navigation = [
 ] as const;
 
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
-const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: "" };
+const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: "", work: "" as WorkFilter | "" };
 const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
 const descriptions: Record<Section, string> = {
   Pipeline: "Manage your loans and keep up with lender updates.",
@@ -52,15 +54,17 @@ const descriptions: Record<Section, string> = {
   Team: "Switch brokerages and manage access to your loans.",
 };
 
-function LoanCard({ loan, name, lenders, count, onOpen, onDrag, onDragEnd }: {
-  loan: Loan; name: string; lenders: string[]; count: number; onOpen: () => void;
+function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEnd }: {
+  loan: Loan; name: string; lenders: string[]; count: number; action: ReturnType<typeof loanNextAction>; onOpen: () => void;
   onDrag: (event: DragEvent<HTMLButtonElement>) => void; onDragEnd: () => void;
 }) {
   return (
-    <button className="loan-card" onClick={onOpen} draggable onDragStart={onDrag} onDragEnd={onDragEnd}>
+    <button className="loan-card" onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
       <span className="loan-person"><span className={`avatar avatar-${stages.indexOf(loan.stage) % 4}`}>{initials(name)}</span><strong>{name}</strong></span>
       <span className="loan-address"><MapPin size={13} /> <span>{loan.address || "Property pending"}</span></span>
       <span className="loan-value">{money(loan.amount)} <small>{loan.purpose}</small></span>
+      <span className="loan-address"><span>{action.title} · {loan.officer || "Unassigned"}</span></span>
+      {(action.dueAt || action.blocker) && <span className="loan-address"><span>{action.blocker}{action.blocker && action.dueAt ? " · " : ""}{action.dueAt && dateTime(action.dueAt)}</span></span>}
       <span className="loan-card-footer">
         {lenders.length ? <span className="lender-chip">{lenders[0]}{lenders.length > 1 && ` +${lenders.length - 1}`}</span> : <span>{loan.officer.split(" ")[0] || "Unassigned"}</span>}
         {count > 0 ? <span className="open-chip">{count} open</span> : <span suppressHydrationWarning>{stageDays(loan.stageSince)}d</span>}
@@ -84,17 +88,24 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const [dropStage, setDropStage] = useState<Stage | null>(null);
   const [taskView, setTaskView] = useState<TaskView>("Open");
   const [taskOfficer, setTaskOfficer] = useState("");
+  const [taskFocus, setTaskFocus] = useState<WorkFilter | "">("");
   const pending = useRef(false);
   const dragged = useRef<string | null>(null);
   const board = useRef<HTMLDivElement>(null);
+  const admin = !staff || staff.brokerage.role === "Admin";
+  const processor = staff?.brokerage.role === "Processor";
 
   const names = new Map(state.contacts.map((contact) => [contact.id, contact.name]));
   const borrowers = (loan: Loan) => names.get(loan.contactId) ?? "Unknown borrower";
   const loanSubmissions = (loan: Loan) => state.submissions.filter((item) => item.loanId === loan.id);
   const countOpen = (loan: Loan) => loanSubmissions(loan).reduce((total, item) => total + item.conditions.filter((condition) => !condition.satisfiedAt).length, 0);
-  const active = state.loans.filter((loan) => loan.stage !== "Funded" && loan.stage !== "Closed");
+  const active = state.loans.filter((loan) => !pausedLoan(loan) && loan.stage !== "Funded" && loan.stage !== "Closed");
   const openConditions = state.submissions.flatMap((item) => item.conditions).filter((condition) => !condition.satisfiedAt).length;
   const search = query.trim().toLowerCase();
+  const taskNow = new Date().getTime();
+  const nextActions = new Map(state.loans.map((loan) => [loan.id, loanNextAction(loan, state)] as const));
+  const workMatches = (loan: Loan, filter: WorkFilter | "") => matchesWorkFilter(loan, nextActions.get(loan.id)?.dueAt ?? null, filter, taskNow, Boolean(staff)) ||
+    (filter === "Overdue" && !pausedLoan(loan) && state.tasks.some((task) => task.loanId === loan.id && !task.completedAt && Date.parse(task.dueAt) < taskNow));
   const visibleLoans = state.loans.filter((loan) => {
     const submissions = loanSubmissions(loan);
     return (!search || [borrowers(loan), loan.address, loan.officer, ...submissions.flatMap((item) => [item.lender, item.externalId])]
@@ -103,20 +114,22 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
       && (!filters.lender || submissions.some((item) => item.lender === filters.lender))
       && (!filters.officer || loan.officer === filters.officer)
       && (!filters.partner || loan.partnerId === filters.partner)
-      && (!filters.days || stageDays(loan.stageSince) >= Number(filters.days));
+      && (!filters.days || stageDays(loan.stageSince) >= Number(filters.days))
+      && workMatches(loan, filters.work);
   });
   const visibleContacts = state.contacts.filter((contact) => [contact.name, contact.email, contact.role, contact.phone].some((field) => field.toLowerCase().includes(search)));
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
-  const openTasks = state.tasks.filter((task) => !task.completedAt).length + state.referralLeads.length
-    + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length;
   const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
+  const openTasks = state.tasks.filter((task) => !task.completedAt && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + state.referralLeads.length
+    + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length;
   const officers = new Map([...state.loans, ...state.referralLeads].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
   ]));
   const mine = staff ? `account:${staff.email}` : `name:${demoOfficer}`;
   const taskScope = (item: Pick<Loan, "officer" | "officerEmail">) => !taskOfficer || taskOwner(item) === (taskOfficer === "mine" ? mine : taskOfficer);
-  const taskNow = Date.parse(new Date().toISOString());
+  const focusedLoans = state.loans.filter((loan) => taskScope(loan) && (taskFocus ? workMatches(loan, taskFocus)
+    : !!loan.revisitDate && workMatches(loan, "Overdue")));
   function dueInView(dueAt: string) {
     const due = Date.parse(dueAt);
     if (taskView === "Overdue") return due < taskNow;
@@ -135,10 +148,10 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   }) : [];
   const visibleTasks = state.tasks.filter((task) => {
     const loan = taskLoans.get(task.loanId);
-    if (!loan || !taskScope(loan)) return false;
+    if (!loan || !taskScope(loan) || (taskFocus && !workMatches(loan, taskFocus))) return false;
     if (taskView === "All") return true;
     if (taskView === "Completed") return !!task.completedAt;
-    if (task.completedAt) return false;
+    if (task.completedAt || pausedLoan(loan)) return false;
     return dueInView(task.dueAt);
   });
 
@@ -212,7 +225,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   }
 
   function syncButton() {
-    if (staff?.brokerage.role === "LO") return null;
+    if (!admin) return null;
     return <Button variant="outline" onClick={() => void sync()} disabled={busy}><RefreshCw className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync UWM"}</Button>;
   }
 
@@ -222,7 +235,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
         <div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
         <div className="workspace-label">WORKSPACE</div>
         <nav aria-label="Workspace navigation">
-          {navigation.filter(({ label }) => (label !== "Team" || staff) && (staff?.brokerage.role !== "LO" || label !== "Realtors")).map(({ label, icon: Icon }) => (
+          {navigation.filter(({ label }) => (label !== "Team" || staff) && (admin || label !== "Realtors")).map(({ label, icon: Icon }) => (
             <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
               <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
             </button>
@@ -251,8 +264,8 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
               <p>{descriptions[section]}</p>
             </div>
             <div className="heading-actions">
-              {section === "Pipeline" && <>{syncButton()}<Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button></>}
-              {section === "Contacts" && staff?.brokerage.role !== "LO" && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
+              {section === "Pipeline" && <>{syncButton()}{!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}</>}
+              {section === "Contacts" && admin && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
               {section === "Communications" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh drafts</Button>}
             </div>
@@ -290,6 +303,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                 <select aria-label="Filter by officer" value={filters.officer} onChange={(event) => setFilters({ ...filters, officer: event.target.value })}><option value="">All officers</option>{[...new Set(state.loans.map((loan) => loan.officer).filter(Boolean))].sort().map((officer) => <option key={officer}>{officer}</option>)}</select>
                 <select aria-label="Filter by realtor" value={filters.partner} onChange={(event) => setFilters({ ...filters, partner: event.target.value })}><option value="">All realtors</option>{state.contacts.filter((contact) => contact.role === "Realtor").map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}</select>
                 <select aria-label="Filter by days in stage" value={filters.days} onChange={(event) => setFilters({ ...filters, days: event.target.value })}><option value="">Any stage age</option><option value="3">3+ days</option><option value="7">7+ days</option><option value="14">14+ days</option></select>
+                <select aria-label="Filter by work status" value={filters.work} onChange={(event) => setFilters({ ...filters, work: event.target.value as WorkFilter | "" })}><option value="">Any work status</option>{workFilters.map((item) => <option key={item}>{item}</option>)}</select>
                 <Button variant="ghost" size="sm" onClick={() => setFilters(emptyFilters)}>Clear filters</Button>
               </div>}
               {visibleLoans.length === 0 && <p className="empty-inline no-matches">No loans match this view.</p>}
@@ -301,19 +315,22 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                     return <section key={stage} className={dropStage === stage ? "lane drag-over" : "lane"}
                       onDragOver={(event) => { if (dragged.current && !busy) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropStage(stage); } }}
                       onDrop={(event) => drop(event, stage)}>
-                      <div className="lane-title"><span className={`stage-dot ${color}`} /><h3>{stage}</h3><span className="lane-count">{items.length}</span><Button variant="ghost" size="icon" aria-label={`Add lead to ${stage}`} onClick={() => show({ kind: "loan", stage })}><Plus /></Button></div>
+                      <div className="lane-title"><span className={`stage-dot ${color}`} /><h3>{stage}</h3><span className="lane-count">{items.length}</span>{!processor && <Button variant="ghost" size="icon" aria-label={`Add lead to ${stage}`} onClick={() => show({ kind: "loan", stage })}><Plus /></Button>}</div>
                       <p className="lane-volume">{compactMoney(items.reduce((total, loan) => total + loan.amount, 0))}</p>
-                      {items.map((loan) => <LoanCard key={loan.id} loan={loan} name={borrowers(loan)} lenders={[...new Set(loanSubmissions(loan).map((item) => item.lender))]} count={countOpen(loan)}
+                      {items.map((loan) => <LoanCard key={loan.id} loan={loan} name={borrowers(loan)} lenders={[...new Set(loanSubmissions(loan).map((item) => item.lender))]} count={countOpen(loan)} action={nextActions.get(loan.id)!}
                         onOpen={() => show({ kind: "details", loanId: loan.id })}
-                        onDrag={(event) => { if (busy) { event.preventDefault(); return; } dragged.current = loan.id; event.dataTransfer.setData("text/plain", loan.id); event.dataTransfer.effectAllowed = "move"; }}
+                        onDrag={(event) => { if (busy || processor) { event.preventDefault(); return; } dragged.current = loan.id; event.dataTransfer.setData("text/plain", loan.id); event.dataTransfer.effectAllowed = "move"; }}
                         onDragEnd={() => { dragged.current = null; setDropStage(null); }} />)}
                       {items.length === 0 && <p className="lane-empty">No loans in this stage</p>}
                     </section>;
                   })}
                 </div>
-              ) : visibleLoans.length > 0 && <div className="table-scroll"><table className="data-table"><thead><tr><th>Borrower</th><th>Stage</th><th>Amount</th><th>Officer</th><th>Lender</th><th>Stage age</th></tr></thead><tbody>
+              ) : visibleLoans.length > 0 && <div className="table-scroll"><table className="data-table"><thead><tr><th>Borrower</th><th>Stage</th><th>Amount</th><th>Officer</th><th>Lender</th><th>Stage age</th><th>Next action</th></tr></thead><tbody>
                 {visibleLoans.map((loan) => <tr key={loan.id}><td><button className="name-link" onClick={() => show({ kind: "details", loanId: loan.id })}>{borrowers(loan)}</button><small>{loan.address}</small></td>
-                  <td><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}</td><td>{money(loan.amount)}</td><td>{loan.officer || "Unassigned"}</td><td>{[...new Set(loanSubmissions(loan).map((item) => item.lender))].join(", ") || "—"}</td><td suppressHydrationWarning>{stageDays(loan.stageSince)} days</td></tr>)}
+                  <td><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td><td>{money(loan.amount)}</td><td>{loan.officer || "Unassigned"}</td><td>{[...new Set(loanSubmissions(loan).map((item) => item.lender))].join(", ") || "—"}</td><td suppressHydrationWarning>{stageDays(loan.stageSince)} days</td>
+                  <td><button className="name-link" onClick={() => show({ kind: "details", loanId: loan.id, target: nextActions.get(loan.id)?.target })}>{nextActions.get(loan.id)?.title}</button>
+                    <small>{nextActions.get(loan.id)?.blocker}</small>
+                    {!!nextActions.get(loan.id)?.dueAt && <small>Due {dateTime(nextActions.get(loan.id)!.dueAt!)} ET</small>}</td></tr>)}
               </tbody></table></div>}
             </section>
           </>}
@@ -321,8 +338,10 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           {section === "Contacts" && <section className="pipeline">
             <div className="pipeline-heading"><div><h2>All contacts <span>{visibleContacts.length}</span></h2><p>Your borrowers and referral partners.</p></div></div>
             <div className="toolbar"><label className="search"><Search size={17} /><input aria-label="Search contacts" placeholder="Search contacts…" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>
+            {!processor && <ContactImport contacts={state.contacts} busy={busy} save={save} />}
             {visibleContacts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Contact type</th><th>Email</th><th>Phone</th></tr></thead><tbody>
-              {visibleContacts.map((contact) => <tr key={contact.id}><td>{staff?.brokerage.role === "LO" ? contact.name : <button className="name-link" onClick={() => show({ kind: "contact", contactId: contact.id })}>{contact.name}</button>}</td><td>{contact.role}</td><td>{contact.email || "—"}</td><td>{contact.phone || "—"}</td></tr>)}
+              {visibleContacts.map((contact) => <tr key={contact.id}><td><button className="name-link" onClick={() => show({ kind: "contactHistory", contactId: contact.id })}>{contact.name}</button>
+                {admin && <small><button className="name-link" onClick={() => show({ kind: "contact", contactId: contact.id })}>Edit contact</button></small>}</td><td>{contact.role}</td><td>{contact.email || "—"}</td><td>{contact.phone || "—"}</td></tr>)}
             </tbody></table></div> : <p className="empty-inline no-matches">No contacts match your search.</p>}
           </section>}
 
@@ -332,6 +351,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
               <select aria-label="Task status" value={taskView} onChange={(event) => setTaskView(event.target.value as TaskView)}>{taskViews.map((item) => <option key={item}>{item}</option>)}</select>
+              <select aria-label="Loan work status" value={taskFocus} onChange={(event) => setTaskFocus(event.target.value as WorkFilter | "")}><option value="">Any loan work status</option>{workFilters.map((item) => <option key={item}>{item}</option>)}</select>
               <select aria-label="Task owner" value={taskOfficer} onChange={(event) => setTaskOfficer(event.target.value)}>
                 <option value="">All officers</option><option value="mine">My Tasks</option>
                 {[...officers].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -345,14 +365,24 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                 if (referralLoanId) setModal({ kind: "details", loanId: referralLoanId, target: "loan-application" });
               })}
               dismiss={(lead) => void save({ type: "dismissReferral", referralId: lead.id })} />}
-            {(taskView === "Open" || taskView === "All") && <LoanWorkQueue loans={state.loans.filter(taskScope)} state={state} borrower={borrowers}
+            {taskView !== "Completed" && (focusedLoans.length > 0 || taskFocus) && <div className="work-queue">
+              <div className="section-heading"><h3>{taskFocus || "Holds to revisit"}</h3><span className="pill">{focusedLoans.length} loans</span></div>
+              {focusedLoans.length ? <ul className="loan-task-list">{focusedLoans.map((loan) => {
+                const action = nextActions.get(loan.id)!;
+                return <li className="loan-task" key={loan.id}><div className="loan-task-copy"><strong>{action.title}</strong>
+                  <span>{borrowers(loan)} · {loan.officer || "Unassigned"} · {loan.disposition || loan.stage}</span>
+                  <span>{action.blocker}{action.dueAt && ` · Due ${dateTime(action.dueAt)} ET`}</span></div>
+                  <Button size="sm" variant="outline" onClick={() => show({ kind: "details", loanId: loan.id, target: action.target })}>Open next action</Button></li>;
+              })}</ul> : <p className="empty-inline">No loans match this work status.</p>}
+            </div>}
+            {(taskView === "Open" || taskView === "All") && <LoanWorkQueue loans={state.loans.filter((loan) => taskScope(loan) && workMatches(loan, taskFocus))} state={state} borrower={borrowers}
               open={(loanId, target) => show({ kind: target === "uwm-rate-lock" ? "pricing" : "details", loanId, target })} />}
             {visibleTasks.length ? <ul className="task-queue">
               {visibleTasks.map((task) => {
                 const loan = taskLoans.get(task.loanId);
                 if (!loan) return null;
                 return <LoanTaskRow key={task.id} task={task} officer={loan.officer} borrower={borrowers(loan)} busy={busy}
-                  openLoan={() => show({ kind: "details", loanId: loan.id })}
+                  openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id) })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
             </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
@@ -360,8 +390,9 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
               : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
 
-          {section === "Communications" && <CommunicationQueue state={state}
-            preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />}
+          {section === "Communications" && <><CommunicationQueue state={state}
+            preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />
+            {admin && <BrokerageTemplates state={state} busy={busy} save={save} />}</>}
 
           {section === "Realtors" && <RealtorCrm state={state} staff={staff} busy={busy} save={save}
             openLoan={(loanId) => show({ kind: "details", loanId })} editRealtor={(contactId) => show({ kind: "contact", contactId })} />}
@@ -377,10 +408,10 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
             <p className="integration-description">Import sample pipeline loans and refresh their lender status and underwriting conditions.</p>
             <div className="integration-stats"><span><CircleCheck size={17} /> {uwmCount} linked loans</span><span><ArrowDownUp size={17} /> {state.uwmSyncedAt ? `Last sync ${dateTime(state.uwmSyncedAt)} ET` : "Waiting for first sync"}</span></div>
             <div className="loan-application-actions">{syncButton()}
-              {staff?.brokerage.role !== "LO" && <Button variant="outline" disabled={busy || !state.uwmSyncedAt || state.mockUwmChangesApplied}
+              {admin && <Button variant="outline" disabled={busy || !state.uwmSyncedAt || state.mockUwmChangesApplied}
                 onClick={() => void save({ type: "simulateUwmChanges" })}>Simulate UWM changes</Button>}
             </div>
-            {staff?.brokerage.role !== "LO" && <p className="muted">{state.mockUwmChangesApplied
+            {admin && <p className="muted">{state.mockUwmChangesApplied
               ? "Sample lender changes applied. Review Charlotte Kim’s alerts under Tasks. My Tasks shows alerts for your assigned loans."
               : "After the first sync, simulate three lender changes on Charlotte Kim’s loan. Assign her loan to yourself to see the alerts in My Tasks."}</p>}
           </section>}

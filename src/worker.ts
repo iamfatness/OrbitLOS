@@ -17,7 +17,7 @@ import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDo
 import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
 import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
-import { loadPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, savePilotFeedback } from "./lib/pilot";
+import { loadPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback } from "./lib/pilot";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -66,7 +66,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
       const team = this.#id === demoBrokerageId ? this.team(staff, emails)
         : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);
-      referralOwner = team.members.find((member) => member.email === input.officerEmail && member.status === "Active");
+      referralOwner = team.members.find((member) => member.email === input.officerEmail && member.status === "Active" && member.role !== "Processor");
       if (!referralOwner) return { error: "Select an active staff member in this brokerage." };
     }
     const result = await executeCommand(this.#store, input, staff, referralOwner);
@@ -172,6 +172,14 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   pilotFeedback(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return savePilotFeedback(this.#store, staff, input);
+  }
+  pilotTriage(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return triagePilotFeedback(this.#store, staff, input);
+  }
+  pilotMeasurement(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return recordPilotMeasurement(this.#store, staff, input);
   }
   borrower(input: unknown, pilot = false) {
     return borrowerCommandResult(this.#store, input,
@@ -343,12 +351,30 @@ export default {
           const result = await workspace.pilotFeedback(staff, input);
           return "error" in result ? { status: 409, error: result.error } : { value: result };
         }
+        if (input && typeof input === "object" && "type" in input && input.type === "triagePilotFeedback") {
+          if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin") return { status: 403, error: "Only a pilot admin can update feedback." };
+          const parsed = pilotTriageInput.safeParse(input);
+          if (!parsed.success) return { status: 400, error: "Check the feedback status and retest result." };
+          if (parsed.data.owner) {
+            const team = await directory.team(staff, bootstrapEmails);
+            if (!team.members.some((member) => member.status === "Active" && member.email === parsed.data.owner)) {
+              return { status: 409, error: "Select an active staff member in this pilot workspace." };
+            }
+          }
+          const result = await workspace.pilotTriage(staff, parsed.data);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }
+        if (input && typeof input === "object" && "type" in input && input.type === "recordPilotMeasurement") {
+          if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin") return { status: 403, error: "Only a pilot admin can record measurements." };
+          const result = await workspace.pilotMeasurement(staff, input);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }
         if (input && typeof input === "object" && "type" in input && input.type === "loadPilotScenario") {
           if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin") return { status: 403, error: "Only a pilot admin can load or reset the scenario." };
           const parsed = pilotScenarioInput.safeParse(input);
           if (!parsed.success) return { status: 400, error: "Refresh Team and select an active staff member." };
           const team = await directory.team(staff, bootstrapEmails);
-          const owner = team.members.find((member) => member.status === "Active" && member.email === parsed.data.officerEmail);
+          const owner = team.members.find((member) => member.status === "Active" && member.role !== "Processor" && member.email === parsed.data.officerEmail);
           if (!owner) return { status: 409, error: "Select an active staff member in this pilot workspace." };
           const result = await workspace.loadPilot(staff, parsed.data, owner);
           return "error" in result ? { status: 409, error: result.error } : { value: result };

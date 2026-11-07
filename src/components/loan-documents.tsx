@@ -39,9 +39,10 @@ export function DocumentRequestForm({ loanId, kinds = documentKinds, source, bus
   </details>;
 }
 
-export function LoanDocuments({ loanId, brokerageId, pilot, requests, openConditionRequests, applicationStarted, applicationSubmitted, busy, save, followUp }: {
+export function LoanDocuments({ loanId, brokerageId, pilot, requests, openConditionRequests, replaceableRequests, applicationStarted, applicationSubmitted, busy, save, followUp }: {
   loanId: string; brokerageId: string; requests: LoanDocumentRequest[]; openConditionRequests: Set<string>;
   pilot?: boolean;
+  replaceableRequests: Set<string>;
   applicationStarted: boolean; applicationSubmitted: boolean; busy: boolean; save: Save; followUp: () => void;
 }) {
   const waiting = requests.filter((item) => needsBorrowerDocument(item.status)).length;
@@ -60,7 +61,7 @@ export function LoanDocuments({ loanId, brokerageId, pilot, requests, openCondit
     {requests.length ? <ul className="document-list">{requests.map((request) =>
       <li className="document-item" key={`${request.id}:${request.revision}`} id={`document-${request.id}`} tabIndex={-1}>
         <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
-        {request.conditionId && <small className="muted">Linked UWM condition</small>}
+        {request.conditionId && <small className="muted">Linked lender condition</small>}
         {request.instructions && <p>{request.instructions}</p>}
         {request.replacementNote && <p><strong>Replacement instructions</strong> · {request.replacementNote}</p>}
         <small className="muted">Requested {dateTime(request.requestedAt)} ET{request.submittedAt && ` · Last ${request.pdfUploadedAt ? pdfLabel : "sample"} received ${dateTime(request.submittedAt)} ET`}</small>
@@ -70,18 +71,28 @@ export function LoanDocuments({ loanId, brokerageId, pilot, requests, openCondit
         </Button></div> : request.submittedAt && <SampleDocument kind={request.kind} />}
         {request.uwmReceipt && request.uwmSentAt && <p className="muted"><strong>Sent to UWM · Mock</strong><br />
           {dateTime(request.uwmSentAt)} ET · Receipt {request.uwmReceipt}</p>}
+        {request.previousUwmDeliveries.length > 0 && <details className="document-form"><summary>Previous mock deliveries</summary>
+          <ul>{request.previousUwmDeliveries.map((entry) => <li key={entry.receipt}>
+            {entry.receipt} · {dateTime(entry.sentAt)} ET{entry.documentRevision !== null && ` · Revision ${entry.documentRevision}`}
+          </li>)}</ul>
+        </details>}
         {request.uwmReceipt && request.submissionId && openConditionRequests.has(request.id) &&
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshMockUwmClearance", loanId, submissionId: request.submissionId })}>
             <RefreshCw /> Check UWM clearance (mock)
           </Button>}
-        {request.status === "Accepted" && !request.uwmReceipt && openConditionRequests.has(request.id) &&
+        {request.status === "Accepted" && !request.uwmReceipt && openConditionRequests.has(request.id) && <div className="loan-application-actions">
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "sendConditionDocument", loanId, requestId: request.id })}>
-            <Send /> {request.pdfUploadedAt ? "Record delivery to UWM (mock)" : "Send sample to UWM (mock)"}
-          </Button>}
-        {request.status === "Received" && <div className="document-review">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
+            <Send /> {request.uwmDeliveryFailedAt ? "Retry delivery to UWM (mock)" : request.pdfUploadedAt ? "Record delivery to UWM (mock)" : "Send sample to UWM (mock)"}
+          </Button>
+          {request.uwmDeliveryFailedAt ? <span className="muted">Mock delivery failed · {dateTime(request.uwmDeliveryFailedAt)} ET</span> :
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({
+              type: "simulateDeliveryFailure", loanId, requestId: request.id, revision: request.revision,
+            })}>Simulate delivery failure</Button>}
+        </div>}
+        {(request.status === "Received" || (request.status === "Accepted" && replaceableRequests.has(request.id))) && <div className="document-review">
+          {request.status === "Received" && <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
             type: "reviewDocument", loanId, requestId: request.id, revision: request.revision, decision: "Accepted", replacementNote: "",
-          })}>{request.pdfUploadedAt ? `Accept ${pdfLabel}` : "Accept sample"}</Button>
+          })}>{request.pdfUploadedAt ? `Accept ${pdfLabel}` : "Accept sample"}</Button>}
           <details className="document-form">
             <summary>Request replacement</summary>
             <form onSubmit={(event) => {

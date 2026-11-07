@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pilotSteps, portalToken, type PilotFeedback, type PilotScenario } from "./brokerage-model";
+import { pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, portalToken, type PilotFeedback, type PilotMeasurement, type PilotScenario } from "./brokerage-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { insertContact, insertLoan, type Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -13,6 +13,16 @@ export const pilotFeedbackInput = z.object({
   type: z.literal("pilotFeedback"), id: z.uuid(), step: z.enum(pilotSteps),
   message: z.string().trim().min(1, "Describe what happened.").max(1000),
 });
+export const pilotTriageInput = z.object({
+  type: z.literal("triagePilotFeedback"), id: z.uuid(), owner: z.email().max(254).nullable(),
+  status: z.enum(pilotFeedbackStatuses), priority: z.enum(pilotPriorities),
+  retest: z.string().trim().max(500), revision: z.number().int().nonnegative(),
+});
+export const pilotMeasurementInput = z.object({
+  type: z.literal("recordPilotMeasurement"), id: z.uuid(), walkthrough: z.enum(pilotWalkthroughs),
+  workflow: z.enum(["Orbit", "Current brokerage workflow"]), seconds: z.number().int().positive().max(86_400),
+  repeatEntries: z.number().int().nonnegative().max(2000), systemSwitches: z.number().int().nonnegative().max(2000),
+});
 
 function scenarioRow(db: Store) {
   return db.prepare("SELECT id, realtorId, loanId, loadedAt, officerEmail FROM pilot_scenario WHERE singleton = 1").get();
@@ -22,9 +32,25 @@ export function pilotReview(db: Store) {
   const row = scenarioRow(db);
   const pilotScenario: PilotScenario | undefined = row
     ? { id: String(row.id), loadedAt: String(row.loadedAt), officerEmail: String(row.officerEmail) } : undefined;
-  const pilotFeedback = db.prepare("SELECT id, author, step, message, createdAt FROM pilot_feedback ORDER BY rowid DESC LIMIT 100")
+  const pilotFeedback = db.prepare("SELECT * FROM pilot_feedback ORDER BY rowid DESC LIMIT 100")
     .all().map((item) => ({ ...item }) as unknown as PilotFeedback);
-  return { pilotScenario, pilotFeedback };
+  const metrics = [
+    { label: "Lead to first recorded outreach", sql: `SELECT loans.createdAt AS start, min(activity.createdAt) AS finish
+      FROM loans JOIN activity ON loans.id = activity.loanId WHERE activity.outcome IS NOT NULL GROUP BY loans.id` },
+    { label: "1003 submission to review", sql: `SELECT submittedAt AS start, reviewedAt AS finish FROM application_versions
+      UNION ALL SELECT submittedAt, reviewedAt FROM applications a WHERE NOT EXISTS (
+        SELECT 1 FROM application_versions v WHERE v.loanId = a.loanId AND v.revision = a.revision)` },
+    { label: "Document receipt to lender clearance", sql: `SELECT requests.submittedAt AS start, deliveries.mockClearedAt AS finish
+      FROM document_requests requests JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id` },
+  ];
+  const pilotMetrics = metrics.map(({ label, sql }) => {
+    const result = db.prepare(`SELECT count(*) AS count, avg((unixepoch(finish) - unixepoch(start)) / 60.0) AS minutes
+      FROM (${sql}) WHERE unixepoch(finish) >= unixepoch(start)`).get();
+    return { label, count: Number(result?.count ?? 0), minutes: result?.minutes == null ? null : Number(result.minutes) };
+  });
+  const pilotMeasurements = db.prepare("SELECT * FROM pilot_measurements ORDER BY createdAt DESC, rowid DESC LIMIT 100")
+    .all().map((item) => ({ ...item }) as unknown as PilotMeasurement);
+  return { pilotScenario, pilotFeedback, pilotMetrics, pilotMeasurements };
 }
 
 export function trackPilotBorrower(db: Store, realtorId: string, contactId: string) {
@@ -87,7 +113,38 @@ export function savePilotFeedback(db: Store, staff: WorkspaceStaff, input: unkno
     if (existing && (existing.author !== staff.email || existing.step !== step || existing.message !== message)) {
       return { error: "Start a new feedback entry and try again." } as const;
     }
-    if (!existing) db.prepare("INSERT INTO pilot_feedback VALUES (?, ?, ?, ?, ?)").run(id, staff.email, step, message, new Date().toISOString());
+    if (!existing) db.prepare("INSERT INTO pilot_feedback (id, author, step, message, createdAt) VALUES (?, ?, ?, ?, ?)").run(id, staff.email, step, message, new Date().toISOString());
     return { message: "Feedback saved for the pilot admin." };
+  });
+}
+
+export function triagePilotFeedback(db: Store, staff: WorkspaceStaff, input: unknown): PilotMutation {
+  const parsed = pilotTriageInput.safeParse(input);
+  if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin" || !parsed.success) return { error: "Only a pilot admin can update feedback." };
+  const { id, owner, status, priority, retest, revision } = parsed.data;
+  if (status === "Closed" && !retest) return { error: "Record a retest result before closing this issue." };
+  if (status !== "Open" && !owner) return { error: "Choose a staff owner before moving this issue forward." };
+  return db.transaction(() => {
+    const before = db.prepare("SELECT revision FROM pilot_feedback WHERE id = ?").get(id);
+    if (!before || before.revision !== revision) return { error: "Feedback changed. Refresh Team before updating it." };
+    db.prepare(`UPDATE pilot_feedback SET owner = ?, status = ?, priority = ?, retest = ?, revision = revision + 1
+      WHERE id = ?`).run(owner, status, priority, retest, id);
+    accessEvent(db, staff, `Updated pilot feedback · ${status}`, id, new Date().toISOString());
+    return { message: "Pilot feedback updated." };
+  });
+}
+
+export function recordPilotMeasurement(db: Store, staff: WorkspaceStaff, input: unknown): PilotMutation {
+  const parsed = pilotMeasurementInput.safeParse(input);
+  if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin" || !parsed.success) return { error: "Check the walkthrough and measurement fields." };
+  const { id, walkthrough, workflow, seconds, repeatEntries, systemSwitches } = parsed.data;
+  return db.transaction(() => {
+    const existing = db.prepare("SELECT 1 FROM pilot_measurements WHERE id = ?").get(id);
+    if (!existing) {
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO pilot_measurements VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, walkthrough, workflow, seconds, repeatEntries, systemSwitches, now);
+      accessEvent(db, staff, "Recorded pilot walkthrough measurement", id, now);
+    }
+    return { message: "Walkthrough measurement recorded." };
   });
 }

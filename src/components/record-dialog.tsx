@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
-import { activityKinds, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
+import { activityKinds, contactOutcomes, leadSources, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { dateTime, initials, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
@@ -13,7 +13,7 @@ import { CommunicationPreview, LoanCommunications } from "./loan-communications"
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetails } from "@/lib/urla";
-import type { StaffApplication } from "@/lib/application-model";
+import { changedApplicationSections, type StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
 import { DocumentRequestForm, LoanDocuments } from "./loan-documents";
@@ -25,10 +25,17 @@ import { ClosingWorkbench } from "./closing-workbench";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import { pausedLoan } from "@/lib/loan-workflow";
+import { LoanWorkflow } from "./loan-workflow";
+import { FileReadiness } from "./file-readiness";
+import { ManualConditions } from "./manual-conditions";
+import { ContactHistory } from "./contact-crm";
+import { ConditionResponse } from "./condition-response";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string }
-  | { kind: "loan"; loanId?: string; stage?: Stage }
+  | { kind: "loan"; loanId?: string; stage?: Stage; contactId?: string }
+  | { kind: "contactHistory"; contactId: string }
   | { kind: "contact"; contactId?: string }
   | { kind: "communication"; loanId: string; audience: DraftAudience; draftId?: string }
   | { kind: "documentFollowUp"; loanId: string }
@@ -68,8 +75,8 @@ function Form({ children, save, busy, done, onCancel, remove, newLead }: {
   );
 }
 
-function LoanFields({ loan, state, stage, staff }: { loan?: Loan; state: Workspace; stage?: Stage; staff: WorkspaceStaff | null }) {
-  const [contactId, setContactId] = useState(loan?.contactId ?? "");
+function LoanFields({ loan, state, stage, staff, existingContactId }: { loan?: Loan; state: Workspace; stage?: Stage; staff: WorkspaceStaff | null; existingContactId?: string }) {
+  const [contactId, setContactId] = useState(loan?.contactId ?? existingContactId ?? "");
   const [assignToSelf, setAssignToSelf] = useState(Boolean(staff && (!loan || loan.officerEmail === staff.email)));
   const [manualOfficer, setManualOfficer] = useState(loan?.officer ?? (staff ? "" : "Alex Morgan"));
   const borrowerLocked = loan && state.applications.some((application) => application.loanId === loan.id);
@@ -105,6 +112,9 @@ function LoanFields({ loan, state, stage, staff }: { loan?: Loan; state: Workspa
           {state.contacts.filter((contact) => contact.role === "Realtor").map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}
         </select>
       </Field>
+      <Field label="Lead source"><select name="leadSource" defaultValue={loan?.leadSource ?? (existingContactId && state.loans.some((item) => item.contactId === existingContactId) ? "Returning client" : "")}>
+        <option value="">Use lead details</option>{leadSources.map((source) => <option key={source}>{source}</option>)}
+      </select></Field>
     </>
   );
 }
@@ -147,20 +157,23 @@ function SubmissionCard({ submission, requests, busy, save, onEdit }: {
               </div> : submission.lender === "UWM" && !item.satisfiedAt && <div className="condition-checklist">
                 <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} />
               </div>}
+              {!item.satisfiedAt && <ConditionResponse condition={item} request={request} lender={submission.lender} />}
             </div>
           </div>;
         })}
       </>}
+      {!submission.syncedAt && <ManualConditions submission={submission} requests={requests} busy={busy} save={save} />}
     </article>
   );
 }
 
-function LoanApplication({ loanId, state, busy, save }: { loanId: string; state: Workspace; busy: boolean; save: Save }) {
+function LoanApplication({ loanId, state, busy, save, processor }: { loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean }) {
   const [copyStatus, setCopyStatus] = useState("");
   const application = state.applications.find((item) => item.loanId === loanId);
   const linkStatus = application?.revokedAt ? "Revoked" : application && application.expiresAt <= new Date().toISOString() ? "Expired" : "Active";
   const path = application ? `/apply#${application.token}` : "";
-  const status = application?.uwmReference ? "Sent to UWM · Mock" : application?.reviewedAt ? "Reviewed" : application?.submittedAt ? "Needs review" : "Draft";
+  const status = application?.correctionNote ? "Corrections requested" : application?.submittedAt && !application.reviewedAt
+    ? "Needs review" : application?.uwmReference ? "Sent to UWM · Mock" : application?.reviewedAt ? "Reviewed" : "Draft";
   const run = (type: string) => void save({ type, loanId });
 
   async function copy() {
@@ -180,33 +193,53 @@ function LoanApplication({ loanId, state, busy, save }: { loanId: string; state:
     </div>
     {!application ? <div className="loan-application-box">
       <p className="muted">Create a link for a borrower to complete a sample application. Use fictional information.</p>
-      <Button size="sm" disabled={busy} onClick={() => run("startApplication")}><Plus /> Start 1003</Button>
+      {!processor && <Button size="sm" disabled={busy} onClick={() => run("startApplication")}><Plus /> Start 1003</Button>}
     </div> : <div className="loan-application-box">
       <p className="muted">Borrower link · <strong>{linkStatus}</strong>{linkStatus === "Active" && ` · Expires ${dateTime(application.expiresAt)} ET`}</p>
       <div className="loan-application-actions">
         {linkStatus === "Active" ? <>
           <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> {application.submittedAt ? "Open borrower status" : "Open borrower view"}</a></Button>
           <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy link</Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
+          {!processor && <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
             if (window.confirm("Revoke this borrower link? The borrower will need a new link to return.")) {
               setCopyStatus("");
               void save({ type: "revokeApplication", loanId, token: application.token });
             }
-          }}>Revoke borrower link</Button>
-        </> : <Button size="sm" variant="outline" disabled={busy} onClick={() => run("startApplication")}>Issue replacement link</Button>}
+          }}>Revoke borrower link</Button>}
+        </> : !processor && <Button size="sm" variant="outline" disabled={busy} onClick={() => run("startApplication")}>Issue replacement link</Button>}
         {!application.submittedAt && <Button size="sm" variant="ghost" disabled={busy} onClick={() => run("refreshApplication")}><RefreshCw /> Refresh application</Button>}
       </div>
       {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
+      {application.correctionNote && <p className="muted">Waiting on the borrower · {application.correctionNote}</p>}
       {!application.submittedAt ? <p className="muted timestamp">Last saved {dateTime(application.updatedAt)} ET</p> : <>
         <p className="muted">Received {dateTime(application.submittedAt)} ET</p>
         {application.draft && <details className="application-review" open={!application.reviewedAt}>
           <summary>Review submitted answers</summary>
           <ApplicationAnswers draft={application.draft} />
         </details>}
-        {application.uwmReference ? <p className="application-sent"><CheckCircle2 size={16} /> Mock UWM import confirmed · {application.uwmReference}</p> :
-          application.reviewedAt ? <Button size="sm" disabled={busy} onClick={() => run("sendApplication")}><Send /> Send to UWM (mock)</Button> :
-            <Button size="sm" disabled={busy} onClick={() => run("reviewApplication")}><CheckCircle2 /> Mark reviewed</Button>}
+        {application.uwmReference && <p className="application-sent"><CheckCircle2 size={16} /> Mock UWM import confirmed · {application.uwmReference}</p>}
+        {application.reviewedAt ? !processor && !application.uwmReference && <Button size="sm" disabled={busy} onClick={() => run("sendApplication")}><Send /> Send to UWM (mock)</Button> :
+          <Button size="sm" disabled={busy} onClick={() => void save({ type: "reviewApplication", loanId, revision: application.revision })}><CheckCircle2 /> Mark reviewed</Button>}
+        <details className="loan-task-create"><summary>Request borrower corrections</summary>
+          <form className="record-form" onSubmit={(event) => {
+            event.preventDefault();
+            void save({ type: "requestApplicationCorrection", loanId, revision: application.revision, note: text(new FormData(event.currentTarget), "note") });
+          }}>
+            <Field label="Instructions for the borrower"><textarea name="note" rows={3} required maxLength={500} /></Field>
+            <div><Button size="sm" type="submit" disabled={busy}>Request corrections</Button></div>
+          </form>
+        </details>
       </>}
+      {application.versions.length > 0 && <details className="application-review">
+        <summary>Application version history</summary>
+        <ul>{application.versions.map((version, index) => <li key={version.revision}>
+          Version {application.versions.length - index} · {dateTime(version.submittedAt)} ET · {version.reviewedAt ? "Reviewed" : "Submitted"}
+        </li>)}</ul>
+        {application.previousAnswers && <details className="application-review"><summary>Compare with previous answers</summary>
+          {application.draft && <p className="muted">Changed sections · {changedApplicationSections(application.previousAnswers, application.draft).join(", ") || "No answer changes"}</p>}
+          <ApplicationAnswers draft={application.previousAnswers} />
+        </details>}
+      </details>}
       <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application} busy={busy} save={save} />
     </div>}
   </section>;
@@ -233,7 +266,9 @@ function LenderApplicationDetails({ application, busy, save }: { application: St
 }
 
 function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; save: Save; show: (modal: Modal) => void }) {
+  const processor = staff?.brokerage.role === "Processor";
   const [activityKind, setActivityKind] = useState<ActivityKind>("Note");
+  const activityAttempt = useRef<{ key: string; id: string } | null>(null);
   const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
@@ -241,6 +276,9 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
   const openConditionRequests = new Set(requests.filter((request) => submissions.some((submission) =>
     submission.id === request.submissionId && submission.lender === "UWM" && submission.syncedAt &&
     submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt))).map((request) => request.id));
+  const replaceableRequests = new Set(requests.filter((request) => submissions.some((submission) =>
+    submission.id === request.submissionId && submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt)))
+    .map((request) => request.id));
   const application = state.applications.find((item) => item.loanId === loan.id);
   const notes = state.activity.filter((item) => item.loanId === loan.id);
   const tasks = state.tasks.filter((item) => item.loanId === loan.id);
@@ -252,7 +290,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
     <div className="details-body">
       <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
         <div><h3>{borrower?.name}</h3><p>{loan.address || "Property address pending"}</p></div>
-        <Button variant="outline" size="sm" onClick={() => show({ kind: "loan", loanId: loan.id })}><Pencil /> Edit loan</Button>
+        {!processor && <Button variant="outline" size="sm" onClick={() => show({ kind: "loan", loanId: loan.id })}><Pencil /> Edit loan</Button>}
       </div>
       <div className="details-grid">
         <div><span>Loan amount</span><strong>{money(loan.amount)}</strong></div>
@@ -260,10 +298,12 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
         <div><span>Realtor</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
       </div>
-      <Field label="Pipeline stage"><select value={loan.stage} disabled={busy} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
+      <LoanWorkflow key={loan.dispositionRevision} loan={loan} state={state} busy={busy} readOnly={processor} save={(input) => void save(input)}
+        open={(target) => show({ kind: "details", loanId: loan.id, target })} />
+      <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <section className="details-section" aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
-          <Button size="sm" variant="outline" onClick={() => show({ kind: "pricing", loanId: loan.id })}>Price loan</Button>
+          {!processor && <Button size="sm" variant="outline" onClick={() => show({ kind: "pricing", loanId: loan.id })}>Price loan</Button>}
         </div>
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
         {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
@@ -272,12 +312,13 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
       <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)} busy={busy} save={save} />
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
-      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} openConditionRequests={openConditionRequests}
+      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
-      <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
-      <LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} />
-      <section className="details-section" aria-label="Loan follow-up tasks">
+      <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor} />
+      <FileReadiness loan={loan} state={state} busy={busy} save={save} open={(target) => show({ kind: "details", loanId: loan.id, target })} />
+      <div id="loan-retention" tabIndex={-1}><LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} /></div>
+      <section className="details-section" aria-label="Loan follow-up tasks" id="loan-tasks" tabIndex={-1}>
         <div className="section-heading"><h3><CheckCircle2 size={17} /> Follow-up tasks</h3></div>
         {tasks.length ? <ul className="loan-task-list">{tasks.map((task) =>
           <LoanTaskRow key={task.id} task={task} officer={loan.officer} busy={busy}
@@ -306,18 +347,27 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
           onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
-      <section className="details-section">
+      <section className="details-section" id="loan-activity" tabIndex={-1}>
         <div className="section-heading"><h3><ClipboardList size={17} /> Activity</h3></div>
         <form className="note-form" onSubmit={(event) => {
           event.preventDefault();
           const form = event.currentTarget;
-          void save({ type: "note", loanId: loan.id, kind: activityKind, text: text(new FormData(form), "note") }, () => form.reset());
+          const data = new FormData(form);
+          const input = { type: "note", loanId: loan.id, kind: activityKind, text: text(data, "note"),
+            outcome: text(data, "outcome") || undefined, followUp: text(data, "followUp") || undefined };
+          const key = JSON.stringify(input);
+          if (activityAttempt.current?.key !== key) activityAttempt.current = { key, id: crypto.randomUUID() };
+          void save({ ...input, eventId: activityAttempt.current.id }, () => { activityAttempt.current = null; form.reset(); });
         }}>
           <Field label="Activity type"><select value={activityKind} onChange={(event) => setActivityKind(event.target.value as ActivityKind)}>{activityKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></Field>
           <textarea name="note" aria-label="Activity note" placeholder={activityKind === "Note" ? "Write a note about this loan…" : `Summarize the ${activityKind.toLowerCase()}…`} maxLength={2000} required />
+          {activityKind !== "Note" && <div className="form-grid">
+            <Field label="Contact outcome"><select name="outcome"><option value="">Choose an outcome</option>{contactOutcomes.map((outcome) => <option key={outcome}>{outcome}</option>)}</select></Field>
+            <Field label="Next follow-up date"><input type="date" name="followUp" /></Field>
+          </div>}
           <Button type="submit" variant="outline" size="sm" disabled={busy}>{activityKind === "Note" ? "Add note" : `Log ${activityKind.toLowerCase()}`}</Button>
         </form>
-        {notes.map((note) => <div className="note" key={note.id}><div className="activity-meta"><span className="pill">{note.kind}</span><small>{dateTime(note.createdAt)} ET</small></div><p>{note.text}</p></div>)}
+        {notes.map((note) => <div className="note" key={note.id}><div className="activity-meta"><span className="pill">{note.kind}{note.outcome && ` · ${note.outcome}`}</span><small>{dateTime(note.createdAt)} ET</small></div><p>{note.text}</p></div>)}
       </section>
     </div>
   );
@@ -339,7 +389,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     item?.scrollIntoView({ block: "start" });
   }, [target]);
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
-  const contact = modal.kind === "contact" ? state.contacts.find((item) => item.id === modal.contactId) : undefined;
+  const contact = "contactId" in modal ? state.contacts.find((item) => item.id === modal.contactId) : undefined;
   const submission = modal.kind === "submission" ? state.submissions.find((item) => item.id === modal.submissionId) : undefined;
   const title = {
     details: "Loan details", loan: loan ? "Edit loan" : "New Lead",
@@ -348,6 +398,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     documentFollowUp: "Document follow-up",
     pricing: "Loan pricing",
     retention: "Past-client follow-up",
+    contactHistory: "Contact history",
   }[modal.kind];
   const back = () => loan ? show({ kind: "details", loanId: loan.id }) : close();
   const retention = modal.kind === "retention" ? state.pastClients.find((profile) => profile.loanId === modal.loanId) : undefined;
@@ -385,10 +436,14 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             borrowerEmail: text(data, "borrowerEmail"), borrowerPhone: text(data, "borrowerPhone"), start1003: data.has("start1003"),
             address: text(data, "address"), amount: Number(text(data, "amount")), purpose: text(data, "purpose"),
             stage: text(data, "stage"), officer: text(data, "officer"), partnerId: text(data, "partnerId") || null,
+            leadSource: text(data, "leadSource") || undefined,
             assignToSelf: staff ? data.has("assignToSelf") : undefined,
           })}>
-          <LoanFields loan={loan} state={state} stage={modal.stage} staff={staff} />
+          <LoanFields loan={loan} state={state} stage={modal.stage} staff={staff} existingContactId={modal.contactId} />
         </Form>}
+        {modal.kind === "contactHistory" && contact && <ContactHistory contact={contact} state={state}
+          open={(loanId) => show({ kind: "details", loanId })}
+          repeat={staff?.brokerage.role !== "Processor" && contact.role !== "Realtor" ? () => show({ kind: "loan", contactId: contact.id }) : undefined} />}
         {modal.kind === "contact" && <Form busy={busy} onCancel={close} done={(input) => void save(input, close)}
           remove={contact ? () => remove({ type: "deleteContact", id: contact.id }, "Delete this contact?", close) : undefined}
           save={(data) => ({ type: "contact", id: contact?.id, name: text(data, "name"), role: text(data, "role"), email: text(data, "email"), phone: text(data, "phone") })}>
