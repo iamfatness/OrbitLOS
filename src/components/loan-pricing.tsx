@@ -7,6 +7,7 @@ import type { Loan, Workspace } from "@/lib/model";
 import type { PricingOffer, PricingRun, PricingScenario } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { UwmRateLock } from "./uwm-rate-lock";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const cash = (amount: number | null) => amount === null ? "—" : dollars.format(amount);
@@ -118,6 +119,8 @@ export function LoanPricing({ loan, state, busy, save }: {
         </div> : <p className="muted">The borrower can see a shared quote after submitting their 1003.</p>)}
       </div>}
     </section>}
+    <UwmRateLock loanId={loan.id} submissions={state.submissions.filter((item) => item.loanId === loan.id)}
+      rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} busy={busy} save={save} />
     {published && <section className="quote-saved" aria-label="Shared borrower quote">
       <div className="section-heading"><h3>Shared with borrower</h3>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>

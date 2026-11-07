@@ -2,7 +2,7 @@ import type { Activity, CommunicationDraft, Contact, Loan, LoanTask, PastClientP
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
-import type { PricingRun, PublishedQuote } from "./pricing-model";
+import type { MockUwmRate, PricingRun, PublishedQuote } from "./pricing-model";
 import type { LoanDocumentRequest } from "./document-model";
 import { synchronizeRetentionTasks } from "./client-retention";
 
@@ -97,6 +97,14 @@ export function initializeStore(db: Store) {
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
       rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS mock_uwm_rates (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
+      submissionId TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+      loanNumber TEXT NOT NULL, runId TEXT NOT NULL, offerId TEXT NOT NULL,
+      product TEXT NOT NULL, rate REAL NOT NULL, quotedAt TEXT NOT NULL,
+      floatReference TEXT NOT NULL UNIQUE, floatedAt TEXT NOT NULL,
+      lockReference TEXT UNIQUE, lockedAt TEXT, lockDays INTEGER, lockExpiresAt TEXT
+    );
     CREATE TABLE IF NOT EXISTS staff_google_attempts (
       state TEXT PRIMARY KEY, browserHash TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, expiresAt INTEGER NOT NULL
     );
@@ -152,6 +160,11 @@ export function insertSubmission(db: Store, submission: Submission) {
     .run(submission.id, submission.loanId, submission.lender, submission.externalId, submission.status, JSON.stringify(submission.conditions), submission.syncedAt);
 }
 
+export function savedPricingRun(db: Store, loanId: string) {
+  return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt FROM pricing_runs
+    WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1`).get(loanId);
+}
+
 function rows<T>(db: Store, query: string) {
   // Both stores are owned by the schema above. Copy rows into plain objects for React and Workers RPC.
   return db.prepare(query).all().map((row) => ({ ...row }) as T);
@@ -180,6 +193,7 @@ export function workspace(db: Store): Workspace {
       ORDER BY run.quotedAt DESC, run.rowid DESC
     `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
     publishedQuotes: rows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
+    mockUwmRates: rows<MockUwmRate>(db, "SELECT * FROM mock_uwm_rates"),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
 }

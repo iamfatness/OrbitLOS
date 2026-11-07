@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { insertContact, insertLoan, insertSubmission, readWorkspace, workspace, type Store } from "./store";
+import { insertContact, insertLoan, insertSubmission, readWorkspace, savedPricingRun, workspace, type Store } from "./store";
 import { activityKinds, stages, type Loan, type Workspace } from "./model";
 import { sendMockConditionDocument, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
-import { pricingScenario, type PricingOffer } from "./pricing-model";
+import { mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
+import { floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider } from "./pricing-provider";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 import { createMilestoneDrafts, recordDraftCopy } from "./communications";
@@ -53,6 +54,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120), days: z.union([z.literal(1), z.literal(3), z.literal(7)]) }),
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario }),
   z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
+  z.object({ type: z.literal("floatMockRate"), loanId: id, submissionId: id, runId: id, offerId: id, previousFloatReference: id.nullable() }),
+  z.object({ type: z.literal("lockMockRate"), loanId: id, floatReference: id, days: z.literal(mockLockPeriods) }),
   z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
   z.object({ type: z.literal("reviewApplication"), loanId: id }),
@@ -196,7 +199,7 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           const run = db.prepare("SELECT offers, selectedId, mode FROM pricing_runs WHERE id = ? AND loanId = ?").get(data.runId, data.loanId);
           const offer = run && (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === data.offerId);
           if (!run || !offer) throw new WorkspaceError("That pricing option is unavailable. Refresh the loan and try again.");
-          const lastSaved = db.prepare("SELECT id, selectedId FROM pricing_runs WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1").get(data.loanId);
+          const lastSaved = savedPricingRun(db, data.loanId);
           if (lastSaved?.id !== data.runId || lastSaved.selectedId !== offer.id) {
             db.prepare("UPDATE pricing_runs SET selectedId = ?, selectedAt = ? WHERE id = ?").run(offer.id, now, data.runId);
             addApplicationActivity(db, data.loanId, `Saved ${run.mode === "mock" ? "sample" : "stage"} quote · ${offer.product} at ${offer.rate.toFixed(3)}%`, now);
@@ -204,10 +207,16 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           message = "Quote saved on the loan.";
           break;
         }
+        case "floatMockRate":
+        case "lockMockRate": {
+          const result = data.type === "floatMockRate" ? floatMockRate(db, data, now) : lockMockRate(db, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
         case "publishQuote": {
           if (!getApplication(db, data.loanId)?.submittedAt) throw new WorkspaceError("The borrower must submit their 1003 before you can share a quote.");
-          const run = db.prepare(`SELECT id, offers, selectedId, mode, quotedAt FROM pricing_runs
-            WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1`).get(data.loanId);
+          const run = savedPricingRun(db, data.loanId);
           if (run?.id !== data.runId || run.selectedId !== data.offerId || run.mode !== "mock") {
             throw new WorkspaceError("Select the current saved sample quote before sharing it.");
           }

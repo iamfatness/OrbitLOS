@@ -211,6 +211,8 @@ button:disabled { cursor: default; }
 .pricing-form, .quote-saved, .pricing-option { display: grid; gap: 9px; border: 1px solid var(--line); border-radius: 11px; padding: 11px; }
 .pricing-form, .quote-saved { background: #faf8fd; }
 .pricing-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; }
+.rate-lock-actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.rate-receipt { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .pricing-results { display: grid; gap: 7px; }
 .pricing-option .section-heading, .pricing-results > .section-heading, .quote-saved > .section-heading { margin-bottom: 0; }
 .quote-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(113px, 1fr)); gap: 6px; }

@@ -18,6 +18,7 @@ import { DocumentRequestForm, LoanDocuments } from "./loan-documents";
 import { DocumentFollowUp } from "./document-follow-up";
 import { DocumentStatusPill } from "./sample-document";
 import type { LoanDocumentRequest } from "@/lib/document-model";
+import { mockRateStatus } from "@/lib/pricing-model";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string }
@@ -229,6 +230,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
   const savedPricing = state.pricingRuns.filter((item) => item.loanId === loan.id && item.selectedAt)
     .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
   const savedOffer = savedPricing?.offers.find((item) => item.id === savedPricing.selectedId);
+  const rate = state.mockUwmRates.find((item) => item.loanId === loan.id);
   return (
     <div className="details-body">
       <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
@@ -247,6 +249,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
           <Button size="sm" variant="outline" onClick={() => show({ kind: "pricing", loanId: loan.id })}>Price loan</Button>
         </div>
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
+        {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
       <LoanDocuments loanId={loan.id} requests={requests} openConditionRequests={openConditionRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}

@@ -1,6 +1,6 @@
 import type { StaffApplication } from "./application-model";
 import type { LoanDocumentRequest } from "./document-model";
-import type { PricingRun, PublishedQuote } from "./pricing-model";
+import type { MockUwmRate, PricingRun, PublishedQuote } from "./pricing-model";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -120,5 +120,6 @@ export interface Workspace {
   documentRequests: LoanDocumentRequest[];
   pricingRuns: PricingRun[];
   publishedQuotes: PublishedQuote[];
+  mockUwmRates: MockUwmRate[];
   uwmSyncedAt: string | null;
 }
