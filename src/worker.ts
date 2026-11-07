@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import app from "vinext/server/app-router-entry";
 import { executeCommand } from "./lib/commands";
 import { borrowerCommandResult } from "./lib/applications";
-import { borrowerHttp, borrowerJson } from "./lib/borrower-http";
+import { borrowerHttp, borrowerJson, documentUploadMode } from "./lib/borrower-http";
 import { initializeStore, readWorkspace, type SqlValue, type Store } from "./lib/store";
 import { googleSettings, handleStaffAuth, runtimeSetting, signedInStaff } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
@@ -15,7 +15,7 @@ import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
 import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDocumentUpload, finishDocumentUpload,
   issueDocumentCode, nextDocumentCleanup, recordDocumentDownload, verifyDocumentCode, type UploadAccess } from "./lib/document-files";
 import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
-import { documentKey } from "./lib/document-files-model";
+import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
@@ -63,14 +63,26 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return result;
   }
 
-  issueUploadCode(token: string, secret: string) { return issueDocumentCode(this.#store, token, secret); }
-  verifyUploadCode(token: string, code: string, secret: string) { return verifyDocumentCode(this.#store, token, code, secret); }
+  #permitsUpload(mode: DocumentUploadMode) {
+    const flag = runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS").trim();
+    return documentUploadMode(flag === "mock" ? "mock" : flag === "enabled" ? "live" : undefined, this.#id) === mode;
+  }
+  issueUploadCode(token: string, secret: string, mode: DocumentUploadMode) {
+    if (!this.#permitsUpload(mode)) return { status: 503, error: "PDF uploads are unavailable." };
+    return issueDocumentCode(this.#store, token, secret, mode);
+  }
+  verifyUploadCode(token: string, code: string, secret: string, mode: DocumentUploadMode) {
+    if (!this.#permitsUpload(mode)) return { status: 503, error: "PDF uploads are unavailable." };
+    return verifyDocumentCode(this.#store, token, code, secret, mode);
+  }
   async beginUpload(input: UploadAccess) {
+    if (!this.#permitsUpload(input.mode)) return { status: 503, error: "PDF uploads are unavailable." };
     const result = beginDocumentUpload(this.#store, input);
     if ("objectId" in result) await this.#scheduleCleanup();
     return result;
   }
   async finishUpload(input: UploadAccess, objectId: string) {
+    if (!this.#permitsUpload(input.mode)) return { status: 503, error: "PDF uploads are unavailable." };
     const result = finishDocumentUpload(this.#store, input, objectId);
     await this.#scheduleCleanup();
     return result;
@@ -193,7 +205,7 @@ export default {
     const uploads = google ? uploadSettings(filesEnv, url) : null;
     async function uploadWorkspace(token: string) {
       const id = portalBrokerage(token);
-      if (!id || id === demoBrokerageId) return null;
+      if (!id || !documentUploadMode(uploads?.mode, id)) return null;
       const store = await linkedWorkspace(token);
       return store ? { id, store } : null;
     }
@@ -210,7 +222,7 @@ export default {
       return borrowerHttp(request, async (input) => {
         const workspace = await linkedWorkspace(input);
         return workspace ? workspace.borrower(input) : { status: 404, error: "This application link is invalid or expired." };
-      }, Boolean(placesKey), Boolean(uploads));
+      }, Boolean(placesKey), uploads?.mode);
     }
     if (request.method === "POST" && url.pathname === "/api/demo-address") {
       return placesHttp(request, placesKey, async (token) => (await linkedWorkspace(token))?.reserveAddressLookup(token) ?? 404);
@@ -275,7 +287,7 @@ export default {
           await object.body.cancel();
           return fileProblem(404, "This PDF is unavailable.");
         }
-        return privatePdf(object);
+        return privatePdf(object, staff.brokerage.id === demoBrokerageId);
       } catch { return fileProblem(503, "Orbit could not retrieve this PDF. Try again shortly."); }
     }
     if (url.pathname === "/api/brokerages") {

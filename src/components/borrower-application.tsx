@@ -103,12 +103,12 @@ export function BorrowerApplicationForm() {
       <h1>{application?.submittedAt ? "Your loan status" : "Mortgage application"}</h1>
       <p>{application?.submittedAt ? "See where your loan stands and what your loan team needs from you." : "Walk through a sample 1003 and send it to your loan officer for review."}</p>
     </div>
-    <aside className="application-warning">{application?.submittedAt ? (application.documentUploadsEnabled ? "Use fictional PDFs when testing the document checklist." : "This checklist uses built-in fictional sample documents.") : "Use fictional information. Enter only a test tax ID in the format 000-00-1234. Keep real Social Security numbers, account numbers, and documents out of the demo."}</aside>
+    <aside className="application-warning">{application?.submittedAt ? (application.documentUploadsMode === "mock" ? "Demo verification and scanning use built-in fictional files." : application.documentUploadsEnabled ? "Use fictional PDFs when testing the document checklist." : "This checklist uses built-in fictional sample documents.") : "Use fictional information. Enter only a test tax ID in the format 000-00-1234. Keep real Social Security numbers, account numbers, and documents out of the demo."}</aside>
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!application && !error && <p role="status" className="application-message">Opening your application…</p>}
     {application?.submittedAt ? application.loanStatus && <BorrowerStatus status={application.loanStatus} submittedAt={application.submittedAt}
-      busy={busy} attach={attach} uploadsEnabled={Boolean(application.documentUploadsEnabled)} refresh={() => void perform({ type: "read" }, () => setNotice("Loan status refreshed."))} />
+      busy={busy} attach={attach} uploadsMode={application.documentUploadsMode} refresh={() => void perform({ type: "read" }, () => setNotice("Loan status refreshed."))} />
       : application && <section className="application-panel">
       <ol className="application-progress" aria-label="Application progress">
         {applicationSteps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} data-complete={index < step}>

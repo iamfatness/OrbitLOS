@@ -4,7 +4,8 @@ import type { Stage } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { DocumentStatusPill, SampleDocument } from "./sample-document";
 import { Button } from "./ui/button";
-import { BorrowerPdfVerification, useBorrowerPdf } from "./borrower-pdf";
+import { BorrowerPdfForm, BorrowerPdfVerification, useBorrowerPdf } from "./borrower-pdf";
+import type { DocumentUploadMode } from "@/lib/document-files-model";
 
 const stageUpdates: Record<Stage, { label: string; next: string }> = {
   Lead: { label: "Getting started", next: "Your loan officer will review your application and share the next steps." },
@@ -18,15 +19,16 @@ const stageUpdates: Record<Stage, { label: string; next: string }> = {
 };
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-export function BorrowerStatus({ status, submittedAt, busy, refresh, attach, uploadsEnabled }: {
+export function BorrowerStatus({ status, submittedAt, busy, refresh, attach, uploadsMode }: {
   status: BorrowerLoanStatus; submittedAt: string; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
-  uploadsEnabled: boolean;
+  uploadsMode?: DocumentUploadMode;
 }) {
-  const pdf = useBorrowerPdf(refresh);
+  const pdf = useBorrowerPdf(refresh, uploadsMode);
+  const demo = uploadsMode === "mock";
   const stage = stageUpdates[status.stage];
   const waiting = status.documents.filter((item) => needsBorrowerDocument(item.status)).length;
   const received = status.documents.filter((item) => item.status === "Received").length;
-  const next = waiting > 0 ? (uploadsEnabled ? "Upload a PDF for each document that needs your attention below." : "Attach a sample for each document that needs your attention below.") : received > 0
+  const next = waiting > 0 ? (uploadsMode === "live" ? "Upload a PDF for each document that needs your attention below." : "Attach a sample for each document that needs your attention below.") : received > 0
     ? "Your loan team will review the documents you attached. Check back for their updates."
     : status.stage === "Application" && status.reviewed ? "Your loan officer reviewed your application and will post any additional requests here." : stage.next;
 
@@ -57,7 +59,7 @@ export function BorrowerStatus({ status, submittedAt, busy, refresh, attach, upl
     </section>}
     <section className="application-panel application-receipt document-section" aria-labelledby="borrower-documents-heading">
       <div className="section-heading"><h2 id="borrower-documents-heading"><FileCheck2 size={19} /> Document checklist</h2></div>
-      {uploadsEnabled && waiting > 0 && !pdf.session && <BorrowerPdfVerification pdf={pdf} busy={busy} />}
+      {uploadsMode && waiting > 0 && !pdf.session && <BorrowerPdfVerification pdf={pdf} busy={busy} demo={demo} />}
       {pdf.error && <p role="alert" className="application-message banner-error">{pdf.error}</p>}
       {pdf.notice && <p role="status" className="muted">{pdf.notice}</p>}
       {status.documents.length > 0 && <p className="document-counts">{waiting} to attach · {received} in review · {status.documents.length - waiting - received} accepted</p>}
@@ -66,15 +68,15 @@ export function BorrowerStatus({ status, submittedAt, busy, refresh, attach, upl
           <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
           {request.instructions && <p>{request.instructions}</p>}
           {request.status === "Needs replacement" && <p><strong>From your loan team</strong> · {request.replacementNote}</p>}
-          {!uploadsEnabled && !request.pdfUploadedAt && <SampleDocument kind={request.kind} />}
+          {uploadsMode !== "live" && !request.pdfUploadedAt && <SampleDocument kind={request.kind} />}
           {(pdf.processing === request.id || request.pdfStatus === "Processing") && <p role="status">PDF is processing. Refresh status to check for updates.</p>}
           {request.pdfStatus === "Retry" && <p className="muted">The last PDF upload needs a retry.</p>}
-          {needsBorrowerDocument(request.status)
-            ? uploadsEnabled ? pdf.session && request.pdfStatus !== "Processing" && <form className="rate-lock-actions" onSubmit={(event) => void pdf.upload(event, request)}>
-              <label className="field">{request.status === "Needs replacement" ? "Replacement PDF" : "Choose PDF"}<input type="file" name="pdf" accept=".pdf,application/pdf" required disabled={busy || pdf.busy} /></label>
-              <Button type="submit" size="sm" disabled={busy || pdf.busy}>Upload PDF</Button>
-            </form> : !request.pdfUploadedAt && <Button size="sm" disabled={busy} onClick={() => attach(request)}>{request.status === "Needs replacement" ? "Attach replacement sample" : "Attach sample document"}</Button>
-            : request.submittedAt && <small className="muted">{request.pdfUploadedAt ? "PDF received" : "Sample attached"} {dateTime(request.submittedAt)} ET</small>}
+          {needsBorrowerDocument(request.status) ? <>
+            {uploadsMode && pdf.session && request.pdfStatus !== "Processing" && <BorrowerPdfForm pdf={pdf} request={request} busy={busy} demo={demo} />}
+            {uploadsMode !== "live" && !request.pdfUploadedAt && request.pdfStatus !== "Processing" && <Button size="sm" variant={demo ? "outline" : "default"} disabled={busy || pdf.busy} onClick={() => attach(request)}>
+              {demo ? "Attach text sample" : request.status === "Needs replacement" ? "Attach replacement sample" : "Attach sample document"}
+            </Button>}
+          </> : request.submittedAt && <small className="muted">{request.pdfUploadedAt ? (demo ? "Demo PDF received" : "PDF received") : "Sample attached"} {dateTime(request.submittedAt)} ET</small>}
         </li>
       )}</ul> : <p className="muted">There are no document requests right now. If your loan team needs something, it will appear here.</p>}
     </section>

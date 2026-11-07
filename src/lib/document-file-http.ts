@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
 import { borrowerJson } from "./borrower-http";
-import { documentKey, maxPdfBytes, uploadSessionPattern } from "./document-files-model";
+import { documentKey, maxPdfBytes, uploadSessionPattern, type DocumentUploadMode } from "./document-files-model";
+import { demoDocumentPdf } from "./demo-document-pdf";
 import type { UploadAccess } from "./document-files";
 import { runtimeSetting } from "./staff-auth";
 
@@ -12,6 +13,8 @@ export interface DocumentEnvironment {
 
 export function uploadSettings(env: object & DocumentEnvironment, requestUrl: URL) {
   const setting = (name: string) => runtimeSetting(env, name).trim();
+  if (!env.DOCUMENTS) return null;
+  if (setting("ORBIT_DOCUMENT_UPLOADS") === "mock") return { mode: "mock" as const, bucket: env.DOCUMENTS };
   const from = z.email().safeParse(setting("ORBIT_DOCUMENT_FROM"));
   const verificationSecret = setting("ORBIT_DOCUMENT_VERIFICATION_SECRET");
   const scanSecret = setting("ORBIT_DOCUMENT_SCANNER_SECRET");
@@ -21,15 +24,15 @@ export function uploadSettings(env: object & DocumentEnvironment, requestUrl: UR
     const scanner = new URL(setting("ORBIT_DOCUMENT_SCANNER_URL"));
     const local = requestUrl.hostname === "127.0.0.1" && scanner.protocol === "http:" && scanner.hostname === "127.0.0.1";
     if ((!local && scanner.protocol !== "https:") || scanner.username || scanner.password || scanner.hash) return null;
-    return { bucket: env.DOCUMENTS, email: env.DOCUMENT_EMAIL, from: from.data, verificationSecret, scanSecret, scanner };
+    return { mode: "live" as const, bucket: env.DOCUMENTS, email: env.DOCUMENT_EMAIL, from: from.data, verificationSecret, scanSecret, scanner };
   } catch { return null; }
 }
 
 type Settings = NonNullable<ReturnType<typeof uploadSettings>>;
 type ErrorResult = { status: number; error: string };
 type DocumentStore = {
-  issueUploadCode(token: string, secret: string): Promise<{ email: string; code: string } | ErrorResult>;
-  verifyUploadCode(token: string, code: string, secret: string): Promise<{ session: string } | ErrorResult>;
+  issueUploadCode(token: string, secret: string, mode: DocumentUploadMode): Promise<{ email: string; code: string } | ErrorResult>;
+  verifyUploadCode(token: string, code: string, secret: string, mode: DocumentUploadMode): Promise<{ session: string } | ErrorResult>;
   beginUpload(input: UploadAccess): Promise<{ objectId: string } | ErrorResult>;
   finishUpload(input: UploadAccess, objectId: string): Promise<{ received: boolean } | ErrorResult>;
   failUpload(requestId: string, objectId: string): Promise<void>;
@@ -42,6 +45,7 @@ const verification = z.discriminatedUnion("type", [
 ]);
 const uploadInput = z.object({ token, session: z.string().regex(uploadSessionPattern), requestId: z.uuid(),
   revision: z.string().regex(/^\d{1,10}$/).transform(Number) });
+const demoUploadInput = uploadInput.extend({ revision: z.number().int().nonnegative(), fixture: z.enum(["clean", "replacement", "blocked"]) });
 
 const privateHeaders = { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex", "X-Content-Type-Options": "nosniff" };
 export const fileProblem = (status: number, error: string) => Response.json({ error }, { status, headers: privateHeaders });
@@ -49,18 +53,21 @@ const unavailable = () => fileProblem(503, "Private PDF uploads are unavailable 
 
 export function verifyBorrowerEmail(request: Request, settings: Settings | null, workspace: (token: string) => Promise<DocumentStore | null>) {
   if (!settings) return unavailable();
-  return borrowerJson<{ session?: string; sent?: boolean }>(request, async (input) => {
+  return borrowerJson<{ session?: string; sent?: boolean; demoCode?: string }>(request, async (input) => {
     const parsed = verification.safeParse(input);
     if (!parsed.success) return { status: 400, error: "Enter a six-digit code from your email." };
     const data = parsed.data;
     const store = await workspace(data.token);
     if (!store) return { status: 404, error: "This borrower link is unavailable." };
+    // The demo displays its code to the link holder and never authorizes a live upload.
+    const secret = settings.mode === "mock" ? data.token : settings.verificationSecret;
     if (data.type === "verifyCode") {
-      const result = await store.verifyUploadCode(data.token, data.code, settings.verificationSecret);
+      const result = await store.verifyUploadCode(data.token, data.code, secret, settings.mode);
       return "error" in result ? result : { value: result };
     }
-    const result = await store.issueUploadCode(data.token, settings.verificationSecret);
+    const result = await store.issueUploadCode(data.token, secret, settings.mode);
     if ("error" in result) return result;
+    if (settings.mode === "mock") return { value: { sent: true, demoCode: result.code } };
     try {
       await settings.email.send({ to: result.email, from: settings.from, subject: "Your OrbitLOS verification code",
         text: `Your OrbitLOS code is ${result.code}. It expires in 10 minutes. Enter it on the OrbitLOS page that requested it.` });
@@ -71,7 +78,9 @@ export function verifyBorrowerEmail(request: Request, settings: Settings | null,
   }, 2048);
 }
 
-async function readPdf(request: Request) {
+type PdfInput = { bytes: Uint8Array<ArrayBuffer> } | ErrorResult;
+
+async function readPdf(request: Request): Promise<PdfInput> {
   const reader = request.body?.getReader();
   if (!reader) return { status: 400, error: "Choose a PDF to upload." };
   const bytes = new Uint8Array(maxPdfBytes);
@@ -102,42 +111,58 @@ async function readPdf(request: Request) {
 export async function uploadBorrowerPdf(request: Request, settings: Settings | null,
   workspace: (token: string) => Promise<{ id: string; store: DocumentStore } | null>) {
   if (!settings) return unavailable();
+  if (settings.mode === "mock") return borrowerJson(request, async (input) => {
+    const parsed = demoUploadInput.safeParse(input);
+    if (!parsed.success) return { status: 400, error: "Choose a built-in demo PDF." };
+    const { fixture, ...data } = parsed.data;
+    const target = await workspace(data.token);
+    if (!target) return { status: 404, error: "This borrower link is unavailable." };
+    return storePdf(settings, target, { ...data, mode: "mock" }, async () => ({ bytes: demoDocumentPdf(fixture) }), fixture === "blocked");
+  }, 2048);
   if (request.headers.get("Origin") !== new URL(request.url).origin) return fileProblem(403, "Open the application directly in Orbit.");
   if (request.headers.get("Content-Type") !== "application/pdf" || request.headers.has("Content-Encoding")) return fileProblem(415, "Choose a PDF file.");
   if (Number(request.headers.get("Content-Length")) > maxPdfBytes) return fileProblem(413, "Choose a PDF no larger than 5 MB.");
   const parsed = uploadInput.safeParse({ token: request.headers.get("X-Orbit-Application"), session: request.headers.get("X-Orbit-Upload-Session"),
     requestId: request.headers.get("X-Orbit-Request"), revision: request.headers.get("X-Orbit-Revision") });
   if (!parsed.success) return fileProblem(400, "Open the document request and verify your email before uploading.");
-  const data = parsed.data;
+  const data: UploadAccess = { ...parsed.data, mode: "live" };
   const target = await workspace(data.token);
   if (!target) return fileProblem(404, "This borrower link is unavailable.");
+  const result = await storePdf(settings, target, data, () => readPdf(request));
+  return "error" in result ? fileProblem(result.status, result.error) : Response.json(result.value, { headers: privateHeaders });
+}
+
+async function storePdf(settings: Settings, target: { id: string; store: DocumentStore }, data: UploadAccess,
+  read: () => Promise<PdfInput>, blockedDemo = false): Promise<{ value: { received: boolean } } | ErrorResult> {
   const started = await target.store.beginUpload(data);
-  if ("error" in started) return fileProblem(started.status, started.error);
+  if ("error" in started) return started;
   let completed = false;
   try {
-    const file = await readPdf(request);
-    if ("error" in file && file.error) return fileProblem(file.status, file.error);
-    if (!file.bytes) return fileProblem(400, "Choose a PDF to upload.");
+    if (blockedDemo) return { status: 422, error: "The mock scan blocked this demo PDF. Choose a clean sample to continue." };
+    const file = await read();
+    if ("error" in file) return file;
     const checksum = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", file.bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-    const scan = await fetch(settings.scanner, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(20_000),
-      headers: { "Content-Type": "application/pdf", Authorization: `Bearer ${settings.scanSecret}` }, body: file.bytes });
-    await scan.body?.cancel();
-    if (scan.status === 422) return fileProblem(422, "This PDF could not pass the file check. Choose another file.");
-    if (scan.status !== 200 || scan.headers.get("X-Orbit-Scan-Sha256") !== checksum) return fileProblem(503, "Orbit could not complete the PDF scan. Try again shortly.");
+    if (settings.mode === "live") {
+      const scan = await fetch(settings.scanner, { method: "POST", redirect: "manual", signal: AbortSignal.timeout(20_000),
+        headers: { "Content-Type": "application/pdf", Authorization: `Bearer ${settings.scanSecret}` }, body: file.bytes });
+      await scan.body?.cancel();
+      if (scan.status === 422) return { status: 422, error: "This PDF could not pass the file check. Choose another file." };
+      if (scan.status !== 200 || scan.headers.get("X-Orbit-Scan-Sha256") !== checksum) return { status: 503, error: "Orbit could not complete the PDF scan. Try again shortly." };
+    }
     const saved = await settings.bucket.put(documentKey(target.id, started.objectId), file.bytes, { sha256: checksum, httpMetadata: { contentType: "application/pdf" } });
-    if (!saved) return fileProblem(503, "Orbit could not store the PDF. Try again.");
+    if (!saved) return { status: 503, error: "Orbit could not store the PDF. Try again." };
     const finished = await target.store.finishUpload(data, started.objectId);
-    if ("error" in finished) return fileProblem(finished.status, finished.error);
+    if ("error" in finished) return finished;
     completed = true;
-    return Response.json({ received: true }, { headers: privateHeaders });
+    return { value: { received: true } };
   } catch {
-    return fileProblem(503, "Orbit could not process this PDF. Try again shortly.");
+    return { status: 503, error: "Orbit could not process this PDF. Try again shortly." };
   } finally {
     if (!completed) await target.store.failUpload(data.requestId, started.objectId).catch(() => {});
   }
 }
 
-export function privatePdf(object: R2ObjectBody) {
+export function privatePdf(object: R2ObjectBody, demo = false) {
   return new Response(object.body, { headers: { ...privateHeaders, "Content-Type": "application/pdf", "Content-Length": String(object.size),
-    "Content-Disposition": 'attachment; filename="orbit-document.pdf"', "Content-Security-Policy": "default-src 'none'; sandbox" } });
+    "Content-Disposition": `attachment; filename="orbit-${demo ? "demo-" : ""}document.pdf"`, "Content-Security-Policy": "default-src 'none'; sandbox" } });
 }

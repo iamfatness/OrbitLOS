@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { BorrowerLoanStatus } from "./document-model";
+import type { DocumentUploadMode } from "./document-files-model";
 import { blankBorrower, blankUrla, normalizeUrla, sampleUrla, urlaDetailsSchema, type LenderDetails } from "./urla";
 
 const shortText = z.string().trim().max(160);
@@ -153,6 +154,7 @@ export interface BorrowerApplication {
   loanStatus: BorrowerLoanStatus | null;
   addressLookupEnabled?: boolean;
   documentUploadsEnabled?: boolean;
+  documentUploadsMode?: DocumentUploadMode;
 }
 
 export interface StaffApplication {

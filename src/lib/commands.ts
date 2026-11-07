@@ -11,7 +11,7 @@ import { createMilestoneDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
 import type { WorkspaceStaff } from "./staff-store";
 import { accessEvent, isDemoStaff, scopeWorkspace } from "./workspace-access";
-import { portalToken, portalTokenPattern } from "./brokerage-model";
+import { demoBrokerageId, portalToken, portalTokenPattern } from "./brokerage-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { documentKinds } from "./document-model";
 
@@ -270,7 +270,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare("UPDATE document_requests SET status = ?, replacementNote = ?, revision = revision + 1 WHERE id = ?")
             .run(data.decision, data.decision === "Accepted" ? "" : data.replacementNote, data.requestId);
           const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(data.requestId)?.objectId;
-          addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? pdf ? "Borrower PDF accepted" : "Sample document accepted" : "Replacement requested"} · ${request.kind}`, now);
+          const accepted = pdf ? (staff?.brokerage.id === demoBrokerageId ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
+          addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? accepted : "Replacement requested"} · ${request.kind}`, now);
           message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
           break;
         }
