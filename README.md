@@ -27,11 +27,13 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 3. On the original loan, choose **Refresh application**, review the submitted answers, and select **Mark reviewed**.
 4. Choose **Send to UWM (mock)**. The lender card shows a demo reference, an approved-with-conditions status, two outstanding conditions, and one cleared condition. **Sync UWM** refreshes the same lender record.
 
-Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. For a loan with a linked realtor, **Preview realtor update** shows the current pipeline stage in a draft email. The preview is display-only and contains no application or underwriting details.
+Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. **My Tasks** uses your signed-in account for matching. New loans start assigned to you. For existing loans, open **Edit loan** and select **Assign to my account** to connect the assignment to your login.
+
+When a 1003 is submitted or a loan changes pipeline stage, Orbit creates a draft for the borrower and any linked realtor. Open **Communications** to see the queue or open a loan to see its draft history. Preview email or text and copy it to use in your messaging app. The history records when each channel was first copied. Realtor drafts contain only a milestone update. Drafts from earlier stages remain in the history.
 
 ## Work a loan and price a scenario
 
-Open **Tasks** to filter by loan officer, due time, or completion. Use **My tasks** for the demo officer Alex Morgan. From a loan, add a follow-up and log notes, calls, email, or texts on its activity timeline.
+Open **Tasks** to filter by loan officer, due time, or completion. In the local demo without Google sign-in, **My Tasks** shows the sample officer Alex Morgan. From a loan, add a follow-up and log notes, calls, email, or texts on its activity timeline.
 
 Open a loan and select **Price loan**, then **Load sample scenario** and **Run pricing**. Compare conventional fixed-rate examples, save an option, and use **Preview borrower quote**. The preview identifies sample pricing and explains what the principal-and-interest payment covers. A new pricing run preserves the last saved quote until the LO selects another.
 

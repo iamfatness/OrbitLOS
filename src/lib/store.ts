@@ -1,4 +1,4 @@
-import type { Activity, Contact, Loan, LoanTask, Submission, Workspace } from "./model";
+import type { Activity, CommunicationDraft, Contact, Loan, LoanTask, Submission, Workspace } from "./model";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
@@ -25,7 +25,7 @@ export function initializeStore(db: Store) {
       id TEXT PRIMARY KEY, contactId TEXT NOT NULL REFERENCES contacts(id),
       partnerId TEXT REFERENCES contacts(id), officer TEXT NOT NULL, address TEXT NOT NULL,
       amount INTEGER NOT NULL CHECK(amount >= 0), purpose TEXT NOT NULL,
-      stage TEXT NOT NULL, stageSince TEXT NOT NULL
+      stage TEXT NOT NULL, stageSince TEXT NOT NULL, officerEmail TEXT
     );
     CREATE TABLE IF NOT EXISTS submissions (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
@@ -56,6 +56,13 @@ export function initializeStore(db: Store) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
     );
+    CREATE TABLE IF NOT EXISTS communication_drafts (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      contactId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      audience TEXT NOT NULL, milestone TEXT NOT NULL, createdAt TEXT NOT NULL,
+      emailCopiedAt TEXT, textCopiedAt TEXT,
+      UNIQUE (loanId, contactId, audience, milestone)
+    );
     CREATE TABLE IF NOT EXISTS pricing_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       provider TEXT NOT NULL, mode TEXT NOT NULL, reference TEXT, scenario TEXT NOT NULL,
@@ -73,6 +80,9 @@ export function initializeStore(db: Store) {
     if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "kind")) {
       db.exec("ALTER TABLE activity ADD COLUMN kind TEXT NOT NULL DEFAULT 'Note'");
     }
+    if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "officerEmail")) {
+      db.exec("ALTER TABLE loans ADD COLUMN officerEmail TEXT");
+    }
     createApplicationFollowUps(db);
     if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();
@@ -89,8 +99,8 @@ export function insertContact(db: Store, contact: Contact) {
 }
 
 export function insertLoan(db: Store, loan: Loan) {
-  db.prepare("INSERT INTO loans (id, contactId, partnerId, officer, address, amount, purpose, stage, stageSince) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(loan.id, loan.contactId, loan.partnerId, loan.officer, loan.address, loan.amount, loan.purpose, loan.stage, loan.stageSince);
+  db.prepare("INSERT INTO loans (id, contactId, partnerId, officer, address, amount, purpose, stage, stageSince, officerEmail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(loan.id, loan.contactId, loan.partnerId, loan.officer, loan.address, loan.amount, loan.purpose, loan.stage, loan.stageSince, loan.officerEmail);
 }
 
 export function insertSubmission(db: Store, submission: Submission) {
@@ -111,6 +121,7 @@ export function workspace(db: Store): Workspace {
       .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) })),
     activity: rows<Activity>(db, "SELECT * FROM activity ORDER BY createdAt DESC, id"),
     tasks: rows<LoanTask>(db, "SELECT * FROM tasks ORDER BY completedAt IS NOT NULL, dueAt, id"),
+    communicationDrafts: rows<CommunicationDraft>(db, "SELECT * FROM communication_drafts ORDER BY createdAt DESC, rowid DESC"),
     applications: staffApplications(db),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run

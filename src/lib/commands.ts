@@ -6,6 +6,9 @@ import { addApplicationActivity, getApplication, startApplication } from "./appl
 import { pricingScenario, type PricingOffer } from "./pricing-model";
 import { PricingError, pricingProvider } from "./pricing-provider";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
+import { createMilestoneDrafts, recordDraftCopy } from "./communications";
+import { draftChannels } from "./communication-templates";
+import type { StaffIdentity } from "./staff-store";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -21,12 +24,14 @@ const command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("loan"), id: id.optional(), contactId: z.union([id, z.literal("")]),
     borrower: z.string().trim().max(160), partnerId: id.nullable(),
-    officer: z.string().trim().max(160), address: z.string().trim().max(240),
+    officer: z.string().trim().max(160), assignToSelf: z.boolean().optional(), address: z.string().trim().max(240),
     amount: z.number().int().min(0).max(1_000_000_000),
     purpose: z.enum(["Purchase", "Refinance"]), stage: z.enum(stages),
   }),
   z.object({ type: z.literal("deleteLoan"), id }),
   z.object({ type: z.literal("move"), id, stage: z.enum(stages) }),
+  z.object({ type: z.literal("copyDraft"), loanId: id, contactId: id, audience: z.enum(["Borrower", "Realtor"]),
+    milestone: z.enum([...stages, "Application received"]), channel: z.enum(draftChannels) }),
   z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000) }),
   z.object({ type: z.literal("submission"), id: id.optional(), loanId: id, lender: label, externalId: label, status: label }),
   z.object({ type: z.literal("deleteSubmission"), id }),
@@ -45,7 +50,7 @@ const command = z.discriminatedUnion("type", [
 
 class WorkspaceError extends Error {}
 
-export async function executeCommand(db: Store, input: unknown): Promise<{ state: Workspace; message: string } | { error: string }> {
+export async function executeCommand(db: Store, input: unknown, staff: StaffIdentity | null = null): Promise<{ state: Workspace; message: string } | { error: string }> {
   const parsed = command.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Check the form and try again." };
   const data = parsed.data;
@@ -154,7 +159,7 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
           db.prepare("DELETE FROM contacts WHERE id = ?").run(data.id);
           break;
         case "loan": {
-          const current = data.id ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(data.id) : undefined;
+          const current = data.id ? db.prepare("SELECT stage, stageSince, officer, officerEmail FROM loans WHERE id = ?").get(data.id) : undefined;
           if (data.id && !current) throw new WorkspaceError("This loan no longer exists.");
           if (data.partnerId && !db.prepare("SELECT 1 FROM contacts WHERE id = ? AND role = 'Realtor'").get(data.partnerId)) {
             throw new WorkspaceError("Select an existing realtor.");
@@ -169,20 +174,38 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
             contactId = crypto.randomUUID();
             insertContact(db, { id: contactId, name: data.borrower, email: "", phone: "", role: "Borrower" });
           }
+          if (data.assignToSelf && !staff) throw new WorkspaceError("Sign in to assign this loan to your account.");
+          const owner = data.assignToSelf ? staff : null;
+          const officer = owner?.name.slice(0, 160) ?? data.officer;
+          const unlinkSelf = data.assignToSelf === false && staff?.email === current?.officerEmail;
+          const keepOwner = !unlinkSelf && data.officer === current?.officer && typeof current.officerEmail === "string";
+          const officerEmail = owner?.email ?? (keepOwner ? String(current.officerEmail) : null);
           const stageSince = current?.stage === data.stage ? String(current.stageSince) : now;
+          const loanId = data.id ?? crypto.randomUUID();
           if (data.id) {
-            db.prepare("UPDATE loans SET contactId = ?, partnerId = ?, officer = ?, address = ?, amount = ?, purpose = ?, stage = ?, stageSince = ? WHERE id = ?")
-              .run(contactId, data.partnerId, data.officer, data.address, data.amount, data.purpose, data.stage, stageSince, data.id);
+            db.prepare("UPDATE loans SET contactId = ?, partnerId = ?, officer = ?, officerEmail = ?, address = ?, amount = ?, purpose = ?, stage = ?, stageSince = ? WHERE id = ?")
+              .run(contactId, data.partnerId, officer, officerEmail, data.address, data.amount, data.purpose, data.stage, stageSince, loanId);
           } else {
-            insertLoan(db, { ...data, id: crypto.randomUUID(), contactId, stageSince });
+            insertLoan(db, { ...data, id: loanId, officer, officerEmail, contactId, stageSince });
           }
+          if (current?.stage !== data.stage && (current || data.stage !== "Lead")) createMilestoneDrafts(db, loanId, data.stage, now);
           break;
         }
         case "deleteLoan":
           db.prepare("DELETE FROM loans WHERE id = ?").run(data.id);
           break;
-        case "move":
-          db.prepare("UPDATE loans SET stage = ?, stageSince = ? WHERE id = ? AND stage <> ?").run(data.stage, now, data.id, data.stage);
+        case "move": {
+          const loan = db.prepare("SELECT stage FROM loans WHERE id = ?").get(data.id);
+          if (!loan) throw new WorkspaceError("This loan no longer exists.");
+          if (loan.stage !== data.stage) {
+            db.prepare("UPDATE loans SET stage = ?, stageSince = ? WHERE id = ?").run(data.stage, now, data.id);
+            createMilestoneDrafts(db, data.id, data.stage, now);
+          }
+          break;
+        }
+        case "copyDraft":
+          if (!recordDraftCopy(db, data, now)) throw new WorkspaceError("This draft or recipient has changed. Refresh the loan before copying again.");
+          message = "Draft copy recorded.";
           break;
         case "note":
           db.prepare("INSERT INTO activity (id, loanId, text, createdAt, kind) VALUES (?, ?, ?, ?, ?)")

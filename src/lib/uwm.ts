@@ -153,7 +153,7 @@ export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
         email: "", phone: "", role: "Borrower",
       });
       insertLoan(db, {
-        id: loanId, contactId, partnerId: null, officer: "", address: "", amount: 0, purpose: "Purchase",
+        id: loanId, contactId, partnerId: null, officer: "", officerEmail: null, address: "", amount: 0, purpose: "Purchase",
         stage: initialStage[loan.LoanStatusDescription] ?? "Application", stageSince: now,
       });
       insertSubmission(db, {

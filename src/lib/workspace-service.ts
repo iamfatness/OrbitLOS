@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
 import { borrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
+import type { StaffIdentity } from "./staff-store";
 import { initializeStore, workspace, type SqlValue, type Store } from "./store";
 
 let connection: Store | undefined;
@@ -52,8 +53,8 @@ export function loadWorkspace() {
   return workspace(database());
 }
 
-export async function updateWorkspace(input: unknown) {
-  return executeCommand(database(), input);
+export async function updateWorkspace(input: unknown, staff: StaffIdentity | null) {
+  return executeCommand(database(), input, staff);
 }
 
 export async function updateBorrowerApplication(input: unknown) {

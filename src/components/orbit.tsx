@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
-  List, LogOut, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, Wallet, X, Zap,
+  List, LogOut, Mail, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, Wallet, X, Zap,
 } from "lucide-react";
 import { mutate } from "@/app/actions";
 import { stages, type Loan, type Stage, type Workspace } from "@/lib/model";
@@ -12,8 +12,9 @@ import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
 import type { StaffIdentity } from "@/lib/staff-store";
+import { CommunicationQueue } from "./loan-communications";
 
-type Section = "Pipeline" | "Contacts" | "Tasks" | "Integrations";
+type Section = "Pipeline" | "Contacts" | "Tasks" | "Communications" | "Integrations";
 const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
@@ -21,11 +22,20 @@ const navigation = [
   { label: "Pipeline", icon: LayoutDashboard },
   { label: "Contacts", icon: ContactRound },
   { label: "Tasks", icon: ClipboardCheck },
+  { label: "Communications", icon: Mail },
   { label: "Integrations", icon: Zap },
 ] as const;
 
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
 const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: "" };
+const taskOwner = (loan: Loan) => loan.officerEmail ? `account:${loan.officerEmail}` : `name:${loan.officer}`;
+const descriptions: Record<Section, string> = {
+  Pipeline: "Manage your loans and keep up with lender updates.",
+  Contacts: "Manage borrowers, co-borrowers, and realtor partners.",
+  Tasks: "See which loans need a follow-up and who owns it.",
+  Communications: "Preview and copy milestone drafts for borrowers and realtors.",
+  Integrations: "Manage your lender connections and refresh loan data.",
+};
 
 function LoanCard({ loan, name, lenders, count, onOpen, onDrag, onDragEnd }: {
   loan: Loan; name: string; lenders: string[]; count: number; onOpen: () => void;
@@ -85,11 +95,14 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
   const openTasks = state.tasks.filter((task) => !task.completedAt).length;
   const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
-  const officers = [...new Set(state.loans.map((loan) => loan.officer).filter(Boolean))].sort();
+  const officers = new Map(state.loans.filter((loan) => loan.officer).map((loan) => [
+    taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
+  ]));
+  const mine = staff ? `account:${staff.email}` : `name:${demoOfficer}`;
   const taskNow = Date.parse(new Date().toISOString());
   const visibleTasks = state.tasks.filter((task) => {
     const loan = taskLoans.get(task.loanId);
-    if (!loan || (taskOfficer && loan.officer !== taskOfficer)) return false;
+    if (!loan || (taskOfficer && taskOwner(loan) !== (taskOfficer === "mine" ? mine : taskOfficer))) return false;
     if (taskView === "All") return true;
     if (taskView === "Completed") return !!task.completedAt;
     if (task.completedAt) return false;
@@ -136,7 +149,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
     setSection(next);
     setQuery("");
     setError("");
-    if (next === "Tasks") void save({ type: "refreshWorkspace" }, undefined, false);
+    if (next === "Tasks" || next === "Communications") void save({ type: "refreshWorkspace" }, undefined, false);
   }
 
   function show(next: Modal) {
@@ -193,12 +206,13 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
           <div className="page-heading">
             <div><p className="eyebrow">ORBIT WORKSPACE</p>
               <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
-              <p>{section === "Pipeline" ? "Manage your loans and keep up with lender updates." : section === "Contacts" ? "Manage borrowers, co-borrowers, and realtor partners." : section === "Tasks" ? "See which loans need a follow-up and who owns it." : "Manage your lender connections and refresh loan data."}</p>
+              <p>{descriptions[section]}</p>
             </div>
             <div className="heading-actions">
               {section === "Pipeline" && <>{syncButton()}<Button onClick={() => show({ kind: "loan" })}><Plus /> New loan</Button></>}
               {section === "Contacts" && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
+              {section === "Communications" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh drafts</Button>}
             </div>
           </div>
 
@@ -273,11 +287,12 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
             <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length} shown</span></h2><p>Review upcoming work and follow up on open loans.</p></div></div>
             <div className="filter-row">
-              <Button size="sm" variant={taskOfficer === demoOfficer ? "default" : "outline"} aria-pressed={taskOfficer === demoOfficer}
-                onClick={() => setTaskOfficer(taskOfficer === demoOfficer ? "" : demoOfficer)}>{staff ? "Alex Morgan’s tasks" : "My tasks"}</Button>
+              <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
+                onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
               <select aria-label="Task status" value={taskView} onChange={(event) => setTaskView(event.target.value as TaskView)}>{taskViews.map((item) => <option key={item}>{item}</option>)}</select>
               <select aria-label="Task owner" value={taskOfficer} onChange={(event) => setTaskOfficer(event.target.value)}>
-                <option value="">All officers</option>{[...new Set([demoOfficer, ...officers])].map((officer) => <option key={officer}>{officer}</option>)}
+                <option value="">All officers</option><option value="mine">My Tasks</option>
+                {[...officers].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
             </div>
             {visibleTasks.length ? <ul className="task-queue">
@@ -288,8 +303,13 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
                   openLoan={() => show({ kind: "details", loanId: loan.id })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
+            </ul> : <p className="empty-inline no-matches">{taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
+              ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
+              : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
+
+          {section === "Communications" && <CommunicationQueue state={state}
+            preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />}
 
           {section === "Integrations" && <section className="integration">
             <div className="integration-head"><span className="metric-icon lavender"><Zap size={20} /></span><div><h2>United Wholesale Mortgage</h2><p>Mock lender connection</p></div><span className="pill">Demo mode</span></div>
@@ -299,7 +319,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
           </section>}
         </div>
       </main>
-      {modal && <RecordDialog modal={modal} state={state} busy={busy} error={error} save={save} show={show} close={close} />}
+      {modal && <RecordDialog modal={modal} state={state} staff={staff} busy={busy} error={error} save={save} show={show} close={close} />}
     </div>
   );
 }

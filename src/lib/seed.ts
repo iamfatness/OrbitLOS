@@ -25,7 +25,7 @@ export function demoRecords() {
     const contactId = `contact-${index + 1}`;
     contacts.push({ id: contactId, name, email: `borrower${index + 1}@example.test`, phone: "", role: "Borrower" });
     return {
-      id: `loan-${index + 1}`, contactId, address, amount, stage, officer,
+      id: `loan-${index + 1}`, contactId, address, amount, stage, officer, officerEmail: null,
       partnerId: index % 3 === 0 ? "partner-1" : index % 3 === 1 ? "partner-2" : null,
       purpose: index % 4 === 1 ? "Refinance" : "Purchase",
       stageSince: new Date(Date.now() - days * 86_400_000).toISOString(),

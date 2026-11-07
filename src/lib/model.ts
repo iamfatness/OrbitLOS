@@ -22,6 +22,7 @@ export interface Loan {
   contactId: string;
   partnerId: string | null;
   officer: string;
+  officerEmail: string | null;
   address: string;
   amount: number;
   purpose: Purpose;
@@ -67,12 +68,28 @@ export interface LoanTask {
   completedAt: string | null;
 }
 
+export type DraftAudience = "Borrower" | "Realtor";
+export type DraftMilestone = Stage | "Application received";
+export type DraftChannel = "Email" | "Text";
+
+export interface CommunicationDraft {
+  id: string;
+  loanId: string;
+  contactId: string;
+  audience: DraftAudience;
+  milestone: DraftMilestone;
+  createdAt: string;
+  emailCopiedAt: string | null;
+  textCopiedAt: string | null;
+}
+
 export interface Workspace {
   contacts: Contact[];
   loans: Loan[];
   submissions: Submission[];
   activity: Activity[];
   tasks: LoanTask[];
+  communicationDrafts: CommunicationDraft[];
   applications: StaffApplication[];
   pricingRuns: PricingRun[];
   uwmSyncedAt: string | null;

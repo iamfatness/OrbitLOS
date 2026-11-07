@@ -36,8 +36,8 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return workspace(this.#store);
   }
 
-  async write(input: unknown) {
-    return executeCommand(this.#store, input);
+  async write(input: unknown, staff: StaffIdentity | null) {
+    return executeCommand(this.#store, input, staff);
   }
 
   borrower(input: unknown) {
