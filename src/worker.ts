@@ -12,11 +12,17 @@ import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHi
 import { assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
 import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
+import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDocumentUpload, finishDocumentUpload,
+  issueDocumentCode, nextDocumentCleanup, recordDocumentDownload, verifyDocumentCode, type UploadAccess } from "./lib/document-files";
+import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
+import { documentKey } from "./lib/document-files-model";
+import { z } from "zod";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
   readonly #auth: StaffAuthStore;
   readonly #id: string;
+  readonly #documents?: R2Bucket;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -35,6 +41,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     };
     if (!ctx.id.name || !brokerageIdPattern.test(ctx.id.name)) throw new Error("Invalid Orbit workspace name.");
     this.#id = ctx.id.name;
+    this.#documents = (env as Cloudflare.Env & DocumentEnvironment).DOCUMENTS;
     initializeStore(this.#store, this.#id === demoBrokerageId);
     if (this.#id === demoBrokerageId) initializeBrokerages(this.#store);
     this.#auth = staffAuthStore(this.#store);
@@ -51,7 +58,54 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   async write(input: unknown, staff: WorkspaceStaff | null) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
-    return executeCommand(this.#store, input, staff);
+    const result = await executeCommand(this.#store, input, staff);
+    if ("state" in result && input && typeof input === "object" && "type" in input && input.type === "deleteLoan") await this.#scheduleCleanup();
+    return result;
+  }
+
+  issueUploadCode(token: string, secret: string) { return issueDocumentCode(this.#store, token, secret); }
+  verifyUploadCode(token: string, code: string, secret: string) { return verifyDocumentCode(this.#store, token, code, secret); }
+  async beginUpload(input: UploadAccess) {
+    const result = beginDocumentUpload(this.#store, input);
+    if ("objectId" in result) await this.#scheduleCleanup();
+    return result;
+  }
+  async finishUpload(input: UploadAccess, objectId: string) {
+    const result = finishDocumentUpload(this.#store, input, objectId);
+    await this.#scheduleCleanup();
+    return result;
+  }
+  async failUpload(requestId: string, objectId: string) {
+    failDocumentUpload(this.#store, requestId, objectId);
+    await this.#scheduleCleanup();
+  }
+  downloadDocument(staff: WorkspaceStaff, requestId: string) {
+    return this.#accepts(staff) ? downloadableDocument(this.#store, staff, requestId) : null;
+  }
+  auditDocumentDownload(staff: WorkspaceStaff, requestId: string, objectId: string) {
+    return this.#accepts(staff) && recordDocumentDownload(this.#store, staff, requestId, objectId);
+  }
+  async #scheduleCleanup() {
+    if (!this.#documents) return;
+    const next = nextDocumentCleanup(this.#store);
+    if (next === null) return;
+    try {
+      const current = await this.ctx.storage.getAlarm();
+      if (current === null || current > next) await this.ctx.storage.setAlarm(next);
+    } catch { console.warn("Orbit could not schedule document cleanup."); }
+  }
+  async alarm() {
+    if (!this.#documents) return;
+    const objects = documentCleanupBatch(this.#store);
+    try {
+      if (objects.length) {
+        await this.#documents.delete(objects.map((id) => documentKey(this.#id, id)));
+        this.#store.transaction(() => {
+          for (const id of objects) this.#store.prepare("DELETE FROM document_file_cleanup WHERE objectId = ?").run(id);
+        });
+      }
+    } catch { console.warn("Orbit will retry private document cleanup."); }
+    await this.#scheduleCleanup();
   }
 
   activateStaff(staff: StaffIdentity, emails: string[]) { return activateBrokerages(this.#store, staff, emails); }
@@ -74,7 +128,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   borrower(input: unknown) {
-    return borrowerCommandResult(this.#store, input);
+    return borrowerCommandResult(this.#store, input, this.#id === demoBrokerageId || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled");
   }
 
   realtor(input: unknown) {
@@ -135,13 +189,28 @@ export default {
       if (!id || (id !== demoBrokerageId && !await directory.hasBrokerage(id))) return null;
       return env.WORKSPACE.getByName(id);
     }
+    const filesEnv = env as Cloudflare.Env & DocumentEnvironment;
+    const uploads = google ? uploadSettings(filesEnv, url) : null;
+    async function uploadWorkspace(token: string) {
+      const id = portalBrokerage(token);
+      if (!id || id === demoBrokerageId) return null;
+      const store = await linkedWorkspace(token);
+      return store ? { id, store } : null;
+    }
+    if (request.method === "POST" && url.pathname === "/api/borrower-documents/verify") {
+      return verifyBorrowerEmail(request, uploads, async (token) => (await uploadWorkspace(token))?.store ?? null);
+    }
+    if (request.method === "POST" && url.pathname === "/api/borrower-documents/upload") {
+      try { return await uploadBorrowerPdf(request, uploads, uploadWorkspace); }
+      catch { return fileProblem(503, "Orbit could not process this PDF. Try again shortly."); }
+    }
     const placesKey = runtimeSetting(env, "GOOGLE_PLACES_API_KEY").trim();
     // This endpoint can reach only the token-scoped borrower command.
     if (request.method === "POST" && url.pathname === "/api/demo-application") {
       return borrowerHttp(request, async (input) => {
         const workspace = await linkedWorkspace(input);
         return workspace ? workspace.borrower(input) : { status: 404, error: "This application link is invalid or expired." };
-      }, Boolean(placesKey));
+      }, Boolean(placesKey), Boolean(uploads));
     }
     if (request.method === "POST" && url.pathname === "/api/demo-address") {
       return placesHttp(request, placesKey, async (token) => (await linkedWorkspace(token))?.reserveAddressLookup(token) ?? 404);
@@ -191,6 +260,23 @@ export default {
     }
     if (!reading && request.headers.get("Origin") !== url.origin) {
       return new Response("This action must come from Orbit.", { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    if (request.method === "GET" && url.pathname === "/api/documents/download") {
+      const requestId = z.uuid().safeParse(url.searchParams.get("request"));
+      if (!staff || !filesEnv.DOCUMENTS || !requestId.success) return fileProblem(404, "This PDF is unavailable.");
+      const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
+      try {
+        const document = await workspace.downloadDocument(staff, requestId.data);
+        if (!document) return fileProblem(404, "This PDF is unavailable.");
+        const object = await filesEnv.DOCUMENTS.get(documentKey(staff.brokerage.id, document.objectId));
+        if (!object) return fileProblem(404, "This PDF is unavailable.");
+        const access = (await directory.staffBrokerages(staff.email, bootstrapEmails)).find((item) => item.id === staff?.brokerage.id);
+        if (!access || !await workspace.auditDocumentDownload({ ...staff, brokerage: access }, requestId.data, document.objectId)) {
+          await object.body.cancel();
+          return fileProblem(404, "This PDF is unavailable.");
+        }
+        return privatePdf(object);
+      } catch { return fileProblem(503, "Orbit could not retrieve this PDF. Try again shortly."); }
     }
     if (url.pathname === "/api/brokerages") {
       const headers = { "Cache-Control": "private, no-store" };

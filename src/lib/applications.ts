@@ -7,6 +7,7 @@ import { lenderDetailsSchema, normalizeUrla } from "./urla";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
 import type { BorrowerQuote } from "./pricing-model";
+import { pdfColumns } from "./document-files-model";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "lender"> & { draft: string; step: number; revision: number };
 
@@ -76,8 +77,9 @@ function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
   const quote = loan && db.prepare("SELECT product, rate, principalAndInterest, quotedAt, publishedAt FROM published_quotes WHERE loanId = ?").get(row.loanId);
   const loanStatus: BorrowerLoanStatus | null = loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
-    documents: db.prepare(`SELECT id, kind, instructions, status, replacementNote, submittedAt, revision
-      FROM document_requests WHERE loanId = ? ORDER BY requestedAt, id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
+    documents: db.prepare(`SELECT requests.id, kind, instructions, status, replacementNote, submittedAt, revision, ${pdfColumns()}
+      FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
+      WHERE loanId = ? ORDER BY requestedAt, requests.id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
     quote: quote ? { ...quote } as unknown as BorrowerQuote : null,
   } : null;
   return { application: {
@@ -87,7 +89,7 @@ function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
   } };
 }
 
-export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult {
+export function borrowerCommandResult(db: Store, input: unknown, allowSample = true): BorrowerResult {
   const parsed = borrowerCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check the length of your answers and use valid amounts, then try again." };
   const data = parsed.data;
@@ -98,10 +100,14 @@ export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult
     if (!row) return { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
     if (data.type === "read" || (data.type === "submit" && row.submittedAt)) return borrowerResult(db, row);
     if (data.type === "attachSample") {
+      if (!allowSample) return { status: 409, error: "Use the verified PDF upload for this checklist." };
       if (!row.submittedAt) return { status: 409, error: "Submit your application to open the document checklist." };
       const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
         .get(data.requestId, row.loanId);
       if (!request) return { status: 404, error: "This document request is unavailable." };
+      if (db.prepare("SELECT 1 FROM document_files WHERE requestId = ? AND (objectId IS NOT NULL OR pendingUntil > ?)").get(data.requestId, Date.parse(now))) {
+        return { status: 409, error: "Continue with the PDF upload for this request." };
+      }
       if (request.status === "Received" && request.revision === data.revision + 1) return borrowerResult(db, row);
       if (request.revision !== data.revision || !needsBorrowerDocument(request.status as DocumentRequest["status"])) {
         return { status: 409, error: "This document request changed. Refresh status before attaching a sample." };

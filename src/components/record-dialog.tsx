@@ -223,7 +223,7 @@ function LenderApplicationDetails({ application, busy, save }: { application: St
   </details>;
 }
 
-function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Workspace; busy: boolean; save: Save; show: (modal: Modal) => void }) {
+function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; save: Save; show: (modal: Modal) => void }) {
   const [activityKind, setActivityKind] = useState<ActivityKind>("Note");
   const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
@@ -262,7 +262,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
       </section>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
-      <LoanDocuments loanId={loan.id} requests={requests} openConditionRequests={openConditionRequests}
+      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} requests={requests} openConditionRequests={openConditionRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
@@ -353,7 +353,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       </div>
       {error && <p className="dialog-error" role="alert">{error}</p>}
       <div className="dialog-content" key={key}>
-        {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} busy={busy} save={save} show={show} />}
+        {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} staff={staff} busy={busy} save={save} show={show} />}
         {modal.kind === "communication" && loan && <CommunicationPreview loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} busy={busy} save={save} />}
         {modal.kind === "documentFollowUp" && loan && <DocumentFollowUp loan={loan} state={state} />}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save} />}

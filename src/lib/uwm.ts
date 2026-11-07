@@ -102,7 +102,7 @@ export function sendMockConditionDocument(db: Store, loanId: string, requestId: 
     FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
     WHERE requests.id = ? AND requests.loanId = ?`).get(requestId, loanId);
   if (!request || request.status !== "Accepted" || typeof request.submissionId !== "string") {
-    return { error: "Accept a sample linked to a UWM condition before sending it." };
+    return { error: "Accept a document linked to a UWM condition before recording mock delivery." };
   }
   if (typeof request.receipt === "string") return { receipt: request.receipt };
   const conditions = uwmSubmissionConditions(db, loanId, request.submissionId);
@@ -111,7 +111,8 @@ export function sendMockConditionDocument(db: Store, loanId: string, requestId: 
   }
   const receipt = `DEMO-DOC-${crypto.randomUUID().toUpperCase()}`;
   db.prepare("INSERT INTO uwm_document_deliveries (requestId, receipt, sentAt) VALUES (?, ?, ?)").run(requestId, receipt, now);
-  addApplicationActivity(db, loanId, `Sample sent to UWM (mock) · ${request.kind} · ${receipt}`, now);
+  const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(requestId)?.objectId;
+  addApplicationActivity(db, loanId, `${pdf ? "Mock UWM delivery recorded" : "Sample sent to UWM (mock)"} · ${request.kind} · ${receipt}`, now);
   return { receipt };
 }
 

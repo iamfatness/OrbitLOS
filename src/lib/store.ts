@@ -4,6 +4,7 @@ import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
 import type { MockUwmRate, PricingRun, PublishedQuote } from "./pricing-model";
 import type { LoanDocumentRequest } from "./document-model";
+import { pdfColumns } from "./document-files-model";
 import { synchronizeRetentionTasks } from "./client-retention";
 
 export type SqlValue = string | number | null;
@@ -149,6 +150,26 @@ export function initializeStore(db: Store, seedDemo = true) {
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
       receipt TEXT NOT NULL UNIQUE, sentAt TEXT NOT NULL, mockClearedAt TEXT
     )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS borrower_upload_access (
+      loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
+      tokenHash TEXT NOT NULL, email TEXT NOT NULL, codeHash TEXT, codeUntil INTEGER NOT NULL,
+      sendWindow INTEGER NOT NULL, sendCount INTEGER NOT NULL, sentAt INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+      sessionHash TEXT, sessionUntil INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS document_files (
+      requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
+      objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL, failed INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS document_file_cleanup (objectId TEXT PRIMARY KEY);
+    CREATE TRIGGER IF NOT EXISTS document_files_deleted AFTER DELETE ON document_files BEGIN
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId WHERE OLD.objectId IS NOT NULL;
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL;
+    END;
+    CREATE TRIGGER IF NOT EXISTS document_files_replaced AFTER UPDATE ON document_files BEGIN
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId WHERE OLD.objectId IS NOT NULL AND OLD.objectId IS NOT NEW.objectId;
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL
+        AND OLD.pendingId IS NOT NEW.pendingId AND OLD.pendingId IS NOT NEW.objectId;
+    END;`);
     const rateColumns = new Set(db.prepare("PRAGMA table_info(mock_uwm_rates)").all().map((column) => column.name));
     for (const [column, type] of Object.entries({
       lockExtensionReference: "TEXT", lockExtensionDays: "INTEGER", lockCancellationReference: "TEXT", lockCancelledAt: "TEXT",
@@ -205,8 +226,9 @@ export function workspace(db: Store): Workspace {
     closingItems: rows<ClosingItem>(db, "SELECT * FROM closing_items ORDER BY completedAt IS NOT NULL, dueDate, id"),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt FROM realtor_portals"),
     applications: staffApplications(db),
-    documentRequests: rows<LoanDocumentRequest>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt
+    documentRequests: rows<LoanDocumentRequest>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
+      LEFT JOIN document_files files ON files.requestId = requests.id
       ORDER BY requests.requestedAt, requests.id`),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run

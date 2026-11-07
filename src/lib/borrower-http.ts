@@ -1,4 +1,5 @@
 import type { BorrowerResult } from "./application-model";
+import { demoBrokerageId, portalBrokerage } from "./brokerage-model";
 
 const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer" };
 const maxRequestBytes = 262_144;
@@ -43,9 +44,11 @@ export async function borrowerJson<T>(request: Request, run: (input: unknown) =>
   }
 }
 
-export function borrowerHttp(request: Request, run: (input: unknown) => Promise<BorrowerResult>, addressLookupEnabled = false) {
+export function borrowerHttp(request: Request, run: (input: unknown) => Promise<BorrowerResult>, addressLookupEnabled = false, uploadsConfigured = false) {
   return borrowerJson(request, async (input) => {
     const result = await run(input);
-    return "error" in result ? result : { value: { ...result.application, addressLookupEnabled } };
+    if ("error" in result) return result;
+    const brokerage = portalBrokerage(input && typeof input === "object" && "token" in input ? input.token : null);
+    return { value: { ...result.application, addressLookupEnabled, documentUploadsEnabled: Boolean(uploadsConfigured && brokerage && brokerage !== demoBrokerageId) } };
   }, maxRequestBytes);
 }

@@ -152,6 +152,7 @@ export interface BorrowerApplication {
   submittedAt: string | null;
   loanStatus: BorrowerLoanStatus | null;
   addressLookupEnabled?: boolean;
+  documentUploadsEnabled?: boolean;
 }
 
 export interface StaffApplication {

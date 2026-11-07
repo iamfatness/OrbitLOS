@@ -13,6 +13,8 @@ export interface DocumentRequest {
   replacementNote: string;
   submittedAt: string | null;
   revision: number;
+  pdfStatus: "Processing" | "Ready" | "Retry" | null;
+  pdfUploadedAt: string | null;
 }
 
 export interface LoanDocumentRequest extends DocumentRequest {

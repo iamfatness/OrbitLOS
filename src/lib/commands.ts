@@ -269,7 +269,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (data.decision === "Needs replacement" && !data.replacementNote) throw new WorkspaceError("Tell the borrower what to replace.");
           db.prepare("UPDATE document_requests SET status = ?, replacementNote = ?, revision = revision + 1 WHERE id = ?")
             .run(data.decision, data.decision === "Accepted" ? "" : data.replacementNote, data.requestId);
-          addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? "Sample document accepted" : "Replacement requested"} · ${request.kind}`, now);
+          const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(data.requestId)?.objectId;
+          addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? pdf ? "Borrower PDF accepted" : "Sample document accepted" : "Replacement requested"} · ${request.kind}`, now);
           message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
           break;
         }
