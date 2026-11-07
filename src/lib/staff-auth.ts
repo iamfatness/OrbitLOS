@@ -26,7 +26,8 @@ export function googleSettings(env: object): GoogleSettings | null {
   return {
     clientId: setting("GOOGLE_CLIENT_ID"),
     clientSecret: setting("GOOGLE_CLIENT_SECRET"),
-    allowedEmails: new Set(setting("ORBIT_STAFF_EMAILS").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean)),
+    allowedEmails: new Set([setting("ORBIT_STAFF_EMAILS"), setting("ORBIT_STAFF_EMAILS_EXTRA")]
+      .flatMap((list) => list.split(",")).map((email) => email.trim().toLowerCase()).filter(Boolean)),
   };
 }
 

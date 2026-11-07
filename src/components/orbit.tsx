@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
-  List, LogOut, Mail, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, Wallet, X, Zap,
+  HeartHandshake, List, LogOut, Mail, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, UsersRound, Wallet, X, Zap,
 } from "lucide-react";
 import { mutate } from "@/app/actions";
 import { stages, type Loan, type Stage, type Workspace } from "@/lib/model";
@@ -13,14 +13,18 @@ import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
 import type { StaffIdentity } from "@/lib/staff-store";
 import { CommunicationQueue } from "./loan-communications";
+import { RealtorCrm } from "./realtor-crm";
+import { PastClients } from "./past-client-crm";
 
-type Section = "Pipeline" | "Contacts" | "Tasks" | "Communications" | "Integrations";
+type Section = "Pipeline" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations";
 const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
 const navigation = [
   { label: "Pipeline", icon: LayoutDashboard },
   { label: "Contacts", icon: ContactRound },
+  { label: "Realtors", icon: UsersRound },
+  { label: "Past Clients", icon: HeartHandshake },
   { label: "Tasks", icon: ClipboardCheck },
   { label: "Communications", icon: Mail },
   { label: "Integrations", icon: Zap },
@@ -32,6 +36,8 @@ const taskOwner = (loan: Loan) => loan.officerEmail ? `account:${loan.officerEma
 const descriptions: Record<Section, string> = {
   Pipeline: "Manage your loans and keep up with lender updates.",
   Contacts: "Manage borrowers, co-borrowers, and realtor partners.",
+  Realtors: "Track referred loans and share milestone updates with realtor partners.",
+  "Past Clients": "Keep in touch after closing with anniversary reminders and rate targets.",
   Tasks: "See which loans need a follow-up and who owns it.",
   Communications: "Preview and copy milestone drafts for borrowers and realtors.",
   Integrations: "Manage your lender connections and refresh loan data.",
@@ -149,7 +155,9 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
     setSection(next);
     setQuery("");
     setError("");
-    if (next === "Tasks" || next === "Communications") void save({ type: "refreshWorkspace" }, undefined, false);
+    if (next === "Tasks" || next === "Communications" || next === "Realtors" || next === "Past Clients") {
+      void save({ type: "refreshWorkspace" }, undefined, false);
+    }
   }
 
   function show(next: Modal) {
@@ -310,6 +318,12 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
 
           {section === "Communications" && <CommunicationQueue state={state}
             preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />}
+
+          {section === "Realtors" && <RealtorCrm state={state} busy={busy} save={save}
+            openLoan={(loanId) => show({ kind: "details", loanId })} editRealtor={(contactId) => show({ kind: "contact", contactId })} />}
+
+          {section === "Past Clients" && <PastClients state={state} openLoan={(loanId) => show({ kind: "details", loanId })}
+            editRetention={(loanId) => show({ kind: "retention", loanId })} />}
 
           {section === "Integrations" && <section className="integration">
             <div className="integration-head"><span className="metric-icon lavender"><Zap size={20} /></span><div><h2>United Wholesale Mortgage</h2><p>Mock lender connection</p></div><span className="pill">Demo mode</span></div>

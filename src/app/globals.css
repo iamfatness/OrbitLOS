@@ -184,6 +184,16 @@ button:disabled { cursor: default; }
 .communication-preview dt { color: var(--muted); font-weight: 700; }
 .communication-preview dd { overflow-wrap: anywhere; }
 .communication-message { width: 100%; min-width: 0; resize: vertical; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: #faf8fd; }
+.relationship-stack { display: grid; gap: 12px; }
+.relationship-panel { display: grid; gap: 10px; padding: 16px; }
+.relationship-panel h2 { font-size: 18px; font-weight: 750; }
+.relationship-panel .field { max-width: 360px; }
+.relationship-inset { padding: 0 17px 12px; }
+.relationship-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.referral-portal { width: min(100% - 24px, 790px); margin: 24px auto; }
+.referral-portal > .page-heading { margin-top: 24px; }
+.referral-portal-help { margin-top: 12px; }
+.record-form .field textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
 .record-dialog-wide { max-width: min(660px, 100vw); }
 .pricing-panel { display: grid; gap: 14px; }
 .pricing-heading { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
@@ -269,8 +279,8 @@ button:disabled { cursor: default; }
   .brand-icon { width: 30px; height: 30px; border-radius: 8px; }
   .brand-icon svg { width: 17px; }
   .workspace-label, .sidebar-bottom { display: none; }
-  .sidebar nav { margin-left: auto; display: flex; gap: 3px; }
-  .nav-item { padding: 6px; font-size: 11px; gap: 3px; }
+  .sidebar nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 3px; }
+  .nav-item { width: auto; padding: 6px; font-size: 11px; gap: 3px; }
   .nav-item svg { width: 13px; }
   .nav-count { display: none; }
   .topbar { height: 42px; padding-inline: 12px; }
@@ -290,7 +300,6 @@ button:disabled { cursor: default; }
 @media (max-width: 520px) {
   .sidebar { flex-wrap: wrap; }
   .sidebar nav { flex: 1 1 100%; justify-content: space-between; flex-wrap: wrap; }
-  .nav-item { width: auto; }
   .nav-item svg { display: none; }
   .topbar > span > .muted, .topbar .slash { display: none; }
   .application-shell { width: calc(100% - 20px); }

@@ -1,8 +1,9 @@
-import type { Activity, CommunicationDraft, Contact, Loan, LoanTask, Submission, Workspace } from "./model";
+import type { Activity, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, RealtorPortal, Submission, Workspace } from "./model";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
 import type { PricingRun } from "./pricing-model";
+import { synchronizeRetentionTasks } from "./client-retention";
 
 export type SqlValue = string | number | null;
 
@@ -63,6 +64,16 @@ export function initializeStore(db: Store) {
       emailCopiedAt TEXT, textCopiedAt TEXT,
       UNIQUE (loanId, contactId, audience, milestone)
     );
+    CREATE TABLE IF NOT EXISTS past_client_profiles (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
+      closingDate TEXT, currentRate REAL, targetRate REAL, observedRate REAL, checkedAt TEXT,
+      watchEnabled INTEGER NOT NULL DEFAULT 0, rateTriggered INTEGER NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS realtor_portals (
+      realtorId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS pricing_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       provider TEXT NOT NULL, mode TEXT NOT NULL, reference TEXT, scenario TEXT NOT NULL,
@@ -122,6 +133,9 @@ export function workspace(db: Store): Workspace {
     activity: rows<Activity>(db, "SELECT * FROM activity ORDER BY createdAt DESC, id"),
     tasks: rows<LoanTask>(db, "SELECT * FROM tasks ORDER BY completedAt IS NOT NULL, dueAt, id"),
     communicationDrafts: rows<CommunicationDraft>(db, "SELECT * FROM communication_drafts ORDER BY createdAt DESC, rowid DESC"),
+    pastClients: rows<Omit<PastClientProfile, "watchEnabled"> & { watchEnabled: number }>(db, "SELECT loanId, closingDate, currentRate, targetRate, observedRate, checkedAt, watchEnabled, note, revision FROM past_client_profiles")
+      .map((profile) => ({ ...profile, watchEnabled: Boolean(profile.watchEnabled) })),
+    realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt FROM realtor_portals"),
     applications: staffApplications(db),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run
@@ -131,4 +145,11 @@ export function workspace(db: Store): Workspace {
     `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
+}
+
+export function readWorkspace(db: Store) {
+  return db.transaction(() => {
+    synchronizeRetentionTasks(db);
+    return workspace(db);
+  });
 }

@@ -19,3 +19,7 @@ export async function updateBorrowerApplication(input: unknown) {
 export async function reserveBorrowerAddressLookup(token: string) {
   return demoWorkspace().reserveAddressLookup(token);
 }
+
+export async function loadRealtorReferrals(input: unknown) {
+  return demoWorkspace().realtor(input);
+}

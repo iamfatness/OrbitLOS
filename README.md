@@ -31,6 +31,10 @@ Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the l
 
 When a 1003 is submitted or a loan changes pipeline stage, Orbit creates a draft for the borrower and any linked realtor. Open **Communications** to see the queue or open a loan to see its draft history. Preview email or text and copy it to use in your messaging app. The history records when each channel was first copied. Realtor drafts contain only a milestone update. Drafts from earlier stages remain in the history.
 
+Open **Realtors** to review a partner's referred loans and open tasks. **Create referral link** gives that partner a seven-day view of the borrower names and milestones on their linked loans. Staff can copy, replace, or revoke the link.
+
+**Past Clients** lists funded and closed loans. Choose **Edit follow-up** to record the actual closing date. Orbit schedules an annual task for the assigned loan officer and adds the next year's reminder when the workspace is opened after the anniversary. February 29 closings use February 28 in non-leap years. To enable the rate watchlist, record the current note rate and a lower target. Enter an observed rate to compare against that target. When it meets the target, Orbit adds a follow-up task.
+
 ## Work a loan and price a scenario
 
 Open **Tasks** to filter by loan officer, due time, or completion. In the local demo without Google sign-in, **My Tasks** shows the sample officer Alex Morgan. From a loan, add a follow-up and log notes, calls, email, or texts on its activity timeline.
@@ -68,6 +72,7 @@ Orbit follows Pal Panel's verified-email and approved-account pattern. Each appr
 
 1. Create an Orbit-specific **Web application** OAuth client in Google Cloud. Add `https://orbitlos.com/auth/google/callback` as an authorized redirect URI. For a Google app in testing, add the approved staff as Google test users.
 2. Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `ORBIT_STAFF_EMAILS` to the Orbit Worker using Cloudflare secrets. Set `ORBIT_STAFF_EMAILS` to a comma-separated list of approved Gmail or Google Workspace addresses.
+   The optional `ORBIT_STAFF_EMAILS_EXTRA` adds approved addresses without replacing the primary list.
 3. Set the Worker binding `ORBIT_AUTH_MODE` to `google` after the other values are in place. Open the site in a private window to verify an approved account can sign in and an unapproved account is denied. The Google sign-in mode uses Google sessions for staff. The demo mode uses the shared password.
 
 Borrower application links continue to use their own scoped access. Google sign-in identifies staff in the demo workspace. Brokerage isolation and per-user loan permissions are separate pilot work.

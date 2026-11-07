@@ -83,6 +83,29 @@ export interface CommunicationDraft {
   textCopiedAt: string | null;
 }
 
+export interface PastClientProfile {
+  loanId: string;
+  closingDate: string | null;
+  currentRate: number | null;
+  targetRate: number | null;
+  observedRate: number | null;
+  checkedAt: string | null;
+  watchEnabled: boolean;
+  note: string;
+  revision: number;
+}
+
+export interface RealtorPortal {
+  realtorId: string;
+  token: string;
+  expiresAt: string;
+}
+
+export interface RealtorReferrals {
+  realtorName: string;
+  referrals: { borrowerName: string; stage: Stage; updatedAt: string }[];
+}
+
 export interface Workspace {
   contacts: Contact[];
   loans: Loan[];
@@ -90,6 +113,8 @@ export interface Workspace {
   activity: Activity[];
   tasks: LoanTask[];
   communicationDrafts: CommunicationDraft[];
+  pastClients: PastClientProfile[];
+  realtorPortals: RealtorPortal[];
   applications: StaffApplication[];
   pricingRuns: PricingRun[];
   uwmSyncedAt: string | null;

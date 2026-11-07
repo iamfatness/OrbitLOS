@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { insertContact, insertLoan, insertSubmission, workspace, type Store } from "./store";
-import { activityKinds, stages, type Workspace } from "./model";
+import { insertContact, insertLoan, insertSubmission, readWorkspace, workspace, type Store } from "./store";
+import { activityKinds, stages, type Loan, type Workspace } from "./model";
 import { submitMockApplication, syncUwm } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
 import { pricingScenario, type PricingOffer } from "./pricing-model";
@@ -9,6 +9,7 @@ import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } 
 import { createMilestoneDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
 import type { StaffIdentity } from "./staff-store";
+import { easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -32,6 +33,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("move"), id, stage: z.enum(stages) }),
   z.object({ type: z.literal("copyDraft"), loanId: id, contactId: id, audience: z.enum(["Borrower", "Realtor"]),
     milestone: z.enum([...stages, "Application received"]), channel: z.enum(draftChannels) }),
+  retentionInput,
+  z.object({ type: z.literal("createRealtorPortal"), realtorId: id }),
+  z.object({ type: z.literal("revokeRealtorPortal"), realtorId: id }),
   z.object({ type: z.literal("note"), loanId: id, kind: z.enum(activityKinds).default("Note"), text: z.string().trim().min(1, "Write an activity summary first.").max(2000) }),
   z.object({ type: z.literal("submission"), id: id.optional(), loanId: id, lender: label, externalId: label, status: label }),
   z.object({ type: z.literal("deleteSubmission"), id }),
@@ -57,7 +61,7 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
   try {
     if (data.type === "sync") {
       const result = await syncUwm(db);
-      return { state: workspace(db), message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions` };
+      return { state: readWorkspace(db), message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions` };
     }
     if (data.type === "runPricing") {
       if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
@@ -73,6 +77,43 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
     return db.transaction(() => {
       let message = data.type.startsWith("delete") ? "Removed successfully." : "Saved successfully.";
       switch (data.type) {
+        case "saveRetention": {
+          const loan = db.prepare("SELECT stage FROM loans WHERE id = ?").get(data.loanId);
+          if (!loan || !pastClientLoan({ stage: loan.stage as Loan["stage"] })) throw new WorkspaceError("Choose a funded or closed loan for past-client follow-up.");
+          if (data.closingDate && data.closingDate > easternDate()) throw new WorkspaceError("Enter the actual closing date on or before today.");
+          const previous = db.prepare("SELECT revision, closingDate, observedRate, checkedAt FROM past_client_profiles WHERE loanId = ?").get(data.loanId);
+          if (Number(previous?.revision ?? 0) !== data.revision) throw new WorkspaceError("Past-client details changed. Refresh before saving.");
+          if (previous?.closingDate !== (data.closingDate || null)) {
+            db.prepare("DELETE FROM tasks WHERE loanId = ? AND id LIKE 'closing-anniversary:%' AND completedAt IS NULL").run(data.loanId);
+          }
+          const observedRate = data.observedRate ? Number(data.observedRate) : null;
+          const checkedAt = observedRate === null ? null : observedRate === previous?.observedRate ? previous.checkedAt : now;
+          db.prepare(`INSERT INTO past_client_profiles
+            (loanId, closingDate, currentRate, targetRate, observedRate, checkedAt, watchEnabled, note, revision)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(loanId) DO UPDATE SET closingDate = excluded.closingDate, currentRate = excluded.currentRate,
+              targetRate = excluded.targetRate, observedRate = excluded.observedRate, checkedAt = excluded.checkedAt,
+              watchEnabled = excluded.watchEnabled, note = excluded.note, revision = excluded.revision`)
+            .run(data.loanId, data.closingDate || null, data.currentRate ? Number(data.currentRate) : null,
+              data.targetRate ? Number(data.targetRate) : null, observedRate,
+              checkedAt, data.watchEnabled ? 1 : 0, data.note, data.revision + 1);
+          addApplicationActivity(db, data.loanId, "Past-client follow-up details updated.", now);
+          message = "Past-client details and reminders saved.";
+          break;
+        }
+        case "createRealtorPortal": {
+          if (!db.prepare("SELECT 1 FROM contacts WHERE id = ? AND role = 'Realtor'").get(data.realtorId)) throw new WorkspaceError("Choose a realtor contact.");
+          const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+          const expiresAt = new Date(Date.parse(now) + 7 * 86_400_000).toISOString();
+          db.prepare(`INSERT INTO realtor_portals (realtorId, token, expiresAt) VALUES (?, ?, ?)
+            ON CONFLICT(realtorId) DO UPDATE SET token = excluded.token, expiresAt = excluded.expiresAt`).run(data.realtorId, token, expiresAt);
+          message = "Realtor referral link is ready. It expires in seven days.";
+          break;
+        }
+        case "revokeRealtorPortal":
+          db.prepare("DELETE FROM realtor_portals WHERE realtorId = ?").run(data.realtorId);
+          message = "Realtor referral link revoked.";
+          break;
         case "startApplication":
           if (!startApplication(db, data.loanId, now)) throw new WorkspaceError("This loan no longer exists.");
           message = "Demo application link is ready.";
@@ -232,6 +273,7 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           db.prepare("DELETE FROM submissions WHERE id = ? AND syncedAt IS NULL").run(data.id);
           break;
       }
+      synchronizeRetentionTasks(db);
       return { state: workspace(db), message };
     });
   } catch (error) {

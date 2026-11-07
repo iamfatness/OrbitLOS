@@ -4,10 +4,11 @@ import app from "vinext/server/app-router-entry";
 import { executeCommand } from "./lib/commands";
 import { borrowerCommandResult } from "./lib/applications";
 import { borrowerHttp } from "./lib/borrower-http";
-import { initializeStore, workspace, type SqlValue, type Store } from "./lib/store";
+import { initializeStore, readWorkspace, type SqlValue, type Store } from "./lib/store";
 import { googleSettings, handleStaffAuth, runtimeSetting, signedInStaff } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity } from "./lib/staff-store";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
+import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -33,7 +34,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   read() {
-    return workspace(this.#store);
+    return readWorkspace(this.#store);
   }
 
   async write(input: unknown, staff: StaffIdentity | null) {
@@ -42,6 +43,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   borrower(input: unknown) {
     return borrowerCommandResult(this.#store, input);
+  }
+
+  realtor(input: unknown) {
+    return realtorReferrals(this.#store, input);
   }
 
   reserveAddressLookup(token: string) {
@@ -100,12 +105,15 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/demo-address") {
       return placesHttp(request, placesKey, (token) => workspaceStore().reserveAddressLookup(token));
     }
-    const borrowerPage = reading && url.pathname === "/apply";
+    if (request.method === "POST" && url.pathname === "/api/realtor-referrals") {
+      return realtorHttp(request, (input) => workspaceStore().realtor(input));
+    }
+    const tokenPage = reading && (url.pathname === "/apply" || url.pathname === "/referrals");
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
       return handleStaffAuth(request, url, google, workspaceStore());
     }
     let staff: StaffIdentity | null = null;
-    if (!borrowerPage) {
+    if (!tokenPage) {
       if (google) {
         try { staff = await signedInStaff(request, google, workspaceStore()); }
         catch { return new Response("Orbit sign-in is temporarily unavailable.", { status: 503, headers: { "Cache-Control": "no-store" } }); }
@@ -132,11 +140,11 @@ export default {
     }
     const response = url.pathname.startsWith("/_next/static/")
       ? await env.ASSETS.fetch(request)
-      : await app.fetch(new Request(request, { headers: appHeaders }), env, context);
+      : await app.fetch(tokenPage ? new Request(url, { method: request.method }) : new Request(request, { headers: appHeaders }), env, context);
     const result = new Response(response.body, response);
     result.headers.set("Cache-Control", "private, no-store");
     result.headers.set("X-Robots-Tag", "noindex");
-    if (borrowerPage) result.headers.set("Referrer-Policy", "no-referrer");
+    if (tokenPage) result.headers.set("Referrer-Policy", "no-referrer");
     return result;
   },
 } satisfies ExportedHandler<Cloudflare.Env>;

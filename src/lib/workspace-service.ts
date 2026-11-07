@@ -5,7 +5,8 @@ import { executeCommand } from "./commands";
 import { borrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
 import type { StaffIdentity } from "./staff-store";
-import { initializeStore, workspace, type SqlValue, type Store } from "./store";
+import { realtorReferrals } from "./realtor-portal";
+import { initializeStore, readWorkspace, type SqlValue, type Store } from "./store";
 
 let connection: Store | undefined;
 
@@ -50,7 +51,7 @@ function database(): Store {
 }
 
 export function loadWorkspace() {
-  return workspace(database());
+  return readWorkspace(database());
 }
 
 export async function updateWorkspace(input: unknown, staff: StaffIdentity | null) {
@@ -63,4 +64,8 @@ export async function updateBorrowerApplication(input: unknown) {
 
 export function reserveBorrowerAddressLookup(token: string) {
   return reserveAddressLookup(database(), token);
+}
+
+export async function loadRealtorReferrals(input: unknown) {
+  return realtorReferrals(database(), input);
 }

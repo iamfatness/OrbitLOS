@@ -13,6 +13,7 @@ import type { StaffIdentity } from "@/lib/staff-store";
 import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetails } from "@/lib/urla";
 import type { StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
+import { LoanRetention, RetentionFields } from "./past-client-crm";
 
 export type Modal =
   | { kind: "details"; loanId: string }
@@ -20,6 +21,7 @@ export type Modal =
   | { kind: "contact"; contactId?: string }
   | { kind: "communication"; loanId: string; audience: DraftAudience; draftId?: string }
   | { kind: "pricing"; loanId: string }
+  | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
@@ -228,6 +230,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
       </section>
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
+      <LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} />
       <section className="details-section" aria-label="Loan follow-up tasks">
         <div className="section-heading"><h3><CheckCircle2 size={17} /> Follow-up tasks</h3></div>
         {tasks.length ? <ul className="loan-task-list">{tasks.map((task) =>
@@ -288,8 +291,10 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     contact: contact ? "Edit contact" : "New contact", submission: submission ? "Edit lender submission" : "Add lender submission",
     communication: "Message draft",
     pricing: "Loan pricing",
+    retention: "Past-client follow-up",
   }[modal.kind];
   const back = () => loan ? show({ kind: "details", loanId: loan.id }) : close();
+  const retention = modal.kind === "retention" ? state.pastClients.find((profile) => profile.loanId === modal.loanId) : undefined;
   const key = `${modal.kind}-${loan?.id ?? contact?.id ?? "new"}-${modal.kind === "communication" ? modal.draftId ?? modal.audience : submission?.id ?? ""}`;
   const remove = (input: unknown, question: string, after: () => void) => {
     if (window.confirm(question)) void save(input, after);
@@ -306,6 +311,12 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} busy={busy} save={save} show={show} />}
         {modal.kind === "communication" && loan && <CommunicationPreview loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} busy={busy} save={save} />}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save} />}
+        {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
+          save={(data) => ({
+            type: "saveRetention", loanId: loan.id, revision: retention?.revision ?? 0, closingDate: text(data, "closingDate"),
+            currentRate: text(data, "currentRate"), targetRate: text(data, "targetRate"), observedRate: text(data, "observedRate"),
+            watchEnabled: data.has("watchEnabled"), note: text(data, "note"),
+          })}><RetentionFields profile={retention} /></Form>}
         {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           remove={loan ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its application, tasks, submissions and activity?", close) : undefined}
           save={(data) => ({
