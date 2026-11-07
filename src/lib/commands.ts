@@ -15,6 +15,7 @@ import { demoBrokerageId, portalToken, portalTokenPattern } from "./brokerage-mo
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { documentKinds } from "./document-model";
 import { referralMatches } from "./referral-matches";
+import { mockAusInput, mockCreditInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -65,6 +66,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120), days: z.union([z.literal(1), z.literal(3), z.literal(7)]) }),
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario }),
+  mockCreditInput,
+  mockAusInput,
+  mockRetryInput,
   z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("floatMockRate"), loanId: id, submissionId: id, runId: id, offerId: id, previousFloatReference: id.nullable() }),
   z.object({ type: z.literal("lockMockRate"), loanId: id, floatReference: id, days: z.literal(mockLockPeriods) }),
@@ -125,6 +129,14 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       let message = data.type.startsWith("delete") ? "Removed successfully." : "Saved successfully.";
       let referralLoanId: string | undefined;
       switch (data.type) {
+        case "runMockCredit":
+        case "runMockAus":
+        case "retryMockCreditAus": {
+          const result = runMockCreditAus(db, data, staff, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
         case "saveRetention": {
           const loan = db.prepare("SELECT stage FROM loans WHERE id = ?").get(data.loanId);
           if (!loan || !pastClientLoan({ stage: loan.stage as Loan["stage"] })) throw new WorkspaceError("Choose a funded or closed loan for past-client follow-up.");

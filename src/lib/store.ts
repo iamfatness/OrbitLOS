@@ -7,6 +7,7 @@ import type { LoanDocumentRequest } from "./document-model";
 import { pdfColumns } from "./document-files-model";
 import { synchronizeRetentionTasks } from "./client-retention";
 import { referralMatches } from "./referral-matches";
+import { mockCreditAusRuns } from "./mock-credit-aus";
 
 export type SqlValue = string | number | null;
 
@@ -106,6 +107,14 @@ export function initializeStore(db: Store, seedDemo = true) {
       resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, UNIQUE (realtorId, requestId)
     );
     CREATE INDEX IF NOT EXISTS referral_leads_by_realtor ON referral_leads(realtorId, createdAt);
+    CREATE TABLE IF NOT EXISTS mock_credit_aus_runs (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      service TEXT NOT NULL CHECK (service IN ('Credit', 'DU', 'LPA')), reference TEXT NOT NULL,
+      creditId TEXT REFERENCES mock_credit_aus_runs(id), retryOf TEXT REFERENCES mock_credit_aus_runs(id),
+      requestedBy TEXT NOT NULL, requestedAt TEXT NOT NULL, result TEXT NOT NULL,
+      CHECK ((service = 'Credit') = (creditId IS NULL))
+    );
+    CREATE INDEX IF NOT EXISTS mock_credit_aus_by_loan ON mock_credit_aus_runs(loanId, service);
     CREATE TABLE IF NOT EXISTS pricing_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       provider TEXT NOT NULL, mode TEXT NOT NULL, reference TEXT, scenario TEXT NOT NULL,
@@ -257,6 +266,7 @@ export function workspace(db: Store): Workspace {
     `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
     publishedQuotes: rows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
     mockUwmRates: rows<MockUwmRate>(db, "SELECT * FROM mock_uwm_rates"),
+    mockCreditAusRuns: mockCreditAusRuns(db),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
 }

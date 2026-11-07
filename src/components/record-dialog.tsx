@@ -21,6 +21,7 @@ import { DocumentStatusPill } from "./sample-document";
 import type { LoanDocumentRequest } from "@/lib/document-model";
 import { mockRateStatus } from "@/lib/pricing-model";
 import { ClosingWorkbench } from "./closing-workbench";
+import { CreditAusWorkbench } from "./credit-aus-workbench";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string }
@@ -260,6 +261,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
+      <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)} busy={busy} save={save} />
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
       <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} requests={requests} openConditionRequests={openConditionRequests}

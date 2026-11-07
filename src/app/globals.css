@@ -219,6 +219,10 @@ button:disabled { cursor: default; }
 .pricing-form, .quote-saved { background: #faf8fd; }
 .pricing-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; }
 .rate-lock-actions { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.credit-aus-panel { display: grid; gap: 8px; }
+.credit-aus-panel > h4 { font-size: 13px; font-weight: 700; }
+.credit-aus-findings { list-style: disc; padding-inline-start: 20px; margin-block-start: 4px; }
+.credit-aus-panel > details > div { margin-block-start: 8px; }
 .rate-lock-management { display: grid; gap: 8px; }
 #uwm-rate-lock { scroll-margin-block-start: 12px; }
 .rate-receipt { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }

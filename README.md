@@ -49,6 +49,12 @@ Choose **Create loan and prefill 1003** to open the new loan’s application pan
 
 **Past Clients** lists funded and closed loans. Choose **Edit follow-up** to record the actual closing date. Orbit schedules an annual task for the assigned loan officer and adds the next year's reminder when the workspace is opened after the anniversary. February 29 closings use February 28 in non-leap years. To enable the rate watchlist, record the current note rate and a lower target. Enter an observed rate to compare against that target. When it meets the target, Orbit adds a follow-up task.
 
+## Try mock credit and automated underwriting
+
+Open any sample loan and find **Credit & AUS** in its details. Select **Confirm mock credit authorization** and **Run mock credit** to generate a fictional score and report reference. With that report available, run **Desktop Underwriter (DU)** or **Loan Product Advisor (LPA)** and review the sample findings.
+
+Choose **Temporary failure** for credit, DU, or LPA to simulate a timeout. The corresponding **Retry** action creates a new attempt and preserves the failure in **Previous mock requests** and the loan’s activity. **Review required** returns findings for the LO to evaluate. Running AUS again after a new credit report links the new findings to that report.
+
 ## Work a loan and price a scenario
 
 Open **Tasks** to filter by loan officer, due time, or completion. In the local demo without Google sign-in, **My Tasks** shows the sample officer Alex Morgan. From a loan, add a follow-up and log notes, calls, email, or texts on its activity timeline.
