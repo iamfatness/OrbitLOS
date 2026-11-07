@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, readWorkspace, savedPricingRun, workspace, type Store } from "./store";
 import { activityKinds, stages, type Contact, type Loan, type Purpose, type Workspace } from "./model";
-import { sendMockConditionDocument, simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
+import { refreshMockUwmClearance, sendMockConditionDocument, simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
@@ -64,6 +64,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500) }),
   z.object({ type: z.literal("sendConditionDocument"), loanId: id, requestId: z.uuid() }),
+  z.object({ type: z.literal("refreshMockUwmClearance"), loanId: id, submissionId: id }),
   z.object({ type: z.literal("refreshWorkspace") }),
   z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120), days: z.union([z.literal(1), z.literal(3), z.literal(7)]) }),
@@ -358,6 +359,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const result = sendMockConditionDocument(db, data.loanId, data.requestId, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = `Mock UWM document receipt · ${result.receipt}`;
+          break;
+        }
+        case "refreshMockUwmClearance": {
+          const result = refreshMockUwmClearance(db, data.loanId, data.submissionId, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
           break;
         }
         case "refreshWorkspace":

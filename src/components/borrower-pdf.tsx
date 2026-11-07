@@ -11,7 +11,7 @@ async function pdfResponse(response: Response) {
   return result;
 }
 
-export function useBorrowerPdf(refresh: () => void, mode?: DocumentUploadMode) {
+export function useBorrowerPdf(token: string, refresh: () => void, mode?: DocumentUploadMode) {
   const [session, setSession] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [demoCode, setDemoCode] = useState("");
@@ -27,7 +27,7 @@ export function useBorrowerPdf(refresh: () => void, mode?: DocumentUploadMode) {
     try {
       const result = await pdfResponse(await fetch("/api/borrower-documents/verify", {
         method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, code, token: window.location.hash.slice(1) }),
+        body: JSON.stringify({ type, code, token }),
       }));
       if (result.session) { setSession(result.session); setDemoCode(""); }
       else { setCodeSent(true); setDemoCode(result.demoCode ?? ""); }
@@ -52,7 +52,6 @@ export function useBorrowerPdf(refresh: () => void, mode?: DocumentUploadMode) {
     setBusy(true);
     setProcessing(request.id);
     try {
-      const token = window.location.hash.slice(1);
       const response = await fetch("/api/borrower-documents/upload", mode === "mock" ? {
         method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, session, requestId: request.id, revision: request.revision, fixture: fields.get("fixture") }),

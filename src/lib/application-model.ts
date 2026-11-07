@@ -103,7 +103,7 @@ export function sampleApplication(current: ApplicationDraft): ApplicationDraft {
   const name = current.borrowerName || "Riley Sample";
   return {
     ...blankApplication(),
-    borrowerName: name, email: "riley@example.test", phone: "248-555-0142",
+    borrowerName: name, email: current.email || "riley@example.test", phone: current.phone || "248-555-0142",
     currentAddress: home.street, currentLocation: home.location,
     employer: "Sample Design Studio", occupation: "Designer", employmentStart: "2022-04-01", monthlyIncome: "7500",
     priorEmployer: "Example Creative", coBorrowerEmployer: "Demo Services", coBorrowerIncome: "4000",

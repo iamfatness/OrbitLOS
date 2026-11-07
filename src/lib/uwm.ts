@@ -156,22 +156,41 @@ export function submitMockApplication(db: Store, loanId: string, now: string) {
 type UwmFile = { loan: InsightsLoan; conditions: Condition[] };
 type SavedUwmSubmission = Pick<Submission, "id" | "loanId" | "status"> & { conditions: string };
 
+function applyMockClearances(db: Store, submissionId: string, conditions: Condition[]) {
+  const cleared = new Map(db.prepare(`SELECT requests.conditionId, deliveries.mockClearedAt FROM document_requests requests
+    JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
+    WHERE requests.submissionId = ? AND deliveries.mockClearedAt IS NOT NULL`)
+    .all(submissionId).map((item) => [String(item.conditionId), String(item.mockClearedAt)]));
+  return conditions.map((condition) => {
+    const satisfiedAt = cleared.get(condition.id);
+    return satisfiedAt && !condition.satisfiedAt ? { ...condition, uploaded: true, satisfiedAt } : condition;
+  });
+}
+
+// Called inside the workspace mutation after access to the loan is checked.
+export function refreshMockUwmClearance(db: Store, loanId: string, submissionId: string, now: string) {
+  const saved = uwmSubmissionConditions(db, loanId, submissionId);
+  if (!saved) return { error: "This UWM submission is unavailable on this loan." } as const;
+  db.prepare(`UPDATE uwm_document_deliveries SET mockClearedAt = ? WHERE mockClearedAt IS NULL
+    AND requestId IN (SELECT id FROM document_requests WHERE submissionId = ? AND loanId = ?)`).run(now, submissionId, loanId);
+  const conditions = applyMockClearances(db, submissionId, saved);
+  const count = saved.reduce((total, condition, index) => total + Number(!condition.satisfiedAt && !!conditions[index].satisfiedAt), 0);
+  db.prepare("UPDATE submissions SET conditions = ?, syncedAt = ? WHERE id = ?").run(JSON.stringify(conditions), now, submissionId);
+  const label = count === 1 ? "condition" : "conditions";
+  if (count) addApplicationActivity(db, loanId, `Mock UWM cleared ${count} ${label}.`, now);
+  return { message: count ? `Mock UWM cleared ${count} ${label}.` : "No new mock UWM clearances for this submission." };
+}
+
 function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
   const now = new Date().toISOString();
   if (mock) db.prepare("UPDATE uwm_document_deliveries SET mockClearedAt = ? WHERE mockClearedAt IS NULL").run(now);
-  const mockClearances = db.prepare(`SELECT requests.conditionId, deliveries.mockClearedAt FROM document_requests requests
-    JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id WHERE requests.submissionId = ?`);
   let imported = 0;
   let updated = 0;
   let conditionCount = 0;
   let alerts = 0;
   const update = db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?");
   function refresh(existing: SavedUwmSubmission, status: string, incoming: Condition[]) {
-    const cleared = new Map(mock ? mockClearances.all(existing.id).map((item) => [String(item.conditionId), String(item.mockClearedAt)]) : []);
-    const conditions = incoming.map((condition) => {
-      const satisfiedAt = cleared.get(condition.id);
-      return satisfiedAt && !condition.satisfiedAt ? { ...condition, uploaded: true, satisfiedAt } : condition;
-    });
+    const conditions = mock ? applyMockClearances(db, existing.id, incoming) : incoming;
     alerts += recordUwmAlerts(db, { id: existing.id, loanId: existing.loanId, status, conditions },
       { status: existing.status, conditions: JSON.parse(existing.conditions) }, now);
     update.run(status, JSON.stringify(conditions), now, existing.id);

@@ -41,7 +41,7 @@ Under **Tasks → My Tasks**, the **Loan work queue** shows new 1003s, samples r
 
 In **Closing workbench**, save a target date and add checklist items with owners and due dates. **My Tasks** flags loans assigned to you that are due to close within seven days or past their target date and still have outstanding items. Open the flagged loan from the queue to work its checklist. Record the actual closing date to preview a closing update for the borrower and any linked realtor. The same actual date supplies the anniversary reminder once the loan is funded or closed.
 
-After accepting a sample linked to a condition, choose **Send sample to UWM (mock)** for a demo receipt. The next **Sync UWM** simulates lender clearance. The checklist keeps the acceptance and receipt, and the lender card shows the clearance separately.
+After accepting a sample linked to a condition, record mock delivery to get a receipt. Choose **Check UWM clearance (mock)** from the checklist to refresh that submission. The checklist keeps the acceptance and receipt, and the lender card shows the clearance separately. The brokerage-wide **Sync UWM** also applies mock clearances.
 
 Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. **My Tasks** uses your signed-in account for matching. New loans start assigned to you. For existing loans, open **Edit loan** and select **Assign to my account** to connect the assignment to your login.
 

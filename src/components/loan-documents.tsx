@@ -69,6 +69,10 @@ export function LoanDocuments({ loanId, brokerageId, requests, openConditionRequ
         </Button></div> : request.submittedAt && <SampleDocument kind={request.kind} />}
         {request.uwmReceipt && request.uwmSentAt && <p className="muted"><strong>Sent to UWM · Mock</strong><br />
           {dateTime(request.uwmSentAt)} ET · Receipt {request.uwmReceipt}</p>}
+        {request.uwmReceipt && request.submissionId && openConditionRequests.has(request.id) &&
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshMockUwmClearance", loanId, submissionId: request.submissionId })}>
+            <RefreshCw /> Check UWM clearance (mock)
+          </Button>}
         {request.status === "Accepted" && !request.uwmReceipt && openConditionRequests.has(request.id) &&
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "sendConditionDocument", loanId, requestId: request.id })}>
             <Send /> {request.pdfUploadedAt ? "Record delivery to UWM (mock)" : "Send sample to UWM (mock)"}

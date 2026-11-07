@@ -10,8 +10,7 @@ import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
 import { BorrowerStatus } from "./borrower-status";
 
-async function requestApplication(input: object, signal?: AbortSignal) {
-  const token = window.location.hash.slice(1);
+async function requestApplication(token: string, input: object, signal?: AbortSignal) {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete application link from your loan officer.");
   const response = await fetch("/api/demo-application", {
     method: "POST", credentials: "omit", signal,
@@ -27,6 +26,17 @@ async function requestApplication(input: object, signal?: AbortSignal) {
 }
 
 export function BorrowerApplicationForm() {
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => {
+    function syncLink() { setToken(window.location.hash.slice(1)); }
+    syncLink();
+    window.addEventListener("hashchange", syncLink);
+    return () => window.removeEventListener("hashchange", syncLink);
+  }, []);
+  return <BorrowerApplication key={token} token={token} />;
+}
+
+function BorrowerApplication({ token }: { token: string | null }) {
   const [application, setApplication] = useState<BorrowerApplication | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -34,21 +44,25 @@ export function BorrowerApplicationForm() {
   const pending = useRef(false);
 
   useEffect(() => {
+    if (token === null) return;
     const controller = new AbortController();
-    requestApplication({ type: "read" }, controller.signal).then(setApplication).catch((failure: unknown) => {
+    requestApplication(token, { type: "read" }, controller.signal).then((next) => {
+      if (!controller.signal.aborted) setApplication(next);
+    }).catch((failure: unknown) => {
       if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "Could not open the application.");
     });
     return () => controller.abort();
-  }, []);
+  }, [token]);
 
   async function perform(input: object, onSuccess: (next: BorrowerApplication) => void) {
-    if (pending.current) return;
+    if (!token || pending.current) return;
     pending.current = true;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const next = await requestApplication(input);
+      const next = await requestApplication(token, input);
+      if (window.location.hash.slice(1) !== token) return;
       setApplication(next);
       onSuccess(next);
     } catch (failure) {
@@ -107,7 +121,7 @@ export function BorrowerApplicationForm() {
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!application && !error && <p role="status" className="application-message">Opening your application…</p>}
-    {application?.submittedAt ? application.loanStatus && <BorrowerStatus status={application.loanStatus} submittedAt={application.submittedAt}
+    {application?.submittedAt ? token && application.loanStatus && <BorrowerStatus token={token} status={application.loanStatus} submittedAt={application.submittedAt}
       busy={busy} attach={attach} uploadsMode={application.documentUploadsMode} refresh={() => void perform({ type: "read" }, () => setNotice("Loan status refreshed."))} />
       : application && <section className="application-panel">
       <ol className="application-progress" aria-label="Application progress">

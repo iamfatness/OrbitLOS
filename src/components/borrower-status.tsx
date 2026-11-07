@@ -19,11 +19,11 @@ const stageUpdates: Record<Stage, { label: string; next: string }> = {
 };
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-export function BorrowerStatus({ status, submittedAt, busy, refresh, attach, uploadsMode }: {
-  status: BorrowerLoanStatus; submittedAt: string; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
+export function BorrowerStatus({ token, status, submittedAt, busy, refresh, attach, uploadsMode }: {
+  token: string; status: BorrowerLoanStatus; submittedAt: string; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
   uploadsMode?: DocumentUploadMode;
 }) {
-  const pdf = useBorrowerPdf(refresh, uploadsMode);
+  const pdf = useBorrowerPdf(token, refresh, uploadsMode);
   const demo = uploadsMode === "mock";
   const stage = stageUpdates[status.stage];
   const waiting = status.documents.filter((item) => needsBorrowerDocument(item.status)).length;

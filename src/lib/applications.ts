@@ -150,8 +150,17 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ? WHERE loanId = ?")
       .run(next.draft, next.step, next.revision, next.updatedAt, next.submittedAt, next.loanId);
     if (submitted) {
-      db.prepare("UPDATE loans SET stage = 'Application', stageSince = ? WHERE id = ? AND stage IN ('Lead', 'Pre-qual')")
-        .run(now, row.loanId);
+      const { unit, city, state, zip } = draft.propertyLocation;
+      const propertyPending = draft.purpose === "Purchase" && draft.urla.property.fields.propertyPending === "Yes";
+      const locality = `${city}, ${state.toUpperCase()} ${zip}`;
+      const street = [draft.propertyAddress, unit].filter(Boolean).join(", ");
+      const address = propertyPending ? "" : `${street.slice(0, 238 - locality.length).trimEnd()}, ${locality}`;
+      db.prepare(`UPDATE loans SET
+        stage = CASE WHEN stage IN ('Lead', 'Pre-qual') THEN 'Application' ELSE stage END,
+        stageSince = CASE WHEN stage IN ('Lead', 'Pre-qual') THEN ? ELSE stageSince END,
+        address = CASE WHEN trim(address) = '' THEN ? ELSE address END,
+        amount = CASE WHEN amount = 0 THEN ? ELSE amount END
+        WHERE id = ?`).run(now, address, Math.round(Number(draft.loanAmount)), row.loanId);
       createApplicationFollowUps(db, row.loanId);
       createMilestoneDrafts(db, row.loanId, "Application received", now);
       addApplicationActivity(db, row.loanId, "Demo 1003 received. Follow-up task created for the loan officer.", now);
