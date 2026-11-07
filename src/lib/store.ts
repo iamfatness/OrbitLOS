@@ -155,13 +155,17 @@ export function initializeStore(db: Store, seedDemo = true) {
       lockReference TEXT UNIQUE, lockedAt TEXT, lockDays INTEGER, lockExpiresAt TEXT
     );
     CREATE TABLE IF NOT EXISTS staff_google_attempts (
-      state TEXT PRIMARY KEY, browserHash TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, expiresAt INTEGER NOT NULL
+      state TEXT PRIMARY KEY, browserHash TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL,
+      expiresAt INTEGER NOT NULL, brokerageId TEXT
     );
     CREATE TABLE IF NOT EXISTS staff_sessions (
       tokenHash TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL, expiresAt INTEGER NOT NULL
     );
   `);
   db.transaction(() => {
+    if (!db.prepare("PRAGMA table_info(staff_google_attempts)").all().some((column) => column.name === "brokerageId")) {
+      db.exec("ALTER TABLE staff_google_attempts ADD COLUMN brokerageId TEXT");
+    }
     if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "kind")) {
       db.exec("ALTER TABLE activity ADD COLUMN kind TEXT NOT NULL DEFAULT 'Note'");
     }

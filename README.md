@@ -119,7 +119,7 @@ Each brokerage has its own data store. Borrower and realtor links are scoped to 
 
 ### Run a fictional pilot
 
-In **Team → Create brokerage**, select **Create as a fictional pilot workspace**. In the new workspace, invite staff by their Google account and share the workspace link. The invitation activates when the invited account signs in. When the LO is active, select them and choose **Load fictional scenario**. The LO gets Riley Pilot Referral in **My Tasks** and Morgan Pilot Borrower in the pipeline. The admin can open or copy Taylor Pilot Realtor’s link in **Realtors**.
+In **Team → Create brokerage**, select **Create as a fictional pilot workspace**. In the new workspace, invite staff by their Google account and share the workspace link. The invitee uses **Continue with Google** and lands in that pilot after signing in with the invited account. When the LO is active, select them and choose **Load fictional scenario**. The LO gets Riley Pilot Referral in **My Tasks** and Morgan Pilot Borrower in the pipeline. The admin can open or copy Taylor Pilot Realtor’s link in **Realtors**.
 
 The pilot walkthrough under **Team** covers referral intake, a prefilled 1003, sample pricing, and mock UWM conditions. The pilot supports on-screen verification codes and built-in clean and blocked PDFs when document upload mode is set to `mock`. Staff can submit feedback by workflow step. Admins can review the feedback and activity from **Team**.
 

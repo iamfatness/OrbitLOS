@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { GoogleAttempt, StaffAuthStore, StaffIdentity } from "./staff-store";
+import { brokerageIdPattern, brokerageUrl, type Brokerage } from "./brokerage-model";
 
 const attemptCookie = "__Host-orbit-google";
 const sessionCookie = "__Host-orbit-session";
@@ -61,11 +62,25 @@ function redirect(location: string, cookies: string[] = []) {
   return new Response(null, { status: 303, headers });
 }
 
+function safeBrokerageId(value: string | null) {
+  return value && brokerageIdPattern.test(value) ? value : null;
+}
+
+export function staffLoginUrl(brokerageId: string | null = null, error?: "denied" | "restart") {
+  const search = new URLSearchParams();
+  if (error) search.set("error", error);
+  const target = safeBrokerageId(brokerageId);
+  if (target) search.set("brokerage", target);
+  return search.size ? `/login?${search}` : "/login";
+}
+
 function loginPage(settings: GoogleSettings, url: URL) {
   const ready = configured(settings);
   const error = url.searchParams.get("error");
+  const brokerageId = safeBrokerageId(url.searchParams.get("brokerage"));
+  const startUrl = brokerageId ? `/auth/google?brokerage=${brokerageId}` : "/auth/google";
   const message = !ready ? "Orbit staff sign-in is being configured."
-    : error === "denied" ? "This Google account hasn’t been approved for Orbit."
+    : error === "denied" ? (brokerageId ? "This Google account doesn’t have access to this brokerage." : "This Google account hasn’t been approved for Orbit.")
     : error ? "The sign-in attempt ended. Start again to continue." : "";
   return new Response(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · OrbitLOS</title>
@@ -77,7 +92,7 @@ a{display:block;background:#6749d3;color:white;text-align:center;text-decoration
 a:hover{background:#5539b9}a:focus-visible{outline:2px solid #6749d3;outline-offset:3px}.status{border-radius:8px;background:#f4efff;padding:8px 10px}
 </style></head><body><main><small>ORBITLOS WORKSPACE</small><h1>Sign in to OrbitLOS</h1><p>Use an approved Google account to open the staff workspace.</p>
 ${message ? `<p class="status" role="alert">${message}</p>` : ""}
-${ready ? '<a href="/auth/google">Continue with Google</a>' : ""}</main></body></html>`, {
+${ready ? `<a href="${startUrl}">Continue with Google</a>` : ""}</main></body></html>`, {
     status: ready ? 200 : 503,
     headers: {
       ...noStore, "Content-Type": "text/html; charset=utf-8",
@@ -92,6 +107,7 @@ async function beginGoogle(settings: GoogleSettings, url: URL, store: StaffAuthS
   const attempt: GoogleAttempt = {
     state: randomToken(), nonce: randomToken(), verifier: randomToken(),
     browserHash: await hash(browserToken), expiresAt: now + attemptSeconds * 1000,
+    brokerageId: safeBrokerageId(url.searchParams.get("brokerage")),
   };
   await store.startGoogle(attempt, now);
   const target = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -121,35 +137,45 @@ export async function googleIdentity(token: string, nonce: string, settings: Goo
   return { email, name: name || email };
 }
 
-async function completeGoogle(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: (staff: StaffIdentity) => Promise<boolean>) {
+type Authorize = (staff: StaffIdentity) => Promise<Brokerage[]>;
+
+async function completeGoogle(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: Authorize) {
   const cleared = cookie(attemptCookie, "", 0);
-  const restart = () => redirect("/login?error=restart", [cleared]);
+  const restart = (brokerageId: string | null = null) => redirect(staffLoginUrl(brokerageId, "restart"), [cleared]);
   const browser = readCookie(request, attemptCookie);
   const state = url.searchParams.get("state");
   if (!browser || !state || !opaqueToken.test(state)) return restart();
   const attempt = await store.consumeGoogle(state, await hash(browser), Date.now());
+  const brokerageId = safeBrokerageId(attempt?.brokerageId ?? null);
   const code = url.searchParams.get("code");
-  if (!attempt || !code || code.length > 4096 || url.searchParams.has("error")) return restart();
+  if (!attempt || !code || code.length > 4096 || url.searchParams.has("error")) return restart(brokerageId);
 
-  // Workers rejects redirect: "error". Reject non-OK responses without following redirects.
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000),
-    body: new URLSearchParams({
-      grant_type: "authorization_code", code, redirect_uri: new URL(googleCallback, url.origin).href,
-      client_id: settings.clientId, client_secret: settings.clientSecret, code_verifier: attempt.verifier,
-    }),
-  });
-  if (!response.ok) return restart();
-  const token: unknown = await response.json();
-  if (!token || typeof token !== "object" || !("id_token" in token) || typeof token.id_token !== "string") return restart();
-  const identity = await googleIdentity(token.id_token, attempt.nonce, settings);
-  if (!identity || !await authorize(identity)) return redirect("/login?error=denied", [cleared]);
-  const session = randomToken();
-  const now = Date.now();
-  const previous = readCookie(request, sessionCookie);
-  if (previous) await store.removeStaffSession(await hash(previous));
-  await store.createStaffSession(await hash(session), identity, now + sessionSeconds * 1000, now);
-  return redirect("/workspace", [cleared, cookie(sessionCookie, session, sessionSeconds)]);
+  try {
+    // Workers rejects redirect: "error". Reject non-OK responses without following redirects.
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", redirect: "manual", signal: AbortSignal.timeout(8000),
+      body: new URLSearchParams({
+        grant_type: "authorization_code", code, redirect_uri: new URL(googleCallback, url.origin).href,
+        client_id: settings.clientId, client_secret: settings.clientSecret, code_verifier: attempt.verifier,
+      }),
+    });
+    if (!response.ok) return restart(brokerageId);
+    const token: unknown = await response.json();
+    if (!token || typeof token !== "object" || !("id_token" in token) || typeof token.id_token !== "string") return restart(brokerageId);
+    const identity = await googleIdentity(token.id_token, attempt.nonce, settings);
+    const brokerages = identity ? await authorize(identity) : [];
+    if (!identity || !brokerages.length || (brokerageId && !brokerages.some((item) => item.id === brokerageId))) {
+      return redirect(staffLoginUrl(brokerageId, "denied"), [cleared]);
+    }
+    const session = randomToken();
+    const now = Date.now();
+    const previous = readCookie(request, sessionCookie);
+    if (previous) await store.removeStaffSession(await hash(previous));
+    await store.createStaffSession(await hash(session), identity, now + sessionSeconds * 1000, now);
+    return redirect(brokerageId ? brokerageUrl(brokerageId) : "/workspace", [cleared, cookie(sessionCookie, session, sessionSeconds)]);
+  } catch {
+    return restart(brokerageId);
+  }
 }
 
 export async function signedInStaff(request: Request, settings: GoogleSettings, store: StaffAuthStore): Promise<StaffIdentity | null> {
@@ -158,7 +184,7 @@ export async function signedInStaff(request: Request, settings: GoogleSettings, 
   return store.getStaffSession(await hash(token), Date.now());
 }
 
-export async function handleStaffAuth(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: (staff: StaffIdentity) => Promise<boolean>) {
+export async function handleStaffAuth(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: Authorize) {
   if (url.pathname === "/login" && request.method === "GET") return loginPage(settings, url);
   if (!configured(settings)) return redirect("/login");
   try {

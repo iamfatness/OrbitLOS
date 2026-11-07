@@ -40,7 +40,7 @@ export function activateBrokerages(db: Store, staff: StaffIdentity, bootstrapEma
     const now = new Date().toISOString();
     for (const invitation of invitations) history(db, String(invitation.brokerageId), staff.email, "Accepted invitation", staff.email, now);
     db.prepare("UPDATE brokerage_members SET name = ?, status = 'Active' WHERE email = ? AND status IN ('Invited','Active')").run(staff.name, staff.email);
-    return activeBrokerages(db, staff.email, bootstrapEmails).length > 0;
+    return activeBrokerages(db, staff.email, bootstrapEmails);
   });
 }
 

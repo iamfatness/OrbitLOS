@@ -5,7 +5,7 @@ import { executeCommand } from "./lib/commands";
 import { borrowerCommandResult } from "./lib/applications";
 import { borrowerHttp, borrowerJson, documentUploadMode } from "./lib/borrower-http";
 import { initializeStore, readWorkspace, type SqlValue, type Store } from "./lib/store";
-import { googleSettings, handleStaffAuth, runtimeSetting, signedInStaff } from "./lib/staff-auth";
+import { googleSettings, handleStaffAuth, runtimeSetting, signedInStaff, staffLoginUrl } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage } from "./lib/brokerage-model";
 import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, initializeBrokerages } from "./lib/brokerages";
@@ -140,6 +140,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       return activeBrokerages(this.#store, email, emails);
     });
   }
+  staffInvitedTo(id: string, email: string) {
+    return this.#id === demoBrokerageId && !!this.#store.prepare("SELECT 1 FROM brokerage_members WHERE brokerageId = ? AND email = ? AND status = 'Invited'").get(id, email);
+  }
   brokerageDetails(id: string) {
     if (this.#id !== demoBrokerageId) return null;
     const row = this.#store.prepare("SELECT pilot FROM brokerages WHERE id = ?").get(id);
@@ -273,13 +276,16 @@ export default {
     let brokerages: WorkspaceStaff["brokerage"][] = [];
     if (!tokenPage) {
       if (google) {
+        const requested = url.searchParams.get("brokerage");
+        const workspaceTarget = reading && url.pathname === "/workspace" && requested && brokerageIdPattern.test(requested) ? requested : null;
+        const login = () => new Response(null, { status: 303, headers: { Location: staffLoginUrl(workspaceTarget), "Cache-Control": "no-store" } });
         try {
           const identity = await signedInStaff(request, google, directory);
           if (identity) {
             brokerages = await directory.staffBrokerages(identity.email, bootstrapEmails);
-            const requested = url.searchParams.get("brokerage");
             const brokerage = requested === null ? brokerages[0] : brokerages.find((entry) => entry.id === requested);
             if (requested !== null && !brokerage && brokerages.length) {
+              if (workspaceTarget && await directory.staffInvitedTo(workspaceTarget, identity.email)) return login();
               return new Response("You don’t have access to this brokerage.", { status: 403, headers: { "Cache-Control": "no-store" } });
             }
             if (brokerage) staff = { ...identity, brokerage };
@@ -290,7 +296,7 @@ export default {
         }
         catch { return new Response("Orbit sign-in is temporarily unavailable.", { status: 503, headers: { "Cache-Control": "no-store" } }); }
         if (!staff) {
-          if (reading) return new Response(null, { status: 303, headers: { Location: "/login", "Cache-Control": "no-store" } });
+          if (reading) return login();
           return new Response("Sign in to Orbit to continue.", { status: 401, headers: { "Cache-Control": "no-store" } });
         }
       } else if (!(await authorized(request.headers.get("Authorization"), demoPassword))) {
