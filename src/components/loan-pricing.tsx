@@ -8,6 +8,8 @@ import { pricingPrograms, sampleNonAgencyMetrics, type PricingOffer, type Pricin
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { UwmRateLock } from "./uwm-rate-lock";
+import { quoteOption } from "@/lib/quote-worksheet";
+import { FeeWorksheetEditor, SampleQuotePresentation } from "./quote-worksheet";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const cash = (amount: number | null) => amount === null ? "—" : dollars.format(amount);
@@ -91,10 +93,11 @@ export function LoanPricing({ loan, state, busy, save }: {
   const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
   const publishedRun = runs.find((run) => run.id === published?.runId);
   const sharedHistory = state.sharedQuoteHistory.filter((quote) => quote.loanId === loan.id);
-  const alreadyShared = published?.runId === saved?.id && published?.offerId === selected?.id;
   const [form, setForm] = useState(() => defaults(loan, draft, current));
   const [preview, setPreview] = useState(false);
   const [pricing, setPricing] = useState(false);
+  const [alternativeKeys, setAlternativeKeys] = useState(() =>
+    published?.presentation?.alternatives.map((item) => `${item.runId}/${item.offerId}`) ?? []);
   const change = (name: keyof typeof form, value: string | boolean) => setForm((last) => ({ ...last, [name]: value }));
   const dscr = form.program === "DSCR";
   const bank = form.program === "Bank statement";
@@ -104,6 +107,18 @@ export function LoanPricing({ loan, state, busy, save }: {
   const publishedAssumptionsChanged = !!publishedRun && !!current && current.quotedAt > publishedRun.quotedAt &&
     JSON.stringify(current.scenario) !== JSON.stringify(publishedRun.scenario);
   const comparison = runs.filter((run) => run.selectedId);
+  function option(run: PricingRun, offer: PricingOffer) {
+    const worksheet = state.feeWorksheets.find((item) => item.runId === run.id && item.offerId === offer.id);
+    return { key: `${run.id}/${offer.id}`, run, offer, worksheet, view: quoteOption(run, offer, worksheet) };
+  }
+  const primary = saved?.mode === "mock" && selected ? option(saved, selected) : undefined;
+  const comparable = primary ? runs.flatMap((run) => run.mode === "mock" && run.scenario.purpose === primary.run.scenario.purpose
+    ? run.offers.filter((offer) => (run.id === primary.run.id && offer.id !== primary.offer.id) ||
+      (run.id !== primary.run.id && offer.id === run.selectedId)).map((offer) => option(run, offer)) : []) : [];
+  const alternatives = comparable.filter((item) => alternativeKeys.includes(item.key)).slice(0, 2);
+  const presentation = primary ? { primary: primary.view, alternatives: alternatives.map((item) => item.view) } : null;
+  const alreadyShared = published?.runId === saved?.id && published?.offerId === selected?.id &&
+    JSON.stringify(published?.presentation ?? null) === JSON.stringify(presentation);
 
   async function price(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -207,12 +222,36 @@ export function LoanPricing({ loan, state, busy, save }: {
         <p className="eyebrow">{saved.mode === "mock" ? "SAMPLE BORROWER QUOTE" : "UWM STAGE QUOTE"}</p>
         <strong>{selected.product}</strong>
         <p className="muted">{cash(saved.scenario.loanAmount)} loan · {saved.scenario.purpose}</p>
-        <Terms offer={selected} />
-        <SampleMetrics scenario={saved.scenario} offer={selected} />
+        {primary && presentation ? <>
+          <FeeWorksheetEditor key={`${primary.key}:${primary.worksheet?.revision ?? 0}`}
+            run={primary.run} offer={primary.offer} saved={primary.worksheet} busy={busy} save={save} />
+          {comparable.length > 0 && <details className="document-form">
+            <summary>Choose alternatives to compare</summary>
+            <p className="muted">Include up to two alternatives for the same loan purpose. Save each worksheet to include its fees.</p>
+            <div className="record-form">
+              {comparable.map((item) => {
+                const chosen = alternatives.some((entry) => entry.key === item.key);
+                return <label className="demo-confirm" key={item.key}><input type="checkbox" checked={chosen}
+                  disabled={busy || (!chosen && alternatives.length >= 2)} onChange={(event) => {
+                    const activeKeys = alternatives.map((entry) => entry.key);
+                    setAlternativeKeys(event.target.checked ? [...activeKeys, item.key] : activeKeys.filter((key) => key !== item.key));
+                  }} /> {item.offer.product} · {percentage(item.offer.rate)} · {cash(item.run.scenario.loanAmount)}
+                  {item.worksheet && " · Worksheet saved"}</label>;
+              })}
+            </div>
+          </details>}
+          {alternatives.map((item) => <FeeWorksheetEditor key={`${item.key}:${item.worksheet?.revision ?? 0}`}
+            run={item.run} offer={item.offer} saved={item.worksheet} busy={busy} save={save} />)}
+          <SampleQuotePresentation quote={presentation} />
+          <SampleMetrics scenario={saved.scenario} offer={selected} />
+        </> : <><Terms offer={selected} /><SampleMetrics scenario={saved.scenario} offer={selected} /></>}
         {saved.notices.map((notice, index) => <p key={index} className="quote-disclaimer">{notice}</p>)}
         {saved.mode === "mock" && (application?.submittedAt ? <div className="pricing-actions">
-          <Button size="sm" disabled={busy || alreadyShared} onClick={() => void save({ type: "publishQuote", loanId: loan.id, runId: saved.id, offerId: selected.id })}>
-            {alreadyShared ? "Published to borrower" : published ? "Replace shared sample quote" : "Publish sample quote"}
+          <Button size="sm" disabled={busy || alreadyShared} onClick={() => void save({
+            type: "publishQuote", loanId: loan.id, runId: saved.id, offerId: selected.id, feeRevision: primary?.worksheet?.revision ?? 0,
+            alternatives: alternatives.map((item) => ({ runId: item.run.id, offerId: item.offer.id, feeRevision: item.worksheet?.revision ?? 0 })),
+          })}>
+            {alreadyShared ? "Published to borrower" : published ? "Replace shared sample quote" : presentation?.alternatives.length ? "Publish sample comparison" : "Publish sample quote"}
           </Button>
         </div> : <p className="muted">The borrower can see a shared quote after submitting their 1003.</p>)}
       </div>}
@@ -224,11 +263,13 @@ export function LoanPricing({ loan, state, busy, save }: {
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>
       <p>{published.product} · {percentage(published.rate)} · {cash(published.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">Sample quote · Shared {dateTime(published.publishedAt)} ET</p>
+      {published.presentation && <details className="document-form"><summary>View exact shared quote</summary><SampleQuotePresentation quote={published.presentation} /></details>}
       {(publishedAssumptionsChanged || applicationChanged(publishedRun)) && <p className="quote-disclaimer">The borrower still sees these terms. Pricing assumptions or the application have changed.</p>}
     </section>}
     {sharedHistory.length > 0 && <details className="quote-saved"><summary>Previously shared quotes</summary>
-      <ul className="loan-task-list">{sharedHistory.map((quote) => <li key={`${quote.runId}:${quote.offerId}:${quote.publishedAt}`}>
+      <ul className="loan-task-list">{sharedHistory.map((quote, index) => <li key={`${quote.runId}:${quote.offerId}:${quote.publishedAt}:${index}`}>
         {quote.product} · {percentage(quote.rate)} · {cash(quote.principalAndInterest)} monthly P&amp;I · Shared {dateTime(quote.publishedAt)} ET · {quote.outcome} {dateTime(quote.endedAt)} ET
+        {quote.presentation && <details className="document-form"><summary>View shared terms and fees</summary><SampleQuotePresentation quote={quote.presentation} /></details>}
       </li>)}</ul>
     </details>}
     {comparison.length > 1 && <details className="quote-saved">

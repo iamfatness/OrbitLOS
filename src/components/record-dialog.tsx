@@ -27,6 +27,7 @@ import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { pausedLoan } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
+import { ProcessingHandoff } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
 import { ManualConditions } from "./manual-conditions";
 import { ContactHistory } from "./contact-crm";
@@ -267,6 +268,7 @@ function LenderApplicationDetails({ application, busy, save }: { application: St
 
 function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; save: Save; show: (modal: Modal) => void }) {
   const processor = staff?.brokerage.role === "Processor";
+  const sharedProcessor = processor && loan.officerEmail !== staff.email;
   const [activityKind, setActivityKind] = useState<ActivityKind>("Note");
   const activityAttempt = useRef<{ key: string; id: string } | null>(null);
   const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
@@ -300,6 +302,8 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
       </div>
       <LoanWorkflow key={loan.dispositionRevision} loan={loan} state={state} busy={busy} readOnly={processor} save={(input) => void save(input)}
         open={(target) => show({ kind: "details", loanId: loan.id, target })} />
+      <ProcessingHandoff loan={loan} assignment={state.loanProcessing.find((item) => item.loanId === loan.id)}
+        staff={staff} busy={busy} save={(input) => void save(input)} />
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <section className="details-section" aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
@@ -309,7 +313,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
-      <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)} busy={busy} save={save} />
+      <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)} busy={busy} readOnly={processor} save={save} />
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
       <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
@@ -317,8 +321,8 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor} />
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={(target) => show({ kind: "details", loanId: loan.id, target })} />
-      <div id="loan-retention" tabIndex={-1}><LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} /></div>
-      <section className="details-section" aria-label="Loan follow-up tasks" id="loan-tasks" tabIndex={-1}>
+      {!processor && <div id="loan-retention" tabIndex={-1}><LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} /></div>}
+      {!sharedProcessor && <section className="details-section" aria-label="Loan follow-up tasks" id="loan-tasks" tabIndex={-1}>
         <div className="section-heading"><h3><CheckCircle2 size={17} /> Follow-up tasks</h3></div>
         {tasks.length ? <ul className="loan-task-list">{tasks.map((task) =>
           <LoanTaskRow key={task.id} task={task} officer={loan.officer} busy={busy}
@@ -339,7 +343,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
             <Button size="sm" type="submit" disabled={busy}><Plus /> Add task</Button>
           </form>
         </details>
-      </section>
+      </section>}
       <LoanCommunications loan={loan} state={state} preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />
       <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender submissions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>

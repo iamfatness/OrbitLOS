@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { QuotePresentation } from "./quote-worksheet";
 
 const amount = z.number().min(1).max(25_000_000);
 const monthlyExpense = z.number().nonnegative().max(10_000_000);
@@ -95,6 +96,7 @@ export interface BorrowerQuote {
   principalAndInterest: number;
   quotedAt: string;
   publishedAt: string;
+  presentation?: QuotePresentation | null;
 }
 
 export interface PublishedQuote extends BorrowerQuote {

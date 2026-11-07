@@ -1,11 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { brokerageRoles, brokerageUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
+import { brokerageRoles, brokerageUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageMember, type BrokerageSettings } from "@/lib/brokerage-model";
+import type { LoanProcessing } from "@/lib/processing-model";
 import type { Workspace } from "@/lib/model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+
+function SharedProcessorAssignment({ loanId, assignment, members, busy, save }: {
+  loanId: string; assignment?: LoanProcessing; members: BrokerageMember[]; busy: boolean; save: (email: string | null, revision: number) => void;
+}) {
+  const current = assignment?.processorEmail ?? "";
+  return <form className="brokerage-form" key={`${loanId}:${assignment?.revision ?? 0}`} onSubmit={(event) => {
+    event.preventDefault();
+    const email = String(new FormData(event.currentTarget).get("processor") ?? "");
+    save(email || null, assignment?.revision ?? 0);
+  }}>
+    <label className="field">Shared processor<select name="processor" defaultValue={current}>
+      <option value="">No shared processor</option>
+      {current && !members.some((member) => member.email === current) && <option value={current} disabled>{current} · Inactive or unavailable</option>}
+      {members.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
+    </select></label>
+    <Button type="submit" size="sm" disabled={busy || (!members.length && !current)}>Save processor access</Button>
+    <p className="muted">The loan owner keeps access and follow-up tasks. The processor gets access to this file.</p>
+  </form>;
+}
 
 export function BrokerageTeam({ staff, state, refresh, openLoan }: {
   staff: WorkspaceStaff; state: Workspace; refresh: () => Promise<void>; openLoan: (id: string) => void;
@@ -49,7 +69,7 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
         window.location.assign(action.type === "revoke" ? "/workspace" : brokerageUrl(staff.brokerage.id));
         return;
       }
-      if (action.type === "assign" || action.type === "loadPilotScenario") await refresh();
+      if (action.type === "assign" || action.type === "assignProcessor" || action.type === "loadPilotScenario") await refresh();
       const current = await fetch(endpoint);
       if (!current.ok) throw new Error("The change was saved. Reload to check your brokerage access.");
       setSettings(await current.json());
@@ -231,6 +251,9 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
           <Button type="submit" size="sm" disabled={busy || !loan}>Reassign loan</Button>
         </form>
         {loan && <p className="muted">Current owner {loan.officerEmail ?? (loan.officer || "Unassigned")}</p>}
+        {loan && <SharedProcessorAssignment loanId={loan.id} assignment={state.loanProcessing.find((item) => item.loanId === loan.id)}
+          members={activeMembers.filter((member) => member.role === "Processor" && member.email !== loan.officerEmail)} busy={busy}
+          save={(email, revision) => void change({ type: "assignProcessor", loanId: loan.id, email, revision })} />}
       </section>
       <section className="pipeline relationship-panel" aria-label={pilot ? "Pilot activity and access history" : "Access history"}>
         <h2>{pilot ? "Pilot activity and access history" : "Access history"}</h2>

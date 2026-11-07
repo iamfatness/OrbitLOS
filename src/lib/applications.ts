@@ -91,13 +91,13 @@ const borrowerCommand = z.discriminatedUnion("type", [
 
 function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
-  const quote = loan && db.prepare("SELECT product, rate, principalAndInterest, quotedAt, publishedAt FROM published_quotes WHERE loanId = ?").get(row.loanId);
+  const quote = loan && db.prepare("SELECT product, rate, principalAndInterest, quotedAt, publishedAt, presentation FROM published_quotes WHERE loanId = ?").get(row.loanId);
   const loanStatus: BorrowerLoanStatus | null = loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: db.prepare(`SELECT requests.id, kind, instructions, status, replacementNote, submittedAt, revision, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
       WHERE loanId = ? ORDER BY requestedAt, requests.id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
-    quote: quote ? { ...quote } as unknown as BorrowerQuote : null,
+    quote: quote ? { ...quote, presentation: quote.presentation ? JSON.parse(String(quote.presentation)) : null } as unknown as BorrowerQuote : null,
   } : null;
   return { application: {
     draft: applicationDraft.parse(JSON.parse(row.draft)),

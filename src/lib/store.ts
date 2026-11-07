@@ -11,6 +11,8 @@ import { mockCreditAusRuns } from "./mock-credit-aus";
 import type { UwmAlert } from "./uwm-alert-model";
 import type { InboxLead } from "./model";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
+import type { LoanProcessing } from "./processing-model";
+import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
 
 export type SqlValue = string | number | null;
 
@@ -116,6 +118,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       fundingDate TEXT, disclosureStatus TEXT NOT NULL DEFAULT 'Not started', disclosureDate TEXT,
       revision INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS loan_processing (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
+      processorEmail TEXT, processorName TEXT NOT NULL, status TEXT NOT NULL,
+      note TEXT NOT NULL, updatedAt TEXT NOT NULL, revision INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS processing_by_assignee ON loan_processing(processorEmail, loanId);
     CREATE INDEX IF NOT EXISTS closing_items_by_loan ON closing_items(loanId, dueDate);
     CREATE TABLE IF NOT EXISTS realtor_portals (
       realtorId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
@@ -156,16 +164,20 @@ export function initializeStore(db: Store, seedDemo = true) {
       offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT
     );
     CREATE INDEX IF NOT EXISTS pricing_by_loan ON pricing_runs(loanId, quotedAt);
+    CREATE TABLE IF NOT EXISTS fee_worksheets (
+      runId TEXT NOT NULL REFERENCES pricing_runs(id) ON DELETE CASCADE, offerId TEXT NOT NULL,
+      inputs TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY (runId, offerId)
+    );
     CREATE TABLE IF NOT EXISTS published_quotes (
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
-      rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL
+      rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL, presentation TEXT
     );
     CREATE TABLE IF NOT EXISTS shared_quote_history (
       loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
       rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL,
-      endedAt TEXT NOT NULL, outcome TEXT NOT NULL
+      endedAt TEXT NOT NULL, outcome TEXT NOT NULL, presentation TEXT
     );
     CREATE TABLE IF NOT EXISTS mock_uwm_rates (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
@@ -254,6 +266,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(pricing_runs)").all().some((column) => column.name === "applicationRevision")) {
       db.exec("ALTER TABLE pricing_runs ADD COLUMN applicationRevision INTEGER");
+    }
+    for (const table of ["published_quotes", "shared_quote_history"]) {
+      if (!db.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === "presentation")) db.exec(`ALTER TABLE ${table} ADD COLUMN presentation TEXT`);
     }
     db.exec(`CREATE TABLE IF NOT EXISTS application_versions (
       loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
@@ -350,6 +365,11 @@ function rows<T>(db: Store, query: string) {
   return db.prepare(query).all().map((row) => ({ ...row }) as T);
 }
 
+function quoteRows<T extends PublishedQuote>(db: Store, query: string) {
+  return rows<Omit<T, "presentation"> & { presentation: string | null }>(db, query)
+    .map((row) => ({ ...row, presentation: row.presentation ? JSON.parse(row.presentation) as QuotePresentation : null }));
+}
+
 export function workspace(db: Store): Workspace {
   const contacts = rows<Contact>(db, "SELECT * FROM contacts ORDER BY name COLLATE NOCASE");
   const referralLeads = rows<ReferralLead>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
@@ -378,6 +398,7 @@ export function workspace(db: Store): Workspace {
     closingPlans: rows<ClosingPlan>(db, "SELECT loanId, targetDate FROM closing_plans"),
     closingItems: rows<ClosingItem>(db, "SELECT * FROM closing_items ORDER BY completedAt IS NOT NULL, dueDate, id"),
     closingProgress: rows<ClosingProgress>(db, "SELECT * FROM closing_progress"),
+    loanProcessing: rows<LoanProcessing>(db, "SELECT * FROM loan_processing"),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt, officerEmail FROM realtor_portals"),
     referralLeads,
     inboxLeads,
@@ -398,8 +419,11 @@ export function workspace(db: Store): Workspace {
          OR run.selectedId IS NOT NULL
       ORDER BY run.quotedAt DESC, run.rowid DESC
     `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
-    publishedQuotes: rows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
-    sharedQuoteHistory: rows<SharedQuoteEvent>(db, "SELECT * FROM shared_quote_history ORDER BY endedAt DESC, rowid DESC"),
+    feeWorksheets: rows<Omit<FeeWorksheet, "inputs"> & { inputs: string }>(db, `SELECT pricing_runs.loanId, worksheet.*
+      FROM fee_worksheets worksheet JOIN pricing_runs ON pricing_runs.id = worksheet.runId`)
+      .map((row) => ({ ...row, inputs: JSON.parse(row.inputs) })),
+    publishedQuotes: quoteRows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
+    sharedQuoteHistory: quoteRows<SharedQuoteEvent>(db, "SELECT * FROM shared_quote_history ORDER BY endedAt DESC, rowid DESC"),
     mockUwmRates: rows<MockUwmRate>(db, "SELECT * FROM mock_uwm_rates"),
     mockCreditAusRuns: mockCreditAusRuns(db),
     uwmAlerts: rows<UwmAlert>(db, "SELECT * FROM uwm_alerts ORDER BY detectedAt DESC, rowid DESC"),

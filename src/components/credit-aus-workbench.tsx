@@ -75,7 +75,7 @@ function AusPanel({ loanId, method, run, credit, previousCredit, busy, save }: {
   </section>;
 }
 
-export function CreditAusWorkbench({ loanId, runs, busy, save }: { loanId: string; runs: MockCreditAusRun[]; busy: boolean; save: Save }) {
+export function CreditAusWorkbench({ loanId, runs, busy, readOnly, save }: { loanId: string; runs: MockCreditAusRun[]; busy: boolean; readOnly?: boolean; save: Save }) {
   const credit = runs.find((run) => run.service === "Credit");
   const methods = ausMethods.map((method) => ({ method, run: runs.find((run) => run.service === method) }));
   const latestIds = new Set([credit?.id, ...methods.map(({ run }) => run?.id)]);
@@ -86,9 +86,13 @@ export function CreditAusWorkbench({ loanId, runs, busy, save }: { loanId: strin
       <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh</Button>
     </div>
     <p className="muted">Demo only. Credit and automated underwriting use fictional reports and loan inputs.</p>
-    <CreditPanel loanId={loanId} credit={credit} busy={busy} save={save} />
-    {methods.map(({ method, run }) => <AusPanel key={method} loanId={loanId} method={method} run={run} credit={credit}
-      previousCredit={run?.creditId ? byId.get(run.creditId) : undefined} busy={busy} save={save} />)}
+    {readOnly ? <><p className="muted">The loan officer runs credit and AUS. Saved results are available for review.</p>
+      {runs.filter((run) => latestIds.has(run.id)).map((run) => <Attempt key={run.id} run={run} creditReference={run.creditId ? byId.get(run.creditId)?.reference : undefined} />)}
+    </> : <>
+      <CreditPanel loanId={loanId} credit={credit} busy={busy} save={save} />
+      {methods.map(({ method, run }) => <AusPanel key={method} loanId={loanId} method={method} run={run} credit={credit}
+        previousCredit={run?.creditId ? byId.get(run.creditId) : undefined} busy={busy} save={save} />)}
+    </>}
     {history.length > 0 && <details className="document-form"><summary>Previous mock requests ({history.length})</summary>
       <div className="credit-aus-panel">
         {history.map((run) => <Attempt key={run.id} run={run} creditReference={run.creditId ? byId.get(run.creditId)?.reference : undefined} />)}

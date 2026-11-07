@@ -4,6 +4,8 @@ import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "
 import type { MockCreditAusRun } from "./credit-aus-model";
 import type { UwmAlert } from "./uwm-alert-model";
 import type { LeadFollowUp, LeadRouting } from "./lead-inbox-model";
+import type { LoanProcessing } from "./processing-model";
+import type { FeeWorksheet } from "./quote-worksheet";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -210,6 +212,7 @@ export interface Workspace {
   closingPlans: ClosingPlan[];
   closingItems: ClosingItem[];
   closingProgress: ClosingProgress[];
+  loanProcessing: LoanProcessing[];
   realtorPortals: RealtorPortal[];
   referralLeads: ReferralReview[];
   inboxLeads: InboxLead[];
@@ -218,6 +221,7 @@ export interface Workspace {
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];
   pricingRuns: PricingRun[];
+  feeWorksheets: FeeWorksheet[];
   publishedQuotes: PublishedQuote[];
   sharedQuoteHistory: SharedQuoteEvent[];
   mockUwmRates: MockUwmRate[];

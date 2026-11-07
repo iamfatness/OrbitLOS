@@ -1,4 +1,5 @@
 import { Calculator, CheckCircle2, FileCheck2, RefreshCw } from "lucide-react";
+import { SampleQuotePresentation } from "./quote-worksheet";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "@/lib/document-model";
 import type { Stage } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
@@ -50,10 +51,10 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
       <div className="section-heading"><h2 id="borrower-quote-heading"><Calculator size={19} /> Your shared quote</h2><span className="pill">Sample pricing</span></div>
       <div className="borrower-next">
         <strong>{status.quote.product}</strong>
-        <dl className="quote-terms">
+        {status.quote.presentation ? <SampleQuotePresentation quote={status.quote.presentation} /> : <dl className="quote-terms">
           <div><dt>Rate</dt><dd>{status.quote.rate.toFixed(3)}%</dd></div>
           <div><dt>Monthly principal and interest</dt><dd>{usd.format(status.quote.principalAndInterest)}</dd></div>
-        </dl>
+        </dl>}
         <small className="muted">Quoted {dateTime(status.quote.quotedAt)} ET · Demo estimate</small>
       </div>
     </section>}

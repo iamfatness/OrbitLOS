@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 const workflow = [
   { title: "Bring in the lead", copy: "Route website quote requests and realtor referrals into a shared inbox. Log outreach and work follow-ups before converting a lead into a prefilled 1003 with its history attached." },
   { title: "Collect and review the 1003", copy: "Share an application the borrower can save and resume. Request corrections, compare versions, and see the application and document checklist together before handing off the file." },
-  { title: "Work from the loan and My Tasks", copy: "See who owns the file, what’s due, and what is blocking it. Compare saved sample conventional, DSCR, and bank statement scenarios. Review mock credit, DU, and LPA findings from the same loan." },
-  { title: "Work conditions and prepare for closing", copy: "Keep delivery and lender clearance separate. In the pilot, try mock UWM conditions or track another lender manually. Hand off the closing checklist and record signing, closing, and funding." },
+  { title: "Price and compare sample quotes", copy: "Compare sample conventional, DSCR, and bank statement options. Prepare itemized fees and estimated cash to close, then share a side-by-side view with the borrower." },
+  { title: "Work conditions and prepare for closing", copy: "The loan officer and processor can work the same file and see who has the next step. Track document delivery and lender clearance separately, and record signing, closing, and funding." },
   { title: "Keep the relationship after closing", copy: "Use a shared contact history to start a repeat loan. See which referrals reached funding, log outreach, and plan follow-ups using closing anniversaries and rate-watch targets." },
 ];
 

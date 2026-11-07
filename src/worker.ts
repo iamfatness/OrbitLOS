@@ -20,6 +20,7 @@ import { z } from "zod";
 import { loadPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback } from "./lib/pilot";
 import { assignInboxLeadInput, quoteLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
 import { leadRouting, receiveQuoteLead } from "./lib/lead-inbox";
+import { assignProcessor } from "./lib/loan-processing";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -172,6 +173,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   reassign(staff: WorkspaceStaff, target: Parameters<typeof assignLoan>[2]) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return assignLoan(this.#store, staff, target);
+  }
+  shareProcessing(staff: WorkspaceStaff, target: Parameters<typeof assignProcessor>[2]) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return assignProcessor(this.#store, staff, target);
   }
 
   pilotReview(staff: WorkspaceStaff) {
@@ -427,6 +432,10 @@ export default {
         if (result.assignment) {
           const assigned = await workspace.reassign(staff, result.assignment);
           return assigned.error ? { status: 409, error: assigned.error } : { value: { message: assigned.message } };
+        }
+        if (result.processorAssignment) {
+          const assigned = await workspace.shareProcessing(staff, result.processorAssignment);
+          return "error" in assigned ? { status: 409, error: assigned.error } : { value: assigned };
         }
         return { value: { message: result.message, created: result.created } };
       }, 8192);

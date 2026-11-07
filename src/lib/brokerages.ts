@@ -82,6 +82,7 @@ export const brokerageAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("role"), email, role: z.enum(brokerageRoles) }),
   z.object({ type: z.literal("revoke"), email }),
   z.object({ type: z.literal("assign"), email, loanId: z.string().min(1).max(100), previousEmail: email.nullable() }),
+  z.object({ type: z.literal("assignProcessor"), email: email.nullable(), loanId: z.string().min(1).max(100), revision: z.number().int().nonnegative() }),
 ]);
 
 export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, bootstrapEmails: string[], input: unknown) {
@@ -110,6 +111,10 @@ export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, boo
     if (data.type === "assign") {
       if (member?.status !== "Active") return { error: "Select an active staff member in this brokerage." };
       return { assignment: { loanId: data.loanId, previousEmail: data.previousEmail, member } };
+    }
+    if (data.type === "assignProcessor") {
+      if (data.email && (member?.status !== "Active" || member.role !== "Processor")) return { error: "Select an active processor in this brokerage." };
+      return { processorAssignment: { loanId: data.loanId, revision: data.revision, member: member ?? null } };
     }
     if (data.type === "invite") {
       if (member && member.status !== "Revoked") return { error: "This staff member already has an invitation or access." };

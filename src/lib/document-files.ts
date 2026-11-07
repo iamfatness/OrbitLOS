@@ -4,7 +4,7 @@ import { addApplicationActivity } from "./applications";
 import { needsBorrowerDocument, type DocumentKind, type DocumentStatus } from "./document-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
-import { accessEvent } from "./workspace-access";
+import { accessEvent, loanAccess } from "./workspace-access";
 import type { DocumentUploadMode } from "./document-files-model";
 
 const minute = 60_000;
@@ -130,10 +130,10 @@ export function failDocumentUpload(db: Store, requestId: string, objectId: strin
 
 export function downloadableDocument(db: Store, staff: WorkspaceStaff, requestId: string) {
   const item = db.prepare(`SELECT files.objectId, requests.loanId, requests.kind FROM document_files files
-    JOIN document_requests requests ON requests.id = files.requestId JOIN loans ON loans.id = requests.loanId
-    WHERE requests.id = ? AND files.objectId IS NOT NULL AND (? = 'Admin' OR loans.officerEmail = ?)`)
-    .get(requestId, staff.brokerage.role, staff.email);
-  return item ? { objectId: String(item.objectId), loanId: String(item.loanId), kind: item.kind as DocumentKind } : null;
+    JOIN document_requests requests ON requests.id = files.requestId
+    WHERE requests.id = ? AND files.objectId IS NOT NULL`).get(requestId);
+  return item && loanAccess(db, staff, String(item.loanId))
+    ? { objectId: String(item.objectId), loanId: String(item.loanId), kind: item.kind as DocumentKind } : null;
 }
 
 export function recordDocumentDownload(db: Store, staff: WorkspaceStaff, requestId: string, objectId: string) {

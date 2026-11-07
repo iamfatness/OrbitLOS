@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
-  HeartHandshake, List, LogOut, Mail, MapPin, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, UsersRound, Wallet, X, Zap,
+  HeartHandshake, List, LogOut, Mail, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, UsersRound, Wallet, X, Zap,
 } from "lucide-react";
 import { mutate } from "@/app/actions";
 import { stages, type Loan, type Stage, type Workspace } from "@/lib/model";
@@ -79,6 +79,7 @@ function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEn
 export function Orbit({ initial, staff }: { initial: Workspace; staff: WorkspaceStaff | null }) {
   const [state, setState] = useState(initial);
   const [section, setSection] = useState<Section>("Pipeline");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [view, setView] = useState<"Board" | "List">("Board");
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -96,6 +97,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const pending = useRef(false);
   const dragged = useRef<string | null>(null);
   const board = useRef<HTMLDivElement>(null);
+  const mobileMenu = useRef<HTMLButtonElement>(null);
   const admin = !staff || staff.brokerage.role === "Admin";
   const processor = staff?.brokerage.role === "Processor";
 
@@ -126,13 +128,22 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
   const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
   const pendingContact = state.inboxLeads.filter((lead) => !lead.followUp.firstContactAt);
+  const assignedProcessing = new Set(state.loanProcessing.filter((item) => item.processorEmail === staff?.email).map((item) => item.loanId));
+  const actionableProcessing = state.loanProcessing.filter((item) => admin
+    ? item.status === "Ready for processing" || item.status === "In processing" || item.status === "Returned to LO"
+    : processor ? assignedProcessing.has(item.loanId) && (item.status === "Ready for processing" || item.status === "In processing") : item.status === "Returned to LO");
   const openTasks = state.tasks.filter((task) => !task.completedAt && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + pendingContact.length
-    + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length;
+    + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length + actionableProcessing.length;
   const officers = new Map([...state.loans, ...state.inboxLeads].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
   ]));
   const mine = staff ? `account:${staff.email}` : `name:${demoOfficer}`;
-  const taskScope = (item: Pick<Loan, "officer" | "officerEmail">) => !taskOfficer || taskOwner(item) === (taskOfficer === "mine" ? mine : taskOfficer);
+  const taskScope = (item: Pick<Loan, "id" | "officer" | "officerEmail">) => !taskOfficer ||
+    (taskOfficer === "mine" && processor && assignedProcessing.has(item.id)) || taskOwner(item) === (taskOfficer === "mine" ? mine : taskOfficer);
+  const visibleProcessing = taskView === "Open" || taskView === "All" ? actionableProcessing.flatMap((item) => {
+    const loan = taskLoans.get(item.loanId);
+    return loan && !pausedLoan(loan) && taskScope(loan) ? [{ item, loan }] : [];
+  }) : [];
   const focusedLoans = state.loans.filter((loan) => taskScope(loan) && (taskFocus ? workMatches(loan, taskFocus)
     : !!loan.revisitDate && workMatches(loan, "Overdue")));
   function dueInView(dueAt: string) {
@@ -213,6 +224,10 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
 
   function navigate(next: Section) {
     setSection(next);
+    if (mobileNavOpen) {
+      setMobileNavOpen(false);
+      mobileMenu.current?.focus();
+    }
     setFocusLeadId(undefined);
     setQuery("");
     setError("");
@@ -257,8 +272,18 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
     <div className="shell">
       <aside className="sidebar">
         <div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
+        <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button"
+          aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
+          {mobileNavOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />} Menu
+        </Button>
         <div className="workspace-label">WORKSPACE</div>
-        <nav aria-label="Workspace navigation">
+        <nav id="workspace-navigation" aria-label="Workspace navigation" data-expanded={mobileNavOpen} onKeyDown={(event) => {
+          if (event.key === "Escape" && mobileNavOpen) {
+            event.preventDefault();
+            setMobileNavOpen(false);
+            mobileMenu.current?.focus();
+          }
+        }}>
           {navigation.filter(({ label }) => (label !== "Team" || staff) && (admin || label !== "Realtors") && (!processor || label !== "Lead Inbox")).map(({ label, icon: Icon }) => (
             <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
               <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
@@ -373,7 +398,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length + visibleProcessing.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
@@ -386,6 +411,13 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
             </div>
             {showUwmAlerts && <UwmAlertQueue items={visibleUwmAlerts} borrower={borrowers} open={openUwmAlert} busy={busy}
               review={(alert) => void save({ type: "reviewUwmAlert", loanId: alert.loanId, alertId: alert.id })} />}
+            {visibleProcessing.length > 0 && <section className="work-queue" aria-label="Processing handoffs">
+              <div className="section-heading"><h3>Processing handoffs</h3><span className="pill">{visibleProcessing.length} open</span></div>
+              <ul className="loan-task-list">{visibleProcessing.map(({ item, loan }) => <li className="loan-task" key={loan.id}>
+                <div className="loan-task-copy"><strong>{item.status}</strong><span>{borrowers(loan)} · {item.processorName}</span></div>
+                <Button size="sm" variant="outline" onClick={() => show({ kind: "details", loanId: loan.id, target: "processing-handoff" })}>Open handoff</Button>
+              </li>)}</ul>
+            </section>}
             {incomingLeadTasks.length > 0 && <div className="work-queue" aria-label="Lead follow-ups">
               <div className="section-heading"><h3>Lead follow-ups</h3><span className="pill">{incomingLeadTasks.length} open</span></div>
               <ul className="loan-task-list">{incomingLeadTasks.map(({ lead, title, dueAt }) => <li className="loan-task" key={lead.id}>
@@ -417,7 +449,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                   openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id) })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email)
+            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || visibleProcessing.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email || assignedProcessing.has(loan.id))
               ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
               : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}

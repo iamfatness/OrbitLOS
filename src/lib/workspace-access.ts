@@ -5,7 +5,10 @@ import type { Store } from "./store";
 
 export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): Workspace {
   if (!staff || staff.brokerage.role === "Admin") return state;
-  const loans = state.loans.filter((loan) => loan.officerEmail === staff.email);
+  const owned = new Set(state.loans.filter((loan) => loan.officerEmail === staff.email).map((loan) => loan.id));
+  const processing = new Set(staff.brokerage.role === "Processor"
+    ? state.loanProcessing.filter((item) => item.processorEmail === staff.email).map((item) => item.loanId) : []);
+  const loans = state.loans.filter((loan) => owned.has(loan.id) || processing.has(loan.id));
   const loanIds = new Set(loans.map((loan) => loan.id));
   const contacts = new Set(loans.flatMap((loan) => [loan.contactId, loan.partnerId]));
   if (staff.brokerage.role === "LO") {
@@ -23,15 +26,28 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
   });
   return { ...state, loans, contacts: state.contacts.filter((contact) => contacts.has(contact.id)), realtorPortals: [],
     referralLeads, inboxLeads, leadRouting: null, unlinkedReferrals: [],
-    submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: scoped(state.tasks),
+    submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: state.tasks.filter((item) => owned.has(item.loanId)),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),
     closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scoped(state.applications),
     closingProgress: scoped(state.closingProgress),
+    loanProcessing: scoped(state.loanProcessing),
     documentRequests: scoped(state.documentRequests), pricingRuns: scoped(state.pricingRuns), publishedQuotes: scoped(state.publishedQuotes),
     sharedQuoteHistory: scoped(state.sharedQuoteHistory),
-    mockUwmRates: scoped(state.mockUwmRates), mockCreditAusRuns: scoped(state.mockCreditAusRuns),
-    uwmAlerts: scoped(state.uwmAlerts),
+    feeWorksheets: scoped(state.feeWorksheets),
+    mockUwmRates: state.mockUwmRates.filter((item) => owned.has(item.loanId)), mockCreditAusRuns: scoped(state.mockCreditAusRuns),
+    uwmAlerts: state.uwmAlerts.filter((item) => owned.has(item.loanId)),
   };
+}
+
+export function loanAccess(db: Store, staff: WorkspaceStaff, loanId: string) {
+  const loan = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(loanId);
+  if (!loan) return null;
+  if (staff.brokerage.role === "Admin") return "admin";
+  if (loan.officerEmail === staff.email) return "owner";
+  if (staff.brokerage.role === "Processor" && db.prepare("SELECT 1 FROM loan_processing WHERE loanId = ? AND processorEmail = ?").get(loanId, staff.email)) {
+    return "processor";
+  }
+  return null;
 }
 
 export function accessEvent(db: Store, staff: StaffIdentity | null, action: string, subject: string, now: string) {
@@ -50,6 +66,9 @@ export function assignLoan(db: Store, staff: WorkspaceStaff, target: { loanId: s
     const { loanId, previousEmail, member } = target;
     const loan = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(loanId);
     if (!loan) return { error: "This loan no longer exists." };
+    if (db.prepare("SELECT 1 FROM loan_processing WHERE loanId = ? AND processorEmail = ?").get(loanId, member.email)) {
+      return { error: "Remove shared processing access before making this staff member the primary owner." };
+    }
     if (loan.officerEmail !== member.email) {
       if (loan.officerEmail !== previousEmail) return { error: "The loan owner changed. Refresh the workspace before reassigning it." };
       const now = new Date().toISOString();

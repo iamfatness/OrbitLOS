@@ -10,7 +10,7 @@ import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } 
 import { createMilestoneDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
-import { accessEvent, isDemoStaff, scopeWorkspace } from "./workspace-access";
+import { accessEvent, isDemoStaff, loanAccess, scopeWorkspace } from "./workspace-access";
 import { demoBrokerageId, portalToken, portalTokenPattern } from "./brokerage-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds } from "./document-model";
@@ -20,6 +20,10 @@ import { trackPilotBorrower } from "./pilot";
 import { contactDuplicate, contactImportLimit, contactImportRow } from "./contact-csv";
 import { assignInboxLeadInput, leadContactInput, leadSequenceInput, saveLeadRoutingInput } from "./lead-inbox-model";
 import { carryLeadHistory, changeLeadRouting, stopLeadFollowUp, updateInboxLead } from "./lead-inbox";
+import { updateProcessingInput } from "./processing-model";
+import { updateProcessing } from "./loan-processing";
+import { quoteSelection, saveFeeWorksheetInput, type QuoteOption } from "./quote-worksheet";
+import { archiveSharedQuote, quoteSnapshot, saveFeeWorksheet } from "./quote-worksheet-store";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -108,13 +112,16 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("lockMockRate"), loanId: id, floatReference: id, days: z.literal(mockLockPeriods) }),
   z.object({ type: z.literal("extendMockLock"), ...lockChange, days: z.literal(mockLockExtensionPeriods) }),
   z.object({ type: z.literal("cancelMockLock"), ...lockChange }),
-  z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id }),
+  saveFeeWorksheetInput,
+  z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id, feeRevision: z.number().int().nonnegative().default(0),
+    alternatives: z.array(quoteSelection).max(2).default([]) }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
   z.object({ type: z.literal("reviewApplication"), loanId: id, revision: z.number().int().nonnegative().optional() }),
   z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
     note: z.string().trim().min(1).max(500) }),
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
   z.object({ type: z.literal("sendApplication"), loanId: id }),
+  updateProcessingInput,
 ]);
 
 class WorkspaceError extends Error {}
@@ -122,7 +129,8 @@ class WorkspaceError extends Error {}
 function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: WorkspaceStaff | null) {
   if (!staff || staff.brokerage.role === "Admin") return;
   const denied = () => { throw new WorkspaceError("You don’t have access to this workspace action or loan."); };
-  const owns = (loanId: unknown) => typeof loanId === "string" && !!db.prepare("SELECT 1 FROM loans WHERE id = ? AND officerEmail = ?").get(loanId, staff.email);
+  const access = (loanId: unknown) => typeof loanId === "string" ? loanAccess(db, staff, loanId) : null;
+  const owns = (loanId: unknown) => access(loanId) === "owner";
   if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" || data.type === "simulateUwmChanges" || data.type === "saveBrokerageTemplate" ||
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if (staff.brokerage.role === "Processor") {
@@ -130,10 +138,11 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
       "saveLenderDetails", "requestDocument", "applyDocumentPreset", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
       "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
-      "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "saveManualCondition", "recordManualDelivery", "recordManualClearance"];
+      "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "saveManualCondition", "recordManualDelivery", "recordManualClearance", "updateProcessing"];
     if (!permitted.includes(data.type)) denied();
   }
-  if ("loanId" in data && !owns(data.loanId)) denied();
+  if ("loanId" in data && !access(data.loanId)) denied();
+  if ((data.type === "createTask" || data.type === "reviewUwmAlert") && !owns(data.loanId)) denied();
   if (data.type === "move" && !owns(data.id)) denied();
   if (data.type === "completeTask" && !owns(db.prepare("SELECT loanId FROM tasks WHERE id = ?").get(data.id)?.loanId)) denied();
   if (data.type === "deleteSubmission" && !owns(db.prepare("SELECT loanId FROM submissions WHERE id = ?").get(data.id)?.loanId)) denied();
@@ -563,6 +572,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = result.message;
           break;
         }
+        case "updateProcessing": {
+          const result = updateProcessing(db, staff, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
         case "refreshWorkspace":
           message = "Workspace refreshed.";
           break;
@@ -607,6 +622,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = result.message;
           break;
         }
+        case "saveFeeWorksheet": {
+          const result = saveFeeWorksheet(db, data);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
         case "publishQuote": {
           if (!getApplication(db, data.loanId)?.submittedAt) throw new WorkspaceError("The borrower must submit their 1003 before you can share a quote.");
           const run = savedPricingRun(db, data.loanId);
@@ -615,14 +636,26 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           const offer = (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === data.offerId);
           if (!offer) throw new WorkspaceError("This sample quote is unavailable.");
-          const previous = db.prepare("SELECT runId, offerId FROM published_quotes WHERE loanId = ?").get(data.loanId);
-          if (previous?.runId !== data.runId || previous.offerId !== data.offerId) {
-            db.prepare("INSERT INTO shared_quote_history SELECT *, ?, 'Replaced' FROM published_quotes WHERE loanId = ?").run(now, data.loanId);
-            db.prepare(`INSERT INTO published_quotes (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId) DO UPDATE SET runId = excluded.runId, offerId = excluded.offerId,
+          const choices = [data, ...data.alternatives];
+          if (new Set(choices.map((choice) => JSON.stringify([choice.runId, choice.offerId]))).size !== choices.length) {
+            throw new WorkspaceError("Choose distinct pricing options for the comparison.");
+          }
+          const options: QuoteOption[] = choices.map((choice) => {
+            const result = quoteSnapshot(db, data.loanId, choice);
+            if ("error" in result) throw new WorkspaceError(result.error);
+            return result.option;
+          });
+          const [primary, ...alternatives] = options;
+          if (alternatives.some((option) => option.purpose !== primary.purpose)) throw new WorkspaceError("Compare quotes for the same loan purpose.");
+          const presentation = JSON.stringify({ primary, alternatives });
+          const previous = db.prepare("SELECT runId, offerId, presentation FROM published_quotes WHERE loanId = ?").get(data.loanId);
+          if (previous?.runId !== data.runId || previous.offerId !== data.offerId || previous.presentation !== presentation) {
+            archiveSharedQuote(db, data.loanId, now, "Replaced");
+            db.prepare(`INSERT INTO published_quotes (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt, presentation)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId) DO UPDATE SET runId = excluded.runId, offerId = excluded.offerId,
               product = excluded.product, rate = excluded.rate, principalAndInterest = excluded.principalAndInterest,
-              quotedAt = excluded.quotedAt, publishedAt = excluded.publishedAt`)
-              .run(data.loanId, data.runId, offer.id, offer.product, offer.rate, offer.principalAndInterest, run.quotedAt, now);
+              quotedAt = excluded.quotedAt, publishedAt = excluded.publishedAt, presentation = excluded.presentation`)
+              .run(data.loanId, data.runId, offer.id, offer.product, offer.rate, offer.principalAndInterest, run.quotedAt, now, presentation);
             addApplicationActivity(db, data.loanId, "Sample quote published to borrower status.", now);
           }
           message = "Sample quote published to borrower status.";
@@ -632,7 +665,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const previous = db.prepare("SELECT publishedAt FROM published_quotes WHERE loanId = ?").get(data.loanId);
           if (previous && previous.publishedAt !== data.publishedAt) throw new WorkspaceError("The shared quote changed. Refresh before removing it.");
           if (previous) {
-            db.prepare("INSERT INTO shared_quote_history SELECT *, ?, 'Removed' FROM published_quotes WHERE loanId = ?").run(now, data.loanId);
+            archiveSharedQuote(db, data.loanId, now, "Removed");
             db.prepare("DELETE FROM published_quotes WHERE loanId = ?").run(data.loanId);
             addApplicationActivity(db, data.loanId, "Sample quote removed from borrower status.", now);
           }
