@@ -15,3 +15,6 @@ export async function updateWorkspace(input: unknown) {
 export async function updateBorrowerApplication(input: unknown) {
   return demoWorkspace().borrower(input);
 }
+export async function reserveBorrowerAddressLookup(token: string) {
+  return demoWorkspace().reserveAddressLookup(token);
+}

@@ -1,13 +1,13 @@
 import type { BorrowerResult } from "./application-model";
 
 const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer" };
-const maxRequestBytes = 16_384;
+const maxRequestBytes = 262_144;
 
 function problem(error: string, status: number) {
   return Response.json({ error }, { status, headers });
 }
 
-export async function borrowerHttp(request: Request, run: (input: unknown) => Promise<BorrowerResult>) {
+export async function borrowerJson<T>(request: Request, run: (input: unknown) => Promise<{ value: T } | { status: number; error: string }>, limit: number) {
   if (request.headers.get("Origin") !== new URL(request.url).origin) return problem("Open the application directly in Orbit.", 403);
   if (request.headers.get("Content-Type")?.split(";")[0] !== "application/json") return problem("Send the application as JSON.", 415);
   const reader = request.body?.getReader();
@@ -22,7 +22,7 @@ export async function borrowerHttp(request: Request, run: (input: unknown) => Pr
       const { value, done } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > maxRequestBytes) {
+      if (bytes > limit) {
         await reader.cancel();
         return problem("The application request is too large.", 413);
       }
@@ -37,8 +37,15 @@ export async function borrowerHttp(request: Request, run: (input: unknown) => Pr
   try {
     const result = await run(input);
     if ("error" in result) return problem(result.error, result.status);
-    return Response.json(result.application, { headers });
+    return Response.json(result.value, { headers });
   } catch {
     return problem("Orbit could not load or save the application. Try again.", 500);
   }
+}
+
+export function borrowerHttp(request: Request, run: (input: unknown) => Promise<BorrowerResult>, addressLookupEnabled = false) {
+  return borrowerJson(request, async (input) => {
+    const result = await run(input);
+    return "error" in result ? result : { value: { ...result.application, addressLookupEnabled } };
+  }, maxRequestBytes);
 }

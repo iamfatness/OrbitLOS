@@ -44,6 +44,14 @@ export function initializeStore(db: Store) {
       step INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0,
       updatedAt TEXT NOT NULL, submittedAt TEXT, reviewedAt TEXT, uwmReference TEXT
     );
+    CREATE TABLE IF NOT EXISTS application_address_quota (
+      loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
+      window INTEGER NOT NULL, requests INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS application_lender_details (
+      loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
+      details TEXT NOT NULL, revision INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT

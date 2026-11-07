@@ -5,6 +5,7 @@ import { submitMockApplication, syncUwm } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
 import { pricingScenario, type PricingOffer } from "./pricing-model";
 import { PricingError, pricingProvider } from "./pricing-provider";
+import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -38,6 +39,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario }),
   z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("reviewApplication"), loanId: id }),
+  z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
   z.object({ type: z.literal("sendApplication"), loanId: id }),
 ]);
 
@@ -111,6 +113,19 @@ export async function executeCommand(db: Store, input: unknown): Promise<{ state
             addApplicationActivity(db, data.loanId, "Loan officer reviewed the demo 1003.", now);
           }
           message = "Application marked reviewed.";
+          break;
+        }
+        case "saveLenderDetails": {
+          const application = getApplication(db, data.loanId);
+          if (!application) throw new WorkspaceError("Start an application before saving lender details.");
+          const existing = db.prepare("SELECT revision FROM application_lender_details WHERE loanId = ?").get(data.loanId);
+          if (Number(existing?.revision ?? 0) !== data.revision) throw new WorkspaceError("Lender details changed. Refresh the application before saving.");
+          const originator = cleanAnswers(lenderQuestions, data.details.originator);
+          const supplement = cleanAnswers(lenderSupplement, data.details.supplement);
+          db.prepare(`INSERT INTO application_lender_details (loanId, details, revision) VALUES (?, ?, ?)
+            ON CONFLICT(loanId) DO UPDATE SET details = excluded.details, revision = excluded.revision`)
+            .run(data.loanId, JSON.stringify({ originator: originator.answers, supplement: supplement.answers }), data.revision + 1);
+          message = "Lender details saved.";
           break;
         }
         case "sendApplication": {

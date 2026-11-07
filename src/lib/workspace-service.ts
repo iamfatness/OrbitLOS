@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
 import { borrowerCommandResult } from "./applications";
+import { reserveAddressLookup } from "./places";
 import { initializeStore, workspace, type SqlValue, type Store } from "./store";
 
 let connection: Store | undefined;
@@ -57,4 +58,8 @@ export async function updateWorkspace(input: unknown) {
 
 export async function updateBorrowerApplication(input: unknown) {
   return borrowerCommandResult(database(), input);
+}
+
+export function reserveBorrowerAddressLookup(token: string) {
+  return reserveAddressLookup(database(), token);
 }

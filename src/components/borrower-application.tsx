@@ -88,7 +88,7 @@ export function BorrowerApplicationForm() {
       <h1>Mortgage application</h1>
       <p>Walk through a sample 1003 and send it to your loan officer for review.</p>
     </div>
-    <aside className="application-warning">Use fictional information. This demo collects no Social Security numbers or financial documents.</aside>
+    <aside className="application-warning">Use fictional information. Enter only a test tax ID in the format 000-00-1234. Keep real Social Security numbers, account numbers, and documents out of the demo.</aside>
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!application && !error && <p role="status" className="application-message">Opening your application…</p>}
@@ -100,7 +100,9 @@ export function BorrowerApplicationForm() {
     </section> : application && <section className="application-panel">
       <ol className="application-progress" aria-label="Application progress">
         {applicationSteps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} data-complete={index < step}>
-          <span>{index + 1}</span>{label}
+          <button type="button" disabled={busy} onClick={() => { if (index !== step) void save("save", index, true); }}>
+            <span>{index + 1}</span>{label}
+          </button>
         </li>)}
       </ol>
       <form className="application-form" onSubmit={submit} noValidate>
@@ -117,7 +119,7 @@ export function BorrowerApplicationForm() {
             <ApplicationAnswers draft={application.draft} />
             <label className="demo-confirm"><input type="checkbox" checked={application.draft.confirmedDemo}
               onChange={(event) => { const confirmedDemo = event.target.checked; update(() => ({ confirmedDemo })); }} /> I’m submitting fictional information for the Orbit demo.</label>
-          </> : <ApplicationFields step={step} draft={application.draft} update={update} />}
+          </> : <ApplicationFields step={step} draft={application.draft} update={update} lookupEnabled={application.addressLookupEnabled} />}
         </fieldset>
         <div className="application-actions">
           {step > 0 && <Button variant="ghost" disabled={busy} onClick={() => {

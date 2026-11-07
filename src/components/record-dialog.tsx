@@ -8,6 +8,9 @@ import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
 import { LoanTaskRow } from "./loan-task";
 import { LoanPricing } from "./loan-pricing";
+import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetails } from "@/lib/urla";
+import type { StaffApplication } from "@/lib/application-model";
+import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 
 export type Modal =
   | { kind: "details"; loanId: string }
@@ -163,8 +166,29 @@ function LoanApplication({ loanId, state, busy, save }: { loanId: string; state:
           application.reviewedAt ? <Button size="sm" disabled={busy} onClick={() => run("sendApplication")}><Send /> Send to UWM (mock)</Button> :
             <Button size="sm" disabled={busy} onClick={() => run("reviewApplication")}><CheckCircle2 /> Mark reviewed</Button>}
       </>}
+      <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application} busy={busy} save={save} />
     </div>}
   </section>;
+}
+
+function LenderApplicationDetails({ application, busy, save }: { application: StaffApplication; busy: boolean; save: Save }) {
+  const [details, setDetails] = useState(() => application.lender?.details ?? blankLenderDetails());
+  const change = (key: keyof LenderDetails): ChangeAnswers => (update) =>
+    setDetails((current) => ({ ...current, [key]: update(current[key]) }));
+  return <details className="application-review">
+    <summary>Lender and originator details</summary>
+    <p className="muted">Staff-only fields for the sample loan file.</p>
+    <div className="urla-questionnaire">
+      <QuestionnaireFields definition={lenderQuestions} answers={details.originator} change={change("originator")} />
+      <details className="application-review">
+        <summary>Property, title, mortgage terms, and cash to close</summary>
+        <QuestionnaireFields definition={lenderSupplement} answers={details.supplement} change={change("supplement")} />
+      </details>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void save({
+        type: "saveLenderDetails", loanId: application.loanId, revision: application.lender?.revision ?? 0, details,
+      })}>Save lender details</Button>
+    </div>
+  </details>;
 }
 
 function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Workspace; busy: boolean; save: Save; show: (modal: Modal) => void }) {

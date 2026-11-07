@@ -17,14 +17,14 @@ const propertyTypes = ["Single family", "Attached condominium"];
 function defaults(loan: Loan, draft: ApplicationDraft | null | undefined, run?: PricingRun) {
   const scenario = run?.scenario;
   return {
-    purpose: scenario?.purpose ?? draft?.purpose ?? loan.purpose,
+    purpose: scenario?.purpose ?? (draft?.purpose === "Other" ? loan.purpose : draft?.purpose ?? loan.purpose),
     loanAmount: String(scenario?.loanAmount ?? (draft?.loanAmount || loan.amount || "")),
     propertyValue: String(scenario?.propertyValue ?? (draft?.estimatedValue || "")),
     purchasePrice: String(scenario?.purchasePrice ?? ""),
     zip: scenario?.zip ?? (draft?.propertyLocation.zip.slice(0, 5) || loan.address.match(/\b\d{5}(?:-\d{4})?$/)?.[0].slice(0, 5) || ""),
     creditScore: String(scenario?.creditScore ?? ""),
     monthlyIncome: String(scenario?.monthlyIncome ?? (draft?.monthlyIncome || "")),
-    occupancy: scenario?.occupancy ?? (draft?.occupancy || "Primary residence"),
+    occupancy: scenario?.occupancy ?? (draft?.occupancy && draft.occupancy !== "FHA secondary residence" ? draft.occupancy : "Primary residence"),
     propertyType: scenario?.propertyType ?? "Single family",
     firstTimeBuyer: scenario?.firstTimeBuyer ?? false,
   };

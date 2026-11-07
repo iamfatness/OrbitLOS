@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { blankBorrower, blankUrla, normalizeUrla, sampleUrla, urlaDetailsSchema, type LenderDetails } from "./urla";
 
 const shortText = z.string().trim().max(160);
 const dollars = z.string().trim().regex(/^\d{0,10}(?:\.\d{1,2})?$/).refine((value) => Number(value) <= 1_000_000_000);
 const yesNo = z.enum(["", "Yes", "No"]);
 const addressLocation = z.object({
   unit: z.string().trim().max(30), city: z.string().trim().max(100),
-  state: z.string().trim().toUpperCase().max(2), zip: z.string().trim().max(10),
+  state: z.string().trim().max(100), zip: z.string().trim().max(20),
+  country: z.string().trim().max(100).optional(),
 });
 
 export type AddressLocation = z.infer<typeof addressLocation>;
@@ -13,9 +15,9 @@ export type AddressStreet = "currentAddress" | "priorAddress" | "propertyAddress
 export type AddressDetails = "currentLocation" | "priorLocation" | "propertyLocation";
 export const usZip = /^\d{5}(?:-\d{4})?$/;
 const usStates = new Set("AL AK AS AZ AR CA CO CT DE DC FL GA GU HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MP MT NE NV NH NJ NM NY NC ND OH OK OR PA PR RI SC SD TN TX UT VT VA VI WA WV WI WY AA AE AP FM MH PW".split(" "));
-const blankLocation = () => ({ unit: "", city: "", state: "", zip: "" });
+const blankLocation = (): AddressLocation => ({ unit: "", city: "", state: "", zip: "" });
 
-export function splitLegacyAddress(value: string) {
+export function splitLegacyAddress(value: string): { street: string; location: AddressLocation } {
   const match = /^(?:(.+),\s*)?([^,]+),\s*([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i.exec(value.trim());
   if (!match || !usStates.has(match[3].toUpperCase()) || match[2].trim().length > 100) {
     return { street: value, location: blankLocation() };
@@ -33,18 +35,38 @@ const storedApplicationDraft = z.object({
   priorEmployer: shortText, coBorrowerEmployer: shortText, coBorrowerIncome: dollars,
   assets: dollars, monthlyDebts: dollars, otherProperty: shortText,
   propertyAddress: z.string().trim().max(240), estimatedValue: dollars, loanAmount: dollars,
-  purpose: z.enum(["Purchase", "Refinance"]), occupancy: z.enum(["", "Primary residence", "Second home", "Investment property"]),
+  purpose: z.enum(["Purchase", "Refinance", "Other"]), occupancy: z.enum(["", "Primary residence", "Second home", "Investment property", "FHA secondary residence"]),
   borrowedDownPayment: yesNo, bankruptcy: yesNo,
   confirmedDemo: z.boolean(),
   currentLocation: addressLocation.optional(), priorLocation: addressLocation.optional(), propertyLocation: addressLocation.optional(),
+  urla: urlaDetailsSchema.optional(),
 });
 
 export const applicationDraft = storedApplicationDraft.transform((draft) => {
   const current = draft.currentLocation ? { street: draft.currentAddress, location: draft.currentLocation } : splitLegacyAddress(draft.currentAddress);
   const prior = draft.priorLocation ? { street: draft.priorAddress, location: draft.priorLocation } : splitLegacyAddress(draft.priorAddress);
   const property = draft.propertyLocation ? { street: draft.propertyAddress, location: draft.propertyLocation } : splitLegacyAddress(draft.propertyAddress);
+  const urla = draft.urla ?? blankUrla();
+  if (!draft.urla) {
+    urla.primary.declarations.fields = { borrowed: draft.borrowedDownPayment, bankruptcy: draft.bankruptcy };
+    if (draft.employer) {
+      urla.primary.work.fields.hasJobs = "Yes";
+      urla.primary.work.groups.jobs = [{ status: "Current", employer: draft.employer, position: draft.occupation, start: draft.employmentStart, base: draft.monthlyIncome }];
+    }
+    if (draft.coBorrowerName) {
+      urla.credit.fields.type = "Joint";
+      const additional = blankBorrower();
+      additional.identity.fields.name = draft.coBorrowerName;
+      if (draft.coBorrowerEmployer) {
+        additional.work.fields.hasJobs = "Yes";
+        additional.work.groups.jobs = [{ status: "Current", employer: draft.coBorrowerEmployer, base: draft.coBorrowerIncome }];
+      }
+      urla.additional.push(additional);
+    }
+  }
   return {
     ...draft,
+    urla,
     currentAddress: current.street, currentLocation: current.location,
     priorAddress: prior.street, priorLocation: prior.location,
     propertyAddress: property.street, propertyLocation: property.location,
@@ -52,7 +74,7 @@ export const applicationDraft = storedApplicationDraft.transform((draft) => {
 });
 
 export type ApplicationDraft = z.infer<typeof applicationDraft>;
-export const applicationSteps = ["Borrowers", "Employment", "Finances", "Property", "Declarations", "Review"] as const;
+export const applicationSteps = ["Borrowers", "Employment", "Finances", "Property", "Declarations", "Real estate", "Military", "Demographics", "Acknowledgment", "Review"] as const;
 
 export function blankApplication(): ApplicationDraft {
   return {
@@ -62,6 +84,7 @@ export function blankApplication(): ApplicationDraft {
     propertyAddress: "", estimatedValue: "", loanAmount: "", purpose: "Purchase", occupancy: "",
     borrowedDownPayment: "", bankruptcy: "", confirmedDemo: false,
     currentLocation: blankLocation(), priorLocation: blankLocation(), propertyLocation: blankLocation(),
+    urla: blankUrla(),
   };
 }
 
@@ -72,25 +95,27 @@ export const sampleAddresses = [
 ] satisfies { street: string; location: AddressLocation }[];
 
 export function sampleApplication(current: ApplicationDraft): ApplicationDraft {
-  const [home, prior, exampleProperty] = sampleAddresses;
+  const [home, , exampleProperty] = sampleAddresses;
   const property = completeAddress(current.propertyAddress, current.propertyLocation)
     ? { street: current.propertyAddress, location: current.propertyLocation } : exampleProperty;
+  const name = current.borrowerName || "Riley Sample";
   return {
     ...blankApplication(),
-    borrowerName: current.borrowerName || "Riley Sample", email: "riley@example.test", phone: "248-555-0142",
-    currentAddress: home.street, currentLocation: home.location, priorAddress: prior.street, priorLocation: prior.location, coBorrowerName: "Morgan Sample",
+    borrowerName: name, email: "riley@example.test", phone: "248-555-0142",
+    currentAddress: home.street, currentLocation: home.location,
     employer: "Sample Design Studio", occupation: "Designer", employmentStart: "2022-04-01", monthlyIncome: "7500",
     priorEmployer: "Example Creative", coBorrowerEmployer: "Demo Services", coBorrowerIncome: "4000",
     assets: "67000", monthlyDebts: "490", otherProperty: "None",
     propertyAddress: property.street, propertyLocation: property.location,
     estimatedValue: String(Math.max(450000, Math.min(1_000_000_000, Math.ceil(Number(current.loanAmount) * 1.25)))),
     loanAmount: current.loanAmount || "360000", purpose: current.purpose, occupancy: "Primary residence",
-    borrowedDownPayment: "No", bankruptcy: "No",
+    borrowedDownPayment: "No", bankruptcy: "No", urla: sampleUrla(name, current.purpose === "Purchase"),
   };
 }
 
-function completeAddress(street: string, { city, state, zip }: AddressLocation) {
-  return !!street.trim() && !!city.trim() && usStates.has(state.trim().toUpperCase()) && usZip.test(zip.trim());
+function completeAddress(street: string, { city, state, zip, country }: AddressLocation, usOnly = false) {
+  const domestic = usOnly || !country || /^(US|USA|United States)$/i.test(country.trim());
+  return !!street.trim() && !!city.trim() && (!domestic || (usStates.has(state.trim().toUpperCase()) && usZip.test(zip.trim())));
 }
 
 export function applicationIssues(draft: ApplicationDraft) {
@@ -102,12 +127,18 @@ export function applicationIssues(draft: ApplicationDraft) {
   if ((draft.priorAddress || Object.values(draft.priorLocation).some(Boolean)) && !completeAddress(draft.priorAddress, draft.priorLocation)) {
     missing.push("Prior street address, city, state, and ZIP code");
   }
-  if (!draft.employer || Number(draft.monthlyIncome) <= 0) missing.push("Employer and gross monthly income");
-  if (!completeAddress(draft.propertyAddress, draft.propertyLocation)) missing.push("Subject property street address, city, state, and ZIP code");
+  const pendingProperty = draft.purpose === "Purchase" && draft.urla.property.fields.propertyPending === "Yes";
+  if (!pendingProperty && !completeAddress(draft.propertyAddress, draft.propertyLocation, true)) missing.push("Subject property street address, city, state, and ZIP code");
+  if (draft.purpose === "Other" && !draft.urla.property.fields.otherPurpose) missing.push("Describe the other loan purpose");
   if (Number(draft.estimatedValue) <= 0 || Number(draft.loanAmount) <= 0 || !draft.occupancy) {
     missing.push("Property value, loan amount, and occupancy");
   }
-  if (!draft.borrowedDownPayment || !draft.bankruptcy) missing.push("Both declarations");
+  const joint = draft.urla.credit.fields.type === "Joint";
+  if (!joint && draft.urla.additional.length) missing.push("Select joint credit for an application with additional borrowers");
+  for (const [name, signer] of [[draft.borrowerName, draft.urla.primary], ...draft.urla.additional.map((item) => [item.identity.fields.name, item] as const)] as const) {
+    if ((name ?? "").trim().toLowerCase() !== signer.acknowledgment.fields.signature?.trim().toLowerCase()) missing.push("Each sample signature must match the borrower’s full name");
+  }
+  missing.push(...normalizeUrla(draft.urla, true, completeAddress(draft.priorAddress, draft.priorLocation)).issues);
   if (!draft.confirmedDemo) missing.push("Sample data confirmation");
   return missing;
 }
@@ -118,6 +149,7 @@ export interface BorrowerApplication {
   revision: number;
   updatedAt: string;
   submittedAt: string | null;
+  addressLookupEnabled?: boolean;
 }
 
 export interface StaffApplication {
@@ -129,6 +161,7 @@ export interface StaffApplication {
   reviewedAt: string | null;
   uwmReference: string | null;
   draft: ApplicationDraft | null;
+  lender: { details: LenderDetails; revision: number } | null;
 }
 
 export type BorrowerResult = { application: BorrowerApplication } | { status: number; error: string };

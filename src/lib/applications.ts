@@ -2,20 +2,25 @@ import { z } from "zod";
 import { applicationDraft, applicationIssues, applicationSteps, blankApplication, splitLegacyAddress, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
 import type { Store } from "./store";
 import { createApplicationFollowUps } from "./tasks";
+import { lenderDetailsSchema, normalizeUrla } from "./urla";
 
-type ApplicationRow = Omit<StaffApplication, "draft"> & { draft: string; step: number; revision: number };
+type ApplicationRow = Omit<StaffApplication, "draft" | "lender"> & { draft: string; step: number; revision: number };
 
 export function getApplication(db: Store, loanId: string) {
   return db.prepare("SELECT * FROM applications WHERE loanId = ?").get(loanId) as ApplicationRow | undefined;
 }
 
 export function staffApplications(db: Store): StaffApplication[] {
+  const lender = new Map(db.prepare("SELECT * FROM application_lender_details").all().map((item) => [item.loanId, {
+    details: lenderDetailsSchema.parse(JSON.parse(String(item.details))), revision: Number(item.revision),
+  }]));
   return db.prepare("SELECT * FROM applications").all().map((value) => {
     const row = value as ApplicationRow;
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, uwmReference: row.uwmReference,
       draft: row.submittedAt ? applicationDraft.parse(JSON.parse(row.draft)) : null,
+      lender: lender.get(row.loanId) ?? null,
     };
   });
 }
@@ -84,12 +89,26 @@ export function borrowerCommandResult(db: Store, input: unknown): BorrowerResult
     }
 
     const submitted = data.type === "submit";
+    const normalized = normalizeUrla(data.draft.urla, false);
+    if (normalized.issues.length) return { status: 422, error: "Use a fictional tax ID in the format 000-00-1234 and only four digits for account references." };
+    const draft = { ...data.draft, urla: normalized.details };
+    const work = draft.urla.primary.work;
+    if (work.fields.hasJobs || work.fields.hasIncome) {
+      const jobs = work.fields.hasJobs === "Yes" ? work.groups.jobs ?? [] : [];
+      const current = jobs.filter((job) => job.status === "Current");
+      const incomeKeys = ["base", "overtime", "bonus", "commission", "military", "other", "business"];
+      const other = work.fields.hasIncome === "Yes" ? work.groups.income ?? [] : [];
+      const amounts = [...current.flatMap((job) => incomeKeys.map((key) => job[key])), ...other.map((item) => item.monthly)];
+      const monthlyIncome = amounts.reduce((total, item) => total + (Number(item) || 0), 0);
+      draft.employer = current[0]?.employer?.slice(0, 160) ?? "";
+      draft.monthlyIncome = Math.min(1_000_000_000, Math.max(0, monthlyIncome)).toFixed(2);
+    }
     if (submitted) {
-      const issues = applicationIssues(data.draft);
+      const issues = applicationIssues(draft);
       if (issues.length) return { status: 422, error: `Complete these items before submitting: ${issues.join("; ")}.` };
     }
     const next: ApplicationRow = {
-      ...row, draft: JSON.stringify(data.draft), step: data.step, revision: row.revision + 1,
+      ...row, draft: JSON.stringify(draft), step: data.step, revision: row.revision + 1,
       updatedAt: now, submittedAt: submitted ? now : null,
     };
     db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ? WHERE loanId = ?")

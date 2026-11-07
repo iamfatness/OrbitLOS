@@ -7,6 +7,7 @@ import { borrowerHttp } from "./lib/borrower-http";
 import { initializeStore, workspace, type SqlValue, type Store } from "./lib/store";
 import { googleSettings, handleStaffAuth, runtimeSetting, signedInStaff } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity } from "./lib/staff-store";
+import { placesHttp, reserveAddressLookup } from "./lib/places";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -43,6 +44,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return borrowerCommandResult(this.#store, input);
   }
 
+  reserveAddressLookup(token: string) {
+    return reserveAddressLookup(this.#store, token);
+  }
+
   startGoogle(...args: Parameters<StaffAuthStore["startGoogle"]>) { return this.#auth.startGoogle(...args); }
   consumeGoogle(...args: Parameters<StaffAuthStore["consumeGoogle"]>) { return this.#auth.consumeGoogle(...args); }
   createStaffSession(...args: Parameters<StaffAuthStore["createStaffSession"]>) { return this.#auth.createStaffSession(...args); }
@@ -69,7 +74,7 @@ export default {
       return Response.redirect(url, 308);
     }
     const reading = request.method === "GET" || request.method === "HEAD";
-    const marketingPage = /^\/(?:product\/?|integrations\/?)?$/.test(url.pathname);
+    const marketingPage = /^\/(?:product\/?|integrations\/?|address-lookup\/?)?$/.test(url.pathname);
     const publicIcon = url.pathname === "/icon.svg";
     // Public documents render independently of the workspace and sign-in.
     // Forward only the URL and method so routing and action headers cannot
@@ -87,9 +92,13 @@ export default {
       return new Response("Orbit demo is being configured.", { status: 503, headers: { "Cache-Control": "no-store" } });
     }
     const workspaceStore = () => env.WORKSPACE.getByName("orbit-demo");
+    const placesKey = runtimeSetting(env, "GOOGLE_PLACES_API_KEY").trim();
     // This endpoint can reach only the token-scoped borrower command.
     if (request.method === "POST" && url.pathname === "/api/demo-application") {
-      return borrowerHttp(request, (input) => workspaceStore().borrower(input));
+      return borrowerHttp(request, (input) => workspaceStore().borrower(input), Boolean(placesKey));
+    }
+    if (request.method === "POST" && url.pathname === "/api/demo-address") {
+      return placesHttp(request, placesKey, (token) => workspaceStore().reserveAddressLookup(token));
     }
     const borrowerPage = reading && url.pathname === "/apply";
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {

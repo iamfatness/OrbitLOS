@@ -40,7 +40,7 @@ export default function Product() {
           <div>
             <p className="marketing-kicker">Demo workspace</p>
             <h2>Walk through a sample loan.</h2>
-            <p>Use fictional data for the demo. The application covers a subset of the 1003, and realtor updates are previews you can review in Orbit.</p>
+            <p>Use fictional data to walk through the 1003 sections and preview a realtor status update from the loan.</p>
           </div>
           <a className="marketing-button" href="/login">Staff login <ArrowRight size={17} aria-hidden="true" /></a>
         </div>
