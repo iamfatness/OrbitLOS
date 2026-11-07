@@ -82,7 +82,7 @@ export function BorrowerApplicationForm() {
   }
 
   return <main className="application-shell">
-    <header className="application-top"><div className="brand"><span className="brand-icon"><OrbitIcon size={22} /></span><span>orbit</span></div><span className="pill">Demo only</span></header>
+    <header className="application-top"><div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div><span className="pill">Demo only</span></header>
     <div className="application-intro">
       <p className="eyebrow">BORROWER WORKSPACE</p>
       <h1>Mortgage application</h1>

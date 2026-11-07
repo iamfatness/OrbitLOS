@@ -23,7 +23,7 @@ export default function Integrations() {
           <article>
             <div className="marketing-card-top"><span className="marketing-feature-icon"><RefreshCw size={22} aria-hidden="true" /></span><span className="marketing-status">Simulated in demo</span></div>
             <h3>Pipeline and conditions</h3>
-            <p>Try a mock submission from a reviewed application. Refresh the UWM loan record to see the lender status, open conditions, and cleared conditions alongside your CRM stage.</p>
+            <p>Try a mock submission from a reviewed application. Refresh the UWM loan record to see the lender status, open conditions, and cleared conditions alongside your pipeline stage.</p>
           </article>
           <article>
             <div className="marketing-card-top"><span className="marketing-feature-icon"><ChartNoAxesCombined size={22} aria-hidden="true" /></span><span className="marketing-status">Sample rates in demo</span></div>

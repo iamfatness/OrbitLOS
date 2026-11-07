@@ -213,7 +213,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
         <div><span>Realtor</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
       </div>
-      <Field label="CRM stage"><select value={loan.stage} disabled={busy} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
+      <Field label="Pipeline stage"><select value={loan.stage} disabled={busy} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <section className="details-section" aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
           <Button size="sm" variant="outline" onClick={() => show({ kind: "pricing", loanId: loan.id })}>Price loan</Button>

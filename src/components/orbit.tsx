@@ -165,7 +165,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-icon"><OrbitIcon size={22} /></span><span>orbit<small>CRM</small></span></div>
+        <div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
         <div className="workspace-label">WORKSPACE</div>
         <nav aria-label="Workspace navigation">
           {navigation.map(({ label, icon: Icon }) => (

@@ -1,6 +1,6 @@
-# Orbit
+# OrbitLOS
 
-Orbit is a mortgage CRM prototype. It starts with fictional borrowers, realtor partners, and loans.
+OrbitLOS is a mortgage broker workspace. The demo starts with fictional borrowers, realtor partners, and loans.
 
 ## Run locally
 
@@ -16,9 +16,9 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 ## Try the pipeline
 
 1. Use **New loan** to enter a borrower name or select an existing borrower. You can assign an officer and realtor and pick a pipeline stage.
-2. Switch between the board and list views. Drag a card to another stage or use the **CRM stage** field in the loan details. Use **Contacts** to manage borrower and realtor details.
+2. Switch between the board and list views. Drag a card to another stage or use the **Pipeline stage** field in the loan details. Use **Contacts** to manage borrower and realtor details.
 3. Click **Sync UWM**. The first sync refreshes Charlotte Kim and Amelia Davis and imports Benjamin Cole. Open Charlotte's loan to see the lender status, two outstanding conditions, and one cleared condition.
-4. Sync again to refresh the same lender records. UWM status and CRM stage are separate fields, so a sync preserves broker-managed stages.
+4. Sync again to refresh the same lender records. UWM status and pipeline stage are separate fields, so a sync preserves broker-managed stages.
 
 ## Try the demo 1003
 
@@ -27,7 +27,7 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 3. On the original loan, choose **Refresh application**, review the submitted answers, and select **Mark reviewed**.
 4. Choose **Send to UWM (mock)**. The lender card shows a demo reference, an approved-with-conditions status, two outstanding conditions, and one cleared condition. **Sync UWM** refreshes the same lender record.
 
-Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. For a loan with a linked realtor, **Preview realtor update** shows the current CRM stage in a draft email. The preview is display-only and contains no application or underwriting details.
+Each submitted 1003 creates one follow-up task due in 24 hours. Find it on the loan or under **Tasks**. It follows the loan officer assigned to the loan. For a loan with a linked realtor, **Preview realtor update** shows the current pipeline stage in a draft email. The preview is display-only and contains no application or underwriting details.
 
 ## Work a loan and price a scenario
 

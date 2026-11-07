@@ -10,7 +10,7 @@ const workflow = [
   { title: "Track the relationship", copy: "Create a loan from a new or existing borrower. Link a realtor, assign a loan officer, and log calls, emails, texts, and notes on the loan timeline." },
   { title: "Collect and review the application", copy: "Share a borrower link for the demo 1003. The borrower can save and resume. Submission puts the answers on the loan record for review and creates a follow-up task for the assigned loan officer." },
   { title: "Price the scenario", copy: "Enter a scenario, compare sample fixed-rate options, and save one to the loan. Preview the borrower quote with its payment breakdown and sample pricing label." },
-  { title: "Follow the lender and keep partners informed", copy: "Try a simulated UWM submission and refresh the lender status and conditions. Keep your CRM stage separate and preview a status-only update for the linked realtor." },
+  { title: "Follow the lender and keep partners informed", copy: "Try a simulated UWM submission and refresh the lender status and conditions. Manage your own pipeline stage and preview a status-only update for the linked realtor." },
 ];
 
 export default function Product() {

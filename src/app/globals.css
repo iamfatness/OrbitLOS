@@ -27,7 +27,6 @@ button:disabled { cursor: default; }
 .sidebar { background: #fff; border-right: 1px solid var(--line); padding: 25px 16px 17px; display: flex; flex-direction: column; position: sticky; top: 0; height: 100dvh; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 10px; font-size: 27px; font-weight: 760; letter-spacing: -.07em; line-height: 1; }
 .brand-icon { background: var(--accent); color: white; border-radius: 12px; width: 36px; height: 36px; display: grid; place-items: center; box-shadow: 0 3px 8px #6749d333; }
-.brand small { font-size: 9px; letter-spacing: .07em; color: #645978; margin-left: 8px; vertical-align: middle; }
 .workspace-label { color: #706781; padding: 0 12px; margin: 42px 0 10px; font-size: 10px; font-weight: 750; letter-spacing: .13em; }
 .sidebar nav { display: grid; gap: 4px; }
 .nav-item { display: flex; align-items: center; gap: 10px; width: 100%; border-radius: 9px; padding: 11px 12px; color: #595267; text-align: left; font-weight: 600; }

@@ -67,14 +67,14 @@ function loginPage(settings: GoogleSettings, url: URL) {
     : error === "denied" ? "This Google account hasn’t been approved for Orbit."
     : error ? "The sign-in attempt ended. Start again to continue." : "";
   return new Response(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · Orbit</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · OrbitLOS</title>
 <style>
 *{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:#f8f7fb;color:#252235;font:16px system-ui,sans-serif;padding:16px}
 main{width:min(100%,420px);background:#fff;border:1px solid #ebe8f1;border-radius:16px;padding:26px;box-shadow:0 14px 36px #21133b0c}
 small{font-weight:750;letter-spacing:.12em;color:#6042bf}h1{margin:8px 0;font-size:28px;letter-spacing:-.04em}p{color:#60596f;line-height:1.5}
 a{display:block;background:#6749d3;color:white;text-align:center;text-decoration:none;border-radius:9px;font-weight:700;padding:11px;margin-top:18px}
 a:hover{background:#5539b9}a:focus-visible{outline:2px solid #6749d3;outline-offset:3px}.status{border-radius:8px;background:#f4efff;padding:8px 10px}
-</style></head><body><main><small>ORBIT WORKSPACE</small><h1>Sign in to Orbit</h1><p>Use an approved Google account to open the staff workspace.</p>
+</style></head><body><main><small>ORBITLOS WORKSPACE</small><h1>Sign in to OrbitLOS</h1><p>Use an approved Google account to open the staff workspace.</p>
 ${message ? `<p class="status" role="alert">${message}</p>` : ""}
 ${ready ? '<a href="/auth/google">Continue with Google</a>' : ""}</main></body></html>`, {
     status: ready ? 200 : 503,

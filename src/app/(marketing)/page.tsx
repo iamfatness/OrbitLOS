@@ -18,7 +18,7 @@ export default function Home() {
             <p>Manage clients, collect applications, price scenarios, and track lender updates in one workspace built for independent mortgage brokers.</p>
             <div className="marketing-actions">
               <a className="marketing-button" href="/product">Explore the product <ArrowRight size={17} aria-hidden="true" /></a>
-              <a className="marketing-button marketing-button-quiet" href="/login">Log in to Orbit</a>
+              <a className="marketing-button marketing-button-quiet" href="/login">Log in to OrbitLOS</a>
             </div>
           </div>
           <PipelinePreview />
