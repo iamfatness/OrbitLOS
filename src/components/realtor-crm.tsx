@@ -8,6 +8,7 @@ import type { BrokerageMember, BrokerageSettings } from "@/lib/brokerage-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { PartnerConversion } from "./partner-conversion";
 
 export function RealtorCrm({ state, staff, busy, save, openLoan, editRealtor }: {
   state: Workspace; staff: WorkspaceStaff | null; busy: boolean; save: (input: unknown) => Promise<void>;
@@ -53,6 +54,7 @@ export function RealtorCrm({ state, staff, busy, save, openLoan, editRealtor }: 
   }
 
   return <div className="relationship-stack">
+    <PartnerConversion partners={partners} state={state} openLoan={openLoan} />
     <section className="pipeline relationship-panel" aria-label="Realtor partner">
       <div className="section-heading">
         <h2>Realtor partner</h2>
@@ -63,7 +65,7 @@ export function RealtorCrm({ state, staff, busy, save, openLoan, editRealtor }: 
       </select></label>
       {(realtor.email || realtor.phone) && <p className="muted">{[realtor.email, realtor.phone].filter(Boolean).join(" · ")}</p>}
       <div className="details-grid">
-        <div><span>Referrals</span><strong>{referrals.length}</strong></div>
+        <div><span>Referred loans</span><strong>{referrals.length}</strong></div>
         <div><span>Awaiting review</span><strong>{intakeCount}</strong></div>
         <div><span>Funded or closed</span><strong>{pastCount}</strong></div>
       </div>

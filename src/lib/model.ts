@@ -144,6 +144,14 @@ export interface ReferralReview extends ReferralLead {
   restrictedMatch: boolean;
 }
 
+export interface UnlinkedReferral {
+  id: string;
+  realtorId: string;
+  name: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface Workspace {
   contacts: Contact[];
   loans: Loan[];
@@ -156,6 +164,7 @@ export interface Workspace {
   closingItems: ClosingItem[];
   realtorPortals: RealtorPortal[];
   referralLeads: ReferralReview[];
+  unlinkedReferrals: UnlinkedReferral[];
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];
   pricingRuns: PricingRun[];

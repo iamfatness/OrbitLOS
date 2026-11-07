@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PricingResult, PricingScenario } from "./pricing-model";
+import { sampleNonAgencyMetrics, type PricingResult, type PricingScenario } from "./pricing-model";
 
 export interface PricingProvider {
   quote(scenario: PricingScenario): Promise<PricingResult>;
@@ -9,6 +9,7 @@ export class PricingError extends Error {}
 
 const providerName = "UWM Easy Qualifier";
 const mockNotice = "Sample pricing for demonstration. Principal and interest exclude taxes, insurance and other costs. Rates and prices are illustrative.";
+const nonAgencyNotice = "Sample coverage and income calculations are illustrations. UWM program eligibility and Easy Qualifier results require a live lender review.";
 
 function principalAndInterest(amount: number, rate: number, years: number) {
   const monthlyRate = rate / 1200;
@@ -18,19 +19,25 @@ function principalAndInterest(amount: number, rate: number, years: number) {
 const mockPricing: PricingProvider = {
   async quote(scenario) {
     const basis = Math.min(scenario.propertyValue, scenario.purpose === "Purchase" ? scenario.purchasePrice ?? scenario.propertyValue : scenario.propertyValue);
-    const base = 6.125 + (scenario.creditScore < 740 ? 0.25 : 0) + (scenario.loanAmount / basis > 0.8 ? 0.25 : 0)
+    const nonAgency = scenario.nonAgency;
+    let base = 6.125 + (scenario.creditScore < 740 ? 0.25 : 0) + (scenario.loanAmount / basis > 0.8 ? 0.25 : 0)
       + (scenario.occupancy === "Investment property" ? 0.5 : scenario.occupancy === "Second home" ? 0.25 : 0)
       + (scenario.propertyType === "Attached condominium" ? 0.125 : 0);
+    if (nonAgency) {
+      base += 0.875 + (nonAgency.refinanceType === "Cash out" ? 0.25 : 0) + (nonAgency.reservesMonths < 6 ? 0.125 : 0);
+      const sample = sampleNonAgencyMetrics(nonAgency, principalAndInterest(scenario.loanAmount, base, 30));
+      if (sample.program === "DSCR" ? sample.dscr < 1.15 : sample.dti > 0.43) base += 0.25;
+    }
     const options = [
       { years: 30, rate: base - 0.25, percent: 1, label: "Discount points" },
       { years: 30, rate: base, percent: 0, label: "Rate adjustment" },
       { years: 30, rate: base + 0.25, percent: -0.75, label: "Lender credit" },
-      { years: 15, rate: base - 0.625, percent: 0.5, label: "Discount points" },
     ];
+    if (!nonAgency) options.push({ years: 15, rate: base - 0.625, percent: 0.5, label: "Discount points" });
     return {
-      provider: providerName, mode: "mock", reference: null, notices: [mockNotice],
+      provider: providerName, mode: "mock", reference: null, notices: nonAgency ? [mockNotice, nonAgencyNotice] : [mockNotice],
       offers: options.map(({ years, rate, percent, label }, index) => ({
-        id: `sample-${index}`, product: `Conventional ${years}-year fixed`, years, rate, apr: null,
+        id: `sample-${index}`, product: `${nonAgency?.program ?? "Conventional"} ${years}-year fixed`, years, rate, apr: null,
         principalAndInterest: principalAndInterest(scenario.loanAmount, rate, years),
         pricingPercent: percent, pricingAmount: Math.round(scenario.loanAmount * percent) / 100, pricingLabel: label,
       })),
@@ -68,6 +75,7 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
   if (env.ORBIT_PRICING_MODE !== "uwm-stage") return mockPricing;
   return {
     async quote(scenario) {
+      if (scenario.nonAgency) return mockPricing.quote(scenario);
       if (!env.UWM_EQ_CLIENT_ID || !env.UWM_EQ_CLIENT_SECRET) {
         throw new PricingError("UWM stage pricing needs an EQ client ID and secret.");
       }

@@ -214,6 +214,8 @@ button:disabled { cursor: default; }
 .record-form .field textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
 .record-dialog-wide { max-width: min(660px, 100vw); }
 .pricing-panel { display: grid; gap: 14px; }
+.pricing-program-fields { display: grid; min-width: 0; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.pricing-program-fields legend { padding-inline: 4px; font-weight: 700; }
 .pricing-heading { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
 .pricing-heading h3, .pricing-heading .pill, .quote-saved h3 { display: flex; align-items: center; gap: 6px; }
 .pricing-heading h3 { font-size: 17px; font-weight: 750; }
@@ -350,7 +352,7 @@ button:disabled { cursor: default; }
   .application-shell { width: calc(100% - 20px); }
   .application-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .application-form { padding: 12px; }
-  .application-step > .form-grid, .referral-intake-form > .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .application-step > .form-grid, .referral-intake-form > .form-grid, .pricing-program-fields > .form-grid { grid-template-columns: minmax(0, 1fr); }
   .application-actions > .spacer { display: none; }
   .task-form { grid-template-columns: minmax(0, 1fr) auto; }
   .task-form > .field:first-child { grid-column: 1 / -1; }

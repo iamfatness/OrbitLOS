@@ -1,4 +1,4 @@
-import type { Activity, ClosingItem, ClosingPlan, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, Workspace } from "./model";
+import type { Activity, ClosingItem, ClosingPlan, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, UnlinkedReferral, Workspace } from "./model";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
@@ -263,6 +263,8 @@ export function workspace(db: Store): Workspace {
     closingItems: rows<ClosingItem>(db, "SELECT * FROM closing_items ORDER BY completedAt IS NOT NULL, dueDate, id"),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt, officerEmail FROM realtor_portals"),
     referralLeads,
+    unlinkedReferrals: rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt
+      FROM referral_leads WHERE loanId IS NULL ORDER BY createdAt DESC, id`),
     applications: staffApplications(db),
     documentRequests: rows<LoanDocumentRequest>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id

@@ -53,6 +53,8 @@ The receiving officer opens **Tasks → My Tasks** and reviews **Incoming referr
 
 Choose **Create loan and prefill 1003** to open the new loan’s application panel. Share its borrower link using **Copy link**. The draft starts with the contact’s saved name, email and phone and the referred loan purpose. The borrower can edit those fields and save and resume as usual. Email and document scanning are simulated in the original demo.
 
+In **Realtors → Partner conversion**, select a count to list its records and click a borrower name to open the loan. **Referrals** includes realtor-linked loans and intake records without a linked loan. A converted lead counts once. **Submitted 1003s** uses the actual submission timestamp. **Funded / closed** uses the current pipeline stage.
+
 **Past Clients** lists funded and closed loans. Choose **Edit follow-up** to record the actual closing date. Orbit schedules an annual task for the assigned loan officer and adds the next year's reminder when the workspace is opened after the anniversary. February 29 closings use February 28 in non-leap years. To enable the rate watchlist, record the current note rate and a lower target. Enter an observed rate to compare against that target. When it meets the target, Orbit adds a follow-up task.
 
 ## Try mock credit and automated underwriting
@@ -66,6 +68,8 @@ Choose **Temporary failure** for credit, DU, or LPA to simulate a timeout. The c
 Open **Tasks** to filter by loan officer, due time, or completion. In the local demo without Google sign-in, **My Tasks** shows the sample officer Alex Morgan. From a loan, add a follow-up and log notes, calls, email, or texts on its activity timeline.
 
 Open a loan and select **Price loan**, then **Load sample scenario** and **Run pricing**. Compare conventional fixed-rate examples, save an option, and use **Preview borrower quote**. The preview identifies sample pricing and explains what the principal-and-interest payment covers. A new pricing run preserves the last saved quote until the LO selects another.
+
+Choose **DSCR** to enter rental income, property taxes, insurance, HOA dues, and reserves. Each mock offer shows housing cost and estimated rent coverage. Choose **Bank statement** to enter 12 or 24 months of personal or business statements, average eligible deposits, and other monthly debts. The business option also uses an expense factor and ownership percentage to estimate income and DTI. Both scenarios support sample rate-and-term and cash-out refinances. These are Orbit demo inputs. The live Easy Qualifier request fields and product rules need validation in UWM stage. [UWM program overview](https://www.uwm.com/real-estate-agent) · [UWM bank statement products](https://www.uwm.com/loan-products?bank-statement=bank-statement-fixed-blue&bank-statement=bank-statement-fixed-yellow)
 
 After a 1003 is submitted, **Publish sample quote** in the quote preview shares the saved quote on the borrower status page. The LO can replace or remove the shared quote. Saving a different quote keeps the existing published terms visible until the LO publishes the replacement.
 
