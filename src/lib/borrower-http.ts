@@ -1,7 +1,7 @@
 import type { BorrowerResult } from "./application-model";
 
 const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer" };
-const maxRequestBytes = 8192;
+const maxRequestBytes = 16_384;
 
 function problem(error: string, status: number) {
   return Response.json({ error }, { status, headers });

@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Orbit as OrbitIcon, Save } from "l
 import { applicationIssues, applicationSteps, sampleApplication, type BorrowerApplication } from "@/lib/application-model";
 import { dateTime } from "@/lib/utils";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
+import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
 
 async function requestApplication(input: object, signal?: AbortSignal) {
@@ -59,8 +60,9 @@ export function BorrowerApplicationForm() {
 
   const step = application?.step ?? 0;
   const reviewing = step === applicationSteps.length - 1;
-  const update = (name: string, value: string | boolean) => {
-    setApplication((current) => current && ({ ...current, draft: { ...current.draft, [name]: value } }));
+  const update: UpdateDraft = (changes) => {
+    if (pending.current) return;
+    setApplication((current) => current && ({ ...current, draft: { ...current.draft, ...changes(current.draft) } }));
     setNotice("");
   };
 
@@ -114,8 +116,8 @@ export function BorrowerApplicationForm() {
             <h2>Review your application</h2>
             <ApplicationAnswers draft={application.draft} />
             <label className="demo-confirm"><input type="checkbox" checked={application.draft.confirmedDemo}
-              onChange={(event) => update("confirmedDemo", event.target.checked)} /> I’m submitting fictional information for the Orbit demo.</label>
-          </> : <ApplicationFields step={step} draft={application.draft} change={update} />}
+              onChange={(event) => { const confirmedDemo = event.target.checked; update(() => ({ confirmedDemo })); }} /> I’m submitting fictional information for the Orbit demo.</label>
+          </> : <ApplicationFields step={step} draft={application.draft} update={update} />}
         </fieldset>
         <div className="application-actions">
           {step > 0 && <Button variant="ghost" disabled={busy} onClick={() => {
@@ -128,6 +130,7 @@ export function BorrowerApplicationForm() {
           <Button type="submit" disabled={busy}>{busy ? "Saving…" : reviewing ? "Submit demo application" : <>Continue <ArrowRight /></>}</Button>
         </div>
       </form>
+      <p className="application-attribution">ZIP suggestions use <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a> data.</p>
     </section>}
   </main>;
 }

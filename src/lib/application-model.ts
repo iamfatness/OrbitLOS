@@ -3,8 +3,30 @@ import { z } from "zod";
 const shortText = z.string().trim().max(160);
 const dollars = z.string().trim().regex(/^\d{0,10}(?:\.\d{1,2})?$/).refine((value) => Number(value) <= 1_000_000_000);
 const yesNo = z.enum(["", "Yes", "No"]);
+const addressLocation = z.object({
+  unit: z.string().trim().max(30), city: z.string().trim().max(100),
+  state: z.string().trim().toUpperCase().max(2), zip: z.string().trim().max(10),
+});
 
-export const applicationDraft = z.object({
+export type AddressLocation = z.infer<typeof addressLocation>;
+export type AddressStreet = "currentAddress" | "priorAddress" | "propertyAddress";
+export type AddressDetails = "currentLocation" | "priorLocation" | "propertyLocation";
+export const usZip = /^\d{5}(?:-\d{4})?$/;
+const usStates = new Set("AL AK AS AZ AR CA CO CT DE DC FL GA GU HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MP MT NE NV NH NJ NM NY NC ND OH OK OR PA PR RI SC SD TN TX UT VT VA VI WA WV WI WY AA AE AP FM MH PW".split(" "));
+const blankLocation = () => ({ unit: "", city: "", state: "", zip: "" });
+
+export function splitLegacyAddress(value: string) {
+  const match = /^(?:(.+),\s*)?([^,]+),\s*([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i.exec(value.trim());
+  if (!match || !usStates.has(match[3].toUpperCase()) || match[2].trim().length > 100) {
+    return { street: value, location: blankLocation() };
+  }
+  return {
+    street: match[1]?.trim() ?? "",
+    location: { unit: "", city: match[2].trim(), state: match[3].toUpperCase(), zip: match[4] ?? "" },
+  };
+}
+
+const storedApplicationDraft = z.object({
   borrowerName: shortText, email: shortText, phone: z.string().trim().max(40),
   currentAddress: shortText, priorAddress: shortText, coBorrowerName: shortText,
   employer: shortText, occupation: shortText, employmentStart: z.string().max(10), monthlyIncome: dollars,
@@ -14,6 +36,19 @@ export const applicationDraft = z.object({
   purpose: z.enum(["Purchase", "Refinance"]), occupancy: z.enum(["", "Primary residence", "Second home", "Investment property"]),
   borrowedDownPayment: yesNo, bankruptcy: yesNo,
   confirmedDemo: z.boolean(),
+  currentLocation: addressLocation.optional(), priorLocation: addressLocation.optional(), propertyLocation: addressLocation.optional(),
+});
+
+export const applicationDraft = storedApplicationDraft.transform((draft) => {
+  const current = draft.currentLocation ? { street: draft.currentAddress, location: draft.currentLocation } : splitLegacyAddress(draft.currentAddress);
+  const prior = draft.priorLocation ? { street: draft.priorAddress, location: draft.priorLocation } : splitLegacyAddress(draft.priorAddress);
+  const property = draft.propertyLocation ? { street: draft.propertyAddress, location: draft.propertyLocation } : splitLegacyAddress(draft.propertyAddress);
+  return {
+    ...draft,
+    currentAddress: current.street, currentLocation: current.location,
+    priorAddress: prior.street, priorLocation: prior.location,
+    propertyAddress: property.street, propertyLocation: property.location,
+  };
 });
 
 export type ApplicationDraft = z.infer<typeof applicationDraft>;
@@ -26,32 +61,51 @@ export function blankApplication(): ApplicationDraft {
     coBorrowerEmployer: "", coBorrowerIncome: "", assets: "", monthlyDebts: "", otherProperty: "",
     propertyAddress: "", estimatedValue: "", loanAmount: "", purpose: "Purchase", occupancy: "",
     borrowedDownPayment: "", bankruptcy: "", confirmedDemo: false,
+    currentLocation: blankLocation(), priorLocation: blankLocation(), propertyLocation: blankLocation(),
   };
 }
 
+export const sampleAddresses = [
+  { street: "100 Sample Avenue", location: { unit: "2", city: "Troy", state: "MI", zip: "48084" } },
+  { street: "22 Example Lane", location: { unit: "", city: "Novi", state: "MI", zip: "48375" } },
+  { street: "400 Demo Way", location: { unit: "", city: "Royal Oak", state: "MI", zip: "48067" } },
+] satisfies { street: string; location: AddressLocation }[];
+
 export function sampleApplication(current: ApplicationDraft): ApplicationDraft {
+  const [home, prior, exampleProperty] = sampleAddresses;
+  const property = completeAddress(current.propertyAddress, current.propertyLocation)
+    ? { street: current.propertyAddress, location: current.propertyLocation } : exampleProperty;
   return {
     ...blankApplication(),
     borrowerName: current.borrowerName || "Riley Sample", email: "riley@example.test", phone: "248-555-0142",
-    currentAddress: "100 Sample Avenue, Troy, MI", priorAddress: "22 Example Lane, Novi, MI", coBorrowerName: "Morgan Sample",
+    currentAddress: home.street, currentLocation: home.location, priorAddress: prior.street, priorLocation: prior.location, coBorrowerName: "Morgan Sample",
     employer: "Sample Design Studio", occupation: "Designer", employmentStart: "2022-04-01", monthlyIncome: "7500",
     priorEmployer: "Example Creative", coBorrowerEmployer: "Demo Services", coBorrowerIncome: "4000",
     assets: "67000", monthlyDebts: "490", otherProperty: "None",
-    propertyAddress: current.propertyAddress || "400 Demo Way, Royal Oak, MI",
+    propertyAddress: property.street, propertyLocation: property.location,
     estimatedValue: String(Math.max(450000, Math.min(1_000_000_000, Math.ceil(Number(current.loanAmount) * 1.25)))),
     loanAmount: current.loanAmount || "360000", purpose: current.purpose, occupancy: "Primary residence",
     borrowedDownPayment: "No", bankruptcy: "No",
   };
 }
 
+function completeAddress(street: string, { city, state, zip }: AddressLocation) {
+  return !!street.trim() && !!city.trim() && usStates.has(state.trim().toUpperCase()) && usZip.test(zip.trim());
+}
+
 export function applicationIssues(draft: ApplicationDraft) {
   const missing: string[] = [];
-  if (!draft.borrowerName || !z.email().safeParse(draft.email).success || !draft.currentAddress) {
-    missing.push("Borrower name, valid email, and current address");
+  if (!draft.borrowerName || !z.email().safeParse(draft.email).success) {
+    missing.push("Borrower name and valid email");
+  }
+  if (!completeAddress(draft.currentAddress, draft.currentLocation)) missing.push("Current street address, city, state, and ZIP code");
+  if ((draft.priorAddress || Object.values(draft.priorLocation).some(Boolean)) && !completeAddress(draft.priorAddress, draft.priorLocation)) {
+    missing.push("Prior street address, city, state, and ZIP code");
   }
   if (!draft.employer || Number(draft.monthlyIncome) <= 0) missing.push("Employer and gross monthly income");
-  if (!draft.propertyAddress || Number(draft.estimatedValue) <= 0 || Number(draft.loanAmount) <= 0 || !draft.occupancy) {
-    missing.push("Property address, value, loan amount, and occupancy");
+  if (!completeAddress(draft.propertyAddress, draft.propertyLocation)) missing.push("Subject property street address, city, state, and ZIP code");
+  if (Number(draft.estimatedValue) <= 0 || Number(draft.loanAmount) <= 0 || !draft.occupancy) {
+    missing.push("Property value, loan amount, and occupancy");
   }
   if (!draft.borrowedDownPayment || !draft.bankruptcy) missing.push("Both declarations");
   if (!draft.confirmedDemo) missing.push("Sample data confirmation");

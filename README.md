@@ -39,6 +39,8 @@ The server-side pricing provider defaults to sample pricing. The initial UWM Eas
 
 The 1003 screen covers a representative subset of fields for this demo. The borrower link does not require the staff password and grants access only to its assigned application. Use fictional data. The demo collects no SSNs or document uploads, and the UWM handoff uses fixtures.
 
+Current, prior, and subject property addresses have separate street, unit, ZIP, city, and state fields. Enter a U.S. ZIP to suggest an editable city and state. Enter part of a street name such as **100 Sample** to try a fictional street suggestion. The ZIP index in `src/data/us-zip-cities.json` contains ZIP, locality, and state columns extracted from the November 6, 2026 [GeoNames US postal code download](https://download.geonames.org/export/zip/) under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Orbit serves the index through its own lookup endpoint. Live street lookup requires a separately configured provider.
+
 ## How it fits together
 
 - `src/components` contains the Next.js workspace UI. Typed server actions in `src/app/actions.ts` validate and save changes.

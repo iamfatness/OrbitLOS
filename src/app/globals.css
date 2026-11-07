@@ -219,6 +219,14 @@ button:disabled { cursor: default; }
 .application-step-meta, .application-actions, .loan-application-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .application-step-meta { justify-content: space-between; color: var(--muted); }
 .application-step h2, .application-receipt h2 { font-size: 21px; font-weight: 750; letter-spacing: -.025em; }
+.application-address { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; }
+.application-address h3 { font-weight: 750; }
+.application-address-suggestions, .application-address-notice { grid-column: 1 / -1; color: var(--muted); }
+.application-address-suggestions { display: grid; gap: 3px; }
+.application-address-suggestions button, .application-zip-retry { text-align: left; color: #503b91; text-decoration: underline; text-underline-offset: 2px; }
+.application-address-notice, .application-attribution { font-size: 12px; }
+.application-attribution { padding: 0 17px 13px; color: var(--muted); }
+.application-attribution a { text-decoration: underline; text-underline-offset: 2px; }
 .application-actions { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--line); }
 .application-answers { display: grid; gap: 7px; }
 .application-answers section { border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: #fff; }

@@ -74,7 +74,7 @@ export default {
     // Public documents render independently of the workspace and sign-in.
     // Forward only the URL and method so routing and action headers cannot
     // change the destination of a public request.
-    if (reading && (marketingPage || publicIcon)) {
+    if (reading && (marketingPage || publicIcon || url.pathname === "/api/zip-city-state")) {
       return app.fetch(new Request(url, { method: request.method }), env, context);
     }
     // Build assets are shared by the public site and the workspace.

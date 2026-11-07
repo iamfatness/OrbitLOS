@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { applicationDraft, applicationIssues, applicationSteps, blankApplication, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
+import { applicationDraft, applicationIssues, applicationSteps, blankApplication, splitLegacyAddress, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
 import type { Store } from "./store";
 import { createApplicationFollowUps } from "./tasks";
 
@@ -15,7 +15,7 @@ export function staffApplications(db: Store): StaffApplication[] {
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, uwmReference: row.uwmReference,
-      draft: row.submittedAt ? JSON.parse(row.draft) as ApplicationDraft : null,
+      draft: row.submittedAt ? applicationDraft.parse(JSON.parse(row.draft)) : null,
     };
   });
 }
@@ -37,8 +37,9 @@ export function startApplication(db: Store, loanId: string, now: string) {
     db.prepare("UPDATE applications SET token = ?, expiresAt = ? WHERE loanId = ?").run(token, expiresAt, loanId);
     return true;
   }
+  const property = splitLegacyAddress(String(loan.address));
   const draft: ApplicationDraft = {
-    ...blankApplication(), borrowerName: String(loan.name), propertyAddress: String(loan.address),
+    ...blankApplication(), borrowerName: String(loan.name), propertyAddress: property.street, propertyLocation: property.location,
     loanAmount: Number(loan.amount) > 0 ? String(loan.amount) : "",
     purpose: loan.purpose === "Refinance" ? "Refinance" : "Purchase",
   };
@@ -62,7 +63,7 @@ const borrowerCommand = z.discriminatedUnion("type", [
 
 function borrowerResult(row: ApplicationRow): BorrowerResult {
   return { application: {
-    draft: JSON.parse(row.draft) as ApplicationDraft,
+    draft: applicationDraft.parse(JSON.parse(row.draft)),
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt,
   } };
 }

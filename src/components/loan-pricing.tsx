@@ -21,7 +21,7 @@ function defaults(loan: Loan, draft: ApplicationDraft | null | undefined, run?: 
     loanAmount: String(scenario?.loanAmount ?? (draft?.loanAmount || loan.amount || "")),
     propertyValue: String(scenario?.propertyValue ?? (draft?.estimatedValue || "")),
     purchasePrice: String(scenario?.purchasePrice ?? ""),
-    zip: scenario?.zip ?? (draft?.propertyAddress || loan.address).match(/\b\d{5}(?:-\d{4})?$/)?.[0].slice(0, 5) ?? "",
+    zip: scenario?.zip ?? (draft?.propertyLocation.zip.slice(0, 5) || loan.address.match(/\b\d{5}(?:-\d{4})?$/)?.[0].slice(0, 5) || ""),
     creditScore: String(scenario?.creditScore ?? ""),
     monthlyIncome: String(scenario?.monthlyIncome ?? (draft?.monthlyIncome || "")),
     occupancy: scenario?.occupancy ?? (draft?.occupancy || "Primary residence"),
