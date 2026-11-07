@@ -17,6 +17,8 @@ export interface DocumentRequest {
 export interface LoanDocumentRequest extends DocumentRequest {
   loanId: string;
   requestedAt: string;
+  submissionId: string | null;
+  conditionId: string | null;
 }
 
 export interface BorrowerLoanStatus {

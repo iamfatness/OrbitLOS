@@ -18,6 +18,16 @@ export interface Store {
   transaction<T>(run: () => T): T;
 }
 
+const documentRequestColumns = `
+  id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL, instructions TEXT NOT NULL, requestedAt TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested', 'Received', 'Accepted', 'Needs replacement')),
+  replacementNote TEXT NOT NULL DEFAULT '', submittedAt TEXT, revision INTEGER NOT NULL DEFAULT 0,
+  submissionId TEXT REFERENCES submissions(id) ON DELETE CASCADE, conditionId TEXT,
+  CHECK ((submissionId IS NULL) = (conditionId IS NULL)),
+  UNIQUE (submissionId, conditionId)
+`;
+
 export function initializeStore(db: Store) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
@@ -54,13 +64,7 @@ export function initializeStore(db: Store) {
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       details TEXT NOT NULL, revision INTEGER NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS document_requests (
-      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL, instructions TEXT NOT NULL, requestedAt TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested', 'Received', 'Accepted', 'Needs replacement')),
-      replacementNote TEXT NOT NULL DEFAULT '', submittedAt TEXT, revision INTEGER NOT NULL DEFAULT 0,
-      UNIQUE (loanId, kind)
-    );
+    CREATE TABLE IF NOT EXISTS document_requests (${documentRequestColumns});
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
@@ -102,6 +106,18 @@ export function initializeStore(db: Store) {
     if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "officerEmail")) {
       db.exec("ALTER TABLE loans ADD COLUMN officerEmail TEXT");
     }
+    if (!db.prepare("PRAGMA table_info(document_requests)").all().some((column) => column.name === "conditionId")) {
+      // Preserve the original checklist while allowing each condition its own request.
+      const columns = "id, loanId, kind, instructions, requestedAt, status, replacementNote, submittedAt, revision";
+      db.exec(`
+        CREATE TABLE document_requests_next (${documentRequestColumns});
+        INSERT INTO document_requests_next (${columns}) SELECT ${columns} FROM document_requests;
+        DROP TABLE document_requests;
+        ALTER TABLE document_requests_next RENAME TO document_requests;
+      `);
+    }
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS manual_document_by_loan_kind ON document_requests(loanId, kind) WHERE conditionId IS NULL");
+    db.exec("CREATE INDEX IF NOT EXISTS document_requests_by_loan ON document_requests(loanId, requestedAt, id)");
     createApplicationFollowUps(db);
     if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();

@@ -14,7 +14,9 @@ import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetai
 import type { StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
-import { LoanDocuments } from "./loan-documents";
+import { DocumentRequestForm, LoanDocuments } from "./loan-documents";
+import { DocumentStatusPill } from "./sample-document";
+import type { LoanDocumentRequest } from "@/lib/document-model";
 
 export type Modal =
   | { kind: "details"; loanId: string }
@@ -99,7 +101,9 @@ function ContactFields({ contact }: { contact?: Contact }) {
   </>;
 }
 
-function SubmissionCard({ submission, onEdit }: { submission: Submission; onEdit: () => void }) {
+function SubmissionCard({ submission, requests, busy, save, onEdit }: {
+  submission: Submission; requests: LoanDocumentRequest[]; busy: boolean; save: Save; onEdit: () => void;
+}) {
   const open = submission.conditions.filter((item) => !item.satisfiedAt);
   const cleared = submission.conditions.filter((item) => item.satisfiedAt);
   return (
@@ -114,14 +118,20 @@ function SubmissionCard({ submission, onEdit }: { submission: Submission; onEdit
         <p className="muted timestamp"><Clock3 size={13} /> Synced {dateTime(submission.syncedAt)} ET</p>
         <div className="condition-counts"><span>{open.length} outstanding</span><span>{cleared.length} cleared</span></div>
         {submission.conditions.length === 0 && <p className="muted">No conditions were returned for this loan.</p>}
-        {[...open, ...cleared].map((item) => (
-          <div className="condition" key={item.id}>
+        {[...open, ...cleared].map((item) => {
+          const request = requests.find((entry) => entry.submissionId === submission.id && entry.conditionId === item.id);
+          return <div className="condition" key={item.id}>
             {item.satisfiedAt ? <CheckCircle2 size={16} className="text-emerald-700" /> : <Circle size={16} className="text-amber-600" />}
             <div><strong>{item.category}{item.group && ` · ${item.group}`}</strong><p>{item.description}</p>
-              <small>{item.satisfiedAt ? `Cleared ${dateTime(item.satisfiedAt)} ET` : item.uploaded ? "Document uploaded" : "Outstanding"}</small>
+              <small>{submission.lender === "UWM" && "UWM · "}{item.satisfiedAt ? `Cleared ${dateTime(item.satisfiedAt)} ET` : item.uploaded ? "Document uploaded" : "Outstanding"}</small>
+              {request ? <div className="condition-checklist">
+                <a href={`#document-${request.id}`}>View checklist request</a><DocumentStatusPill status={request.status} />
+              </div> : submission.lender === "UWM" && !item.satisfiedAt && <div className="condition-checklist">
+                <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} />
+              </div>}
             </div>
-          </div>
-        ))}
+          </div>;
+        })}
       </>}
     </article>
   );
@@ -204,6 +214,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
   const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
+  const requests = state.documentRequests.filter((item) => item.loanId === loan.id);
   const notes = state.activity.filter((item) => item.loanId === loan.id);
   const tasks = state.tasks.filter((item) => item.loanId === loan.id);
   const savedPricing = state.pricingRuns.filter((item) => item.loanId === loan.id && item.selectedAt)
@@ -228,7 +239,7 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         </div>
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
       </section>
-      <LoanDocuments loanId={loan.id} requests={state.documentRequests.filter((item) => item.loanId === loan.id)}
+      <LoanDocuments loanId={loan.id} requests={requests}
         applicationStarted={state.applications.some((item) => item.loanId === loan.id)} busy={busy} save={save} />
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
       <LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} />
@@ -258,7 +269,8 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
       <section className="details-section">
         <div className="section-heading"><h3>Lender submissions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         {submissions.length === 0 && <p className="empty-inline">No lender submissions yet.</p>}
-        {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
+        {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
+          onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
       <section className="details-section">
         <div className="section-heading"><h3><ClipboardList size={17} /> Activity</h3></div>

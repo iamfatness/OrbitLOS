@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, readWorkspace, workspace, type Store } from "./store";
-import { activityKinds, stages, type Loan, type Workspace } from "./model";
+import { activityKinds, stages, type Condition, type Loan, type Workspace } from "./model";
 import { submitMockApplication, syncUwm } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
 import { pricingScenario, type PricingOffer } from "./pricing-model";
@@ -43,7 +43,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sync") }),
   z.object({ type: z.literal("startApplication"), loanId: id }),
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
-  z.object({ type: z.literal("requestDocument"), loanId: id, kind: z.enum(documentKinds), instructions: z.string().trim().max(500) }),
+  z.object({ type: z.literal("requestDocument"), loanId: id, kind: z.enum(documentKinds), instructions: z.string().trim().max(500),
+    condition: z.object({ submissionId: id, conditionId: z.string().min(1).max(240) }).optional() }),
   z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500) }),
   z.object({ type: z.literal("refreshWorkspace") }),
@@ -125,16 +126,34 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
         case "refreshApplication":
           message = "Application and checklist refreshed.";
           break;
-        case "requestDocument":
-          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
-          if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ?").get(data.loanId, data.kind)) {
-            throw new WorkspaceError("This document is already on the checklist. Refresh the loan to see its status.");
+        case "requestDocument": {
+          const source = data.condition;
+          if (source) {
+            const file = db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ? AND lender = 'UWM' AND syncedAt IS NOT NULL")
+              .get(source.submissionId, data.loanId);
+            if (!file) throw new WorkspaceError("This UWM submission is unavailable on this loan.");
+            if (db.prepare("SELECT 1 FROM document_requests WHERE submissionId = ? AND conditionId = ?").get(source.submissionId, source.conditionId)) {
+              message = "This UWM condition already has a checklist request.";
+              break;
+            }
+            const conditions: Condition[] = JSON.parse(String(file.conditions));
+            if (!conditions.some((item) => item.id === source.conditionId && !item.satisfiedAt)) {
+              throw new WorkspaceError("This UWM condition is no longer outstanding. Refresh the loan to see its status.");
+            }
+            if (!data.instructions) throw new WorkspaceError("Enter instructions for the borrower.");
+          } else {
+            if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+            if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ? AND conditionId IS NULL").get(data.loanId, data.kind)) {
+              throw new WorkspaceError("This document is already on the checklist. Refresh the loan to see its status.");
+            }
           }
-          db.prepare("INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt) VALUES (?, ?, ?, ?, ?)")
-            .run(crypto.randomUUID(), data.loanId, data.kind, data.instructions, now);
-          addApplicationActivity(db, data.loanId, `Document requested · ${data.kind}`, now);
-          message = "Document added to the borrower checklist.";
+          db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, submissionId, conditionId)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`)
+            .run(crypto.randomUUID(), data.loanId, data.kind, data.instructions, now, source?.submissionId ?? null, source?.conditionId ?? null);
+          addApplicationActivity(db, data.loanId, `Document requested · ${data.kind}${source ? " · UWM condition" : ""}`, now);
+          message = source ? "UWM condition linked to the borrower checklist." : "Document added to the borrower checklist.";
           break;
+        }
         case "reviewDocument": {
           const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
             .get(data.requestId, data.loanId);

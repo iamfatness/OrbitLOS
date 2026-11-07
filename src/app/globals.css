@@ -153,7 +153,13 @@ button:disabled { cursor: default; }
 .condition-counts { display: flex; gap: 8px; margin: 8px 0 5px; color: #5c4a79; font-size: 11px; font-weight: 700; }
 .condition { display: flex; gap: 6px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12px; overflow-wrap: anywhere; }
 .condition svg { flex-shrink: 0; margin-top: 1px; }
+.condition > div { flex: 1; min-width: 0; }
 .condition small, .note small { color: var(--muted); }
+.condition-checklist { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 5px; }
+.condition-checklist .document-form { width: 100%; }
+.condition-checklist a { color: #503b91; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.document-item:target { border-color: var(--accent); }
+.document-item[id] { scroll-margin-block-start: 12px; }
 .empty-inline { color: var(--muted); font-size: 12px; }
 .no-matches { padding: 12px 17px; border-top: 1px solid var(--line); }
 .note-form { display: grid; justify-items: end; gap: 5px; }
