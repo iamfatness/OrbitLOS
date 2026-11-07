@@ -2,7 +2,7 @@ import type { Activity, CommunicationDraft, Contact, Loan, LoanTask, PastClientP
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { createApplicationFollowUps } from "./tasks";
-import type { PricingRun } from "./pricing-model";
+import type { PricingRun, PublishedQuote } from "./pricing-model";
 import type { LoanDocumentRequest } from "./document-model";
 import { synchronizeRetentionTasks } from "./client-retention";
 
@@ -92,6 +92,11 @@ export function initializeStore(db: Store) {
       offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT
     );
     CREATE INDEX IF NOT EXISTS pricing_by_loan ON pricing_runs(loanId, quotedAt);
+    CREATE TABLE IF NOT EXISTS published_quotes (
+      loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
+      runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
+      rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS staff_google_attempts (
       state TEXT PRIMARY KEY, browserHash TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, expiresAt INTEGER NOT NULL
     );
@@ -118,6 +123,10 @@ export function initializeStore(db: Store) {
     }
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS manual_document_by_loan_kind ON document_requests(loanId, kind) WHERE conditionId IS NULL");
     db.exec("CREATE INDEX IF NOT EXISTS document_requests_by_loan ON document_requests(loanId, requestedAt, id)");
+    db.exec(`CREATE TABLE IF NOT EXISTS uwm_document_deliveries (
+      requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
+      receipt TEXT NOT NULL UNIQUE, sentAt TEXT NOT NULL, mockClearedAt TEXT
+    )`);
     createApplicationFollowUps(db);
     if (db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();
@@ -161,13 +170,16 @@ export function workspace(db: Store): Workspace {
       .map((profile) => ({ ...profile, watchEnabled: Boolean(profile.watchEnabled) })),
     realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt FROM realtor_portals"),
     applications: staffApplications(db),
-    documentRequests: rows<LoanDocumentRequest>(db, "SELECT * FROM document_requests ORDER BY requestedAt, id"),
+    documentRequests: rows<LoanDocumentRequest>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt
+      FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
+      ORDER BY requests.requestedAt, requests.id`),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run
       WHERE run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
          OR run.id = (SELECT chosen.id FROM pricing_runs chosen WHERE chosen.loanId = run.loanId AND chosen.selectedId IS NOT NULL ORDER BY chosen.selectedAt DESC, chosen.rowid DESC LIMIT 1)
       ORDER BY run.quotedAt DESC, run.rowid DESC
     `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
+    publishedQuotes: rows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
 }

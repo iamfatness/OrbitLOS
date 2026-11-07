@@ -1,6 +1,6 @@
 import type { StaffApplication } from "./application-model";
 import type { LoanDocumentRequest } from "./document-model";
-import type { PricingRun } from "./pricing-model";
+import type { PricingRun, PublishedQuote } from "./pricing-model";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -119,5 +119,6 @@ export interface Workspace {
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];
   pricingRuns: PricingRun[];
+  publishedQuotes: PublishedQuote[];
   uwmSyncedAt: string | null;
 }

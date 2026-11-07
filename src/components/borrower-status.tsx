@@ -1,4 +1,4 @@
-import { CheckCircle2, FileCheck2, RefreshCw } from "lucide-react";
+import { Calculator, CheckCircle2, FileCheck2, RefreshCw } from "lucide-react";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "@/lib/document-model";
 import type { Stage } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
@@ -15,6 +15,7 @@ const stageUpdates: Record<Stage, { label: string; next: string }> = {
   Funded: { label: "Funded", next: "Your loan team can help with any questions about your funded loan." },
   Closed: { label: "Closed", next: "Your loan team can help with any follow-up questions." },
 };
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 export function BorrowerStatus({ status, submittedAt, busy, refresh, attach }: {
   status: BorrowerLoanStatus; submittedAt: string; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
@@ -40,6 +41,17 @@ export function BorrowerStatus({ status, submittedAt, busy, refresh, attach }: {
         <small className="muted">Loan stage updated {dateTime(status.stageSince)} ET</small>
       </div>
     </section>
+    {status.quote && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-quote-heading">
+      <div className="section-heading"><h2 id="borrower-quote-heading"><Calculator size={19} /> Your shared quote</h2><span className="pill">Sample pricing</span></div>
+      <div className="borrower-next">
+        <strong>{status.quote.product}</strong>
+        <dl className="quote-terms">
+          <div><dt>Rate</dt><dd>{status.quote.rate.toFixed(3)}%</dd></div>
+          <div><dt>Monthly principal and interest</dt><dd>{usd.format(status.quote.principalAndInterest)}</dd></div>
+        </dl>
+        <small className="muted">Quoted {dateTime(status.quote.quotedAt)} ET · Demo estimate</small>
+      </div>
+    </section>}
     <section className="application-panel application-receipt document-section" aria-labelledby="borrower-documents-heading">
       <div className="section-heading"><h2 id="borrower-documents-heading"><FileCheck2 size={19} /> Document checklist</h2></div>
       {status.documents.length > 0 && <p className="document-counts">{waiting} to attach · {received} in review · {status.documents.length - waiting - received} accepted</p>}

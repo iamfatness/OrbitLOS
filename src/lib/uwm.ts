@@ -91,6 +91,30 @@ function normalizeConditions({ conditionGroups, clearedConditions }: UwmConditio
 
 const approvedWithConditions = "Wholesale - Approved With Conditions";
 
+export function uwmSubmissionConditions(db: Store, loanId: string, submissionId: string): Condition[] | undefined {
+  const submission = db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ? AND lender = 'UWM' AND syncedAt IS NOT NULL")
+    .get(submissionId, loanId);
+  return submission && JSON.parse(String(submission.conditions));
+}
+
+export function sendMockConditionDocument(db: Store, loanId: string, requestId: string, now: string): { receipt: string } | { error: string } {
+  const request = db.prepare(`SELECT requests.kind, requests.status, requests.submissionId, requests.conditionId, deliveries.receipt
+    FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
+    WHERE requests.id = ? AND requests.loanId = ?`).get(requestId, loanId);
+  if (!request || request.status !== "Accepted" || typeof request.submissionId !== "string") {
+    return { error: "Accept a sample linked to a UWM condition before sending it." };
+  }
+  if (typeof request.receipt === "string") return { receipt: request.receipt };
+  const conditions = uwmSubmissionConditions(db, loanId, request.submissionId);
+  if (!conditions?.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt)) {
+    return { error: "This UWM condition is no longer outstanding. Refresh the loan to see its status." };
+  }
+  const receipt = `DEMO-DOC-${crypto.randomUUID().toUpperCase()}`;
+  db.prepare("INSERT INTO uwm_document_deliveries (requestId, receipt, sentAt) VALUES (?, ?, ?)").run(requestId, receipt, now);
+  addApplicationActivity(db, loanId, `Sample sent to UWM (mock) · ${request.kind} · ${receipt}`, now);
+  return { receipt };
+}
+
 function mockApplicationConditions(reference: string, receivedAt: string) {
   return normalizeConditions({
     conditionGroups: [{
@@ -134,6 +158,17 @@ export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
   })));
   return db.transaction(() => {
     const now = new Date().toISOString();
+    if (connector === mockUwm) db.prepare("UPDATE uwm_document_deliveries SET mockClearedAt = ? WHERE mockClearedAt IS NULL").run(now);
+    const mockClearances = db.prepare(`SELECT requests.conditionId, deliveries.mockClearedAt FROM document_requests requests
+      JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id WHERE requests.submissionId = ?`);
+    function conditionSnapshot(submissionId: string, conditions: Condition[]) {
+      if (connector !== mockUwm) return JSON.stringify(conditions);
+      const cleared = new Map(mockClearances.all(submissionId).map((item) => [item.conditionId, String(item.mockClearedAt)]));
+      return JSON.stringify(conditions.map((condition) => {
+        const satisfiedAt = cleared.get(condition.id);
+        return satisfiedAt && !condition.satisfiedAt ? { ...condition, uploaded: true, satisfiedAt } : condition;
+      }));
+    }
     let imported = 0;
     let updated = 0;
     let conditionCount = 0;
@@ -142,7 +177,7 @@ export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
       conditionCount += conditions.length;
       const existing = db.prepare("SELECT id FROM submissions WHERE lender = 'UWM' AND externalId = ?").get(loan.LoanId);
       if (existing) {
-        update.run(loan.LoanStatusDescription, JSON.stringify(conditions), now, existing.id);
+        update.run(loan.LoanStatusDescription, conditionSnapshot(String(existing.id), conditions), now, existing.id);
         updated++;
         continue;
       }
@@ -170,7 +205,7 @@ export async function syncUwm(db: Store, connector: UwmConnector = mockUwm) {
     `).all();
     for (const file of applicationFiles) {
       const conditions = mockApplicationConditions(String(file.externalId), String(file.submittedAt));
-      update.run(approvedWithConditions, JSON.stringify(conditions), now, file.id);
+      update.run(approvedWithConditions, conditionSnapshot(String(file.id), conditions), now, file.id);
       updated++;
       conditionCount += conditions.length;
     }

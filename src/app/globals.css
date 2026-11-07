@@ -167,6 +167,8 @@ button:disabled { cursor: default; }
 .note { margin-top: 6px; border: 1px solid var(--line); padding: 7px; border-radius: 7px; overflow-wrap: anywhere; }
 .note p { white-space: pre-wrap; }
 .task-queue { padding: 0 17px 16px; }
+.work-queue { margin: 0 17px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; }
+#loan-application { scroll-margin-block-start: 12px; }
 .loan-task-list, .task-queue { display: grid; gap: 7px; }
 .loan-task { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: #faf8fd; }
 .loan-task > svg { flex-shrink: 0; margin-top: 2px; }

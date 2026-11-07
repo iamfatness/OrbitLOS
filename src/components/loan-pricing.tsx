@@ -49,7 +49,10 @@ export function LoanPricing({ loan, state, busy, save }: {
   const current = runs[0];
   const saved = runs.filter((item) => item.selectedAt).sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
   const selected = saved?.offers.find((offer) => offer.id === saved.selectedId);
-  const draft = state.applications.find((item) => item.loanId === loan.id)?.draft;
+  const application = state.applications.find((item) => item.loanId === loan.id);
+  const draft = application?.draft;
+  const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
+  const alreadyShared = published?.runId === saved?.id && published?.offerId === selected?.id;
   const [form, setForm] = useState(() => defaults(loan, draft, current));
   const [preview, setPreview] = useState(false);
   const [pricing, setPricing] = useState(false);
@@ -108,7 +111,18 @@ export function LoanPricing({ loan, state, busy, save }: {
         <p className="muted">{cash(saved.scenario.loanAmount)} loan · {saved.scenario.purpose}</p>
         <Terms offer={selected} />
         {saved.notices.map((notice, index) => <p key={index} className="quote-disclaimer">{notice}</p>)}
+        {saved.mode === "mock" && (application?.submittedAt ? <div className="pricing-actions">
+          <Button size="sm" disabled={busy || alreadyShared} onClick={() => void save({ type: "publishQuote", loanId: loan.id, runId: saved.id, offerId: selected.id })}>
+            {alreadyShared ? "Published to borrower" : published ? "Replace shared sample quote" : "Publish sample quote"}
+          </Button>
+        </div> : <p className="muted">The borrower can see a shared quote after submitting their 1003.</p>)}
       </div>}
+    </section>}
+    {published && <section className="quote-saved" aria-label="Shared borrower quote">
+      <div className="section-heading"><h3>Shared with borrower</h3>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>
+      <p>{published.product} · {percentage(published.rate)} · {cash(published.principalAndInterest)} monthly P&amp;I</p>
+      <p className="muted timestamp">Sample quote · Shared {dateTime(published.publishedAt)} ET</p>
     </section>}
     {current && <section className="pricing-results" aria-label="Pricing results">
       <div className="section-heading"><h3>Pricing options</h3><span className="pill">{current.offers.length} returned</span></div>

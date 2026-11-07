@@ -50,3 +50,17 @@ export interface PricingRun extends PricingResult {
   selectedId: string | null;
   selectedAt: string | null;
 }
+
+export interface BorrowerQuote {
+  product: string;
+  rate: number;
+  principalAndInterest: number;
+  quotedAt: string;
+  publishedAt: string;
+}
+
+export interface PublishedQuote extends BorrowerQuote {
+  loanId: string;
+  runId: string;
+  offerId: string;
+}

@@ -5,6 +5,7 @@ import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
 import { lenderDetailsSchema, normalizeUrla } from "./urla";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
+import type { BorrowerQuote } from "./pricing-model";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "lender"> & { draft: string; step: number; revision: number };
 
@@ -71,10 +72,12 @@ const borrowerCommand = z.discriminatedUnion("type", [
 
 function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
+  const quote = loan && db.prepare("SELECT product, rate, principalAndInterest, quotedAt, publishedAt FROM published_quotes WHERE loanId = ?").get(row.loanId);
   const loanStatus: BorrowerLoanStatus | null = loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: db.prepare(`SELECT id, kind, instructions, status, replacementNote, submittedAt, revision
       FROM document_requests WHERE loanId = ? ORDER BY requestedAt, id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
+    quote: quote ? { ...quote } as unknown as BorrowerQuote : null,
   } : null;
   return { application: {
     draft: applicationDraft.parse(JSON.parse(row.draft)),

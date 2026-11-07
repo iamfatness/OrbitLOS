@@ -11,6 +11,7 @@ import { compactMoney, dateTime, initials, money, stageDays } from "@/lib/utils"
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
+import { LoanWorkQueue } from "./loan-work-queue";
 import type { StaffIdentity } from "@/lib/staff-store";
 import { CommunicationQueue } from "./loan-communications";
 import { RealtorCrm } from "./realtor-crm";
@@ -105,10 +106,11 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
   ]));
   const mine = staff ? `account:${staff.email}` : `name:${demoOfficer}`;
+  const taskScope = (loan: Loan) => !taskOfficer || taskOwner(loan) === (taskOfficer === "mine" ? mine : taskOfficer);
   const taskNow = Date.parse(new Date().toISOString());
   const visibleTasks = state.tasks.filter((task) => {
     const loan = taskLoans.get(task.loanId);
-    if (!loan || (taskOfficer && taskOwner(loan) !== (taskOfficer === "mine" ? mine : taskOfficer))) return false;
+    if (!loan || !taskScope(loan)) return false;
     if (taskView === "All") return true;
     if (taskView === "Completed") return !!task.completedAt;
     if (task.completedAt) return false;
@@ -303,6 +305,8 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: StaffIden
                 {[...officers].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
             </div>
+            {(taskView === "Open" || taskView === "All") && <LoanWorkQueue loans={state.loans.filter(taskScope)} state={state} borrower={borrowers}
+              open={(loanId, target) => show({ kind: "details", loanId, target })} />}
             {visibleTasks.length ? <ul className="task-queue">
               {visibleTasks.map((task) => {
                 const loan = taskLoans.get(task.loanId);

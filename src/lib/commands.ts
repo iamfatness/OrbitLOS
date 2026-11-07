@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { insertContact, insertLoan, insertSubmission, readWorkspace, workspace, type Store } from "./store";
-import { activityKinds, stages, type Condition, type Loan, type Workspace } from "./model";
-import { submitMockApplication, syncUwm } from "./uwm";
+import { activityKinds, stages, type Loan, type Workspace } from "./model";
+import { sendMockConditionDocument, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, startApplication } from "./applications";
 import { pricingScenario, type PricingOffer } from "./pricing-model";
 import { PricingError, pricingProvider } from "./pricing-provider";
@@ -47,11 +47,14 @@ const command = z.discriminatedUnion("type", [
     condition: z.object({ submissionId: id, conditionId: z.string().min(1).max(240) }).optional() }),
   z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500) }),
+  z.object({ type: z.literal("sendConditionDocument"), loanId: id, requestId: z.uuid() }),
   z.object({ type: z.literal("refreshWorkspace") }),
   z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120), days: z.union([z.literal(1), z.literal(3), z.literal(7)]) }),
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario }),
   z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
+  z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id }),
+  z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
   z.object({ type: z.literal("reviewApplication"), loanId: id }),
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
   z.object({ type: z.literal("sendApplication"), loanId: id }),
@@ -129,14 +132,12 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
         case "requestDocument": {
           const source = data.condition;
           if (source) {
-            const file = db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ? AND lender = 'UWM' AND syncedAt IS NOT NULL")
-              .get(source.submissionId, data.loanId);
-            if (!file) throw new WorkspaceError("This UWM submission is unavailable on this loan.");
+            const conditions = uwmSubmissionConditions(db, data.loanId, source.submissionId);
+            if (!conditions) throw new WorkspaceError("This UWM submission is unavailable on this loan.");
             if (db.prepare("SELECT 1 FROM document_requests WHERE submissionId = ? AND conditionId = ?").get(source.submissionId, source.conditionId)) {
               message = "This UWM condition already has a checklist request.";
               break;
             }
-            const conditions: Condition[] = JSON.parse(String(file.conditions));
             if (!conditions.some((item) => item.id === source.conditionId && !item.satisfiedAt)) {
               throw new WorkspaceError("This UWM condition is no longer outstanding. Refresh the loan to see its status.");
             }
@@ -167,6 +168,12 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
           break;
         }
+        case "sendConditionDocument": {
+          const result = sendMockConditionDocument(db, data.loanId, data.requestId, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = `Mock UWM document receipt · ${result.receipt}`;
+          break;
+        }
         case "refreshWorkspace":
           message = "Workspace refreshed.";
           break;
@@ -195,6 +202,37 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
             addApplicationActivity(db, data.loanId, `Saved ${run.mode === "mock" ? "sample" : "stage"} quote · ${offer.product} at ${offer.rate.toFixed(3)}%`, now);
           }
           message = "Quote saved on the loan.";
+          break;
+        }
+        case "publishQuote": {
+          if (!getApplication(db, data.loanId)?.submittedAt) throw new WorkspaceError("The borrower must submit their 1003 before you can share a quote.");
+          const run = db.prepare(`SELECT id, offers, selectedId, mode, quotedAt FROM pricing_runs
+            WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1`).get(data.loanId);
+          if (run?.id !== data.runId || run.selectedId !== data.offerId || run.mode !== "mock") {
+            throw new WorkspaceError("Select the current saved sample quote before sharing it.");
+          }
+          const offer = (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === data.offerId);
+          if (!offer) throw new WorkspaceError("This sample quote is unavailable.");
+          const previous = db.prepare("SELECT runId, offerId FROM published_quotes WHERE loanId = ?").get(data.loanId);
+          if (previous?.runId !== data.runId || previous.offerId !== data.offerId) {
+            db.prepare(`INSERT INTO published_quotes (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId) DO UPDATE SET runId = excluded.runId, offerId = excluded.offerId,
+              product = excluded.product, rate = excluded.rate, principalAndInterest = excluded.principalAndInterest,
+              quotedAt = excluded.quotedAt, publishedAt = excluded.publishedAt`)
+              .run(data.loanId, data.runId, offer.id, offer.product, offer.rate, offer.principalAndInterest, run.quotedAt, now);
+            addApplicationActivity(db, data.loanId, "Sample quote published to borrower status.", now);
+          }
+          message = "Sample quote published to borrower status.";
+          break;
+        }
+        case "withdrawQuote": {
+          const previous = db.prepare("SELECT publishedAt FROM published_quotes WHERE loanId = ?").get(data.loanId);
+          if (previous && previous.publishedAt !== data.publishedAt) throw new WorkspaceError("The shared quote changed. Refresh before removing it.");
+          if (previous) {
+            db.prepare("DELETE FROM published_quotes WHERE loanId = ?").run(data.loanId);
+            addApplicationActivity(db, data.loanId, "Sample quote removed from borrower status.", now);
+          }
+          message = "Sample quote removed from borrower status.";
           break;
         }
         case "reviewApplication": {
@@ -246,8 +284,11 @@ export async function executeCommand(db: Store, input: unknown, staff: StaffIden
           db.prepare("DELETE FROM contacts WHERE id = ?").run(data.id);
           break;
         case "loan": {
-          const current = data.id ? db.prepare("SELECT stage, stageSince, officer, officerEmail FROM loans WHERE id = ?").get(data.id) : undefined;
+          const current = data.id ? db.prepare("SELECT contactId, stage, stageSince, officer, officerEmail FROM loans WHERE id = ?").get(data.id) : undefined;
           if (data.id && !current) throw new WorkspaceError("This loan no longer exists.");
+          if (data.id && current?.contactId !== data.contactId && getApplication(db, data.id)) {
+            throw new WorkspaceError("This loan’s 1003 link belongs to its current borrower. Create a separate loan for another borrower.");
+          }
           if (data.partnerId && !db.prepare("SELECT 1 FROM contacts WHERE id = ? AND role = 'Realtor'").get(data.partnerId)) {
             throw new WorkspaceError("Select an existing realtor.");
           }

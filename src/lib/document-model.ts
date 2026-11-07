@@ -1,4 +1,5 @@
 import type { Stage } from "./model";
+import type { BorrowerQuote } from "./pricing-model";
 
 export const documentKinds = ["Pay stub", "Bank statement", "Tax form", "Photo ID", "Homeowners insurance"] as const;
 export type DocumentKind = (typeof documentKinds)[number];
@@ -19,6 +20,8 @@ export interface LoanDocumentRequest extends DocumentRequest {
   requestedAt: string;
   submissionId: string | null;
   conditionId: string | null;
+  uwmReceipt: string | null;
+  uwmSentAt: string | null;
 }
 
 export interface BorrowerLoanStatus {
@@ -26,6 +29,7 @@ export interface BorrowerLoanStatus {
   stageSince: string;
   reviewed: boolean;
   documents: DocumentRequest[];
+  quote: BorrowerQuote | null;
 }
 
 export function needsBorrowerDocument(status: DocumentStatus) {

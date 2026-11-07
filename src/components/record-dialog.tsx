@@ -15,14 +15,16 @@ import type { StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
 import { DocumentRequestForm, LoanDocuments } from "./loan-documents";
+import { DocumentFollowUp } from "./document-follow-up";
 import { DocumentStatusPill } from "./sample-document";
 import type { LoanDocumentRequest } from "@/lib/document-model";
 
 export type Modal =
-  | { kind: "details"; loanId: string }
+  | { kind: "details"; loanId: string; target?: string }
   | { kind: "loan"; loanId?: string; stage?: Stage }
   | { kind: "contact"; contactId?: string }
   | { kind: "communication"; loanId: string; audience: DraftAudience; draftId?: string }
+  | { kind: "documentFollowUp"; loanId: string }
   | { kind: "pricing"; loanId: string }
   | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
@@ -62,14 +64,16 @@ function LoanFields({ loan, state, stage, staff }: { loan?: Loan; state: Workspa
   const [contactId, setContactId] = useState(loan?.contactId ?? "");
   const [assignToSelf, setAssignToSelf] = useState(Boolean(staff && (!loan || loan.officerEmail === staff.email)));
   const [manualOfficer, setManualOfficer] = useState(loan?.officer ?? (staff ? "" : "Alex Morgan"));
+  const borrowerLocked = loan && state.applications.some((application) => application.loanId === loan.id);
   return (
     <>
       <Field label="Borrower contact">
-        <select name="contactId" value={contactId} onChange={(event) => setContactId(event.target.value)}>
+        <select name="contactId" disabled={borrowerLocked} value={contactId} onChange={(event) => setContactId(event.target.value)}>
           <option value="">Create a borrower</option>
           {state.contacts.filter((contact) => contact.role !== "Realtor").map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}
         </select>
       </Field>
+      {borrowerLocked && <><input type="hidden" name="contactId" value={loan.contactId} /><p className="muted">The borrower’s existing 1003 link is tied to this contact.</p></>}
       {!contactId && <Field label="Borrower name"><input name="borrower" placeholder="e.g. Riley Smith" maxLength={160} required /></Field>}
       <Field label="Property address"><input name="address" defaultValue={loan?.address} placeholder="City, state or street address" maxLength={240} /></Field>
       <div className="form-grid">
@@ -126,6 +130,7 @@ function SubmissionCard({ submission, requests, busy, save, onEdit }: {
               <small>{submission.lender === "UWM" && "UWM · "}{item.satisfiedAt ? `Cleared ${dateTime(item.satisfiedAt)} ET` : item.uploaded ? "Document uploaded" : "Outstanding"}</small>
               {request ? <div className="condition-checklist">
                 <a href={`#document-${request.id}`}>View checklist request</a><DocumentStatusPill status={request.status} />
+                {request.uwmReceipt && <span className="pill">Sent to UWM · Mock</span>}
               </div> : submission.lender === "UWM" && !item.satisfiedAt && <div className="condition-checklist">
                 <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} />
               </div>}
@@ -154,7 +159,7 @@ function LoanApplication({ loanId, state, busy, save }: { loanId: string; state:
     }
   }
 
-  return <section className="details-section" aria-label="1003 application">
+  return <section className="details-section" aria-label="1003 application" id="loan-application" tabIndex={-1}>
     <div className="section-heading">
       <h3><ClipboardList size={17} /> 1003 application</h3>
       {application && <span className="pill">{status}</span>}
@@ -215,6 +220,10 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
   const requests = state.documentRequests.filter((item) => item.loanId === loan.id);
+  const openConditionRequests = new Set(requests.filter((request) => submissions.some((submission) =>
+    submission.id === request.submissionId && submission.lender === "UWM" && submission.syncedAt &&
+    submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt))).map((request) => request.id));
+  const application = state.applications.find((item) => item.loanId === loan.id);
   const notes = state.activity.filter((item) => item.loanId === loan.id);
   const tasks = state.tasks.filter((item) => item.loanId === loan.id);
   const savedPricing = state.pricingRuns.filter((item) => item.loanId === loan.id && item.selectedAt)
@@ -239,8 +248,9 @@ function LoanDetails({ loan, state, busy, save, show }: { loan: Loan; state: Wor
         </div>
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
       </section>
-      <LoanDocuments loanId={loan.id} requests={requests}
-        applicationStarted={state.applications.some((item) => item.loanId === loan.id)} busy={busy} save={save} />
+      <LoanDocuments loanId={loan.id} requests={requests} openConditionRequests={openConditionRequests}
+        applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
+        followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
       <LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} />
       <section className="details-section" aria-label="Loan follow-up tasks">
@@ -296,6 +306,13 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   useEffect(() => {
     dialog.current?.showModal();
   }, []);
+  const target = modal.kind === "details" ? modal.target : undefined;
+  useEffect(() => {
+    if (!target) return;
+    const item = document.getElementById(target);
+    item?.focus({ preventScroll: true });
+    item?.scrollIntoView({ block: "start" });
+  }, [target]);
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
   const contact = modal.kind === "contact" ? state.contacts.find((item) => item.id === modal.contactId) : undefined;
   const submission = modal.kind === "submission" ? state.submissions.find((item) => item.id === modal.submissionId) : undefined;
@@ -303,6 +320,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     details: "Loan details", loan: loan ? "Edit loan" : "New loan",
     contact: contact ? "Edit contact" : "New contact", submission: submission ? "Edit lender submission" : "Add lender submission",
     communication: "Message draft",
+    documentFollowUp: "Document follow-up",
     pricing: "Loan pricing",
     retention: "Past-client follow-up",
   }[modal.kind];
@@ -323,6 +341,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       <div className="dialog-content" key={key}>
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} busy={busy} save={save} show={show} />}
         {modal.kind === "communication" && loan && <CommunicationPreview loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} busy={busy} save={save} />}
+        {modal.kind === "documentFollowUp" && loan && <DocumentFollowUp loan={loan} state={state} />}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save} />}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({
