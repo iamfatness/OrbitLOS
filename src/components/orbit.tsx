@@ -16,6 +16,7 @@ import { loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilt
 import { LoanWorkQueue } from "./loan-work-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
+import { CallReportWorkbench } from "./call-report";
 import { ManagerReports } from "./manager-reports";
 import { MigrationWorkspace } from "./migration-workspace";
 import { BrokerageTeam } from "./brokerage-team";
@@ -84,6 +85,7 @@ function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEn
 
 export function Orbit({ initial, staff }: { initial: Workspace; staff: WorkspaceStaff | null }) {
   const [state, setState] = useState(initial);
+  const [reportTab, setReportTab] = useState<"Production" | "Call report">("Production");
   const [section, setSection] = useState<Section>("Pipeline");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [view, setView] = useState<"Board" | "List">("Board");
@@ -487,9 +489,17 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           {section === "Past Clients" && <PastClients state={state} openLoan={(loanId) => show({ kind: "details", loanId })}
             editRetention={(loanId) => show({ kind: "retention", loanId })} />}
 
-          {section === "Reports" && canReport && state.managerReports && <ManagerReports data={state.managerReports} busy={busy} now={taskNow}
-            save={save} openLoan={(loanId) => show({ kind: "details", loanId })}
-            openLead={(leadId) => { navigate("Lead Inbox"); setFocusLeadId(leadId); }} />}
+          {section === "Reports" && canReport && state.managerReports && <div className="record-form">
+            <div className="loan-application-actions" aria-label="Report view">
+              {(["Production", "Call report"] as const).map((tab) => <Button size="sm" key={tab} aria-pressed={reportTab === tab}
+                variant={reportTab === tab ? "default" : "outline"} onClick={() => setReportTab(tab)}>{tab}</Button>)}
+            </div>
+            {reportTab === "Call report" ? <CallReportWorkbench state={state}
+              openLoan={(loanId) => show({ kind: "details", loanId, target: "loan-call-report" })} /> :
+              <ManagerReports data={state.managerReports} busy={busy} now={taskNow} save={save}
+                openLoan={(loanId) => show({ kind: "details", loanId })}
+                openLead={(leadId) => { navigate("Lead Inbox"); setFocusLeadId(leadId); }} />}
+          </div>}
 
           {section === "Migration" && canMigrate && <MigrationWorkspace busy={busy} save={save}
             openLoan={(loanId) => show({ kind: "details", loanId, target: "loan-application" })} />}

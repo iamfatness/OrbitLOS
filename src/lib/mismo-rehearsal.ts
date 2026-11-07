@@ -4,6 +4,7 @@ import { mismoFields, mismoXml, type MismoFields } from "./mismo-rehearsal-model
 import { insertContact, insertLoan, type Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { accessEvent, loanAccess } from "./workspace-access";
+import { recordLoanAudit } from "./loan-audit";
 
 export function createMismoRehearsal(db: Store, staff: WorkspaceStaff, requestId: string, fields: MismoFields, now: string) {
   const existing = db.prepare("SELECT loanId, fields FROM mismo_rehearsals WHERE requestId = ?").get(requestId);
@@ -26,6 +27,7 @@ export function createMismoRehearsal(db: Store, staff: WorkspaceStaff, requestId
   db.prepare("UPDATE applications SET draft = ? WHERE loanId = ?").run(JSON.stringify(draft), loanId);
   db.prepare("INSERT INTO mismo_rehearsals (loanId, requestId, fields) VALUES (?, ?, ?)").run(loanId, requestId, serialized);
   addApplicationActivity(db, loanId, "Created a fictional 1003 draft from a reviewed MISMO 3.4 mapping.", now);
+  recordLoanAudit(db, loanId, staff, "Created synthetic 1003 draft", now, null);
   accessEvent(db, staff, "Imported a synthetic MISMO file", loanId, now);
   return { loanId };
 }

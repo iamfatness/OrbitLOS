@@ -31,6 +31,9 @@ import { deleteReportView, saveReportView } from "./manager-report-model";
 import { exportMismo, importMismo } from "./mismo-rehearsal-model";
 import { createMismoRehearsal, exportMismoRehearsal } from "./mismo-rehearsal";
 
+import { saveCallReport } from "./call-report-model";
+import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEvent } from "./loan-audit";
+
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
 const lockChange = { loanId: id, lockReference: id, expectedExpiresAt: z.iso.datetime() };
@@ -77,6 +80,8 @@ const command = z.discriminatedUnion("type", [
   saveLeadRoutingInput,
   migrationInput,
   saveReportView,
+  saveCallReport,
+  z.object({ type: z.literal("loadLoanAudit"), loanId: id }),
   deleteReportView,
   importMismo,
   exportMismo,
@@ -146,7 +151,7 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
   if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" || data.type === "simulateUwmChanges" || data.type === "saveBrokerageTemplate" ||
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if (staff.brokerage.role === "Processor") {
-    const permitted = ["refreshWorkspace", "refreshApplication", "reviewApplication", "requestApplicationCorrection",
+    const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "reviewApplication", "requestApplicationCorrection",
       "saveLenderDetails", "requestDocument", "applyDocumentPreset", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
       "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
@@ -174,6 +179,14 @@ const pilotLoanActions: Partial<Record<z.infer<typeof command>["type"], string>>
   sendConditionDocument: "Recorded mock UWM delivery", refreshMockUwmClearance: "Checked mock UWM clearance",
 };
 
+const loanAuditActions = {
+  loan: "Edited loan", move: "Moved pipeline stage", loanDisposition: "Changed loan status",
+  saveClosingTarget: "Updated closing target", recordClosing: "Recorded closing", recordFunding: "Recorded funding",
+  saveDisclosureStatus: "Updated disclosures", saveRetention: "Updated closing details",
+  reviewApplication: "Reviewed 1003", requestApplicationCorrection: "Requested 1003 correction",
+  updateProcessing: "Updated processing handoff", saveCallReport: "Updated call report facts",
+} as const;
+
 export interface WorkspaceMutationSuccess {
   state: Workspace;
   message: string;
@@ -181,6 +194,7 @@ export interface WorkspaceMutationSuccess {
   applicationLoanId?: string;
   migration?: MigrationReport;
   mismoXml?: string;
+  loanAudit?: LoanAuditEvent[];
 }
 
 export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity, leadMembers: StaffIdentity[] = []):
@@ -218,6 +232,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       let applicationLoanId: string | undefined;
       let migration: MigrationReport | undefined;
       let mismoXml: string | undefined;
+      let loanAudit: LoanAuditEvent[] | undefined;
+      const auditAction = loanAuditActions[data.type as keyof typeof loanAuditActions];
+      const auditLoanId = auditAction && ("loanId" in data ? data.loanId : data.type === "loan" || data.type === "move" ? data.id : undefined);
+      const auditBefore = auditLoanId ? loanAuditSnapshot(db, auditLoanId) : null;
       switch (data.type) {
         case "migratePipeline": {
           if (!staff?.brokerage.pilot || staff.brokerage.role !== "Admin") throw new WorkspaceError("Only a pilot admin can migrate fictional CRM records.");
@@ -225,6 +243,26 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           migration = result.migration;
+          break;
+        }
+        case "loadLoanAudit": {
+          if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          loanAudit = loanAuditHistory(db, data.loanId);
+          message = "Loan audit history loaded.";
+          break;
+        }
+        case "saveCallReport": {
+          if (staff?.brokerage.role !== "Admin") throw new WorkspaceError("Only brokerage admins can confirm call report facts.");
+          if (!auditBefore) throw new WorkspaceError("This loan no longer exists.");
+          const today = easternDate(new Date(now));
+          if (data.facts.receivedDate > today || data.facts.outcomeDate > today) throw new WorkspaceError("Enter dates on or before today.");
+          const stored = db.prepare("SELECT facts, revision FROM call_report_facts WHERE loanId = ?").get(data.loanId);
+          const facts = JSON.stringify(data.facts);
+          if (stored?.facts === facts) break;
+          if (Number(stored?.revision ?? 0) !== data.revision) throw new WorkspaceError("Call report facts changed. Reopen the loan before saving.");
+          db.prepare(`INSERT INTO call_report_facts (loanId, facts, revision) VALUES (?, ?, 1)
+            ON CONFLICT (loanId) DO UPDATE SET facts = excluded.facts, revision = revision + 1`).run(data.loanId, facts);
+          message = "Call report facts saved.";
           break;
         }
         case "saveReportView":
@@ -506,6 +544,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             .run(`first-contact:${loanId}`, loanId, lead.dueAt, firstContactAt);
           if (!startApplication(db, loanId, now, staff?.brokerage.id, imported ? { email: email || contact.email, phone: phone || contact.phone } : contact, String(lead.zip ?? ""))) throw new WorkspaceError("Orbit could not create the borrower link.");
           db.prepare("UPDATE referral_leads SET resolvedAt = ?, loanId = ? WHERE id = ?").run(now, loanId, data.referralId);
+          recordLoanAudit(db, loanId, staff, "Converted lead to loan", now, null);
           addApplicationActivity(db, loanId, `Converted ${source.toLowerCase()} to a loan with a prefilled 1003.`, now);
           accessEvent(db, staff, imported ? "Converted imported lead" : realtorId ? "Converted referral" : "Converted quote request", data.referralId, now);
           referralLoanId = loanId;
@@ -865,6 +904,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             if ((current?.officerEmail ?? null) !== officerEmail) accessEvent(db, staff, "Changed loan owner", `${loanId} · ${officerEmail ?? "Unassigned"}`, now);
           } else {
             insertLoan(db, { ...data, id: loanId, officer, officerEmail, contactId, stageSince });
+            recordLoanAudit(db, loanId, staff, "Created loan", now, null);
           }
           if (current?.stage !== data.stage && (current || data.stage !== "Lead")) {
             createMilestoneDrafts(db, loanId, data.stage, now);
@@ -887,6 +927,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "deleteLoan":
+          if (db.prepare("SELECT 1 FROM call_report_facts WHERE loanId = ? AND json_extract(facts, '$.eligibility') = 'Include'").get(data.id)) {
+            throw new WorkspaceError("This loan is included in call report prep. Review its reporting eligibility before deleting it.");
+          }
           db.prepare("DELETE FROM loans WHERE id = ?").run(data.id);
           break;
         case "move": {
@@ -1011,10 +1054,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
       }
+      if (auditLoanId && auditBefore) recordLoanAudit(db, auditLoanId, staff, auditAction, now, auditBefore);
       synchronizeRetentionTasks(db);
       const action = pilotLoanActions[data.type];
       if (staff?.brokerage.pilot && action && "loanId" in data) accessEvent(db, staff, action, data.loanId, now);
-      return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message, referralLoanId, applicationLoanId, migration, mismoXml };
+      return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message, referralLoanId, applicationLoanId, migration, mismoXml, loanAudit };
     });
   } catch (error) {
     if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };

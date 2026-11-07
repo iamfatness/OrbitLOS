@@ -21,6 +21,8 @@ import { DocumentFollowUp } from "./document-follow-up";
 import { DocumentStatusPill } from "./sample-document";
 import type { LoanDocumentRequest } from "@/lib/document-model";
 import { mockRateStatus } from "@/lib/pricing-model";
+import { CallReportLoanFacts } from "./call-report";
+import { LoanAudit } from "./loan-audit";
 import { ClosingWorkbench } from "./closing-workbench";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
@@ -283,6 +285,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
     submission.id === request.submissionId && submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt)))
     .map((request) => request.id));
   const application = state.applications.find((item) => item.loanId === loan.id);
+  const callReportFile = state.callReportFiles?.find((file) => file.loanId === loan.id);
   const notes = state.activity.filter((item) => item.loanId === loan.id);
   const tasks = state.tasks.filter((item) => item.loanId === loan.id);
   const savedPricing = state.pricingRuns.filter((item) => item.loanId === loan.id && item.selectedAt)
@@ -359,6 +362,8 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
           onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
+      {callReportFile && <CallReportLoanFacts key={`${loan.id}:${callReportFile.revision}`} file={callReportFile} busy={busy} save={save} />}
+      <LoanAudit key={loan.id} loanId={loan.id} busy={busy} save={save} />
       <section className="details-section" id="loan-activity" tabIndex={-1}>
         <div className="section-heading"><h3><ClipboardList size={17} /> Activity</h3></div>
         <form className="note-form" onSubmit={(event) => {

@@ -10,6 +10,8 @@ const nextStatus: Record<ProcessingAction, ProcessingStatus> = {
   "Send to processing": "Ready for processing", "Accept handoff": "In processing", "Return to LO": "Returned to LO", "Complete handoff": "Complete",
 };
 
+import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
+
 export function assignProcessor(db: Store, staff: WorkspaceStaff, input: { loanId: string; revision: number; member: BrokerageMember | null }): Result {
   if (staff.brokerage.role !== "Admin" || (input.member && (input.member.role !== "Processor" || input.member.status !== "Active"))) {
     return { error: "Select an active processor in this brokerage." };
@@ -23,13 +25,16 @@ export function assignProcessor(db: Store, staff: WorkspaceStaff, input: { loanI
     if ((current?.processorEmail ?? null) === (member?.email ?? null)) return { message: "Processor assignment is up to date." };
     if ((current?.revision ?? 0) !== revision) return { error: "This processor assignment changed. Refresh before saving." };
     const now = new Date().toISOString();
+    const before = loanAuditSnapshot(db, loanId);
     db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
       VALUES (?, ?, ?, ?, '', ?, 1) ON CONFLICT (loanId) DO UPDATE SET processorEmail = excluded.processorEmail,
       processorName = excluded.processorName, status = excluded.status, note = '', updatedAt = excluded.updatedAt, revision = revision + 1`)
       .run(loanId, member?.email ?? null, member?.name.slice(0, 160) ?? "", member ? "Assigned" : "Unassigned", now);
     const message = member ? `Processing access granted to ${member.name}.` : "Shared processor access removed.";
     db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), loanId, message, now);
-    accessEvent(db, staff, member ? "Assigned shared processor" : "Removed shared processor", loanId, now);
+    const action = member ? "Assigned shared processor" : "Removed shared processor";
+    accessEvent(db, staff, action, loanId, now);
+    recordLoanAudit(db, loanId, staff, action, now, before);
     return { message };
   });
 }

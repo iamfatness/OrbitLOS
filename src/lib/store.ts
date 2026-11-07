@@ -10,6 +10,7 @@ import { referralMatches } from "./referral-matches";
 import { mockCreditAusRuns } from "./mock-credit-aus";
 import type { UwmAlert } from "./uwm-alert-model";
 import type { InboxLead } from "./model";
+import { callReportFiles } from "./call-report";
 import { managerReports } from "./manager-reports";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
 import type { LoanProcessing } from "./processing-model";
@@ -69,6 +70,14 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE INDEX IF NOT EXISTS uwm_alerts_by_submission ON uwm_alerts(submissionId);
     CREATE TABLE IF NOT EXISTS workspace_access_history (
       id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, subject TEXT NOT NULL, createdAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS loan_audit (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      actor TEXT NOT NULL, action TEXT NOT NULL, occurredAt TEXT NOT NULL, changes TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS loan_audit_by_loan ON loan_audit(loanId, occurredAt);
+    CREATE TABLE IF NOT EXISTS call_report_facts (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, facts TEXT NOT NULL, revision INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS applications (
@@ -427,6 +436,7 @@ export function workspace(db: Store, includeReports = false): Workspace {
     inboxLeads,
     leadRouting: leadRouting(db),
     managerReports: includeReports ? managerReports(db) : null,
+    callReportFiles: includeReports ? callReportFiles(db) : null,
     mismoLoans: rows<{ loanId: string }>(db, "SELECT loanId FROM mismo_rehearsals").map((row) => row.loanId),
     unlinkedReferrals: rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt, officer, officerEmail
       FROM referral_leads WHERE loanId IS NULL AND realtorId IS NOT NULL ORDER BY createdAt DESC, id`),

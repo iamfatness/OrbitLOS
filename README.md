@@ -75,6 +75,13 @@ In **Realtors → Partner conversion**, filter the cohort by lead date, current 
 4. As a brokerage admin, open **Reports**. Choose an officer, source, or date range and save the view. Select a count to open its leads or loans. Lead response and conversion use a lead creation cohort. The funding totals use the target closing date and recorded funding date, respectively.
 5. In **Migration**, load the synthetic MISMO 3.4 sample, review the ten mapped fields, and confirm the values are fictional. Create the 1003 draft, then use **Export original XML mapping** on the loan to download the reviewed fields and load them back into the preview. This is a limited mapping rehearsal. Lender submission requires the applicable full mapping, schemas, and validation. [Fannie Mae Form 1003 and ULAD resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
 
+## Prepare a quarterly call report review
+
+1. Sign in as a brokerage admin and open **Reports → Call report**. Select the reporting year and quarter. Filter by confirmed property state or originator NMLS ID. Choose a count to see the loan records behind it.
+2. Open a loan in **Needs review**. Confirm eligibility, property state, originator ID, application date and amount, and any outcome. Orbit can suggest values from the first submitted 1003 and recorded funding. The review holds missing values and funding conflicts out of the confirmed subtotals.
+3. Download the review CSV. It lists the loan IDs, confirmed facts, quarter categories, exclusions, and unresolved issues. The worksheet covers selected residential mortgage activity for broker review. It uses application intake amounts for beginning and ending pipeline and leaves net amount adjustments, fee data, financial condition, and submission to separate review. [NMLS Mortgage Call Report resources](https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/mcr/index.html)
+4. Open **Loan audit history** on a loan and load the timeline. It shows tracked changes and their actors, timestamps, and before and after values from the feature's release forward. An included loan must have its reporting eligibility reviewed before it can be deleted.
+
 ## Try mock credit and automated underwriting
 
 Open any sample loan and find **Credit & AUS** in its details. Select **Confirm mock credit authorization** and **Run mock credit** to generate a fictional score and report reference. With that report available, run **Desktop Underwriter (DU)** or **Loan Product Advisor (LPA)** and review the sample findings.

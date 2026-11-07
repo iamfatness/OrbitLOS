@@ -10,6 +10,7 @@ import type { BorrowerQuote } from "./pricing-model";
 import { pdfColumns } from "./document-files-model";
 import type { Contact } from "./model";
 import { accessEvent } from "./workspace-access";
+import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "lender" | "versions" | "previousAnswers"> & { draft: string; step: number };
 
@@ -159,6 +160,7 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       const issues = applicationIssues(draft);
       if (issues.length) return { status: 422, error: `Complete these items before submitting: ${issues.join("; ")}.` };
     }
+    const auditBefore = submitted ? loanAuditSnapshot(db, row.loanId) : null;
     const next: ApplicationRow = {
       ...row, draft: JSON.stringify(draft), step: data.step, revision: row.revision + 1,
       updatedAt: now, submittedAt: submitted ? now : null, correctionNote: submitted ? "" : row.correctionNote,
@@ -185,6 +187,7 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       }
       createMilestoneDrafts(db, row.loanId, "Application received", now);
       addApplicationActivity(db, row.loanId, row.correctionNote ? "Corrected 1003 received." : "Demo 1003 received. Follow-up task created for the loan officer.", now);
+      recordLoanAudit(db, row.loanId, "Borrower", "Submitted 1003", now, auditBefore);
       if (pilot) accessEvent(db, { name: "Borrower", email: "Borrower" }, "Pilot 1003 submitted", row.loanId, now);
     }
     return borrowerResult(db, next);

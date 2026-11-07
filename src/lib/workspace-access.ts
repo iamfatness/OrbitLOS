@@ -2,6 +2,7 @@ import { demoBrokerageId, type AccessEvent, type BrokerageMember } from "./broke
 import type { Workspace } from "./model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
+import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 
 export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): Workspace {
   if (!staff || staff.brokerage.role === "Admin") return state;
@@ -25,7 +26,7 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
     return { ...lead, matches, restrictedMatch: matches.length !== lead.matches.length };
   });
   return { ...state, loans, contacts: state.contacts.filter((contact) => contacts.has(contact.id)), realtorPortals: [],
-    referralLeads, inboxLeads, leadRouting: null, unlinkedReferrals: [], managerReports: null,
+    referralLeads, inboxLeads, leadRouting: null, unlinkedReferrals: [], managerReports: null, callReportFiles: null,
     mismoLoans: state.mismoLoans.filter((id) => owned.has(id)),
     submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: state.tasks.filter((item) => owned.has(item.loanId)),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),
@@ -73,8 +74,10 @@ export function assignLoan(db: Store, staff: WorkspaceStaff, target: { loanId: s
     if (loan.officerEmail !== member.email) {
       if (loan.officerEmail !== previousEmail) return { error: "The loan owner changed. Refresh the workspace before reassigning it." };
       const now = new Date().toISOString();
+      const before = loanAuditSnapshot(db, loanId);
       db.prepare("UPDATE loans SET officer = ?, officerEmail = ? WHERE id = ?").run(member.name.slice(0, 160), member.email, loanId);
       accessEvent(db, staff, "Reassigned loan", loanId, now);
+      recordLoanAudit(db, loanId, staff, "Reassigned loan", now, before);
       db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), loanId, `Loan reassigned to ${member.name}.`, now);
     }
     return { message: "Loan reassigned. Open tasks now follow its new owner." };

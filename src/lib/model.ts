@@ -228,6 +228,7 @@ export interface Workspace {
   inboxLeads: InboxLead[];
   leadRouting: LeadRouting | null;
   managerReports: import("./manager-report-model").ManagerReports | null;
+  callReportFiles: import("./call-report-model").CallReportFile[] | null;
   mismoLoans: string[];
   unlinkedReferrals: UnlinkedReferral[];
   applications: StaffApplication[];
