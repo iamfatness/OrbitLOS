@@ -20,6 +20,7 @@ import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
 import { ReferralQueue } from "./referral-queue";
 import { UwmAlertQueue } from "./uwm-alert-queue";
+import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 
 type Section = "Pipeline" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team";
@@ -141,7 +142,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
     return dueInView(task.dueAt);
   });
 
-  async function save(input: unknown, after?: (result: { referralLoanId?: string }) => void, announce = true) {
+  async function save(input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce = true) {
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
@@ -243,13 +244,14 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           </div>
         </header>
         <div className="content">
+          {staff?.brokerage.pilot && <p className="application-message">Pilot workspace · Use fictional borrowers and built-in documents.</p>}
           <div className="page-heading">
             <div><p className="eyebrow">ORBIT WORKSPACE</p>
               <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
               <p>{descriptions[section]}</p>
             </div>
             <div className="heading-actions">
-              {section === "Pipeline" && <>{syncButton()}<Button onClick={() => show({ kind: "loan" })}><Plus /> New loan</Button></>}
+              {section === "Pipeline" && <>{syncButton()}<Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button></>}
               {section === "Contacts" && staff?.brokerage.role !== "LO" && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
               {section === "Communications" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh drafts</Button>}
@@ -299,7 +301,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                     return <section key={stage} className={dropStage === stage ? "lane drag-over" : "lane"}
                       onDragOver={(event) => { if (dragged.current && !busy) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropStage(stage); } }}
                       onDrop={(event) => drop(event, stage)}>
-                      <div className="lane-title"><span className={`stage-dot ${color}`} /><h3>{stage}</h3><span className="lane-count">{items.length}</span><Button variant="ghost" size="icon" aria-label={`Add loan to ${stage}`} onClick={() => show({ kind: "loan", stage })}><Plus /></Button></div>
+                      <div className="lane-title"><span className={`stage-dot ${color}`} /><h3>{stage}</h3><span className="lane-count">{items.length}</span><Button variant="ghost" size="icon" aria-label={`Add lead to ${stage}`} onClick={() => show({ kind: "loan", stage })}><Plus /></Button></div>
                       <p className="lane-volume">{compactMoney(items.reduce((total, loan) => total + loan.amount, 0))}</p>
                       {items.map((loan) => <LoanCard key={loan.id} loan={loan} name={borrowers(loan)} lenders={[...new Set(loanSubmissions(loan).map((item) => item.lender))]} count={countOpen(loan)}
                         onOpen={() => show({ kind: "details", loanId: loan.id })}
@@ -367,7 +369,8 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           {section === "Past Clients" && <PastClients state={state} openLoan={(loanId) => show({ kind: "details", loanId })}
             editRetention={(loanId) => show({ kind: "retention", loanId })} />}
 
-          {section === "Team" && staff && <BrokerageTeam staff={staff} state={state} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)} />}
+          {section === "Team" && staff && <BrokerageTeam staff={staff} state={state} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)}
+            openLoan={(loanId) => show({ kind: "details", loanId })} />}
 
           {section === "Integrations" && <section className="integration">
             <div className="integration-head"><span className="metric-icon lavender"><Zap size={20} /></span><div><h2>United Wholesale Mortgage</h2><p>Mock lender connection</p></div><span className="pill">Demo mode</span></div>

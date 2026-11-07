@@ -9,6 +9,7 @@ import { portalToken, portalTokenPattern } from "./brokerage-model";
 import type { BorrowerQuote } from "./pricing-model";
 import { pdfColumns } from "./document-files-model";
 import type { Contact } from "./model";
+import { accessEvent } from "./workspace-access";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "lender"> & { draft: string; step: number; revision: number };
 
@@ -91,7 +92,7 @@ function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
   } };
 }
 
-export function borrowerCommandResult(db: Store, input: unknown, allowSample = true): BorrowerResult {
+export function borrowerCommandResult(db: Store, input: unknown, allowSample = true, pilot = false): BorrowerResult {
   const parsed = borrowerCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check the length of your answers and use valid amounts, then try again." };
   const data = parsed.data;
@@ -164,6 +165,7 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       createApplicationFollowUps(db, row.loanId);
       createMilestoneDrafts(db, row.loanId, "Application received", now);
       addApplicationActivity(db, row.loanId, "Demo 1003 received. Follow-up task created for the loan officer.", now);
+      if (pilot) accessEvent(db, { name: "Borrower", email: "Borrower" }, "Pilot 1003 submitted", row.loanId, now);
     }
     return borrowerResult(db, next);
   });

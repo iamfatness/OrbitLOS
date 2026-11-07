@@ -1,5 +1,5 @@
 import type { BorrowerResult } from "./application-model";
-import { demoBrokerageId, portalBrokerage } from "./brokerage-model";
+import { demoBrokerageId } from "./brokerage-model";
 import type { DocumentUploadMode } from "./document-files-model";
 
 const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex", "Referrer-Policy": "no-referrer" };
@@ -45,17 +45,16 @@ export async function borrowerJson<T>(request: Request, run: (input: unknown) =>
   }
 }
 
-export function documentUploadMode(mode: DocumentUploadMode | undefined, brokerage: string | null) {
+export function documentUploadMode(mode: DocumentUploadMode | undefined, brokerage: string | null, pilot = false) {
   if (!brokerage) return undefined;
-  return (brokerage === demoBrokerageId ? mode === "mock" : mode === "live") ? mode : undefined;
+  return (brokerage === demoBrokerageId || pilot ? mode === "mock" : mode === "live") ? mode : undefined;
 }
 
-export function borrowerHttp(request: Request, run: (input: unknown) => Promise<BorrowerResult>, addressLookupEnabled = false, uploadsMode?: DocumentUploadMode) {
+export function borrowerHttp(request: Request, run: (input: unknown) => Promise<BorrowerResult & { uploadsMode?: DocumentUploadMode }>, addressLookupEnabled = false) {
   return borrowerJson(request, async (input) => {
     const result = await run(input);
     if ("error" in result) return result;
-    const brokerage = portalBrokerage(input && typeof input === "object" && "token" in input ? input.token : null);
-    const mode = documentUploadMode(uploadsMode, brokerage);
+    const mode = result.uploadsMode;
     return { value: { ...result.application, addressLookupEnabled, documentUploadsEnabled: Boolean(mode), documentUploadsMode: mode } };
   }, maxRequestBytes);
 }

@@ -15,7 +15,7 @@ Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open t
 
 ## Try the pipeline
 
-1. Use **New loan** to enter a borrower name or select an existing borrower. You can assign an officer and realtor and pick a pipeline stage.
+1. Use **New Lead** to enter a borrower name and optional contact details, or select an existing borrower. Choose **Save lead** to return to the pipeline or **Save and open 1003** to start the prefilled application.
 2. Switch between the board and list views. Drag a card to another stage or use the **Pipeline stage** field in the loan details. Use **Contacts** to manage borrower and realtor details.
 3. Click **Sync UWM**. The first sync refreshes Charlotte Kim and Amelia Davis and imports Benjamin Cole. Open Charlotte's loan to see the lender status, two outstanding conditions, and one cleared condition.
 4. Sync again to refresh the same lender records. UWM status and pipeline stage are separate fields, so a sync preserves broker-managed stages.
@@ -117,9 +117,17 @@ Brokerage admins can see all loans in their workspace. LOs see and work the loan
 
 Each brokerage has its own data store. Borrower and realtor links are scoped to their issuing workspace and record. In **1003 application**, an LO or admin can revoke a borrower link and issue a replacement while retaining the application. New workspaces use fictional data and mock UWM pricing. Use the original demo for the existing sample pipeline.
 
+### Run a fictional pilot
+
+In **Team → Create brokerage**, select **Create as a fictional pilot workspace**. In the new workspace, invite staff by their Google account and share the workspace link. The invitation activates when the invited account signs in. When the LO is active, select them and choose **Load fictional scenario**. The LO gets Riley Pilot Referral in **My Tasks** and Morgan Pilot Borrower in the pipeline. The admin can open or copy Taylor Pilot Realtor’s link in **Realtors**.
+
+The pilot walkthrough under **Team** covers referral intake, a prefilled 1003, sample pricing, and mock UWM conditions. The pilot supports on-screen verification codes and built-in clean and blocked PDFs when document upload mode is set to `mock`. Staff can submit feedback by workflow step. Admins can review the feedback and activity from **Team**.
+
+**Reset fictional scenario** replaces the scenario’s seed records and loans converted from its referrals. It revokes the old scenario links and queues the sample files for cleanup. Staff access, feedback, activity history, and unrelated loans remain available.
+
 ### Private PDF upload preview
 
-In the original demo, submit a fictional 1003 and request a document on the loan. In the borrower checklist, choose **Get demo code** and enter the code shown on the page. **Demo PDF** includes clean and blocked fixtures for showing both mock scan outcomes. A clean sample reaches the LO’s review checklist and can be downloaded as a demo PDF. The demo accepts only the built-in PDF choices and also offers the original text samples.
+In the original demo or a fictional pilot, submit a fictional 1003 and request a document on the loan. In the borrower checklist, choose **Get demo code** and enter the code shown on the page. **Demo PDF** includes clean and blocked fixtures for showing both mock scan outcomes. A clean sample reaches the LO’s review checklist and can be downloaded as a demo PDF. The demo accepts only the built-in PDF choices and also offers the original text samples.
 
 In a configured live brokerage preview, an admin adds an email to the borrower contact before sharing the 1003 link. After submission, the borrower requests a one-time code sent to that email and can upload a PDF of up to 5 MB against an open request. A file becomes downloadable after scanning and a second check of the borrower link and email session. Only a brokerage admin or the assigned LO can download it. A clean replacement becomes the current PDF. Private storage cleanup removes superseded files and files from deleted loans.
 
@@ -127,6 +135,6 @@ The hosted Worker binds the private `orbitlos-private-documents` bucket as `DOCU
 
 Run `node services/document-scanner.mjs` beside a private ClamAV daemon and place the bridge behind HTTPS. The bridge binds to loopback and reads `ORBIT_DOCUMENT_SCANNER_SECRET`. Set `ORBIT_CLAMD_SOCKET` for a private Unix socket or use local TCP port 3310. Keep ClamAV signatures current and configure the daemon to alert on encrypted documents and scan limits (`AlertEncrypted yes`, `AlertExceedsMax yes`). The Worker sends raw PDF bytes to `/scan`. Only an authenticated clean response carrying the matching SHA-256 digest releases the PDF for review.
 
-Set `ORBIT_DOCUMENT_FROM` and `ORBIT_DOCUMENT_SCANNER_URL` on the Worker. Store `ORBIT_DOCUMENT_VERIFICATION_SECRET` and `ORBIT_DOCUMENT_SCANNER_SECRET` as two distinct secrets of at least 32 characters. Set `ORBIT_DOCUMENT_UPLOADS=enabled` once the bindings and scanner are ready. The hosted Worker currently uses `ORBIT_DOCUMENT_UPLOADS=mock` for the original demo. Mock verification sessions are separate from live PDF upload sessions.
+Set `ORBIT_DOCUMENT_FROM` and `ORBIT_DOCUMENT_SCANNER_URL` on the Worker. Store `ORBIT_DOCUMENT_VERIFICATION_SECRET` and `ORBIT_DOCUMENT_SCANNER_SECRET` as two distinct secrets of at least 32 characters. Set `ORBIT_DOCUMENT_UPLOADS=enabled` once the bindings and scanner are ready. The hosted Worker currently uses `ORBIT_DOCUMENT_UPLOADS=mock` for the original demo and fictional pilot workspaces. Mock verification sessions are separate from live PDF upload sessions.
 
 Run `npm run lint`, `npm run typecheck`, and `npm run build` to check the scaffold.

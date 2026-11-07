@@ -16,6 +16,7 @@ import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput,
 import { documentKinds } from "./document-model";
 import { referralMatches } from "./referral-matches";
 import { mockAusInput, mockCreditInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
+import { trackPilotBorrower } from "./pilot";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -32,6 +33,8 @@ const command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("loan"), id: id.optional(), contactId: z.union([id, z.literal("")]),
     borrower: z.string().trim().max(160), partnerId: id.nullable(),
+    borrowerEmail: z.union([z.email().max(160), z.literal("")]).optional(), borrowerPhone: z.string().trim().max(40).optional(),
+    start1003: z.boolean().optional(),
     officer: z.string().trim().max(160), assignToSelf: z.boolean().optional(), address: z.string().trim().max(240),
     amount: z.number().int().min(0).max(1_000_000_000),
     purpose: z.enum(["Purchase", "Refinance"]), stage: z.enum(stages),
@@ -105,8 +108,21 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
   }
 }
 
+const pilotLoanActions: Partial<Record<z.infer<typeof command>["type"], string>> = {
+  reviewApplication: "Reviewed 1003", selectOffer: "Saved quote", publishQuote: "Shared sample quote",
+  sendApplication: "Submitted to mock UWM", requestDocument: "Requested document", reviewDocument: "Reviewed document",
+  sendConditionDocument: "Recorded mock UWM delivery", refreshMockUwmClearance: "Checked mock UWM clearance",
+};
+
+export interface WorkspaceMutationSuccess {
+  state: Workspace;
+  message: string;
+  referralLoanId?: string;
+  applicationLoanId?: string;
+}
+
 export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity):
-  Promise<{ state: Workspace; message: string; referralLoanId?: string } | { error: string }> {
+  Promise<WorkspaceMutationSuccess | { error: string }> {
   const parsed = command.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Check the form and try again." };
   const data = parsed.data;
@@ -126,6 +142,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         db.prepare("INSERT INTO pricing_runs (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .run(crypto.randomUUID(), data.loanId, result.provider, result.mode, result.reference,
             JSON.stringify(data.scenario), JSON.stringify(result.offers), JSON.stringify(result.notices), new Date().toISOString());
+        if (staff?.brokerage.pilot) accessEvent(db, staff, "Ran sample pricing", data.loanId, new Date().toISOString());
         return { state: scopeWorkspace(workspace(db), staff), message: `${result.offers.length} pricing options returned.` };
       });
     }
@@ -133,6 +150,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     return db.transaction(() => {
       let message = data.type.startsWith("delete") ? "Removed successfully." : "Saved successfully.";
       let referralLoanId: string | undefined;
+      let applicationLoanId: string | undefined;
       switch (data.type) {
         case "reviewUwmAlert": {
           const alert = db.prepare("SELECT reviewedAt FROM uwm_alerts WHERE id = ? AND loanId = ?").get(data.alertId, data.loanId);
@@ -282,6 +300,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             if (matches.length && !data.allowDuplicate) throw new WorkspaceError("A possible contact match exists. Refresh tasks and choose how to handle it.");
             contact = { id: crypto.randomUUID(), name: String(lead.name), email, phone, role: "Borrower" };
             insertContact(db, contact);
+            if (staff?.brokerage.pilot) trackPilotBorrower(db, String(lead.realtorId), contact.id);
           }
           const loanId = crypto.randomUUID();
           insertLoan(db, { id: loanId, contactId: contact.id, partnerId: String(lead.realtorId), officer: staff?.name.slice(0, 160) || "Alex Morgan",
@@ -350,7 +369,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare("UPDATE document_requests SET status = ?, replacementNote = ?, revision = revision + 1 WHERE id = ?")
             .run(data.decision, data.decision === "Accepted" ? "" : data.replacementNote, data.requestId);
           const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(data.requestId)?.objectId;
-          const accepted = pdf ? (staff?.brokerage.id === demoBrokerageId ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
+          const accepted = pdf ? (staff?.brokerage.id === demoBrokerageId || staff?.brokerage.pilot ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
           addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? accepted : "Replacement requested"} · ${request.kind}`, now);
           message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
           break;
@@ -496,6 +515,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "loan": {
           const current = data.id ? db.prepare("SELECT contactId, stage, stageSince, officer, officerEmail FROM loans WHERE id = ?").get(data.id) : undefined;
           if (data.id && !current) throw new WorkspaceError("This loan no longer exists.");
+          if (data.id && data.start1003) throw new WorkspaceError("Start the 1003 from the loan’s application panel.");
           if (data.id && current?.contactId !== data.contactId && getApplication(db, data.id)) {
             throw new WorkspaceError("This loan’s 1003 link belongs to its current borrower. Create a separate loan for another borrower.");
           }
@@ -510,7 +530,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           } else {
             if (!data.borrower) throw new WorkspaceError("Enter a borrower name or select an existing contact.");
             contactId = crypto.randomUUID();
-            insertContact(db, { id: contactId, name: data.borrower, email: "", phone: "", role: "Borrower" });
+            insertContact(db, { id: contactId, name: data.borrower, email: data.borrowerEmail ?? "", phone: data.borrowerPhone ?? "", role: "Borrower" });
           }
           if (data.assignToSelf && !staff) throw new WorkspaceError("Sign in to assign this loan to your account.");
           const managed = !isDemoStaff(staff) || staff?.brokerage.role === "LO";
@@ -529,6 +549,16 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             insertLoan(db, { ...data, id: loanId, officer, officerEmail, contactId, stageSince });
           }
           if (current?.stage !== data.stage && (current || data.stage !== "Lead")) createMilestoneDrafts(db, loanId, data.stage, now);
+          if (!current && staff?.brokerage.pilot) accessEvent(db, staff, "Created lead", loanId, now);
+          if (data.start1003) {
+            const contact = db.prepare("SELECT email, phone FROM contacts WHERE id = ?").get(contactId);
+            if (!startApplication(db, loanId, now, staff?.brokerage.id, { email: String(contact?.email ?? ""), phone: String(contact?.phone ?? "") })) {
+              throw new WorkspaceError("Orbit could not start the 1003 for this lead.");
+            }
+            accessEvent(db, staff, "Issued borrower link", loanId, now);
+            applicationLoanId = loanId;
+            message = "Lead saved and 1003 started.";
+          }
           break;
         }
         case "deleteLoan":
@@ -573,7 +603,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
       }
       synchronizeRetentionTasks(db);
-      return { state: scopeWorkspace(workspace(db), staff), message, referralLoanId };
+      const action = pilotLoanActions[data.type];
+      if (staff?.brokerage.pilot && action && "loanId" in data) accessEvent(db, staff, action, data.loanId, now);
+      return { state: scopeWorkspace(workspace(db), staff), message, referralLoanId, applicationLoanId };
     });
   } catch (error) {
     if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };

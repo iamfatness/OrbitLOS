@@ -17,6 +17,7 @@ import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDo
 import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
 import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
+import { loadPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, savePilotFeedback } from "./lib/pilot";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -73,26 +74,28 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return result;
   }
 
-  #permitsUpload(mode: DocumentUploadMode) {
+  async #permitsUpload(mode: DocumentUploadMode) {
     const flag = runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS").trim();
-    return documentUploadMode(flag === "mock" ? "mock" : flag === "enabled" ? "live" : undefined, this.#id) === mode;
+    const details = this.#id === demoBrokerageId ? { pilot: false }
+      : await this.env.WORKSPACE.getByName(demoBrokerageId).brokerageDetails(this.#id);
+    return !!details && documentUploadMode(flag === "mock" ? "mock" : flag === "enabled" ? "live" : undefined, this.#id, details.pilot) === mode;
   }
-  issueUploadCode(token: string, secret: string, mode: DocumentUploadMode) {
-    if (!this.#permitsUpload(mode)) return { status: 503, error: "PDF uploads are unavailable." };
+  async issueUploadCode(token: string, secret: string, mode: DocumentUploadMode) {
+    if (!await this.#permitsUpload(mode)) return { status: 503, error: "PDF uploads are unavailable." };
     return issueDocumentCode(this.#store, token, secret, mode);
   }
-  verifyUploadCode(token: string, code: string, secret: string, mode: DocumentUploadMode) {
-    if (!this.#permitsUpload(mode)) return { status: 503, error: "PDF uploads are unavailable." };
+  async verifyUploadCode(token: string, code: string, secret: string, mode: DocumentUploadMode) {
+    if (!await this.#permitsUpload(mode)) return { status: 503, error: "PDF uploads are unavailable." };
     return verifyDocumentCode(this.#store, token, code, secret, mode);
   }
   async beginUpload(input: UploadAccess) {
-    if (!this.#permitsUpload(input.mode)) return { status: 503, error: "PDF uploads are unavailable." };
+    if (!await this.#permitsUpload(input.mode)) return { status: 503, error: "PDF uploads are unavailable." };
     const result = beginDocumentUpload(this.#store, input);
     if ("objectId" in result) await this.#scheduleCleanup();
     return result;
   }
   async finishUpload(input: UploadAccess, objectId: string) {
-    if (!this.#permitsUpload(input.mode)) return { status: 503, error: "PDF uploads are unavailable." };
+    if (!await this.#permitsUpload(input.mode)) return { status: 503, error: "PDF uploads are unavailable." };
     const result = finishDocumentUpload(this.#store, input, objectId);
     await this.#scheduleCleanup();
     return result;
@@ -137,7 +140,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       return activeBrokerages(this.#store, email, emails);
     });
   }
-  hasBrokerage(id: string) { return !!this.#store.prepare("SELECT 1 FROM brokerages WHERE id = ?").get(id); }
+  brokerageDetails(id: string) {
+    if (this.#id !== demoBrokerageId) return null;
+    const row = this.#store.prepare("SELECT pilot FROM brokerages WHERE id = ?").get(id);
+    return row ? { pilot: Boolean(row.pilot) } : null;
+  }
+  hasBrokerage(id: string) { return !!this.brokerageDetails(id); }
   team(staff: WorkspaceStaff, emails: string[]) {
     if (!activeBrokerages(this.#store, staff.email, emails).some((entry) => entry.id === staff.brokerage.id && entry.role === "Admin")) return { members: [], history: [] };
     return { members: brokerageMembers(this.#store, staff.brokerage.id, emails), history: brokerageHistory(this.#store, staff.brokerage.id) };
@@ -149,12 +157,25 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return assignLoan(this.#store, staff, target);
   }
 
-  borrower(input: unknown) {
-    return borrowerCommandResult(this.#store, input, this.#id === demoBrokerageId || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled");
+  pilotReview(staff: WorkspaceStaff) {
+    return this.#accepts(staff) && staff.brokerage.pilot && staff.brokerage.role === "Admin" ? pilotReview(this.#store) : {};
   }
-
-  realtor(input: unknown) {
-    return realtorReferrals(this.#store, input);
+  async loadPilot(staff: WorkspaceStaff, input: unknown, owner: StaffIdentity) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    const result = loadPilotScenario(this.#store, staff, input, owner);
+    if ("message" in result) await this.#scheduleCleanup();
+    return result;
+  }
+  pilotFeedback(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return savePilotFeedback(this.#store, staff, input);
+  }
+  borrower(input: unknown, pilot = false) {
+    return borrowerCommandResult(this.#store, input,
+      pilot || this.#id === demoBrokerageId || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot);
+  }
+  realtor(input: unknown, pilot = false) {
+    return realtorReferrals(this.#store, input, undefined, pilot);
   }
 
   reserveAddressLookup(token: string) {
@@ -208,16 +229,15 @@ export default {
     const bootstrapEmails = [...(google?.allowedEmails ?? [])];
     async function linkedWorkspace(input: unknown) {
       const id = portalBrokerage(input && typeof input === "object" && "token" in input ? input.token : input);
-      if (!id || (id !== demoBrokerageId && !await directory.hasBrokerage(id))) return null;
-      return env.WORKSPACE.getByName(id);
+      if (!id) return null;
+      const details = id === demoBrokerageId ? { pilot: false } : await directory.brokerageDetails(id);
+      return details ? { id, pilot: details.pilot, store: env.WORKSPACE.getByName(id) } : null;
     }
     const filesEnv = env as Cloudflare.Env & DocumentEnvironment;
     const uploads = google ? uploadSettings(filesEnv, url) : null;
     async function uploadWorkspace(token: string) {
-      const id = portalBrokerage(token);
-      if (!id || !documentUploadMode(uploads?.mode, id)) return null;
-      const store = await linkedWorkspace(token);
-      return store ? { id, store } : null;
+      const link = await linkedWorkspace(token);
+      return link && documentUploadMode(uploads?.mode, link.id, link.pilot) ? link : null;
     }
     if (request.method === "POST" && url.pathname === "/api/borrower-documents/verify") {
       return verifyBorrowerEmail(request, uploads, async (token) => (await uploadWorkspace(token))?.store ?? null);
@@ -230,17 +250,19 @@ export default {
     // This endpoint can reach only the token-scoped borrower command.
     if (request.method === "POST" && url.pathname === "/api/demo-application") {
       return borrowerHttp(request, async (input) => {
-        const workspace = await linkedWorkspace(input);
-        return workspace ? workspace.borrower(input) : { status: 404, error: "This application link is invalid or expired." };
-      }, Boolean(placesKey), uploads?.mode);
+        const link = await linkedWorkspace(input);
+        if (!link) return { status: 404, error: "This application link is invalid or expired." };
+        const result = await link.store.borrower(input, link.pilot);
+        return { ...result, uploadsMode: documentUploadMode(uploads?.mode, link.id, link.pilot) };
+      }, Boolean(placesKey));
     }
     if (request.method === "POST" && url.pathname === "/api/demo-address") {
-      return placesHttp(request, placesKey, async (token) => (await linkedWorkspace(token))?.reserveAddressLookup(token) ?? 404);
+      return placesHttp(request, placesKey, async (token) => (await linkedWorkspace(token))?.store.reserveAddressLookup(token) ?? 404);
     }
     if (request.method === "POST" && url.pathname === "/api/realtor-referrals") {
       return realtorHttp(request, async (input) => {
-        const workspace = await linkedWorkspace(input);
-        return workspace ? workspace.realtor(input) : { status: 404, error: "This referral link is invalid or expired." };
+        const link = await linkedWorkspace(input);
+        return link ? link.store.realtor(input, link.pilot) : { status: 404, error: "This referral link is invalid or expired." };
       });
     }
     const tokenPage = reading && (url.pathname === "/apply" || url.pathname === "/referrals");
@@ -297,7 +319,7 @@ export default {
           await object.body.cancel();
           return fileProblem(404, "This PDF is unavailable.");
         }
-        return privatePdf(object, staff.brokerage.id === demoBrokerageId);
+        return privatePdf(object, staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot));
       } catch { return fileProblem(503, "Orbit could not retrieve this PDF. Try again shortly."); }
     }
     if (url.pathname === "/api/brokerages") {
@@ -305,11 +327,26 @@ export default {
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       if (request.method === "GET") {
-        const [team, localHistory] = await Promise.all([directory.team(staff, bootstrapEmails), workspace.audit(staff)]);
+        const [team, localHistory, pilot] = await Promise.all([directory.team(staff, bootstrapEmails), workspace.audit(staff), workspace.pilotReview(staff)]);
         const history = [...team.history, ...localHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
-        return Response.json({ brokerages, members: team.members, history }, { headers });
+        return Response.json({ brokerages, members: team.members, history, ...pilot }, { headers });
       }
       if (request.method === "POST") return borrowerJson<{ message?: string; created?: string }>(request, async (input) => {
+        if (input && typeof input === "object" && "type" in input && input.type === "pilotFeedback") {
+          if (!staff.brokerage.pilot || !pilotFeedbackInput.safeParse(input).success) return { status: 400, error: "Choose a pilot step and enter feedback up to 1,000 characters." };
+          const result = await workspace.pilotFeedback(staff, input);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }
+        if (input && typeof input === "object" && "type" in input && input.type === "loadPilotScenario") {
+          if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin") return { status: 403, error: "Only a pilot admin can load or reset the scenario." };
+          const parsed = pilotScenarioInput.safeParse(input);
+          if (!parsed.success) return { status: 400, error: "Refresh Team and select an active staff member." };
+          const team = await directory.team(staff, bootstrapEmails);
+          const owner = team.members.find((member) => member.status === "Active" && member.email === parsed.data.officerEmail);
+          if (!owner) return { status: 409, error: "Select an active staff member in this pilot workspace." };
+          const result = await workspace.loadPilot(staff, parsed.data, owner);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }
         const result = await directory.manage(staff, bootstrapEmails, input);
         if (result.error) return { status: 403, error: result.error };
         if (result.assignment) {

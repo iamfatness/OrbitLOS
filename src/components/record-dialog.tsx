@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { activityKinds, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { dateTime, initials, money } from "@/lib/utils";
@@ -23,6 +24,7 @@ import { mockRateStatus } from "@/lib/pricing-model";
 import { ClosingWorkbench } from "./closing-workbench";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
+import type { WorkspaceMutationSuccess } from "@/lib/commands";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string }
@@ -34,7 +36,7 @@ export type Modal =
   | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
-type Save = (input: unknown, after?: () => void) => Promise<void>;
+type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 
 function text(data: FormData, name: string) {
   return String(data.get(name) ?? "");
@@ -44,13 +46,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="field"><span>{label}</span>{children}</label>;
 }
 
-function Form({ children, save, busy, done, onCancel, remove }: {
+function Form({ children, save, busy, done, onCancel, remove, newLead }: {
   children: ReactNode; save: (data: FormData) => unknown; busy: boolean;
-  done: (input: unknown) => void; onCancel: () => void; remove?: () => void;
+  done: (input: unknown) => void; onCancel: () => void; remove?: () => void; newLead?: boolean;
 }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    done(save(new FormData(event.currentTarget)));
+    done(save(new FormData(event.currentTarget, (event.nativeEvent as SubmitEvent).submitter)));
   }
   return (
     <form className="record-form" onSubmit={submit}>
@@ -59,7 +61,8 @@ function Form({ children, save, busy, done, onCancel, remove }: {
         {remove && <Button variant="danger" onClick={remove} disabled={busy}><Trash2 /> Delete</Button>}
         <div className="spacer" />
         <Button variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save changes"}</Button>
+        <Button type="submit" variant={newLead ? "outline" : "default"} disabled={busy}>{busy ? "Saving…" : newLead ? "Save lead" : "Save changes"}</Button>
+        {newLead && <Button type="submit" name="start1003" value="yes" disabled={busy}>Save and open 1003</Button>}
       </div>
     </form>
   );
@@ -81,6 +84,10 @@ function LoanFields({ loan, state, stage, staff }: { loan?: Loan; state: Workspa
       </Field>
       {borrowerLocked && <><input type="hidden" name="contactId" value={loan.contactId} /><p className="muted">The borrower’s existing 1003 link is tied to this contact.</p></>}
       {!contactId && <Field label="Borrower name"><input name="borrower" placeholder="e.g. Riley Smith" maxLength={160} required /></Field>}
+      {!contactId && !loan && <div className="form-grid">
+        <Field label="Borrower email (optional)"><input name="borrowerEmail" type="email" maxLength={160} /></Field>
+        <Field label="Borrower phone (optional)"><input name="borrowerPhone" type="tel" maxLength={40} /></Field>
+      </div>}
       <Field label="Property address"><input name="address" defaultValue={loan?.address} placeholder="City, state or street address" maxLength={240} /></Field>
       <div className="form-grid">
         <Field label="Loan amount"><input name="amount" type="number" min="0" max="1000000000" step="1" placeholder="0" defaultValue={loan?.amount || ""} /></Field>
@@ -265,7 +272,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
       <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)} busy={busy} save={save} />
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
-      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} requests={requests} openConditionRequests={openConditionRequests}
+      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} openConditionRequests={openConditionRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} />
@@ -319,6 +326,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
 export function RecordDialog({ modal, state, staff, busy, error, save, show, close }: {
   modal: Modal; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; error: string; save: Save; show: (modal: Modal) => void; close: () => void;
 }) {
+  const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     dialog.current?.showModal();
@@ -334,7 +342,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const contact = modal.kind === "contact" ? state.contacts.find((item) => item.id === modal.contactId) : undefined;
   const submission = modal.kind === "submission" ? state.submissions.find((item) => item.id === modal.submissionId) : undefined;
   const title = {
-    details: "Loan details", loan: loan ? "Edit loan" : "New loan",
+    details: "Loan details", loan: loan ? "Edit loan" : "New Lead",
     contact: contact ? "Edit contact" : "New contact", submission: submission ? "Edit lender submission" : "Add lender submission",
     communication: "Message draft",
     documentFollowUp: "Document follow-up",
@@ -366,10 +374,15 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             currentRate: text(data, "currentRate"), targetRate: text(data, "targetRate"), observedRate: text(data, "observedRate"),
             watchEnabled: data.has("watchEnabled"), note: text(data, "note"),
           })}><RetentionFields profile={retention} /></Form>}
-        {modal.kind === "loan" && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
+        {modal.kind === "loan" && <Form busy={busy} onCancel={back} newLead={!loan} done={(input) => void save(input, (result) => {
+          const application = result.state.applications.find((item) => item.loanId === result.applicationLoanId);
+          if (application) router.push(`/apply#${application.token}`);
+          else back();
+        })}
           remove={loan && staff?.brokerage.role !== "LO" ? () => remove({ type: "deleteLoan", id: loan.id }, "Delete this loan, its closing checklist, application, document requests, tasks, submissions and activity?", close) : undefined}
           save={(data) => ({
             type: "loan", id: loan?.id, contactId: text(data, "contactId"), borrower: text(data, "borrower"),
+            borrowerEmail: text(data, "borrowerEmail"), borrowerPhone: text(data, "borrowerPhone"), start1003: data.has("start1003"),
             address: text(data, "address"), amount: Number(text(data, "amount")), purpose: text(data, "purpose"),
             stage: text(data, "stage"), officer: text(data, "officer"), partnerId: text(data, "partnerId") || null,
             assignToSelf: staff ? data.has("assignToSelf") : undefined,

@@ -117,6 +117,16 @@ export function initializeStore(db: Store, seedDemo = true) {
       resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, UNIQUE (realtorId, requestId)
     );
     CREATE INDEX IF NOT EXISTS referral_leads_by_realtor ON referral_leads(realtorId, createdAt);
+    CREATE TABLE IF NOT EXISTS pilot_scenario (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1), id TEXT NOT NULL, realtorId TEXT NOT NULL,
+      loanId TEXT NOT NULL, loadedAt TEXT NOT NULL, officerEmail TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pilot_sample_contacts (
+      contactId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS pilot_feedback (
+      id TEXT PRIMARY KEY, author TEXT NOT NULL, step TEXT NOT NULL, message TEXT NOT NULL, createdAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS mock_credit_aus_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       service TEXT NOT NULL CHECK (service IN ('Credit', 'DU', 'LPA')), reference TEXT NOT NULL,

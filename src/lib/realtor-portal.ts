@@ -4,6 +4,7 @@ import type { RealtorReferrals } from "./model";
 import { borrowerJson } from "./borrower-http";
 import { portalTokenPattern } from "./brokerage-model";
 import { referralPhone } from "./referral-matches";
+import { accessEvent } from "./workspace-access";
 
 export type RealtorPortalResult = { value: RealtorReferrals } | { status: number; error: string };
 
@@ -18,7 +19,7 @@ const referralSubmission = z.object({
 const portalCommand = z.union([referralSubmission, z.object({ type: z.literal("read").optional(), token })]);
 const hour = 3_600_000;
 
-export function realtorReferrals(db: Store, input: unknown, now = new Date().toISOString()): RealtorPortalResult {
+export function realtorReferrals(db: Store, input: unknown, now = new Date().toISOString(), pilot = false): RealtorPortalResult {
   const parsed = portalCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check your referral link and enter a name, a valid email or phone number, and permission to share." };
   const data = parsed.data;
@@ -34,9 +35,11 @@ export function realtorReferrals(db: Store, input: unknown, now = new Date().toI
       const recent = db.prepare("SELECT count(*) AS total FROM referral_leads WHERE realtorId = ? AND createdAt > ?")
         .get(portal.realtorId, new Date(nowMs - hour).toISOString());
       if (Number(recent?.total) >= 20) return { status: 429, error: "This referral link has reached its hourly limit. Try again later." };
+      const id = crypto.randomUUID();
       db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(crypto.randomUUID(), data.requestId, portal.realtorId, data.name,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, data.requestId, portal.realtorId, data.name,
         data.email, data.phone, data.purpose, portal.officer, portal.officerEmail, now, new Date(nowMs + 24 * hour).toISOString());
+      if (pilot) accessEvent(db, { name: "Realtor", email: "Realtor" }, "Pilot referral received", id, now);
     }
 
     const referrals = db.prepare(`SELECT loans.id, COALESCE(lead.name, contacts.name) AS borrowerName, loans.stage, loans.stageSince AS updatedAt

@@ -39,12 +39,13 @@ export function DocumentRequestForm({ loanId, kinds = documentKinds, source, bus
   </details>;
 }
 
-export function LoanDocuments({ loanId, brokerageId, requests, openConditionRequests, applicationStarted, applicationSubmitted, busy, save, followUp }: {
+export function LoanDocuments({ loanId, brokerageId, pilot, requests, openConditionRequests, applicationStarted, applicationSubmitted, busy, save, followUp }: {
   loanId: string; brokerageId: string; requests: LoanDocumentRequest[]; openConditionRequests: Set<string>;
+  pilot?: boolean;
   applicationStarted: boolean; applicationSubmitted: boolean; busy: boolean; save: Save; followUp: () => void;
 }) {
   const waiting = requests.filter((item) => needsBorrowerDocument(item.status)).length;
-  const pdfLabel = brokerageId === demoBrokerageId ? "demo PDF" : "PDF";
+  const pdfLabel = brokerageId === demoBrokerageId || pilot ? "demo PDF" : "PDF";
   const received = requests.filter((item) => item.status === "Received").length;
   const available = documentKinds.filter((kind) => !requests.some((request) => request.kind === kind && !request.conditionId));
 

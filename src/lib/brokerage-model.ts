@@ -9,6 +9,7 @@ export interface Brokerage {
   id: string;
   name: string;
   role: BrokerageRole;
+  pilot?: boolean;
 }
 
 export interface BrokerageMember {
@@ -30,6 +31,25 @@ export interface BrokerageSettings {
   brokerages: Brokerage[];
   members: BrokerageMember[];
   history: AccessEvent[];
+  pilotScenario?: PilotScenario;
+  pilotFeedback?: PilotFeedback[];
+}
+
+export const pilotSteps = ["Referral and intake", "New lead and 1003", "Pricing", "Documents", "UWM conditions", "Other"] as const;
+export type PilotStep = (typeof pilotSteps)[number];
+
+export interface PilotScenario {
+  id: string;
+  loadedAt: string;
+  officerEmail: string;
+}
+
+export interface PilotFeedback {
+  id: string;
+  author: string;
+  step: PilotStep;
+  message: string;
+  createdAt: string;
 }
 
 export function brokerageUrl(id: string) {

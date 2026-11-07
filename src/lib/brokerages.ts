@@ -4,7 +4,7 @@ import type { StaffIdentity } from "./staff-store";
 import type { Store } from "./store";
 
 export function initializeBrokerages(db: Store) {
-  db.exec(`CREATE TABLE IF NOT EXISTS brokerages (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+  db.exec(`CREATE TABLE IF NOT EXISTS brokerages (id TEXT PRIMARY KEY, name TEXT NOT NULL, pilot INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS brokerage_members (
       brokerageId TEXT NOT NULL REFERENCES brokerages(id), email TEXT NOT NULL, name TEXT NOT NULL,
       role TEXT NOT NULL CHECK (role IN ('Admin', 'LO')), status TEXT NOT NULL CHECK (status IN ('Invited', 'Active', 'Revoked')),
@@ -16,6 +16,9 @@ export function initializeBrokerages(db: Store) {
       action TEXT NOT NULL, subject TEXT NOT NULL, createdAt TEXT NOT NULL
     );
     INSERT OR IGNORE INTO brokerages (id, name) VALUES ('orbit-demo', 'Orbit demo');`);
+  if (!db.prepare("PRAGMA table_info(brokerages)").all().some((column) => column.name === "pilot")) {
+    db.exec("ALTER TABLE brokerages ADD COLUMN pilot INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 export function bootstrapDemoMembers(db: Store, emails: string[]) {
@@ -24,10 +27,10 @@ export function bootstrapDemoMembers(db: Store, emails: string[]) {
 }
 
 export function activeBrokerages(db: Store, email: string, bootstrapEmails: string[]): Brokerage[] {
-  return db.prepare(`SELECT b.id, b.name, m.role, m.bootstrap FROM brokerage_members m JOIN brokerages b ON b.id = m.brokerageId
+  return db.prepare(`SELECT b.id, b.name, b.pilot, m.role, m.bootstrap FROM brokerage_members m JOIN brokerages b ON b.id = m.brokerageId
     WHERE m.email = ? AND m.status = 'Active' ORDER BY b.id <> ?, b.name, b.id`).all(email, demoBrokerageId)
     .filter((row) => !row.bootstrap || bootstrapEmails.includes(email))
-    .map((row) => ({ id: String(row.id), name: String(row.name), role: row.role as Brokerage["role"] }));
+    .map((row) => ({ id: String(row.id), name: String(row.name), role: row.role as Brokerage["role"], pilot: Boolean(row.pilot) }));
 }
 
 export function activateBrokerages(db: Store, staff: StaffIdentity, bootstrapEmails: string[]) {
@@ -59,7 +62,7 @@ export function brokerageHistory(db: Store, id: string): AccessEvent[] {
 
 const email = z.string().trim().toLowerCase().pipe(z.email().max(254));
 export const brokerageAction = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("create"), name: z.string().trim().min(2).max(80), id: z.uuid() }),
+  z.object({ type: z.literal("create"), name: z.string().trim().min(2).max(80), id: z.uuid(), pilot: z.boolean().default(false) }),
   z.object({ type: z.literal("invite"), email, role: z.enum(brokerageRoles) }),
   z.object({ type: z.literal("role"), email, role: z.enum(brokerageRoles) }),
   z.object({ type: z.literal("revoke"), email }),
@@ -75,15 +78,16 @@ export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, boo
     if (role !== "Admin") return { error: "Only a brokerage admin can manage access and loan assignments." };
     const now = new Date().toISOString();
     if (data.type === "create") {
-      const existing = db.prepare("SELECT name FROM brokerages WHERE id = ?").get(data.id);
+      const existing = db.prepare("SELECT name, pilot FROM brokerages WHERE id = ?").get(data.id);
       if (existing) {
         const owner = activeBrokerages(db, staff.email, bootstrapEmails).find((brokerage) => brokerage.id === data.id);
-        return owner?.role === "Admin" && owner.name === data.name ? { created: data.id } : { error: "This workspace could not be created. Try again." };
+        return owner?.role === "Admin" && owner.name === data.name && Boolean(existing.pilot) === data.pilot
+          ? { created: data.id } : { error: "This workspace could not be created. Try again." };
       }
-      db.prepare("INSERT INTO brokerages VALUES (?, ?)").run(data.id, data.name);
+      db.prepare("INSERT INTO brokerages (id, name, pilot) VALUES (?, ?, ?)").run(data.id, data.name, Number(data.pilot));
       db.prepare("INSERT INTO brokerage_members (brokerageId,email,name,role,status) VALUES (?, ?, ?, 'Admin', 'Active')")
         .run(data.id, staff.email, staff.name);
-      history(db, data.id, staff.email, "Created workspace", data.name, now);
+      history(db, data.id, staff.email, data.pilot ? "Created pilot workspace" : "Created workspace", data.name, now);
       return { created: data.id };
     }
     const members = brokerageMembers(db, id, bootstrapEmails);

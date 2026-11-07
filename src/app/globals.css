@@ -207,6 +207,7 @@ button:disabled { cursor: default; }
 .relationship-panel .field { max-width: 360px; }
 .relationship-inset { padding: 0 17px 12px; }
 .relationship-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pilot-walkthrough { display: grid; gap: 5px; list-style: decimal; padding-inline-start: 22px; }
 .referral-portal { width: min(100% - 24px, 790px); margin: 24px auto; }
 .referral-portal > .page-heading { margin-top: 24px; }
 .referral-portal-help { margin-top: 12px; }
