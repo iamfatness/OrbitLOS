@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowLeft, ArrowRight, Orbit as OrbitIcon, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Save } from "lucide-react";
 import { applicationIssues, applicationSteps, sampleApplication, type BorrowerApplication } from "@/lib/application-model";
 import type { DocumentRequest } from "@/lib/document-model";
 import { portalTokenPattern } from "@/lib/brokerage-model";
@@ -9,6 +9,7 @@ import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
 import { BorrowerStatus } from "./borrower-status";
+import { OrbitRings, PortalHeader } from "./orbit-brand";
 
 async function requestApplication(token: string, input: object, signal?: AbortSignal) {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete application link from your loan officer.");
@@ -110,9 +111,9 @@ function BorrowerApplication({ token }: { token: string | null }) {
     void save("submit", step);
   }
 
-  return <main className="application-shell">
-    <header className="application-top"><div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div><span className="pill">Demo only</span></header>
+  return <><PortalHeader label="Demo only" /><main className="application-shell borrower-portal">
     <div className="application-intro">
+      <OrbitRings />
       <p className="eyebrow">BORROWER WORKSPACE</p>
       <h1>{application?.submittedAt ? "Your loan status" : "Mortgage application"}</h1>
       <p>{application?.submittedAt ? "See where your loan stands and what your loan team needs from you." : "Walk through a sample 1003 and send it to your loan officer for review."}</p>
@@ -125,14 +126,23 @@ function BorrowerApplication({ token }: { token: string | null }) {
     {!application && !error && <p role="status" className="application-message">Opening your application…</p>}
     {application?.submittedAt ? token && application.loanStatus && <BorrowerStatus token={token} status={application.loanStatus} submittedAt={application.submittedAt}
       busy={busy} attach={attach} uploadsMode={application.documentUploadsMode} refresh={() => void perform({ type: "read" }, () => setNotice("Loan status refreshed."))} />
-      : application && <section className="application-panel">
-      <ol className="application-progress" aria-label="Application progress">
-        {applicationSteps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} data-complete={index < step}>
-          <button type="button" disabled={busy} onClick={() => { if (index !== step) void save("save", index, true); }}>
-            <span>{index + 1}</span>{label}
-          </button>
-        </li>)}
-      </ol>
+      : application && <section className="application-panel application-editor" aria-label="1003 application">
+      <div className="application-steps">
+        <p className="eyebrow">Application sections</p>
+        <ol className="application-progress" aria-label="Application sections" role="list">
+          {applicationSteps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined}>
+            <button type="button" disabled={busy} onClick={() => { if (index !== step) save("save", index, true); }}>
+              <span aria-hidden="true">{index + 1}</span>{label}
+            </button>
+          </li>)}
+        </ol>
+      </div>
+      <label className="application-section-picker field">
+        <span>Application section · {step + 1} of {applicationSteps.length}</span>
+        <select value={step} disabled={busy} onChange={(event) => save("save", Number(event.target.value), true)}>
+          {applicationSteps.map((label, index) => <option key={label} value={index}>{index + 1}. {label}</option>)}
+        </select>
+      </label>
       <form className="application-form" onSubmit={submit} noValidate>
         <fieldset disabled={busy} className="application-step">
           <div className="application-step-meta"><small>Step {step + 1} of {applicationSteps.length}</small>
@@ -163,10 +173,10 @@ function BorrowerApplication({ token }: { token: string | null }) {
           }}><ArrowLeft /> Back</Button>}
           <div className="spacer" />
           <Button variant="outline" disabled={busy} onClick={() => void save("save", step)}><Save /> Save draft</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Saving…" : reviewing ? "Submit demo application" : <>Continue <ArrowRight /></>}</Button>
+          <Button type="submit" disabled={busy}>{busy ? "Saving…" : reviewing ? <>Submit demo application <Check /></> : <>Continue <ArrowRight /></>}</Button>
         </div>
       </form>
       <p className="application-attribution">ZIP suggestions use <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a> data.</p>
     </section>}
-  </main>;
+  </main></>;
 }

@@ -1,4 +1,5 @@
-import { ArrowRight, ClipboardList, Layers3, Radio, UsersRound } from "lucide-react";
+import { ArrowRight, ClipboardList, Layers3, Orbit, Radio, UsersRound } from "lucide-react";
+import { OrbitRings } from "@/components/orbit-brand";
 
 const tools = [
   { icon: UsersRound, title: "Referrals and relationships", copy: "Give realtors a referral link, see which referrals turn into loans, and keep in touch with past clients after closing." },
@@ -11,6 +12,7 @@ export default function Home() {
   return (
     <>
       <section className="marketing-hero">
+        <OrbitRings />
         <div className="marketing-wrap marketing-hero-grid">
           <div className="marketing-hero-copy">
             <p className="marketing-kicker"><span /> Loan origination and CRM for mortgage brokers</p>
@@ -56,17 +58,23 @@ function PipelinePreview() {
     <figure className="marketing-preview">
       <figcaption className="sr-only">Sample Orbit loan overview</figcaption>
       <div className="marketing-preview-window">
-        <div className="marketing-preview-top"><span aria-hidden="true"><i /><i /><i /></span>Orbit pipeline · demo preview</div>
+        <div className="marketing-preview-rail" aria-hidden="true">
+          <span className="brand-icon"><Orbit size={17} /></span>
+          <span className="marketing-preview-selected"><Layers3 size={13} /> <span>Pipeline</span></span>
+          <span><UsersRound size={13} /> <span>Contacts</span></span>
+          <span><ClipboardList size={13} /> <span>Tasks</span></span>
+        </div>
         <div className="marketing-preview-content">
-          <p className="marketing-preview-label">Loan overview</p>
-          <div className="marketing-preview-heading"><strong>Purchase loan</strong><span>Sample file</span></div>
-          <div className="marketing-preview-progress">
-            <span>Application</span><span>Processing</span><span>Underwriting</span>
+          <div className="marketing-preview-heading"><strong>Loan overview</strong><span>Sample file</span></div>
+          <div className="marketing-preview-summary">
+            <p className="marketing-preview-label">Purchase · $425,000</p>
+            <strong>Olivia Parker</strong>
+            <div className="marketing-preview-progress">
+              <span>Application</span><span>Processing</span><span>Underwriting</span>
+            </div>
           </div>
-          <div className="marketing-preview-records">
-            <div><span>Borrower application</span><strong>Submitted</strong><small>LO follow-up created</small></div>
-            <div><span>UWM lender status</span><strong>Approved with conditions</strong><small>2 conditions open · mock sync</small></div>
-          </div>
+          <div className="marketing-preview-next"><div><small>Next action</small><strong>Request a pay stub</strong></div><ArrowRight size={16} aria-hidden="true" /></div>
+          <p className="marketing-preview-conditions"><span /> 2 UWM conditions open · Mock</p>
         </div>
       </div>
     </figure>

@@ -28,6 +28,7 @@ import { ReferralQueue } from "./referral-queue";
 import { LeadInbox, firstContactOverdue } from "./lead-inbox";
 import { DemoGuide } from "./demo-guide";
 import { UwmAlertQueue } from "./uwm-alert-queue";
+import { OrbitRings } from "./orbit-brand";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 
@@ -339,15 +340,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
         <div className="content">
           {staff?.brokerage.pilot && <p className="application-message">Pilot workspace · Use fictional borrowers and built-in documents.</p>}
           {section === "Pipeline" ? <section className="pipeline-hero" aria-labelledby="pipeline-title">
-            <svg className="pipeline-orbits" viewBox="0 0 520 250" aria-hidden="true" fill="none">
-              <g stroke="currentColor">
-                <ellipse cx="365" cy="108" rx="174" ry="57" transform="rotate(-23 365 108)" />
-                <ellipse cx="365" cy="108" rx="203" ry="78" transform="rotate(-23 365 108)" />
-                <ellipse cx="365" cy="108" rx="232" ry="99" transform="rotate(-23 365 108)" />
-              </g>
-              <circle cx="250" cy="172" r="5" fill="currentColor" />
-              <circle cx="450" cy="36" r="4" fill="currentColor" />
-            </svg>
+            <OrbitRings />
             <div className="page-heading">
               <div>
                 <p className="eyebrow">ORBIT WORKSPACE{staff && ` · ${staff.brokerage.role.toUpperCase()}`}</p>
@@ -384,7 +377,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
             </div>
           )}
 
-          {section === "Pipeline" && <section className="pipeline pipeline-board" aria-label="Pipeline views">
+          {section === "Pipeline" && <section className="pipeline pipeline-board" data-view={view} aria-label="Pipeline views">
               <div className="pipeline-heading"><div><h2>Pipeline overview <span>{visibleLoans.length}</span></h2><p>Track each loan from lead to close.</p></div>
                 {view === "Board" && <Button variant="ghost" size="sm" className="board-next" onClick={() => board.current?.scrollBy({ left: 490, behavior: "smooth" })}>More stages <ArrowRight /></Button>}
               </div>
@@ -396,9 +389,12 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                   <button aria-pressed={view === "Board"} onClick={() => setView("Board")}><Columns3 size={16} /> Board</button>
                   <button aria-pressed={view === "List"} onClick={() => setView("List")}><List size={16} /> List</button>
                 </div>
+                {view === "Board" && <select className="pipeline-stage-picker" aria-label="Show stage" value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value })}>
+                  <option value="">All stages</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}
+                </select>}
               </div>
               {filtersOpen && <div className="filter-row">
-                <select aria-label="Filter by stage" value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value })}><option value="">All stages</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select>
+                <select className="pipeline-stage-filter" aria-label="Filter by stage" value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value })}><option value="">All stages</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select>
                 <select aria-label="Filter by lender" value={filters.lender} onChange={(event) => setFilters({ ...filters, lender: event.target.value })}><option value="">All lenders</option>{[...new Set(state.submissions.map((item) => item.lender))].sort().map((lender) => <option key={lender}>{lender}</option>)}</select>
                 <select aria-label="Filter by officer" value={filters.officer} onChange={(event) => setFilters({ ...filters, officer: event.target.value })}><option value="">All officers</option>{[...new Set(state.loans.map((loan) => loan.officer).filter(Boolean))].sort().map((officer) => <option key={officer}>{officer}</option>)}</select>
                 <select aria-label="Filter by realtor" value={filters.partner} onChange={(event) => setFilters({ ...filters, partner: event.target.value })}><option value="">All realtors</option>{state.contacts.filter((contact) => contact.role === "Realtor").map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}</select>
@@ -408,7 +404,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
               </div>}
               {visibleLoans.length === 0 && <p className="empty-inline no-matches">No loans match this view.</p>}
               {view === "Board" ? (
-                <div className="board" ref={board} tabIndex={0} aria-label="Loan stages. Scroll horizontally for more stages.">
+                <div className="board" ref={board} tabIndex={0} aria-label="Loan stages">
                   {stages.filter((stage) => !filters.stage || filters.stage === stage).map((stage) => {
                     const items = visibleLoans.filter((loan) => loan.stage === stage);
                     const color = stageColors[stages.indexOf(stage)];
@@ -425,9 +421,9 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                     </section>;
                   })}
                 </div>
-              ) : visibleLoans.length > 0 && <div className="table-scroll"><table className="data-table"><thead><tr><th>Borrower</th><th>Stage</th><th>Amount</th><th>Officer</th><th>Lender</th><th>Stage age</th><th>Next action</th></tr></thead><tbody>
-                {visibleLoans.map((loan) => <tr key={loan.id}><td><button className="name-link" onClick={() => show({ kind: "details", loanId: loan.id })}>{borrowers(loan)}</button><small>{loan.address}</small></td>
-                  <td><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td><td>{money(loan.amount)}</td><td>{loan.officer || "Unassigned"}</td><td>{[...new Set(loanSubmissions(loan).map((item) => item.lender))].join(", ") || "—"}</td><td suppressHydrationWarning>{stageDays(loan.stageSince)} days</td>
+              ) : visibleLoans.length > 0 && <div className="table-scroll"><table className="data-table pipeline-list"><thead><tr><th>Borrower</th><th className="pipeline-list-extra">Stage</th><th>Amount</th><th className="pipeline-list-extra">Officer</th><th className="pipeline-list-extra">Lender</th><th className="pipeline-list-extra">Stage age</th><th>Next action</th></tr></thead><tbody>
+                {visibleLoans.map((loan) => <tr key={loan.id}><td><button className="name-link" onClick={() => show({ kind: "details", loanId: loan.id })}>{borrowers(loan)}</button><small>{loan.address}</small><small className="pipeline-mobile-stage">{loan.stage}{pausedLoan(loan) && ` · ${loan.disposition}`}</small></td>
+                  <td className="pipeline-list-extra"><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td><td>{money(loan.amount)}</td><td className="pipeline-list-extra">{loan.officer || "Unassigned"}</td><td className="pipeline-list-extra">{[...new Set(loanSubmissions(loan).map((item) => item.lender))].join(", ") || "—"}</td><td className="pipeline-list-extra" suppressHydrationWarning>{stageDays(loan.stageSince)} days</td>
                   <td><button className="name-link" onClick={() => show({ kind: "details", loanId: loan.id, target: nextActions.get(loan.id)?.target })}>{nextActions.get(loan.id)?.title}</button>
                     <small>{nextActions.get(loan.id)?.blocker}</small>
                     {!!nextActions.get(loan.id)?.dueAt && <small>Due {dateTime(nextActions.get(loan.id)!.dueAt!)} ET</small>}</td></tr>)}

@@ -85,9 +85,9 @@ function loginPage(settings: GoogleSettings, url: URL) {
   return new Response(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · OrbitLOS</title>
 <style>
-*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:#f8f7fb;color:#252235;font:16px system-ui,sans-serif;padding:16px}
-main{width:min(100%,420px);background:#fff;border:1px solid #ebe8f1;border-radius:16px;padding:26px;box-shadow:0 14px 36px #21133b0c}
-small{font-weight:750;letter-spacing:.12em;color:#6042bf}h1{margin:8px 0;font-size:28px;letter-spacing:-.04em}p{color:#60596f;line-height:1.5}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:radial-gradient(ellipse at 75% 0%,#483361,transparent 67%),#211833;color:#2d1b4b;font:16px system-ui,sans-serif;padding:16px}
+main{width:min(100%,440px);background:linear-gradient(145deg,#fff,#f1eafb);border:1px solid #ded3f4;border-radius:18px;padding:clamp(20px,6vw,36px);box-shadow:0 18px 50px #120a2560}
+small{font-weight:750;letter-spacing:.12em;color:#6042bf}h1{margin:8px 0;font-size:clamp(26px,7vw,34px);letter-spacing:-.04em}p{color:#60596f;line-height:1.5}
 a{display:block;background:#6749d3;color:white;text-align:center;text-decoration:none;border-radius:9px;font-weight:700;padding:11px;margin-top:18px}
 a:hover{background:#5539b9}a:focus-visible{outline:2px solid #6749d3;outline-offset:3px}.status{border-radius:8px;background:#f4efff;padding:8px 10px}
 </style></head><body><main><small>ORBITLOS WORKSPACE</small><h1>Sign in to OrbitLOS</h1><p>Use your approved Google account to open your brokerage workspace. The Demo Guide walks through a fictional referral and mock lender conditions.</p>

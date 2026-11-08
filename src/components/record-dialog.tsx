@@ -33,6 +33,7 @@ import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
 import { ManualConditions } from "./manual-conditions";
+import { OrbitRings } from "./orbit-brand";
 import { ContactHistory } from "./contact-crm";
 import { ConditionResponse } from "./condition-response";
 
@@ -324,23 +325,24 @@ function LoanDetails({ loan, state, staff, busy, save, show, target }: { target?
     requests.filter((request) => request.submissionId === item.id && item.conditions.some((condition) => condition.id === request.conditionId)).map((request) => request.id)));
   return (
     <div className="details-body">
-      <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
-        <div><h3>{borrower?.name}</h3><p>{[money(loan.amount), loan.purpose, loan.address || "Address pending"].join(" · ")}</p></div>
-        {!processor && <Button variant="outline" size="sm" onClick={() => show({ kind: "loan", loanId: loan.id })}><Pencil /> Edit loan</Button>}
-      </div>
-      <div className="loan-status-panel">
+      <div className="loan-file-hero">
+        <OrbitRings />
+        <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
+          <div><h3>{borrower?.name}</h3><p>{[money(loan.amount), loan.purpose, loan.address || "Address pending"].join(" · ")}</p></div>
+          {!processor && <Button variant="outline" size="sm" onClick={() => show({ kind: "loan", loanId: loan.id })}><Pencil /> Edit loan</Button>}
+        </div>
         <div className="details-grid">
           <div><span>Pipeline stage</span><strong>{loan.stage}</strong><span suppressHydrationWarning>{stageDays(loan.stageSince)}d in stage</span></div>
           <div><span>UWM · Mock</span><strong>{uwmStatus}</strong>{uwm.length > 0 && <button type="button" className="condition-status" data-outstanding={openCount > 0} onClick={() => open("lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
           <div><span>Realtor partner</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
           <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
         </div>
-        <div className="loan-status-action">
-          <div><small>Next action</small><strong>{action.title}</strong>
-            {(action.blocker || action.dueAt) && <span>{[action.blocker, action.dueAt && `Due ${dateTime(action.dueAt)} ET`].filter(Boolean).join(" · ")}</span>}
-          </div>
-          <Button size="sm" onClick={() => open(action.target)}>Open next action <ArrowRight aria-hidden="true" /></Button>
+      </div>
+      <div className="loan-status-action">
+        <div><small>Next action</small><strong>{action.title}</strong>
+          {(action.blocker || action.dueAt) && <span>{[action.blocker, action.dueAt && `Due ${dateTime(action.dueAt)} ET`].filter(Boolean).join(" · ")}</span>}
         </div>
+        <Button size="sm" onClick={() => open(action.target)}>Open next action <ArrowRight aria-hidden="true" /></Button>
       </div>
       <nav className="loan-section-nav" aria-label="Loan sections">{loanSections.map(([name, destination]) =>
         <button key={name} type="button" aria-current={section === name ? "page" : undefined} onClick={() => open(destination)}>{name}</button>)}

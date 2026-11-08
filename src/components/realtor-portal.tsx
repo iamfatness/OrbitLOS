@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Orbit } from "lucide-react";
 import type { RealtorReferrals } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { portalTokenPattern } from "@/lib/brokerage-model";
+import { OrbitRings, PortalHeader } from "./orbit-brand";
 
 async function requestReferrals(token: string, signal: AbortSignal, submission?: Record<string, unknown>) {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete referral link from your loan officer.");
@@ -116,10 +116,8 @@ export function RealtorReferralPortal() {
     };
   }, [load]);
 
-  return <main className="referral-portal">
-    <header className="application-top"><div className="brand"><span className="brand-icon"><Orbit size={22} aria-hidden="true" /></span>OrbitLOS</div>
-      <span className="pill">Referral updates</span></header>
-    <div className="page-heading"><div><p className="eyebrow">REALTOR WORKSPACE</p>
+  return <><PortalHeader label="Referral updates" /><main className="referral-portal">
+    <div className="page-heading application-intro"><OrbitRings /><div><p className="eyebrow">REALTOR WORKSPACE</p>
       <h1>Your referrals</h1><p>{portal ? `Loan milestones for ${portal.view.realtorName}.` : "Open your referral link to see updates from your loan team."}</p>
     </div><Button variant="outline" disabled={busy} onClick={() => { setBusy(true); setError(""); load(); }}>
       {busy ? "Refreshing…" : "Refresh referrals"}
@@ -140,5 +138,5 @@ export function RealtorReferralPortal() {
       </section>
     </div>}
     <p className="muted referral-portal-help">Keep this link private. Ask your loan officer for a new link when it expires.</p>
-  </main>;
+  </main></>;
 }

@@ -10,7 +10,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
       <header className="marketing-header">
         <div className="marketing-wrap marketing-nav">
           <a href="/" className="marketing-brand" aria-label="OrbitLOS home">
-            <span><Orbit size={23} aria-hidden="true" /></span>Orbit<span className="marketing-brand-suffix">LOS</span>
+            <span><Orbit size={23} aria-hidden="true" /></span>OrbitLOS
           </a>
           <nav aria-label="Main navigation">
             <a href="/product">Product</a>

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Orbit } from "lucide-react";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { Button } from "./ui/button";
+import { OrbitRings, PortalHeader } from "./orbit-brand";
 
 export function QuoteRequestForm() {
   const [token, setToken] = useState<string>();
@@ -58,12 +58,9 @@ export function QuoteRequestForm() {
     }
   }
 
-  return <main className="application-shell">
-    <header className="application-top">
-      <div className="brand"><span className="brand-icon"><Orbit size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
-      <span className="pill">Fictional pilot</span>
-    </header>
+  return <><PortalHeader label="Fictional pilot" /><main className="application-shell">
     <div className="application-intro">
+      <OrbitRings />
       <p className="eyebrow">QUOTE REQUEST</p>
       <h1>Request a mortgage quote</h1>
       <p>Tell the loan team how to reach you and what you’re looking for.</p>
@@ -86,5 +83,5 @@ export function QuoteRequestForm() {
         </form> : <p>{token === undefined ? "Opening quote request…" : "Open the complete quote-request link from your brokerage."}</p>}
       {error && <p className="application-message banner-error" role="alert">{error}</p>}
     </section>
-  </main>;
+  </main></>;
 }
