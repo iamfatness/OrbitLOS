@@ -22,6 +22,7 @@ import { migrationInput } from "./lib/pipeline-migration-model";
 import { assignInboxLeadInput, quoteLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
 import { leadRouting, receiveQuoteLead } from "./lib/lead-inbox";
 import { assignProcessor } from "./lib/loan-processing";
+import { savePlaybookInput } from "./lib/playbook-model";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -74,7 +75,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       referralOwner = team.members.find((member) => member.email === input.officerEmail && member.status === "Active" && member.role !== "Processor");
       if (!referralOwner) return { error: "Select an active staff member in this brokerage." };
     }
-    if (staff?.brokerage.role === "Admin" && (saveLeadRoutingInput.safeParse(input).success || assignInboxLeadInput.safeParse(input).success || (staff.brokerage.pilot && migrationInput.safeParse(input).success))) {
+    if (staff?.brokerage.role === "Admin" && (saveLeadRoutingInput.safeParse(input).success || assignInboxLeadInput.safeParse(input).success || savePlaybookInput.safeParse(input).success || (staff.brokerage.pilot && migrationInput.safeParse(input).success))) {
       const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
       const team = this.#id === demoBrokerageId ? this.team(staff, emails)
         : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);

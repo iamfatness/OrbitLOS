@@ -94,7 +94,7 @@ export interface LoanTask {
 }
 
 export type DraftAudience = "Borrower" | "Realtor";
-export const draftMilestones = [...stages, "Application received", "Closing complete", "Lender review started", "Lender review complete"] as const;
+export const draftMilestones = [...stages, "Application received", "Closing complete", "Lender review started", "Lender review complete", "Post-funding check-in", "Realtor thank-you"] as const;
 export type DraftMilestone = (typeof draftMilestones)[number];
 export type DraftChannel = "Email" | "Text";
 
@@ -227,6 +227,7 @@ export interface Workspace {
   referralLeads: ReferralReview[];
   inboxLeads: InboxLead[];
   leadRouting: LeadRouting | null;
+  playbook: import("./playbook-model").PlaybookSettings;
   demoGuide: import("./brokerage-model").DemoGuideState | null;
   managerReports: import("./manager-report-model").ManagerReports | null;
   callReportFiles: import("./call-report-model").CallReportFile[] | null;

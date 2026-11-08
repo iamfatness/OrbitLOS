@@ -16,6 +16,7 @@ import { managerReports } from "./manager-reports";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
 import type { LoanProcessing } from "./processing-model";
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
+import { readPlaybook } from "./playbooks";
 
 export type SqlValue = string | number | null;
 
@@ -436,6 +437,7 @@ export function workspace(db: Store, includeReports = false): Workspace {
     referralLeads,
     inboxLeads,
     leadRouting: leadRouting(db),
+    playbook: readPlaybook(db),
     demoGuide: demoGuideState(db),
     managerReports: includeReports ? managerReports(db) : null,
     callReportFiles: includeReports ? callReportFiles(db) : null,

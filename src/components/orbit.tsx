@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
   HeartHandshake, List, LogOut, Mail, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, UsersRound, X, Zap,
@@ -29,10 +29,12 @@ import { LeadInbox, firstContactOverdue } from "./lead-inbox";
 import { DemoGuide } from "./demo-guide";
 import { UwmAlertQueue } from "./uwm-alert-queue";
 import { OrbitRings } from "./orbit-brand";
+import { BrokeragePlaybooks } from "./brokerage-playbooks";
+import { fundingMilestones, fundingTaskAudience, playbookWork, type PlaybookWork } from "@/lib/playbook-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 
-type Section = "Demo Guide" | "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration";
+type Section = "Demo Guide" | "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks";
 const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
@@ -51,6 +53,7 @@ const navigation = [
   { title: "Workspace", items: [
     { label: "Demo Guide", icon: OrbitIcon },
     { label: "Reports", icon: FileCheck2 },
+    { label: "Playbooks", icon: ClipboardCheck },
     { label: "Integrations", icon: Zap },
     { label: "Migration", icon: ArrowDownUp },
     { label: "Team", icon: UsersRound },
@@ -72,6 +75,7 @@ const descriptions = {
   Team: "Switch brokerages and manage access to your loans.",
   Reports: "Review lead response, application conversion, and funding across your brokerage.",
   Migration: "Rehearse moving brokerage records and loan files with fictional data.",
+  Playbooks: "Set deadlines and resolve exceptions from lead intake through funding.",
 };
 
 function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEnd }: {
@@ -129,7 +133,11 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
   const active = state.loans.filter((loan) => !pausedLoan(loan) && loan.stage !== "Funded" && loan.stage !== "Closed");
   const openConditions = state.submissions.flatMap((item) => item.conditions).filter((condition) => !condition.satisfiedAt).length;
   const search = query.trim().toLowerCase();
-  const taskNow = new Date().getTime();
+  const [taskNow, setTaskNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTaskNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const nextActions = new Map(state.loans.map((loan) => [loan.id, loanNextAction(loan, state)] as const));
   const workMatches = (loan: Loan, filter: WorkFilter | "") => matchesWorkFilter(loan, nextActions.get(loan.id)?.dueAt ?? null, filter, taskNow, Boolean(staff)) ||
     (filter === "Overdue" && !pausedLoan(loan) && state.tasks.some((task) => task.loanId === loan.id && !task.completedAt && Date.parse(task.dueAt) < taskNow));
@@ -148,12 +156,23 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
   const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
-  const pendingContact = state.inboxLeads.filter((lead) => !lead.followUp.firstContactAt);
+  const playbook = playbookWork(state);
+  const escalatedLeads = new Set(playbook.filter((item) => item.kind === "lead" && Date.parse(item.dueAt) <= taskNow).map((item) => item.recordId));
+  const applicationReviews = new Set(playbook.filter((item) => item.kind === "review").map((item) => item.recordId));
+  const coveredHandoffs = new Set(playbook.filter((item) => item.kind === "accept" || item.kind === "prepare").map((item) => item.recordId));
+  const correctionLoans = new Set(state.applications.filter((item) => item.correctionNote).map((item) => item.loanId));
+  const isPlaybookTask = (task: Workspace["tasks"][number]) => !task.completedAt && (fundingTaskAudience(task.id) ||
+    (task.id.startsWith("application-") && applicationReviews.has(task.loanId)));
+  const activePlaybook = playbook.filter((item) => (admin || (processor ? item.kind === "accept" && item.ownerEmail === staff?.email :
+    item.kind !== "accept" && (item.ownerEmail === staff?.email || (item.kind === "lead" && !item.ownerEmail)))) &&
+    (item.kind !== "lead" || escalatedLeads.has(item.recordId)));
+  const pendingContact = state.inboxLeads.filter((lead) => !lead.followUp.firstContactAt && !escalatedLeads.has(lead.id));
   const assignedProcessing = new Set(state.loanProcessing.filter((item) => item.processorEmail === staff?.email).map((item) => item.loanId));
-  const actionableProcessing = state.loanProcessing.filter((item) => admin
+  const actionableProcessing = state.loanProcessing.filter((item) => !coveredHandoffs.has(item.loanId) && !applicationReviews.has(item.loanId) &&
+    !(item.status === "Ready for processing" && correctionLoans.has(item.loanId))).filter((item) => admin
     ? item.status === "Ready for processing" || item.status === "In processing" || item.status === "Returned to LO"
     : processor ? assignedProcessing.has(item.loanId) && (item.status === "Ready for processing" || item.status === "In processing") : item.status === "Returned to LO");
-  const openTasks = state.tasks.filter((task) => !task.completedAt && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + pendingContact.length
+  const openTasks = state.tasks.filter((task) => !task.completedAt && !isPlaybookTask(task) && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + pendingContact.length + activePlaybook.length
     + state.inboxLeads.flatMap((lead) => lead.importedTasks).filter((task) => !task.completedAt).length
     + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length + actionableProcessing.length;
   const officers = new Map([...state.loans, ...state.inboxLeads].filter((loan) => loan.officer).map((loan) => [
@@ -174,12 +193,20 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
     if (taskView === "Due in 24 hours") return due >= taskNow && due <= taskNow + 86_400_000;
     return true;
   }
+  const visiblePlaybook = taskView === "Completed" ? [] : activePlaybook.filter((item) => {
+    const owner = taskOwner({ officer: item.owner, officerEmail: item.ownerEmail });
+    const loan = item.kind !== "lead" ? taskLoans.get(item.recordId) : undefined;
+    const ownerFilter = taskOfficer === "mine" ? mine : taskOfficer;
+    return (!ownerFilter || owner === ownerFilter || (taskOfficer === "mine" && admin && !item.owner)) &&
+      (!taskFocus || !loan || workMatches(loan, taskFocus)) && dueInView(item.dueAt);
+  });
   const visibleReferrals = state.referralLeads.filter((lead) => {
     const brokerageQueue = !lead.officerEmail && (!staff || staff.brokerage.role === "Admin");
     return taskView !== "Completed" && pendingContact.some((item) => item.id === lead.id) &&
       (taskScope(lead) || (taskOfficer === "mine" && brokerageQueue)) && dueInView(lead.dueAt);
   });
   const incomingLeadTasks = taskView === "Completed" ? [] : state.inboxLeads.flatMap((lead) => {
+    if (escalatedLeads.has(lead.id)) return [];
     const shared = !lead.officerEmail && admin && taskOfficer === "mine";
     if (!taskScope(lead) && !shared) return [];
     const due = firstContactOverdue(lead, taskNow);
@@ -203,6 +230,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
     return loan && taskScope(loan) && matchesView ? [{ loan, alert }] : [];
   }) : [];
   const visibleTasks = state.tasks.filter((task) => {
+    if (isPlaybookTask(task)) return false;
     const loan = taskLoans.get(task.loanId);
     if (!loan || !taskScope(loan) || (taskFocus && !workMatches(loan, taskFocus))) return false;
     if (taskView === "All") return true;
@@ -259,7 +287,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
     setFocusLeadId(undefined);
     setQuery("");
     setError("");
-    if (next === "Lead Inbox" || next === "Tasks" || next === "Communications" || next === "Realtors" || next === "Past Clients") {
+    if (next === "Lead Inbox" || next === "Tasks" || next === "Communications" || next === "Realtors" || next === "Past Clients" || next === "Playbooks") {
       void save({ type: "refreshWorkspace" }, undefined, false);
     }
   }
@@ -267,6 +295,25 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
   function show(next: Modal) {
     setError("");
     setModal(next);
+  }
+
+  function openPlaybook(item: PlaybookWork) {
+    if (item.kind === "lead") {
+      navigate("Lead Inbox");
+      setFocusLeadId(item.recordId);
+      return;
+    }
+    if (item.kind === "funding") {
+      const audience = fundingTaskAudience(item.id);
+      const loan = taskLoans.get(item.recordId);
+      const draft = audience && state.communicationDrafts.find((entry) => entry.loanId === item.recordId && entry.audience === audience &&
+        entry.milestone === fundingMilestones[audience] && entry.contactId === (audience === "Borrower" ? loan?.contactId : loan?.partnerId));
+      if (audience && draft) {
+        show({ kind: "communication", loanId: item.recordId, audience, draftId: draft.id });
+        return;
+      }
+    }
+    show({ kind: "details", loanId: item.recordId, target: item.kind === "review" ? "loan-application" : item.kind === "funding" ? "loan-communications" : "processing-handoff" });
   }
 
   function openUwmAlert(alert: UwmAlert) {
@@ -314,7 +361,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
           {navigation.map(({ title, items }) => (
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
-              {items.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || label !== "Realtors") && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide"))).map(({ label, icon: Icon }) => (
+              {items.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide"))).map(({ label, icon: Icon }) => (
                 <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
                   <Icon size={17} aria-hidden="true" /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
                 </button>
@@ -445,7 +492,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
           </section>}
 
           {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length + importedLeadTasks.length + visibleProcessing.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length + importedLeadTasks.length + visibleProcessing.length + visiblePlaybook.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
@@ -458,6 +505,15 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
             </div>
             {showUwmAlerts && <UwmAlertQueue items={visibleUwmAlerts} borrower={borrowers} open={openUwmAlert} busy={busy}
               review={(alert) => void save({ type: "reviewUwmAlert", loanId: alert.loanId, alertId: alert.id })} />}
+            {visiblePlaybook.length > 0 && <section className="work-queue" aria-label="Playbook tasks">
+              <div className="section-heading"><h3>Playbook tasks</h3><span className="pill">{visiblePlaybook.length} open</span></div>
+              <ul className="loan-task-list">{visiblePlaybook.map((item) => <li className="loan-task" key={item.id}>
+                <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.name} · {item.owner || "Unassigned"}</span>
+                  <span>{item.reason} · Due {dateTime(item.dueAt)} ET</span></div>
+                <div className="loan-application-actions"><Button size="sm" variant="outline" onClick={() => openPlaybook(item)}>{item.kind === "funding" ? "Preview draft" : "Open work"}</Button>
+                  {item.kind === "funding" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ type: "completeTask", id: item.id, completed: true })}>Mark complete</Button>}</div>
+              </li>)}</ul>
+            </section>}
             {visibleProcessing.length > 0 && <section className="work-queue" aria-label="Processing handoffs">
               <div className="section-heading"><h3>Processing handoffs</h3><span className="pill">{visibleProcessing.length} open</span></div>
               <ul className="loan-task-list">{visibleProcessing.map(({ item, loan }) => <li className="loan-task" key={loan.id}>
@@ -505,7 +561,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                   openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id) })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email || assignedProcessing.has(loan.id))
+            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length || visiblePlaybook.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email || assignedProcessing.has(loan.id))
               ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
               : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
           </section>}
@@ -534,6 +590,8 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
 
           {section === "Migration" && canMigrate && <MigrationWorkspace busy={busy} save={save}
             openLoan={(loanId) => show({ kind: "details", loanId, target: "loan-application" })} />}
+          {section === "Playbooks" && admin && <BrokeragePlaybooks state={state} work={playbook} staff={staff} now={taskNow} busy={busy}
+            save={(input) => void save(input)} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)} open={openPlaybook} />}
 
           {section === "Team" && staff && <BrokerageTeam staff={staff} state={state} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)}
             openLoan={(loanId) => show({ kind: "details", loanId })} />}

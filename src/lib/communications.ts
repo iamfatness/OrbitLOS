@@ -19,6 +19,13 @@ export function createRealtorLenderDraft(db: Store, loanId: string, milestone: "
   if (loan?.partnerId) createDraft(db, loanId, "Realtor", milestone, String(loan.partnerId), now);
 }
 
+export function createPostFundingDrafts(db: Store, loanId: string, now: string) {
+  const loan = db.prepare("SELECT contactId, partnerId FROM loans WHERE id = ?").get(loanId);
+  if (!loan) return;
+  createDraft(db, loanId, "Borrower", "Post-funding check-in", String(loan.contactId), now);
+  if (loan.partnerId) createDraft(db, loanId, "Realtor", "Realtor thank-you", String(loan.partnerId), now);
+}
+
 export function recordDraftCopy(db: Store, input: {
   loanId: string; contactId: string; audience: DraftAudience; milestone: DraftMilestone; channel: DraftChannel;
 }, now: string) {

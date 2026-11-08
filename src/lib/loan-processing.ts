@@ -21,15 +21,17 @@ export function assignProcessor(db: Store, staff: WorkspaceStaff, input: { loanI
     const loan = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(loanId);
     if (!loan) return { error: "This loan no longer exists." };
     if (member?.email === loan.officerEmail) return { error: "Assign a different staff member as the shared processor." };
-    const current = db.prepare("SELECT processorEmail, revision FROM loan_processing WHERE loanId = ?").get(loanId);
+    const current = db.prepare("SELECT processorEmail, status, note, updatedAt, revision FROM loan_processing WHERE loanId = ?").get(loanId);
     if ((current?.processorEmail ?? null) === (member?.email ?? null)) return { message: "Processor assignment is up to date." };
     if ((current?.revision ?? 0) !== revision) return { error: "This processor assignment changed. Refresh before saving." };
     const now = new Date().toISOString();
     const before = loanAuditSnapshot(db, loanId);
+    const pending = member && current?.status === "Ready for processing";
     db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
-      VALUES (?, ?, ?, ?, '', ?, 1) ON CONFLICT (loanId) DO UPDATE SET processorEmail = excluded.processorEmail,
-      processorName = excluded.processorName, status = excluded.status, note = '', updatedAt = excluded.updatedAt, revision = revision + 1`)
-      .run(loanId, member?.email ?? null, member?.name.slice(0, 160) ?? "", member ? "Assigned" : "Unassigned", now);
+      VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (loanId) DO UPDATE SET processorEmail = excluded.processorEmail,
+      processorName = excluded.processorName, status = excluded.status, note = excluded.note, updatedAt = excluded.updatedAt, revision = revision + 1`)
+      .run(loanId, member?.email ?? null, member?.name.slice(0, 160) ?? "", pending ? "Ready for processing" : member ? "Assigned" : "Unassigned",
+        pending ? current.note ?? "" : "", pending ? current.updatedAt ?? now : now);
     const message = member ? `Processing access granted to ${member.name}.` : "Shared processor access removed.";
     db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), loanId, message, now);
     const action = member ? "Assigned shared processor" : "Removed shared processor";
@@ -45,6 +47,10 @@ export function updateProcessing(db: Store, staff: WorkspaceStaff | null, data: 
   const role = staff?.brokerage.role ?? "Admin";
   if (role === "Processor" && row.processorEmail !== staff?.email) return { error: "This handoff belongs to another processor." };
   if (!availableProcessingActions(row.status, role).includes(data.action)) return { error: "This handoff action is unavailable at the current step." };
+  if ((data.action === "Send to processing" || data.action === "Accept handoff") && db.prepare(`SELECT 1 FROM applications WHERE loanId = ?
+    AND ((submittedAt IS NOT NULL AND reviewedAt IS NULL) OR correctionNote <> '')`).get(data.loanId)) {
+    return { error: "Review the current 1003 before handing off this file." };
+  }
   const status = nextStatus[data.action];
   db.prepare("UPDATE loan_processing SET status = ?, note = ?, updatedAt = ?, revision = revision + 1 WHERE loanId = ?")
     .run(status, data.note, now, data.loanId);

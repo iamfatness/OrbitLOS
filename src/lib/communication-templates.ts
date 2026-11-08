@@ -15,6 +15,8 @@ const borrowerUpdates: Record<DraftMilestone, string> = {
   "Clear to Close": "Your loan has reached clear to close. I’ll be in touch to confirm the closing details.",
   Funded: "Your loan has funded. Thank you for working with me.",
   Closed: "Your loan file has moved to the closed stage. Please reach out if you have any questions.",
+  "Post-funding check-in": "I wanted to check in now that your loan has funded. Please reach out if you have questions about the transition or need anything from me.",
+  "Realtor thank-you": "Thank you for working with our team on this loan.",
 };
 
 export function draftRecipient(loan: Loan, audience: DraftAudience) {
@@ -26,6 +28,7 @@ export function draftCopied(draft: CommunicationDraft) {
 }
 
 export function currentDraftMilestone(milestone: DraftMilestone, stage: Stage, hasClosingDate: boolean) {
+  if (milestone === "Post-funding check-in" || milestone === "Realtor thank-you") return stage === "Funded" || stage === "Closed";
   if (milestone === "Lender review started") return ["Lead", "Pre-qual", "Application", "Processing", "Underwriting"].includes(stage);
   if (milestone === "Lender review complete") return stage !== "Funded" && stage !== "Closed";
   return milestone === "Closing complete" ? hasClosingDate : milestone === "Application received" || milestone === stage;
@@ -33,14 +36,15 @@ export function currentDraftMilestone(milestone: DraftMilestone, stage: Stage, h
 
 export function renderDraft(audience: DraftAudience, milestone: DraftMilestone, channel: DraftChannel, recipientName: string, officerName: string, customBody?: string) {
   const officer = officerName || "Your loan team";
-  const realtorUpdate = milestone === "Application received"
+  const realtorUpdate = milestone === "Realtor thank-you" ? "Thank you for trusting me with your referral. The loan has funded, and I appreciated working with you."
+    : milestone === "Application received"
     ? "A quick milestone update on your referral. The application was received."
     : milestone === "Lender review started" ? "The loan is in lender review. I’ll keep you posted on the next milestone."
       : milestone === "Lender review complete" ? "The lender review step is complete. I’ll be in touch about closing preparations."
       : milestone === "Closing complete" ? "A quick milestone update on your referral. The closing is complete."
       : `A quick milestone update on your referral. The loan reached ${milestone}.`;
   const message = customBody ? customBody.replaceAll("{{milestone}}", milestone) : audience === "Borrower" ? borrowerUpdates[milestone] : realtorUpdate;
-  const subject = milestone === "Closing complete" ? "Closing complete"
+  const subject = milestone === "Realtor thank-you" ? "Thank you for the referral" : milestone === "Post-funding check-in" ? "Checking in after funding" : milestone === "Closing complete" ? "Closing complete"
     : audience === "Borrower" && milestone === "Application received" ? "We received your mortgage application" : "Loan milestone update";
   return channel === "Email"
     ? { subject, body: `Hi ${recipientName},\n\n${message}\n\nThanks,\n${officer}` }

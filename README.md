@@ -41,6 +41,12 @@ The loan header shows its owner, stage age, next action, due date, and blocker. 
 4. In **Work lead**, record a mock sequence step, pause or resume the sequence, or stop it. Log a sample outreach outcome to clear the first-contact deadline. A connected conversation or reply stops the sequence. Mock sends stay in Orbit.
 5. Review possible contact matches, then choose **Create loan and prefill 1003**. The loan retains its source, owner, and outreach history.
 
+### Try brokerage playbooks
+
+In a fictional pilot, open **Playbooks** as an admin to set deadlines and choose a suggested backup for quiet leads. Use **Manager exception queue** to find overdue work, missing owners, or stalled handoffs and assign an active team member.
+
+Submit a sample 1003 and open its review item from **My Tasks**. After review, assign a processor and send the file from **Processing handoff**. Sign in as the processor and accept the handoff from **My Tasks**. Record actual closing and funding to queue a borrower check-in and, if a realtor is linked, a thank-you draft. Staff can preview the drafts and record follow-up completion.
+
 ### Try UWM alerts
 
 After the first mock sync, assign Charlotte Kim’s loan to your account from **Edit loan** or **Team**. In **Integrations**, choose **Simulate UWM changes**. This one-time update for the workspace changes her UWM status, adds an insurance condition, and reopens the property condition.

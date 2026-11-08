@@ -1,6 +1,7 @@
 import { needsBorrowerDocument } from "./document-model";
 import { conditionTarget } from "./uwm-alert-model";
 import type { Loan, Workspace } from "./model";
+import { afterHours, fundingTaskAudience } from "./playbook-model";
 
 export const workFilters = ["Overdue", "Stalled", "Unassigned", "Paused or ended"] as const;
 export type WorkFilter = (typeof workFilters)[number];
@@ -14,6 +15,7 @@ export function loanTaskTarget(id: string) {
   if (id.startsWith("first-contact:") || id.startsWith("outreach:")) return "loan-activity";
   if (id.startsWith("application-")) return "loan-application";
   if (id.startsWith("rate-watch:") || id.startsWith("closing-anniversary:")) return "loan-retention";
+  if (fundingTaskAudience(id)) return "loan-communications";
   return "loan-tasks";
 }
 
@@ -31,7 +33,7 @@ export function loanNextAction(loan: Loan, state: Workspace) {
   const outstanding = documents.find((item) => needsBorrowerDocument(item.status));
   const closing = state.closingPlans.find((item) => item.loanId === loan.id);
   if (application?.submittedAt && !application.reviewedAt) return {
-    title: "Review submitted 1003", target: "loan-application", dueAt: new Date(Date.parse(application.submittedAt) + day).toISOString(), blocker: null,
+    title: "Review submitted 1003", target: "loan-application", dueAt: afterHours(application.submittedAt, state.playbook.reviewHours), blocker: null,
   };
   if (received) return { title: `Review ${received.kind}`, target: `document-${received.id}`, dueAt: null, blocker: null };
   const outstandingCondition = state.submissions.filter((item) => item.loanId === loan.id && item.lender === "UWM" && item.syncedAt)

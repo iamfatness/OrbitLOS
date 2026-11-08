@@ -7,7 +7,7 @@ import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type Pricin
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider } from "./pricing-provider";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
-import { createMilestoneDrafts, recordDraftCopy } from "./communications";
+import { createMilestoneDrafts, createPostFundingDrafts, recordDraftCopy } from "./communications";
 import { draftChannels } from "./communication-templates";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { accessEvent, isDemoStaff, loanAccess, scopeWorkspace } from "./workspace-access";
@@ -36,6 +36,8 @@ import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEve
 
 import { exportReviewedApplication } from "./lender-export-model";
 import { prepareLenderExport } from "./lender-export";
+import { savePlaybookInput } from "./playbook-model";
+import { createFundingFollowUps, readPlaybook, writePlaybook } from "./playbooks";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
@@ -81,6 +83,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("convertReferral"), referralId: z.uuid(), contactId: id.nullable(), allowDuplicate: z.boolean().default(false) }),
   z.object({ type: z.literal("dismissReferral"), referralId: z.uuid() }),
   saveLeadRoutingInput,
+  savePlaybookInput,
   migrationInput,
   saveReportView,
   saveCallReport,
@@ -249,6 +252,16 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       const auditLoanId = auditAction && ("loanId" in data ? data.loanId : data.type === "loan" || data.type === "move" ? data.id : undefined);
       const auditBefore = auditLoanId ? loanAuditSnapshot(db, auditLoanId) : null;
       switch (data.type) {
+        case "savePlaybook": {
+          if (staff && staff.brokerage.role !== "Admin") throw new WorkspaceError("Only a brokerage admin can edit playbooks.");
+          if (data.backupEmail && !leadMembers.some((member) => member.email === data.backupEmail)) throw new WorkspaceError("Select an active loan officer or admin as the backup.");
+          if (data.revision !== readPlaybook(db).revision) throw new WorkspaceError("The playbook changed. Refresh before saving.");
+          writePlaybook(db, { revision: data.revision, quietHours: data.quietHours, reviewHours: data.reviewHours,
+            handoffHours: data.handoffHours, fundingDays: data.fundingDays, backupEmail: data.backupEmail });
+          accessEvent(db, staff, "Updated brokerage playbook", "playbook", now);
+          message = "Brokerage playbook saved.";
+          break;
+        }
         case "migratePipeline": {
           if (!staff?.brokerage.pilot || staff.brokerage.role !== "Admin") throw new WorkspaceError("Only a pilot admin can migrate fictional CRM records.");
           const result = migratePipeline(db, data, staff, leadMembers, now);
@@ -430,7 +443,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             throw new WorkspaceError("Record actual closing first. Funding must fall between closing and today on an active file.");
           }
           const previous = db.prepare("SELECT fundingDate, revision FROM closing_progress WHERE loanId = ?").get(data.loanId);
-          if (previous?.fundingDate !== data.fundingDate) {
+          const dateChanged = previous?.fundingDate !== data.fundingDate;
+          if (dateChanged) {
             if (Number(previous?.revision ?? 0) !== data.revision) throw new WorkspaceError("Funding status changed. Refresh the loan first.");
             db.prepare(`INSERT INTO closing_progress (loanId, fundingDate, revision) VALUES (?, ?, 1)
               ON CONFLICT(loanId) DO UPDATE SET fundingDate = excluded.fundingDate, revision = revision + 1`).run(data.loanId, data.fundingDate);
@@ -439,6 +453,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             addApplicationActivity(db, data.loanId, `Funding recorded · ${data.fundingDate}`, now);
             accessEvent(db, staff, "Recorded loan funding", data.loanId, now);
           }
+          createPostFundingDrafts(db, data.loanId, now);
+          createFundingFollowUps(db, data.loanId, data.fundingDate, dateChanged);
           message = "Funding recorded. Milestone drafts and past-client follow-up are ready.";
           break;
         }
@@ -810,8 +826,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (!application.reviewedAt) {
             db.prepare("UPDATE applications SET reviewedAt = ? WHERE loanId = ?").run(now, data.loanId);
             saveApplicationVersion(db, { ...application, reviewedAt: now });
-            db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ? AND completedAt IS NULL")
-              .run(now, `application-correction:${data.loanId}:${application.revision}`);
+            db.prepare("UPDATE tasks SET completedAt = ? WHERE id IN (?, ?) AND completedAt IS NULL")
+              .run(now, `application-follow-up:${data.loanId}`, `application-correction:${data.loanId}:${application.revision}`);
             addApplicationActivity(db, data.loanId, "Loan officer reviewed the demo 1003.", now);
           }
           message = "Application marked reviewed.";

@@ -350,7 +350,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target }: { target?
       {section === "Overview" && <>
       <LoanWorkflow key={loan.dispositionRevision} loan={loan} busy={busy} readOnly={processor} save={(input) => void save(input)} />
       <ProcessingHandoff loan={loan} assignment={state.loanProcessing.find((item) => item.loanId === loan.id)}
-        staff={staff} busy={busy} save={(input) => void save(input)} />
+        application={application} documents={requests} staff={staff} busy={busy} save={(input) => void save(input)} open={open} />
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} />
       </>}
