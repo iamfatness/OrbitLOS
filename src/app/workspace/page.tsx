@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 export const metadata: Metadata = { title: "Staff workspace · OrbitLOS", robots: { index: false } };
 
-export default async function Workspace() {
+export default async function Workspace({ searchParams }: { searchParams: Promise<{ guide?: string }> }) {
   const staff = await currentStaff();
-  return <Orbit initial={await loadWorkspace(staff)} staff={staff} />;
+  return <Orbit key={staff?.brokerage.id ?? "local"} initial={await loadWorkspace(staff)} staff={staff} initialGuide={(await searchParams).guide === "1"} />;
 }

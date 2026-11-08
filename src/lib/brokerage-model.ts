@@ -52,6 +52,15 @@ export interface PilotMeasurement {
   createdAt: string;
 }
 
+export interface DemoGuideState {
+  id: string;
+  officerEmail: string;
+  leadId: string | null;
+  loanId: string | null;
+  realtorToken: string | null;
+  rateLoanId: string | null;
+}
+
 export interface PilotScenario {
   id: string;
   loadedAt: string;

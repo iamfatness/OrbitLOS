@@ -11,6 +11,7 @@ import { mockCreditAusRuns } from "./mock-credit-aus";
 import type { UwmAlert } from "./uwm-alert-model";
 import type { InboxLead } from "./model";
 import { callReportFiles } from "./call-report";
+import { demoGuideState } from "./pilot";
 import { managerReports } from "./manager-reports";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
 import type { LoanProcessing } from "./processing-model";
@@ -435,6 +436,7 @@ export function workspace(db: Store, includeReports = false): Workspace {
     referralLeads,
     inboxLeads,
     leadRouting: leadRouting(db),
+    demoGuide: demoGuideState(db),
     managerReports: includeReports ? managerReports(db) : null,
     callReportFiles: includeReports ? callReportFiles(db) : null,
     mismoLoans: rows<{ loanId: string }>(db, "SELECT loanId FROM mismo_rehearsals").map((row) => row.loanId),

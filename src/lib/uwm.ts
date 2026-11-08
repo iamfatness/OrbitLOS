@@ -1,6 +1,7 @@
 import { insertContact, insertLoan, insertSubmission, type Store } from "./store";
 import type { Condition, Stage, Submission } from "./model";
 import { addApplicationActivity, getApplication } from "./applications";
+import { createRealtorLenderDraft } from "./communications";
 import { recordUwmAlerts } from "./uwm-alerts";
 
 // The shapes used by the Insights Loans query and the single-loan conditions endpoint.
@@ -149,6 +150,7 @@ export function submitMockApplication(db: Store, loanId: string, now: string) {
   };
   insertSubmission(db, submission);
   recordUwmAlerts(db, submission, null, now);
+  createRealtorLenderDraft(db, loanId, "Lender review started", now);
   db.prepare("UPDATE applications SET uwmReference = ? WHERE loanId = ?").run(reference, loanId);
   addApplicationActivity(db, loanId, `Mock UWM import confirmed. Reference ${reference}.`, now);
   return { reference };
@@ -176,7 +178,16 @@ export function refreshMockUwmClearance(db: Store, loanId: string, submissionId:
     AND requestId IN (SELECT id FROM document_requests WHERE submissionId = ? AND loanId = ?)`).run(now, submissionId, loanId);
   const conditions = applyMockClearances(db, submissionId, saved);
   const count = saved.reduce((total, condition, index) => total + Number(!condition.satisfiedAt && !!conditions[index].satisfiedAt), 0);
-  db.prepare("UPDATE submissions SET conditions = ?, syncedAt = ? WHERE id = ?").run(JSON.stringify(conditions), now, submissionId);
+  const clearedAll = count > 0 && conditions.every((condition) => condition.satisfiedAt);
+  if (clearedAll) {
+    const status = db.prepare("SELECT status FROM submissions WHERE id = ?").get(submissionId)?.status;
+    if (typeof status === "string") recordUwmAlerts(db, { id: submissionId, loanId, status: "Conditions cleared", conditions }, { status, conditions: saved }, now);
+    db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?")
+      .run("Conditions cleared", JSON.stringify(conditions), now, submissionId);
+    createRealtorLenderDraft(db, loanId, "Lender review complete", now);
+  } else {
+    db.prepare("UPDATE submissions SET conditions = ?, syncedAt = ? WHERE id = ?").run(JSON.stringify(conditions), now, submissionId);
+  }
   const label = count === 1 ? "condition" : "conditions";
   if (count) addApplicationActivity(db, loanId, `Mock UWM cleared ${count} ${label}.`, now);
   return { message: count ? `Mock UWM cleared ${count} ${label}.` : "No new mock UWM clearances for this submission." };
@@ -192,6 +203,18 @@ function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
   const update = db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?");
   function refresh(existing: SavedUwmSubmission, status: string, incoming: Condition[]) {
     const conditions = mock ? applyMockClearances(db, existing.id, incoming) : incoming;
+    const previousConditions = JSON.parse(existing.conditions) as Condition[];
+    if (mock && conditions.length && conditions.every((item) => item.satisfiedAt) && (existing.status === "Conditions cleared" ||
+      previousConditions.some((item) => !item.satisfiedAt))) {
+      status = "Conditions cleared";
+      createRealtorLenderDraft(db, existing.loanId, "Lender review complete", now);
+    } else if (mock && existing.status !== status) {
+      if (status === approvedWithConditions || status === "Wholesale - Underwriting") {
+        createRealtorLenderDraft(db, existing.loanId, "Lender review started", now);
+      } else if (status === "Wholesale - Clear To Close" && conditions.every((item) => item.satisfiedAt)) {
+        createRealtorLenderDraft(db, existing.loanId, "Lender review complete", now);
+      }
+    }
     alerts += recordUwmAlerts(db, { id: existing.id, loanId: existing.loanId, status, conditions },
       { status: existing.status, conditions: JSON.parse(existing.conditions) }, now);
     update.run(status, JSON.stringify(conditions), now, existing.id);

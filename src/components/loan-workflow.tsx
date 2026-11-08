@@ -1,17 +1,15 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { dispositions, type Disposition, type Loan, type Workspace } from "@/lib/model";
-import { loanNextAction, pausedLoan } from "@/lib/loan-workflow";
-import { dateTime, stageDays } from "@/lib/utils";
+import { dispositions, type Disposition, type Loan } from "@/lib/model";
+import { pausedLoan } from "@/lib/loan-workflow";
 import { Button } from "./ui/button";
 
-export function LoanWorkflow({ loan, state, busy, readOnly, save, open }: {
-  loan: Loan; state: Workspace; busy: boolean; readOnly?: boolean; save: (input: unknown) => void; open: (target: string) => void;
+export function LoanWorkflow({ loan, busy, readOnly, save }: {
+  loan: Loan; busy: boolean; readOnly?: boolean; save: (input: unknown) => void;
 }) {
   const current = loan.disposition ?? "Active";
   const [disposition, setDisposition] = useState<Disposition>(current);
-  const action = loanNextAction(loan, state);
   const canChange = !readOnly && loan.stage !== "Funded" && loan.stage !== "Closed";
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -20,15 +18,8 @@ export function LoanWorkflow({ loan, state, busy, readOnly, save, open }: {
       revisitDate: fields.get("revisitDate") || null, revision: loan.dispositionRevision ?? 0 });
   }
 
-  return <section className="details-section" aria-label="Loan next action" id="loan-workflow" tabIndex={-1}>
-    <div className="section-heading"><h3>Next action</h3><span className="pill">{current}</span></div>
-    <div className="details-grid">
-      <div><span>Stage</span><strong suppressHydrationWarning>{loan.stage} · {stageDays(loan.stageSince)} days</strong></div>
-      <div><span>Owner</span><strong>{loan.officer || "Unassigned"}</strong></div>
-      <div><span>Due</span><strong>{action.dueAt ? `${dateTime(action.dueAt)} ET` : "No date set"}</strong></div>
-      <div><span>Blocker</span><strong>{action.blocker || "None recorded"}</strong></div>
-    </div>
-    {action.target !== "loan-workflow" && <Button variant="outline" size="sm" onClick={() => open(action.target)}>{action.title}</Button>}
+  return <section className="details-section" aria-label="Loan workflow" id="loan-workflow" tabIndex={-1}>
+    <div className="section-heading"><h3>Loan workflow</h3><span className="pill">{current}</span></div>
     {canChange && <details className="loan-task-create" open={pausedLoan(loan) || undefined}>
       <summary>Change loan status</summary>
       <form className="task-form" onSubmit={submit}>

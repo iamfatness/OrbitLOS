@@ -16,7 +16,7 @@ import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput,
 import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds } from "./document-model";
 import { referralMatches } from "./referral-matches";
 import { mockAusInput, mockCreditInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
-import { trackPilotBorrower } from "./pilot";
+import { loadPilotScenario, trackPilotBorrower } from "./pilot";
 import { contactDuplicate, contactImportLimit, contactImportRow } from "./contact-csv";
 import { assignInboxLeadInput, leadContactInput, leadSequenceInput, saveLeadRoutingInput } from "./lead-inbox-model";
 import { carryLeadHistory, changeLeadRouting, stopLeadFollowUp, updateInboxLead } from "./lead-inbox";
@@ -65,7 +65,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("loanDisposition"), loanId: id, disposition: z.enum(dispositions),
     reason: z.string().trim().max(500), revisitDate: z.iso.date().nullable(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("copyDraft"), loanId: id, contactId: id, audience: z.enum(["Borrower", "Realtor"]),
-    milestone: z.enum([...stages, "Application received", "Closing complete"]), channel: z.enum(draftChannels) }),
+    milestone: z.enum(draftMilestones), channel: z.enum(draftChannels) }),
   retentionInput,
   z.object({ type: z.literal("saveClosingTarget"), loanId: id, targetDate: z.iso.date().nullable(), previous: z.iso.date().nullable() }),
   z.object({ type: z.literal("saveClosingItem"), loanId: id, itemId: id, revision: z.number().int().nonnegative(),
@@ -114,7 +114,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("requestDocument"), loanId: id, kind: z.enum(documentKinds), instructions: z.string().trim().max(500),
     condition: z.object({ submissionId: id, conditionId: z.string().min(1).max(240) }).optional() }),
   z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
-    decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500) }),
+    decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500), sendToMockUwm: z.boolean().optional() }),
   z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames) }),
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     outcome: z.enum(["Prepared", "Delivered manually", "Acknowledged", "Returned for changes"]), note: z.string().trim().max(500) }),
@@ -122,6 +122,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("simulateDeliveryFailure"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("refreshMockUwmClearance"), loanId: id, submissionId: id }),
   z.object({ type: z.literal("refreshWorkspace") }),
+  z.object({ type: z.literal("loadGuidedDemo"), id: z.uuid(), previousId: z.uuid().nullable() }),
   z.object({ type: z.literal("completeTask"), id, completed: z.boolean() }),
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120), days: z.union([z.literal(1), z.literal(3), z.literal(7)]) }),
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario }),
@@ -208,6 +209,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
   const data = parsed.data;
   try {
     authorizeLoanOfficer(db, data, staff);
+    if (data.type === "loadGuidedDemo") {
+      if (staff && (!staff.brokerage.pilot || staff.brokerage.role !== "Admin")) throw new WorkspaceError("An admin can load the demo in a fictional pilot workspace.");
+      const owner = staff ?? { name: "Alex Morgan", email: "local-demo@example.test" };
+      const result = loadPilotScenario(db, staff, { ...data, type: "loadPilotScenario", officerEmail: owner.email }, owner);
+      if ("error" in result) throw new WorkspaceError(result.error);
+      return { state: scopeWorkspace(readWorkspace(db, staff?.brokerage.role === "Admin"), staff), message: result.message };
+    }
     if (data.type === "sync" || data.type === "simulateUwmChanges") {
       const result = data.type === "sync" ? await syncUwm(db) : simulateMockUwmChanges(db);
       if ("error" in result) throw new WorkspaceError(result.error);
@@ -544,7 +552,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             if (matches.length && !data.allowDuplicate) throw new WorkspaceError("A possible contact match exists. Refresh tasks and choose how to handle it.");
             contact = { id: crypto.randomUUID(), name: String(lead.name), email, phone, role: "Borrower" };
             insertContact(db, contact);
-            if (staff?.brokerage.pilot && realtorId) trackPilotBorrower(db, realtorId, contact.id);
+            if ((!staff || staff.brokerage.pilot) && realtorId) trackPilotBorrower(db, realtorId, contact.id);
           }
           const loanId = crypto.randomUUID();
           const assignedEmail = typeof lead.officerEmail === "string" ? lead.officerEmail : staff?.email ?? null;
@@ -560,7 +568,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           addApplicationActivity(db, loanId, `Converted ${source.toLowerCase()} to a loan with a prefilled 1003.`, now);
           accessEvent(db, staff, imported ? "Converted imported lead" : realtorId ? "Converted referral" : "Converted quote request", data.referralId, now);
           referralLoanId = loanId;
-          message = "Lead converted. The prefilled 1003 is ready to share.";
+          message = "Lead converted. The prefilled 1003 and first-contact task are ready.";
           break;
         }
         case "startApplication": {
@@ -633,6 +641,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const accepted = pdf ? (staff?.brokerage.id === demoBrokerageId || staff?.brokerage.pilot ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
           addApplicationActivity(db, data.loanId, `${data.decision === "Accepted" ? accepted : "Replacement requested"} · ${request.kind}`, now);
           message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
+          if (data.sendToMockUwm) {
+            const delivery = sendMockConditionDocument(db, data.loanId, data.requestId, now);
+            if ("error" in delivery) throw new WorkspaceError(delivery.error);
+            message = "Document accepted and sent to mock UWM. Check clearance when ready.";
+          }
           break;
         }
         case "applyDocumentPreset": {

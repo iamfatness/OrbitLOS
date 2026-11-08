@@ -27,6 +27,7 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
   });
   return { ...state, loans, contacts: state.contacts.filter((contact) => contacts.has(contact.id)), realtorPortals: [],
     referralLeads, inboxLeads, leadRouting: null, unlinkedReferrals: [], managerReports: null, callReportFiles: null,
+    demoGuide: staff.brokerage.role === "LO" && state.demoGuide?.officerEmail === staff.email ? state.demoGuide : null,
     mismoLoans: state.mismoLoans.filter((id) => owned.has(id)),
     submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: state.tasks.filter((item) => owned.has(item.loanId)),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),

@@ -85,7 +85,7 @@ export function CreditAusWorkbench({ loanId, runs, busy, readOnly, save }: { loa
     <div className="section-heading"><h3><ClipboardCheck size={17} /> Credit &amp; AUS</h3>
       <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh</Button>
     </div>
-    <p className="muted">Demo only. Credit and automated underwriting use fictional reports and loan inputs.</p>
+    <p className="muted">Mock credit and AUS use fictional reports. Live providers will appear in Integrations when connected.</p>
     {readOnly ? <><p className="muted">The loan officer runs credit and AUS. Saved results are available for review.</p>
       {runs.filter((run) => latestIds.has(run.id)).map((run) => <Attempt key={run.id} run={run} creditReference={run.creditId ? byId.get(run.creditId)?.reference : undefined} />)}
     </> : <>

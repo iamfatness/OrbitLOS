@@ -136,7 +136,7 @@ export function RealtorReferralPortal() {
       {portal.view.referrals.length ? <div className="table-scroll"><table className="data-table">
         <thead><tr><th>Borrower</th><th>Milestone</th><th>Milestone updated</th></tr></thead>
         <tbody>{portal.view.referrals.map((loan, index) => <tr key={index}><td>{loan.borrowerName}</td><td>{loan.stage}</td><td>{dateTime(loan.updatedAt)} ET</td></tr>)}</tbody>
-      </table></div> : <p className="empty-inline no-matches">Your loan team will link your referrals as they arrive.</p>}
+      </table></div> : <p className="empty-inline no-matches">Submit a referral above. The loan team can follow up and share pipeline milestones here.</p>}
       </section>
     </div>}
     <p className="muted referral-portal-help">Keep this link private. Ask your loan officer for a new link when it expires.</p>

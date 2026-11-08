@@ -141,6 +141,12 @@ function BorrowerApplication({ token }: { token: string | null }) {
               setNotice("Sample answers loaded. Save or continue to keep them.");
               setError("");
             }}>Load sample answers</Button>}
+            {step === 0 && !application.correctionNote && <Button variant="outline" size="sm" onClick={() => {
+              setApplication({ ...application, step: applicationSteps.length - 1, draft: sampleApplication(application.draft) });
+              setNotice("Sample answers loaded. Confirm the fictional information to submit.");
+              setError("");
+              window.scrollTo(0, 0);
+            }}>Load sample and review</Button>}
           </div>
           {reviewing ? <>
             <h2>Review your application</h2>

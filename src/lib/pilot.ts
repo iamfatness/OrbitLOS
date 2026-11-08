@@ -2,6 +2,9 @@ import { z } from "zod";
 import { pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, portalToken, type PilotFeedback, type PilotMeasurement, type PilotScenario } from "./brokerage-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { insertContact, insertLoan, type Store } from "./store";
+import { easternDate, synchronizeRetentionTasks } from "./client-retention";
+import { startLeadFollowUp } from "./lead-inbox";
+import type { DemoGuideState } from "./brokerage-model";
 import { accessEvent } from "./workspace-access";
 
 const day = 86_400_000;
@@ -26,6 +29,17 @@ export const pilotMeasurementInput = z.object({
 
 function scenarioRow(db: Store) {
   return db.prepare("SELECT id, realtorId, loanId, loadedAt, officerEmail FROM pilot_scenario WHERE singleton = 1").get();
+}
+
+export function demoGuideState(db: Store): DemoGuideState | null {
+  const row = db.prepare(`SELECT scenario.id, scenario.officerEmail, lead.id AS leadId, lead.loanId,
+    CASE WHEN portal.expiresAt > ? THEN portal.token END AS realtorToken, rate.id AS rateLoanId
+    FROM pilot_scenario scenario LEFT JOIN referral_leads lead ON lead.realtorId = scenario.realtorId AND lead.requestId = scenario.id
+    LEFT JOIN realtor_portals portal ON portal.realtorId = scenario.realtorId
+    LEFT JOIN loans rate ON rate.id = 'demo-rate:' || scenario.id WHERE scenario.singleton = 1`).get(new Date().toISOString());
+  if (!row) return null;
+  return { id: String(row.id), officerEmail: String(row.officerEmail), leadId: row.leadId as string | null,
+    loanId: row.loanId as string | null, realtorToken: row.realtorToken as string | null, rateLoanId: row.rateLoanId as string | null };
 }
 
 export function pilotReview(db: Store) {
@@ -58,19 +72,19 @@ export function trackPilotBorrower(db: Store, realtorId: string, contactId: stri
     (SELECT 1 FROM pilot_scenario WHERE realtorId = ?)`).run(contactId, realtorId);
 }
 
-export function loadPilotScenario(db: Store, staff: WorkspaceStaff, input: unknown, owner: StaffIdentity): PilotMutation {
+export function loadPilotScenario(db: Store, staff: WorkspaceStaff | null, input: unknown, owner: StaffIdentity): PilotMutation {
   const parsed = pilotScenarioInput.safeParse(input);
-  if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin" || !parsed.success || parsed.data.officerEmail !== owner.email) {
+  if ((staff && (!staff.brokerage.pilot || staff.brokerage.role !== "Admin")) || !parsed.success || parsed.data.officerEmail !== owner.email) {
     return { error: "Select an active staff member in this pilot workspace." } as const;
   }
   const { id, previousId } = parsed.data;
   return db.transaction(() => {
     const previous = scenarioRow(db);
     if (previous?.id === id && previous.officerEmail === owner.email) return { message: "Pilot scenario is ready." };
-    if ((previous?.id ?? null) !== previousId) return { error: "The scenario changed. Refresh Team before trying again." } as const;
+    if ((previous?.id ?? null) !== previousId) return { error: "The scenario changed. Refresh the workspace before trying again." } as const;
     if (previous) {
-      db.prepare(`DELETE FROM loans WHERE id = ? OR id IN
-        (SELECT loanId FROM referral_leads WHERE realtorId = ? AND loanId IS NOT NULL)`).run(previous.loanId, previous.realtorId);
+      db.prepare(`DELETE FROM loans WHERE id = ? OR id = ? OR id IN
+        (SELECT loanId FROM referral_leads WHERE realtorId = ? AND loanId IS NOT NULL)`).run(previous.loanId, `demo-rate:${previous.id}`, previous.realtorId);
       db.prepare("DELETE FROM referral_leads WHERE realtorId = ?").run(previous.realtorId);
       db.prepare("DELETE FROM realtor_portals WHERE realtorId = ?").run(previous.realtorId);
       db.exec(`DELETE FROM contacts WHERE id IN (SELECT contactId FROM pilot_sample_contacts)
@@ -84,17 +98,29 @@ export function loadPilotScenario(db: Store, staff: WorkspaceStaff, input: unkno
     const realtorId = crypto.randomUUID();
     const contactId = crypto.randomUUID();
     const loanId = crypto.randomUUID();
+    const rateContactId = crypto.randomUUID();
+    const rateLoanId = `demo-rate:${id}`;
+    const assignedEmail = staff ? owner.email : null;
     const officer = owner.name.slice(0, 160) || owner.email.slice(0, 160);
     insertContact(db, { id: realtorId, name: "Taylor Pilot Realtor", email: "taylor-pilot@example.test", phone: "", role: "Realtor" });
     insertContact(db, { id: contactId, name: "Morgan Pilot Borrower", email: "morgan-pilot@example.test", phone: "248-555-0141", role: "Borrower" });
-    insertLoan(db, { id: loanId, contactId, partnerId: realtorId, officer, officerEmail: owner.email, address: "",
+    insertLoan(db, { id: loanId, contactId, partnerId: realtorId, officer, officerEmail: assignedEmail, address: "",
       amount: 0, purpose: "Purchase", stage: "Lead", stageSince: now });
-    db.prepare("INSERT INTO pilot_sample_contacts VALUES (?), (?)").run(realtorId, contactId);
+    insertContact(db, { id: rateContactId, name: "Casey Pilot Past Client", email: "casey-pilot@example.test", phone: "", role: "Borrower" });
+    insertLoan(db, { id: rateLoanId, contactId: rateContactId, partnerId: null, officer, officerEmail: assignedEmail,
+      address: "24 Fictional Lane, Troy, MI 48084", amount: 305000, purpose: "Purchase", stage: "Funded", stageSince: now });
+    const closingDate = easternDate(new Date(nowMs - 330 * day));
+    db.prepare(`INSERT INTO past_client_profiles (loanId, closingDate, currentRate, targetRate, observedRate, watchEnabled, checkedAt, note)
+      VALUES (?, ?, 6.750, 6.125, 6.375, 1, ?, 'Fictional client asked for a follow-up when rates improve.')`).run(rateLoanId, closingDate, now);
+    db.prepare("INSERT INTO pilot_sample_contacts VALUES (?), (?), (?)").run(realtorId, contactId, rateContactId);
     db.prepare(`INSERT INTO realtor_portals (realtorId, token, expiresAt, officer, officerEmail) VALUES (?, ?, ?, ?, ?)`)
-      .run(realtorId, portalToken(staff.brokerage.id), new Date(nowMs + 7 * day).toISOString(), officer, owner.email);
+      .run(realtorId, portalToken(staff?.brokerage.id), new Date(nowMs + 7 * day).toISOString(), officer, assignedEmail);
+    const leadId = crypto.randomUUID();
     db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt)
-      VALUES (?, ?, ?, ?, ?, ?, 'Purchase', ?, ?, ?, ?)`).run(crypto.randomUUID(), crypto.randomUUID(), realtorId,
-      "Riley Pilot Referral", "riley-pilot@example.test", "248-555-0142", officer, owner.email, now, new Date(nowMs + day).toISOString());
+      VALUES (?, ?, ?, ?, ?, ?, 'Purchase', ?, ?, ?, ?)`).run(leadId, id, realtorId,
+      "Riley Pilot Referral", "riley-pilot@example.test", "248-555-0142", officer, assignedEmail, now, new Date(nowMs + day).toISOString());
+    startLeadFollowUp(db, leadId, now);
+    synchronizeRetentionTasks(db, new Date(nowMs));
     db.prepare(`INSERT INTO pilot_scenario VALUES (1, ?, ?, ?, ?, ?)
       ON CONFLICT(singleton) DO UPDATE SET id = excluded.id, realtorId = excluded.realtorId,
       loanId = excluded.loanId, loadedAt = excluded.loadedAt, officerEmail = excluded.officerEmail`)

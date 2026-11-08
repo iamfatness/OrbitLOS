@@ -90,7 +90,7 @@ main{width:min(100%,420px);background:#fff;border:1px solid #ebe8f1;border-radiu
 small{font-weight:750;letter-spacing:.12em;color:#6042bf}h1{margin:8px 0;font-size:28px;letter-spacing:-.04em}p{color:#60596f;line-height:1.5}
 a{display:block;background:#6749d3;color:white;text-align:center;text-decoration:none;border-radius:9px;font-weight:700;padding:11px;margin-top:18px}
 a:hover{background:#5539b9}a:focus-visible{outline:2px solid #6749d3;outline-offset:3px}.status{border-radius:8px;background:#f4efff;padding:8px 10px}
-</style></head><body><main><small>ORBITLOS WORKSPACE</small><h1>Sign in to OrbitLOS</h1><p>Use an approved Google account to open the staff workspace.</p>
+</style></head><body><main><small>ORBITLOS WORKSPACE</small><h1>Sign in to OrbitLOS</h1><p>Use your approved Google account to open your brokerage workspace. The Demo Guide walks through a fictional referral and mock lender conditions.</p>
 ${message ? `<p class="status" role="alert">${message}</p>` : ""}
 ${ready ? `<a href="${startUrl}">Continue with Google</a>` : ""}</main></body></html>`, {
     status: ready ? 200 : 503,

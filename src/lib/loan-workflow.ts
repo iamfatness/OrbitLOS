@@ -1,4 +1,5 @@
 import { needsBorrowerDocument } from "./document-model";
+import { conditionTarget } from "./uwm-alert-model";
 import type { Loan, Workspace } from "./model";
 
 export const workFilters = ["Overdue", "Stalled", "Unassigned", "Paused or ended"] as const;
@@ -33,16 +34,33 @@ export function loanNextAction(loan: Loan, state: Workspace) {
     title: "Review submitted 1003", target: "loan-application", dueAt: new Date(Date.parse(application.submittedAt) + day).toISOString(), blocker: null,
   };
   if (received) return { title: `Review ${received.kind}`, target: `document-${received.id}`, dueAt: null, blocker: null };
+  const outstandingCondition = state.submissions.filter((item) => item.loanId === loan.id && item.lender === "UWM" && item.syncedAt)
+    .flatMap((item) => item.conditions.filter((condition) => !condition.satisfiedAt).map((condition) => ({
+      condition, target: conditionTarget(item.id, condition.id),
+      request: documents.find((request) => request.submissionId === item.id && request.conditionId === condition.id),
+    })));
+  const actionable = outstandingCondition.find(({ request }) => request?.status === "Accepted")
+    ?? outstandingCondition.find(({ request }) => !request);
+  if (actionable) return {
+    title: actionable.request?.uwmReceipt ? "Check mock UWM clearance" : actionable.request ? "Send accepted document" : `Work ${actionable.condition.category.toLowerCase()} condition`,
+    target: actionable.target, dueAt: null, blocker: actionable.request ? null : "Open UWM condition",
+  };
+  const waitingCondition = outstandingCondition.find(({ request }) => request && needsBorrowerDocument(request.status));
+  if (waitingCondition?.request) return {
+    title: `Follow up on ${waitingCondition.request.kind}`, target: waitingCondition.target, dueAt: null,
+    blocker: application?.submittedAt ? "Waiting on borrower" : "Waiting for the 1003",
+  };
+  const pastClient = loan.stage === "Funded" || loan.stage === "Closed";
+  if (!pastClient && (loan.stage === "Clear to Close" || closing)) return {
+    title: "Review closing checklist", target: "closing-workbench", dueAt: closing ? `${closing.targetDate}T21:00:00.000Z` : null, blocker: null,
+  };
   if (task) return { title: task.title, target: loanTaskTarget(task.id), dueAt: task.dueAt, blocker: null };
   if (outstanding) return {
     title: `Follow up on ${outstanding.kind}`, target: `document-${outstanding.id}`, dueAt: null,
     blocker: application?.submittedAt ? "Waiting on borrower" : "Waiting for the 1003",
   };
-  if (loan.stage === "Funded" || loan.stage === "Closed") return {
+  if (pastClient) return {
     title: "Review past-client follow-up", target: "loan-retention", dueAt: null, blocker: null,
-  };
-  if (loan.stage === "Clear to Close" || closing) return {
-    title: "Review closing checklist", target: "closing-workbench", dueAt: closing ? `${closing.targetDate}T21:00:00.000Z` : null, blocker: null,
   };
   if (!application?.submittedAt) return {
     title: application ? "Follow up on 1003" : "Start the 1003", target: "loan-application", dueAt: null,

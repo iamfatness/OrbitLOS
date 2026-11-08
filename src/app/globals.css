@@ -365,3 +365,24 @@ button:disabled { cursor: default; }
 }
 .brokerage-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .brokerage-form .field { flex: 1 1 145px; font-size: 12px; }
+
+.loan-status-panel { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #faf8fe; }
+.loan-status-panel .name-link { text-align: left; font-size: 12px; }
+.loan-status-panel .details-grid { border: 0; border-radius: 0; gap: 10px 16px; padding: 12px; }
+.loan-status-action { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.loan-status-action small, .loan-status-action strong, .loan-status-action span { display: block; overflow-wrap: anywhere; }
+.loan-status-action small, .loan-status-action span { color: var(--muted); font-size: 11px; }
+.loan-section-nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: #f5f3fa; border-radius: 10px; }
+.loan-section-nav button { padding: 6px 8px; border-radius: 7px; font-size: 12px; font-weight: 650; color: #544b63; }
+.loan-section-nav button[aria-current] { background: #fff; color: #5134ad; box-shadow: 0 1px 4px #24123817; }
+.condition, .document-item, .details-section, .details-body [tabindex="-1"] { scroll-margin-top: 73px; }
+.condition .document-item { margin: 7px 0; }
+.condition .loan-application-actions { margin-block: 6px; }
+.condition:focus { outline: 2px solid #856cdb; outline-offset: 4px; border-radius: 6px; }
+.demo-steps { display: grid; gap: 8px; }
+.demo-steps > li { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.demo-steps > li[data-active="true"] { border-color: #c7b8ed; background: #faf8fe; }
+.demo-steps h3 { font-weight: 750; }
+.demo-step-number { display: grid; place-items: center; flex: 0 0 27px; height: 27px; border-radius: 50%; color: #593da6; background: #eee7fa; font-size: 12px; font-weight: 700; }
+.demo-steps .loan-application-actions { margin-top: 6px; }
+.rate-task-context { color: #52368c; font-size: 12px; font-weight: 650; }

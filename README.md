@@ -13,6 +13,17 @@ npm run dev
 
 Open [Orbit on localhost](http://127.0.0.1:3000) and choose **Log in** to open the local workspace. The app binds to localhost and saves records in `.orbit/orbit.sqlite`. Set `ORBIT_DB_PATH` before starting the app to use a different database file, such as one for a clean test workspace.
 
+## Walk through the guided demo
+
+1. Open the workspace and choose **Guided demo**. In the local SQLite demo, load the sample scenario. In a signed-in workspace, an admin can create a fictional pilot or load the scenario from an existing pilot. Admins can assign the scenario to an invited LO from **Team**.
+2. Start the 1003 from the sample realtor referral. In the borrower view choose **Load sample and review**, confirm the sample answers, and submit. Back on the loan, refresh and mark it reviewed.
+3. Load a sample scenario in pricing, run it, and save an offer. Send the reviewed 1003 to mock UWM. From **My Tasks**, open a condition alert and request its suggested document.
+4. Attach the sample from the borrower checklist, then refresh the condition. Accept and send the document in one action. Check mock clearance. Repeat for the outstanding conditions.
+5. Preview the realtor draft created by clearance. Move the loan to **Clear to Close**, set a target date, and refresh the realtor view to see the milestone.
+6. Record the sample observed rate in the guide. Open **My Tasks** to see the rate-watch task with the observed, target, and current rates.
+
+**Reset sample scenario** replaces the walkthrough loans, referral, and links. Other workspace loans remain available.
+
 ## Try the pipeline
 
 1. Use **New Lead** to enter a borrower name and optional contact details, or select an existing borrower. Choose **Save lead** to return to the pipeline or **Save and open 1003** to start the prefilled application.

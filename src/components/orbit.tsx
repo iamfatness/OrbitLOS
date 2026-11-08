@@ -15,6 +15,7 @@ import { ContactImport } from "./contact-crm";
 import { loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilters, type WorkFilter } from "@/lib/loan-workflow";
 import { LoanWorkQueue } from "./loan-work-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
+import { rateFollowUpContext } from "@/lib/client-retention";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { CallReportWorkbench } from "./call-report";
 import { ManagerReports } from "./manager-reports";
@@ -25,16 +26,18 @@ import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
 import { ReferralQueue } from "./referral-queue";
 import { LeadInbox, firstContactOverdue } from "./lead-inbox";
+import { DemoGuide } from "./demo-guide";
 import { UwmAlertQueue } from "./uwm-alert-queue";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 
-type Section = "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration";
+type Section = "Demo Guide" | "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration";
 const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
 const navigation = [
   { label: "Pipeline", icon: LayoutDashboard },
+  { label: "Demo Guide", icon: OrbitIcon },
   { label: "Lead Inbox", icon: ContactRound },
   { label: "Contacts", icon: ContactRound },
   { label: "Realtors", icon: UsersRound },
@@ -52,6 +55,7 @@ const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: ""
 const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
 const descriptions: Record<Section, string> = {
   Pipeline: "Manage your loans and keep up with lender updates.",
+  "Demo Guide": "Walk through a fictional referral, application, lender review, and follow-up.",
   "Lead Inbox": "Route quote requests and referrals, follow up, and start a 1003.",
   Contacts: "Manage borrowers, co-borrowers, and realtor partners.",
   Realtors: "Track referred loans and share milestone updates with realtor partners.",
@@ -83,10 +87,10 @@ function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEn
   );
 }
 
-export function Orbit({ initial, staff }: { initial: Workspace; staff: WorkspaceStaff | null }) {
+export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: boolean }) {
   const [state, setState] = useState(initial);
   const [reportTab, setReportTab] = useState<"Production" | "Call report">("Production");
-  const [section, setSection] = useState<Section>("Pipeline");
+  const [section, setSection] = useState<Section>(initialGuide && staff?.brokerage.role !== "Processor" ? "Demo Guide" : "Pipeline");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [view, setView] = useState<"Board" | "List">("Board");
   const [query, setQuery] = useState("");
@@ -301,14 +305,14 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
             mobileMenu.current?.focus();
           }
         }}>
-          {navigation.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || label !== "Realtors") && (!processor || label !== "Lead Inbox")).map(({ label, icon: Icon }) => (
+          {navigation.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || label !== "Realtors") && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide"))).map(({ label, icon: Icon }) => (
             <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
               <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="demo-label"><span /> {staff?.brokerage.name ?? "Demo workspace"}</div>
+          <div className="demo-label"><span /> {staff?.brokerage.name ?? "Demo workspace"} · {staff?.brokerage.role ?? "Local demo"}</div>
           <div className="profile"><span className="avatar">{staff ? initials(staff.name) : "AM"}</span><div>
             <strong>{staff?.name || demoOfficer}</strong><small>{staff?.email || "Loan officer"}</small>
           </div></div>
@@ -325,12 +329,12 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
         <div className="content">
           {staff?.brokerage.pilot && <p className="application-message">Pilot workspace · Use fictional borrowers and built-in documents.</p>}
           <div className="page-heading">
-            <div><p className="eyebrow">ORBIT WORKSPACE</p>
+            <div><p className="eyebrow">ORBIT WORKSPACE{staff && ` · ${staff.brokerage.role.toUpperCase()}`}</p>
               <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
               <p>{descriptions[section]}</p>
             </div>
             <div className="heading-actions">
-              {section === "Pipeline" && <>{syncButton()}{!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}</>}
+              {section === "Pipeline" && <>{!processor && <Button variant="outline" onClick={() => navigate("Demo Guide")}><OrbitIcon /> Guided demo</Button>}{syncButton()}{!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}</>}
               {section === "Contacts" && admin && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
               {section === "Communications" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh drafts</Button>}
@@ -471,6 +475,7 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
                 const loan = taskLoans.get(task.loanId);
                 if (!loan) return null;
                 return <LoanTaskRow key={task.id} task={task} officer={loan.officer} borrower={borrowers(loan)} busy={busy}
+                  context={task.id.startsWith("rate-watch:") ? rateFollowUpContext(state.pastClients.find((profile) => profile.loanId === loan.id)) : undefined}
                   openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id) })}
                   onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
@@ -507,9 +512,22 @@ export function Orbit({ initial, staff }: { initial: Workspace; staff: Workspace
           {section === "Team" && staff && <BrokerageTeam staff={staff} state={state} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)}
             openLoan={(loanId) => show({ kind: "details", loanId })} />}
 
+          {section === "Demo Guide" && !processor && <DemoGuide state={state} staff={staff} busy={busy} save={save}
+            open={(loanId, target) => show({ kind: "details", loanId, target })}
+            openPricing={(loanId) => show({ kind: "pricing", loanId })}
+            openLead={(id) => { navigate("Lead Inbox"); setFocusLeadId(id); }}
+            convert={(id) => convertLead(id, null, false)}
+            previewRealtor={(loanId, draftId) => show({ kind: "communication", loanId, audience: "Realtor", draftId })}
+            showTasks={() => { navigate("Tasks"); setTaskOfficer("mine"); }} />}
+
           {section === "Integrations" && <section className="integration">
             <div className="integration-head"><span className="metric-icon lavender"><Zap size={20} /></span><div><h2>United Wholesale Mortgage</h2><p>Mock lender connection</p></div><span className="pill">Demo mode</span></div>
             <p className="integration-description">Import sample pipeline loans and refresh their lender status and underwriting conditions.</p>
+            <details className="document-form">
+              <summary>Connection settings</summary>
+              <p>Mode · Mock UWM</p><p>Credentials · Pending lender access. This pilot uses sample pricing, submissions, and conditions.</p>
+              <p className="muted">Access and role settings are available in Team.</p>
+            </details>
             <div className="integration-stats"><span><CircleCheck size={17} /> {uwmCount} linked loans</span><span><ArrowDownUp size={17} /> {state.uwmSyncedAt ? `Last sync ${dateTime(state.uwmSyncedAt)} ET` : "Waiting for first sync"}</span></div>
             <div className="loan-application-actions">{syncButton()}
               {admin && <Button variant="outline" disabled={busy || !state.uwmSyncedAt || state.mockUwmChangesApplied}

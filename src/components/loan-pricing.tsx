@@ -159,7 +159,7 @@ export function LoanPricing({ loan, state, busy, save }: {
   return <div className="pricing-panel">
     <header className="pricing-heading">
       <div><h3><Calculator size={18} /> UWM Easy Qualifier</h3><p>Conventional, DSCR, and bank statement scenarios.</p></div>
-      <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : current ? "Sample pricing" : "Demo workspace"}</span>
+      <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : "Mock pricing"}</span>
     </header>
     <form className="pricing-form" onSubmit={(event) => void price(event)}>
       <div className="form-grid">

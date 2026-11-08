@@ -9,8 +9,18 @@ function problem(error: string, status: number) {
   return Response.json({ error }, { status, headers });
 }
 
+function sameOrbitOrigin(request: Request) {
+  const url = new URL(request.url);
+  const origin = request.headers.get("Origin");
+  if (origin === url.origin) return true;
+  // Next's local Node server can construct request.url with localhost even when bound to IPv4 loopback.
+  const loopback = url.port ? `127.0.0.1:${url.port}` : "127.0.0.1";
+  return url.protocol === "http:" && url.hostname === "localhost" &&
+    request.headers.get("Host") === loopback && origin === `http://${loopback}`;
+}
+
 export async function borrowerJson<T>(request: Request, run: (input: unknown) => Promise<{ value: T } | { status: number; error: string }>, limit: number) {
-  if (request.headers.get("Origin") !== new URL(request.url).origin) return problem("Open the application directly in Orbit.", 403);
+  if (!sameOrbitOrigin(request)) return problem("Open the application directly in Orbit.", 403);
   if (request.headers.get("Content-Type")?.split(";")[0] !== "application/json") return problem("Send the application as JSON.", 415);
   const reader = request.body?.getReader();
   if (!reader) return problem("The application request is empty.", 400);

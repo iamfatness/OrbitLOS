@@ -31,7 +31,7 @@ export function PastClients({ state, openLoan, editRetention }: {
 
   return <section className="pipeline" aria-label="Past-client list">
     <div className="pipeline-heading"><div><h2>Past-client loans <span>{clients.length}</span></h2>
-      <p>{withDate.length} with closing dates · {watched.length} on the rate watchlist</p></div></div>
+      <p>{withDate.length} with closing dates · {watched.length} on the rate watchlist · {watched.filter(({ reached }) => reached).length} at target</p></div></div>
     <div className="toolbar">
       <label className="search"><input aria-label="Search past clients" placeholder="Search past clients…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <div className="view-toggle" aria-label="Past-client view">{views.map((option) => <button type="button" key={option} aria-pressed={view === option} onClick={() => setView(option)}>{option}</button>)}</div>

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { activityKinds, contactOutcomes, leadSources, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
-import { dateTime, initials, money } from "@/lib/utils";
+import { dateTime, initials, money, stageDays } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
 import { LoanTaskRow } from "./loan-task";
@@ -16,9 +16,8 @@ import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetai
 import { changedApplicationSections, type StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
-import { DocumentRequestForm, LoanDocuments } from "./loan-documents";
+import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-documents";
 import { DocumentFollowUp } from "./document-follow-up";
-import { DocumentStatusPill } from "./sample-document";
 import type { LoanDocumentRequest } from "@/lib/document-model";
 import { mockRateStatus } from "@/lib/pricing-model";
 import { CallReportLoanFacts } from "./call-report";
@@ -29,7 +28,7 @@ import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { pausedLoan } from "@/lib/loan-workflow";
+import { loanNextAction, pausedLoan } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
@@ -133,8 +132,8 @@ function ContactFields({ contact }: { contact?: Contact }) {
   </>;
 }
 
-function SubmissionCard({ submission, requests, busy, save, onEdit }: {
-  submission: Submission; requests: LoanDocumentRequest[]; busy: boolean; save: Save; onEdit: () => void;
+function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl, brokerageId, pilot }: {
+  submission: Submission; requests: LoanDocumentRequest[]; busy: boolean; save: Save; onEdit: () => void; borrowerUrl?: string; brokerageId: string; pilot?: boolean;
 }) {
   const open = submission.conditions.filter((item) => !item.satisfiedAt);
   const cleared = submission.conditions.filter((item) => item.satisfiedAt);
@@ -156,12 +155,14 @@ function SubmissionCard({ submission, requests, busy, save, onEdit }: {
             {item.satisfiedAt ? <CheckCircle2 size={16} className="text-emerald-700" /> : <Circle size={16} className="text-amber-600" />}
             <div><strong>{item.category}{item.group && ` · ${item.group}`}</strong><p>{item.description}</p>
               <small>{submission.lender === "UWM" && "UWM · "}{item.satisfiedAt ? `Cleared ${dateTime(item.satisfiedAt)} ET` : item.uploaded ? "Document uploaded" : "Outstanding"}</small>
-              {request ? <div className="condition-checklist">
-                <a href={`#document-${request.id}`}>View checklist request</a><DocumentStatusPill status={request.status} />
-                {request.uwmReceipt && <span className="pill">Sent to UWM · Mock</span>}
-              </div> : submission.lender === "UWM" && !item.satisfiedAt && <div className="condition-checklist">
-                <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} />
-              </div>}
+              {request ? <>
+                {!item.satisfiedAt && (request.status === "Requested" || request.status === "Needs replacement") && <div className="loan-application-actions">
+                  {borrowerUrl && <Button size="sm" variant="outline" asChild><a href={borrowerUrl} target="_blank" rel="noopener noreferrer">Open borrower checklist <ExternalLink /></a></Button>}
+                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ type: "refreshApplication", loanId: submission.loanId })}>Refresh condition</Button>
+                </div>}
+                <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot}
+                  openCondition={!item.satisfiedAt} replaceable={!item.satisfiedAt} busy={busy} save={save} compact />
+              </> : !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} quick />}
               {!item.satisfiedAt && <ConditionResponse condition={item} request={request} lender={submission.lender} />}
             </div>
           </div>;
@@ -272,7 +273,22 @@ function LenderApplicationDetails({ application, busy, save }: { application: St
   </details>;
 }
 
-function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; save: Save; show: (modal: Modal) => void }) {
+const loanSections = [
+  ["Overview", "loan-workflow"], ["1003", "loan-application"], ["Conditions", "lender-submissions"],
+  ["Pricing & credit", "loan-pricing"], ["Closing", "closing-workbench"], ["Activity", "loan-activity"],
+] as const;
+
+function loanSection(target?: string) {
+  if (!target) return "Overview";
+  if (target === "loan-application" || target === "manual-lender-export") return "1003";
+  if (target.startsWith("lender-") || target.startsWith("document-")) return "Conditions";
+  if (target === "credit-aus" || target === "loan-pricing") return "Pricing & credit";
+  if (target === "closing-workbench" || target === "loan-call-report") return "Closing";
+  if (["loan-activity", "loan-tasks", "loan-retention", "loan-communications"].includes(target)) return "Activity";
+  return "Overview";
+}
+
+function LoanDetails({ loan, state, staff, busy, save, show, target }: { target?: string; loan: Loan; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; save: Save; show: (modal: Modal) => void }) {
   const processor = staff?.brokerage.role === "Processor";
   const sharedProcessor = processor && loan.officerEmail !== staff.email;
   const [activityKind, setActivityKind] = useState<ActivityKind>("Note");
@@ -295,34 +311,65 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
     .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
   const savedOffer = savedPricing?.offers.find((item) => item.id === savedPricing.selectedId);
   const rate = state.mockUwmRates.find((item) => item.loanId === loan.id);
+  const section = loanSection(target);
+  const action = loanNextAction(loan, state);
+  const uwm = submissions.filter((item) => item.lender === "UWM");
+  const uwmStatus = uwm[0]?.status ?? "Awaiting submission";
+  const openCount = uwm.flatMap((item) => item.conditions).filter((item) => !item.satisfiedAt).length;
+  const realtorDraft = state.communicationDrafts.find((draft) => draft.loanId === loan.id && draft.audience === "Realtor" && draft.contactId === loan.partnerId);
+  const borrowerUrl = application?.submittedAt && !application.revokedAt && application.expiresAt > new Date().toISOString()
+    ? `/apply#${application.token}` : undefined;
+  const open = (destination: string) => show({ kind: "details", loanId: loan.id, target: destination });
+  const inlineRequests = new Set(submissions.filter((item) => item.syncedAt).flatMap((item) =>
+    requests.filter((request) => request.submissionId === item.id && item.conditions.some((condition) => condition.id === request.conditionId)).map((request) => request.id)));
   return (
     <div className="details-body">
       <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
-        <div><h3>{borrower?.name}</h3><p>{loan.address || "Property address pending"}</p></div>
+        <div><h3>{borrower?.name}</h3><p>{[money(loan.amount), loan.purpose, loan.address || "Address pending"].join(" · ")}</p></div>
         {!processor && <Button variant="outline" size="sm" onClick={() => show({ kind: "loan", loanId: loan.id })}><Pencil /> Edit loan</Button>}
       </div>
-      <div className="details-grid">
-        <div><span>Loan amount</span><strong>{money(loan.amount)}</strong></div>
-        <div><span>Purpose</span><strong>{loan.purpose}</strong></div>
-        <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
-        <div><span>Realtor</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
+      <div className="loan-status-panel">
+        <div className="details-grid">
+          <div><span>Pipeline stage</span><strong suppressHydrationWarning>{loan.stage} · {stageDays(loan.stageSince)}d in stage</strong></div>
+          <div><span>UWM · Mock</span><strong>{uwmStatus}</strong>{uwm.length > 0 && <button className="name-link" onClick={() => open("lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
+          <div><span>Realtor partner</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
+          <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
+        </div>
+        <div className="loan-status-action">
+          <div><small>Next action</small><strong>{action.title}</strong>
+            {(action.blocker || action.dueAt) && <span>{[action.blocker, action.dueAt && `Due ${dateTime(action.dueAt)} ET`].filter(Boolean).join(" · ")}</span>}
+          </div>
+          <Button size="sm" onClick={() => open(action.target)}>Open next action</Button>
+        </div>
       </div>
-      <LoanWorkflow key={loan.dispositionRevision} loan={loan} state={state} busy={busy} readOnly={processor} save={(input) => void save(input)}
-        open={(target) => show({ kind: "details", loanId: loan.id, target })} />
+      <nav className="loan-section-nav" aria-label="Loan sections">{loanSections.map(([name, destination]) =>
+        <button key={name} type="button" aria-current={section === name ? "page" : undefined} onClick={() => open(destination)}>{name}</button>)}
+      </nav>
+      {section === "Overview" && <>
+      <LoanWorkflow key={loan.dispositionRevision} loan={loan} busy={busy} readOnly={processor} save={(input) => void save(input)} />
       <ProcessingHandoff loan={loan} assignment={state.loanProcessing.find((item) => item.loanId === loan.id)}
         staff={staff} busy={busy} save={(input) => void save(input)} />
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
-      <section className="details-section" aria-label="Loan pricing">
+      <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} />
+      </>}
+      {section === "Pricing & credit" && <>
+      <section className="details-section" id="loan-pricing" tabIndex={-1} aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
           {!processor && <Button size="sm" variant="outline" onClick={() => show({ kind: "pricing", loanId: loan.id })}>Price loan</Button>}
         </div>
-        <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare UWM Easy Qualifier options and save a quote on the loan."}</p>
+        <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare sample rate and fee options, then save a quote to the loan."}</p>
         {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
       <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)} busy={busy} readOnly={processor} save={save} />
+      </>}
+      {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId })} />
+      {callReportFile && <CallReportLoanFacts key={`${loan.id}:${callReportFile.revision}`} file={callReportFile} busy={busy} save={save} />}
+      </>}
+      {section === "1003" && <>
+      <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor} />
       {staff?.brokerage.pilot && state.mismoLoans.includes(loan.id) && <section className="details-section" aria-label="Synthetic loan file">
         <h3>Synthetic loan file</h3>
         <p className="muted">Download the original reviewed field mapping for this fictional 1003 rehearsal.</p>
@@ -330,11 +377,25 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
           if (mismoXml) downloadSampleFile(mismoXml, "orbit-fictional-rehearsal.xml", "application/xml");
         })}>Export original XML mapping</Button>
       </section>}
-      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
+      </>}
+      {section === "Conditions" && <>
+      <section className="details-section" id="lender-submissions" tabIndex={-1}>
+        <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
+        {submissions.length === 0 && <p className="empty-inline">No lender submissions yet. Review the 1003 and send it to mock UWM to start the condition checklist.</p>}
+        {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
+          borrowerUrl={borrowerUrl} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot}
+          onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
+      </section>
+      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} inlineRequests={inlineRequests}
+        openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
-      <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor} />
-      <FileReadiness loan={loan} state={state} busy={busy} save={save} open={(target) => show({ kind: "details", loanId: loan.id, target })} />
+      </>}
+      {section === "Activity" && <>
+      {realtorDraft && <section className="details-section">
+        <div className="section-heading"><h3>Latest realtor update</h3><span className="pill">{realtorDraft.milestone}</span></div>
+        <Button size="sm" variant="outline" onClick={() => show({ kind: "communication", loanId: loan.id, audience: "Realtor", draftId: realtorDraft.id })}>Preview latest realtor draft</Button>
+      </section>}
       {!processor && <div id="loan-retention" tabIndex={-1}><LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} /></div>}
       {!sharedProcessor && <section className="details-section" aria-label="Loan follow-up tasks" id="loan-tasks" tabIndex={-1}>
         <div className="section-heading"><h3><CheckCircle2 size={17} /> Follow-up tasks</h3></div>
@@ -359,13 +420,6 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         </details>
       </section>}
       <LoanCommunications loan={loan} state={state} preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />
-      <section className="details-section" id="lender-submissions" tabIndex={-1}>
-        <div className="section-heading"><h3>Lender submissions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
-        {submissions.length === 0 && <p className="empty-inline">No lender submissions yet.</p>}
-        {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
-          onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
-      </section>
-      {callReportFile && <CallReportLoanFacts key={`${loan.id}:${callReportFile.revision}`} file={callReportFile} busy={busy} save={save} />}
       <LoanAudit key={loan.id} loanId={loan.id} busy={busy} save={save} />
       <section className="details-section" id="loan-activity" tabIndex={-1}>
         <div className="section-heading"><h3><ClipboardList size={17} /> Activity</h3></div>
@@ -389,6 +443,7 @@ function LoanDetails({ loan, state, staff, busy, save, show }: { loan: Loan; sta
         </form>
         {notes.map((note) => <div className="note" key={note.id}><div className="activity-meta"><span className="pill">{note.kind}{note.outcome && ` · ${note.outcome}`}</span><small>{dateTime(note.createdAt)} ET</small></div><p>{note.text}</p></div>)}
       </section>
+      </>}
     </div>
   );
 }
@@ -406,8 +461,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     if (!target) return;
     const item = document.getElementById(target);
     item?.focus({ preventScroll: true });
-    item?.scrollIntoView({ block: "start" });
-  }, [target]);
+    if (loanSections.some(([, destination]) => destination === target)) dialog.current?.scrollTo({ top: 0 });
+    else item?.scrollIntoView({ block: "start" });
+  }, [modal, target]);
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
   const contact = "contactId" in modal ? state.contacts.find((item) => item.id === modal.contactId) : undefined;
   const submission = modal.kind === "submission" ? state.submissions.find((item) => item.id === modal.submissionId) : undefined;
@@ -420,14 +476,17 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     retention: "Past-client follow-up",
     contactHistory: "Contact history",
   }[modal.kind];
-  const back = () => loan ? show({ kind: "details", loanId: loan.id }) : close();
+  const backTarget = modal.kind === "pricing" ? "loan-pricing" : modal.kind === "communication" ? "loan-communications" :
+    modal.kind === "retention" ? "loan-retention" : modal.kind === "documentFollowUp" ? "document-checklist" :
+    modal.kind === "submission" ? "lender-submissions" : undefined;
+  const back = () => loan ? show({ kind: "details", loanId: loan.id, target: backTarget }) : close();
   const retention = modal.kind === "retention" ? state.pastClients.find((profile) => profile.loanId === modal.loanId) : undefined;
   const key = `${modal.kind}-${loan?.id ?? contact?.id ?? "new"}-${modal.kind === "communication" ? modal.draftId ?? modal.audience : submission?.id ?? ""}`;
   const remove = (input: unknown, question: string, after: () => void) => {
     if (window.confirm(question)) void save(input, after);
   };
   return (
-    <dialog ref={dialog} className={modal.kind === "pricing" ? "record-dialog record-dialog-wide" : "record-dialog"} aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
+    <dialog ref={dialog} className={modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog"} aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
       <div className="dialog-head">
         {loan && modal.kind !== "details" && <Button variant="ghost" size="icon" aria-label="Back to loan details" onClick={back}><ArrowLeft /></Button>}
         <h2 id="record-title">{title}</h2>
@@ -435,7 +494,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       </div>
       {error && <p className="dialog-error" role="alert">{error}</p>}
       <div className="dialog-content" key={key}>
-        {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} staff={staff} busy={busy} save={save} show={show} />}
+        {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} staff={staff} busy={busy} save={save} show={show} target={target} />}
         {modal.kind === "communication" && loan && <CommunicationPreview loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} busy={busy} save={save} />}
         {modal.kind === "documentFollowUp" && loan && <DocumentFollowUp loan={loan} state={state} />}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save} />}

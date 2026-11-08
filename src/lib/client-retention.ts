@@ -47,6 +47,11 @@ export function rateTargetReached(profile: Pick<PastClientProfile, "watchEnabled
   return profile.watchEnabled && profile.targetRate !== null && profile.observedRate !== null && profile.observedRate <= profile.targetRate;
 }
 
+export function rateFollowUpContext(profile: PastClientProfile | undefined) {
+  if (!profile || !rateTargetReached(profile)) return undefined;
+  return `Observed ${profile.observedRate!.toFixed(3)}% · Target ${profile.targetRate!.toFixed(3)}%${profile.currentRate === null ? "" : ` · Current ${profile.currentRate.toFixed(3)}%`}`;
+}
+
 export function synchronizeRetentionTasks(db: Store, now = new Date()) {
   const today = easternDate(now);
   const profiles = db.prepare(`SELECT profile.*, loans.stage FROM past_client_profiles profile JOIN loans ON loans.id = profile.loanId`).all();

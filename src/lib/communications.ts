@@ -14,6 +14,11 @@ export function createMilestoneDrafts(db: Store, loanId: string, milestone: Draf
   if (loan.partnerId) createDraft(db, loanId, "Realtor", milestone, String(loan.partnerId), now);
 }
 
+export function createRealtorLenderDraft(db: Store, loanId: string, milestone: "Lender review started" | "Lender review complete", now: string) {
+  const loan = db.prepare("SELECT partnerId FROM loans WHERE id = ?").get(loanId);
+  if (loan?.partnerId) createDraft(db, loanId, "Realtor", milestone, String(loan.partnerId), now);
+}
+
 export function recordDraftCopy(db: Store, input: {
   loanId: string; contactId: string; audience: DraftAudience; milestone: DraftMilestone; channel: DraftChannel;
 }, now: string) {

@@ -81,7 +81,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       leadMembers = team.members.filter((member) => member.status === "Active" && member.role !== "Processor");
     }
     const result = await executeCommand(this.#store, input, staff, referralOwner, leadMembers);
-    if ("state" in result && input && typeof input === "object" && "type" in input && input.type === "deleteLoan") await this.#scheduleCleanup();
+    if ("state" in result && input && typeof input === "object" && "type" in input && (input.type === "deleteLoan" || input.type === "loadGuidedDemo")) await this.#scheduleCleanup();
     return result;
   }
 

@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
-  "vars": { "ORBIT_DOCUMENT_UPLOADS": "mock" },
+  "vars": { "ORBIT_DOCUMENT_UPLOADS": "mock", "ORBIT_PRICING_MODE": "mock" },
   "routes": [{ "pattern": "orbitlos.com", "custom_domain": true }],
   "assets": { "not_found_handling": "none", "run_worker_first": true, "binding": "ASSETS" },
   "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "OrbitWorkspace" }] },

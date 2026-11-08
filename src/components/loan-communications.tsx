@@ -66,7 +66,7 @@ export function CommunicationQueue({ state, preview }: { state: Workspace; previ
 
 export function LoanCommunications({ loan, state, preview }: { loan: Loan; state: Workspace; preview: Preview }) {
   const drafts = state.communicationDrafts.filter((draft) => draft.loanId === loan.id);
-  return <section className="details-section" aria-label="Loan communications">
+  return <section className="details-section" aria-label="Loan communications" id="loan-communications" tabIndex={-1}>
     <div className="section-heading"><h3><Mail size={17} /> Communications</h3></div>
     <div className="loan-application-actions">
       <Button variant="outline" size="sm" onClick={() => preview(loan.id, "Borrower")}>Preview borrower update</Button>
