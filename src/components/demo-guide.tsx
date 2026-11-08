@@ -75,7 +75,7 @@ export function DemoGuide({ state, staff, busy, save, open, openPricing, openLea
   const steps: GuideStep[] = [
     {
       title: "Turn a realtor referral into a 1003",
-      description: "Taylor’s fictional referral is ready in the Lead Inbox. Conversion prefills the application and assigns first-contact work.",
+      description: "Prefill the 1003 and assign first contact.",
       done: Boolean(loan),
       action: lead && <>
         <Button size="sm" disabled={busy} onClick={() => lead.matches.length || lead.restrictedMatch ? openLead(lead.id) : convert(lead.id)}>Start 1003 from referral <ArrowRight /></Button>
@@ -138,27 +138,38 @@ export function DemoGuide({ state, staff, busy, save, open, openPricing, openLea
       })}>Record sample 6.000%</Button>),
     },
   ];
+  const completed = steps.filter((step) => step.done).length;
   const next = steps.findIndex((step) => !step.done);
 
-  return <section className="integration record-form manager-panel" aria-label="Guided demo walkthrough">
-    <div className="section-heading"><div><p className="eyebrow">FICTIONAL BROKER WORKSPACE</p><h2>Referral to closing in seven steps</h2></div>
-      <span className="pill">{demo?.rateLoanId ? `${steps.filter((step) => step.done).length} / ${steps.length} ready` : "5–7 minutes"}</span></div>
-    <p className="muted">Follow one file through the LO, borrower, and realtor views. All lender, pricing, credit, and AUS results in this walkthrough are mock.</p>
+  return <section className="integration record-form manager-panel demo-guide" aria-label="Guided demo walkthrough">
+    <div className="demo-guide-heading">
+      <h2>Referral to closing in seven steps</h2>
+      {demo?.rateLoanId ? <div className="demo-progress">
+        <span role="status">{completed} / {steps.length} ready</span>
+        <progress aria-label="Completed walkthrough steps" value={completed} max={steps.length} />
+      </div> : <span className="pill">5–7 minutes</span>}
+    </div>
+    <p className="muted">Follow a fictional file as the LO, borrower, and realtor. Lender, pricing, credit, and AUS results are mocked.</p>
     <div className="loan-application-actions">
       {(canReset || canCreate) && <Button size="sm" variant={demo ? "outline" : "default"} disabled={busy || creating} onClick={() => void start()}>
-        <Play /> {creating ? "Opening pilot…" : canCreate ? "Create guided pilot" : demo ? "Reset sample scenario" : "Load sample scenario"}
+        <Play /> {creating ? "Opening pilot…" : canCreate ? "Create guided pilot" : demo ? "Reset scenario" : "Load sample scenario"}
       </Button>}
-      {demo && <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}>Refresh walkthrough</Button>}
+      {demo && <Button size="sm" variant="outline" aria-label="Refresh walkthrough" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}>Refresh</Button>}
       {portal && <Button size="sm" variant="outline" asChild><a href={portal} target="_blank" rel="noopener noreferrer">Open sample realtor view <ExternalLink /></a></Button>}
     </div>
     {setupError && <p className="application-error" role="alert">{setupError}</p>}
     {!demo?.rateLoanId ? <p className="empty-inline">{canCreate ? "Create an isolated pilot workspace, then load the sample scenario." : canReset ?
       "Load the scenario to add an assigned realtor referral and a funded client with a rate target." :
       "Ask a pilot admin to load the guided scenario and assign it to you."}</p> :
-      <ol className="demo-steps">{steps.map(({ title, description, done, action }, index) =>
-        <li key={title} data-active={index === next}>
-          <span className="demo-step-number" aria-label={done ? "Ready" : undefined}>{done ? <CircleCheck size={17} /> : index + 1}</span>
-          <div><h3>{title}</h3><p className="muted">{description}</p>{action && <div className="loan-application-actions">{action}</div>}</div>
+      <ol className="demo-steps" role="list">{steps.map(({ title, description, done, action }, index) =>
+        <li key={title} aria-current={index === next ? "step" : undefined} data-done={done}>
+          <span className="demo-step-number" aria-hidden="true">{done ? <CircleCheck size={17} /> : index + 1}</span>
+          <div>
+            {index === next && <p className="eyebrow">Up next</p>}
+            <h3>{done && <span className="sr-only">Completed. </span>}{title}</h3>
+            {!done && (index === next || action) && <p className="muted">{description}</p>}
+            {action && <div className="loan-application-actions">{action}</div>}
+          </div>
         </li>)}</ol>}
   </section>;
 }

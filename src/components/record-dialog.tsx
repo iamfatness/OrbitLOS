@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { activityKinds, contactOutcomes, leadSources, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { dateTime, initials, money, stageDays } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -330,8 +330,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target }: { target?
       </div>
       <div className="loan-status-panel">
         <div className="details-grid">
-          <div><span>Pipeline stage</span><strong suppressHydrationWarning>{loan.stage} · {stageDays(loan.stageSince)}d in stage</strong></div>
-          <div><span>UWM · Mock</span><strong>{uwmStatus}</strong>{uwm.length > 0 && <button className="name-link" onClick={() => open("lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
+          <div><span>Pipeline stage</span><strong>{loan.stage}</strong><span suppressHydrationWarning>{stageDays(loan.stageSince)}d in stage</span></div>
+          <div><span>UWM · Mock</span><strong>{uwmStatus}</strong>{uwm.length > 0 && <button type="button" className="condition-status" data-outstanding={openCount > 0} onClick={() => open("lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
           <div><span>Realtor partner</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
           <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
         </div>
@@ -339,7 +339,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target }: { target?
           <div><small>Next action</small><strong>{action.title}</strong>
             {(action.blocker || action.dueAt) && <span>{[action.blocker, action.dueAt && `Due ${dateTime(action.dueAt)} ET`].filter(Boolean).join(" · ")}</span>}
           </div>
-          <Button size="sm" onClick={() => open(action.target)}>Open next action</Button>
+          <Button size="sm" onClick={() => open(action.target)}>Open next action <ArrowRight aria-hidden="true" /></Button>
         </div>
       </div>
       <nav className="loan-section-nav" aria-label="Loan sections">{loanSections.map(([name, destination]) =>

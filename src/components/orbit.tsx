@@ -3,7 +3,7 @@
 import { useRef, useState, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
-  HeartHandshake, List, LogOut, Mail, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, UsersRound, Wallet, X, Zap,
+  HeartHandshake, List, LogOut, Mail, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, UsersRound, X, Zap,
 } from "lucide-react";
 import { mutate } from "@/app/actions";
 import { stages, type Loan, type Stage, type Workspace } from "@/lib/model";
@@ -36,26 +36,31 @@ const demoOfficer = "Alex Morgan";
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
 const navigation = [
-  { label: "Pipeline", icon: LayoutDashboard },
-  { label: "Demo Guide", icon: OrbitIcon },
-  { label: "Lead Inbox", icon: ContactRound },
-  { label: "Contacts", icon: ContactRound },
-  { label: "Realtors", icon: UsersRound },
-  { label: "Past Clients", icon: HeartHandshake },
-  { label: "Tasks", icon: ClipboardCheck },
-  { label: "Communications", icon: Mail },
-  { label: "Integrations", icon: Zap },
-  { label: "Reports", icon: FileCheck2 },
-  { label: "Migration", icon: ArrowDownUp },
-  { label: "Team", icon: UsersRound },
+  { title: "Loan operations", items: [
+    { label: "Pipeline", icon: LayoutDashboard },
+    { label: "Lead Inbox", icon: ContactRound },
+    { label: "Tasks", icon: ClipboardCheck },
+  ] },
+  { title: "Relationships", items: [
+    { label: "Contacts", icon: ContactRound },
+    { label: "Realtors", icon: UsersRound },
+    { label: "Past Clients", icon: HeartHandshake },
+    { label: "Communications", icon: Mail },
+  ] },
+  { title: "Workspace", items: [
+    { label: "Demo Guide", icon: OrbitIcon },
+    { label: "Reports", icon: FileCheck2 },
+    { label: "Integrations", icon: Zap },
+    { label: "Migration", icon: ArrowDownUp },
+    { label: "Team", icon: UsersRound },
+  ] },
 ] as const;
 
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
 const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: "", work: "" as WorkFilter | "" };
 const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
-const descriptions: Record<Section, string> = {
+const descriptions = {
   Pipeline: "Manage your loans and keep up with lender updates.",
-  "Demo Guide": "Walk through a fictional referral, application, lender review, and follow-up.",
   "Lead Inbox": "Route quote requests and referrals, follow up, and start a 1003.",
   Contacts: "Manage borrowers, co-borrowers, and realtor partners.",
   Realtors: "Track referred loans and share milestone updates with realtor partners.",
@@ -77,10 +82,11 @@ function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEn
       <span className="loan-person"><span className={`avatar avatar-${stages.indexOf(loan.stage) % 4}`}>{initials(name)}</span><strong>{name}</strong></span>
       <span className="loan-address"><MapPin size={13} /> <span>{loan.address || "Property pending"}</span></span>
       <span className="loan-value">{money(loan.amount)} <small>{loan.purpose}</small></span>
-      <span className="loan-address"><span>{action.title} · {loan.officer || "Unassigned"}</span></span>
+      <span className="loan-card-next"><small>Next action</small><strong>{action.title}</strong></span>
       {(action.dueAt || action.blocker) && <span className="loan-address"><span>{action.blocker}{action.blocker && action.dueAt ? " · " : ""}{action.dueAt && dateTime(action.dueAt)}</span></span>}
       <span className="loan-card-footer">
-        {lenders.length ? <span className="lender-chip">{lenders[0]}{lenders.length > 1 && ` +${lenders.length - 1}`}</span> : <span>{loan.officer.split(" ")[0] || "Unassigned"}</span>}
+        <span className="loan-card-owner">{loan.officer || "Unassigned"}</span>
+        {lenders.length > 0 && <span className="lender-chip">{lenders[0]}{lenders.length > 1 && ` +${lenders.length - 1}`}</span>}
         {count > 0 ? <span className="open-chip">{count} open</span> : <span suppressHydrationWarning>{stageDays(loan.stageSince)}d</span>}
       </span>
     </button>
@@ -291,24 +297,28 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      <aside className="sidebar" onKeyDown={(event) => {
+        if (event.key === "Escape" && mobileNavOpen) {
+          event.preventDefault();
+          setMobileNavOpen(false);
+          mobileMenu.current?.focus();
+        }
+      }}>
         <div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
         <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button"
           aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
           {mobileNavOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />} Menu
         </Button>
-        <div className="workspace-label">WORKSPACE</div>
-        <nav id="workspace-navigation" aria-label="Workspace navigation" data-expanded={mobileNavOpen} onKeyDown={(event) => {
-          if (event.key === "Escape" && mobileNavOpen) {
-            event.preventDefault();
-            setMobileNavOpen(false);
-            mobileMenu.current?.focus();
-          }
-        }}>
-          {navigation.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || label !== "Realtors") && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide"))).map(({ label, icon: Icon }) => (
-            <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
-              <Icon size={18} /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
-            </button>
+        <nav id="workspace-navigation" aria-label="Workspace navigation" data-expanded={mobileNavOpen}>
+          {navigation.map(({ title, items }) => (
+            <div className="nav-group" key={title}>
+              <p className="workspace-label">{title}</p>
+              {items.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || label !== "Realtors") && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide"))).map(({ label, icon: Icon }) => (
+                <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
+                  <Icon size={17} aria-hidden="true" /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -328,18 +338,44 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
         </header>
         <div className="content">
           {staff?.brokerage.pilot && <p className="application-message">Pilot workspace · Use fictional borrowers and built-in documents.</p>}
-          <div className="page-heading">
+          {section === "Pipeline" ? <section className="pipeline-hero" aria-labelledby="pipeline-title">
+            <svg className="pipeline-orbits" viewBox="0 0 520 250" aria-hidden="true" fill="none">
+              <g stroke="currentColor">
+                <ellipse cx="365" cy="108" rx="174" ry="57" transform="rotate(-23 365 108)" />
+                <ellipse cx="365" cy="108" rx="203" ry="78" transform="rotate(-23 365 108)" />
+                <ellipse cx="365" cy="108" rx="232" ry="99" transform="rotate(-23 365 108)" />
+              </g>
+              <circle cx="250" cy="172" r="5" fill="currentColor" />
+              <circle cx="450" cy="36" r="4" fill="currentColor" />
+            </svg>
+            <div className="page-heading">
+              <div>
+                <p className="eyebrow">ORBIT WORKSPACE{staff && ` · ${staff.brokerage.role.toUpperCase()}`}</p>
+                <h1 id="pipeline-title">Loan pipeline</h1>
+                <p>{descriptions.Pipeline}</p>
+              </div>
+              <div className="heading-actions pipeline-actions">
+                {!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}
+                {syncButton()}
+                {!processor && <Button className="pipeline-demo" variant="ghost" onClick={() => navigate("Demo Guide")}><OrbitIcon /> Guided demo</Button>}
+              </div>
+            </div>
+            <dl className="metrics">
+              <div><dt>Active loans</dt><dd>{active.length}</dd><dd className="metric-context">{state.loans.length} total in pipeline</dd></div>
+              <div><dt>Active loan volume</dt><dd>{compactMoney(active.reduce((total, loan) => total + loan.amount, 0))}</dd><dd className="metric-context">Across active stages</dd></div>
+              <div><dt>Open UWM conditions</dt><dd data-outstanding={openConditions > 0}>{openConditions}</dd><dd className="metric-context">{state.uwmSyncedAt ? "Across synced loan files" : "Available after the first sync"}</dd></div>
+            </dl>
+          </section> : <div className="page-heading">
             <div><p className="eyebrow">ORBIT WORKSPACE{staff && ` · ${staff.brokerage.role.toUpperCase()}`}</p>
-              <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
-              <p>{descriptions[section]}</p>
+              <h1>{section}</h1>
+              {section !== "Demo Guide" && <p>{descriptions[section]}</p>}
             </div>
             <div className="heading-actions">
-              {section === "Pipeline" && <>{!processor && <Button variant="outline" onClick={() => navigate("Demo Guide")}><OrbitIcon /> Guided demo</Button>}{syncButton()}{!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}</>}
               {section === "Contacts" && admin && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
               {section === "Communications" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh drafts</Button>}
             </div>
-          </div>
+          </div>}
 
           {(notice || (error && !modal)) && (
             <div className={error && !modal ? "banner banner-error" : "banner"} role={error && !modal ? "alert" : "status"}>
@@ -348,13 +384,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
             </div>
           )}
 
-          {section === "Pipeline" && <>
-            <div className="metrics">
-              <article><div className="metric-icon lavender"><LayoutDashboard size={19} /></div><div><p>Active loans</p><strong>{active.length}</strong><small>{state.loans.length} total in pipeline</small></div></article>
-              <article><div className="metric-icon mint"><Wallet size={19} /></div><div><p>Active loan volume</p><strong>{compactMoney(active.reduce((total, loan) => total + loan.amount, 0))}</strong><small>Across active stages</small></div></article>
-              <article><div className="metric-icon gold"><FileCheck2 size={19} /></div><div><p>Open UWM conditions</p><strong>{openConditions}</strong><small>{state.uwmSyncedAt ? "Across synced loan files" : "Available after the first sync"}</small></div></article>
-            </div>
-            <section className="pipeline" aria-label="Pipeline views">
+          {section === "Pipeline" && <section className="pipeline pipeline-board" aria-label="Pipeline views">
               <div className="pipeline-heading"><div><h2>Pipeline overview <span>{visibleLoans.length}</span></h2><p>Track each loan from lead to close.</p></div>
                 {view === "Board" && <Button variant="ghost" size="sm" className="board-next" onClick={() => board.current?.scrollBy({ left: 490, behavior: "smooth" })}>More stages <ArrowRight /></Button>}
               </div>
@@ -382,7 +412,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                   {stages.filter((stage) => !filters.stage || filters.stage === stage).map((stage) => {
                     const items = visibleLoans.filter((loan) => loan.stage === stage);
                     const color = stageColors[stages.indexOf(stage)];
-                    return <section key={stage} className={dropStage === stage ? "lane drag-over" : "lane"}
+                    return <section key={stage} className={dropStage === stage ? "lane drag-over" : "lane"} data-tone={color}
                       onDragOver={(event) => { if (dragged.current && !busy) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropStage(stage); } }}
                       onDrop={(event) => drop(event, stage)}>
                       <div className="lane-title"><span className={`stage-dot ${color}`} /><h3>{stage}</h3><span className="lane-count">{items.length}</span>{!processor && <Button variant="ghost" size="icon" aria-label={`Add lead to ${stage}`} onClick={() => show({ kind: "loan", stage })}><Plus /></Button>}</div>
@@ -403,7 +433,7 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                     {!!nextActions.get(loan.id)?.dueAt && <small>Due {dateTime(nextActions.get(loan.id)!.dueAt!)} ET</small>}</td></tr>)}
               </tbody></table></div>}
             </section>
-          </>}
+          }
 
           {section === "Lead Inbox" && <LeadInbox leads={state.inboxLeads} routing={state.leadRouting} staff={staff} now={taskNow} busy={busy}
             focusLeadId={focusLeadId} save={save} convert={convertLead} />}
