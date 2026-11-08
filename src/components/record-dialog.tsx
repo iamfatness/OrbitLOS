@@ -23,6 +23,7 @@ import type { LoanDocumentRequest } from "@/lib/document-model";
 import { mockRateStatus } from "@/lib/pricing-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
+import { ManualLenderExport } from "./manual-lender-export";
 import { ClosingWorkbench } from "./closing-workbench";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
@@ -244,6 +245,8 @@ function LoanApplication({ loanId, state, busy, save, processor }: { loanId: str
           <ApplicationAnswers draft={application.previousAnswers} />
         </details>}
       </details>}
+      <ManualLenderExport key={`${loanId}:${application.revision}:${application.lender?.revision ?? 0}`}
+        application={application} busy={busy} save={save} />
       <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application} busy={busy} save={save} />
     </div>}
   </section>;

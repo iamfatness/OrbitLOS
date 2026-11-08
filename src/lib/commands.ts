@@ -34,6 +34,9 @@ import { createMismoRehearsal, exportMismoRehearsal } from "./mismo-rehearsal";
 import { saveCallReport } from "./call-report-model";
 import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEvent } from "./loan-audit";
 
+import { exportReviewedApplication } from "./lender-export-model";
+import { prepareLenderExport } from "./lender-export";
+
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
 const lockChange = { loanId: id, lockReference: id, expectedExpiresAt: z.iso.datetime() };
@@ -85,6 +88,7 @@ const command = z.discriminatedUnion("type", [
   deleteReportView,
   importMismo,
   exportMismo,
+  exportReviewedApplication,
   z.object({ type: z.literal("completeLeadTask"), leadId: z.uuid(), taskId: z.uuid(), completed: z.boolean() }),
   assignInboxLeadInput,
   leadContactInput,
@@ -151,7 +155,7 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
   if (data.type === "contact" || data.type === "deleteContact" || data.type === "deleteLoan" || data.type === "sync" || data.type === "simulateUwmChanges" || data.type === "saveBrokerageTemplate" ||
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if (staff.brokerage.role === "Processor") {
-    const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "reviewApplication", "requestApplicationCorrection",
+    const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "exportReviewedApplication", "reviewApplication", "requestApplicationCorrection",
       "saveLenderDetails", "requestDocument", "applyDocumentPreset", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
       "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
@@ -286,6 +290,14 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if ("error" in result) throw new WorkspaceError(result.error);
           applicationLoanId = result.loanId;
           message = "Fictional 1003 draft created from the reviewed mapping.";
+          break;
+        }
+        case "exportReviewedApplication": {
+          if (!staff) throw new WorkspaceError("Sign in to download an application.");
+          const result = prepareLenderExport(db, data, staff, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          mismoXml = result.xml;
+          message = "MISMO 3.4 XML prepared for manual handoff.";
           break;
         }
         case "exportMismo": {

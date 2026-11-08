@@ -75,6 +75,12 @@ In **Realtors → Partner conversion**, filter the cohort by lead date, current 
 4. As a brokerage admin, open **Reports**. Choose an officer, source, or date range and save the view. Select a count to open its leads or loans. Lead response and conversion use a lead creation cohort. The funding totals use the target closing date and recorded funding date, respectively.
 5. In **Migration**, load the synthetic MISMO 3.4 sample, review the ten mapped fields, and confirm the values are fictional. Create the 1003 draft, then use **Export original XML mapping** on the loan to download the reviewed fields and load them back into the preview. This is a limited mapping rehearsal. Lender submission requires the applicable full mapping, schemas, and validation. [Fannie Mae Form 1003 and ULAD resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
 
+## Rehearse a manual lender upload
+
+Open a reviewed pilot 1003 and expand **Manual lender export**. Confirm the borrowers' given and family names and download the MISMO 3.4 XML. The download uses the reviewed application and saved lender details. It records a preparation event on the loan. After an authorized handoff, use **File readiness** to log the lender's response or record delivery.
+
+The fictional XML maps core borrower, property, employment, income, asset, liability, and loan details. Use the review list in Orbit to identify fields to finish in the receiving system. The pilot download excludes taxpayer and account identifiers and signatures. Validate the lender's accepted profile and import behavior with approved test files before a live upload. [Fannie Mae 1003 and ULAD resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
+
 ## Prepare a quarterly call report review
 
 1. Sign in as a brokerage admin and open **Reports → Call report**. Select the reporting year and quarter. Filter by confirmed property state or originator NMLS ID. Choose a count to see the loan records behind it.
