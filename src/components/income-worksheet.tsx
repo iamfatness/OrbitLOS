@@ -55,8 +55,8 @@ function SourceEditor({ source, index, page, busy, change, remove }: {
       <label className="field">Use in monthly total<select value={source.included ? "Include" : "Exclude"} onChange={(event) => change({ included: event.target.value === "Include" })}>
         <option>Include</option><option>Exclude</option>
       </select></label>
-      <label className="field">Period starts<input type="date" value={source.start} max={page.asOf} onChange={(event) => change({ start: event.target.value })} /></label>
-      <label className="field">Period ends<input type="date" value={source.end} max={page.asOf} onChange={(event) => change({ end: event.target.value })} /></label>
+      <label className="field">Period starts<input type="date" name={`start-${source.id}`} defaultValue={source.start} max={page.asOf} /></label>
+      <label className="field">Period ends<input type="date" name={`end-${source.id}`} defaultValue={source.end} max={page.asOf} /></label>
       <label className="field">Calculation<select value={source.method} onChange={(event) => change({ method: event.target.value as IncomeSource["method"], periods: null })}>
         {incomeMethods.map((method) => <option key={method}>{method}</option>)}
       </select></label>
@@ -168,9 +168,12 @@ export function IncomeWorksheet({ brokerageId, loanId, focused, onChanged, onPri
             </li>)}</ul>
           </div>}
           {page.stale && <p className="quote-disclaimer">Review the updated file and save a new version before using worksheet income in pricing.</p>}
-          {sources ? <form className="record-form" aria-label="Income source editor" onSubmit={(event) => {
+          {sources ? <form method="post" className="record-form" aria-label="Income source editor" onSubmit={(event) => {
             event.preventDefault();
-            void mutate("save", { sources })?.then((saved) => { if (saved) setSources(undefined); });
+            const fields = new FormData(event.currentTarget);
+            const updated = sources.map((source) => ({ ...source, start: String(fields.get(`start-${source.id}`) ?? ""),
+              end: String(fields.get(`end-${source.id}`) ?? "") }));
+            void mutate("save", { sources: updated })?.then((saved) => { if (saved) setSources(undefined); });
           }}>
             {sources.map((source, index) => <SourceEditor key={source.id} source={source} index={index} page={page} busy={busy}
               change={(update) => setSources((list) => list?.map((item) => item.id === source.id ? { ...item, ...update } : item))}
