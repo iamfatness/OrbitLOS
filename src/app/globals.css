@@ -393,6 +393,9 @@ button:disabled { cursor: default; }
 .quote-intake .application-intro > p:last-child { overflow-wrap: anywhere; }
 .quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit { background: var(--quote-accent); }
 .quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit:hover { background: var(--quote-hover); }
+@media (max-width: 460px) {
+  .quote-intake .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .application-warning, .application-message { padding: 10px 12px; border-radius: 9px; margin-bottom: 12px; background: #f0ebfd; color: #503b91; }
 .application-warning { background: #fff4dd; color: #75530f; }
 .application-message.banner-error { background: #fff0f2; color: #91253a; }
