@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { readConversationWork, saveConversationWork } from "@/app/actions";
+import { staffSignInRequired } from "@/lib/brokerage-model";
 import { dateLabel } from "@/lib/client-retention";
-import { conversationChannels, conversationFilters, type ConversationCallback, type ConversationCursor, type ConversationDetail, type ConversationFocus,
-  type ConversationInput, type ConversationQuery, type ConversationResult } from "@/lib/conversation-model";
+import { conversationChannels, conversationFilters, conversationsUnavailable, type ConversationCallback, type ConversationChange, type ConversationCursor, type ConversationDetail, type ConversationFocus,
+  type ConversationInput, type ConversationQuery, type ConversationResult, type ConversationStartResponse } from "@/lib/conversation-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { useLeadOwners } from "./use-lead-owners";
@@ -88,8 +89,8 @@ function ConversationControls({ thread, saving, change }: { thread: Conversation
   </div>;
 }
 
-export function ConversationQueue({ brokerageId, team, version, focus, setFocus, openLoan, openLead, openCallback, openPipeline, openInbox, openContacts }: {
-  brokerageId: string; team: boolean; version: object; focus: ConversationFocus | null;
+export function ConversationQueue({ brokerageId, signedIn, team, version, focus, setFocus, openLoan, openLead, openCallback, openPipeline, openInbox, openContacts }: {
+  brokerageId: string; signedIn: boolean; team: boolean; version: object; focus: ConversationFocus | null;
   setFocus: (value: ConversationFocus | null) => void; openLoan: (id: string) => void; openPipeline: () => void;
   openLead: (id: string) => void; openCallback: (callback: ConversationCallback) => void; openInbox?: () => void; openContacts?: () => void;
 }) {
@@ -102,6 +103,7 @@ export function ConversationQueue({ brokerageId, team, version, focus, setFocus,
   const [feedback, setFeedback] = useState<{ error: boolean; text: string }>();
   const attempt = useRef<{ key: string; eventId: string } | null>(null);
   const panel = useRef<HTMLElement>(null);
+  const context = useRef<{ brokerageId: string; focus: ConversationFocus | null; version: object }>(null);
   const [data, setData] = useState<{ query: typeof query; version: object; refresh: number; result: ConversationResult }>();
   const [history, setHistory] = useState<{ focus: ConversationFocus; after: typeof after; version: object; refresh: number; result: ConversationResult }>();
   const current = data?.query === query && data.version === version && data.refresh === refresh ? data.result : undefined;
@@ -110,7 +112,15 @@ export function ConversationQueue({ brokerageId, team, version, focus, setFocus,
   const thread = selected && "kind" in selected && selected.kind === "thread" ? selected : undefined;
   const newThread = selected && "kind" in selected && selected.kind === "new" ? selected : undefined;
 
+  const listReady = useEffectEvent(() => !!current);
+  const detailReady = useEffectEvent(() => !!selected);
+  useLayoutEffect(() => {
+    context.current = { brokerageId, focus, version };
+    return () => { context.current = null; };
+  }, [brokerageId, focus, version]);
+
   useEffect(() => {
+    if (listReady()) return;
     let active = true;
     const update = (result: ConversationResult) => { if (active) setData({ query, version, refresh, result }); };
     void readConversationWork(query, brokerageId).then(update, () => update({ error: "Could not load the conversations. Try refreshing." }));
@@ -118,7 +128,7 @@ export function ConversationQueue({ brokerageId, team, version, focus, setFocus,
   }, [brokerageId, query, version, refresh]);
 
   useEffect(() => {
-    if (!focus) return;
+    if (!focus || detailReady()) return;
     let active = true;
     const input = "id" in focus ? { type: "thread", id: focus.id, after } : "leadId" in focus ? { type: "lead", ...focus } :
       "loanId" in focus ? { type: "loan", ...focus } : { type: "contact", ...focus };
@@ -144,16 +154,30 @@ export function ConversationQueue({ brokerageId, team, version, focus, setFocus,
     try {
       const key = JSON.stringify(action);
       if (attempt.current?.key !== key) attempt.current = { key, eventId: crypto.randomUUID() };
-      const input = action.type === "start" || action.type === "startLead" || action.type === "startContact" ?
-        action : { ...action, eventId: attempt.current.eventId };
-      const result = await saveConversationWork(input, brokerageId);
+      const starting = action.type === "start" || action.type === "startLead" || action.type === "startContact";
+      let result: ConversationChange | ConversationStartResponse;
+      if (starting && signedIn) {
+        const response = await fetch(`/api/conversation-start?brokerage=${encodeURIComponent(brokerageId)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ start: action, queue: { filter: query.filter, mine: query.mine } }),
+        });
+        result = response.headers.get("content-type")?.includes("application/json") ? await response.json() as ConversationStartResponse :
+          { error: response.status === 401 ? staffSignInRequired : conversationsUnavailable };
+      } else result = await saveConversationWork(starting ? action : { ...action, eventId: attempt.current.eventId }, brokerageId);
+      const latest = context.current;
+      if (latest?.brokerageId !== brokerageId || latest.focus !== focus) return;
       if ("error" in result) { setFeedback({ error: true, text: result.error }); return; }
       attempt.current = null;
       afterSave?.();
-      if (!focus || !("id" in focus)) select({ id: result.id });
+      const nextFocus = !focus || !("id" in focus) ? { id: result.id } : focus;
+      const nextQuery = { ...query, after: undefined };
+      const nextRefresh = refresh + 1;
+      if (nextFocus !== focus) select(nextFocus);
       setAfter(undefined);
-      setQuery((last) => ({ ...last, after: undefined }));
-      setRefresh((last) => last + 1);
+      if (result.opened) setHistory({ focus: nextFocus, after: undefined, version: latest.version, refresh: nextRefresh, result: result.opened });
+      if ("queue" in result && result.queue) setData({ query: nextQuery, version: latest.version, refresh: nextRefresh, result: result.queue });
+      setQuery(nextQuery);
+      setRefresh(nextRefresh);
       setFeedback({ error: false, text: result.message });
     } catch {
       setFeedback({ error: true, text: "Could not reach Orbit. Try again." });
@@ -164,13 +188,13 @@ export function ConversationQueue({ brokerageId, team, version, focus, setFocus,
     <div className="section-heading"><h2>Conversations</h2>{list && <span className="pill">Checked {dateTime(list.checkedAt)} ET</span>}</div>
     <p className="muted">Work conversations for leads, loan files, and standalone contacts. Staff share the unread and reply state. History labels distinguish manual activity, campaign calls, and simulated replies.</p>
     <div className="loan-application-actions">
-      <label className="field">Conversation status<select value={query.filter} onChange={(event) => setQuery({ ...query, filter: event.target.value as typeof query.filter, after: undefined })}>
+      <label className="field">Conversation status<select value={query.filter} disabled={saving} onChange={(event) => setQuery({ ...query, filter: event.target.value as typeof query.filter, after: undefined })}>
         {conversationFilters.map((filter) => <option key={filter}>{filter}</option>)}
       </select></label>
-      <label className="field">Ownership<select value={query.mine ? "mine" : "all"} onChange={(event) => setQuery({ ...query, mine: event.target.value === "mine", after: undefined })}>
+      <label className="field">Ownership<select value={query.mine ? "mine" : "all"} disabled={saving} onChange={(event) => setQuery({ ...query, mine: event.target.value === "mine", after: undefined })}>
         <option value="all">{team ? "Team conversations" : "All accessible conversations"}</option><option value="mine">My conversations</option>
       </select></label>
-      <Button size="sm" variant="outline" onClick={() => { setAfter(undefined); setRefresh((last) => last + 1); }}>Refresh conversations</Button>
+      <Button size="sm" variant="outline" disabled={saving} onClick={() => { setAfter(undefined); setRefresh((last) => last + 1); }}>Refresh conversations</Button>
     </div>
     {focus && <section ref={panel} tabIndex={-1} className="work-queue record-form" aria-label="Conversation detail">
       <div className="section-heading"><h3>{thread?.thread.name ?? newThread?.name ?? "Conversation detail"}</h3>
@@ -227,8 +251,8 @@ export function ConversationQueue({ brokerageId, team, version, focus, setFocus,
         {openContacts && <Button size="sm" variant="outline" onClick={openContacts}>Open contacts</Button>}
         <Button size="sm" variant="outline" onClick={openPipeline}>Open pipeline</Button></div></div>)}
     <div className="loan-application-actions">
-      {query.after && <Button size="sm" variant="outline" onClick={() => setQuery({ ...query, after: undefined })}>First conversation page</Button>}
-      {list?.next && <Button size="sm" variant="outline" onClick={() => setQuery({ ...query, after: list.next ?? undefined })}>Next conversation page</Button>}
+      {query.after && <Button size="sm" variant="outline" disabled={saving} onClick={() => setQuery({ ...query, after: undefined })}>First conversation page</Button>}
+      {list?.next && <Button size="sm" variant="outline" disabled={saving} onClick={() => setQuery({ ...query, after: list.next ?? undefined })}>Next conversation page</Button>}
     </div>
   </section>;
 }

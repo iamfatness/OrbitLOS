@@ -1995,6 +1995,18 @@ try {
     assert.equal(before.dueAt, callbackAt);
     const originalLink = { leadId, task: { kind: "campaign", id: taskId, expectedCallbackAt: callbackAt } };
     assert.equal((await action(winner, "readLeadForWork", originalLink)).lead.id, leadId);
+    const conversationPath = `/api/conversation-start?brokerage=${brokerage}`;
+    const start = { start: { type: "startLead", leadId }, queue: { filter: "Active", mine: true } };
+    assert.equal((await postResponse(conversationPath, start)).status, 401);
+    assert.equal((await postResponse(conversationPath, start, loser)).status, 409);
+    assert.equal((await postResponse(conversationPath, start, processor)).status, 409);
+    const [firstThread, sameThread] = await Promise.all([post(conversationPath, start, winner), post(conversationPath, start, winner)]);
+    assert.equal(sameThread.id, firstThread.id);
+    assert.equal(firstThread.opened.thread.id, firstThread.id);
+    assert.equal(firstThread.opened.thread.leadId, leadId);
+    assert.deepEqual(firstThread.opened.thread.campaignCallback, { leadId, taskId, dueAt: callbackAt });
+    assert.ok(firstThread.opened.events.some(({ text, origin }) => origin === "Lead log" && text.includes("Fictional borrower requested this time.")));
+    assert.equal(firstThread.queue.rows.filter(({ id }) => id === firstThread.id).length, 1);
     const beforeConversion = { ...await workspace(winner), loans: [], applications: [], campaignQueueFiles: [] };
     const saved = await post(`/api/lead-conversion?brokerage=${brokerage}`,
       { type: "convertReferral", referralId: leadId, contactId: null }, winner);
@@ -2018,6 +2030,13 @@ try {
     assert.equal(application.draft.email, email);
     assert.equal(application.draft.propertyLocation.zip, zip);
     assert.deepEqual(await personal(winner), { ...before, loanId });
+    const carriedThread = await post(conversationPath, { ...start, queue: { filter: "Closed", mine: true } }, winner);
+    assert.equal(carriedThread.id, firstThread.id);
+    assert.equal(carriedThread.opened.thread.loanId, loanId);
+    assert.deepEqual(carriedThread.opened.thread.campaignCallback, { loanId, taskId, dueAt: callbackAt });
+    assert.deepEqual(carriedThread.opened.events, firstThread.opened.events);
+    assert.ok(!carriedThread.queue.rows.some(({ id }) => id === firstThread.id));
+    assert.equal((await postResponse(conversationPath, start, loser)).status, 409);
     const carriedLink = await action(winner, "readLeadForWork", originalLink);
     assert.equal(carriedLink.loanWork.loanId, loanId);
     assert.equal(carriedLink.callbackTaskId, taskId);

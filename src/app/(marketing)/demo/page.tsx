@@ -20,7 +20,7 @@ export default function DemoPage() {
           <li>See your pipeline, team workload, and funding in one view.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s. See how the next shared lead moves up after an unanswered lead reaches its retry limit.</li>
           <li>Use Next call to work assigned leads one at a time. See the last call note, the scheduled callback, and any earlier promise deadline before logging the next outcome.</li>
-          <li>Preview and edit a follow-up email or text from a saved call. Record a simulated delivery in the conversation with brokerage opt-outs enforced.</li>
+          <li>Start a shared conversation from the lead and open its call history in Communications. Record a simulated email or text follow-up with brokerage opt-outs enforced.</li>
           <li>Request sample documents before the 1003, adjust deadlines from Calendar, and review uploads from My Tasks. Managers can reassign leads with open requests, and the checklist follows the lead into the loan.</li>
           <li>Preview and publish a brokerage quote form. Send eligible requests to a call campaign and keep their website source.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>

@@ -331,17 +331,20 @@ export function changeConversation(db: Store, input: unknown, staff: WorkspaceSt
   const data = parsed.data;
   const at = now.toISOString();
   return db.transaction(() => {
+    function openedConversation(id: string | null, message: string): ConversationChange {
+      if (!id) return { error: conversationsUnavailable };
+      const opened = readConversations(db, { type: "thread", id }, staff, brokerageId, now);
+      return "kind" in opened && opened.kind === "thread" ? { id, message, opened } : { error: conversationsUnavailable };
+    }
     if (data.type === "start") {
-      const id = ensureConversation(db, staff, data, at);
-      return id ? { id, message: "Conversation opened." } : { error: conversationsUnavailable };
+      return openedConversation(ensureConversation(db, staff, data, at), "Conversation opened.");
     }
     if (data.type === "startLead") {
       const id = ensureLeadConversation(db, staff, data.leadId, at) ?? getLoanThread(db, staff, "thread.sourceLeadId = ?", [data.leadId])?.id;
-      return id ? { id, message: "Lead conversation opened." } : { error: conversationsUnavailable };
+      return openedConversation(id ?? null, "Lead conversation opened.");
     }
     if (data.type === "startContact") {
-      const id = ensureContactConversation(db, staff, data.contactId, at);
-      return id ? { id, message: "Contact conversation opened." } : { error: conversationsUnavailable };
+      return openedConversation(ensureContactConversation(db, staff, data.contactId, at), "Contact conversation opened.");
     }
     const row = getThread(db, staff, data.id);
     if (!row) return { error: conversationsUnavailable };

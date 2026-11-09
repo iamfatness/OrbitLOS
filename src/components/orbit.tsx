@@ -1382,7 +1382,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             </div>}
             {canReviewReplies && communicationView === "Reply review" ? <InboundReplyQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId}
               openConversation={(id) => { setConversationFocus({ id }); setCommunicationView("Conversations"); }} /> :
-              <><ConversationQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
+              <><ConversationQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} signedIn={Boolean(staff)} team={admin}
                 version={state} focus={conversationFocus} setFocus={setConversationFocus} openPipeline={() => navigate("Pipeline")}
                 openCallback={openConversationCallback}
                 openLead={(leadId) => openLeadWork(leadId)} openInbox={!processor ? () => navigate("Lead Inbox") : undefined}

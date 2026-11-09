@@ -9,19 +9,26 @@ export const conversationFilters = ["Active", "Unread", "Needs reply", "Waiting 
 const id = z.string().min(1).max(160);
 export const conversationCursor = z.object({ at: z.iso.datetime(), id: z.uuid() });
 const subject = z.object({ loanId: id, audience: z.enum(conversationAudiences), contactId: id });
+const conversationListFields = { filter: z.enum(conversationFilters), mine: z.boolean() };
 export const conversationQuery = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("list"), filter: z.enum(conversationFilters), mine: z.boolean(), after: conversationCursor.optional() }),
+  z.object({ type: z.literal("list"), ...conversationListFields, after: conversationCursor.optional() }),
   z.object({ type: z.literal("myReplies") }),
   z.object({ type: z.literal("thread"), id: z.uuid(), after: conversationCursor.optional() }),
   z.object({ type: z.literal("loan"), ...subject.shape }),
   z.object({ type: z.literal("lead"), leadId: id }),
   z.object({ type: z.literal("contact"), contactId: id }),
 ]);
-const action = { id: z.uuid(), eventId: z.uuid(), revision: z.number().int().positive() };
-export const conversationInput = z.discriminatedUnion("type", [
+const conversationStarts = [
   z.object({ type: z.literal("start"), ...subject.shape }),
   z.object({ type: z.literal("startLead"), leadId: id }),
   z.object({ type: z.literal("startContact"), contactId: id }),
+] as const;
+export const conversationStartRequest = z.object({
+  start: z.discriminatedUnion("type", conversationStarts), queue: z.object(conversationListFields),
+});
+const action = { id: z.uuid(), eventId: z.uuid(), revision: z.number().int().positive() };
+export const conversationInput = z.discriminatedUnion("type", [
+  ...conversationStarts,
   z.object({ type: z.literal("message"), ...action, direction: z.enum(["Inbound", "Outbound"]),
     channel: z.enum(conversationChannels), text: z.string().trim().min(1).max(1200) }),
   z.object({ type: z.literal("sampleReply"), ...action }),
@@ -63,4 +70,7 @@ export type ConversationResult =
   | { kind: "new"; subject: ConversationSubject | { leadId: string } | (ContactSubject & { audience: ConversationSubject["audience"] });
     name: string; loanName: string; owner: string }
   | { error: string };
-export type ConversationChange = { id: string; message: string } | { error: string };
+type OpenedConversation = Extract<ConversationResult, { kind: "thread" }>;
+export type ConversationChange = { id: string; message: string; opened?: OpenedConversation } | { error: string };
+export type ConversationStartResponse = { id: string; message: string; opened: OpenedConversation;
+  queue?: Extract<ConversationResult, { kind: "list" }> } | { error: string };
