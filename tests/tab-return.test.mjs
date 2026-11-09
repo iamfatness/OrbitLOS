@@ -93,6 +93,23 @@ test("foreground checks pause when hidden and discard an in-flight response afte
   reads[1].resolve();
 });
 
+test("a focused queue can use a shorter interval that still stops when hidden", () => {
+  const { page, visibility } = tabs();
+  let interval;
+  const timers = {
+    setInterval(_tick, delay) { interval = delay; return 1; },
+    clearInterval() { interval = undefined; },
+  };
+  const stop = observeVisibleChecks(page, timers, async () => {}, 5_000);
+  assert.equal(interval, 5_000);
+  visibility(true);
+  assert.equal(interval, undefined);
+  visibility(false);
+  assert.equal(interval, 5_000);
+  stop();
+  assert.equal(interval, undefined);
+});
+
 test("a same-browser notification carries no borrower details and uses a loan-specific channel", { timeout: 3000 }, async (t) => {
   const token = "1".repeat(64);
   const [sameLoan, differentLoan] = await Promise.all([borrowerChangeChannel(token), borrowerChangeChannel("2".repeat(64))]);

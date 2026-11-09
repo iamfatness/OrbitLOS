@@ -100,7 +100,7 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, open
     void refreshQueue(() => true, true);
     const watch = query.readyOnly && !query.after;
     const stopReturn = watch ? observeTabReturn(document, window, (isCurrent) => void refreshQueue(isCurrent)) : undefined;
-    const stopChecks = watch ? observeVisibleChecks(document, window, refreshQueue) : undefined;
+    const stopChecks = watch ? observeVisibleChecks(document, window, refreshQueue, 5_000) : undefined;
     return () => { active = false; stopReturn?.(); stopChecks?.(); };
   }, [brokerageId, pauseReadyQueue, query, version]);
   const assignment = onAssignment && assignmentResult?.brokerageId === brokerageId ? assignmentResult : undefined;

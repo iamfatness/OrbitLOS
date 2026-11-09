@@ -34,6 +34,7 @@ export function observeVisibleChecks(
   page: Pick<Document, "hidden" | "addEventListener" | "removeEventListener">,
   timers: Pick<Window, "setInterval" | "clearInterval">,
   check: (isCurrent: () => boolean) => Promise<void>,
+  interval = 15_000,
 ) {
   let timer: number | undefined;
   let generation = 0;
@@ -60,7 +61,7 @@ export function observeVisibleChecks(
 
   function visibilityChanged() {
     if (page.hidden) stopTimer();
-    else if (timer === undefined) timer = timers.setInterval(() => void tick(), 15_000);
+    else if (timer === undefined) timer = timers.setInterval(() => void tick(), interval);
   }
 
   visibilityChanged();

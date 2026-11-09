@@ -21,7 +21,7 @@ export default function DemoPage() {
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s.</li>
           <li>See requests and sample PDFs reach open borrower and staff views. Reopen the lender checklist from the guide to review attachments already received.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
-          <li>Send a file to an assigned processor, follow it through mock lender clearance, and pick it back up in Today with the processor’s internal note.</li>
+          <li>Send a file to an assigned processor. Watch it appear in the open Ready to accept queue, work through mock lender clearance, and pick it back up in Today with the processor’s internal note.</li>
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>
           <li>Open scheduled campaign calls from one queue. Reschedule from the loan and keep missed deadlines visible in reporting.</li>
