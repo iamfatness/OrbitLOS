@@ -117,6 +117,13 @@ export function uwmSubmissionConditions(db: Store, loanId: string, submissionId:
   return submission && JSON.parse(String(submission.conditions));
 }
 
+export function hasReopenedMockUwmCondition(db: Store, loanId: string) {
+  return Boolean(db.prepare(`SELECT 1 FROM submissions file JOIN json_each(CASE WHEN json_valid(file.conditions) THEN file.conditions ELSE '[]' END) condition
+    WHERE file.loanId = ? AND file.lender = 'UWM' AND file.syncedAt IS NOT NULL
+      AND json_extract(condition.value, '$.mockReopenedAt') IS NOT NULL
+      AND json_extract(condition.value, '$.satisfiedAt') IS NULL LIMIT 1`).get(loanId));
+}
+
 export function archiveMockDocumentDelivery(db: Store, requestId: string) {
   db.prepare(`INSERT INTO uwm_document_delivery_history (requestId, receipt, sentAt, documentRevision)
     SELECT requestId, receipt, sentAt, documentRevision FROM uwm_document_deliveries WHERE requestId = ?`).run(requestId);

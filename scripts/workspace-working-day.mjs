@@ -946,10 +946,19 @@ try {
     const condition = submission.conditions.find(({ category }) => category === "Income");
     await loanAction(owner, loanId, "reopenMockUwmCondition", { submissionId: submission.id, conditionId: condition.id,
       expectedSatisfiedAt: condition.satisfiedAt, expectedReopenedAt: condition.mockReopenedAt ?? null });
-    assert.match((await action(officer, "mutate", markClosing)).error, /no longer ready/i);
+    assert.match((await action(officer, "mutate", markClosing)).error, /reopened mock UWM condition/i);
+    for (const stage of ["Clear to Close", "Funded", "Closed"]) {
+      assert.match((await action(officer, "mutate", { type: "move", id: loanId, stage })).error, /reopened mock UWM condition/i);
+    }
+    assert.match((await action(officer, "mutate", { type: "recordClosing", loanId, revision: 0, closingDate: today })).error,
+      /reopened mock UWM condition/i);
     const reopened = await file(officer, loanId);
     assert.equal(closingReviewReady(reopened.loans[0], reopened), false);
     assert.ok(!reopened.communicationDrafts.some(({ milestone }) => milestone === "Clear to Close"));
+    assert.ok(!reopened.pastClients[0]?.closingDate);
+    const reopenedAlert = reopened.uwmAlerts.find(({ kind, conditionId }) => kind === "Reopened condition" && conditionId === condition.id);
+    const lenderWork = await action(officer, "readTaskWork", { type: "list", view: "Open", scope: "Mine", group: "Lender updates" });
+    assert.ok(reopenedAlert && lenderWork.items.some(({ id, recordId }) => id === reopenedAlert.id && recordId === loanId));
     const request = reopened.documentRequests.find(({ conditionId }) => conditionId === condition.id);
     await borrower(token, { type: "attachSample", requestId: request.id, revision: request.revision });
     const replacement = (await file(officer, loanId)).documentRequests.find(({ id }) => id === request.id);
@@ -968,6 +977,20 @@ try {
     const closingItem = (await file(officer, loanId)).closingItems.find(({ id }) => id === itemId);
     await loanAction(officer, loanId, "completeClosingItem", { itemId, revision: closingItem.revision, completed: true });
     await loanAction(officer, loanId, "recordClosing", { revision: 0, closingDate: today });
+    const assets = closingReady.submissions[0].conditions.find(({ category }) => category === "Assets");
+    await loanAction(owner, loanId, "reopenMockUwmCondition", { submissionId: submission.id, conditionId: assets.id,
+      expectedSatisfiedAt: assets.satisfiedAt, expectedReopenedAt: assets.mockReopenedAt ?? null });
+    assert.match((await action(officer, "mutate", { type: "recordFunding", loanId, revision: 0, fundingDate: today })).error,
+      /reopened mock UWM condition/i);
+    const fundingBlocked = await file(officer, loanId);
+    assert.equal(fundingBlocked.pastClients[0].closingDate, today);
+    assert.ok(!fundingBlocked.closingProgress[0]?.fundingDate);
+    const bank = fundingBlocked.documentRequests.find(({ conditionId }) => conditionId === assets.id);
+    await borrower(token, { type: "attachSample", requestId: bank.id, revision: bank.revision });
+    const replacementBank = (await file(officer, loanId)).documentRequests.find(({ id }) => id === bank.id);
+    await loanAction(officer, loanId, "reviewDocument", { requestId: bank.id, revision: replacementBank.revision,
+      decision: "Accepted", replacementNote: "", sendToMockUwm: true });
+    await loanAction(officer, loanId, "refreshMockUwmClearance", { submissionId: submission.id });
     await loanAction(officer, loanId, "recordFunding", { revision: 0, fundingDate: today });
     const funded = await file(officer, loanId);
     assert.equal(funded.loans[0].officerEmail, officer.email);

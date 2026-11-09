@@ -3,7 +3,7 @@
 import { useRef, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
-import { closingChecklistTarget, closingWorkbenchTarget } from "@/lib/loan-workflow";
+import { closingChecklistTarget, closingWorkbenchTarget, reopenedMockClosingMessage } from "@/lib/loan-workflow";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -40,12 +40,14 @@ function ClosingItemForm({ loan, item, targetDate, busy, save }: {
 }
 
 export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, manualClearance, borrowerCheckIn,
-  advanceDemoToFunding }: {
+  advanceDemoToFunding, reopenedCondition, openCondition }: {
   loan: Loan; state: Workspace; busy: boolean; save: Save; preview: (audience: DraftAudience, draftId: string) => void;
   canReverseFunding: boolean; canRehearseFailure: boolean; canMarkClearToClose: boolean;
   manualClearance: boolean;
   borrowerCheckIn?: { dueAt: string; open: () => void };
   advanceDemoToFunding?: () => void;
+  reopenedCondition: { category: string; target: string } | null;
+  openCondition: (target: string) => void;
 }) {
   const actualInput = useRef<HTMLInputElement>(null);
   const fundingInput = useRef<HTMLInputElement>(null);
@@ -59,6 +61,8 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   const realtorDraft = drafts.find((draft) => draft.audience === "Realtor" && draft.contactId === loan.partnerId);
   const today = easternDate();
   const outstanding = items.filter((item) => !item.completedAt).length;
+  const closingBlocked = !!reopenedCondition && !actual;
+  const fundingBlocked = !!reopenedCondition && !progress?.fundingDate;
 
   function fillToday(input: HTMLInputElement | null) {
     if (!input) return;
@@ -69,6 +73,11 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
 
   return <section className="details-section document-section" aria-label="Closing workbench" id={closingWorkbenchTarget} tabIndex={-1}>
     <div className="section-heading"><h3><CalendarCheck size={17} /> Closing workbench</h3>{actual && <span className="pill">Closing recorded</span>}</div>
+    {reopenedCondition && <div className="work-queue">
+      <strong>Reopened {reopenedCondition.category.toLowerCase()} condition</strong>
+      <p>{reopenedMockClosingMessage}</p>
+      <div><Button size="sm" variant="outline" onClick={() => openCondition(reopenedCondition.target)}>Open reopened condition</Button></div>
+    </div>}
     {canMarkClearToClose && <div className="work-queue">
       <p className="muted">{manualClearance ? "Manual lender clearance recorded." : "Mock UWM conditions cleared."}{loan.partnerId && " Confirming updates the realtor milestone."}</p>
       <div><Button size="sm" disabled={busy} onClick={() => void save({ type: "markClearToClose", loanId: loan.id })}>Mark Clear to Close</Button></div>
@@ -84,28 +93,32 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
       </form>
       <form id="loan-closing-date" tabIndex={-1} key={actual ?? "no-actual"} onSubmit={(event) => {
         event.preventDefault();
+        if (closingBlocked) return;
         const data = new FormData(event.currentTarget);
         void save({ type: "recordClosing", loanId: loan.id, closingDate: data.get("closingDate"), revision: profile?.revision ?? 0 },
           actual ? undefined : advanceDemoToFunding);
       }}>
-        <label className="field">Actual closing date<input ref={actualInput} type="date" name="closingDate" required max={today} defaultValue={actual ?? undefined} /></label>
+        <label className="field">Actual closing date<input ref={actualInput} type="date" name="closingDate" required max={today}
+          defaultValue={actual ?? undefined} disabled={closingBlocked} /></label>
         <div className="loan-application-actions">
-          {advanceDemoToFunding && !actual && <Button size="sm" type="button" variant="ghost" disabled={busy}
+          {advanceDemoToFunding && !actual && <Button size="sm" type="button" variant="ghost" disabled={busy || closingBlocked}
             onClick={() => fillToday(actualInput.current)}>Use today for closing</Button>}
-          <Button size="sm" type="submit" variant="outline" disabled={busy}>{actual ? "Save closing date" : "Record closing"}</Button>
+          <Button size="sm" type="submit" variant="outline" disabled={busy || closingBlocked}>{actual ? "Save closing date" : "Record closing"}</Button>
         </div>
       </form>
       {actual && <form id="loan-funding" tabIndex={-1} key={progress?.revision ?? 0} onSubmit={(event) => {
         event.preventDefault();
+        if (fundingBlocked) return;
         const data = new FormData(event.currentTarget);
         void save({ type: "recordFunding", loanId: loan.id, fundingDate: data.get("fundingDate"), revision: progress?.revision ?? 0,
           simulateFollowUpFailure: data.has("simulateFollowUpFailure") });
       }}>
-        <label className="field">Funding date<input ref={fundingInput} name="fundingDate" type="date" required min={actual} max={today} defaultValue={progress?.fundingDate ?? ""} /></label>
+        <label className="field">Funding date<input ref={fundingInput} name="fundingDate" type="date" required min={actual} max={today}
+          defaultValue={progress?.fundingDate ?? ""} disabled={fundingBlocked} /></label>
         <div className="loan-application-actions">
-          {advanceDemoToFunding && !progress?.fundingDate && <Button size="sm" type="button" variant="ghost" disabled={busy}
+          {advanceDemoToFunding && !progress?.fundingDate && <Button size="sm" type="button" variant="ghost" disabled={busy || fundingBlocked}
             onClick={() => fillToday(fundingInput.current)}>Use today for funding</Button>}
-          <Button size="sm" type="submit" variant="outline" disabled={busy}>{progress?.fundingDate ? "Save funding date" : "Record funding"}</Button>
+          <Button size="sm" type="submit" variant="outline" disabled={busy || fundingBlocked}>{progress?.fundingDate ? "Save funding date" : "Record funding"}</Button>
         </div>
         {canRehearseFailure && <details className="document-form"><summary>Rehearse follow-up recovery</summary>
           <label><input type="checkbox" name="simulateFollowUpFailure" /> Simulate a follow-up failure for this funding change</label>

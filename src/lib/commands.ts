@@ -10,7 +10,7 @@ import { carriedCallbacks, recordCarriedCallback, rescheduleCarriedCallback } fr
 import { leadWorkUnavailable, type CampaignMutationResult, type CampaignNavigationResult, type CampaignQueueResult, type LeadMutationResult } from "./lead-work-model";
 import { readEditableLoan } from "./editable-loan";
 import type { LoanMutationResult } from "./loan-work-model";
-import { archiveMockDocumentDelivery, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
+import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
 import { manualHandoffOutcomes, reusablePropertyAddress } from "./application-model";
@@ -86,7 +86,7 @@ import { applyDocumentTemplateInput } from "./document-template-model";
 import { applyDocumentTemplate } from "./document-templates";
 import { changeJointApplicationLink, jointApplication, reopenJointBorrower } from "./joint-application";
 import { jointLinkCommand } from "./joint-application-model";
-import { closingReviewReady } from "./loan-workflow";
+import { closingReviewReady, mockClearanceClosingStages, reopenedMockClosingMessage } from "./loan-workflow";
 import { routeSecondApplicationReview } from "./loan-reviews";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
@@ -448,6 +448,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "sendConditionDocument":
     case "simulateDeliveryFailure":
     case "refreshMockUwmClearance":
+    case "reopenMockUwmCondition":
     case "copyDraft":
     case "saveRetention":
     case "recordCarriedCampaignCallback":
@@ -823,6 +824,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const funding = db.prepare("SELECT fundingDate FROM closing_progress WHERE loanId = ?").get(data.loanId)?.fundingDate;
           if (typeof funding === "string" && data.closingDate > funding) throw new WorkspaceError("The closing date cannot be after the recorded funding date.");
           const profile = db.prepare("SELECT closingDate, revision FROM past_client_profiles WHERE loanId = ?").get(data.loanId);
+          if (!profile?.closingDate && hasReopenedMockUwmCondition(db, data.loanId)) {
+            throw new WorkspaceError(reopenedMockClosingMessage);
+          }
           if (profile?.closingDate !== data.closingDate) {
             if (Number(profile?.revision ?? 0) !== data.revision) throw new WorkspaceError("The closing date changed. Refresh the loan before recording it.");
             clearPendingAnniversaries(db, data.loanId);
@@ -844,6 +848,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             throw new WorkspaceError("Record actual closing first. Funding must fall between closing and today on an active file.");
           }
           const previous = db.prepare("SELECT fundingDate, revision FROM closing_progress WHERE loanId = ?").get(data.loanId);
+          if (!previous?.fundingDate && hasReopenedMockUwmCondition(db, data.loanId)) {
+            throw new WorkspaceError(reopenedMockClosingMessage);
+          }
           const dateChanged = previous?.fundingDate !== data.fundingDate;
           const revision = Number(previous?.revision ?? 0);
           if (dateChanged) {
@@ -1773,6 +1780,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const file = data.type === "markClearToClose" ? loanWorkRecords(db, false, loanId) : null;
           const loan = file ? file.loans[0] : db.prepare("SELECT stage, disposition FROM loans WHERE id = ?").get(loanId);
           if (!loan) throw new WorkspaceError("This loan no longer exists.");
+          if ((data.type === "markClearToClose" || loan.stage !== stage) && mockClearanceClosingStages.some((item) => item === stage) &&
+            hasReopenedMockUwmCondition(db, loanId)) throw new WorkspaceError(reopenedMockClosingMessage);
           if (file) {
             if (!closingReviewReady(file.loans[0], { ...file, playbook: readPlaybook(db) })) {
               throw new WorkspaceError("This file is no longer ready for Clear to Close. Refresh the loan and check the current 1003, conditions, documents, and handoff.");

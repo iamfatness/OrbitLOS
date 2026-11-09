@@ -16,7 +16,7 @@ const tools = [
   {icon:MessagesSquare,title:"Shared conversations",text:"Open shared conversations and keep team notes with the relationship. Page through borrower and realtor milestone drafts, preview the current recipient, and track which messages were copied."},
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},
-  {icon:ShieldCheck,title:"Reviews and exceptions",text:"Open callbacks, document deadlines, and mock lender alerts from the queue. Managers can reassign overdue or unassigned work. Processing handoffs keep the recent staff instructions on the file."},
+  {icon:ShieldCheck,title:"Reviews and exceptions",text:"Open callbacks, document deadlines, and mock lender alerts from the queue. Processing handoffs retain staff instructions. Closing links directly to reopened mock UWM conditions that block progress."},
   {icon:Workflow,title:"Consistent follow-up",text:"See who received each imported lead and move from a connected call into a prefilled 1003. Recover interrupted callbacks and see the original post-funding check-in note when opening a scheduled callback."},
   {icon:ArrowDownUp,title:"Pipeline migration",text:"Map owners and carry callback history. Open the current lead, loan, or task evidence from an import receipt. Download a cutover handoff with open checks and reviewer attribution."},
 ];

@@ -40,7 +40,8 @@ import { submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanNextAction, pausedLoan } from "@/lib/loan-workflow";
+import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanNextAction, mockClearanceClosingStages, pausedLoan,
+  reopenedMockClosingCondition } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
@@ -243,14 +244,14 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
                   openCondition={!item.satisfiedAt} replaceable={!item.satisfiedAt} busy={busy} save={save} compact showRecipient={joint} />
               </> : !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} quick joint={joint} />}
               {!item.satisfiedAt && <ConditionResponse condition={item} request={request} lender={submission.lender} />}
-              {canSimulate && submission.lender === "UWM" && item.satisfiedAt && <div>
-                <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
-                  if (window.confirm(`Simulate mock UWM reopening the ${item.category.toLowerCase()} condition?`)) void save({
+              {canSimulate && submission.lender === "UWM" && item.satisfiedAt && <details className="document-form">
+                <summary>Simulate reopening (mock)</summary>
+                <p className="muted">Reopen the {item.category.toLowerCase()} condition and update its borrower checklist.</p>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
                     type: "reopenMockUwmCondition", loanId: submission.loanId, submissionId: submission.id, conditionId: item.id,
                     expectedSatisfiedAt: item.satisfiedAt, expectedReopenedAt: item.mockReopenedAt ?? null,
-                  });
-                }}>Simulate reopening (mock)</Button>
-              </div>}
+                })}>Confirm mock reopening</Button>
+              </details>}
             </div>
           </div>;
         })}
@@ -503,6 +504,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
+  const reopenedClosing = reopenedMockClosingCondition(loan.id, submissions);
   const requests = state.documentRequests.filter((item) => item.loanId === loan.id);
   const assignment = state.loanProcessing.find((item) => item.loanId === loan.id);
   const openConditionRequests = new Set(requests.filter((request) => submissions.some((submission) =>
@@ -574,7 +576,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         busy={busy} save={(input) => void save(input)} open={open} openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined}
         openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "processing-handoff" }) : undefined} />
       {canOpenReviews && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
-      <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
+      <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>
+        {stages.map((stage) => <option key={stage} disabled={!!reopenedClosing && stage !== loan.stage &&
+          mockClearanceClosingStages.some((item) => item === stage)}>{stage}</option>)}
+      </select></Field>
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open}
         preapprovalBrokerage={staff ? !processor && (staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) ? staff.brokerage.id : undefined :
           process.env.NODE_ENV === "development" ? demoBrokerageId : undefined} />
@@ -602,6 +607,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </>}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
+        reopenedCondition={reopenedClosing} openCondition={open}
         advanceDemoToFunding={(campaignLender || linkedManual) && (!staff || staff.brokerage.pilot) ? () => open("loan-funding") : undefined}
         canMarkClearToClose={!processor && loan.stage !== "Clear to Close" && closingReviewReady(loan, state)}
         manualClearance={Boolean(linkedManual && !application?.uwmReference)}

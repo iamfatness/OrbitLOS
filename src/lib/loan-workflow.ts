@@ -32,6 +32,18 @@ type LoanNextAction = { title: string; target: string; dueAt: string | null; blo
 export const closingChecklistTarget = (id: string) => `closing-checklist-${id}`;
 export const fundingCheckInTarget = "funding-check-in";
 export const closingWorkbenchTarget = "closing-workbench";
+export const reopenedMockClosingMessage = "Clear the reopened mock UWM condition before advancing closing or funding.";
+export const mockClearanceClosingStages = ["Clear to Close", "Funded", "Closed"] as const;
+
+export function reopenedMockClosingCondition(loanId: string,
+  submissions: Pick<Workspace["submissions"][number], "id" | "loanId" | "lender" | "syncedAt" | "conditions">[]) {
+  for (const file of submissions) {
+    if (file.loanId !== loanId || file.lender !== "UWM" || !file.syncedAt) continue;
+    const condition = file.conditions.find(({ mockReopenedAt, satisfiedAt }) => mockReopenedAt && !satisfiedAt);
+    if (condition) return { category: condition.category, target: conditionTarget(file.id, condition.id) };
+  }
+  return null;
+}
 
 export function pausedLoan(loan: Pick<Loan, "disposition">) {
   return !!loan.disposition && loan.disposition !== "Active";
