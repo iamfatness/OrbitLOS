@@ -2,7 +2,7 @@ import { z } from "zod";
 import { readCsv } from "./contact-csv";
 import { leadContactFields } from "./lead-inbox-model";
 import type { MigrationRow } from "./pipeline-migration-model";
-import type { InboxLead, Loan } from "./model";
+import type { InboxLead, Loan, Workspace } from "./model";
 import { referralPhone } from "./referral-matches";
 
 export const callOutcomes = ["Connected", "Left message", "No response", "Requested callback", "Opted out"] as const;
@@ -149,6 +149,21 @@ export function campaignCallQueues<T extends CampaignQueueRecord>(records: T[], 
     (due <= now ? dueCallbacks : upcomingCallbacks).push(record);
   }
   return { dueCallbacks, upcomingCallbacks, firstCalls };
+}
+
+export function nextCampaignCallId({ callCampaignMembers, inboxLeads }: Pick<Workspace, "callCampaignMembers" | "inboxLeads">,
+  { campaignId, segmentId, officerEmail, now, completedLeadId }: {
+    campaignId: string; segmentId: string; officerEmail?: string; now: number; completedLeadId?: string;
+  }) {
+  const leads = new Map(inboxLeads.filter((lead) => !officerEmail || lead.officerEmail === officerEmail).map((lead) => [lead.id, lead]));
+  const candidates = callCampaignMembers.flatMap((member) => {
+    if (member.campaignId !== campaignId || member.loanId || member.leadId === completedLeadId || (segmentId && member.segmentId !== segmentId)) return [];
+    const lead = leads.get(member.leadId);
+    return lead ? [{ member, lead, optedOut: member.outreachSuppressed }] : [];
+  });
+  const { dueCallbacks, firstCalls } = campaignCallQueues(candidates, now);
+  firstCalls.sort((a, b) => a.lead.dueAt.localeCompare(b.lead.dueAt) || a.lead.id.localeCompare(b.lead.id));
+  return (dueCallbacks[0] ?? firstCalls[0])?.member.leadId;
 }
 
 export const campaignOrigin = (id: string) => `call-${id}`;

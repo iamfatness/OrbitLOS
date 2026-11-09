@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Phone, RefreshCw, Upload } from "lucide-react";
 import { demoBrokerageId } from "@/lib/brokerage-model";
-import { assignableCampaignLead, callOutcomes, campaignCallQueues, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, parseCampaignLeadCsv,
+import { assignableCampaignLead, callOutcomes, campaignCallQueues, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
   type CallCampaign, type CallCampaignMember, type CallOutcome, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { firstContactOverdue } from "@/lib/lead-inbox-model";
@@ -24,7 +24,7 @@ import { PersonalCampaignCallbacks } from "./personal-campaign-callbacks";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
 const campaignMetrics = ["Enrolled", "Reached", "1003s started", "1003s submitted", "Funded"] as const;
-const views = [...campaignMetrics, "Unassigned", "First contact overdue", "Ready to call", "Replies logged", "Scheduled follow-up", "Upcoming callbacks", "Retry limit reached", "Needs recovery", "On hold", "Opted out"] as const;
+const views = [...campaignMetrics, "Unassigned", "First contact overdue", "Ready to call", "Next call", "Replies logged", "Scheduled follow-up", "Upcoming callbacks", "Retry limit reached", "Needs recovery", "On hold", "Opted out"] as const;
 function CampaignRulesForm({ campaign, canManage, busy, save }: { campaign: CallCampaign; canManage: boolean; busy: boolean; save: Save }) {
   const retryTime = campaign.retryTime ?? defaultCampaignRules.retryTime;
   const [hours, minutes] = retryTime.split(":");
@@ -165,11 +165,11 @@ function CampaignApplicationAction({ lead, busy, openLead, convert, focus = fals
   }}>Start 1003</Button>;
 }
 
-function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, busy, overdue, callbackDue, allowDirectAssignment, save, openLead, openConversation, convert, onConnected, onClaim }: {
+function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, busy, overdue, callbackDue, allowDirectAssignment, save, openLead, openConversation, convert, onCallSaved, onClaim }: {
   member: CallCampaignMember; lead?: InboxLead; campaign: CallCampaign; staff: WorkspaceStaff | null; busy: boolean; save: Save;
   focused: boolean; focusTaskId?: string; overdue: boolean; callbackDue: boolean; allowDirectAssignment: boolean;
   openLead: (id: string) => void; openConversation: (id: string) => void; convert: (id: string) => void;
-  onConnected: (lead: InboxLead) => void;
+  onCallSaved: (lead: InboxLead, outcome: CallOutcome, updated: Workspace) => void;
   onClaim: (leadId: string) => void;
 }) {
   const [outcome, setOutcome] = useState<CallOutcome | "">("");
@@ -232,14 +232,15 @@ function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, bus
           </details>}
         <form className="record-form" onSubmit={(event) => {
           event.preventDefault();
+          if (!outcome) return;
           const form = event.currentTarget;
           const data = new FormData(form);
           const callback = String(data.get("callback") ?? "");
           void save({ type: "recordCampaignCall", campaignId: campaign.id, leadId: lead.id, revision: lead.followUp.revision,
             outcome, note: data.get("note"), callbackAt: outcome === "Requested callback" && callback ? new Date(callback).toISOString() : null,
-            simulateFollowUpFailure: data.has("simulateFollowUpFailure") }, () => {
+            simulateFollowUpFailure: data.has("simulateFollowUpFailure") }, ({ state }) => {
             form.reset(); setOutcome("");
-            if (outcome === "Connected") onConnected(lead);
+            onCallSaved(lead, outcome, state);
           });
         }}>
           <div className="form-grid">
@@ -283,6 +284,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   const [performance, setPerformance] = useState<"response" | "callbacks">();
   const [callbacksOpen, setCallbacksOpen] = useState(false);
   const [claimedLeadId, setClaimedLeadId] = useState<string>();
+  const [callLeadId, setCallLeadId] = useState<string>();
   const attempt = useRef<{ id: string; name: string } | null>(null);
   const campaign = state.callCampaigns.find((entry) => entry.id === selectedId) ?? state.callCampaigns[0];
   const canManage = !staff || (staff.brokerage.pilot === true && staff.brokerage.role === "Admin");
@@ -312,6 +314,9 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     return { member, lead, loan, submittedAt, fundingDate, optedOut: member.outreachSuppressed };
   });
   const { dueCallbacks, upcomingCallbacks, firstCalls } = campaignCallQueues(records, now);
+  const ready = [...dueCallbacks, ...firstCalls];
+  const nextCall = callLeadId ? ready.find(({ member, lead, loan }) => member.leadId === callLeadId && !loan &&
+    (!staff || lead?.officerEmail === staff.email)) : undefined;
   const scheduled = [...dueCallbacks, ...upcomingCallbacks];
   const dueCallbackIds = new Set(dueCallbacks.map(({ member }) => member.leadId));
   const overdue = records.filter(({ lead, optedOut }) => lead?.officerEmail && !optedOut && firstContactOverdue(lead, now))
@@ -327,7 +332,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     Funded: records.filter(({ fundingDate }) => fundingDate),
     Unassigned: unassigned,
     "First contact overdue": overdue,
-    "Ready to call": [...dueCallbacks, ...firstCalls],
+    "Ready to call": ready,
+    "Next call": nextCall ? [nextCall] : [],
     "Replies logged": records.filter(({ lead }) => lead?.followUp.replyReceivedAt),
     "Scheduled follow-up": scheduled,
     "Upcoming callbacks": upcomingCallbacks,
@@ -363,9 +369,16 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
       view === "Unassigned" ? "No shared leads waiting for an owner." : view === "Retry limit reached" ?
         "No unanswered leads have reached the retry limit." : "No leads in this view.";
 
+  function selectNextCall(snapshot: Workspace, completedLeadId?: string) {
+    if (!campaign) return;
+    setCallLeadId(nextCampaignCallId(snapshot, { campaignId: campaign.id, segmentId, officerEmail: staff?.email, now, completedLeadId }));
+  }
+
   function changeView(next: typeof view) {
     if (next !== view) setConnected(undefined);
     setClaimedLeadId(undefined);
+    if (next === "Next call") selectNextCall(state);
+    else setCallLeadId(undefined);
     setView(next);
   }
 
@@ -373,6 +386,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     select(id, alreadyLoaded);
     setConnected(undefined);
     setClaimedLeadId(undefined);
+    setCallLeadId(undefined);
     setView("Enrolled");
     setSegmentFilter("");
   }
@@ -383,11 +397,15 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
       <p className="muted">{loan.officer || "Unassigned"} · {fundingDate ? `Funded ${fundingDate} · ${money(loan.amount)}` : submittedAt ? `Submitted ${dateTime(submittedAt)} ET` : loan.stage}</p>
       <div><Button size="sm" variant="outline" onClick={() => openLoan(loan.id)}>Open loan</Button></div>
     </li>;
-    return <CampaignCall key={member.leadId} member={member} lead={lead} campaign={campaign} staff={staff} focused={member.leadId === (claimedLeadId ?? focusLeadId)} busy={busy}
-      focusTaskId={member.leadId === focusLeadId ? focusTaskId : undefined} overdue={overdueIds.has(member.leadId)} callbackDue={dueCallbackIds.has(member.leadId)}
+    return <CampaignCall key={member.leadId} member={member} lead={lead} campaign={campaign} staff={staff}
+      focused={member.leadId === (view === "Next call" ? callLeadId : claimedLeadId ?? focusLeadId)} busy={busy}
+      focusTaskId={view !== "Next call" && member.leadId === focusLeadId ? focusTaskId : undefined} overdue={overdueIds.has(member.leadId)} callbackDue={dueCallbackIds.has(member.leadId)}
       allowDirectAssignment={canManage && view === "Unassigned"} save={save} openLead={openLead} openConversation={openConversation} convert={convert}
       onClaim={(leadId) => { changeView("Enrolled"); setClaimedLeadId(leadId); }}
-      onConnected={(lead) => setConnected({ leadId: lead.id, campaignId: member.campaignId, ownerEmail: lead.officerEmail, view, segmentId })} />;
+      onCallSaved={(lead, outcome, updated) => {
+        if (outcome === "Connected") setConnected({ leadId: lead.id, campaignId: member.campaignId, ownerEmail: lead.officerEmail, view, segmentId });
+        if (view === "Next call") selectNextCall(updated, lead.id);
+      }} />;
   }
 
   return <div className="relationship-stack campaign-workspace">
@@ -437,7 +455,10 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         rehearsal={state.campaignRehearsal?.campaignId === campaign.id ? state.campaignRehearsal : undefined} />}
       <section className="integration record-form manager-panel" aria-label="Campaign call queue">
         <div className="section-heading"><h2>{campaign.name}</h2><span className="pill">{members.reduce((sum, member) => sum + member.attempts, 0)} calls logged</span>
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshCampaignQueue", campaignId: campaign.id })}><RefreshCw /> Refresh queue</Button>
+          <div className="loan-application-actions">
+            <Button size="sm" disabled={busy || (view === "Next call" && !!nextCall)} onClick={() => changeView("Next call")}><Phone /> Next call</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshCampaignQueue", campaignId: campaign.id })}><RefreshCw /> Refresh queue</Button>
+          </div>
         </div>
         {segmentChoices.size > 0 && <label className="field">Filter campaign by segment
           <select value={segmentId} onChange={(event) => { changeView("Enrolled"); setSegmentFilter(event.target.value); }}>
@@ -490,16 +511,19 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
           </select></label>
           <Button size="sm" type="submit" variant="outline" disabled={busy}>Add to campaign</Button>
         </form>}
-        <label className="field">Call queue view<select value={view} onChange={(event) => changeView(event.target.value as typeof view)}>
+        <label className="field">Call queue view<select value={view} disabled={busy} onChange={(event) => changeView(event.target.value as typeof view)}>
           {views.map((value) => <option key={value} value={value}>{value === "Unassigned" ? "Shared queue" : value}</option>)}
         </select></label>
         {view === "Unassigned" && <p className="muted">Claim or assign a shared lead before calling. Existing callback times stay with the lead.</p>}
         {view === "Retry limit reached" && <p className="muted">These leads keep their owner and call history. They no longer use an automatic routing slot, and you can still log a new call or a requested callback.</p>}
+        {view === "Next call" && <p className="muted">Work your assigned leads one at a time. Due callbacks and retries go before first calls.</p>}
         {connectedLead && <div className="document-item" key={connectedLead.id}>
           <div className="document-item-head"><strong id={connectedCallNotice}>Connected with {connectedLead.name}</strong><span className="pill">Call logged</span></div>
-          <div><CampaignApplicationAction lead={connectedLead} busy={busy} openLead={openLead} convert={convert} focus /></div>
+          <div><CampaignApplicationAction lead={connectedLead} busy={busy} openLead={openLead} convert={convert} focus={view !== "Next call" || !nextCall} /></div>
         </div>}
-        {view === "Ready to call" && members.length ? readyGroups.map((group) => <section key={group.title} className="document-section" aria-label={group.title}>
+        {view === "Next call" && !nextCall ? <p className="empty-inline" role="status">{callLeadId ?
+          "This lead is no longer ready. Select Next call to continue." : "You’re caught up. No assigned calls are ready in this view."}</p> :
+          view === "Ready to call" && members.length ? readyGroups.map((group) => <section key={group.title} className="document-section" aria-label={group.title}>
           <div className="section-heading"><h3>{group.title}</h3><span className="pill">{group.rows.length}</span></div>
           {group.rows.length ? <ul className="document-list">{group.rows.map(renderRecord)}</ul> : <p className="empty-inline">{group.empty}</p>}
         </section>) : visible.length ? <ul className="document-list">{visible.map(renderRecord)}</ul> : <p className="empty-inline">{empty}</p>}

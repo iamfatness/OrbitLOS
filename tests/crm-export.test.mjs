@@ -22,7 +22,7 @@ const { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationCompariso
 const { cutoverReadinessLimit } = await import("../src/lib/migration-cutover-model.ts");
 const { migrationFile, mappedMigrationRows, migrationFileByteLimit } = await import("../src/lib/pipeline-migration-model.ts");
 const { optOutContact, optOutLead, outreachSuppressionKeys, prospectiveOptOutKeys } = await import("../src/lib/outreach-preferences.ts");
-const { campaignCallQueues, campaignOrigin, campaignRehearsalCsv, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
+const { campaignCallQueues, campaignOrigin, campaignRehearsalCsv, nextCampaignCallId, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
 const { recordCampaignCall } = await import("../src/lib/call-campaigns.ts");
 const { campaignOptOutPlans } = await import("../src/lib/campaign-routing.ts");
 const { borrowerCommandResult, startApplication } = await import("../src/lib/applications.ts");
@@ -1052,6 +1052,41 @@ test("campaign call queues respect holds, opt-outs, pending recovery, and real b
   assert.deepEqual(dueCallbacks.map(({ member }) => member.leadId), ["replied-callback"]);
   assert.deepEqual(upcomingCallbacks, []);
   assert.deepEqual(firstCalls, []);
+});
+
+test("Next call uses the officer’s due callbacks before first calls in the selected campaign and segment", () => {
+  const officerEmail = "officer@example.test";
+  const boundary = "2026-11-09T15:00:00.000Z";
+  const earlier = "2026-11-09T14:59:59.999Z";
+  const soon = "2026-11-09T15:00:00.001Z";
+  const records = [
+    campaignQueueRecord("first-later", { lead: { dueAt: soon } }),
+    campaignQueueRecord("first-earlier", { lead: { dueAt: earlier } }),
+    campaignQueueRecord("callback", { dueAt: boundary, member: { lastOutcome: "Requested callback" } }),
+    campaignQueueRecord("upcoming", { dueAt: soon }),
+    campaignQueueRecord("shared", { dueAt: earlier, lead: { officerEmail: null } }),
+    campaignQueueRecord("other-officer", { dueAt: earlier, lead: { officerEmail: "another@example.test" } }),
+    campaignQueueRecord("other-segment", { dueAt: earlier, member: { segmentId: "south" } }),
+    campaignQueueRecord("other-campaign", { dueAt: earlier, member: { campaignId: "other" } }),
+    campaignQueueRecord("converted", { dueAt: earlier, member: { loanId: "loan" } }),
+    campaignQueueRecord("held", { dueAt: earlier, lead: { heldAt: boundary } }),
+    campaignQueueRecord("opted-out", { dueAt: earlier, member: { outreachSuppressed: true } }),
+  ];
+  const snapshot = {
+    inboxLeads: records.map(({ lead }) => lead),
+    callCampaignMembers: records.map(({ member }) => ({ campaignId: "campaign", segmentId: "north", ...member })),
+  };
+  const next = (state, time = boundary, completedLeadId) => nextCampaignCallId(state, {
+    campaignId: "campaign", segmentId: "north", officerEmail, now: Date.parse(time), completedLeadId,
+  });
+  assert.equal(next(snapshot), "callback");
+  assert.equal(next(snapshot, boundary, "callback"), "first-earlier");
+  const updated = { ...snapshot, callCampaignMembers: snapshot.callCampaignMembers.map((member) =>
+    member.leadId === "callback" ? { ...member, callbackDueAt: null, lastOutcome: "Connected" } : member) };
+  assert.equal(next(updated), "first-earlier");
+  assert.equal(next(updated, boundary, "first-earlier"), "first-later");
+  assert.equal(next(updated, soon), "upcoming");
+  assert.equal(next({ ...updated, inboxLeads: updated.inboxLeads.filter(({ id }) => !id.startsWith("first-")) }), undefined);
 });
 
 test("pausing new automatic retries keeps requested callbacks active and preserves the held rule snapshot on release", async (t) => {
