@@ -4,7 +4,7 @@ import { approvedSecondReview } from "./application-review-checkpoint";
 import { addApplicationActivity } from "./applications";
 import { portalBrokerage } from "./brokerage-model";
 import { prepareLenderExport } from "./lender-export";
-import { lenderPackageUnavailable, lenderShareStaffInput, type LenderPackageManifest, type LenderPackageStatus,
+import { lenderPackageFilename, lenderPackageReference, lenderPackageUnavailable, lenderShareStaffInput, type LenderPackageManifest, type LenderPackageStatus,
   type LenderSharePage, type PackageDownloadInput, type SharedLenderPackageInput } from "./lender-handoff-share-model";
 import type { ProtectPilotLinks } from "./pilot";
 import { readPlaybook } from "./playbooks";
@@ -175,8 +175,8 @@ export async function lenderShareWork(db: Store, input: unknown, staff: Workspac
 export type PackageAccessResult =
   | { status: number; error: string }
   | { value: LenderPackageManifest }
-  | { xml: string }
-  | { objectId: string };
+  | { xml: string; filename: string }
+  | { objectId: string; filename: string };
 
 function recordDownload(db: Store, share: Row, file: Row, now: string) {
   db.prepare(`UPDATE lender_package_files SET downloads = downloads + 1,
@@ -191,14 +191,17 @@ export function lenderPackageAccess(db: Store, input: SharedLenderPackageInput, 
   return db.transaction(() => {
     const share = authenticatedShare(db, input, now);
     if (!share) return unavailable;
-    if (input.type === "read") return { value: { recipient: String(share.recipient), expiresAt: String(share.expiresAt),
-      files: packageFiles(db, share.id).map(({ slot, label }) => ({ slot, label })) } };
+    const applicationRevision = Number(share.applicationRevision);
+    const reference = lenderPackageReference(String(share.id));
+    if (input.type === "read") return { value: { recipient: String(share.recipient), applicationRevision, reference, expiresAt: String(share.expiresAt),
+      files: packageFiles(db, share.id).map(({ slot, label }) => ({ slot, label, filename: lenderPackageFilename(applicationRevision, reference, slot) })) } };
     const file = db.prepare("SELECT * FROM lender_package_files WHERE shareId = ? AND slot = ?").get(share.id, input.slot);
     if (!file) return unavailable;
-    if (input.slot > 0) return file.objectId ? { objectId: String(file.objectId) } : unavailable;
+    const filename = lenderPackageFilename(applicationRevision, reference, input.slot);
+    if (input.slot > 0) return file.objectId ? { objectId: String(file.objectId), filename } : unavailable;
     recordDownload(db, share, file, now);
     const row = db.prepare("SELECT xml FROM lender_package_links WHERE id = ?").get(share.id);
-    return { xml: String(row?.xml) };
+    return { xml: String(row?.xml), filename };
   });
 }
 

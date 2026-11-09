@@ -1,7 +1,7 @@
 import { borrowerJson } from "./borrower-http";
 import { fileProblem, privatePdf } from "./document-file-http";
 import { documentKey } from "./document-files-model";
-import { lenderPackageFilename, lenderPackageUnavailable, sharedLenderPackageInput, type LenderPackageManifest,
+import { lenderPackageUnavailable, sharedLenderPackageInput, type LenderPackageManifest,
   type PackageDownloadInput, type SharedLenderPackageInput } from "./lender-handoff-share-model";
 import type { PackageAccessResult } from "./lender-handoff-share";
 
@@ -23,7 +23,7 @@ export function sharedLenderPackageHttp(request: Request, workspace: (token: str
     const result = await target.read(data);
     if ("error" in result || "value" in result) return result;
     if (data.type !== "download") return denied;
-    const disposition = `attachment; filename="${lenderPackageFilename(data.slot)}"`;
+    const disposition = `attachment; filename="${result.filename}"`;
     if ("xml" in result) return new Response(result.xml, { headers: {
       "Content-Type": "application/xml; charset=utf-8", "Content-Disposition": disposition,
       "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex",

@@ -25,7 +25,10 @@ export type PackageDownloadInput = Extract<SharedLenderPackageInput, { type: "do
 export const lenderPackageUnavailable = "This fictional lender package is unavailable. Check the link and code or ask staff for a new package.";
 
 export type PackageFile = { slot: number; label: string };
-export type LenderPackageManifest = { recipient: string; expiresAt: string; files: PackageFile[] };
+export type LenderPackageManifest = {
+  recipient: string; applicationRevision: number; reference: string; expiresAt: string;
+  files: (PackageFile & { filename: string })[];
+};
 export type LenderPackageStatus = "Available" | "Revoked" | "Expired" | "File changed";
 export type LenderSharePage = {
   eligible: { id: string; revision: number; label: string }[];
@@ -38,6 +41,11 @@ export type LenderSharePage = {
   message?: string;
 };
 
-export function lenderPackageFilename(slot: number) {
-  return slot === 0 ? "orbit-fictional-1003.xml" : `orbit-fictional-evidence-${slot}.pdf`;
+export function lenderPackageReference(id: string) {
+  return id.replaceAll("-", "").slice(0, 12);
+}
+
+export function lenderPackageFilename(applicationRevision: number, reference: string, slot: number) {
+  const version = `r${applicationRevision}-${reference}`;
+  return slot === 0 ? `orbit-fictional-1003-${version}.xml` : `orbit-fictional-evidence-${version}-${slot}.pdf`;
 }

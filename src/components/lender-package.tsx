@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { lenderPackageFilename, lenderPackageUnavailable, type LenderPackageManifest, type SharedLenderPackageInput } from "@/lib/lender-handoff-share-model";
+import { lenderPackageUnavailable, type LenderPackageManifest, type SharedLenderPackageInput } from "@/lib/lender-handoff-share-model";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
@@ -29,7 +29,9 @@ export function LenderPackage() {
       }
       if (input.type === "read") setOpened({ manifest: await response.json() as LenderPackageManifest, token: input.token, code: input.code });
       else {
-        downloadSampleFile(await response.blob(), lenderPackageFilename(input.slot));
+        const file = opened?.manifest.files.find(({ slot }) => slot === input.slot);
+        if (!file) throw new Error("Could not identify this download. Reopen the package and try again.");
+        downloadSampleFile(await response.blob(), file.filename);
         setNotice("Download ready.");
       }
     } catch (failure) {
@@ -51,7 +53,7 @@ export function LenderPackage() {
     <section className="application-panel application-form document-section" aria-label="Lender package access">
       {opened ? <>
         <h2>{opened.manifest.recipient}</h2>
-        <p className="muted">Fictional files · Expires {dateTime(opened.manifest.expiresAt)} ET</p>
+        <p className="muted">1003 revision {opened.manifest.applicationRevision} · Package {opened.manifest.reference} · Expires {dateTime(opened.manifest.expiresAt)} ET</p>
         <ul className="document-list">{opened.manifest.files.map((file) => <li className="document-item" key={file.slot}>
           <div className="document-item-head"><strong>{file.label}</strong>
             <Button size="sm" type="button" variant="outline" aria-label={`Download ${file.label}`} disabled={busy} onClick={() => {

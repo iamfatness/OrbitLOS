@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { newPortalAccessCode, portalToken } from "@/lib/brokerage-model";
-import type { LenderSharePage } from "@/lib/lender-handoff-share-model";
+import { lenderPackageReference, type LenderSharePage } from "@/lib/lender-handoff-share-model";
 import type { ExportName } from "@/lib/lender-export-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -116,7 +116,8 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
       </form> : <p className="muted">Review the current 1003, complete any required second review, and verify the export names above to create a package.</p>)}
       {!!page?.shares.length && <ul className="document-list" aria-label="Recent lender packages">{page.shares.map((share) => <li className="document-item" key={share.id}>
         <div className="document-item-head"><strong>{share.recipient}</strong><span className="pill">{share.status}</span></div>
-        <p className="muted">1003 revision {share.applicationRevision} · Created by {share.createdBy} · {dateTime(share.createdAt)} ET · Expires {dateTime(share.expiresAt)} ET</p>
+        <p className="muted">1003 revision {share.applicationRevision} · Package {lenderPackageReference(share.id)}</p>
+        <p className="muted">Created by {share.createdBy} · {dateTime(share.createdAt)} ET · Expires {dateTime(share.expiresAt)} ET</p>
         {share.status === "File changed" && <p className="muted">The lender can no longer open this package.</p>}
         <ul>{share.files.map((item) => <li key={item.slot}>{item.label} · {item.downloads} {item.downloads === 1 ? "download" : "downloads"}
           {item.lastDownloadedAt && ` · Last ${dateTime(item.lastDownloadedAt)} ET`}</li>)}</ul>

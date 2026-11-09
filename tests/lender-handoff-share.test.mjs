@@ -85,8 +85,31 @@ test("only current approved sample artifacts can be shared and expiration and re
   assert.match((await work(create)).error, /new package/);
   assert.equal(lenderPackageAccess(db, read, at).status, 404);
 
-  const replacement = { ...create, shareId: randomUUID(), token: portalToken(brokerageId), documents: [] };
+  const interim = { ...create, shareId: randomUUID(), token: portalToken(brokerageId), code: newPortalAccessCode() };
+  assert.equal((await work(interim)).createdId, interim.shareId);
+  const interimPdf = { ...getPdf, token: interim.token, code: interim.code };
+  const previousObject = lenderPackageAccess(db, interimPdf, at).objectId;
+  assert.ok(previousObject);
+  assert.equal(confirmLenderPackagePdf(db, interimPdf, previousObject, at), true);
+  const updatedObject = randomUUID();
+  db.prepare("UPDATE document_files SET objectId = ? WHERE requestId = ?").run(updatedObject, sample.id);
+  db.prepare("UPDATE document_requests SET revision = 3 WHERE id = ?").run(sample.id);
+  db.prepare("UPDATE applications SET revision = 4 WHERE loanId = ?").run(loanId);
+  const replacement = { ...create, shareId: randomUUID(), token: portalToken(brokerageId), code: newPortalAccessCode(),
+    replacesId: interim.shareId, revision: 4, documents: [{ id: sample.id, revision: 3 }] };
+  assert.match((await work({ ...replacement, documents: interim.documents })).error, /evidence changed/);
+  assert.equal(confirmLenderPackagePdf(db, interimPdf, previousObject, at), false);
   assert.equal((await work(replacement)).createdId, replacement.shareId);
+  const replacementPdf = { ...getPdf, token: replacement.token, code: replacement.code };
+  const newPdf = lenderPackageAccess(db, replacementPdf, at);
+  assert.equal(newPdf.objectId, updatedObject);
+  assert.match(newPdf.filename, /^orbit-fictional-evidence-r4-[0-9a-f]{12}-1\.pdf$/);
+  assert.equal(confirmLenderPackagePdf(db, replacementPdf, previousObject, at), false);
+  assert.equal(confirmLenderPackagePdf(db, replacementPdf, updatedObject, at), true);
+  assert.equal(lenderPackageAccess(db, interimPdf, at).status, 404);
+  const afterReplacement = (await work({ type: "read", loanId })).shares;
+  assert.deepEqual(afterReplacement.slice(0, 2).map(({ status, applicationRevision, files }) =>
+    [status, applicationRevision, files[1].downloads]), [["Available", 4, 1], ["Revoked", 3, 1]]);
   const previousId = randomUUID();
   db.prepare("INSERT INTO pilot_scenario VALUES (1, ?, ?, ?, ?, ?, 0)").run(previousId, "fictional-realtor", loanId, at, officer.email);
   const admin = { ...officer, brokerage: { ...officer.brokerage, role: "Admin" } };
@@ -96,5 +119,5 @@ test("only current approved sample artifacts can be shared and expiration and re
     return true;
   }, new Date(at));
   assert.ok(result.message, result.error);
-  assert.equal(lenderPackageAccess(db, { ...read, token: replacement.token }, at).status, 404);
+  assert.equal(lenderPackageAccess(db, replacementPdf, at).status, 404);
 });

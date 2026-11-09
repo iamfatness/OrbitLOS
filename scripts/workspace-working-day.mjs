@@ -1108,6 +1108,7 @@ try {
     assert.equal((await post(staffPackages, originalPackage, officer)).createdId, originalPackage.shareId);
     const originalXml = await packageXml(originalPackage);
     assert.equal(originalXml.status, 200);
+    assert.match(originalXml.headers.get("Content-Disposition"), new RegExp(`^attachment; filename="orbit-fictional-1003-r${revision}-[0-9a-f]{12}\\.xml"$`));
     assert.equal(await originalXml.text(), exported.mismoXml);
     const conditionId = randomUUID();
     const condition = { loanId: repeatId, submissionId, conditionId };
@@ -1244,6 +1245,7 @@ try {
     assert.equal((await packageXml(originalPackage)).status, 404);
     const replacementXml = await packageXml(replacementPackage);
     assert.equal(replacementXml.status, 200);
+    assert.match(replacementXml.headers.get("Content-Disposition"), new RegExp(`^attachment; filename="orbit-fictional-1003-r${corrected.revision}-[0-9a-f]{12}\\.xml"$`));
     const revisedExport = await loanAction(assignedOfficer, repeatId, "exportReviewedApplication", {
       revision: corrected.revision, lenderRevision: 0, eventId: randomUUID(), names,
     });
@@ -1735,18 +1737,24 @@ try {
     assert.equal((await postResponse("/api/demo-application", { type: "read", token })).status, 404);
     const manifest = await post(publicPath, read);
     assert.deepEqual(manifest.files.map(({ label }) => label), ["Reviewed 1003 · MISMO 3.4 XML", "Photo ID · Co-borrower"]);
+    assert.equal(manifest.applicationRevision, application.revision);
+    assert.match(manifest.reference, /^[0-9a-f]{12}$/);
+    const packageVersion = `r${application.revision}-${manifest.reference}`;
+    assert.deepEqual(manifest.files.map(({ filename }) => filename),
+      [`orbit-fictional-1003-${packageVersion}.xml`, `orbit-fictional-evidence-${packageVersion}-1.pdf`]);
     const get = (slot) => runtime.dispatchFetch(`${origin}${publicPath}`, { method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ ...read, type: "download", slot }) });
     assert.equal((await get(2)).status, 404);
     const xml = await get(0);
     assert.equal(xml.status, 200);
-    assert.match(xml.headers.get("Content-Disposition"), /attachment.*\.xml/);
+    assert.equal(xml.headers.get("Content-Disposition"), `attachment; filename="${manifest.files[0].filename}"`);
     const xmlContent = await xml.text();
     assert.match(xmlContent, /MISMOReferenceModelIdentifier/);
     assert.match(xmlContent, /<FirstName>Jordan<\/FirstName>/);
     const pdf = await get(1);
     assert.equal(pdf.status, 200);
     assert.equal(pdf.headers.get("Content-Type"), "application/pdf");
+    assert.equal(pdf.headers.get("Content-Disposition"), `attachment; filename="${manifest.files[1].filename}"`);
     assert.match(pdf.headers.get("Cache-Control"), /no-store/);
     assert.deepEqual(new Uint8Array(await pdf.arrayBuffer()), demoDocumentPdf("replacement"));
     const staffRead = await post(staffPath, { type: "read", loanId }, officer);
