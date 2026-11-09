@@ -5,6 +5,7 @@ import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { closeReviewedApplicationFollowUps, createApplicationFollowUps } from "./tasks";
 import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
+import { approvedIncomeSql } from "./income-review-freshness";
 import type { LoanDocumentRequest } from "./document-model";
 import { pdfColumns } from "./document-files-model";
 import { synchronizeRetentionTasks } from "./client-retention";
@@ -507,6 +508,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT
     );
     CREATE INDEX IF NOT EXISTS pricing_by_loan ON pricing_runs(loanId, quotedAt);
+    CREATE TABLE IF NOT EXISTS loan_income_worksheets (
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, revision INTEGER NOT NULL,
+      applicationRevision INTEGER NOT NULL, stage TEXT NOT NULL, amount INTEGER NOT NULL, method TEXT NOT NULL,
+      sources TEXT NOT NULL, evidence TEXT NOT NULL, note TEXT NOT NULL, updatedBy TEXT NOT NULL, updatedAt TEXT NOT NULL,
+      requestId TEXT NOT NULL UNIQUE, requestHash TEXT NOT NULL, PRIMARY KEY (loanId, revision)
+    );
     CREATE TABLE IF NOT EXISTS brokerage_fee_templates (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, revision INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
       effectiveOn TEXT NOT NULL, purpose TEXT NOT NULL, zip TEXT NOT NULL, config TEXT NOT NULL
@@ -914,8 +921,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!db.prepare("PRAGMA table_info(applications)").all().some((column) => column.name === "correctionNote")) {
       db.exec("ALTER TABLE applications ADD COLUMN correctionNote TEXT NOT NULL DEFAULT ''");
     }
-    if (!db.prepare("PRAGMA table_info(pricing_runs)").all().some((column) => column.name === "applicationRevision")) {
-      db.exec("ALTER TABLE pricing_runs ADD COLUMN applicationRevision INTEGER");
+    const pricingColumns = new Set(db.prepare("PRAGMA table_info(pricing_runs)").all().map(({ name }) => name));
+    for (const column of ["applicationRevision", "incomeReviewRevision"]) {
+      if (!pricingColumns.has(column)) db.exec(`ALTER TABLE pricing_runs ADD COLUMN ${column} INTEGER`);
     }
     for (const table of ["published_quotes", "shared_quote_history"]) {
       if (!db.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === "presentation")) db.exec(`ALTER TABLE ${table} ADD COLUMN presentation TEXT`);
@@ -1166,7 +1174,7 @@ export function insertSubmission(db: Store, submission: Submission) {
 }
 
 export function savedPricingRun(db: Store, loanId: string) {
-  return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt, applicationRevision FROM pricing_runs
+  return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt, applicationRevision, incomeReviewRevision FROM pricing_runs
     WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1`).get(loanId);
 }
 
@@ -1226,14 +1234,17 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
       ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, ...request }) =>
       ({ ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}), previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
         FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),
-    pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
-      SELECT run.* FROM pricing_runs run
+    pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices" | "incomeReviewCurrent"> &
+      { scenario: string; offers: string; notices: string; incomeReviewCurrent: number }>(db, `
+      SELECT run.*, (run.incomeReviewRevision IS NULL OR EXISTS (${approvedIncomeSql("run.loanId", "run.incomeReviewRevision")})) AS incomeReviewCurrent
+      FROM pricing_runs run
       WHERE ${loanId ? "run.loanId = ? AND " : ""}(run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
          OR run.selectedId IS NOT NULL
          OR EXISTS (SELECT 1 FROM loan_scenario_plans plan JOIN json_each(plan.plan, '$.options') option
            WHERE plan.loanId = run.loanId AND json_extract(option.value, '$.quoteSource.runId') = run.id))
       ORDER BY run.quotedAt DESC, run.rowid DESC
-    `, ...args).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
+    `, ...args).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices),
+      incomeReviewCurrent: Boolean(run.incomeReviewCurrent) })),
     feeWorksheets: rows<Omit<FeeWorksheet, "inputs" | "origin"> & { inputs: string; origin: string | null }>(db, `SELECT pricing_runs.loanId, worksheet.*
       FROM fee_worksheets worksheet JOIN pricing_runs ON pricing_runs.id = worksheet.runId ${where("pricing_runs.loanId")}`, ...args)
       .map(({ inputs, origin, ...row }) => ({ ...row, inputs: JSON.parse(inputs), ...(origin ? { origin: JSON.parse(origin) } : {}) })),

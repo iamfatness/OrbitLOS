@@ -88,6 +88,8 @@ export interface PricingRun extends PricingResult {
   selectedId: string | null;
   selectedAt: string | null;
   applicationRevision: number | null;
+  incomeReviewRevision?: number | null;
+  incomeReviewCurrent?: boolean;
 }
 
 export type PricingApplication = { revision: number; correctionNote?: string };
@@ -95,6 +97,10 @@ export const repriceQuoteMessage = "Reprice from the current 1003 before using t
 
 export function quoteMatchesApplication(applicationRevision: unknown, application?: PricingApplication) {
   return !application?.correctionNote && applicationRevision === (application?.revision ?? null);
+}
+
+export function pricingInputsMatch(run: Pick<PricingRun, "applicationRevision" | "incomeReviewCurrent">, application?: PricingApplication) {
+  return quoteMatchesApplication(run.applicationRevision, application) && run.incomeReviewCurrent !== false;
 }
 
 export interface BorrowerQuote {

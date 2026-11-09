@@ -8,7 +8,8 @@ import { borrowerDetailsSchema, lenderDetailsSchema, normalizeBorrowerDetails, n
 import { coBorrowerDocumentRecipient, needsBorrowerDocument, primaryDocumentRecipient, type BorrowerLoanStatus, type DocumentRecipient, type DocumentRequest } from "./document-model";
 import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
-import { quoteMatchesApplication, type BorrowerQuote } from "./pricing-model";
+import type { BorrowerQuote } from "./pricing-model";
+import { approvedIncomeSql, pricingInputError } from "./income-review-freshness";
 import { borrowerQuotePresentation } from "./quote-worksheet";
 import { borrowerDocuments } from "./borrower-documents";
 import { accessEvent } from "./workspace-access";
@@ -149,11 +150,12 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
   const published = loan && !row.correctionNote && db.prepare(`SELECT quote.product, quote.rate, quote.principalAndInterest,
     quote.quotedAt, quote.publishedAt, quote.presentation FROM published_quotes quote
     JOIN pricing_runs run ON run.id = quote.runId AND run.loanId = quote.loanId
-    WHERE quote.loanId = ? AND run.applicationRevision = ?`).get(row.loanId, row.revision);
+    WHERE quote.loanId = ? AND run.applicationRevision = ?
+      AND (run.incomeReviewRevision IS NULL OR EXISTS (${approvedIncomeSql("run.loanId", "run.incomeReviewRevision")}))`).get(row.loanId, row.revision);
   const presentation = published && published.presentation ? JSON.parse(String(published.presentation)) as BorrowerQuote["presentation"] : null;
   const currentAlternatives = presentation?.alternatives.every((option) => {
-    const run = db.prepare("SELECT applicationRevision FROM pricing_runs WHERE id = ? AND loanId = ?").get(option.runId, row.loanId);
-    return run && quoteMatchesApplication(run.applicationRevision, row);
+    const run = db.prepare("SELECT applicationRevision, incomeReviewRevision FROM pricing_runs WHERE id = ? AND loanId = ?").get(option.runId, row.loanId);
+    return run && !pricingInputError(db, row.loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision }, row);
   }) ?? true;
   const preapproval = loan && row.reviewedAt && !row.correctionNote &&
     readSharedPreapprovalLetters(db, [row.loanId], "Borrower", token, now).get(row.loanId);

@@ -1,5 +1,7 @@
 import { scenarioPricingTerms, scenarioRequest, type ScenarioRecord, type ScenarioResponse } from "./loan-scenario-model";
 import type { PricingOffer, PricingScenario } from "./pricing-model";
+import { approvedIncomeAmount } from "./income-review-freshness";
+import { repriceIncomeMessage } from "./income-review-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
@@ -20,12 +22,15 @@ export function loanScenarioWork(db: Store, input: unknown, staff: WorkspaceStaf
     if (!canEdit) return { error: "Only the loan officer or an admin can save scenarios." };
     if (data.applicationRevision !== currentApplicationRevision) return { error: "The 1003 changed. Reload and review the scenario assumptions before saving." };
     if (data.revision !== (record?.revision ?? 0)) return { error: "These scenarios changed. Reload the saved version before saving." };
-    const pricingRun = db.prepare("SELECT scenario, offers FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'");
+    const pricingRun = db.prepare("SELECT scenario, offers, incomeReviewRevision FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'");
     for (const option of data.plan.options) {
       if (!option.quoteSource) continue;
       const source = pricingRun.get(option.quoteSource.runId, data.loanId);
       const offer = source && (JSON.parse(String(source.offers)) as PricingOffer[]).find((item) => item.id === option.quoteSource?.offerId);
       if (!source || !offer || !/fixed/i.test(offer.product)) return { error: "The pricing source is unavailable for this loan." };
+      if (typeof source.incomeReviewRevision === "number" && approvedIncomeAmount(db, data.loanId, source.incomeReviewRevision) === null) {
+        return { error: repriceIncomeMessage };
+      }
       const scenario = JSON.parse(String(source.scenario)) as PricingScenario;
       const terms = scenarioPricingTerms({ scenario }, offer);
       if (scenario.purpose !== data.plan.purpose || option.loanAmount !== terms.loanAmount || option.rate !== terms.rate ||

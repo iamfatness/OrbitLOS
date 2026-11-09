@@ -26,7 +26,8 @@ import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-doc
 import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
-import { mockRateStatus, quoteMatchesApplication } from "@/lib/pricing-model";
+import { mockRateStatus, pricingInputsMatch } from "@/lib/pricing-model";
+import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
 import { ManualLenderExport } from "./manual-lender-export";
@@ -34,6 +35,7 @@ import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@
 import { ClosingWorkbench } from "./closing-workbench";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
+import { IncomeWorksheet } from "./income-worksheet";
 import { submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
@@ -76,7 +78,7 @@ export type Modal =
   | { kind: "documentFollowUp"; loanId: string }
   | { kind: "returningClient"; loanId: string; fromRateWatch?: true }
   | { kind: "fundingCheckIn"; loanId: string; returnToLoan?: boolean; campaignLender?: CampaignLenderPath }
-  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean; sourceQuote?: ScenarioQuoteSource }
+  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean; sourceQuote?: ScenarioQuoteSource; reviewedIncome?: ReviewedIncomeSource }
   | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
@@ -418,7 +420,7 @@ function loanSection(target?: string) {
   if (target === "loan-scenarios") return "Scenarios";
   if (target === "loan-application" || target === "manual-lender-export" || target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-")) return "Conditions";
-  if (target === "credit-aus" || target === "loan-pricing") return "Pricing & credit";
+  if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet") return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
   if (["loan-activity", "loan-tasks", "loan-retention", "loan-communications", loanReviewsTarget].includes(target) ||
@@ -535,7 +537,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const checklistLinks = borrowerChecklistLinks(application);
   const joint = !!application?.joint;
   const open = (destination: string) => show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
-  const openPricing = (useMockScore?: boolean) => show({ kind: "pricing", loanId: loan.id, campaignLender, useMockScore });
+  const openPricing = (useMockScore?: boolean, reviewedIncome?: ReviewedIncomeSource) =>
+    show({ kind: "pricing", loanId: loan.id, campaignLender, useMockScore, reviewedIncome });
   const inlineRequests = new Set(submissions.flatMap((item) => requests.filter((request) => request.submissionId === item.id &&
     item.conditions.some((condition) => condition.id === request.conditionId && (item.syncedAt || condition.manual))).map((request) => request.id)));
   return (
@@ -585,11 +588,15 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           {!processor && <Button size="sm" variant="outline" onClick={() => openPricing()}>Price loan</Button>}
         </div>
         <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare sample rate and fee options, then save a quote to the loan."}</p>
-        {savedPricing && !quoteMatchesApplication(savedPricing.applicationRevision, application) &&
-          <p className="quote-disclaimer">Saved quote needs repricing from the current 1003.</p>}
+        {savedPricing && !pricingInputsMatch(savedPricing, application) &&
+          <p className="quote-disclaimer">Saved quote needs repricing with the current 1003 and income inputs.</p>}
         {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
+      {(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&
+        <IncomeWorksheet key={loan.id} loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} focused={target === "income-worksheet"}
+          onChanged={() => void save({ type: "refreshApplication", loanId: loan.id })}
+          onPrice={processor ? undefined : (source) => openPricing(true, source)} />}
       <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
         revision={submittedApplicationRevision(application)} busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} />
       </>}
@@ -942,6 +949,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
         </form>}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+          reviewedIncome={modal.reviewedIncome}
+          openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?
+            () => show({ kind: "details", loanId: loan.id, campaignLender, target: "income-worksheet" }) : undefined}
           useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} />}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({

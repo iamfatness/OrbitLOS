@@ -1641,6 +1641,63 @@ try {
     assert.equal(await directory.brokerageForPortal(token), null);
     assert.equal((await postResponse(publicPath, read)).status, 404);
   });
+  await stage("Processor prepares income and an LO prices from the exact approved worksheet", async () => {
+    const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Income Review",
+      borrowerEmail: "working-day-income@example.test", start1003: true, partnerId: null, officer: officer.name,
+      address: "", amount: 0, purpose: "Purchase", stage: "Lead" });
+    const loanId = created.loanWork.loanId;
+    const token = (await file(officer, loanId)).applications[0].token;
+    const draft = await borrower(token, { type: "read" });
+    const sent = await borrower(token, { type: "submit", revision: draft.revision, step: applicationSteps.length - 1,
+      draft: { ...sampleApplication(draft.draft), confirmedDemo: true } });
+    await loanAction(officer, loanId, "reviewApplication", { revision: sent.revision });
+    await team(owner, { type: "assignProcessor", email: processor.email, loanId, revision: 0 });
+    await loanAction(processor, loanId, "requestDocument", { kind: "Pay stub", instructions: "Fictional payroll period sample." });
+    const checklist = (await borrower(token, { type: "status" })).loanStatus.documents;
+    const item = checklist.find(({ kind }) => kind === "Pay stub");
+    const received = (await borrower(token, { type: "attachSample", requestId: item.id, revision: item.revision, statusOnly: true }))
+      .loanStatus.documents.find(({ id }) => id === item.id);
+    await loanAction(processor, loanId, "reviewDocument", { requestId: item.id, revision: received.revision, decision: "Accepted", replacementNote: "" });
+    const path = `/api/income-worksheet?brokerage=${brokerage}`;
+    const query = { type: "read", loanId };
+    assert.equal((await postResponse(path, query, competingOfficer)).status, 409);
+    const page = (await post(path, query, processor)).page;
+    assert.equal(page.canApprove, false);
+    const [accepted] = page.eligible;
+    const source = { id: randomUUID(), recipient: "Primary borrower", label: "Fictional payroll",
+      kind: "Wages", method: "Amount per pay period", included: true, start: "2026-06-01", end: "2026-06-15",
+      amount: 325000, periods: 24, adjustment: 0, rationale: "", evidence: [{ id: accepted.id, revision: accepted.revision }] };
+    const change = (type, revision, fields = {}) => ({ type, loanId, revision, applicationRevision: sent.revision, requestId: randomUUID(), ...fields });
+    const save = change("save", 0, { sources: [source] });
+    assert.equal((await post(path, save, processor)).page.record.amount, 650000);
+    const submit = await post(path, change("submit", 1), processor);
+    assert.equal(submit.page.record.stage, "Ready for review");
+    const approve = change("approve", 2, { note: "Reconciled the fictional pay stub." });
+    assert.equal((await postResponse(path, approve, processor)).status, 409);
+    const approved = (await post(path, approve, officer)).page.record;
+    assert.equal(approved.amount, 650000);
+    assert.equal(approved.stage, "Approved");
+    assert.equal(approved.revision, 3);
+    const pricing = { applicationRevision: sent.revision, incomeReviewRevision: approved.revision, scenario: {
+      purpose: "Purchase", loanAmount: Number(sent.draft.loanAmount), propertyValue: Number(sent.draft.estimatedValue), purchasePrice: null,
+      zip: sent.draft.propertyLocation.zip.slice(0, 5), creditScore: 760, monthlyIncome: 6500, occupancy: sent.draft.occupancy,
+      propertyType: "Single family", firstTimeBuyer: false,
+    } };
+    const priced = await loanAction(officer, loanId, "runPricing", pricing);
+    const run = priced.state.pricingRuns.find((item) => item.loanId === loanId);
+    assert.equal(run.incomeReviewRevision, 3);
+    assert.equal(run.incomeReviewCurrent, true);
+    const selection = { runId: run.id, offerId: run.offers[0].id };
+    await loanAction(officer, loanId, "selectOffer", selection);
+    await loanAction(officer, loanId, "publishQuote", selection);
+    assert.ok((await borrower(token, { type: "status" })).loanStatus.quote);
+    await post(path, change("save", 3, { sources: [{ ...source, rationale: "Recheck fictional payroll details." }] }), processor);
+    assert.equal((await file(officer, loanId)).pricingRuns.find(({ id }) => id === run.id).incomeReviewCurrent, false);
+    assert.equal((await borrower(token, { type: "status" })).loanStatus.quote, null);
+    assert.match((await action(officer, "mutate", { type: "runPricing", loanId, ...pricing })).error, /reviewed income/i);
+    assert.match((await action(officer, "mutate", { type: "publishQuote", loanId, ...selection })).error, /reviewed income/i);
+    assert.equal((await post(path, query, officer)).page.history[0].note, "Reconciled the fictional pay stub.");
+  });
   await stage("MISMO import returns the exact draft and a scoped duplicate receipt", async () => {
     const fields = { firstName: "Fictional", lastName: "Working Day MISMO", amount: "275000", purpose: "Purchase",
       occupancy: "Primary residence", street: "10 Fictional Way", unit: "", city: "Royal Oak", state: "MI", zip: "48067" };

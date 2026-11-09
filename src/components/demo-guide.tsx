@@ -11,7 +11,7 @@ import type { WorkspaceStaff } from "@/lib/staff-store";
 import type { LoanProcessing } from "@/lib/processing-model";
 import { rateTargetReached } from "@/lib/client-retention";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
-import { quoteMatchesApplication } from "@/lib/pricing-model";
+import { pricingInputsMatch } from "@/lib/pricing-model";
 import { campaignManualSubmission, campaignRehearsalCsv, type CampaignLenderPath, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import { fundingTaskId } from "@/lib/playbook-model";
 import { dateTime } from "@/lib/utils";
@@ -123,7 +123,7 @@ export function DemoGuide(props: DemoGuideProps) {
   const credit = state.mockCreditAusRuns.find((item) => item.loanId === loan?.id && item.service === "Credit");
   const pricing = state.pricingRuns.filter((item) => item.loanId === loan?.id && item.selectedId)
     .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
-  const quote = pricing?.mode === "mock" && pricing.selectedId && quoteMatchesApplication(pricing.applicationRevision, application)
+  const quote = pricing?.mode === "mock" && pricing.selectedId && pricingInputsMatch(pricing, application)
     ? { runId: pricing.id, offerId: pricing.selectedId } : undefined;
   const submission = state.submissions.find((item) => item.loanId === loan?.id && item.lender === "UWM" && item.syncedAt);
   const currentApplicationSent = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
@@ -334,7 +334,7 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
   const credit = state.mockCreditAusRuns.find((item) => item.loanId === loan?.id && item.service === "Credit");
   const savedQuote = state.pricingRuns.filter((item) => item.loanId === loan?.id && item.selectedId)
     .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
-  const priced = savedQuote?.mode === "mock" && quoteMatchesApplication(savedQuote.applicationRevision, application);
+  const priced = savedQuote?.mode === "mock" && pricingInputsMatch(savedQuote, application);
   const uwmSubmission = state.submissions.find((item) => item.loanId === loan?.id && item.lender === "UWM" && item.syncedAt);
   const sent = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
   const mockStarted = application?.versions.some((version) => version.uwmReceipt);

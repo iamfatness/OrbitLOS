@@ -2,7 +2,8 @@ import { demoBrokerageId } from "./brokerage-model";
 import { easternDate } from "./client-retention";
 import { feeTemplateChanged, feeTemplateConfig, feeTemplateRequest, feeTemplatesUnavailable,
   type FeeTemplate, type FeeTemplatePage } from "./fee-template-model";
-import { quoteMatchesApplication, type PricingScenario } from "./pricing-model";
+import { pricingInputError } from "./income-review-freshness";
+import type { PricingScenario } from "./pricing-model";
 import type { FeeTemplateOrigin } from "./quote-worksheet";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -46,12 +47,13 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
   const asOf = easternDate(now);
   if (data.type === "forQuote") {
     if (staff && !loanAccess(db, staff, data.loanId)) return { error: feeTemplatesUnavailable };
-    const run = db.prepare("SELECT scenario, applicationRevision FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'")
+    const run = db.prepare("SELECT scenario, applicationRevision, incomeReviewRevision FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'")
       .get(data.runId, data.loanId);
     const app = db.prepare("SELECT revision, correctionNote FROM applications WHERE loanId = ?").get(data.loanId);
-    if (!run || !quoteMatchesApplication(run.applicationRevision, app ? { revision: Number(app.revision), correctionNote: String(app.correctionNote ?? "") } : undefined)) {
-      return { error: "Price the current loan before loading a fee template." };
-    }
+    if (!run) return { error: "Price the current loan before loading a fee template." };
+    const freshness = pricingInputError(db, data.loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision },
+      app ? { revision: Number(app.revision), correctionNote: String(app.correctionNote ?? "") } : undefined);
+    if (freshness) return { error: freshness };
     const scenario = JSON.parse(String(run.scenario)) as PricingScenario;
     const rows = db.prepare(`SELECT id, revision, archived, config FROM brokerage_fee_templates WHERE ${compatibleFees}
       ORDER BY title COLLATE NOCASE, id LIMIT ?`).all(asOf, scenario.purpose, scenario.zip, activeLimit);

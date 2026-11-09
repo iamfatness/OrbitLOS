@@ -5,7 +5,7 @@ import { Copy, GitCompareArrows, Plus, Save, Star } from "lucide-react";
 import type { Loan, Workspace } from "@/lib/model";
 import { blankScenarioOption, compareLoanScenarios, pricingScenarioOption, sampleScenarioPlan, scenarioGoals, scenarioPlanSchema,
   type LoanScenarioOption, type ScenarioPlan, type ScenarioQuoteSource, type ScenarioResponse } from "@/lib/loan-scenario-model";
-import { quoteMatchesApplication } from "@/lib/pricing-model";
+import { pricingInputsMatch } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -46,7 +46,7 @@ export function LoanScenarios({ loan, state, brokerageId, sampleAllowed, markDra
   const draft = application?.draft;
   const currentAppRevision = application?.revision ?? null;
   const quoteOptions = state.pricingRuns.filter(run => run.loanId === loan.id && run.mode === "mock" &&
-    quoteMatchesApplication(run.applicationRevision, application) && (!plan || run.scenario.purpose === plan.purpose))
+    pricingInputsMatch(run, application) && (!plan || run.scenario.purpose === plan.purpose))
     .flatMap(run => run.offers.filter(offer => /fixed/i.test(offer.product)).map(offer => ({ key: `${run.id}/${offer.id}`, run, offer })));
 
   useEffect(() => {

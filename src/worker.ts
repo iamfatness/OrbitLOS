@@ -37,6 +37,7 @@ import { z } from "zod";
 import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback, type PilotPortalLink } from "./lib/pilot";
 import { explorationInput, loadExplorationExamples } from "./lib/pilot-exploration";
 import { loanScenarioWork } from "./lib/loan-scenarios";
+import { incomeWorksheetWork } from "./lib/income-review";
 import { workOnPreapprovalLetters } from "./lib/preapproval-letters";
 import { sharedPreapprovalDownload } from "./lib/preapproval-sharing";
 import { sharedPreapprovalUnavailable } from "./lib/preapproval-model";
@@ -735,6 +736,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   loanScenarios(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return loanScenarioWork(this.#store, input, staff, this.#id);
+  }
+  incomeWorksheet(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return incomeWorksheetWork(this.#store, input, staff, this.#id);
   }
   preapprovalLetters(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;

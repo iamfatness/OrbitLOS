@@ -3,15 +3,17 @@ import { addApplicationActivity } from "./applications";
 import { easternDate } from "./client-retention";
 import { feeTemplateChanged } from "./fee-template-model";
 import { feeOriginForQuote } from "./fee-templates";
-import { quoteMatchesApplication, repriceQuoteMessage, type PricingApplication, type PricingOffer, type PricingScenario } from "./pricing-model";
+import { pricingInputError } from "./income-review-freshness";
+import type { PricingApplication, PricingOffer, PricingScenario } from "./pricing-model";
 import { estimateFees, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type quoteSelection, type saveFeeWorksheetInput } from "./quote-worksheet";
 import type { Store } from "./store";
 
 function priceOption(db: Store, loanId: string, runId: string, offerId: string) {
-  const run = db.prepare("SELECT scenario, offers, applicationRevision FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'").get(runId, loanId);
+  const run = db.prepare("SELECT scenario, offers, applicationRevision, incomeReviewRevision FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'").get(runId, loanId);
   if (!run) return null;
   const offer = (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === offerId);
-  return offer ? { scenario: JSON.parse(String(run.scenario)) as PricingScenario, offer, applicationRevision: run.applicationRevision } : null;
+  return offer ? { scenario: JSON.parse(String(run.scenario)) as PricingScenario, offer, applicationRevision: run.applicationRevision,
+    incomeReviewRevision: run.incomeReviewRevision } : null;
 }
 
 export function quoteFeeWorksheet(db: Store, loanId: string, runId: string, offerId: string): FeeWorksheet | undefined {
@@ -25,9 +27,8 @@ export function saveFeeWorksheet(db: Store, data: z.infer<typeof saveFeeWorkshee
   const option = priceOption(db, loanId, runId, offerId);
   if (!option) return { error: "Choose a sample pricing option on this loan." };
   const app = db.prepare("SELECT revision, correctionNote FROM applications WHERE loanId = ?").get(loanId);
-  if (!quoteMatchesApplication(option.applicationRevision, app ? { revision: Number(app.revision), correctionNote: String(app.correctionNote ?? "") } : undefined)) {
-    return { error: repriceQuoteMessage };
-  }
+  const freshness = pricingInputError(db, loanId, option, app ? { revision: Number(app.revision), correctionNote: String(app.correctionNote ?? "") } : undefined);
+  if (freshness) return { error: freshness };
   if (!estimateFees(option.scenario, option.offer, worksheet)) {
     return { error: option.scenario.purpose === "Purchase" ? "Enter a purchase price at or above the loan amount." : "Enter estimated refinance payoffs, including zero if applicable." };
   }
@@ -53,7 +54,8 @@ export function saveFeeWorksheet(db: Store, data: z.infer<typeof saveFeeWorkshee
 export function quoteSnapshot(db: Store, loanId: string, choice: z.infer<typeof quoteSelection>, application: PricingApplication) {
   const option = priceOption(db, loanId, choice.runId, choice.offerId);
   if (!option) return { error: "Choose sample pricing options on this loan." };
-  if (!quoteMatchesApplication(option.applicationRevision, application)) return { error: repriceQuoteMessage };
+  const freshness = pricingInputError(db, loanId, option, application);
+  if (freshness) return { error: freshness };
   const worksheet = quoteFeeWorksheet(db, loanId, choice.runId, choice.offerId);
   if ((worksheet?.revision ?? 0) !== choice.feeRevision) return { error: "A fee worksheet changed. Refresh the comparison before sharing." };
   return { option: quoteOption({ ...option, id: choice.runId }, option.offer, worksheet) };

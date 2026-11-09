@@ -5,8 +5,9 @@ import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
 import type { ApplicationDraft } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
+import { repriceIncomeMessage, type ReviewedIncomeSource } from "@/lib/income-review-model";
 import type { Loan, Workspace } from "@/lib/model";
-import { pricingPrograms, quoteMatchesApplication, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario,
+import { pricingPrograms, pricingInputsMatch, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario,
   type PublishedQuote } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -106,11 +107,13 @@ function Terms({ offer }: { offer: PricingOffer }) {
   </dl>;
 }
 
-export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote }: {
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
+  reviewedIncome?: ReviewedIncomeSource;
+  openIncome?: () => void;
   lenderHandoff?: { label: string; blocker: string | null; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
   const runs = state.pricingRuns.filter((item) => item.loanId === loan.id);
@@ -128,12 +131,17 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
   const publishedRun = runs.find((run) => run.id === published?.runId);
   const sharedHistory = state.sharedQuoteHistory.filter((quote) => quote.loanId === loan.id);
+  const initialRun = sourceRun ?? current;
   const [form, setForm] = useState(() => {
-    const initial = defaults(loan, draft, sourceRun ?? current);
+    const initial = defaults(loan, draft, reviewedIncome && initialRun?.applicationRevision !== reviewedIncome.applicationRevision ? undefined : initialRun);
+    if (reviewedIncome) {
+      initial.program = "Conventional";
+      initial.monthlyIncome = String(reviewedIncome.amount / 100);
+    }
     return { ...initial, creditScore: useMockScore && mockScore ? mockScore : initial.creditScore || mockScore };
   });
-  const initialRun = sourceRun ?? current;
-  const [formRevision, setFormRevision] = useState(initialRun ? initialRun.applicationRevision : application?.revision ?? null);
+  const [formRevision, setFormRevision] = useState(reviewedIncome?.applicationRevision ?? (initialRun ? initialRun.applicationRevision : application?.revision ?? null));
+  const [incomeRevision, setIncomeRevision] = useState(reviewedIncome?.revision ?? initialRun?.incomeReviewRevision ?? undefined);
   const [preview, setPreview] = useState(Boolean(sourceIsSaved));
   const [pricing, setPricing] = useState(false);
   const [alternativeKeys, setAlternativeKeys] = useState(() =>
@@ -141,7 +149,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const change = (name: keyof typeof form, value: string | boolean) => setForm((last) => ({ ...last, [name]: value }));
   const dscr = form.program === "DSCR";
   const bank = form.program === "Bank statement";
-  const isCurrent = (run: PricingRun | undefined) => !!run && quoteMatchesApplication(run.applicationRevision, application);
+  const isCurrent = (run: PricingRun | undefined) => !!run && pricingInputsMatch(run, application);
   const savedNeedsReprice = !!saved && !isCurrent(saved);
   const handoffAction = lenderHandoff && saved?.mode === "mock" && selected && !savedNeedsReprice &&
     (lenderHandoff.blocker || (application?.submittedAt && application.reviewedAt)) && <>
@@ -152,6 +160,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const publishedNeedsReprice = !!published && (!application?.submittedAt || !isCurrent(publishedRun) ||
     !!published.presentation?.alternatives.some((item) => !isCurrent(runs.find((run) => run.id === item.runId))));
   const formOutdated = formRevision !== (application?.revision ?? null);
+  const useIncomeRevision = form.program === "Conventional" ? incomeRevision : undefined;
+  const incomeOutdated = useIncomeRevision !== undefined && runs.some((run) => run.incomeReviewRevision === useIncomeRevision && run.incomeReviewCurrent === false);
   const scenario = scenarioFromForm(form);
   const savedAssumptionsChanged = !!saved && (
     JSON.stringify(scenario) !== JSON.stringify(scenarioFromForm(defaults(loan, draft, saved))) || (bank && !form.selfEmployed)
@@ -174,14 +184,15 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
 
   async function price(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (formOutdated || (bank && !form.selfEmployed)) return;
+    if (formOutdated || incomeOutdated || (bank && !form.selfEmployed)) return;
     setPricing(true);
     setPreview(false);
-    try { await save({ type: "runPricing", loanId: loan.id, scenario, applicationRevision: formRevision }); }
+    try { await save({ type: "runPricing", loanId: loan.id, scenario, applicationRevision: formRevision, incomeReviewRevision: useIncomeRevision }); }
     finally { setPricing(false); }
   }
 
   function loadSample() {
+    setIncomeRevision(undefined);
     setFormRevision(application?.revision ?? null);
     setForm({
       ...defaults(loan, draft), loanAmount: "360000", propertyValue: "450000", purchasePrice: form.purpose === "Purchase" ? "450000" : "",
@@ -196,6 +207,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       const latest = refreshed.applications.find((item) => item.loanId === loan.id);
       const inputs = defaults(refreshed.loans.find((item) => item.id === loan.id) ?? loan, latest?.draft);
       const { purpose, loanAmount, propertyValue, purchasePrice, zip, monthlyIncome, occupancy } = inputs;
+      setIncomeRevision(undefined);
       setForm((previous) => ({ ...previous, purpose, loanAmount, propertyValue, purchasePrice, zip, monthlyIncome, occupancy }));
       setFormRevision(latest?.revision ?? null);
     });
@@ -212,7 +224,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <p>{sourceOffer.product} · {cash(sourceRun.scenario.loanAmount)} · {sourceRun.scenario.purpose}</p>
         <p className="muted timestamp">{sourceRun.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced {dateTime(sourceRun.quotedAt)} ET</p>
         <Terms offer={sourceOffer} />
-        {!isCurrent(sourceRun) ? <p className="quote-disclaimer">Reprice from the current 1003 before saving this quote.</p> :
+        {!isCurrent(sourceRun) ? <p className="quote-disclaimer">{sourceRun.incomeReviewCurrent === false ? repriceIncomeMessage : "Reprice from the current 1003 before saving this quote."}</p> :
           <Button size="sm" variant="outline" disabled={busy || sourceIsSaved}
             onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: sourceRun.id, offerId: sourceOffer.id }, () => setPreview(true))}>
             {sourceIsSaved ? "Saved to this loan" : "Save this quote"}
@@ -233,11 +245,19 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         {form.purpose === "Purchase" && <label className="field"><span>Purchase price (optional)</span><input type="number" min="1" max="25000000" step="0.01" value={form.purchasePrice} onChange={(event) => change("purchasePrice", event.target.value)} /></label>}
         <label className="field"><span>Property ZIP</span><input required inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.zip} onChange={(event) => change("zip", event.target.value)} /></label>
         <label className="field"><span>FICO score</span><input required type="number" min="300" max="850" value={form.creditScore} onChange={(event) => change("creditScore", event.target.value)} /></label>
-        {form.program === "Conventional" && <NumberField label="Gross monthly income" value={form.monthlyIncome} min={1} change={(value) => change("monthlyIncome", value)} />}
+        {form.program === "Conventional" && <NumberField label="Gross monthly income" value={form.monthlyIncome} min={1} change={(value) => {
+          setIncomeRevision(undefined);
+          change("monthlyIncome", value);
+        }} />}
         <label className="field"><span>Occupancy</span><select disabled={dscr} value={dscr ? "Investment property" : form.occupancy}
           onChange={(event) => change("occupancy", event.target.value)}>{occupancies.map((value) => <option key={value}>{value}</option>)}</select></label>
         <label className="field"><span>Property type</span><select value={form.propertyType} onChange={(event) => change("propertyType", event.target.value)}>{propertyTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
       </div>
+      {form.program === "Conventional" && openIncome && <div className="pricing-actions">
+        <p className={incomeOutdated ? "quote-disclaimer" : "muted"}>{incomeOutdated ? repriceIncomeMessage :
+          useIncomeRevision ? `Approved income worksheet v${useIncomeRevision} · ${cash(Number(form.monthlyIncome))} monthly` : "Monthly income uses a manual or 1003-reported amount."}</p>
+        <Button size="sm" variant="outline" type="button" disabled={busy} onClick={openIncome}>Open income worksheet</Button>
+      </div>}
       {mockScore && <div className="pricing-actions">
         {form.creditScore === mockScore ? <span className="muted">Matches current mock credit report · {mockScore}</span> :
           <Button size="sm" variant="outline" disabled={busy} onClick={() => change("creditScore", mockScore)}>Use mock credit score {mockScore}</Button>}
@@ -274,7 +294,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <div className="pricing-actions">
         <Button size="sm" variant="outline" disabled={busy} onClick={loadCurrentApplication}>{application ? "Load current 1003 inputs" : "Reload loan inputs"}</Button>
         <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>
-        <Button type="submit" disabled={busy || formOutdated}><Calculator /> {pricing ? "Pricing…" : "Run pricing"}</Button></div>
+        <Button type="submit" disabled={busy || formOutdated || incomeOutdated}><Calculator /> {pricing ? "Pricing…" : "Run pricing"}</Button></div>
     </form>
     {saved && selected && <section className="quote-saved">
       <div className="section-heading"><h3><BadgeCheck size={17} /> Saved quote</h3>
@@ -282,10 +302,11 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       </div>
       <p>{selected.product} · {percentage(selected.rate)} · {cash(selected.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">{saved.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced {dateTime(saved.quotedAt)} ET</p>
+      {saved.incomeReviewRevision && <p className="muted">Income worksheet v{saved.incomeReviewRevision} · {cash(saved.scenario.monthlyIncome ?? null)} monthly</p>}
       {saved.id !== current?.id && handoffAction}
       {savedNeedsReprice ? <p className="quote-disclaimer">{application?.correctionNote
         ? "Wait for the borrower to submit the corrected 1003 before sharing or locking a quote."
-        : "This quote needs to be repriced from the current 1003 before sharing or locking."}</p>
+        : saved.incomeReviewCurrent === false ? repriceIncomeMessage : "This quote needs to be repriced from the current 1003 before sharing or locking."}</p>
         : savedAssumptionsChanged && <p className="quote-disclaimer">The current pricing form differs from this saved quote. Review the assumptions before sharing.</p>}
       {preview && <div className="quote-preview">
         <p className="eyebrow">{saved.mode === "mock" ? "SAMPLE BORROWER QUOTE" : "UWM STAGE QUOTE"}</p>
@@ -335,7 +356,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <p>{published.product} · {percentage(published.rate)} · {cash(published.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">Sample quote · Shared {dateTime(published.publishedAt)} ET</p>
       {published.presentation && <details className="document-form"><summary>View exact shared quote</summary><SampleQuotePresentation quote={published.presentation} /></details>}
-      {publishedNeedsReprice ? <p className="quote-disclaimer">Hidden from the borrower until you share a quote from the current 1003.</p>
+      {publishedNeedsReprice ? <p className="quote-disclaimer">Hidden from the borrower until you share a quote from the current 1003 and income inputs.</p>
         : publishedAssumptionsChanged && <p className="quote-disclaimer">The borrower still sees these terms. Review them against your latest pricing assumptions.</p>}
     </section>}
     {sharedHistory.length > 0 && <details className="quote-saved"><summary>Previously shared quotes</summary>
@@ -369,6 +390,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
     {current && <section className="pricing-results" aria-label="Pricing results">
       <div className="section-heading"><h3>Pricing options</h3><span className="pill">{current.offers.length} returned</span></div>
       <p className="muted timestamp">{cash(current.scenario.loanAmount)} · {current.scenario.purpose} · {dateTime(current.quotedAt)} ET</p>
+      {current.incomeReviewRevision && <p className="muted">Income worksheet v{current.incomeReviewRevision} · {cash(current.scenario.monthlyIncome ?? null)} monthly</p>}
       {current.reference && <p className="muted timestamp">EQ scenario {current.reference}</p>}
       {current.offers.length === 0 && <p className="empty-inline">UWM returned no displayable pricing for this scenario.</p>}
       {current.offers.map((offer) => {

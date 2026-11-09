@@ -14,7 +14,9 @@ import { archiveMockDocumentDelivery, refreshMockUwmClearance, reopenMockUwmCond
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
 import { manualHandoffOutcomes, reusablePropertyAddress } from "./application-model";
-import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, quoteMatchesApplication, repriceQuoteMessage, type PricingOffer } from "./pricing-model";
+import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
+import { approvedIncomeAmount, pricingInputError } from "./income-review-freshness";
+import { repriceIncomeMessage } from "./income-review-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider } from "./pricing-provider";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
@@ -258,7 +260,8 @@ const command = z.discriminatedUnion("type", [
   rescheduleCarriedCallbackInput,
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120),
     days: z.union([z.literal(1), z.literal(3), z.literal(7)]), purpose: z.enum(followUpPurposes).default("Loan service") }),
-  z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario, applicationRevision: z.number().int().nonnegative().nullable() }),
+  z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario, applicationRevision: z.number().int().nonnegative().nullable(),
+    incomeReviewRevision: z.number().int().positive().optional() }),
   mockCreditInput,
   mockAusInput,
   mockPairedAusInput,
@@ -511,16 +514,25 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     if (data.type === "runPricing") {
       if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
       const currentRevision = () => getApplication(db, data.loanId)?.revision ?? null;
+      const checkReviewedIncome = () => {
+        if (data.incomeReviewRevision === undefined) return;
+        if (!staff?.brokerage.pilot || data.scenario.nonAgency) throw new WorkspaceError("Reviewed worksheet income is available for conventional mock pricing.");
+        const amount = approvedIncomeAmount(db, data.loanId, data.incomeReviewRevision);
+        if (amount === null || data.scenario.monthlyIncome !== amount / 100) throw new WorkspaceError(repriceIncomeMessage);
+      };
       if (currentRevision() !== data.applicationRevision) throw new WorkspaceError("The 1003 changed. Reload its inputs before running pricing.");
-      const result = await pricingProvider(isDemoStaff(staff) ? process.env : {}).quote(data.scenario);
+      checkReviewedIncome();
+      const result = await pricingProvider(data.incomeReviewRevision === undefined && isDemoStaff(staff) ? process.env : {}).quote(data.scenario);
       return db.transaction(() => {
         authorizeLoanOfficer(db, data, staff);
         if (currentRevision() !== data.applicationRevision) throw new WorkspaceError("The 1003 changed while pricing. Reload its inputs and try again.");
+        checkReviewedIncome();
         db.prepare(`INSERT INTO pricing_runs
-          (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt, applicationRevision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt, applicationRevision, incomeReviewRevision)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(crypto.randomUUID(), data.loanId, result.provider, result.mode, result.reference,
             JSON.stringify(data.scenario), JSON.stringify(result.offers), JSON.stringify(result.notices), new Date().toISOString(),
-            data.applicationRevision);
+            data.applicationRevision, data.incomeReviewRevision ?? null);
         if (staff?.brokerage.pilot) accessEvent(db, staff, "Ran sample pricing", data.loanId, new Date().toISOString());
         return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message: `${result.offers.length} pricing options returned.` };
       });
@@ -1386,10 +1398,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = "Follow-up task added.";
           break;
         case "selectOffer": {
-          const run = db.prepare("SELECT offers, selectedId, mode, applicationRevision FROM pricing_runs WHERE id = ? AND loanId = ?").get(data.runId, data.loanId);
+          const run = db.prepare("SELECT offers, selectedId, mode, applicationRevision, incomeReviewRevision FROM pricing_runs WHERE id = ? AND loanId = ?").get(data.runId, data.loanId);
           const offer = run && (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === data.offerId);
           if (!run || !offer) throw new WorkspaceError("That pricing option is unavailable. Refresh the loan and try again.");
-          if (!quoteMatchesApplication(run.applicationRevision, getApplication(db, data.loanId))) throw new WorkspaceError(repriceQuoteMessage);
+          const freshness = pricingInputError(db, data.loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision }, getApplication(db, data.loanId));
+          if (freshness) throw new WorkspaceError(freshness);
           const lastSaved = savedPricingRun(db, data.loanId);
           if (lastSaved?.id !== data.runId || lastSaved.selectedId !== offer.id) {
             db.prepare("UPDATE pricing_runs SET selectedId = ?, selectedAt = ? WHERE id = ?").run(offer.id, now, data.runId);
@@ -1541,6 +1554,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
               saved.applicationRevision !== data.revision) {
               throw new WorkspaceError("The saved mock quote changed. Refresh pricing and review the current quote before sending.");
             }
+            const freshness = pricingInputError(db, data.loanId, { applicationRevision: saved.applicationRevision, incomeReviewRevision: saved.incomeReviewRevision }, getApplication(db, data.loanId));
+            if (freshness) throw new WorkspaceError(freshness);
           }
           const result = submitMockApplication(db, data.loanId, data.revision, now);
           if ("error" in result) throw new WorkspaceError(result.error);

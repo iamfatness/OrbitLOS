@@ -1,5 +1,6 @@
 import { addApplicationActivity, getApplication } from "./applications";
-import { mockRateStatus, quoteMatchesApplication, repriceQuoteMessage, type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer } from "./pricing-model";
+import { mockRateStatus, type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer } from "./pricing-model";
+import { pricingInputError } from "./income-review-freshness";
 import { savedPricingRun, type Store } from "./store";
 
 type Result = { message: string } | { error: string };
@@ -29,7 +30,8 @@ export function floatMockRate(db: Store, input: {
   if (run?.id !== runId || run.selectedId !== offerId || run.mode !== "mock") {
     return { error: "Save the current sample quote before floating its rate." };
   }
-  if (!quoteMatchesApplication(run.applicationRevision, getApplication(db, loanId))) return { error: repriceQuoteMessage };
+  const freshness = pricingInputError(db, loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision }, getApplication(db, loanId));
+  if (freshness) return { error: freshness };
   if (previous && status === "Floating" && sameQuote) return { message: `Rate already floating · ${previous.floatReference}` };
   if ((previous?.floatReference ?? null) !== previousFloatReference) return { error: "The floating rate changed. Reopen pricing before floating another quote." };
   const offer = (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === offerId);
@@ -62,7 +64,8 @@ export function lockMockRate(db: Store, input: { loanId: string; floatReference:
   if (run?.id !== current.runId || run.selectedId !== current.offerId || run.mode !== "mock") {
     return { error: "The saved quote changed. Float it before requesting a mock lock." };
   }
-  if (!quoteMatchesApplication(run.applicationRevision, getApplication(db, loanId))) return { error: repriceQuoteMessage };
+  const freshness = pricingInputError(db, loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision }, getApplication(db, loanId));
+  if (freshness) return { error: freshness };
   if (uwmFile(db, loanId, current.submissionId)?.externalId !== current.loanNumber) {
     return { error: "This UWM submission is unavailable. Refresh the loan before locking the rate." };
   }

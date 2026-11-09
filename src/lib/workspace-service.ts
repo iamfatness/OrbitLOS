@@ -22,6 +22,7 @@ import { readLeadArchive } from "./lead-inbox";
 import { receiveQuoteLead, workOnQuoteSettings } from "./quote-intake";
 import { documentTemplateWork } from "./document-templates";
 import { feeTemplateWork } from "./fee-templates";
+import { incomeWorksheetWork } from "./income-review";
 import { lenderPackageAccess, lenderShareWork } from "./lender-handoff-share";
 import type { SharedLenderPackageInput } from "./lender-handoff-share-model";
 import { readSharedRealtorQueue } from "./realtor-claim-queue";
@@ -152,7 +153,9 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
       brokerage: { id: demoBrokerageId, name: "Local rehearsal", role: "Admin", pilot: true },
     });
   }
-  return executeCommand(database(), input, staff, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
+  const actor = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" &&
+    "type" in input && input.type === "runPricing" && "incomeReviewRevision" in input ? localPilotAdmin : staff;
+  return executeCommand(database(), input, actor, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
     scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks", scopedTemplateUpdates: true,
     scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration" });
 }
@@ -317,6 +320,10 @@ export async function saveManualReturnFollowUp(input: unknown, staff: WorkspaceS
 export async function loadLoanScenarios(input: unknown, staff: WorkspaceStaff | null) {
   const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
   return actor ? loanScenarioWork(database(), input, actor, demoBrokerageId) : { error: "Sign in to view loan scenarios." };
+}
+
+export async function workOnIncomeWorksheet(input: unknown, staff: WorkspaceStaff | null) {
+  return incomeWorksheetWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null), demoBrokerageId);
 }
 
 export async function loadPreapprovalLetters(input: unknown, staff: WorkspaceStaff | null) {

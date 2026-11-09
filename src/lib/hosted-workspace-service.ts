@@ -30,6 +30,7 @@ import { manualReturnFollowUpUnavailable } from "./lender-export-model";
 import { preapprovalUnavailable, sharedPreapprovalUnavailable } from "./preapproval-model";
 import { lenderPackageUnavailable, type SharedLenderPackageInput } from "./lender-handoff-share-model";
 import { quoteSettingsUnavailable } from "./quote-intake-model";
+import { incomeReviewUnavailable } from "./income-review-model";
 export { currentStaff } from "./current-staff";
 
 function staffWorkspace(staff: WorkspaceStaff | null) {
@@ -212,6 +213,10 @@ export async function saveManualReturnFollowUp(input: unknown, staff: WorkspaceS
 
 export async function loadLoanScenarios(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).loanScenarios(staff, input) : { error: "Sign in to view loan scenarios." };
+}
+
+export async function workOnIncomeWorksheet(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).incomeWorksheet(staff, input) : { error: incomeReviewUnavailable };
 }
 
 export async function loadPreapprovalLetters(input: unknown, staff: WorkspaceStaff | null) {

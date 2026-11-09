@@ -30,6 +30,7 @@ export default function DemoPage() {
           <li>Give two borrowers separate links to save and submit their own portions. Review the combined fictional 1003 on one loan.</li>
           <li>Assign document requests to each borrower on a joint loan. Each private checklist shows that person’s evidence and mock upload status.</li>
           <li>Run mock DU and LPA together on the same 1003 and sample credit report. Review separate findings and retry either service independently.</li>
+          <li>Review a fictional income worksheet against the submitted 1003 and accepted documents. Carry the approved monthly amount into mock pricing with its source version.</li>
           <li>Give a fictional lender an expiring link and separate code for the reviewed MISMO export and selected sample PDFs. See downloads on the loan and revoke the link.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Watch it appear in the open Ready to accept queue, work through mock lender clearance, and pick it back up in Today with the processor’s internal note.</li>
