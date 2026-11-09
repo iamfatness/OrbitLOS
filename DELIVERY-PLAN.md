@@ -35,6 +35,10 @@ Maintain the [capability register](docs/capability-register.md) against an immut
 
 Increment dependencies are 0 → 1 → 2 → 3 → 4 → 5. Start instrumentation, security verification, migration discovery, and architectural bottleneck removal in increment 0 and continue them throughout. Existing verified functionality can satisfy a gate without being rebuilt. Provider onboarding can progress independently, but cannot bypass the real-data gate.
 
+### ARIVE feature coverage
+
+Reconcile the [19 feature groups](docs/arive-feature-parity-spec.md#current-release-reconciliation) with the existing workstream for each increment. Record the accountable reviewer, required counterparties, and acceptance evidence before release. Broker and non-delegated releases have separate gates. Keep fictional and stage tests within the demo budget while provider decisions are open.
+
 ### Customer API and MCP workstream
 
 The [customer API and MCP roadmap](PRODUCT-ROADMAP.md#customer-api-and-mcp) is required planning scope. Deliver one shared service and permission layer with two supported external interfaces: a versioned customer API and an MCP server. Track contracts, authorization, read tools, write tools, and client verification independently in the capability register with owner, dependencies, evidence, and limitations.

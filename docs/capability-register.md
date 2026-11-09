@@ -2,10 +2,13 @@
 
 Updated November 9, 2026. The [roadmap](../PRODUCT-ROADMAP.md) defines scope and the [delivery plan](../DELIVERY-PLAN.md) defines release gates. This register tracks implementation and the evidence required for each workstream.
 
+The [ARIVE release reconciliation](arive-feature-parity-spec.md#current-release-reconciliation) records the baseline and next evidence for F01–F19. Provider acceptance and external brokerage outcomes remain separate from the fictional pilot results.
+
 ## Fictional pilot evidence
 
 | Workflow | Observed result | Remaining validation |
 | --- | --- | --- |
+| Loan scenarios and exact source quote | The [hosted rehearsal](demo-rehearsal-log.md#hosted-scenario-to-quote-rehearsal) compared two mock fixed-rate offers and carried the saved recommendation into Pricing, the borrower quote, and mock UWM handoff. | Live provider coverage, changed terms and eligibility, fee-service integration, and lock confirmation are separate acceptance items. |
 | CSV campaign to repeat loan | The [three-session rehearsal](working-day-rehearsal.md) preserved imported attribution and the callback through round-robin routing, 1003, mock lender work, funding, and a separate refinance draft. The processor could open only the assigned loan and the original LO kept ownership. On `5212a59c-4719-4c5b-a5b0-b0ce8b127246`, Today opened an imported task on the campaign card, where the admin logged the call, completed the task, and started the 1003. | A paired brokerage run with handling time, repeated entry, and system switches measured against its current tools. |
 | Borrower and staff checklist handoff | The [hosted rerun](demo-rehearsal-log.md#csv-to-repeat-rerun-without-refreshes-on-november-9-2026) reached all seven campaign steps in 2:08 with zero manual refreshes. An open borrower tab received new requests and a replacement, retained mock verification, and kept its PDF selection on an unrelated request. Staff received both sample attachments. | The hosted evidence covers separate tabs in one browser. Automated tests cover tab return and signal scoping. |
 | Uploaded CSV through mock PDF clearance and repeat 1003 | The [timed hosted run](demo-rehearsal-log.md#timed-uploaded-csv-and-pdf-rehearsal-on-november-9-2026) reached 7 / 7 in 2:51 with a local CSV, two clean sample PDFs, and no manual refreshes. The second lead moved from shared to assigned by the time the first funded. | A paired brokerage measurement and cross-device handoff with separate invited staff sessions. |

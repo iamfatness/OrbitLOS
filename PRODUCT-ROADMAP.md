@@ -21,6 +21,8 @@ The [product north star](PRODUCT-NORTH-STAR.md) defines outcomes and the [delive
 
 Capacity instrumentation, security verification, and recovery work start at increment 0 and continue throughout. Advance through measured capacity stages rather than assuming user count establishes readiness. Live provider work proceeds alongside this sequence; required provider workflows must pass before claiming brokerage replacement.
 
+The [ARIVE feature specifications](docs/arive-feature-parity-spec.md) map F01–F19 into these increments. They include borrower intake and pricing, document exchange, reporting, Zapier, contract processing, and non-delegated operations. The [release baseline](docs/arive-feature-parity-spec.md#current-release-reconciliation) distinguishes existing fictional workflows from the capabilities and provider decisions still open.
+
 ## Customer API and MCP
 
 Status: planned, not available to external customers. Deliver a documented, versioned customer API and an MCP server so authorized customer applications and AI assistants can work with Orbit. Both interfaces must reuse the same domain services and authorization rules as the app; do not expose internal app actions or create a second implementation of business logic.

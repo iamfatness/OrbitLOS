@@ -69,6 +69,8 @@ Before a live borrower pilot, verify workspace and document access, link expirat
 
 ## Live provider and expansion scope
 
+The [feature specifications](docs/arive-feature-parity-spec.md) cover the 19 feature groups drawn from ARIVE’s public comparison. Orbit starts with independent brokers and retains contract processing and non-delegated operations as explicit expansion work with separate acceptance. The specification tracks fictional, stage, and production evidence separately.
+
 These are capability scopes, not a separate delivery order. Live credit, AUS, pricing, locks, disclosures, and signatures are requirements wherever the target brokerage's supported workflow depends on them. Their validation is part of the replacement gate, even when provider access controls scheduling. Additional lenders and assistance can expand after the core workflow is proven.
 
 - **Live credit and AUS.** Connect the selected credit partner and validate DU/LPA order, findings, and error handling. A limited pilot can move earlier when access, authorization, and data-handling requirements are ready.
