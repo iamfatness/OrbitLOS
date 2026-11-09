@@ -26,6 +26,7 @@ import { mockRateStatus, quoteMatchesApplication } from "@/lib/pricing-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
 import { ManualLenderExport } from "./manual-lender-export";
+import { manualLenderAcknowledgmentTarget } from "@/lib/lender-export-model";
 import { ClosingWorkbench } from "./closing-workbench";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
@@ -396,7 +397,7 @@ const loanSections = [
 
 function loanSection(target?: string) {
   if (!target) return "Overview";
-  if (target === "loan-application" || target === "manual-lender-export") return "1003";
+  if (target === "loan-application" || target === "manual-lender-export" || target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-")) return "Conditions";
   if (target === "credit-aus" || target === "loan-pricing") return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" ||
@@ -727,6 +728,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   useEffect(() => {
     if (!target) return;
     const item = document.getElementById(target);
+    if (target === manualLenderAcknowledgmentTarget) item?.closest("details")?.setAttribute("open", "");
     if (item instanceof HTMLDetailsElement) {
       item.open = true;
       item.querySelector("summary")?.focus({ preventScroll: true });

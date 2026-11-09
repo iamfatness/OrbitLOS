@@ -5,6 +5,7 @@ import { readIncomingLoanWork } from "@/app/actions";
 import type { IncomingLoanWorkItem, IncomingLoanWorkPage, IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { dateTime } from "@/lib/utils";
+import { manualReturnSteps } from "@/lib/lender-export-model";
 import { Button } from "./ui/button";
 
 type ReviewResult = IncomingLoanWorkPage | { error: string };
@@ -43,15 +44,16 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
     {result && "error" in result && <div className="loan-application-actions"><p role="alert">{result.error}</p>
       <Button size="sm" variant="outline" disabled={paused} onClick={() => setAttempt((current) => current + 1)}>Retry</Button></div>}
     {page && (page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
-      const action = item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" : "Open handoff";
+      const action = item.returnStatus ? manualReturnSteps[item.returnStatus].action :
+        item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" : "Open handoff";
       return <li className="loan-task" key={`${item.kind}:${item.id}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
-        <span>{item.kind === "application" ? "Submitted" : "Received"} {dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
+        <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
         {item.note && <span>{item.note}</span>}</div>
       <Button size="sm" variant="outline" disabled={paused} aria-label={`${item.kind === "document" ? `Review ${item.title.toLowerCase()}` : action} for ${item.name}`}
         onClick={() => open(item)}>{action}</Button>
     </li>;})}</ul> : <p className="empty-inline">{after ? "No more incoming items need attention." : view === "today" ?
-      "New 1003s, received documents, and returned handoffs appear here." : "Received documents and ready handoffs on assigned files appear here."}</p>)}
+      "New 1003s, received documents, and lender or processor returns appear here." : "Received documents and ready handoffs on assigned files appear here."}</p>)}
     {(after || page?.next) && <div className="loan-application-actions">
       {after && <Button size="sm" variant="outline" disabled={paused} onClick={() => setAfter(undefined)}>Newest incoming work</Button>}
       {page?.next && <Button size="sm" variant="outline" disabled={paused} onClick={() => setAfter(page.next ?? undefined)}>Older incoming work</Button>}

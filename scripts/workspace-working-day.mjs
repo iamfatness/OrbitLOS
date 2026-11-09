@@ -20,6 +20,7 @@ const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exce
 const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { closingReviewReady, loanNextAction } = await import("../src/lib/loan-workflow.ts");
+const { manualReturnStatus, manualReturnSteps } = await import("../src/lib/lender-export-model.ts");
 const { Miniflare, convertV4MiniflareOptions } = createRequire(import.meta.resolve("wrangler"))("miniflare");
 const server = fileURLToPath(new URL("../dist/server/", import.meta.url));
 const config = createRequire(import.meta.url)(join(server, "wrangler.json"));
@@ -968,6 +969,24 @@ try {
     assert.equal(returned.applications[0].lastManualSubmissionId, submissionId);
     assert.equal(returned.applications[0].manualHandoff?.submissionId, undefined);
     assert.equal(returned.submissions[0].status, "Returned for changes");
+    const returns = (staff) => action(staff, "readManagerFileExceptions", { filter: "Manual lender returns" });
+    async function checkReturnQueues(status) {
+      const personal = (await incoming(officer, "today")).items.filter((item) => item.loanId === repeatId && item.kind !== "document");
+      assert.deepEqual(personal.map(({ kind, id, returnStatus }) => ({ kind, id, returnStatus })),
+        [{ kind: "lender-return", id: submissionId, returnStatus: status }]);
+      assert.equal(personal[0].note, "Fictional Wholesale · FICT-REFI-1003");
+      const managed = (await returns(owner)).items.find((item) => item.loanId === repeatId);
+      assert.equal(managed.status, status);
+      assert.equal(managed.target, manualReturnSteps[status].target);
+      assert.equal(managed.owner, officer.name);
+      assert.equal(managed.dueOn, null);
+      assert.equal(managed.overdue, false);
+      assert.deepEqual((await file(officer, repeatId)).manualReturn, { submissionId, status });
+    }
+    await checkReturnQueues(manualReturnStatus.borrower);
+    assert.ok(!(await incoming(competingOfficer, "today")).items.some((item) => item.loanId === repeatId));
+    assert.ok(!(await incoming(owner, "today")).items.some((item) => item.loanId === repeatId));
+    assert.ok((await returns(officer)).error);
     assert.equal((await write(officer, lenderReturn)).loanWork.applications[0].revision, returned.applications[0].revision);
     assert.match((await action(officer, "mutate", { ...lenderReturn, note: "A different instruction." })).error, /new lender return entry/);
     assert.match((await action(officer, "mutate", markClear)).error, /no longer ready/);
@@ -977,14 +996,18 @@ try {
     const correctedAmount = String(Number(draft.draft.loanAmount) - 500);
     const corrected = await borrower(repeatToken, { type: "submit", revision: draft.revision, step: applicationSteps.length - 1,
       draft: { ...draft.draft, loanAmount: correctedAmount } });
+    await checkReturnQueues(manualReturnStatus.review);
     await loanAction(officer, repeatId, "reviewApplication", { revision: corrected.revision });
+    await checkReturnQueues(manualReturnStatus.approval);
     await approveCurrent();
+    await checkReturnQueues(manualReturnStatus.export);
     const reacknowledgment = { ...handoff, revision: corrected.revision, eventId: randomUUID() };
     assert.match((await action(officer, "mutate", reacknowledgment)).error, /Prepare the MISMO export/);
     const revisedExport = await loanAction(officer, repeatId, "exportReviewedApplication", {
       revision: corrected.revision, lenderRevision: 0, eventId: randomUUID(), names,
     });
     assert.ok(revisedExport.mismoXml.includes(`<NoteAmount>${correctedAmount}</NoteAmount>`));
+    await checkReturnQueues(manualReturnStatus.acknowledgment);
     const pendingRevision = await file(owner, repeatId);
     assert.equal(loanNextAction(pendingRevision.loans[0], pendingRevision, "LO").title, "Prepare revised manual handoff");
     await write(officer, reacknowledgment);
@@ -995,6 +1018,8 @@ try {
     assert.deepEqual(relinked.submissions[0].conditions, cleared.submissions[0].conditions);
     assert.equal(relinked.documentRequests[0].id, accepted.id);
     assert.equal(relinked.documentRequests[0].revision, accepted.revision);
+    assert.ok(!(await incoming(officer, "today")).items.some((item) => item.id === submissionId));
+    assert.ok(!(await returns(owner)).items.some((item) => item.id === submissionId));
     assert.equal(loanNextAction(relinked.loans[0], relinked, "LO").title, "Review closing readiness");
     await write(officer, markClear);
     await loanAction(officer, repeatId, "recordClosing", { closingDate: today, revision: 0 });

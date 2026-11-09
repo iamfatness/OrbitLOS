@@ -1,4 +1,24 @@
 import { z } from "zod";
+import { loanReviewsTarget } from "./loan-review-model";
+
+export const manualReturnStatus = {
+  borrower: "Waiting on borrower",
+  review: "Corrected 1003 ready for review",
+  approval: "Awaiting second review",
+  export: "Ready for revised export",
+  acknowledgment: "Awaiting lender acknowledgment",
+} as const;
+
+export type ManualReturnStatus = (typeof manualReturnStatus)[keyof typeof manualReturnStatus];
+export const manualLenderAcknowledgmentTarget = "manual-lender-acknowledgment";
+
+export const manualReturnSteps = {
+  [manualReturnStatus.borrower]: { action: "Open borrower corrections", target: "loan-application" },
+  [manualReturnStatus.review]: { action: "Review corrected 1003", target: "loan-application" },
+  [manualReturnStatus.approval]: { action: "Open second review", target: loanReviewsTarget },
+  [manualReturnStatus.export]: { action: "Open revised export", target: "manual-lender-export" },
+  [manualReturnStatus.acknowledgment]: { action: "Open lender acknowledgment", target: manualLenderAcknowledgmentTarget },
+} satisfies Record<ManualReturnStatus, { action: string; target: string }>;
 
 export const exportName = z.object({
   first: z.string().trim().min(1).max(160),

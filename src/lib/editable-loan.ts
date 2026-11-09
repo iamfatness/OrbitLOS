@@ -12,6 +12,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import { loanWorkRecords, readBrokerageTemplates, type Store } from "./store";
 import { loanAccess } from "./workspace-access";
 import { searchTaskTarget } from "./workspace-search-model";
+import { readManualReturnWork } from "./manual-lender-work";
 
 export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 
@@ -72,9 +73,13 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
     .map(({ fundedLoanId, loanId }) => ({ fundedLoanId: String(fundedLoanId), loanId: String(loanId) }));
   const repeatOption: ReturningClientOption = pastClientLoan(loan) || records.closingProgress[0]?.fundingDate ?
     returningClientOption(db, loanId, staff) : { kind: "unavailable" };
+  const application = records.applications[0];
+  const manualReturn = staff.brokerage.role !== "Processor" && application?.lastManualSubmissionId && !application.manualHandoff?.submissionId ?
+    readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
   return {
     ...records, loanId, handoffVersion, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
     repeatOption,
+    ...(manualReturn ? { manualReturn } : {}),
     ...(action ? { workTarget: action.taskId && action.target !== fundingCheckInTarget ? searchTaskTarget(action.taskId) : action.target } : {}),
     ...(staff.brokerage.role === "Processor" ? { tasks: [], mismoLoans: [], mockUwmRates: [], uwmAlerts: [] } : {}),
   };

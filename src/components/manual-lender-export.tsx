@@ -6,7 +6,7 @@ import type { StaffApplication } from "@/lib/application-model";
 import { campaignManualSubmission } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Submission } from "@/lib/model";
-import { exportName, mismoHandoffCoverage, suggestExportName, type ExportName } from "@/lib/lender-export-model";
+import { exportName, manualLenderAcknowledgmentTarget, mismoHandoffCoverage, suggestExportName, type ExportName } from "@/lib/lender-export-model";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
@@ -100,7 +100,7 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
         });
       }}>{existing ? "Open fictional lender conditions" : "Record simulated acknowledgment"}</Button></div>
     </section>}
-    {ready && !campaign && handoff?.exportPrepared && <section className="document-item" aria-label="Manual lender acknowledgment">
+    {ready && !campaign && handoff?.exportPrepared && <section className="document-item" aria-label="Manual lender acknowledgment" id={manualLenderAcknowledgmentTarget} tabIndex={-1}>
       <div className="document-item-head"><strong>Lender acknowledgment</strong><span className="pill">Manual</span></div>
       {linkedFile ? <>
         <p className="muted">Acknowledged by {linkedFile.lender} · {linkedFile.externalId}</p>

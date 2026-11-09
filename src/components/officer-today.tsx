@@ -62,7 +62,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
   const today = replyCheckedAt ? easternDate(new Date(replyCheckedAt)) : "";
   const tasks = <section className="integration record-form manager-panel" aria-label="My Tasks today">
     <div className="section-heading"><h2>My Tasks today</h2>{page && <span className="pill">Checked {dateTime(page.checkedAt)} ET</span>}</div>
-    <p className="muted">Open replies, first contacts, callbacks, loan deadlines, and files returned by processing.</p>
+    <p className="muted">Open replies, first contacts, callbacks, loan deadlines, and files returned by processing or a lender.</p>
     <IncomingLoanWorkQueue brokerageId={brokerageId} view="today" paused={busy || reviewingLoan} version={version} open={openIncomingLoanWork} />
     {replyResult && "error" in replyResult && <p role="alert">{replyResult.error}</p>}
     {replies && <ConversationReplies page={replies} today={today} after={query.replyAfter} open={openReply}

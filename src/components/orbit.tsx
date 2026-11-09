@@ -69,6 +69,7 @@ import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
 import { announceBorrowerChange, borrowerChecklistToken } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
+import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
 
 type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
@@ -581,6 +582,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     expected?: { kind: "task" | "document" | "retention" | "alert"; id: string } | { kind: "stalled" | "brokerage-stalled" } |
       { kind: "promised-callback"; id: string; dueAt: string; source?: "personal" | "manager" } |
       { kind: "guide-conditions"; submissionId: string; conditionId?: string } |
+      { kind: "manual-return-work"; submissionId: string; personal: boolean } |
       { kind: "incoming-loan-work"; item: IncomingLoanWorkItem; view: IncomingLoanWorkQuery["view"] }) {
     if (pending.current) return;
     loanReadVersion.current += 1;
@@ -625,6 +627,18 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       if (next.kind === "communication" && !result.communicationDrafts.some((draft) => draft.id === next.draftId && draft.audience === next.audience &&
         draft.contactId === (next.audience === "Borrower" ? result.loans[0]?.contactId : result.loans[0]?.partnerId))) {
         setError("This draft or its recipient changed. Refresh drafts before opening it.");
+        return;
+      }
+      if (expected?.kind === "manual-return-work") {
+        const work = result.manualReturn;
+        const ownsQueue = !staff || (expected.personal ? result.loans[0].officerEmail === staff.email : admin);
+        if (!ownsQueue || work?.submissionId !== expected.submissionId) {
+          setReviewVersion((version) => version + 1);
+          setError("This lender return changed. Check the refreshed queue.");
+          return;
+        }
+        setLoanWork(result);
+        show({ kind: "details", loanId: next.loanId, target: manualReturnSteps[work.status].target });
         return;
       }
       if (expected?.kind === "incoming-loan-work") {
@@ -818,6 +832,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   }
 
   function openIncomingLoanWork(item: IncomingLoanWorkItem, view: IncomingLoanWorkQuery["view"]) {
+    if (item.kind === "lender-return") return void openQueueLoan({ kind: "details", loanId: item.loanId },
+      { kind: "manual-return-work", submissionId: item.id, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }
@@ -1365,7 +1381,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
                 { kind: "promised-callback", id: loanTask.taskId, dueAt: loanTask.dueAt, source: "manager" }) :
               void openScopedLead({ leadId, callbackPromiseId: id })}
             fileVersion={queueVersion} openFile={(item) => void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
-              item.kind === "Missing evidence" ? { kind: "document", id: item.id } : undefined)}
+              item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
+                item.kind === "Manual lender returns" ? { kind: "manual-return-work", submissionId: item.id, personal: false } : undefined)}
             view={managerExceptionView} setView={setManagerExceptionView} filters={managerExceptionFilters} setFilters={setManagerExceptionFilters}
             reporting={{ period: reportingPeriod, setPeriod: setReportingPeriod,
               openLoan: (loanId) => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget }),

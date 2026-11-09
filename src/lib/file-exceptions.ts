@@ -7,6 +7,8 @@ import type { SqlValue, Store } from "./store";
 import { conditionTarget } from "./uwm-alert-model";
 import { openSecondReview, pendingRequiredApproval } from "./application-review-checkpoint";
 import { readPlaybook } from "./playbooks";
+import { manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
+import { manualReturnSteps, type ManualReturnStatus } from "./lender-export-model";
 
 const limit = 20;
 const active = "loan.disposition = 'Active'";
@@ -26,7 +28,8 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
   if (!parsed.success) return { error: "Choose a valid file exception view." };
   const { filter, after } = parsed.data;
   const today = easternDate(now);
-  const showCheckpoint = (filter === "All file exceptions" || filter === "Required 1003 approvals") && readPlaybook(db).requireSecondReview;
+  const requireApproval = ["All file exceptions", "Required 1003 approvals", "Manual lender returns"].includes(filter) && readPlaybook(db).requireSecondReview;
+  const showCheckpoint = (filter === "All file exceptions" || filter === "Required 1003 approvals") && requireApproval;
   const parts: string[] = [];
   const args: SqlValue[] = [];
   function add(kind: FileException["kind"], select: string, sort: string, parent: string, id: string, params: SqlValue[] = []) {
@@ -82,6 +85,13 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
     LEFT JOIN document_requests request ON request.submissionId = item.submissionId AND request.conditionId = item.conditionId
     WHERE ${activePipeline} AND item.reopenedAt IS NOT NULL`, "substr(item.reopenedAt, 1, 10)", "item.submissionId", "item.conditionId");
 
+  add("Manual lender returns", `${loanColumns}, 'Manual lender return' AS title, ${manualReturnPhase(requireApproval)} AS status,
+    NULL AS dueOn, returnEntry.createdAt AS reopenedAt, returnFile.lender || ' · ' || returnFile.externalId AS nextParty,
+    loan.officer AS ownerName, loan.officerEmail AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision,
+    0 AS escalated, app.revision AS version, 0 AS changed, NULL AS requestStatus
+    FROM loans loan JOIN applications app ON app.loanId = loan.id ${loanJoins} ${pendingManualReturn}
+    WHERE ${activePipeline} AND returnFile.id IS NOT NULL`, "substr(returnEntry.createdAt, 1, 10)", "loan.id", "returnFile.id");
+
   if (showCheckpoint) {
     add("Required 1003 approvals", `${loanColumns}, 'Required 1003 approval' AS title,
       CASE WHEN review.id IS NULL THEN 'Reviewer needed' WHEN ${reviewChanged} THEN 'Resubmission needed'
@@ -122,15 +132,16 @@ export function nameFileExceptions({ rows, next, today }: Candidates, roster: Ve
       (!reviewerRole || (member.role === reviewerRole && (member.accessRevision ?? 0) === reviewerAccessRevision));
     const required = kind === "Required 1003 approvals";
     const internalReview = kind === "Internal reviews" || required;
-    const target = kind === "Missing evidence" ? `document-${id}` : internalReview ?
+    const manual = kind === "Manual lender returns" ? manualReturnSteps[status as ManualReturnStatus] : undefined;
+    const target = manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
-    const action = kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
+    const action = manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
       internalReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign a second reviewer for the current 1003" :
         changed ? "Resubmit the review for the current 1003" : status === "Changes requested" ? "Respond to requested changes" :
         available ? "Record a review decision" : "Reassign the reviewer") :
         requestStatus === "Received" ? "Review received evidence" : requestStatus === "Accepted" ? "Check delivery and clearance" :
           requestStatus ? "Follow up on borrower evidence" : "Review the lender request and request evidence";
-    const evidence = version === null ? null : `${internalReview ? "Submitted 1003" : "Document"} revision ${version}`;
+    const evidence = version === null ? null : `${manual ? "Current 1003" : internalReview ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
       ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: !!dueOn && dueOn < today, escalated: Boolean(escalated) };
