@@ -1096,6 +1096,19 @@ try {
       assert.equal(approved.kind, "saved", approved.error);
     }
     await approveCurrent();
+    const staffPackages = `/api/lender-packages?brokerage=${brokerage}`;
+    const publicPackages = "/api/shared-lender-package";
+    const packageCredentials = () => ({ token: `${brokerage}.${randomBytes(32).toString("hex")}`, code: randomBytes(12).toString("hex") });
+    const originalPackage = { type: "create", loanId: repeatId, revision, lenderRevision: 0, shareId: randomUUID(),
+      ...packageCredentials(), recipient: handoff.lenderFile.lender, hours: 1, confirmedFictional: true, names, documents: [] };
+    const packageRead = ({ token, code }) => ({ type: "read", token, code });
+    const packageXml = (share) => runtime.dispatchFetch(`${origin}${publicPackages}`, { method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...packageRead(share), type: "download", slot: 0 }) });
+    assert.equal((await post(staffPackages, originalPackage, officer)).createdId, originalPackage.shareId);
+    const originalXml = await packageXml(originalPackage);
+    assert.equal(originalXml.status, 200);
+    assert.equal(await originalXml.text(), exported.mismoXml);
     const conditionId = randomUUID();
     const condition = { loanId: repeatId, submissionId, conditionId };
     await write(officer, { type: "saveManualCondition", ...condition, revision: 0,
@@ -1128,6 +1141,7 @@ try {
     assert.match((await action(officer, "mutate", { ...lenderReturn, lenderReturn: { ...lenderReturn.lenderReturn, submissionId: randomUUID() } })).error,
       /acknowledgment changed/);
     const returned = (await write(officer, lenderReturn)).loanWork;
+    assert.equal((await packageXml(originalPackage)).status, 404);
     assert.equal(returned.loans[0].stage, "Underwriting");
     assert.equal(returned.applications[0].lastManualSubmissionId, submissionId);
     assert.equal(returned.applications[0].manualHandoff?.submissionId, undefined);
@@ -1215,10 +1229,26 @@ try {
     await checkReturnQueues(manualReturnStatus.export);
     const reacknowledgment = { ...handoff, revision: corrected.revision, eventId: randomUUID() };
     assert.match((await action(assignedOfficer, "mutate", reacknowledgment)).error, /Prepare the MISMO export/);
+    const replacementPackage = { ...originalPackage, revision: corrected.revision, shareId: randomUUID(),
+      ...packageCredentials(), replacesId: originalPackage.shareId };
+    assert.equal((await postResponse(staffPackages, replacementPackage, officer)).status, 409);
+    const replaced = await post(staffPackages, replacementPackage, assignedOfficer);
+    assert.deepEqual(await post(staffPackages, replacementPackage, assignedOfficer), replaced);
+    assert.deepEqual(replaced.shares.map(({ id, status, applicationRevision, files }) =>
+      [id, status, applicationRevision, files[0].downloads]), [
+      [replacementPackage.shareId, "Available", corrected.revision, 0],
+      [originalPackage.shareId, "Revoked", revision, 1],
+    ]);
+    assert.equal(await directory.brokerageForPortal(originalPackage.token), null);
+    assert.equal((await postResponse(publicPackages, packageRead(originalPackage))).status, 404);
+    assert.equal((await packageXml(originalPackage)).status, 404);
+    const replacementXml = await packageXml(replacementPackage);
+    assert.equal(replacementXml.status, 200);
     const revisedExport = await loanAction(assignedOfficer, repeatId, "exportReviewedApplication", {
       revision: corrected.revision, lenderRevision: 0, eventId: randomUUID(), names,
     });
     assert.ok(revisedExport.mismoXml.includes(`<NoteAmount>${correctedAmount}</NoteAmount>`));
+    assert.equal(await replacementXml.text(), revisedExport.mismoXml);
     await checkReturnQueues(manualReturnStatus.acknowledgment);
     const pendingRevision = await file(owner, repeatId);
     assert.equal(loanNextAction(pendingRevision.loans[0], pendingRevision, "LO").title, "Prepare revised manual handoff");

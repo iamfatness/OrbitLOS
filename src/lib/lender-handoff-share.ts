@@ -14,6 +14,7 @@ import { accessEvent, loanAccess } from "./workspace-access";
 
 const staffUnavailable = "Lender packages are available to the loan owner or an admin in a fictional pilot.";
 const changedFile = "The reviewed 1003 or selected evidence changed. Refresh the loan and review the current file.";
+const changedPackage = "The previous lender package changed. Refresh lender packages before replacing the link.";
 const unavailable = { status: 404, error: lenderPackageUnavailable };
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const cleanPdf = `request.status = 'Accepted' AND pdf.uploadMode = 'mock' AND pdf.objectId IS NOT NULL
@@ -43,6 +44,15 @@ function documentsStillMatch(db: Store, share: Row) {
       AND pdf.objectId = item.objectId AND ${cleanPdf}) LIMIT 1`).get(share.id, share.loanId);
 }
 
+function activePackage(db: Store, loanId: string, now: string) {
+  return db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, tokenHash, expiresAt, recipient
+    FROM lender_package_links WHERE loanId = ? AND revokedAt IS NULL AND expiresAt > ?`).get(loanId, now);
+}
+
+function isReplacement(db: Store, active: Row | undefined, current: Row, replacesId: string) {
+  return !!active && active.id === replacesId && (!matchesFile(active, current) || !documentsStillMatch(db, active));
+}
+
 function packageFiles(db: Store, shareId: SqlValue) {
   return db.prepare(`SELECT slot, label, downloads, firstDownloadedAt, lastDownloadedAt FROM lender_package_files
     WHERE shareId = ? ORDER BY slot`).all(shareId).map((file) => ({
@@ -64,14 +74,15 @@ function sharePage(db: Store, loanId: string, now: string): LenderSharePage {
     const canRevoke = !row.revokedAt && String(row.expiresAt) > now;
     const status: LenderPackageStatus = row.revokedAt ? "Revoked" : !canRevoke ? "Expired" :
       matchesFile(row, current) && documentsStillMatch(db, row) ? "Available" : "File changed";
-    return { id: String(row.id), recipient: String(row.recipient), createdAt: String(row.createdAt), createdBy: String(row.createdBy),
+    return { id: String(row.id), applicationRevision: Number(row.applicationRevision), recipient: String(row.recipient),
+      createdAt: String(row.createdAt), createdBy: String(row.createdBy),
       expiresAt: String(row.expiresAt), status, canRevoke, files: packageFiles(db, row.id) };
   });
   return { eligible, shares };
 }
 
 function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: string): LenderSharePage | { error: string } {
-  const { loanId, shareId, token, code, names, revision, lenderRevision, recipient, hours, documents } = data;
+  const { loanId, shareId, replacesId, token, code, names, revision, lenderRevision, recipient, hours, documents } = data;
   const current = reviewedFile(db, loanId);
   if (!current || current.revision !== revision || current.lenderRevision !== lenderRevision) return { error: changedFile };
   if (portalBrokerage(token) !== staff.brokerage.id) return { error: staffUnavailable };
@@ -81,9 +92,11 @@ function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: s
   if (prior) {
     if (prior.loanId !== loanId || prior.requestHash !== requestHash || prior.revokedAt || String(prior.expiresAt) <= now ||
       !matchesFile(prior, current) || !documentsStillMatch(db, prior)) return { error: "Open the current file and create a new package." };
-    return { ...sharePage(db, loanId, now), createdId: shareId, message: "Fictional lender package created." };
+    return { ...sharePage(db, loanId, now), createdId: shareId, message: packageCreated(replacesId) };
   }
-  if (db.prepare("SELECT 1 FROM lender_package_links WHERE loanId = ? AND revokedAt IS NULL AND expiresAt > ?").get(loanId, now)) {
+  const active = activePackage(db, loanId, now);
+  if (replacesId && !isReplacement(db, active, current, replacesId)) return { error: changedPackage };
+  if (active && !replacesId) {
     return { error: "Revoke the previous package before creating another link for this loan." };
   }
   const tokenHash = hash(token);
@@ -105,9 +118,18 @@ function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: s
   selected.forEach(({ document, pdf }, index) => {
     insert.run(shareId, index + 1, `${pdf!.kind} · ${pdf!.recipient}`, document.id, document.revision, pdf!.objectId);
   });
+  if (replacesId && active) {
+    db.prepare("UPDATE lender_package_links SET revokedAt = ? WHERE id = ?").run(now, replacesId);
+    accessEvent(db, staff, "Replaced fictional lender package", loanId, now);
+    addApplicationActivity(db, loanId, `Retired previous fictional lender package · ${active.recipient}`, now);
+  }
   accessEvent(db, staff, "Created fictional lender package", loanId, now);
   addApplicationActivity(db, loanId, `Created fictional lender package · ${recipient} · ${selected.length + 1} files · Expires ${expiresAt}`, now);
-  return { ...sharePage(db, loanId, now), createdId: shareId, message: "Fictional lender package created." };
+  return { ...sharePage(db, loanId, now), createdId: shareId, message: packageCreated(replacesId) };
+}
+
+function packageCreated(replacesId?: string) {
+  return replacesId ? "Replacement lender link created. The previous link is revoked." : "Fictional lender package created.";
 }
 
 export async function lenderShareWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
@@ -119,7 +141,18 @@ export async function lenderShareWork(db: Store, input: unknown, staff: Workspac
     !loanAccess(db, staff, data.loanId)) return { error: staffUnavailable };
   const now = clock.toISOString();
   if (data.type === "read") return sharePage(db, data.loanId, now);
-  if (data.type === "create") return db.transaction(() => createShare(db, data, staff, now));
+  if (data.type === "create") {
+    if (data.replacesId && protectLinks && !db.prepare("SELECT 1 FROM lender_package_links WHERE id = ?").get(data.shareId)) {
+      const current = reviewedFile(db, data.loanId);
+      const active = activePackage(db, data.loanId, now);
+      if (!current || current.revision !== data.revision || current.lenderRevision !== data.lenderRevision) return { error: changedFile };
+      if (!active || !isReplacement(db, active, current, data.replacesId)) return { error: changedPackage };
+      if (!await protectLinks([{ tokenHash: String(active.tokenHash), expiresAt: String(active.expiresAt) }])) {
+        return { error: "Orbit could not protect the old link. Retry replacing the package." };
+      }
+    }
+    return db.transaction(() => loanAccess(db, staff, data.loanId) ? createShare(db, data, staff, now) : { error: staffUnavailable });
+  }
 
   const row = db.prepare("SELECT tokenHash, expiresAt, revokedAt FROM lender_package_links WHERE id = ? AND loanId = ?").get(data.shareId, data.loanId);
   if (!row) return { error: staffUnavailable };

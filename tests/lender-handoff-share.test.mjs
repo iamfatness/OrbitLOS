@@ -52,6 +52,8 @@ test("only current approved sample artifacts can be shared and expiration and re
   assert.equal(page.createdId, create.shareId, page.error);
   assert.deepEqual(await work(create), page);
   assert.match((await work({ ...create, shareId: randomUUID(), token: portalToken(brokerageId) })).error, /Revoke the previous/);
+  const replace = { ...create, replacesId: create.shareId, shareId: randomUUID(), token: portalToken(brokerageId), code: newPortalAccessCode() };
+  assert.match((await work(replace, async () => assert.fail("A current link must stay available"))).error, /previous lender package changed/);
   const stored = db.prepare("SELECT tokenHash, codeHash, requestHash FROM lender_package_links").get();
   const hash = (value) => createHash("sha256").update(value).digest("hex");
   assert.equal(stored.tokenHash, hash(token));
@@ -71,6 +73,8 @@ test("only current approved sample artifacts can be shared and expiration and re
   const status = (await work({ type: "read", loanId })).shares[0];
   assert.equal(status.status, "File changed");
   assert.deepEqual(status.files.map(({ downloads }) => downloads), [0, 1]);
+  assert.match((await work(replace, async () => false)).error, /protect the old link/);
+  assert.deepEqual((await work({ type: "read", loanId })).shares, [status]);
 
   const revoke = { type: "revoke", loanId, shareId: create.shareId };
   assert.match((await work(revoke, async () => false)).error, /protect/);

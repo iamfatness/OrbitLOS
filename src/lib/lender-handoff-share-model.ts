@@ -9,7 +9,8 @@ const shareId = z.uuid();
 export const lenderShareStaffInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), loanId }),
   z.object({ type: z.literal("create"), ...exportReviewedApplication.omit({ type: true, eventId: true }).shape,
-    ...credentials, shareId, recipient: z.string().trim().min(2).max(120), hours: z.literal([1, 24, 72]), confirmedFictional: z.literal(true),
+    ...credentials, shareId, replacesId: shareId.optional(), recipient: z.string().trim().min(2).max(120),
+    hours: z.literal([1, 24, 72]), confirmedFictional: z.literal(true),
     documents: z.array(z.object({ id: z.uuid(), revision: z.number().int().nonnegative() })).max(maxDocuments),
   }).refine(({ documents }) => new Set(documents.map(({ id }) => id)).size === documents.length, "Choose distinct documents."),
   z.object({ type: z.literal("revoke"), loanId, shareId }),
@@ -29,7 +30,8 @@ export type LenderPackageStatus = "Available" | "Revoked" | "Expired" | "File ch
 export type LenderSharePage = {
   eligible: { id: string; revision: number; label: string }[];
   shares: {
-    id: string; recipient: string; createdAt: string; createdBy: string; expiresAt: string; status: LenderPackageStatus; canRevoke: boolean;
+    id: string; applicationRevision: number; recipient: string; createdAt: string; createdBy: string;
+    expiresAt: string; status: LenderPackageStatus; canRevoke: boolean;
     files: (PackageFile & { downloads: number; firstDownloadedAt: string | null; lastDownloadedAt: string | null })[];
   }[];
   createdId?: string;

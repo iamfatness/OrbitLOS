@@ -19,6 +19,7 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
   const pending = useRef(false);
   const attempt = useRef<{ key: string; shareId: string; token: string; code: string } | null>(null);
   const active = page?.shares.find((share) => share.canRevoke);
+  const replacement = active?.status === "File changed" ? active : undefined;
 
   async function request(input: object) {
     if (pending.current) return;
@@ -72,12 +73,13 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
           <Button size="sm" type="button" variant="outline" onClick={() => void copy("code")}>Copy access code</Button>
         </div>
       </div>}
-      {page && !active && (canCreate ? <form className="record-form" onSubmit={(event) => {
+      {page && (!active || replacement) && (canCreate ? <form className="record-form" key={replacement?.id ?? "new"} onSubmit={(event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         const recipient = String(form.get("recipient") ?? "").trim();
         const documents = page.eligible.filter(({ id }) => selected.includes(id)).map(({ id, revision }) => ({ id, revision }));
         const input = { type: "create", revision, lenderRevision, names, recipient, hours: Number(form.get("hours")), documents,
+          replacesId: replacement?.id,
           confirmedFictional: form.has("confirmed") };
         const key = JSON.stringify(input);
         if (attempt.current?.key !== key) attempt.current = { key, shareId: crypto.randomUUID(), token: portalToken(brokerageId), code: newPortalAccessCode() };
@@ -91,8 +93,10 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
           }
         });
       }}>
+        {replacement && <p className="muted">Create a package from the current reviewed file. The previous link is already blocked. Replacing it revokes that link and keeps its download history.</p>}
         <div className="form-grid">
-          <label className="field">Fictional lender or recipient<input name="recipient" minLength={2} maxLength={120} placeholder="Example Wholesale Intake" required disabled={busy} /></label>
+          <label className="field">Fictional lender or recipient<input name="recipient" minLength={2} maxLength={120}
+            defaultValue={replacement?.recipient} placeholder="Example Wholesale Intake" required disabled={busy} /></label>
           <label className="field">Link expires after<select name="hours" defaultValue="24" disabled={busy}>
             <option value="1">1 hour</option><option value="24">24 hours</option><option value="72">72 hours</option>
           </select></label>
@@ -108,12 +112,12 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
           </label>)}
         </fieldset>
         <label className="demo-confirm"><input name="confirmed" type="checkbox" required disabled={busy} /> The package and recipient are fictional.</label>
-        <div><Button size="sm" type="submit" disabled={busy}>Create lender link</Button></div>
+        <div><Button size="sm" type="submit" disabled={busy}>{replacement ? "Replace lender link" : "Create lender link"}</Button></div>
       </form> : <p className="muted">Review the current 1003, complete any required second review, and verify the export names above to create a package.</p>)}
       {!!page?.shares.length && <ul className="document-list" aria-label="Recent lender packages">{page.shares.map((share) => <li className="document-item" key={share.id}>
         <div className="document-item-head"><strong>{share.recipient}</strong><span className="pill">{share.status}</span></div>
-        <p className="muted">Created by {share.createdBy} · {dateTime(share.createdAt)} ET · Expires {dateTime(share.expiresAt)} ET</p>
-        {share.status === "File changed" && <p className="muted">Revoke this link and prepare a new package from the current file.</p>}
+        <p className="muted">1003 revision {share.applicationRevision} · Created by {share.createdBy} · {dateTime(share.createdAt)} ET · Expires {dateTime(share.expiresAt)} ET</p>
+        {share.status === "File changed" && <p className="muted">The lender can no longer open this package.</p>}
         <ul>{share.files.map((item) => <li key={item.slot}>{item.label} · {item.downloads} {item.downloads === 1 ? "download" : "downloads"}
           {item.lastDownloadedAt && ` · Last ${dateTime(item.lastDownloadedAt)} ET`}</li>)}</ul>
         {share.canRevoke && <div className="loan-application-actions">
