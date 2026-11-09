@@ -538,6 +538,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
     submission.id === request.submissionId && submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt)))
     .map((request) => request.id));
   const application = state.applications.find((item) => item.loanId === loan.id);
+  const propertyStatus = application?.draftHasPropertyStreet ? "Address entered in 1003 draft" : "Address pending";
   const requestedAmount = submittedRequestedLoanAmount(application);
   const amountDiffers = requestedAmount !== null && Math.round(requestedAmount) !== loan.amount;
   const callReportFile = state.callReportFiles?.find((file) => file.loanId === loan.id);
@@ -572,7 +573,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
     <div className="details-body">
       <div className="loan-file-hero">
         <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
-          <div><h3>{borrower?.name}</h3><p>{[amountDiffers ? `Recorded ${money(loan.amount)}` : money(loan.amount), loan.purpose, loan.address || "Address pending"].join(" · ")}</p>
+          <div><h3>{borrower?.name}</h3><p>{[amountDiffers ? `Recorded ${money(loan.amount)}` : money(loan.amount), loan.purpose, loan.address || propertyStatus].join(" · ")}</p>
             {amountDiffers && <button className="name-link" type="button" onClick={() => open(loanAmountComparisonTarget)}>
               1003 request {requestedMoney(requestedAmount)}
             </button>}

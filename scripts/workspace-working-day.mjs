@@ -1107,6 +1107,9 @@ try {
     assert.ok(!unchangedCampaign.files.some(({ id }) => id === repeat.applicationLoanId));
     const newFile = await file(officer, repeat.applicationLoanId);
     assert.equal(newFile.loans[0].contactId, funded.loans[0].contactId);
+    assert.equal(newFile.loans[0].address, "");
+    assert.equal(newFile.applications[0].draftHasPropertyStreet, true);
+    assert.equal(newFile.applications[0].draft, null);
     const repeatBorrower = await borrower(newFile.applications[0].token, { type: "read" });
     assert.equal(repeatBorrower.draft.email, imported.email);
     assert.equal(repeatBorrower.draft.phone, imported.phone);
@@ -1125,7 +1128,9 @@ try {
     const step = applicationSteps.indexOf("Review");
     const repeatSubmitted = await borrower(newFile.applications[0].token, { type: "submit", revision: repeatBorrower.revision, step, draft: repeatDraft });
     assert.ok(repeatSubmitted.submittedAt, repeatSubmitted.error);
-    assert.match((await file(owner, reported.loanId)).loans[0].address, /^32 Updated Fictional Lane/);
+    const submittedFile = await file(owner, reported.loanId);
+    assert.match(submittedFile.loans[0].address, /^32 Updated Fictional Lane/);
+    assert.equal(submittedFile.applications[0].draftHasPropertyStreet, undefined);
     assert.equal((await file(owner, reported.sourceLoanId)).loans[0].address, sourceAddress);
     assert.match((await action(processor, "readLoanForWork", repeat.applicationLoanId)).error, /unavailable/i);
 

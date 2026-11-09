@@ -49,7 +49,7 @@ export default function DemoPage() {
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Compare staff time and handoffs with your current process using the same fictional case.</li>
         </ul>
-        <p className="marketing-request-note">A live browser rehearsal took 3 minutes 32 seconds from creating a fresh pilot to opening the rate-watch refinance. It included a CSV upload, two sample PDFs, mock lender clearance, funding, and a separate prefilled repeat 1003. The run used one signed-in staff account and fictional records. Timing excluded sign-in and spoken narration.</p>
+        <p className="marketing-request-note">In a fresh hosted pilot, the guided walkthrough reached all seven steps and opened a separate rate-watch refinance in 3 minutes 58 seconds. One signed-in staff account worked the CSV import, mock lender clearance with two sample PDFs, funding, and repeat-client follow-up. The borrower and realtor used separate fictional views. Timing excluded sign-in and spoken narration.</p>
         <p className="marketing-request-note">Prefer email? <a href="mailto:demo@orbitlos.com">demo@orbitlos.com</a></p>
       </div>
       <DemoForm />

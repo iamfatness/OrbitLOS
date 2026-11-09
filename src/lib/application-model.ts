@@ -225,6 +225,7 @@ export interface StaffApplication {
   secondReviewApproved?: boolean;
   uwmReference: string | null;
   draft: ApplicationDraft | null;
+  draftHasPropertyStreet?: boolean;
   lender: { details: LenderDetails; revision: number } | null;
   manualHandoff?: { exportPrepared: boolean; outcome: (typeof manualHandoffOutcomes)[number] | null; submissionId?: string };
   lastManualSubmissionId?: string;

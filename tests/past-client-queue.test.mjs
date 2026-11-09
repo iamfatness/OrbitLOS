@@ -147,6 +147,9 @@ test("an active rate-watch task starts one linked refinance for a historical clo
   assert.deepEqual(draft.propertyLocation, { unit: "", city: "Troy", state: "MI", zip: "48084" });
   assert.equal(draft.loanAmount, "");
   assert.equal(result.loanWork.loans[0].address, "");
+  assert.equal(result.loanWork.applications[0].draftHasPropertyStreet, true);
+  assert.equal(result.loanWork.applications[0].draft, null);
+  assert.doesNotMatch(JSON.stringify(result.loanWork.applications[0]), /24 Fictional Lane|48084/);
   const source = readEditableLoan(db, id, officer, brokerage.id);
   assert.equal(source.loans[0].stage, "Closed");
   assert.equal(source.loans[0].address, address);
