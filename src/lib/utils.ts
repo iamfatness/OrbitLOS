@@ -8,6 +8,8 @@ export function cn(...inputs: ClassValue[]) {
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const shortUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 2 });
 export const money = (amount: number) => amount ? usd.format(amount) : "—";
+const detailedUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+export const requestedMoney = (amount: number) => Number.isInteger(amount) ? usd.format(amount) : detailedUsd.format(amount);
 export const compactMoney = (amount: number) => shortUsd.format(amount);
 export const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 export const stageDays = (since: string, now = Date.now()) => Math.max(0, Math.floor((now - Date.parse(since)) / 86_400_000));

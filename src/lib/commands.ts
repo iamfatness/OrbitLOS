@@ -13,7 +13,7 @@ import type { LoanMutationResult } from "./loan-work-model";
 import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
-import { manualHandoffNeedsApproval, manualHandoffOutcomes, reusablePropertyAddress } from "./application-model";
+import { manualHandoffNeedsApproval, manualHandoffOutcomes, requestedLoanAmount, reusablePropertyAddress } from "./application-model";
 import { handoffCheckpointError } from "./application-review-checkpoint";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
 import { approvedIncomeAmount, pricingInputError } from "./income-review-freshness";
@@ -278,6 +278,8 @@ const command = z.discriminatedUnion("type", [
     alternatives: z.array(quoteSelection).max(2).default([]) }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
   reviewApplicationInput,
+  z.object({ type: z.literal("useReviewedLoanAmount"), loanId: id, revision: z.number().int().nonnegative(),
+    previousAmount: z.number().int().min(0).max(1_000_000_000) }),
   z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
     note: z.string().trim().min(1).max(500),
     recipient: z.enum(["Primary borrower", "Co-borrower"]).default("Primary borrower"),
@@ -379,6 +381,7 @@ const loanAuditActions = {
   saveClosingTarget: "Updated closing target", recordClosing: "Recorded closing", recordFunding: "Recorded funding", reverseFunding: "Reversed funding",
   saveDisclosureStatus: "Updated disclosures", saveRetention: "Updated closing details",
   reviewApplication: "Reviewed 1003", requestApplicationCorrection: "Requested 1003 correction",
+  useReviewedLoanAmount: "Matched recorded amount to reviewed 1003",
   updateProcessing: "Updated processing handoff", saveCallReport: "Updated call report facts",
   linkCampaignSampleRealtor: "Linked sample realtor",
 } as const;
@@ -427,6 +430,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "requestApplicationCorrection":
       return data.lenderReturn ? data.loanId : undefined;
     case "markClearToClose":
+    case "useReviewedLoanAmount":
     case "saveClosingTarget":
     case "saveClosingItem":
     case "completeClosingItem":
@@ -1492,6 +1496,28 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             addApplicationActivity(db, data.loanId, "Sample quote removed from borrower status.", now);
           }
           message = "Sample quote removed from borrower status.";
+          break;
+        }
+        case "useReviewedLoanAmount": {
+          const application = getApplication(db, data.loanId);
+          if (!application?.submittedAt || !application.reviewedAt || application.correctionNote || application.revision !== data.revision) {
+            throw new WorkspaceError("Refresh the loan and review the current 1003 before using its requested amount.");
+          }
+          const loan = db.prepare(`SELECT loan.amount FROM loans loan
+            LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id
+            LEFT JOIN closing_progress closing ON closing.loanId = loan.id
+            WHERE loan.id = ? AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')
+              AND profile.closingDate IS NULL AND closing.fundingDate IS NULL`).get(data.loanId);
+          if (!loan) throw new WorkspaceError("Only an active loan before closing can use the reviewed 1003 amount.");
+          const requested = requestedLoanAmount(JSON.parse(application.draft).loanAmount);
+          const amount = requested === null ? 0 : Math.round(requested);
+          if (!amount) throw new WorkspaceError("The current 1003 needs a valid requested loan amount.");
+          if (loan.amount !== amount) {
+            if (loan.amount !== data.previousAmount) throw new WorkspaceError("The recorded loan amount changed. Refresh the loan before updating it.");
+            db.prepare("UPDATE loans SET amount = ? WHERE id = ?").run(amount, data.loanId);
+            addApplicationActivity(db, data.loanId, `Matched recorded amount to reviewed 1003 · Revision ${data.revision}`, now);
+          }
+          message = "Recorded loan amount matches the reviewed 1003 in whole dollars.";
           break;
         }
         case "reviewApplication": {

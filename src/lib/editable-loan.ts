@@ -19,6 +19,7 @@ export const loanWorkUnavailable = "This loan is unavailable in your workspace."
 
 function loanHandoffVersion(db: Store, loanId: string) {
   const application = db.prepare(`SELECT revision, updatedAt, submittedAt, reviewedAt, revokedAt, expiresAt, uwmReference,
+    (SELECT amount FROM loans WHERE id = app.loanId) AS recordedAmount,
     (SELECT event.activityId FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
       WHERE event.loanId = app.loanId AND event.applicationRevision = app.revision AND event.submissionId IS NOT NULL
       ORDER BY event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS linkedHandoff

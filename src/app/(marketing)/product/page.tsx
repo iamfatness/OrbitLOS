@@ -13,6 +13,7 @@ const tools = [
   {icon:ListChecks,title:"Reviewed income worksheet",text:"Record source periods and adjustments, link accepted evidence, and carry the reviewed monthly amount into conventional mock pricing."},
   {icon:Wallet,title:"Brokerage fee templates",text:"Reuse sample estimates by loan purpose and ZIP. Saved quotes preserve the itemized amounts, and staff can see the template version, source, and effective date."},
   {icon:ShieldCheck,title:"Manual lender packages",text:"Share versioned MISMO and sample PDFs through an expiring link and code. Enforce brokerage review policy before sharing or acknowledging a package. Reuse the lender file and condition history after corrections."},
+  {icon:ListChecks,title:"Loan amount reconciliation",text:"See the recorded Pipeline amount alongside a different 1003 request. Staff can adopt the reviewed amount with an audit entry while the application and saved quote retain their own values."},
   {icon:MessagesSquare,title:"Shared conversations",text:"Open shared conversations and keep team notes with the relationship. Page through borrower and realtor milestone drafts, preview the current recipient, and track which messages were copied."},
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},

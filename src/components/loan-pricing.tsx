@@ -2,14 +2,14 @@
 
 import { useState, type FormEvent } from "react";
 import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
-import type { ApplicationDraft } from "@/lib/application-model";
+import { submittedRequestedLoanAmount, type ApplicationDraft } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { repriceIncomeMessage, type ReviewedIncomeSource } from "@/lib/income-review-model";
 import type { Loan, Workspace } from "@/lib/model";
 import { pricingPrograms, pricingInputsMatch, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario,
   type PublishedQuote } from "@/lib/pricing-model";
-import { dateTime } from "@/lib/utils";
+import { dateTime, money, requestedMoney } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { UwmRateLock } from "./uwm-rate-lock";
 import { quoteOption } from "@/lib/quote-worksheet";
@@ -151,6 +151,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const bank = form.program === "Bank statement";
   const isCurrent = (run: PricingRun | undefined) => !!run && pricingInputsMatch(run, application);
   const savedNeedsReprice = !!saved && !isCurrent(saved);
+  const requestedAmount = submittedRequestedLoanAmount(application);
   const handoffAction = lenderHandoff && saved?.mode === "mock" && selected && !savedNeedsReprice &&
     (lenderHandoff.blocker || (application?.submittedAt && application.reviewedAt)) && <>
       {lenderHandoff.blocker && <p className="quote-disclaimer">{lenderHandoff.blocker}</p>}
@@ -232,6 +233,9 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       </> : <p className="quote-disclaimer">This pricing option is no longer in the current results. Run pricing again to continue.</p>}
     </section>}
     <form className="pricing-form" onSubmit={(event) => void price(event)}>
+      {requestedAmount !== null && Math.round(requestedAmount) !== loan.amount && <p className="quote-disclaimer">
+        Recorded amount {money(loan.amount)} · 1003 request {requestedMoney(requestedAmount)}. The loan amount entered below is used for the quote.
+      </p>}
       <div className="form-grid">
         <label className="field"><span>Loan program</span><select value={form.program} onChange={(event) => change("program", event.target.value)}>
           {pricingPrograms.map((program) => <option key={program}>{program}</option>)}

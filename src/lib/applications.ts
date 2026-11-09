@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { applicationDraft, applicationIssues, applicationSteps, blankApplication, manualHandoffOutcomes, splitLegacyAddress, type AddressLocation, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
+import { applicationDraft, applicationIssues, applicationSteps, blankApplication, manualHandoffOutcomes, requestedLoanAmount, splitLegacyAddress, type AddressLocation, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
 import type { Store } from "./store";
 import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
@@ -79,8 +79,9 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
   });
 }
 
-type ActionApplication = LoanNextActionState["applications"][number];
-type ActionApplicationRow = Omit<ActionApplication, "versions" | "secondReviewApproved" | "lastManualSubmissionId"> & {
+type ActionApplication = LoanNextActionState["applications"][number] & { requestedAmount: number | null };
+type ActionApplicationRow = Omit<ActionApplication, "versions" | "secondReviewApproved" | "lastManualSubmissionId" | "requestedAmount"> & {
+  requestedAmount: string | null;
   secondReviewApproved: number; uwmReceipt: string | null; uwmSentAt: string | null;
   manualSubmissionId: string | null; exportPrepared: number; lastManualSubmissionId: string | null;
 };
@@ -89,13 +90,14 @@ export function loanActionApplications(db: Store, loanIds: string[]): ActionAppl
   if (!loanIds.length) return [];
   const rows = db.prepare(`SELECT app.loanId, app.submittedAt, app.reviewedAt, app.revision, app.uwmReference,
     CASE WHEN app.correctionNote <> '' THEN 'Pending' ELSE '' END AS correctionNote,
+    CASE WHEN app.submittedAt IS NOT NULL AND coalesce(app.correctionNote, '') = '' THEN json_extract(app.draft, '$.loanAmount') END AS requestedAmount,
     ${approvedSecondReview} AS secondReviewApproved, version.uwmReceipt, version.uwmSentAt,
     ${currentManualLenderSubmission} AS manualSubmissionId, ${currentManualExportPrepared} AS exportPrepared,
     ${lastManualLenderSubmission} AS lastManualSubmissionId
     FROM applications app LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
     WHERE app.loanId IN (SELECT value FROM json_each(?))`).all(JSON.stringify(loanIds)) as unknown as ActionApplicationRow[];
   return rows.map(({ secondReviewApproved, uwmReceipt, uwmSentAt, manualSubmissionId, exportPrepared, lastManualSubmissionId, ...app }) => ({
-    ...app, secondReviewApproved: Boolean(secondReviewApproved),
+    ...app, requestedAmount: requestedLoanAmount(app.requestedAmount), secondReviewApproved: Boolean(secondReviewApproved),
     versions: typeof uwmReceipt === "string" && typeof uwmSentAt === "string"
       ? [{ revision: app.revision, uwmReceipt: { reference: uwmReceipt, sentAt: uwmSentAt } }] : [],
     ...(manualSubmissionId ? { manualHandoff: { outcome: "Acknowledged", submissionId: manualSubmissionId, exportPrepared: Boolean(exportPrepared) } } : {}),

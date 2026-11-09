@@ -22,6 +22,7 @@ const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { closingReviewReady, loanNextAction } = await import("../src/lib/loan-workflow.ts");
 const { manualReturnStatus, manualReturnSteps } = await import("../src/lib/lender-export-model.ts");
+const { emptyPipelineFilters } = await import("../src/lib/pipeline-model.ts");
 const { demoDocumentPdf } = await import("../src/lib/demo-document-pdf.ts");
 const { pricingScenarioOption, sampleScenarioPlan } = await import("../src/lib/loan-scenario-model.ts");
 const { Miniflare, convertV4MiniflareOptions } = createRequire(import.meta.resolve("wrangler"))("miniflare");
@@ -1227,12 +1228,38 @@ try {
     const draft = await borrower(repeatToken, { type: "read" });
     assert.equal(draft.correctionNote, lenderReturn.note);
     assert.ok(!JSON.stringify(draft).includes(followUp.note) && !JSON.stringify(draft).includes(secondFollowUp.note));
-    const correctedAmount = String(Number(draft.draft.loanAmount) - 500);
+    const correctedAmount = (Number(draft.draft.loanAmount) - 500.25).toFixed(2);
     const corrected = await borrower(repeatToken, { type: "submit", revision: draft.revision, step: applicationSteps.length - 1,
       draft: { ...draft.draft, loanAmount: correctedAmount } });
     await checkReturnQueues(manualReturnStatus.review);
+    const reconcile = { type: "useReviewedLoanAmount", loanId: repeatId, revision: corrected.revision, previousAmount: transferred.loans[0].amount };
+    const pipelineRow = async () => (await action(assignedOfficer, "readPipelineWork", {
+      view: "List", search: imported.name, filters: emptyPipelineFilters,
+    })).list.loans.find(({ id }) => id === repeatId);
+    const unmatched = await pipelineRow();
+    assert.equal(unmatched.amount, reconcile.previousAmount);
+    assert.equal(unmatched.requestedAmount, Number(correctedAmount));
+    assert.match((await action(assignedOfficer, "mutate", reconcile)).error, /review the current 1003/);
     await loanAction(assignedOfficer, repeatId, "reviewApplication", { revision: corrected.revision });
     await checkReturnQueues(manualReturnStatus.approval);
+    assert.ok((await action(officer, "mutate", reconcile)).error);
+    assert.match((await action(assignedOfficer, "mutate", { ...reconcile, revision })).error, /review the current 1003/);
+    assert.match((await action(assignedOfficer, "mutate", { ...reconcile, previousAmount: reconcile.previousAmount - 1 })).error, /recorded loan amount changed/);
+    const beforeAmount = await file(assignedOfficer, repeatId);
+    const recordedAmount = Math.round(Number(correctedAmount));
+    const matched = (await write(assignedOfficer, reconcile)).loanWork;
+    assert.equal(matched.loans[0].amount, recordedAmount);
+    assert.deepEqual(matched.applications[0], beforeAmount.applications[0]);
+    assert.deepEqual(matched.pricingRuns, beforeAmount.pricingRuns);
+    assert.equal((await action(owner, "checkLoanHandoff", repeatId, beforeAmount.handoffVersion)).loans[0].amount, recordedAmount);
+    assert.equal((await write(assignedOfficer, reconcile)).loanWork.loans[0].amount, recordedAmount);
+    const matchAudit = (await action(assignedOfficer, "mutate", { type: "loadLoanAudit", loanId: repeatId })).loanAudit
+      .filter(({ action }) => action === "Matched recorded amount to reviewed 1003");
+    assert.equal(matchAudit.length, 1);
+    assert.deepEqual(matchAudit[0].changes, [{ field: "Loan amount", before: reconcile.previousAmount, after: recordedAmount }]);
+    const matchedRow = await pipelineRow();
+    assert.equal(matchedRow.amount, recordedAmount);
+    assert.equal(matchedRow.requestedAmount, undefined);
     const reacknowledgment = { ...handoff, revision: corrected.revision, eventId: randomUUID() };
     const replacementPackage = { ...originalPackage, revision: corrected.revision, shareId: randomUUID(),
       ...packageCredentials(), replacesId: originalPackage.shareId };
@@ -1283,6 +1310,7 @@ try {
     assert.equal(loanNextAction(relinked.loans[0], relinked, "LO").title, "Review closing readiness");
     await write(assignedOfficer, markClear);
     await loanAction(assignedOfficer, repeatId, "recordClosing", { closingDate: today, revision: 0 });
+    assert.match((await action(assignedOfficer, "mutate", reconcile)).error, /before closing/);
     await loanAction(assignedOfficer, repeatId, "recordFunding", { fundingDate: today, revision: 0 });
     const fundedRepeat = await file(assignedOfficer, repeatId);
     assert.equal(fundedRepeat.closingProgress[0].fundingDate, today);

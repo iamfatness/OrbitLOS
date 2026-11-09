@@ -47,15 +47,18 @@ function pipelineFacts(db: Store, candidates: Candidate[], role?: WorkspaceStaff
   const playbook = readPlaybook(db);
   return (loan: Candidate) => {
     const id = loan.id;
+    const loanApplications = applications.get(id) ?? [];
+    const requestedAmount = loanApplications[0]?.requestedAmount;
     const outreachBlocked = outreachSuppressed(suppression, loan);
     const pending = tasks.get(id) ?? [];
     const lenderFiles = submissions.get(id) ?? [];
     const action = loanNextAction(loan, {
-      applications: applications.get(id) ?? [], contacts: [{ id: loan.contactId, outreachSuppressed: outreachBlocked }],
+      applications: loanApplications, contacts: [{ id: loan.contactId, outreachSuppressed: outreachBlocked }],
       tasks: pending, submissions: lenderFiles, documentRequests: documents.get(id) ?? [], closingPlans: plans.get(id) ?? [],
       pastClients: pastClients.get(id) ?? [], closingProgress: progress.get(id) ?? [], loanProcessing: processing.get(id) ?? [], playbook,
     }, role);
     return { action,
+      requestedAmount: requestedAmount && Math.round(requestedAmount) !== loan.amount ? requestedAmount : undefined,
       lenders: [...new Set(lenderFiles.map(({ lender }) => lender))],
       openConditions: lenderFiles.reduce((total, file) => total + file.conditions.filter(({ satisfiedAt }) => !satisfiedAt).length, 0),
       overdueTask: (now: number) => !pausedLoan(loan) && pending.some((task) =>
@@ -123,7 +126,8 @@ export function readPipeline(db: Store, input: unknown, staff: WorkspaceStaff | 
     const { id, name, address, officer, amount, purpose, stage, stageSince, disposition } = loan;
     const detail = overdueActions.get(id) ?? facts!(loan);
     return { id, name, address, officer, amount, purpose, stage, stageSince, disposition,
-      action: detail.action, lenders: detail.lenders, openConditions: detail.openConditions };
+      action: detail.action, lenders: detail.lenders, openConditions: detail.openConditions,
+      ...(detail.requestedAmount ? { requestedAmount: detail.requestedAmount } : {}) };
   };
   const active = "coalesce(nullif(loan.disposition, ''), 'Active') = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')";
   const counts = db.prepare(`SELECT count(*) AS total, count(*) FILTER (WHERE ${active}) AS active,

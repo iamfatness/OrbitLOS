@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type React
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { activityKinds, contactOutcomes, leadSources, prospectingBlocked, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
-import { dateTime, initials, money, stageDays } from "@/lib/utils";
+import { dateTime, initials, money, requestedMoney, stageDays } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
 import { JointBorrowerLinks } from "./joint-borrower-links";
@@ -17,7 +17,7 @@ import { CommunicationPreview, LoanCommunications } from "./loan-communications"
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetails } from "@/lib/urla";
-import { changedApplicationSections, reusablePropertyAddress, secondReviewBlocker, type StaffApplication } from "@/lib/application-model";
+import { changedApplicationSections, reusablePropertyAddress, secondReviewBlocker, submittedRequestedLoanAmount, type StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
 import type { ReturningClientOption } from "@/lib/past-client-queue-model";
@@ -40,7 +40,7 @@ import { submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanNextAction, mockClearanceClosingStages, pausedLoan,
+import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, mockClearanceClosingStages, pausedLoan,
   reopenedMockClosingCondition } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
@@ -272,6 +272,8 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
   const [confirmingRevocation, setConfirmingRevocation] = useState<string | null>(null);
   const application = state.applications.find((item) => item.loanId === loanId);
   const loan = state.loans.find((item) => item.id === loanId);
+  const requestedAmount = submittedRequestedLoanAmount(application);
+  const wholeAmount = requestedAmount === null ? 0 : Math.round(requestedAmount);
   const canRecordReturn = Boolean(loan && !pausedLoan(loan) && !pastClientLoan(loan) &&
     !state.pastClients.some((item) => item.loanId === loanId && item.closingDate) &&
     !state.closingProgress.some((item) => item.loanId === loanId && item.fundingDate));
@@ -344,6 +346,17 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
       {application.correctionNote && <p className="muted">Waiting on the borrower · {application.correctionNote}</p>}
       {!application.submittedAt ? <p className="muted timestamp">Last saved {dateTime(application.updatedAt)} ET</p> : <>
         <p className="muted">Received {dateTime(application.submittedAt)} ET</p>
+        {loan && requestedAmount !== null && <section className="document-item" id={loanAmountComparisonTarget}
+          tabIndex={-1} aria-label="Loan amount comparison">
+          <p><strong>Recorded amount</strong> {money(loan.amount)} · <strong>1003 request</strong> {requestedMoney(requestedAmount)}</p>
+          {requestedAmount !== loan.amount && <p className="muted">Pipeline totals use the recorded amount. MISMO uses the 1003 request. Pricing uses the amount entered for the quote.
+            {requestedAmount !== wholeAmount && " Pipeline records whole dollars."}</p>}
+          {!processor && canRecordReturn && wholeAmount > 0 && wholeAmount !== loan.amount &&
+            (application.reviewedAt ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
+              type: "useReviewedLoanAmount", loanId, revision: application.revision, previousAmount: loan.amount,
+            })}>Use {money(wholeAmount)} as recorded amount</Button> :
+              <p className="muted">Mark the current 1003 reviewed to use its requested amount.</p>)}
+        </section>}
         {application.draft && <details className="application-review" open={!application.reviewedAt}>
           <summary>Review submitted answers</summary>
           <ApplicationAnswers draft={application.draft} />
@@ -424,7 +437,8 @@ const loanSections = [
 function loanSection(target?: string) {
   if (!target) return "Overview";
   if (target === "loan-scenarios") return "Scenarios";
-  if (target === "loan-application" || target === "manual-lender-export" || target === manualLenderAcknowledgmentTarget) return "1003";
+  if (target === "loan-application" || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
+    target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-")) return "Conditions";
   if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet") return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" ||
@@ -519,6 +533,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
     submission.id === request.submissionId && submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt)))
     .map((request) => request.id));
   const application = state.applications.find((item) => item.loanId === loan.id);
+  const requestedAmount = submittedRequestedLoanAmount(application);
+  const amountDiffers = requestedAmount !== null && Math.round(requestedAmount) !== loan.amount;
   const callReportFile = state.callReportFiles?.find((file) => file.loanId === loan.id);
   const tasks = state.tasks.filter((item) => item.loanId === loan.id);
   const profile = state.pastClients.find((item) => item.loanId === loan.id);
@@ -552,7 +568,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
     <div className="details-body">
       <div className="loan-file-hero">
         <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
-          <div><h3>{borrower?.name}</h3><p>{[money(loan.amount), loan.purpose, loan.address || "Address pending"].join(" · ")}</p>
+          <div><h3>{borrower?.name}</h3><p>{[amountDiffers ? `Recorded ${money(loan.amount)}` : money(loan.amount), loan.purpose, loan.address || "Address pending"].join(" · ")}</p>
+            {amountDiffers && <button className="name-link" type="button" onClick={() => open(loanAmountComparisonTarget)}>
+              1003 request {requestedMoney(requestedAmount)}
+            </button>}
             {loan.callCampaignName && <p><strong>Call campaign</strong> · {loan.callCampaignName}</p>}</div>
           {!processor && <Button variant="outline" size="sm" onClick={() => show({ kind: "loan", loanId: loan.id })}><Pencil /> Edit loan</Button>}
         </div>

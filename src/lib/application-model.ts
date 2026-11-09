@@ -6,6 +6,12 @@ import type { StaffJointApplication } from "./joint-application-model";
 
 const shortText = z.string().trim().max(160);
 const dollars = z.string().trim().regex(/^\d{0,10}(?:\.\d{1,2})?$/).refine((value) => Number(value) <= 1_000_000_000);
+
+export function requestedLoanAmount(value: unknown) {
+  const parsed = dollars.safeParse(value);
+  const amount = parsed.success ? Number(parsed.data) : 0;
+  return amount > 0 ? amount : null;
+}
 const yesNo = z.enum(["", "Yes", "No"]);
 const addressLocation = z.object({
   unit: z.string().trim().max(30), city: z.string().trim().max(100),
@@ -222,6 +228,10 @@ export interface StaffApplication {
   lender: { details: LenderDetails; revision: number } | null;
   manualHandoff?: { exportPrepared: boolean; outcome: (typeof manualHandoffOutcomes)[number] | null; submissionId?: string };
   lastManualSubmissionId?: string;
+}
+
+export function submittedRequestedLoanAmount(application?: Pick<StaffApplication, "submittedAt" | "correctionNote" | "draft">) {
+  return application?.submittedAt && !application.correctionNote ? requestedLoanAmount(application.draft?.loanAmount) : null;
 }
 
 export function secondReviewBlocker(required: boolean, application?: Pick<StaffApplication, "submittedAt" | "reviewedAt" | "secondReviewApproved">) {

@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { checkLoanHandoff, mutate, readContactsWork, readLeadForWork, readLoanForWork, searchWorkspace } from "@/app/actions";
 import { prospectingBlocked, stages, type Loan, type LoanTask, type Stage, type Submission, type Workspace } from "@/lib/model";
-import { compactMoney, dateTime, initials, money, stageDays } from "@/lib/utils";
+import { compactMoney, dateTime, initials, money, requestedMoney, stageDays } from "@/lib/utils";
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
@@ -14,7 +14,7 @@ import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpC
 import { ContactsDirectory } from "./contacts-directory";
 import { contactUnavailable } from "@/lib/contact-directory-model";
 import { useLeadOwners } from "./use-lead-owners";
-import { fundingCheckInTarget, loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilters, type WorkFilter } from "@/lib/loan-workflow";
+import { fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilters, type WorkFilter } from "@/lib/loan-workflow";
 import { emptyPipelineFilters, type PipelineFilters, type PipelineLoan, type PipelineQuery } from "@/lib/pipeline-model";
 import { usePipeline } from "./use-pipeline";
 import { LoanWorkQueue } from "./loan-work-queue";
@@ -121,7 +121,8 @@ function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
     <button className="loan-card" onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
       <span className="loan-person"><span className={`avatar avatar-${stages.indexOf(loan.stage) % 4}`}>{initials(name)}</span><strong>{name}</strong></span>
       <span className="loan-address"><MapPin size={13} /> <span>{loan.address || "Property pending"}</span></span>
-      <span className="loan-value">{money(loan.amount)} <small>{loan.purpose}</small></span>
+      <span className="loan-value">{money(loan.amount)} <small>{loan.requestedAmount ? "Recorded" : loan.purpose}</small></span>
+      {loan.requestedAmount && <span className="loan-address">1003 request {requestedMoney(loan.requestedAmount)}</span>}
       <span className="loan-card-next"><small>Next action</small><strong>{action.title}</strong></span>
       {(action.dueAt || action.blocker) && <span className="loan-address"><span>{action.blocker}{action.blocker && action.dueAt ? " · " : ""}{action.dueAt && dateTime(action.dueAt)}</span></span>}
       <span className="loan-card-footer">
@@ -1156,9 +1157,12 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
                     </section>;
                   })}
                 </div>
-              ) : pipeline.page.list.loans.length > 0 && <div className="table-scroll"><table className="data-table pipeline-list"><thead><tr><th>Borrower</th><th className="pipeline-list-extra">Stage</th><th className="numeric">Amount</th><th className="pipeline-list-extra">Officer</th><th className="pipeline-list-extra">Lender</th><th className="pipeline-list-extra numeric">Stage age</th><th>Next action</th></tr></thead><tbody>
+              ) : pipeline.page.list.loans.length > 0 && <div className="table-scroll"><table className="data-table pipeline-list"><thead><tr><th>Borrower</th><th className="pipeline-list-extra">Stage</th><th className="numeric">Recorded amount</th><th className="pipeline-list-extra">Officer</th><th className="pipeline-list-extra">Lender</th><th className="pipeline-list-extra numeric">Stage age</th><th>Next action</th></tr></thead><tbody>
                 {pipeline.page.list.loans.map((loan) => <tr key={loan.id}><td><button className="name-link" onClick={() => openPipelineLoan(loan.id)}>{loan.name}</button><small>{loan.address}</small><small className="pipeline-mobile-stage">{loan.stage}{pausedLoan(loan) && ` · ${loan.disposition}`}</small></td>
-                  <td className="pipeline-list-extra"><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td><td className="numeric">{money(loan.amount)}</td><td className="pipeline-list-extra">{loan.officer || "Unassigned"}</td><td className="pipeline-list-extra">{loan.lenders.join(", ") || "—"}</td><td className="pipeline-list-extra numeric" suppressHydrationWarning>{stageDays(loan.stageSince)} days</td>
+                  <td className="pipeline-list-extra"><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td>
+                  <td className="numeric">{money(loan.amount)}{loan.requestedAmount && <small><button className="name-link" type="button"
+                    onClick={() => openPipelineLoan(loan.id, loanAmountComparisonTarget)}>1003 request {requestedMoney(loan.requestedAmount)}</button></small>}</td>
+                  <td className="pipeline-list-extra">{loan.officer || "Unassigned"}</td><td className="pipeline-list-extra">{loan.lenders.join(", ") || "—"}</td><td className="pipeline-list-extra numeric" suppressHydrationWarning>{stageDays(loan.stageSince)} days</td>
                   <td><button className="name-link" onClick={() => openPipelineLoan(loan.id, loan.action.target)}>{loan.action.title}</button>
                     <small>{loan.action.blocker}</small>
                     {loan.action.dueAt && <small>Due {dateTime(loan.action.dueAt)} ET</small>}</td></tr>)}

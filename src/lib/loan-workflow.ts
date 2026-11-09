@@ -32,6 +32,7 @@ type LoanNextAction = { title: string; target: string; dueAt: string | null; blo
 export const closingChecklistTarget = (id: string) => `closing-checklist-${id}`;
 export const fundingCheckInTarget = "funding-check-in";
 export const closingWorkbenchTarget = "closing-workbench";
+export const loanAmountComparisonTarget = "loan-amount-comparison";
 export const reopenedMockClosingMessage = "Clear the reopened mock UWM condition before advancing closing or funding.";
 export const mockClearanceClosingStages = ["Clear to Close", "Funded", "Closed"] as const;
 

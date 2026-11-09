@@ -18,7 +18,7 @@ export const pipelineQuery = z.object({
 export type PipelineQuery = z.infer<typeof pipelineQuery>;
 export type PipelineCursor = z.infer<typeof cursor>;
 export type PipelineLoan = Pick<Loan, "id" | "address" | "officer" | "amount" | "purpose" | "stage" | "stageSince" | "disposition"> & {
-  name: string; lenders: string[]; openConditions: number; action: ReturnType<typeof loanNextAction>;
+  name: string; lenders: string[]; openConditions: number; requestedAmount?: number; action: ReturnType<typeof loanNextAction>;
 };
 export type PipelinePage = {
   metrics: { total: number; active: number; volume: number; openConditions: number };
