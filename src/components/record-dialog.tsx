@@ -52,7 +52,7 @@ import { ActivityPages } from "./activity-pages";
 import { ContactDuplicateReview } from "./contact-duplicate-review";
 import { ContactDuplicateQueue } from "./contact-duplicate-queue";
 import { ContactMergeHistory } from "./contact-merge-history";
-import { campaignManualSubmission, type CampaignLenderPath } from "@/lib/call-campaign-model";
+import type { CampaignLenderPath } from "@/lib/call-campaign-model";
 import type { ConversationSubject } from "@/lib/conversation-model";
 import { appointmentTargetPrefix } from "@/lib/appointment-model";
 import { LoanAppointments } from "./loan-appointments";
@@ -377,7 +377,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
         shareBrokerage={shareBrokerage} shareAllowed={canRecordReturn && !blocker}
         linkedFile={state.submissions.find((submission) => submission.id === application.manualHandoff?.submissionId && submission.loanId === loanId)}
         previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
-        campaign={campaignManual ? { submission: campaignManualSubmission(state.submissions, loanId), openConditions } : undefined} />
+        campaignManual={campaignManual} />
       <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy} save={save} markDraftChanged={markDraftChanged} />
     </div>}

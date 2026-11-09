@@ -2103,7 +2103,7 @@ test("rescheduling a campaign callback keeps the original call, task, and owner 
   assert.deepEqual(campaignFollowUpWork(closed.state), []);
 });
 
-test("the manual campaign acknowledgment requires the current export and keeps a single lender file on retry", async (t) => {
+test("a campaign acknowledgment stays linked to one lender file through retry, upgrade, and correction", async (t) => {
   const { db, staff } = fixture(t);
   const command = (input, actor = staff) => executeCommand(db, input, actor, undefined, [staff]);
   const apply = async (input) => {
@@ -2145,6 +2145,7 @@ test("the manual campaign acknowledgment requires the current export and keeps a
   const file = acknowledged.submissions[0];
   assert.equal(file.lender, "Fictional demo lender");
   assert.equal(file.syncedAt, null);
+  assert.equal(acknowledged.applications[0].manualHandoff.submissionId, file.id);
   const { state: worked } = await apply({ type: "saveManualCondition", loanId, submissionId: file.id, conditionId: crypto.randomUUID(),
     revision: 0, category: "Income", description: "Provide a sample pay stub.", owner: "Loan officer" });
   for (const request of [ack, { ...ack, eventId: crypto.randomUUID() }]) {
@@ -2159,6 +2160,29 @@ test("the manual campaign acknowledgment requires the current export and keeps a
   await apply({ ...exported, lenderRevision: 1, eventId: crypto.randomUUID() });
   assert.deepEqual((await apply(refreshedAck)).state.submissions, worked.submissions);
   assert.equal(auditCount(), 2);
+  // Simulated acknowledgments issued before this version did not store the checklist ID.
+  db.prepare("UPDATE application_handoff_events SET submissionId = NULL WHERE loanId = ? AND outcome = 'Acknowledged'").run(loanId);
+  initializeStore(db, false);
+  assert.equal((await apply(refreshedAck)).state.applications[0].manualHandoff.submissionId, file.id);
+  assert.equal(auditCount(), 2);
+
+  const returned = await apply({ type: "requestApplicationCorrection", loanId, revision, note: "Correct the fictional loan amount.",
+    lenderReturn: { eventId: crypto.randomUUID(), lenderRevision: 1, submissionId: file.id } });
+  assert.equal(returned.state.submissions[0].status, "Returned for changes");
+  assert.equal(returned.state.applications[0].lastManualSubmissionId, file.id);
+  assert.equal(returned.state.applications[0].manualHandoff?.submissionId, undefined);
+  const correction = borrowerCommandResult(db, { type: "read", token }).application;
+  const corrected = borrowerCommandResult(db, { type: "submit", token, revision: correction.revision, step: 9,
+    draft: { ...correction.draft, loanAmount: "359500" } }).application;
+  await apply({ type: "reviewApplication", loanId, revision: corrected.revision });
+  const revised = { type: "recordManualHandoff", loanId, revision: corrected.revision, lenderRevision: 1,
+    eventId: crypto.randomUUID(), outcome: "Acknowledged", note: "", lenderFile: { lender: file.lender, externalId: file.externalId } };
+  assert.match((await command(revised)).error, /Prepare the MISMO export/);
+  await apply({ ...exported, revision: corrected.revision, lenderRevision: 1, eventId: crypto.randomUUID() });
+  const reacknowledged = (await apply(revised)).state;
+  assert.equal(reacknowledged.applications[0].manualHandoff.submissionId, file.id);
+  assert.equal(reacknowledged.submissions.length, 1);
+  assert.deepEqual(reacknowledged.submissions[0].conditions, worked.submissions[0].conditions);
 });
 
 test("a selected walkthrough officer gets the buyer by source ID and must still be active when the CSV commits", async (t) => {

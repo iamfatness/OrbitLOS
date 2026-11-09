@@ -12,7 +12,8 @@ import type { LoanProcessing } from "@/lib/processing-model";
 import { rateTargetReached } from "@/lib/client-retention";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { pricingInputsMatch } from "@/lib/pricing-model";
-import { campaignManualSubmission, campaignRehearsalCsv, type CampaignLenderPath, type CampaignRehearsal } from "@/lib/call-campaign-model";
+import { campaignRehearsalCsv, type CampaignLenderPath, type CampaignRehearsal } from "@/lib/call-campaign-model";
+import { manualLenderAcknowledgmentTarget } from "@/lib/lender-export-model";
 import { fundingTaskId } from "@/lib/playbook-model";
 import { dateTime } from "@/lib/utils";
 import { conditionDocumentBatchLimit, needsBorrowerDocument, suggestedConditionDocument, type LoanDocumentRequest } from "@/lib/document-model";
@@ -338,11 +339,14 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
   const uwmSubmission = state.submissions.find((item) => item.loanId === loan?.id && item.lender === "UWM" && item.syncedAt);
   const sent = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
   const mockStarted = application?.versions.some((version) => version.uwmReceipt);
-  const manualSubmission = loan && campaignManualSubmission(state.submissions, loan.id);
   const handoff = application?.manualHandoff;
+  const manualSubmission = loan && state.submissions.find((item) => item.loanId === loan.id && item.syncedAt === null &&
+    item.id === (handoff?.submissionId ?? application?.lastManualSubmissionId));
   const manual = !mockStarted && Boolean(manualSubmission || handoff?.exportPrepared || (loan && manualChoice === loan.id));
   const campaignLender = manual ? "manual" : "uwm";
-  const manualReady = Boolean(priced && handoff?.exportPrepared && handoff.outcome === "Acknowledged" && manualSubmission);
+  const manualAcknowledged = Boolean(manualSubmission && handoff?.exportPrepared && handoff.outcome === "Acknowledged" &&
+    handoff.submissionId === manualSubmission.id);
+  const manualReady = Boolean(priced && manualAcknowledged);
   const submission = manual ? manualSubmission : uwmSubmission;
   const condition = submission?.conditions.find((item) => !item.satisfiedAt);
   const multipleUwmConditions = !manual && (submission?.conditions.filter((item) => !item.satisfiedAt).length ?? 0) > 1;
@@ -413,10 +417,12 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
     {
       title: manual ? "Price the file and rehearse a manual lender handoff" : "Price the file and send it to mock UWM",
       description: manual ?
-        "Check Confirm mock credit authorization, run mock credit, and choose Price with mock score. Save a quote and open the MISMO export. Download the file, then record the simulated acknowledgment in the same panel." :
+        (manualSubmission ?
+          "Open the lender acknowledgment to record a return. After the corrected 1003 is reviewed, prepare the revised MISMO and record receipt on the same lender file." :
+          "Check Confirm mock credit authorization, run mock credit, and choose Price with mock score. Save a quote and open the MISMO export. Download the file, then record the simulated acknowledgment in the same panel.") :
         "Check Confirm mock credit authorization, run mock credit, and choose Price with mock score. Run pricing, save a quote, and choose Send reviewed 1003 to mock UWM to open the lender checklist.",
       done: manual ? manualReady : Boolean(priced && sent),
-      action: loan && application?.reviewedAt && (!priced ? pricingAction : manual ? !manualReady &&
+      action: loan && application?.reviewedAt && (!priced ? pricingAction : manual ? !manualSubmission &&
         <Button size="sm" onClick={() => open(loan.id, "manual-lender-export", "manual")}>Open manual MISMO handoff</Button> :
         !sent && state.playbook.requireSecondReview && !application.secondReviewApproved ?
           <Button size="sm" onClick={() => open(loan.id, loanReviewsTarget)}>Open required second review</Button> :
@@ -424,11 +430,17 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
         type: "sendApplication", loanId: loan.id, revision: application.revision,
         quote: { runId: savedQuote.id, offerId: savedQuote.selectedId },
       })}>Send campaign file to mock UWM</Button>),
-      detail: loan && application?.reviewedAt && !mockStarted && !manualSubmission && !handoff?.exportPrepared &&
+      detail: loan && (manual && manualSubmission ? <>
+        <p className="muted">{manualSubmission.lender} · {manualSubmission.externalId} · {manualSubmission.status}</p>
+        {application?.reviewedAt && <Button size="sm" variant="outline" onClick={() => open(loan.id,
+          manualAcknowledged ? manualLenderAcknowledgmentTarget : "manual-lender-export", "manual")}>
+          {manualAcknowledged ? "Open lender acknowledgment" : "Open revised MISMO handoff"}
+        </Button>}
+      </> : application?.reviewedAt && !mockStarted && !handoff?.exportPrepared &&
         <div className="loan-application-actions" role="group" aria-label="Lender handoff path">
           <Button size="sm" variant="outline" aria-pressed={!manual} onClick={() => setManualChoice(null)}>Mock UWM path</Button>
           <Button size="sm" variant="outline" aria-pressed={manual} onClick={() => setManualChoice(loan.id)}>Manual MISMO path</Button>
-        </div>,
+        </div>),
     },
     {
       title: manual ? "Clear the manual lender condition" : "Clear the lender conditions",
@@ -436,11 +448,11 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
         "Add a fictional Income condition for a pay stub. Use the suggested request, attach a sample from the borrower checklist, then accept it. Record a fictional delivery reference and the lender’s clearance." :
         mockConditionInstructions(uwmSubmission, state.documentRequests),
       done: cleared,
-      action: loan && submission && (condition && (!manual || manualReady) ?
+      action: loan && submission && (condition && (!manual || manualAcknowledged) ?
         <Button size="sm" disabled={busy} onClick={() => openConditions(loan.id, submission.id, multipleUwmConditions ? undefined : condition.id)}>
           {manual ? "Work manual lender condition" : multipleUwmConditions ? "Open UWM condition checklist" : "Work outstanding condition"}
         </Button> :
-        manualReady && !submission.conditions.length &&
+        manualAcknowledged && !submission.conditions.length &&
           <Button size="sm" disabled={busy} onClick={() => openConditions(loan.id, submission.id)}>Open fictional lender conditions</Button>),
       detail: loan && cleared && (partnerDraft || partnerPortal) && <div className="loan-application-actions">
         {partnerDraft && <Button size="sm" variant="outline" onClick={() => previewRealtor(loan.id, partnerDraft.id)}>Preview realtor milestone</Button>}

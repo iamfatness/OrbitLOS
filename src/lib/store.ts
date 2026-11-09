@@ -15,7 +15,7 @@ import type { UwmAlert } from "./uwm-alert-model";
 import type { InboxLead } from "./model";
 import { callReportFiles } from "./call-report";
 import { demoGuideState } from "./pilot";
-import { readCampaignRehearsal } from "./campaign-rehearsal";
+import { linkLegacyCampaignAcknowledgments, readCampaignRehearsal } from "./campaign-rehearsal";
 import { managerReportRecords, managerReports } from "./manager-reports";
 import type { CampaignNavigation, CampaignQueueSnapshot, CampaignWorkPatch } from "./lead-work-model";
 import type { WorkspaceStaff } from "./staff-store";
@@ -566,6 +566,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.exec("ALTER TABLE application_handoff_events ADD COLUMN submissionId TEXT REFERENCES submissions(id) ON DELETE SET NULL");
     }
     if (!handoffColumns.has("followUpDueAt")) db.exec("ALTER TABLE application_handoff_events ADD COLUMN followUpDueAt TEXT");
+    linkLegacyCampaignAcknowledgments(db);
     if (!db.prepare("PRAGMA table_info(communication_drafts)").all().some((column) => column.name === "eventKey")) {
       const columns = "id, loanId, contactId, audience, milestone, createdAt, emailCopiedAt, textCopiedAt";
       db.exec(`CREATE TABLE communication_drafts_next (${communicationDraftColumns});

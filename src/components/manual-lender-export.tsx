@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import { Download } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
-import { campaignManualSubmission } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Submission } from "@/lib/model";
 import { exportName, manualLenderAcknowledgmentTarget, mismoHandoffCoverage, suggestExportName, type ExportName } from "@/lib/lender-export-model";
@@ -15,12 +14,12 @@ const nameFields = [
   ["first", "First name"], ["middle", "Middle name"], ["last", "Last name"], ["suffix", "Suffix"],
 ] as const;
 
-export function ManualLenderExport({ application, busy, save, campaign, linkedFile, previousFile, canRecordReturn, openConditions,
+export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, openConditions,
   shareBrokerage, shareAllowed }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
-  campaign?: { submission?: Submission; openConditions: (id: string) => void };
+  campaignManual: boolean;
   linkedFile?: Submission;
   previousFile?: Submission;
   canRecordReturn: boolean;
@@ -39,7 +38,7 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
   const ready = application.reviewedAt && application.submittedAt && !application.correctionNote && application.draft?.confirmedDemo;
   const valid = names.length > 0 && names.every((item) => exportName.safeParse(item).success);
   const handoff = application.manualHandoff;
-  const existing = handoff?.outcome === "Acknowledged" ? campaign?.submission : undefined;
+  const initialCampaignHandoff = campaignManual && !linkedFile && !previousFile;
 
   return <details className="application-review" id="manual-lender-export">
     <summary>Manual lender export</summary>
@@ -86,28 +85,23 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
     {shareBrokerage && <LenderHandoffShare brokerageId={shareBrokerage} loanId={application.loanId} revision={application.revision}
       lenderRevision={application.lender?.revision ?? 0} names={names} canCreate={!!ready && valid && confirmed && shareAllowed}
       onCreated={() => void save({ type: "refreshApplication", loanId: application.loanId })} />}
-    {ready && campaign && <section className="document-item" aria-label="Simulated lender acknowledgment">
+    {ready && initialCampaignHandoff && <section className="document-item" aria-label="Simulated lender acknowledgment">
       <div className="document-item-head"><strong>Fictional lender acknowledgment</strong><span className="pill">Demo</span></div>
-      <p className="muted">{existing ? "The acknowledgment is recorded for this revision." :
-        handoff?.exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
+      <p className="muted">{handoff?.exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
           "Prepare the MISMO download to enable acknowledgment for this revision."}</p>
       <div><Button size="sm" disabled={busy || !handoff?.exportPrepared} onClick={() => {
-        if (existing) {
-          campaign.openConditions(existing.id);
-          return;
-        }
         void save({
           type: "acknowledgeCampaignLenderExport", loanId: application.loanId, revision: application.revision,
           lenderRevision: application.lender?.revision ?? 0, eventId: acknowledgmentAttempt.current ??= crypto.randomUUID(),
         }, ({ state }) => {
           acknowledgmentAttempt.current = null;
           const updated = state.applications.find((item) => item.loanId === application.loanId);
-          const submission = campaignManualSubmission(state.submissions, application.loanId);
-          if (updated?.manualHandoff?.outcome === "Acknowledged" && submission) campaign.openConditions(submission.id);
+          const submissionId = updated?.manualHandoff?.submissionId;
+          if (submissionId) openConditions(submissionId);
         });
-      }}>{existing ? "Open fictional lender conditions" : "Record simulated acknowledgment"}</Button></div>
+      }}>Record simulated acknowledgment</Button></div>
     </section>}
-    {ready && !campaign && handoff?.exportPrepared && <section className="document-item" aria-label="Manual lender acknowledgment" id={manualLenderAcknowledgmentTarget} tabIndex={-1}>
+    {ready && !initialCampaignHandoff && handoff?.exportPrepared && <section className="document-item" aria-label="Manual lender acknowledgment" id={manualLenderAcknowledgmentTarget} tabIndex={-1}>
       <div className="document-item-head"><strong>Lender acknowledgment</strong><span className="pill">Manual</span></div>
       {linkedFile ? <>
         <p className="muted">Acknowledged by {linkedFile.lender} · {linkedFile.externalId}</p>

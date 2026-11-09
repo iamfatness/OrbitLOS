@@ -2,21 +2,21 @@ import { z } from "zod";
 import { readCsv } from "./contact-csv";
 import { leadContactFields } from "./lead-inbox-model";
 import type { MigrationRow } from "./pipeline-migration-model";
-import type { InboxLead, Loan, Submission } from "./model";
+import type { InboxLead, Loan } from "./model";
 import { referralPhone } from "./referral-matches";
 
 export const callOutcomes = ["Connected", "Left message", "No response", "Requested callback", "Opted out"] as const;
 export type CallOutcome = (typeof callOutcomes)[number];
 export type CampaignLenderPath = "uwm" | "manual";
 
-export function campaignManualLender(loanId: string) {
-  return { lender: "Fictional demo lender", externalId: `REHEARSAL-${loanId}`, status: "Acknowledged · demo" };
-}
+export const campaignManualHandoff = {
+  lender: "Fictional demo lender",
+  referencePrefix: "REHEARSAL-",
+  acknowledgmentNote: "Simulated response from the fictional campaign lender.",
+};
 
-export function campaignManualSubmission(submissions: Submission[], loanId: string) {
-  const { lender, externalId } = campaignManualLender(loanId);
-  return submissions.find((item) => item.loanId === loanId && !item.syncedAt &&
-    item.lender.toLowerCase() === lender.toLowerCase() && item.externalId === externalId);
+export function campaignManualLender(loanId: string) {
+  return { lender: campaignManualHandoff.lender, externalId: `${campaignManualHandoff.referencePrefix}${loanId}`, status: "Acknowledged · demo" };
 }
 
 export const createCallCampaignInput = z.object({

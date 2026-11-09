@@ -1,6 +1,6 @@
 import { readCampaignRouting, saveCampaignRouting } from "./campaign-routing";
 import { createCallCampaign, mayManageCampaigns } from "./call-campaigns";
-import { campaignManualLender, campaignOrigin, localCampaignOfficers, rehearsalBuyerKey, rehearsalReserveKey, type CampaignRehearsal } from "./call-campaign-model";
+import { campaignManualHandoff, campaignManualLender, campaignOrigin, localCampaignOfficers, rehearsalBuyerKey, rehearsalReserveKey, type CampaignRehearsal } from "./call-campaign-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { insertSubmission, savedPricingRun, type Store } from "./store";
 import type { BrokerageMember } from "./brokerage-model";
@@ -59,6 +59,17 @@ export function readCampaignRehearsal(db: Store): CampaignRehearsal | null {
     ...(buyerEmail ? { buyerEmail } : {}), ...(checkInActivityId ? { checkInActivityId } : {}) };
 }
 
+export function linkLegacyCampaignAcknowledgments(db: Store) {
+  const { lender, referencePrefix, acknowledgmentNote } = campaignManualHandoff;
+  db.prepare(`UPDATE application_handoff_events AS event SET submissionId = file.id
+    FROM activity JOIN submissions file ON file.loanId = activity.loanId
+    WHERE activity.id = event.activityId AND file.loanId = event.loanId AND file.syncedAt IS NULL
+      AND event.submissionId IS NULL AND event.outcome = 'Acknowledged'
+      AND file.lender = ? COLLATE NOCASE AND file.externalId = ? || event.loanId
+      AND activity.text = 'Manual handoff · Acknowledged · Application revision ' || event.applicationRevision || ' · ' || ?`)
+    .run(lender, referencePrefix, acknowledgmentNote);
+}
+
 export function linkCampaignSampleRealtor(db: Store, input: { loanId: string; scenarioId: string }, staff: WorkspaceStaff | null, now: string) {
   if (!mayManageCampaigns(staff)) return { error: "Only a fictional pilot admin can link the sample realtor." };
   const rehearsal = readCampaignRehearsal(db);
@@ -93,10 +104,19 @@ export function ensureCampaignManualFile(db: Store, input: { loanId: string; rev
     return { error: "Save a mock quote for the current 1003 before recording the simulated acknowledgment." };
   }
   const entry = campaignManualLender(input.loanId);
-  const existing = db.prepare("SELECT loanId, syncedAt FROM submissions WHERE lender = ? AND externalId = ?").get(entry.lender, entry.externalId);
+  const existing = db.prepare("SELECT id, loanId, syncedAt FROM submissions WHERE lender = ? AND externalId = ?").get(entry.lender, entry.externalId);
   if (existing && (existing.loanId !== input.loanId || existing.syncedAt)) {
     return { error: "The fictional lender reference is already in use." };
   }
-  if (!existing) insertSubmission(db, { ...entry, id: crypto.randomUUID(), loanId: input.loanId, conditions: [], syncedAt: null });
-  return { entry };
+  const previous = db.prepare(`SELECT event.submissionId FROM application_handoff_events event
+    JOIN activity ON activity.id = event.activityId JOIN submissions file ON file.id = event.submissionId AND file.syncedAt IS NULL
+    WHERE event.loanId = ? AND file.loanId = event.loanId AND event.outcome = 'Acknowledged'
+    ORDER BY event.applicationRevision DESC, event.lenderRevision DESC, activity.rowid DESC LIMIT 1`).get(input.loanId);
+  if (previous && previous.submissionId !== existing?.id) {
+    return { error: "Use the linked manual lender file to record acknowledgment." };
+  }
+  const submissionId = existing ? String(existing.id) : crypto.randomUUID();
+  if (!existing) insertSubmission(db, { ...entry, id: submissionId, loanId: input.loanId, conditions: [], syncedAt: null });
+  else db.prepare("UPDATE submissions SET status = ? WHERE id = ? AND status = 'Returned for changes'").run(entry.status, submissionId);
+  return { submissionId };
 }

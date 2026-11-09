@@ -58,7 +58,7 @@ import { migratePipeline } from "./pipeline-migration";
 import { undoMigration } from "./migration-recovery";
 import type { MigrationMutationResult } from "./migration-record-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, createCallCampaignInput, loadCampaignRehearsalInput, openCampaignsInput, pauseCampaignRetriesInput, recordCampaignCallInput, refreshCampaignQueueInput, routeCampaignQueueInput,
-  rescheduleCampaignCallbackInput, saveCampaignRoutingInput, saveCampaignRulesInput } from "./call-campaign-model";
+  campaignManualHandoff, rescheduleCampaignCallbackInput, saveCampaignRoutingInput, saveCampaignRulesInput } from "./call-campaign-model";
 import { assignCampaignLeads, createCallCampaign, linkCampaignLead, mayManageCampaigns, pauseCampaignRetries, recordCampaignCall, rescheduleCampaignCallback,
   saveCampaignRules, stopCampaignFollowUp } from "./call-campaigns";
 import { enrollCrmSegmentInput, saveCrmSegmentInput, type SegmentPreview } from "./crm-segment-model";
@@ -1283,7 +1283,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           const simulated = data.type === "acknowledgeCampaignLenderExport";
           const outcome = simulated ? "Acknowledged" : data.outcome;
-          const note = simulated ? "Simulated response from the fictional campaign lender." : data.note;
+          const note = simulated ? campaignManualHandoff.acknowledgmentNote : data.note;
           const file = simulated ? undefined : data.lenderFile;
           const detail = `Manual handoff · ${outcome} · Application revision ${data.revision}${file ? ` · ${file.lender} · ${file.externalId}` : ""}${note ? ` · ${note}` : ""}`;
           const previous = db.prepare("SELECT loanId, text FROM activity WHERE id = ?").get(data.eventId);
@@ -1295,17 +1295,18 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             }
           }
           let alreadyRecorded = !!previous;
+          let submissionId: string | null = null;
           if (simulated) {
             if (application.uwmReference || application.correctionNote) throw new WorkspaceError("Open the current manual MISMO handoff before recording acknowledgment.");
             const result = ensureCampaignManualFile(db, data, staff);
             if ("error" in result) throw new WorkspaceError(result.error);
+            submissionId = result.submissionId;
             const latest = db.prepare(`SELECT activity.text FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
               WHERE event.loanId = ? AND event.applicationRevision = ? AND event.lenderRevision = ? AND event.outcome <> 'Export prepared'
               ORDER BY activity.rowid DESC LIMIT 1`).get(data.loanId, data.revision, lenderRevision);
             alreadyRecorded ||= latest?.text === detail;
           }
           if (!alreadyRecorded) {
-            let submissionId: string | null = null;
             if (file) {
               if (outcome !== "Acknowledged" || data.lenderRevision === undefined ||
                 !hasPreparedLenderExport(db, { ...data, lenderRevision })) {

@@ -12,7 +12,7 @@ const tools = [
   {icon:ShieldCheck,title:"Paired mock underwriting",text:"Run mock DU and LPA together on the same submitted 1003 and sample credit report. Keep each service’s findings and retry history separate."},
   {icon:ListChecks,title:"Reviewed income worksheet",text:"Record source periods and adjustments, link accepted evidence, and carry the reviewed monthly amount into conventional mock pricing."},
   {icon:Wallet,title:"Brokerage fee templates",text:"Reuse sample estimates by loan purpose and ZIP. Saved quotes preserve the itemized amounts, and staff can see the template version, source, and effective date."},
-  {icon:ShieldCheck,title:"Manual lender packages",text:"Share the reviewed MISMO export and selected sample PDFs through an expiring link and code. Downloads carry the 1003 revision and package reference, so you can match them to the loan history after a correction."},
+  {icon:ShieldCheck,title:"Manual lender packages",text:"Share versioned MISMO and sample PDFs through an expiring link and code. After a correction, replace the package and confirm receipt on the original lender file with its condition history."},
   {icon:MessagesSquare,title:"Shared conversations",text:"Open shared conversations and keep team notes with the relationship. Page through borrower and realtor milestone drafts, preview the current recipient, and track which messages were copied."},
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},
