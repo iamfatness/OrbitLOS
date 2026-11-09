@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     if (!parsed.success) return { status: 400, error: "Choose a valid lead and borrower contact." };
     const result = await updateWorkspace(parsed.data, staff, "inbox");
     if ("error" in result) return { status: 409, error: result.error };
-    if (!("inboxChanged" in result) || !result.inboxLoan || !result.referralLoanId) return { status: 409, error: unavailable };
+    if (!("inboxChanged" in result) || !result.inboxLoan || result.inboxLoan.loanId !== result.referralLoanId ||
+      result.convertedLead?.id !== parsed.data.referralId) return { status: 409, error: unavailable };
     return { value: result };
   }, 4096);
 }

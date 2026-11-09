@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { CallCampaign, CallCampaignMember, CampaignLeadOption, CampaignQueueFile, CampaignRehearsal } from "./call-campaign-model";
 import type { CampaignResponseRecord } from "./campaign-response-model";
 import type { CrmSegment } from "./crm-segment-model";
+import type { ConvertedLead } from "./lead-inbox-model";
+import { applyLoanMutation, campaignFileForLoan, type EditableLoan } from "./loan-work-model";
 import type { ManagerRecord } from "./manager-report-model";
 import type { InboxLead, ReferralReview, UnlinkedReferral, Workspace } from "./model";
 import type { MigrationReport } from "./pipeline-migration-model";
@@ -113,6 +115,22 @@ export function applyCampaignQueue(state: Workspace, queue: CampaignQueueSnapsho
     campaignQueueFiles: upsert((state.campaignQueueFiles ?? []).filter(({ id }) => !fileIds.has(id)), files, byId),
     campaignRehearsal: state.campaignRehearsal?.campaignId === campaignId ? rehearsal : rehearsal ?? state.campaignRehearsal,
   };
+}
+
+export function applyLeadConversion(state: Workspace, lead: ConvertedLead, work: EditableLoan, queue?: CampaignQueueSnapshot): Workspace {
+  const next = queue ? applyCampaignQueue(state, queue) : state;
+  const matchesMember = (member: CallCampaignMember) => member.leadId === lead.id && member.campaignId === lead.campaignId;
+  const member = next.callCampaignMembers.find(matchesMember) ?? state.callCampaignMembers.find(matchesMember);
+  return applyLoanMutation({
+    ...next,
+    inboxLeads: next.inboxLeads.filter(({ id }) => id !== lead.id),
+    referralLeads: next.referralLeads.filter(({ id }) => id !== lead.id),
+    unlinkedReferrals: next.unlinkedReferrals.filter(({ id }) => id !== lead.id),
+    ...(member ? {
+      callCampaignMembers: replace(next.callCampaignMembers, { ...member, loanId: work.loanId, resolvedAt: lead.resolvedAt }, matchesMember),
+      campaignQueueFiles: upsert(next.campaignQueueFiles ?? [], [campaignFileForLoan(work)], byId),
+    } : {}),
+  }, work);
 }
 
 export function applyCampaignMutation(state: Workspace, patch: CampaignWorkPatch): Workspace {

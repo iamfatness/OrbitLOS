@@ -1982,10 +1982,14 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         const inboxLoan = referralLoanId && staff ? readEditableLoan(db, referralLoanId, staff, staff.brokerage.id) : undefined;
         if (inboxLoan && "error" in inboxLoan) throw new WorkspaceError(inboxLoan.error);
-        const campaignId = inboxLoan && data.type === "convertReferral" ?
-          db.prepare("SELECT campaignId FROM call_campaign_members WHERE leadId = ?").get(data.referralId)?.campaignId : undefined;
-        const convertedCampaign = typeof campaignId === "string" ? readCampaignQueue(db, campaignId, staff) : undefined;
-        return { inboxChanged: true as const, message, referralLoanId, restoredLeadId, inboxLoan, convertedCampaign };
+        const converted = inboxLoan && data.type === "convertReferral" ? db.prepare(`
+          SELECT lead.id, lead.resolvedAt, member.campaignId FROM referral_leads lead
+          LEFT JOIN call_campaign_members member ON member.leadId = lead.id WHERE lead.id = ? AND lead.loanId = ?`)
+          .get(data.referralId, inboxLoan.loanId) : undefined;
+        const convertedLead = converted && typeof converted.id === "string" && typeof converted.resolvedAt === "string" ?
+          { id: converted.id, resolvedAt: converted.resolvedAt, campaignId: typeof converted.campaignId === "string" ? converted.campaignId : null } : undefined;
+        const convertedCampaign = convertedLead?.campaignId ? readCampaignQueue(db, convertedLead.campaignId, staff) : undefined;
+        return { inboxChanged: true as const, message, referralLoanId, restoredLeadId, inboxLoan, convertedLead, convertedCampaign };
       }
       if (leadId) {
         const officerEmail = staff?.brokerage.role === "LO" ? staff.email : undefined;

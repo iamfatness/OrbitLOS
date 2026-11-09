@@ -63,7 +63,7 @@ import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { fundingMilestones, fundingTaskAudience, playbookWork, reversedFundingTaskPrefix, type PlaybookWork } from "@/lib/playbook-model";
 import { defaultManagerExceptionFilters } from "@/lib/manager-exception-model";
 import type { MigrationDestination } from "@/lib/migration-record-model";
-import { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, applyLeadMutation, applyLeadWork, type LeadWorkRequest } from "@/lib/lead-work-model";
+import { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, applyLeadConversion, applyLeadMutation, applyLeadWork, type LeadWorkRequest } from "@/lib/lead-work-model";
 import type { WorkspaceMutationScope, WorkspaceMutationSuccess } from "@/lib/commands";
 import type { LeadInboxMutation } from "@/lib/lead-inbox-model";
 import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
@@ -411,8 +411,9 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         return;
       }
       if ("inboxChanged" in result) {
-        const { inboxLoan, referralLoanId, restoredLeadId, convertedCampaign, message } = result;
+        const { inboxLoan, referralLoanId, restoredLeadId, convertedLead, convertedCampaign, message } = result;
         const apply = (current: Workspace) => {
+          if (convertedLead && inboxLoan) return applyLeadConversion(current, convertedLead, inboxLoan, convertedCampaign);
           const refreshed = convertedCampaign ? applyCampaignQueue(current, convertedCampaign) : current;
           return inboxLoan ? applyLoanMutation(refreshed, inboxLoan) : { ...refreshed };
         };
@@ -1220,7 +1221,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             openLoan={(loanId) => staff || !state.loans.some(({ id }) => id === loanId) ?
               void openQueueLoan({ kind: "details", loanId }) : show({ kind: "details", loanId })}
             openConversation={(leadId) => openConversation({ leadId })}
-            convert={(id) => convertLead(id, null, false)} />}
+            convert={(id, after) => convertLead(id, null, false, undefined, after)} />}
 
           {section === "Contacts" && <>
             <ContactsDirectory brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state} admin={admin} busy={busy}

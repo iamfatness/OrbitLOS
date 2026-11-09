@@ -4,14 +4,18 @@ import type { Workspace } from "./model";
 export type EditableLoan = Exclude<ReturnType<typeof readEditableLoan>, { error: string }>;
 export type LoanMutationResult = { loanWork: EditableLoan; message: string; loanFormSaved?: true; applicationToken?: string; applicationLoanId?: string };
 
-export function applyLoanMutation(state: Workspace, work: EditableLoan): Workspace {
-  const { loanId } = work;
+export function campaignFileForLoan(work: EditableLoan) {
   const { id, officer, amount, stage } = work.loans[0];
   const application = work.applications[0];
-  const campaignQueueFiles = state.campaignQueueFiles?.map((file) => file.id === loanId ? {
+  return {
     id, officer, amount, stage, submittedAt: application?.versions.at(-1)?.submittedAt ?? application?.submittedAt ?? null,
     fundingDate: work.closingProgress[0]?.fundingDate ?? null,
-  } : file);
+  };
+}
+
+export function applyLoanMutation(state: Workspace, work: EditableLoan): Workspace {
+  const { loanId } = work;
+  const campaignQueueFiles = state.campaignQueueFiles?.map((file) => file.id === loanId ? campaignFileForLoan(work) : file);
   // A scoped queue may open a loan created after the workspace snapshot loaded.
   // Keep that file in the dialog until the workspace is loaded again.
   if (!state.loans.some(({ id }) => id === loanId)) return campaignQueueFiles ? { ...state, campaignQueueFiles } : { ...state };

@@ -18,7 +18,7 @@ const tools = [
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},
   {icon:ShieldCheck,title:"Reviews and exceptions",text:"See which 1003 revisions need approval. Continue working lender conditions on acknowledged files and return corrected revisions to review. Open callback, document, and lender exceptions from their queues. Borrower and realtor views show closing holds."},
-  {icon:Workflow,title:"Consistent follow-up",text:"Open the prefilled 1003 from the campaign that brought in the lead. Recover interrupted callbacks, see the original check-in note on scheduled follow-ups, and reuse a confirmed property address on a post-funding refinance."},
+  {icon:Workflow,title:"Consistent follow-up",text:"Open the prefilled 1003 from the campaign that brought in the lead. The new loan stays available in the current call queue after conversion. Recover interrupted callbacks and reuse a confirmed property address on a post-funding refinance."},
   {icon:ArrowDownUp,title:"Pipeline migration",text:"Map owners and carry callback history. Open the current lead, loan, or task evidence from an import receipt. Download a cutover handoff with open checks and reviewer attribution."},
 ];
 export default function Product(){return <>

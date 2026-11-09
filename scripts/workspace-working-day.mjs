@@ -16,6 +16,7 @@ registerHooks({ resolve(specifier, context, next) {
 const { applicationSteps, sampleApplication } = await import("../src/lib/application-model.ts");
 const { coBorrowerReviewStep, primaryJointDraft, sampleCoBorrower } = await import("../src/lib/joint-application-model.ts");
 const { campaignCallQueues, campaignOrigin, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
+const { applyLeadConversion } = await import("../src/lib/lead-work-model.ts");
 const { afterHours, defaultPlaybook, fundingTaskId } = await import("../src/lib/playbook-model.ts");
 const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exception-model.ts");
 const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
@@ -526,6 +527,11 @@ try {
     const loanId = result.referralLoanId;
     assert.equal(result.inboxChanged, true);
     assert.equal(result.inboxLoan.loanId, loanId);
+    assert.equal(result.convertedLead.id, leadId);
+    assert.equal(result.convertedLead.campaignId, campaignId);
+    assert.equal(result.convertedCampaign.members.find((member) => member.leadId === leadId).loanId, loanId);
+    assert.ok(result.convertedCampaign.files.some(({ id }) => id === loanId));
+    assert.ok(!result.convertedCampaign.inboxLeads.some(({ id }) => id === leadId));
     assert.equal(result.state, undefined);
     assert.match(result.message, /shared lead was routed/);
     const next = result.convertedCampaign.inboxLeads.find(({ id }) => id === overflow[0].id);
@@ -1989,7 +1995,22 @@ try {
     assert.equal(before.dueAt, callbackAt);
     const originalLink = { leadId, task: { kind: "campaign", id: taskId, expectedCallbackAt: callbackAt } };
     assert.equal((await action(winner, "readLeadForWork", originalLink)).lead.id, leadId);
-    const { referralLoanId: loanId } = await write(winner, { type: "convertReferral", referralId: leadId, contactId: null });
+    const beforeConversion = { ...await workspace(winner), loans: [], applications: [], campaignQueueFiles: [] };
+    const saved = await post(`/api/lead-conversion?brokerage=${brokerage}`,
+      { type: "convertReferral", referralId: leadId, contactId: null }, winner);
+    const { referralLoanId: loanId, convertedLead, convertedCampaign, inboxLoan } = saved;
+    assert.equal(convertedLead.id, leadId);
+    assert.equal(convertedCampaign.members.find((member) => member.leadId === leadId).loanId, loanId);
+    for (const snapshot of [convertedCampaign, undefined]) {
+      const view = applyLeadConversion(beforeConversion, convertedLead, inboxLoan, snapshot);
+      const card = view.callCampaignMembers.find((member) => member.leadId === leadId);
+      assert.equal(card.loanId, loanId);
+      assert.equal(card.resolvedAt, convertedLead.resolvedAt);
+      assert.ok(!view.inboxLeads.some(({ id }) => id === leadId));
+      assert.deepEqual(view.campaignQueueFiles.filter(({ id }) => id === loanId), [{
+        id: loanId, officer: winner.name, amount: 0, stage: "Lead", submittedAt: null, fundingDate: null,
+      }]);
+    }
     const converted = await file(winner, loanId);
     assert.equal(converted.loans[0].officerEmail, winner.email);
     const application = await borrower(converted.applications[0].token, { type: "read" });

@@ -307,12 +307,14 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
 
 export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, focusTaskId, now, busy, save, openLead, openLoan, openConversation, openCallback, convert }: {
   state: Workspace; staff: WorkspaceStaff | null; selectedId: string; select: (id: string, alreadyLoaded?: boolean) => void; now: number; busy: boolean;
-  focusLeadId?: string; focusTaskId?: string; save: Save; openLead: (id: string) => void; openLoan: (id: string) => void; convert: (id: string) => void;
+  focusLeadId?: string; focusTaskId?: string; save: Save; openLead: (id: string) => void; openLoan: (id: string) => void;
+  convert: (id: string, after: () => void) => void;
   openConversation: (id: string) => void;
   openCallback: (item: CampaignCallbackItem) => void;
 }) {
   const [view, setView] = useState<(typeof views)[number]>("Enrolled");
   const [applicationCall, setApplicationCall] = useState<CallContinuation>();
+  const [convertedCall, setConvertedCall] = useState<Omit<CallContinuation, "ownerEmail">>();
   const [savedCall, setSavedCall] = useState<CallContinuation & { callEventId: string }>();
   const [segmentFilter, setSegmentFilter] = useState("");
   const [importOpen, setImportOpen] = useState(state.campaignRehearsal?.campaignId === selectedId && state.campaignRehearsal.importedCount < 2);
@@ -382,6 +384,9 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     "Opted out": records.filter(({ optedOut }) => optedOut),
   };
   const visible = buckets[view];
+  const justConverted = convertedCall && convertedCall.campaignId === campaign?.id && convertedCall.view === view &&
+    convertedCall.segmentId === segmentId && !visible.some(({ member }) => member.leadId === convertedCall.leadId) ?
+    records.find(({ member, loan }) => member.leadId === convertedCall.leadId && loan) : undefined;
   const continuationFor = (call?: CallContinuation) => call && call.campaignId === campaign?.id && call.view === view && call.segmentId === segmentId &&
     !visible.some(({ member }) => member.leadId === call.leadId)
     ? records.find(({ member, lead }) => member.leadId === call.leadId && lead?.officerEmail === call.ownerEmail) : undefined;
@@ -424,6 +429,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     if (next !== view) {
       setApplicationCall(undefined);
       setSavedCall(undefined);
+      setConvertedCall(undefined);
     }
     setClaimedLeadId(undefined);
     if (next === "Next call") selectNextCall(state);
@@ -435,10 +441,16 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     select(id, alreadyLoaded);
     setApplicationCall(undefined);
     setSavedCall(undefined);
+    setConvertedCall(undefined);
     setClaimedLeadId(undefined);
     setCallLeadId(undefined);
     setView("Enrolled");
     setSegmentFilter("");
+  }
+
+  function startApplication(leadId: string) {
+    if (!campaign) return;
+    convert(leadId, () => setConvertedCall({ leadId, campaignId: campaign.id, view, segmentId }));
   }
 
   function renderRecord({ member, lead, loan, submittedAt, fundingDate }: (typeof records)[number]) {
@@ -451,7 +463,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
       focused={member.leadId === (view === "Next call" ? callLeadId : claimedLeadId ?? focusLeadId)} busy={busy}
       focusTaskId={view !== "Next call" && member.leadId === focusLeadId ? focusTaskId : undefined} overdue={overdueIds.has(member.leadId)} callbackDue={dueCallbackIds.has(member.leadId)}
       showCallContext={view === "Next call" || (member.leadId === focusLeadId && !!member.callbackDueAt)}
-      allowDirectAssignment={canManage && view === "Unassigned"} save={save} openLead={openLead} openConversation={openConversation} convert={convert}
+      allowDirectAssignment={canManage && view === "Unassigned"} save={save} openLead={openLead} openConversation={openConversation} convert={startApplication}
       onClaim={(leadId) => { changeView("Enrolled"); setClaimedLeadId(leadId); }}
       onCallSaved={(lead, outcome, updated) => {
         const anchor = { leadId: lead.id, campaignId: member.campaignId, ownerEmail: lead.officerEmail, view, segmentId };
@@ -473,6 +485,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
             if (!item.loanId) {
               setApplicationCall(undefined);
               setSavedCall(undefined);
+              setConvertedCall(undefined);
               setView("Enrolled");
               setSegmentFilter("");
             }
@@ -575,13 +588,14 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         {applicationLead && <div className="document-item" key={applicationLead.id}>
           <div className="document-item-head"><strong id={applicationCallNotice}>{scheduledApplicationCall ? "Callback scheduled for" : "Connected with"} {applicationLead.name}</strong><span className="pill">Call logged</span></div>
           {scheduledApplicationCall && <p className="muted">The scheduled callback will follow the loan if you start the 1003 now.</p>}
-          <div><CampaignApplicationAction lead={applicationLead} busy={busy} openLead={openLead} convert={convert} focus={view !== "Next call" || !nextCall} /></div>
+          <div><CampaignApplicationAction lead={applicationLead} busy={busy} openLead={openLead} convert={startApplication} focus={view !== "Next call" || !nextCall} /></div>
           {followUpLead?.id === applicationLead.id && followUpDraft}
         </div>}
         {followUpDraft && followUpLead?.id !== applicationLead?.id && <div className="document-item">
           <div className="document-item-head"><strong>Follow up with {followUpLead?.name}</strong><span className="pill">Call logged</span></div>
           {followUpDraft}
         </div>}
+        {justConverted && <ul className="document-list" aria-label="Just converted">{renderRecord(justConverted)}</ul>}
         {view === "Next call" && !nextCall ? <p className="empty-inline" role="status">{callLeadId ?
           "This lead is no longer ready. Select Next call to continue." : "You’re caught up. No assigned calls are ready in this view."}</p> :
           view === "Ready to call" && members.length ? readyGroups.map((group) => <section key={group.title} className="document-section" aria-label={group.title}>

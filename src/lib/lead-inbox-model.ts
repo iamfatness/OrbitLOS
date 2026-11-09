@@ -31,12 +31,14 @@ export type LeadInboxPage = {
   claimPolicy?: RealtorClaimPolicy;
   canClaimRealtor: boolean;
 };
+export type ConvertedLead = { id: string; resolvedAt: string; campaignId: string | null };
 export type LeadInboxMutation = {
   inboxChanged: true;
   message: string;
   referralLoanId?: string;
   restoredLeadId?: string;
   inboxLoan?: EditableLoan;
+  convertedLead?: ConvertedLead;
   convertedCampaign?: CampaignQueueSnapshot;
 };
 
