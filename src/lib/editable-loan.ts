@@ -13,6 +13,7 @@ import { loanWorkRecords, readBrokerageTemplates, type Store } from "./store";
 import { loanAccess, scopeJointLinks } from "./workspace-access";
 import { searchTaskTarget } from "./workspace-search-model";
 import { readManualReturnWork } from "./manual-lender-work";
+import { processingActivityPrefix } from "./processing-model";
 
 export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 
@@ -59,6 +60,9 @@ export function readEditableLoan(db: Store, input: unknown, staff: WorkspaceStaf
 function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, handoffVersion: string, stalled = false) {
   const records = loanWorkRecords(db, staff.brokerage.role === "Admin", loanId);
   const loan = records.loans[0];
+  const processingActivity = records.loanProcessing.length ? db.prepare(`SELECT id, text, createdAt FROM activity
+    WHERE loanId = ? AND text GLOB '${processingActivityPrefix}*' ORDER BY rowid DESC LIMIT 4`).all(loanId)
+    .map(({ id, text, createdAt }) => ({ id: String(id), text: String(text), createdAt: String(createdAt) })) : [];
   const contacts = db.prepare("SELECT * FROM contacts WHERE id IN (?, ?) ORDER BY name COLLATE NOCASE")
     .all(loan.contactId, loan.partnerId).map((row) => ({ ...row }) as unknown as Contact);
   const suppression = blockedOutreachKeys(db, contacts.filter((item) => item.role !== "Realtor").map((item) => ({ ...item, contactId: item.id })));
@@ -78,7 +82,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   const manualReturn = staff.brokerage.role !== "Processor" && application?.lastManualSubmissionId && !application.manualHandoff?.submissionId ?
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
   return {
-    ...records, loanId, handoffVersion, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
+    ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
     applications: scopeJointLinks(records.applications, staff),
     repeatOption,
     ...(manualReturn ? { manualReturn } : {}),

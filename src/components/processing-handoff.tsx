@@ -1,7 +1,7 @@
 "use client";
 
-import { availableProcessingActions, type LoanProcessing, type ProcessingAction } from "@/lib/processing-model";
-import type { Loan } from "@/lib/model";
+import { availableProcessingActions, processingActivityPrefix, type LoanProcessing, type ProcessingAction } from "@/lib/processing-model";
+import type { Loan, Workspace } from "@/lib/model";
 import { secondReviewBlocker, type StaffApplication } from "@/lib/application-model";
 import type { LoanDocumentRequest } from "@/lib/document-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
@@ -18,8 +18,8 @@ export function SecondReviewCheckpoint({ blocker, revision, busy, openReviews }:
   </section>;
 }
 
-export function ProcessingHandoff({ loan, assignment, application, documents, requireSecondReview, staff, busy, save, open, openReviews, openAssignment }: {
-  loan: Loan; assignment?: LoanProcessing; application?: StaffApplication; documents: LoanDocumentRequest[];
+export function ProcessingHandoff({ loan, assignment, application, documents, history, requireSecondReview, staff, busy, save, open, openReviews, openAssignment }: {
+  loan: Loan; assignment?: LoanProcessing; application?: StaffApplication; documents: LoanDocumentRequest[]; history?: Workspace["processingActivity"];
   requireSecondReview: boolean; staff: WorkspaceStaff | null; busy: boolean;
   save: (input: unknown) => void; open: (target: string) => void; openReviews?: () => void; openAssignment?: () => void;
 }) {
@@ -59,5 +59,13 @@ export function ProcessingHandoff({ loan, assignment, application, documents, re
           disabled={busy || blocked(action)}>{action}</Button>)}</div>
       </form>}
     </> : !openAssignment && <p className="muted">A brokerage admin can add a processor. The current loan owner keeps access.</p>}
+    {history && history.length > 0 && <details className="document-form" key={assignment?.revision}
+      open={assignment?.status === "In processing" || assignment?.status === "Complete"}>
+      <summary>Recent handoff history</summary>
+      <ul className="document-list">{history.map((event) => <li key={event.id}>
+        <p>{event.text.slice(processingActivityPrefix.length)}</p>
+        <small className="muted">{dateTime(event.createdAt)} ET</small>
+      </li>)}</ul>
+    </details>}
   </section>;
 }

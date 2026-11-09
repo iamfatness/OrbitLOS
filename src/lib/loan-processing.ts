@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { BrokerageMember } from "./brokerage-model";
-import { availableProcessingActions, type LoanProcessing, type ProcessingAction, type ProcessingStatus, type updateProcessingInput } from "./processing-model";
+import { availableProcessingActions, processingActivityPrefix, type LoanProcessing, type ProcessingAction, type ProcessingStatus, type updateProcessingInput } from "./processing-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -84,7 +84,7 @@ export function updateProcessing(db: Store, staff: WorkspaceStaff | null, data: 
   db.prepare("UPDATE loan_processing SET status = ?, note = ?, updatedAt = ?, revision = revision + 1 WHERE loanId = ?")
     .run(status, data.note, now, data.loanId);
   const actor = staff?.name || "Demo workspace";
-  const text = `Processing · ${status} · ${actor}${data.note ? ` · ${data.note}` : ""}`;
+  const text = `${processingActivityPrefix}${status} · ${actor}${data.note ? ` · ${data.note}` : ""}`;
   db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), data.loanId, text, now);
   accessEvent(db, staff, `Processing handoff · ${status}`, data.loanId, now);
   return { message: `Processing handoff · ${status}` };

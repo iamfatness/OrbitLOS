@@ -4,6 +4,7 @@ export const processingStatuses = ["Unassigned", "Assigned", "Ready for processi
 export type ProcessingStatus = (typeof processingStatuses)[number];
 export const processingActions = ["Send to processing", "Accept handoff", "Return to LO", "Complete handoff"] as const;
 export type ProcessingAction = (typeof processingActions)[number];
+export const processingActivityPrefix = "Processing · ";
 
 export interface LoanProcessing {
   loanId: string;

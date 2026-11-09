@@ -569,7 +569,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </nav>
       {section === "Overview" && <>
       <LoanWorkflow key={loan.dispositionRevision} loan={loan} busy={busy} readOnly={processor} save={(input) => void save(input)} />
-      <ProcessingHandoff loan={loan} assignment={assignment}
+      <ProcessingHandoff loan={loan} assignment={assignment} history={state.processingActivity}
         application={application} documents={requests} requireSecondReview={state.playbook.requireSecondReview} staff={staff}
         busy={busy} save={(input) => void save(input)} open={open} openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined}
         openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "processing-handoff" }) : undefined} />

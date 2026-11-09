@@ -803,7 +803,10 @@ try {
   });
 
   await stage("Processor clears two mock conditions and returns the file", async () => {
-    await processing(processor, "Accept handoff");
+    const accepted = await processing(processor, "Accept handoff");
+    assert.equal(accepted.state, undefined);
+    assert.match(accepted.loanWork.processingActivity[0].text, /In processing/);
+    assert.match(accepted.loanWork.processingActivity[1].text, /Review the mock lender evidence/);
     assert.ok(!(await incoming(processor, "processing")).items.some(({ kind, id }) => kind === "handoff" && id === loanId));
     const current = await file(processor, loanId);
     const submission = current.submissions.find(({ lender }) => lender === "UWM");
@@ -933,7 +936,9 @@ try {
     const markClosing = { type: "markClearToClose", loanId };
     assert.match((await action(officer, "mutate", markClosing)).error, /no longer ready/i);
     assert.match((await action(processor, "mutate", markClosing)).error, /access/i);
-    await processing(officer, "Complete handoff");
+    const completed = await processing(officer, "Complete handoff");
+    assert.match(completed.loanWork.processingActivity[0].text, /Complete/);
+    assert.match(completed.loanWork.processingActivity[1].text, /Internal note: mock lender evidence cleared/);
     assert.ok(!(await incoming(officer, "today")).items.some(({ kind, id }) => kind === "handoff" && id === loanId));
     const ready = await file(officer, loanId);
     assert.equal(loanNextAction(ready.loans[0], { ...ready, playbook: defaultPlaybook }, officer.role).title, "Review closing readiness");

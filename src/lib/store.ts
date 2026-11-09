@@ -21,7 +21,7 @@ import type { CampaignNavigation, CampaignQueueSnapshot, CampaignWorkPatch } fro
 import type { WorkspaceStaff } from "./staff-store";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
 import { readRealtorClaimPolicy } from "./realtor-claim-queue";
-import type { LoanProcessing } from "./processing-model";
+import { processingActivityPrefix, type LoanProcessing } from "./processing-model";
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
 import { readPlaybook } from "./playbooks";
 import { assignableCampaignLead, defaultCampaignRules, type CallCampaign, type CallCampaignMember, type CampaignLeadOption, type CampaignQueueFile } from "./call-campaign-model";
@@ -861,6 +861,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     db.exec("CREATE INDEX IF NOT EXISTS activity_first_outreach_by_loan ON activity(loanId, createdAt) WHERE outcome IS NOT NULL");
     db.exec("CREATE INDEX IF NOT EXISTS communication_drafts_by_contact ON communication_drafts(contactId, id)");
     db.exec(`CREATE INDEX IF NOT EXISTS activity_by_loan_and_time ON activity(loanId, createdAt DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS processing_activity_by_loan ON activity(loanId) WHERE text GLOB '${processingActivityPrefix}*';
       CREATE INDEX IF NOT EXISTS loans_by_contact ON loans(contactId);
       CREATE INDEX IF NOT EXISTS loans_by_partner ON loans(partnerId) WHERE partnerId IS NOT NULL;
       CREATE INDEX IF NOT EXISTS realtor_portal_loans_by_update ON loans(partnerId, stageSince DESC, id DESC) WHERE partnerId IS NOT NULL;

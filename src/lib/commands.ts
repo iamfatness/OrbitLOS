@@ -435,6 +435,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "revokeJointLink":
     case "replaceJointLink":
     case "setDocumentDeadline":
+    case "updateProcessing":
     case "requestSuggestedUwmDocuments":
     case "reviewDocument":
     case "runMockCredit":

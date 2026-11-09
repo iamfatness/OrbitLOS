@@ -289,6 +289,7 @@ export interface Workspace {
   closingProgress: ClosingProgress[];
   returningClientLoans: { fundedLoanId: string; loanId: string }[];
   loanProcessing: LoanProcessing[];
+  processingActivity?: Pick<Activity, "id" | "text" | "createdAt">[];
   realtorPortals: RealtorPortal[];
   referralLeads: ReferralReview[];
   inboxLeads: InboxLead[];

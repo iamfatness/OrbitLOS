@@ -25,6 +25,7 @@ export function applyLoanMutation(state: Workspace, work: EditableLoan): Workspa
     applications: replace(state.applications, work.applications),
     closingPlans: replace(state.closingPlans, work.closingPlans),
     closingItems: replace(state.closingItems, work.closingItems),
+    loanProcessing: replace(state.loanProcessing, work.loanProcessing),
     pastClients: replace(state.pastClients, work.pastClients),
     tasks: replace(state.tasks, work.tasks),
     documentRequests: replace(state.documentRequests, work.documentRequests),
