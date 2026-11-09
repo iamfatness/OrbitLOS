@@ -4,6 +4,8 @@ import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 import { canClaimSharedRealtor } from "./realtor-claim-model";
+import type { ManualReturnAssignment } from "./lender-export-model";
+import { readManualReturnWork } from "./manual-lender-work";
 
 export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): Workspace {
   if (!staff) return state.playbook.secondReview ? { ...state, playbook: { ...state.playbook, secondReview: null } } : state;
@@ -90,7 +92,8 @@ export function workspaceAccessHistory(db: Store): AccessEvent[] {
       ? "Legacy loan assignment" : row.subject }) as unknown as AccessEvent);
 }
 
-export function assignLoan(db: Store, staff: WorkspaceStaff, target: { loanId: string; previousEmail: string | null; member: BrokerageMember }) {
+export function assignLoan(db: Store, staff: WorkspaceStaff, target: { loanId: string; previousEmail: string | null; member: BrokerageMember;
+  manualReturn?: ManualReturnAssignment }) {
   if (staff.brokerage.role !== "Admin" || target.member.status !== "Active" || target.member.role === "Processor") {
     return { error: "Select an active loan officer or admin in this brokerage." };
   }
@@ -103,6 +106,12 @@ export function assignLoan(db: Store, staff: WorkspaceStaff, target: { loanId: s
     }
     if (loan.officerEmail !== member.email) {
       if (loan.officerEmail !== previousEmail) return { error: "The loan owner changed. Refresh the workspace before reassigning it." };
+      if (target.manualReturn) {
+        const pending = readManualReturnWork(db, loanId, false);
+        if (pending?.eventId !== target.manualReturn.eventId || pending.submissionId !== target.manualReturn.submissionId) {
+          return { error: "This lender return changed. Refresh File exceptions before reassigning it." };
+        }
+      }
       const now = new Date().toISOString();
       const before = loanAuditSnapshot(db, loanId);
       db.prepare("UPDATE loans SET officer = ?, officerEmail = ? WHERE id = ?").run(member.name.slice(0, 160), member.email, loanId);

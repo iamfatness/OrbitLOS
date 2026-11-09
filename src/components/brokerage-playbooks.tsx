@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { PlaybookRunHistory, type PlaybookRunHistoryHandle } from "./playbook-runs";
 import { FileExceptions } from "./file-exceptions";
 import type { FileException } from "@/lib/file-exception-model";
+import type { ManualReturnAssignment } from "@/lib/lender-export-model";
 import type { ReportingPeriod } from "@/lib/call-report-readiness-model";
 import { ReportingReadinessPanel } from "./call-report-readiness";
 import { ManagerCallbackExceptions } from "./manager-callback-exceptions";
@@ -28,7 +29,7 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
   openCallbackPromise: React.ComponentProps<typeof ManagerCallbackExceptions>["open"];
   openContactFollowUp: (contactId: string, activityId: string) => void;
   openLoan: (id: string, processing: boolean) => void;
-  openAssignment?: (id: string) => void;
+  openAssignment?: (id: string, manualReturn?: ManualReturnAssignment) => void;
   openFunding: (id: string) => void;
   openDocument: (loanId: string, requestId: string) => void;
   fileVersion: object;
@@ -149,7 +150,8 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
         <Button size="sm" variant={view === "reporting" ? "default" : "outline"} aria-pressed={view === "reporting"} onClick={() => setView("reporting")}>Reporting readiness</Button>
       </div>
       {settingsError && <p role="alert" className="application-error">{settingsError}</p>}
-      {view === "files" ? <FileExceptions brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={fileVersion} busy={busy} open={openFile} /> :
+      {view === "files" ? <FileExceptions brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={fileVersion} busy={busy}
+        open={openFile} assign={openAssignment} /> :
       view === "callbacks" && canReviewCallbacks ? <ManagerCallbackExceptions brokerageId={brokerageId} campaigns={campaigns} officers={officers}
         teamLoaded={members !== null} version={fileVersion} busy={busy} save={save} open={openCallbackPromise} openAssignment={openAssignment}
         reviewRecovery={(id) => runHistory.current?.reviewCampaignRun(id)} /> :

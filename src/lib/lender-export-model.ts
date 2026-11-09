@@ -11,6 +11,8 @@ export const manualReturnStatus = {
 
 export type ManualReturnStatus = (typeof manualReturnStatus)[keyof typeof manualReturnStatus];
 export const manualLenderAcknowledgmentTarget = "manual-lender-acknowledgment";
+export const manualReturnAssignment = z.object({ eventId: z.uuid(), submissionId: z.string().min(1).max(100) });
+export type ManualReturnAssignment = z.infer<typeof manualReturnAssignment>;
 
 export const manualReturnSteps = {
   [manualReturnStatus.borrower]: { action: "Open borrower corrections", target: "loan-application" },

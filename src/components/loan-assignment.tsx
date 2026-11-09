@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import type { AssignmentDetail, AssignmentLoan, AssignmentPage } from "@/lib/loan-assignments";
+import type { ManualReturnAssignment } from "@/lib/lender-export-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 type Assignment = AssignmentDetail & { members: BrokerageMember[] };
-type Change = { type: "assign"; loanId: string; previousEmail: string | null; email: string } |
+type Change = { type: "assign"; loanId: string; previousEmail: string | null; email: string; manualReturn?: ManualReturnAssignment } |
   { type: "assignProcessor"; loanId: string; revision: number; email: string | null };
 const loadError = "Could not load loan assignment. Try again.";
 const endpoint = (brokerageId: string) => `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}`;
@@ -39,8 +40,9 @@ function ProcessorForm({ detail, busy, save }: {
   </form>;
 }
 
-export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, openLoan }: {
+export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, openLoan, manualReturn }: {
   brokerageId: string; loanId: string; version?: object; onChanged: () => void; openLoan?: (id: string) => void;
+  manualReturn?: ManualReturnAssignment;
 }) {
   const [generation, setGeneration] = useState(0);
   const [data, setData] = useState<{ brokerageId: string; loanId: string; generation: number; version?: object;
@@ -101,16 +103,17 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
         onSubmit={(event) => {
           event.preventDefault();
           const email = String(new FormData(event.currentTarget).get("owner") ?? "");
-          if (email) void save({ type: "assign", loanId, previousEmail: detail.loan.officerEmail, email });
+          if (email) void save({ type: "assign", loanId, previousEmail: detail.loan.officerEmail, email, manualReturn });
         }}>
         <label className="field">New owner<select name="owner" defaultValue="" required disabled={saving || !owners.length}>
           <option value="">Choose a loan officer or admin</option>
           {owners.map(({ name, email }) => <option value={email} key={email}>{name} · {email}</option>)}</select></label>
         <Button type="submit" size="sm" disabled={saving || !owners.length}>Reassign loan</Button>
-        <p className="muted">Open tasks follow the new owner at their existing deadlines.</p>
+        <p className="muted">{manualReturn ? "The loan and lender-return work move to the new officer’s Today queue." :
+          "Open tasks follow the new owner at their existing deadlines."}</p>
       </form>
-      <ProcessorForm key={`${loanId}:${detail.processing?.revision ?? 0}:${detail.processing?.processorEmail ?? ""}`} detail={detail}
-        busy={saving} save={(input) => void save(input)} />
+      {!manualReturn && <ProcessorForm key={`${loanId}:${detail.processing?.revision ?? 0}:${detail.processing?.processorEmail ?? ""}`} detail={detail}
+        busy={saving} save={(input) => void save(input)} />}
     </>}
   </div>;
 }

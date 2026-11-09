@@ -582,7 +582,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     expected?: { kind: "task" | "document" | "retention" | "alert"; id: string } | { kind: "stalled" | "brokerage-stalled" } |
       { kind: "promised-callback"; id: string; dueAt: string; source?: "personal" | "manager" } |
       { kind: "guide-conditions"; submissionId: string; conditionId?: string } |
-      { kind: "manual-return-work"; submissionId: string; personal: boolean } |
+      { kind: "manual-return-work"; submissionId: string; eventId?: string; personal: boolean } |
       { kind: "incoming-loan-work"; item: IncomingLoanWorkItem; view: IncomingLoanWorkQuery["view"] }) {
     if (pending.current) return;
     loanReadVersion.current += 1;
@@ -632,7 +632,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       if (expected?.kind === "manual-return-work") {
         const work = result.manualReturn;
         const ownsQueue = !staff || (expected.personal ? result.loans[0].officerEmail === staff.email : admin);
-        if (!ownsQueue || work?.submissionId !== expected.submissionId) {
+        if (!ownsQueue || work?.submissionId !== expected.submissionId || (expected.eventId && work.eventId !== expected.eventId)) {
           setReviewVersion((version) => version + 1);
           setError("This lender return changed. Check the refreshed queue.");
           return;
@@ -1382,7 +1382,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               void openScopedLead({ leadId, callbackPromiseId: id })}
             fileVersion={queueVersion} openFile={(item) => void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
               item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
-                item.kind === "Manual lender returns" ? { kind: "manual-return-work", submissionId: item.id, personal: false } : undefined)}
+                item.kind === "Manual lender returns" ? { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: false } : undefined)}
             view={managerExceptionView} setView={setManagerExceptionView} filters={managerExceptionFilters} setFilters={setManagerExceptionFilters}
             reporting={{ period: reportingPeriod, setPeriod: setReportingPeriod,
               openLoan: (loanId) => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget }),
@@ -1390,7 +1390,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}
             openDocument={(loanId, requestId) => void openQueueLoan({ kind: "details", loanId, target: `document-${requestId}` }, { kind: "document", id: requestId })}
             openLoan={(loanId, processing) => void openQueueLoan({ kind: "details", loanId, target: processing ? "processing-handoff" : undefined })}
-            openAssignment={canReport ? (loanId) => show({ kind: "assignment", loanId }) : undefined} />}
+            openAssignment={canReport ? (loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn }) : undefined} />}
 
           {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} refresh={async () => invalidateWorkspace()}
             openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
@@ -1453,7 +1453,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         searchContact={searchContact} openContact={(id) => void openContactRecord(id)}
         repeatOption={loanWork && "loanId" in modal && modal.loanId === loanWork.loanId ? loanWork.repeatOption : undefined}
         openRateWatchRefinance={(loanId) => void openQueueLoan({ kind: "returningClient", loanId, fromRateWatch: true })}
-        openContactLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}
+        openContactLoan={(loanId, target, manualReturn) => void openQueueLoan({ kind: "details", loanId, target },
+          manualReturn ? { kind: "manual-return-work", ...manualReturn, personal: false } : undefined)}
         assignmentChanged={invalidateWorkspace}
         assignmentVersion={state}
         appointmentChanged={() => setCalendar((current) => ({ ...current, after: undefined }))}

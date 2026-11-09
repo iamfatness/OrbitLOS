@@ -1,5 +1,5 @@
 import { approvedSecondReview } from "./application-review-checkpoint";
-import { manualReturnStatus, type ManualReturnStatus } from "./lender-export-model";
+import { manualReturnStatus, type ManualReturnAssignment, type ManualReturnStatus } from "./lender-export-model";
 import type { Store } from "./store";
 
 // The parent query joins the active loan and its application as loan and app.
@@ -24,9 +24,9 @@ export function manualReturnPhase(requireApproval: boolean) {
     THEN '${manualReturnStatus.acknowledgment}' ELSE '${manualReturnStatus.export}' END`;
 }
 
-export function readManualReturnWork(db: Store, loanId: string, requireApproval: boolean) {
-  const row = db.prepare(`SELECT returnFile.id AS submissionId, ${manualReturnPhase(requireApproval)} AS status
+export function readManualReturnWork(db: Store, loanId: string, requireApproval: boolean): (ManualReturnAssignment & { status: ManualReturnStatus }) | undefined {
+  const row = db.prepare(`SELECT returnFile.id AS submissionId, returned.activityId AS eventId, ${manualReturnPhase(requireApproval)} AS status
     FROM loans loan JOIN applications app ON app.loanId = loan.id ${pendingManualReturn}
     WHERE loan.id = ? AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed') AND returnFile.id IS NOT NULL`).get(loanId);
-  return row ? { submissionId: String(row.submissionId), status: row.status as ManualReturnStatus } : undefined;
+  return row ? { submissionId: String(row.submissionId), eventId: String(row.eventId), status: row.status as ManualReturnStatus } : undefined;
 }

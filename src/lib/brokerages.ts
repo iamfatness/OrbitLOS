@@ -3,6 +3,7 @@ import { brokerageRoles, demoBrokerageId, type AccessEvent, type Brokerage, type
 import type { DepartureMember, DepartureRoster } from "./offboarding-model";
 import { readStaffSession, type StaffIdentity } from "./staff-store";
 import type { Store } from "./store";
+import { manualReturnAssignment } from "./lender-export-model";
 
 export function initializeBrokerages(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS brokerages (id TEXT PRIMARY KEY, name TEXT NOT NULL, pilot INTEGER NOT NULL DEFAULT 0);
@@ -142,7 +143,8 @@ export const brokerageAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("invite"), email, role: z.enum(brokerageRoles) }),
   z.object({ type: z.literal("role"), email, role: z.enum(brokerageRoles) }),
   z.object({ type: z.literal("revoke"), email, expectedAccessRevision: z.number().int().nonnegative().optional() }),
-  z.object({ type: z.literal("assign"), email, loanId: z.string().min(1).max(100), previousEmail: email.nullable() }),
+  z.object({ type: z.literal("assign"), email, loanId: z.string().min(1).max(100), previousEmail: email.nullable(),
+    manualReturn: manualReturnAssignment.optional() }),
   z.object({ type: z.literal("assignProcessor"), email: email.nullable(), loanId: z.string().min(1).max(100), revision: z.number().int().nonnegative(),
     requireUnassigned: z.boolean().optional() }),
 ]);
@@ -172,7 +174,8 @@ export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, boo
     const member = members.find((entry) => entry.email === data.email);
     if (data.type === "assign") {
       if (member?.status !== "Active" || member.role === "Processor") return { error: "Select an active loan officer or admin in this brokerage." };
-      return { assignment: { loanId: data.loanId, previousEmail: data.previousEmail, member } };
+      return { assignment: { loanId: data.loanId, previousEmail: data.previousEmail, member,
+        ...(data.manualReturn ? { manualReturn: data.manualReturn } : {}) } };
     }
     if (data.type === "assignProcessor") {
       if ((data.requireUnassigned && !data.email) || (data.email && (member?.status !== "Active" || member.role !== "Processor"))) {

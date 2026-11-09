@@ -7,6 +7,7 @@ import { dateLabel } from "@/lib/client-retention";
 import { fileExceptionFilters, type FileException, type FileExceptionPage, type FileExceptionQuery } from "@/lib/file-exception-model";
 import { dateTime } from "@/lib/utils";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
+import type { ManualReturnAssignment } from "@/lib/lender-export-model";
 import { Button } from "./ui/button";
 
 function fileExceptionAction(item: FileException) {
@@ -19,8 +20,9 @@ function fileExceptionAction(item: FileException) {
   }
 }
 
-export function FileExceptions({ brokerageId, version, busy, open }: {
+export function FileExceptions({ brokerageId, version, busy, open, assign }: {
   brokerageId: string; version: object; busy: boolean; open: (item: FileException) => void;
+  assign?: (loanId: string, manualReturn: ManualReturnAssignment) => void;
 }) {
   const [query, setQuery] = useState<FileExceptionQuery>({ filter: "All file exceptions" });
   const [result, setResult] = useState<{ query: FileExceptionQuery; version: object; data: FileExceptionPage | { error: string } }>();
@@ -64,10 +66,13 @@ export function FileExceptions({ brokerageId, version, busy, open }: {
         {(item.evidence || item.nextParty || item.overdue || item.escalated) && <p className="muted">
           {[item.evidence, item.nextParty && `${item.kind === "Manual lender returns" ? "Lender file" : "Manual condition next party"} · ${item.nextParty}`, item.overdue && "Overdue", item.escalated && "Escalated"].filter(Boolean).join(" · ")}
         </p>}
-        <div><Button size="sm" variant="outline" disabled={busy}
+        <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy}
           aria-label={`${item.kind === "Required 1003 approvals" || item.kind === "Manual lender returns" ? fileExceptionAction(item) : `Open ${item.title}`} for ${item.borrower}`} onClick={() => open(item)}>
           {fileExceptionAction(item)}
-        </Button></div>
+        </Button>
+          {assign && item.returnEventId && <Button size="sm" variant="outline" disabled={busy} aria-label={`Reassign loan for ${item.borrower}`}
+            onClick={() => assign(item.loanId, { eventId: item.returnEventId!, submissionId: item.id })}>Reassign loan</Button>}
+        </div>
       </li>)}</ul> : <p className="empty-inline">No open file exceptions match this view.</p>}
       <div className="loan-application-actions">
         {query.after && <Button size="sm" variant="outline" onClick={() => setQuery({ ...query, after: undefined })}>First page</Button>}

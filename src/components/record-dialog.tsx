@@ -26,7 +26,7 @@ import { mockRateStatus, quoteMatchesApplication } from "@/lib/pricing-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
 import { ManualLenderExport } from "./manual-lender-export";
-import { manualLenderAcknowledgmentTarget } from "@/lib/lender-export-model";
+import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@/lib/lender-export-model";
 import { ClosingWorkbench } from "./closing-workbench";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
@@ -59,7 +59,7 @@ import { observeBorrowerChange } from "@/lib/borrower-change-signal";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string; campaignLender?: CampaignLenderPath }
-  | { kind: "assignment"; loanId: string; returnToHandoff?: boolean }
+  | { kind: "assignment"; loanId: string; returnToHandoff?: boolean; manualReturn?: ManualReturnAssignment }
   | { kind: "loan"; loanId?: string; stage?: Stage; contactId?: string }
   | { kind: "contactHistory"; contactId: string }
   | { kind: "contactDuplicates"; contactId: string }
@@ -705,7 +705,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   repeatOption?: ReturningClientOption;
   openRateWatchRefinance: (loanId: string) => void;
   openContact: (id: string) => void;
-  openContactLoan: (id: string, target?: string) => void;
+  openContactLoan: (id: string, target?: string, manualReturn?: ManualReturnAssignment) => void;
   assignmentChanged: () => void;
   assignmentVersion: object;
 }) {
@@ -789,7 +789,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const submission = modal.kind === "submission" ? state.submissions.find((item) => item.id === modal.submissionId) : undefined;
   const title = {
     details: "Loan details", loan: loan ? "Edit loan" : "New Lead",
-    assignment: "Loan assignment",
+    assignment: modal.kind === "assignment" && modal.manualReturn ? "Reassign lender return" : "Loan assignment",
     contact: contact ? "Edit contact" : "New contact", submission: submission ? "Edit lender submission" : "Add lender submission",
     communication: "Message draft",
     documentFollowUp: "Document follow-up",
@@ -871,7 +871,8 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           appointmentChanged={appointmentChanged} reviewChanged={reviewChanged} markDraftChanged={markDraftChanged} />}
         {modal.kind === "assignment" && staff?.brokerage.role === "Admin" && <LoanAssignmentEditor key={modal.loanId}
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
-          openLoan={(id) => openContactLoan(id, "processing-handoff")} />}
+          manualReturn={modal.manualReturn}
+          openLoan={(id) => openContactLoan(id, modal.manualReturn ? undefined : "processing-handoff", modal.manualReturn)} />}
         {modal.kind === "communication" && loan && <CommunicationPreview loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} busy={busy} save={save} />}
         {modal.kind === "documentFollowUp" && loan && <DocumentFollowUp loan={loan} state={state} />}
         {modal.kind === "fundingCheckIn" && (loan && checkIn && canRecordFundingCheckIn(loan, state, staff?.brokerage.role) ?

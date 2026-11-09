@@ -11,5 +11,6 @@ export type FileException = z.infer<typeof cursor> & {
   loanId: string; borrower: string; title: string; status: string; target: string; action: string;
   owner: string | null; ownerAvailable: boolean; nextParty: string | null; dueOn: string | null; reopenedAt: string | null;
   evidence: string | null; overdue: boolean; escalated: boolean;
+  returnEventId?: string;
 };
 export type FileExceptionPage = { items: FileException[]; next: FileExceptionQuery["after"] | null; today: string };

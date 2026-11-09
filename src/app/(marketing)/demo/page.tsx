@@ -20,7 +20,7 @@ export default function DemoPage() {
           <li>See your pipeline, team workload, and funding in one view.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s.</li>
           <li>Turn a past-client rate-watch follow-up into a refinance 1003 with the confirmed property address. Open both loans from the returning-client report.</li>
-          <li>Track a manual lender return in Today or File exceptions. Review the corrected 1003, download revised MISMO XML, and record acknowledgment on the same lender file.</li>
+          <li>Track a manual lender return in Today or File exceptions. A manager can reassign the loan while the new officer picks up the revised 1003 and its lender history.</li>
           <li>See requests and sample PDFs reach open borrower and staff views. Reopen the lender checklist from the guide to review attachments already received.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Watch it appear in the open Ready to accept queue, work through mock lender clearance, and pick it back up in Today with the processor’s internal note.</li>
