@@ -527,3 +527,11 @@ Worker `b60313a7-cda5-4f85-ba07-889bcbe33576` from `93492140f8bf` uses an authen
 On the live release, the invited LO opened Finley's draft from a scheduled callback and Emery's draft from a connected call. Both stayed in Call Campaigns. Finley's callback stayed due Nov 17 at 11:15 a.m. Eastern. Finley's campaign card retained Start 1003 until a retry opened the same borrower link and advanced the card. Emery's card advanced on the first conversion. A tab opened before deployment also converted Cedar and opened the draft. The earlier return to Today did not recur in these samples, and its original cause remains unconfirmed.
 
 All 310 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. The public Product and Demo pages returned 200 with the updated copy.
+
+## First-save campaign cards and the filtered call queue
+
+The previous release advanced Kit's card on the first conversion in Enrolled. Finley's intermittent stale card did not recur in that baseline run. Worker `4af2525c-7898-4983-84e0-774b6401ed7f` from `e2d9f67af777` links the exact lead to its loan from the conversion receipt. The client applies that link even if the broader campaign snapshot is missing. A separate Just converted card shows the file in the current filtered view when the normal list excludes it.
+
+The invited LO converted Ari from Upcoming callbacks. The first click opened the draft, and closing it showed one 1003 started card with Open loan while Upcoming callbacks stayed selected. Open loan reopened the same borrower link. The callback stayed due Nov 19 at 10:45 a.m. Eastern. The next shared lead, Sam, took the available slot with the original first-contact deadline. The LO recorded Connected for Sam and converted from Enrolled. The first click opened the draft and advanced the only Sam card.
+
+The built Worker checked the connected and scheduled first responses, the exact card from a workspace with no cached loans, and the same result with the campaign snapshot omitted. All 310 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages returned 200 with the updated copy.
