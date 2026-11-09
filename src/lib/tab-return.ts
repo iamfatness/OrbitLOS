@@ -36,9 +36,12 @@ export function observeVisibleChecks(
   check: (isCurrent: () => boolean) => Promise<void>,
   interval = 15_000,
 ) {
+  const idleInterval = 60_000;
+  const fastChecks = Math.ceil(idleInterval / interval);
   let timer: number | undefined;
   let generation = 0;
   let running = false;
+  let checks = 0;
 
   async function tick() {
     if (page.hidden || running || timer === undefined) return;
@@ -50,6 +53,10 @@ export function observeVisibleChecks(
       // The next foreground check can retry a temporary failure.
     } finally {
       running = false;
+      if (started === generation && timer !== undefined && interval < idleInterval && ++checks === fastChecks) {
+        timers.clearInterval(timer);
+        timer = timers.setInterval(() => void tick(), idleInterval);
+      }
     }
   }
 
@@ -61,7 +68,10 @@ export function observeVisibleChecks(
 
   function visibilityChanged() {
     if (page.hidden) stopTimer();
-    else if (timer === undefined) timer = timers.setInterval(() => void tick(), interval);
+    else if (timer === undefined) {
+      checks = 0;
+      timer = timers.setInterval(() => void tick(), interval);
+    }
   }
 
   visibilityChanged();

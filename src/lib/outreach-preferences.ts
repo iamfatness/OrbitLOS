@@ -171,9 +171,10 @@ export function outreachSuppressionKeys(db: Store) {
   const direct = directSuppression(db);
   if (!direct.size) return direct;
   const blocked = new Set(direct);
+  // Start with the opt-outs instead of scanning every contact key to find matching aliases.
   const aliases = db.prepare(`SELECT DISTINCT alias.identityKey FROM outreach_opt_outs opt
-    JOIN contact_outreach_keys matched ON matched.identityKey = opt.identityKey
-    JOIN contact_outreach_keys alias ON alias.contactId = matched.contactId`).all();
+    CROSS JOIN contact_outreach_keys matched ON matched.identityKey = opt.identityKey
+    CROSS JOIN contact_outreach_keys alias ON alias.contactId = matched.contactId`).all();
   for (const row of aliases) blocked.add(String(row.identityKey));
   for (const alias of pendingAliases(db, direct)) for (const key of outreachIdentityKeys(alias)) blocked.add(key);
   return blocked;

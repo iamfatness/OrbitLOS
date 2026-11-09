@@ -7,6 +7,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
 const pageSize = 8;
+const sparseReceivedLimit = 32;
 
 export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
   localName?: string, now = new Date()): IncomingLoanWorkPage | { error: string } {
@@ -21,8 +22,12 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const processing = view === "processing";
   const requireApproval = readPlaybook(db).requireSecondReview;
   const team = processing && role === "Admin";
-  const from = team ? `FROM document_requests request CROSS JOIN loans loan ON loan.id = request.loanId
-    JOIN loan_processing processing ON processing.loanId = loan.id` : processing ?
+  // The partial Received index avoids walking an entire portfolio when little is waiting for review.
+  // Fall back to owner-first when a small probe finds a larger brokerage-wide backlog.
+  const receivedFirst = team || !db.prepare("SELECT 1 FROM document_requests WHERE status = 'Received' LIMIT 1 OFFSET ?")
+    .get(sparseReceivedLimit);
+  const from = receivedFirst ? `FROM document_requests request CROSS JOIN loans loan ON loan.id = request.loanId
+    ${processing ? "CROSS JOIN loan_processing processing ON processing.loanId = loan.id" : ""}` : processing ?
     `FROM loan_processing processing CROSS JOIN loans loan ON loan.id = processing.loanId
     CROSS JOIN document_requests request ON request.loanId = loan.id` :
     "FROM loans loan CROSS JOIN document_requests request ON request.loanId = loan.id";

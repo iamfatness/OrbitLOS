@@ -1378,6 +1378,16 @@ test("incoming borrower work preserves current ownership, exact revisions, and p
   assert.ok(processing(officer).error);
   assert.ok(processing(processor, crypto.randomUUID()).error);
   assert.ok(readIncomingLoanWorkPage(db, { view: "today" }, processor, tenant).error);
+  const later = "2026-11-10T15:00:00.000Z";
+  for (let index = 0; index < 40; index++) {
+    const id = `other-arrival-${index}`;
+    loan(id, other);
+    assign.run(id, backup.email, backup.name, later);
+    document.run(id, id, later, later);
+  }
+  assert.deepEqual(today(), first);
+  assert.deepEqual([...today().items, ...today(first.next).items], arrivals);
+  assert.deepEqual(processing(processor).items.map(({ id }) => id), ["exact-document"]);
   db.prepare("UPDATE document_requests SET status = 'Accepted' WHERE id = 'exact-document'").run();
   assert.deepEqual(processing(processor).items, []);
   db.prepare("UPDATE applications SET reviewedAt = ? WHERE loanId = 'submitted'").run(at);

@@ -119,6 +119,37 @@ test("a focused queue can use a shorter interval that still stops when hidden", 
   assert.equal(interval, undefined);
 });
 
+test("a continuously visible queue slows after its first minute and starts fresh when reopened", async () => {
+  for (const interval of [5_000, 15_000]) {
+    const { page, visibility } = tabs();
+    let timer;
+    let checks = 0;
+    const timers = {
+      setInterval(tick, delay) { timer = { tick, delay }; return 1; },
+      clearInterval() { timer = undefined; },
+    };
+    const stop = observeVisibleChecks(page, timers, async () => { checks++; }, interval);
+    const fastChecks = 60_000 / interval;
+    for (let tick = 0; tick < fastChecks; tick++) {
+      assert.equal(timer.delay, interval);
+      timer.tick();
+      await Promise.resolve();
+    }
+    assert.equal(checks, fastChecks);
+    assert.equal(timer.delay, 60_000);
+    timer.tick();
+    await Promise.resolve();
+    assert.equal(checks, fastChecks + 1);
+    assert.equal(timer.delay, 60_000);
+    visibility(true);
+    assert.equal(timer, undefined);
+    visibility(false);
+    assert.equal(timer.delay, interval);
+    stop();
+    assert.equal(timer, undefined);
+  }
+});
+
 test("document handoff checks promptly in a visible mock session and refreshes once on return", async () => {
   for (const mock of [true, false]) {
     const { page, windowEvents, visibility, focus } = tabs();

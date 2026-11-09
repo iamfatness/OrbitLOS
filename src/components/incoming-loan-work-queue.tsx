@@ -50,7 +50,10 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
   const result = data?.brokerageId === brokerageId && data.view === view && data.after === after ? data.result : undefined;
   const page = result && !("error" in result) ? result : undefined;
   return <section className="record-form" aria-label="Incoming loan work">
-    <div className="section-heading"><h3>Incoming loan work</h3>{page && page.items.length > 0 && <span className="pill">{page.items.length} on this page</span>}</div>
+    <div className="section-heading"><h3>Incoming loan work</h3>{page && <div className="loan-application-actions">
+      {page.items.length > 0 && <span className="pill">{page.items.length} on this page</span>}
+      <Button size="sm" variant="outline" disabled={paused} onClick={() => setAttempt((current) => current + 1)}>Refresh incoming work</Button>
+    </div>}</div>
     {!result && <p className="muted" role="status">Checking for incoming work…</p>}
     {result && "error" in result && <div className="loan-application-actions"><p role="alert">{result.error}</p>
       <Button size="sm" variant="outline" disabled={paused} onClick={() => setAttempt((current) => current + 1)}>Retry</Button></div>}
