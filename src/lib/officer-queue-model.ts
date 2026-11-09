@@ -7,7 +7,7 @@ export const officerQueueUnavailable = "This personal work queue is unavailable.
 export const campaignCallbacksUnavailable = "This personal campaign callback queue is unavailable.";
 export const officerQueueKinds = ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document",
   "appointment", "review", "handoff", "uwm-alert", "document-review", "lead-hold", "loan-hold", "quiet-lead",
-  "application-review", "playbook-handoff", "funding"] as const;
+  "application-review", "playbook-handoff", "funding", "lead-document", "lead-document-review"] as const;
 const queueDate = z.union([z.iso.date(), z.iso.datetime()]);
 export const officerQueueCursor = z.object({ kind: z.enum(officerQueueKinds), dueAt: queueDate, id: z.string().min(1).max(200) });
 const cursor = officerQueueCursor;
@@ -60,7 +60,7 @@ export const workspaceTaskGroups = {
   "Loan follow-ups": ["loan", "review", "handoff", "application-review", "playbook-handoff", "funding"],
   "Playbook tasks": ["quiet-lead", "application-review", "playbook-handoff", "funding"],
   Holds: ["lead-hold", "loan-hold"],
-  Documents: ["document", "document-review"],
+  Documents: ["document", "document-review", "lead-document", "lead-document-review"],
   "Lender updates": ["uwm-alert", "lock"],
   Closing: ["closing", "checklist"],
   Conversations: ["conversation"],
@@ -90,6 +90,8 @@ export function queueActionLabel(item: OfficerQueueItem) {
     case "appointment": return "Open appointment";
     case "document":
     case "document-review": return "Open document request";
+    case "lead-document":
+    case "lead-document-review": return "Open lead document request";
     case "uwm-alert": return "Open lender update";
     case "contact": return "Open follow-up";
     case "lead-task": return "Open lead task";

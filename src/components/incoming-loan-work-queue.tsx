@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { readIncomingLoanWork } from "@/app/actions";
 import type { IncomingLoanWorkItem, IncomingLoanWorkPage, IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
@@ -11,12 +11,15 @@ import { LenderReturnFollowUp, lenderReturnFollowUpLabel } from "./lender-return
 
 type ReviewResult = IncomingLoanWorkPage | { error: string };
 
-export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open }: {
+export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open, onLeadDocumentChange }: {
   brokerageId: string; view: IncomingLoanWorkQuery["view"]; paused: boolean; version: object; open: (item: IncomingLoanWorkItem) => void;
+  onLeadDocumentChange?: () => void;
 }) {
   const [after, setAfter] = useState<IncomingLoanWorkQuery["after"]>();
   const [attempt, setAttempt] = useState(0);
   const [data, setData] = useState<{ brokerageId: string; view: IncomingLoanWorkQuery["view"]; after: IncomingLoanWorkQuery["after"]; result: ReviewResult }>();
+  const leadDocuments = useRef<{ brokerageId: string; ids: string } | undefined>(undefined);
+  const notifyLeadDocumentChange = useEffectEvent(() => onLeadDocumentChange?.());
   useEffect(() => {
     if (paused) return;
     let active = true;
@@ -26,7 +29,14 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
       reading = true;
       try {
         const result = await readIncomingLoanWork({ view, after }, brokerageId);
-        if (active && isCurrent()) setData({ brokerageId, view, after, result });
+        if (!active || !isCurrent()) return;
+        if (view === "today" && !after && !("error" in result)) {
+          const ids = result.items.filter(({ kind }) => kind === "lead-document").map(({ id }) => id).sort().join(",");
+          const previous = leadDocuments.current;
+          leadDocuments.current = { brokerageId, ids };
+          if (previous?.brokerageId === brokerageId && previous.ids !== ids) notifyLeadDocumentChange();
+        }
+        setData({ brokerageId, view, after, result });
       } catch {
         if (initial && active) setData({ brokerageId, view, after, result: { error: "Could not check incoming loan work." } });
       } finally { reading = false; }
@@ -46,7 +56,8 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
       <Button size="sm" variant="outline" disabled={paused} onClick={() => setAttempt((current) => current + 1)}>Retry</Button></div>}
     {page && (page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
       const action = item.returnStatus ? manualReturnSteps[item.returnStatus].action :
-        item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" : "Open handoff";
+        item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" :
+        item.kind === "lead-document" ? "Review lead document" : "Open handoff";
       return <li className={item.returnEventId ? "loan-task lender-return-task" : "loan-task"} key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
         <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
@@ -58,7 +69,7 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
           item.returnEventId && <span className="muted">No follow-up logged yet.</span>}</div>
       <Button size="sm" variant="outline" disabled={paused} aria-label={`${item.kind === "document" ? `Review ${item.title.toLowerCase()}` : action} for ${item.name}`}
         onClick={() => open(item)}>{action}</Button>
-      {item.returnEventId && <div className="lender-return-follow-up">
+      {item.kind !== "lead-document" && item.returnEventId && <div className="lender-return-follow-up">
         <LenderReturnFollowUp brokerageId={brokerageId} loanId={item.loanId} name={item.name}
           lenderReturn={{ eventId: item.returnEventId, submissionId: item.id }} latest={item.returnFollowUp} paused={paused}
           onSaved={() => setAttempt((current) => current + 1)} />

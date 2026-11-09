@@ -10,6 +10,7 @@ const linkId = z.uuid();
 const credentials = { token: z.string().regex(portalTokenPattern), code: z.string().trim().toLowerCase().regex(portalAccessCodePattern) };
 export const leadDocumentStaffInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), leadId }),
+  z.object({ type: z.literal("locate"), leadId, requestId }),
   z.object({ type: z.literal("request"), leadId, requestId, kind: z.enum(documentKinds), instructions: z.string().trim().min(1).max(500),
     dueOn: z.iso.date().nullable() }),
   z.object({ type: z.literal("issue"), leadId, linkId, ...credentials, hours: z.literal([1, 24, 72]), confirmedFictional: z.literal(true) }),
@@ -32,5 +33,7 @@ export type LeadDocumentPage = {
   createdId?: string;
   message?: string;
 };
+export type LeadDocumentLocation = { kind: "lead" | "loan"; recordId: string };
+export const leadDocumentTarget = (id: string) => `lead-document-${id}`;
 export const leadDocumentsUnavailable = "Lead documents are available on assigned fictional leads in your pilot workspace.";
 export const leadDocumentPortalUnavailable = "This lead document link is unavailable. Check the link and code or ask your loan officer for the current link.";

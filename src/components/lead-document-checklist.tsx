@@ -1,34 +1,35 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { newPortalAccessCode, portalToken } from "@/lib/brokerage-model";
 import { documentKinds } from "@/lib/document-model";
-import { leadDocumentsUnavailable, type LeadDocumentPage } from "@/lib/lead-document-model";
+import { leadDocumentsUnavailable, leadDocumentTarget, type LeadDocumentPage } from "@/lib/lead-document-model";
 import { dateLabel } from "@/lib/client-retention";
 import { dateTime } from "@/lib/utils";
 import { DocumentStatusPill } from "./sample-document";
 import { Button } from "./ui/button";
 
-export function LeadDocumentChecklist({ brokerageId, leadId, busy }: { brokerageId: string; leadId: string; busy: boolean }) {
+export function LeadDocumentChecklist({ brokerageId, leadId, busy, focusRequestId }: {
+  brokerageId: string; leadId: string; busy: boolean; focusRequestId?: string;
+}) {
   const [page, setPage] = useState<LeadDocumentPage>();
-  const [working, setWorking] = useState(false);
+  const [open, setOpen] = useState(Boolean(focusRequestId));
+  const [working, setWorking] = useState(Boolean(focusRequestId));
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
   const [credentials, setCredentials] = useState<{ linkId: string; token: string; code: string }>();
   const [revoking, setRevoking] = useState(false);
   const pending = useRef(false);
+  const focused = useRef(false);
   const requestAttempt = useRef<{ key: string; id: string } | null>(null);
   const linkAttempt = useRef<{ hours: number; linkId: string; token: string; code: string } | null>(null);
   const disabled = working || busy;
 
-  async function run(input: object) {
+  function load(input: object) {
     if (pending.current) return;
     pending.current = true;
-    setWorking(true);
-    setFeedback(undefined);
-    try {
-      const response = await fetch(`/api/lead-documents?brokerage=${encodeURIComponent(brokerageId)}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId, ...input }),
-      });
+    return fetch(`/api/lead-documents?brokerage=${encodeURIComponent(brokerageId)}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId, ...input }),
+    }).then(async (response) => {
       if (!response.headers.get("Content-Type")?.includes("application/json")) throw new Error(leadDocumentsUnavailable);
       const result = await response.json() as LeadDocumentPage | { error: string };
       if ("error" in result) throw new Error(result.error);
@@ -36,13 +37,29 @@ export function LeadDocumentChecklist({ brokerageId, leadId, busy }: { brokerage
       setPage(result);
       if (result.message) setFeedback({ text: result.message });
       return result;
-    } catch (error) {
+    }).catch((error: unknown) => {
       setFeedback({ text: error instanceof Error ? error.message : leadDocumentsUnavailable, error: true });
-    } finally {
+    }).finally(() => {
       pending.current = false;
       setWorking(false);
-    }
+    });
   }
+  async function run(input: object) {
+    if (pending.current) return;
+    setWorking(true);
+    setFeedback(undefined);
+    return load(input);
+  }
+  const loadFocusedRequest = useEffectEvent(() => { void load({ type: "read" }); });
+  useEffect(() => { if (focusRequestId) loadFocusedRequest(); }, [focusRequestId]);
+  useEffect(() => {
+    if (!focusRequestId || !page || !open || focused.current) return;
+    const item = document.getElementById(leadDocumentTarget(focusRequestId));
+    if (!item) return;
+    focused.current = true;
+    item.focus({ preventScroll: true });
+    item.scrollIntoView({ block: "center" });
+  }, [focusRequestId, open, page]);
   const link = credentials && page?.link?.id === credentials.linkId ? `${window.location.origin}/lead-documents#${credentials.token}` : undefined;
   async function copy(value: string, label: string) {
     try {
@@ -54,7 +71,7 @@ export function LeadDocumentChecklist({ brokerageId, leadId, busy }: { brokerage
   }
   const remainingKinds = documentKinds.filter((kind) => !page?.requests.some((request) => request.kind === kind));
 
-  return <details className="document-form">
+  return <details className="document-form" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary onClick={() => { if (!page) void run({ type: "read" }); }}>Lead document checklist</summary>
     <div className="record-form" aria-label="Lead document checklist">
       <p className="muted">Request built-in sample PDFs before the 1003. When this lead converts, the files and their review status move to the loan checklist and this link closes.</p>
@@ -65,7 +82,8 @@ export function LeadDocumentChecklist({ brokerageId, leadId, busy }: { brokerage
       {page && <>
         {!page.canRequest && <p className="muted">Reactivate this lead to request or review sample documents.</p>}
         {!page.requests.length && <p className="muted">No documents have been requested yet.</p>}
-        {page.requests.length > 0 && <ul className="document-list">{page.requests.map((item) => <li className="document-item" key={item.id}>
+        {page.requests.length > 0 && <ul className="document-list">{page.requests.map((item) =>
+          <li className="document-item" id={leadDocumentTarget(item.id)} tabIndex={-1} key={item.id}>
           <div className="document-item-head"><strong>{item.kind}</strong><DocumentStatusPill status={item.status} /></div>
           <p>{item.instructions}{item.dueOn && ` · Due ${dateLabel(item.dueOn)}`}</p>
           {item.replacementNote && <p className="muted">Replacement note · {item.replacementNote}</p>}

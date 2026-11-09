@@ -69,6 +69,7 @@ import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
 import { announceBorrowerChange, borrowerChecklistTokens } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
+import { leadDocumentsUnavailable, type LeadDocumentLocation } from "@/lib/lead-document-model";
 import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
 
@@ -188,6 +189,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [focusLeadId, setFocusLeadId] = useState<string>();
   const [focusArchivedLeadId, setFocusArchivedLeadId] = useState<string>();
   const [focusLeadTaskId, setFocusLeadTaskId] = useState<string>();
+  const [focusLeadDocumentId, setFocusLeadDocumentId] = useState<string>();
   const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [taskFocus, setTaskFocus] = useState<WorkFilter | "">("");
   const pending = useRef(false);
@@ -531,6 +533,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     setFocusLeadId(undefined);
     setFocusArchivedLeadId(undefined);
     setFocusLeadTaskId(undefined);
+    setFocusLeadDocumentId(undefined);
     setQuery("");
     setError("");
     if (workspaceStatus === "failed") setWorkspaceStatus("cold");
@@ -834,13 +837,50 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   }
 
   function openIncomingLoanWork(item: IncomingLoanWorkItem, view: IncomingLoanWorkQuery["view"]) {
+    if (item.kind === "lead-document") return void openLeadDocumentWork(item.leadId, item.id);
     if (item.kind === "lender-return") return void openQueueLoan({ kind: "details", loanId: item.loanId },
       { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }
 
+  async function openLeadDocumentWork(leadId: string, requestId: string) {
+    if (pending.current) return;
+    pending.current = true;
+    openingRecord.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    let location: LeadDocumentLocation | undefined;
+    try {
+      const brokerageId = staff?.brokerage.id ?? demoBrokerageId;
+      const response = await fetch(`/api/lead-documents?brokerage=${encodeURIComponent(brokerageId)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "locate", leadId, requestId }),
+      });
+      const result = await response.json() as { location: LeadDocumentLocation } | { error: string };
+      if (!openingRecord.current) return;
+      if ("error" in result) { setError(result.error); return; }
+      if (!response.ok) throw new Error(leadDocumentsUnavailable);
+      location = result.location;
+    } catch {
+      if (openingRecord.current) setError("Could not open this document request. Refresh My Tasks and try again.");
+    } finally {
+      openingRecord.current = false;
+      pending.current = false;
+      setBusy(false);
+    }
+    if (location?.kind === "loan") {
+      void openQueueLoan({ kind: "details", loanId: location.recordId, target: `document-${requestId}` }, { kind: "document", id: requestId });
+    } else if (location?.kind === "lead") {
+      openLeadWork(location.recordId, undefined, false);
+      setFocusLeadDocumentId(requestId);
+    }
+  }
+
   function openDeadlineWork(item: OfficerQueueItem) {
+    if (item.kind === "lead-document" || item.kind === "lead-document-review") {
+      return void openLeadDocumentWork(item.recordId, item.id);
+    }
     if (item.kind === "conversation") {
       openConversation({ id: item.recordId });
       return;
@@ -1128,7 +1168,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           }
 
           {section === "Lead Inbox" && <LeadInbox version={state} staff={staff} now={taskNow} busy={busy}
-            focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} focusArchivedLeadId={focusArchivedLeadId}
+            focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} focusDocumentId={focusLeadDocumentId} focusArchivedLeadId={focusArchivedLeadId}
             save={(input, after) => save(input, after, true, "inbox")}
             convert={(id, contactId, allowDuplicate, after) => convertLead(id, contactId, allowDuplicate, "inbox", after)}
             openCampaign={(campaignId, leadId) => openLeadWork(leadId, campaignId)} openConversation={(leadId) => openConversation({ leadId })} />}

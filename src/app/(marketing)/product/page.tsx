@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Product · OrbitLOS", alternates: { 
 const tools = [
   {icon:ListChecks,title:"Website quote intake",text:"Preview and publish a brokerage quote form. Route eligible requests into a call campaign and carry the website source and form answers into the loan history."},
   {icon:ListChecks,title:"Document checklists",text:"Reuse brokerage templates with borrower instructions and deadlines. On joint files, each borrower sees their own requests while staff track both in one checklist."},
-  {icon:ListChecks,title:"Documents before the 1003",text:"Give a fictional lead an expiring upload link and separate code. Review the sample PDFs and carry them, their due dates, and review history into the loan."},
+  {icon:ListChecks,title:"Documents before the 1003",text:"Give a fictional lead an expiring upload link and separate code. Open new uploads and overdue requests from My Tasks. The files, due dates, and review history carry into the loan."},
   {icon:ShieldCheck,title:"Separate joint borrower links",text:"Each borrower saves and submits their own answers. Loan staff review one combined 1003 and can return a portion to its borrower for correction."},
   {icon:ShieldCheck,title:"Paired mock underwriting",text:"Run mock DU and LPA together on the same submitted 1003 and sample credit report. Keep each service’s findings and retry history separate."},
   {icon:ListChecks,title:"Reviewed income worksheet",text:"Record source periods and adjustments, link accepted evidence, and carry the reviewed monthly amount into conventional mock pricing."},

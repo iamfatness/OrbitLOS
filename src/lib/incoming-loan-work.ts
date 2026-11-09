@@ -48,6 +48,7 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     `FROM loans loan CROSS JOIN loan_processing processing ON processing.loanId = loan.id ${contacts}
     WHERE ${activeProcessingLoan} AND processing.status = 'Returned to LO' AND processing.processorEmail IS NOT NULL AND ${owned}`;
   const documentArgs = processing ? (team ? [] : [staff.email]) : ownerArgs;
+  const leadDocuments = !processing && staff.brokerage.pilot;
   const rows = db.prepare(`WITH incoming AS (
     SELECT 'document' AS kind, request.id, loan.id AS loanId, contact.name,
       coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision,
@@ -62,21 +63,29 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       '${processing ? "Ready to accept" : "Returned from processing"}', ${processing && !team ? "loan.officer" : "processing.processorName"}, 0,
       nullif(processing.note, ''), NULL, NULL, NULL
     ${handoffs}
+    ${leadDocuments ? `UNION ALL
+    SELECT 'lead-document', request.id, lead.id, lead.name, coalesce(request.submittedAt, request.requestedAt),
+      request.revision, request.kind || ' · Lead', NULL, 0, NULL, NULL, NULL, NULL
+    FROM referral_leads lead JOIN lead_document_requests request ON request.leadId = lead.id
+    WHERE lead.officerEmail = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND request.status = 'Received'` : ""}
   ), page AS (
     SELECT * FROM incoming ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
-    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs,
+    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(leadDocuments ? [staff.email] : []),
       ...(after ? [after.receivedAt, after.kind, after.id] : []), pageSize + 1) as unknown as
       (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline" | "returnEventId" | "returnFollowUp"> & {
-        linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
+        loanId: string; linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
         returnEventId: string | null; returnFollowUp: string | null;
       })[];
   const checkedAt = now.toISOString();
-  const items = rows.slice(0, pageSize).map(({ linkedCondition, returnStatus, returnDueAt, returnEventId, returnFollowUp, ...item }): IncomingLoanWorkItem =>
-    ({ ...item, linkedCondition: Boolean(linkedCondition), ...(returnStatus ? { returnStatus } : {}),
+  const items = rows.slice(0, pageSize).map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
+    const work = { ...item, linkedCondition: Boolean(linkedCondition) };
+    if (kind === "lead-document") return { ...work, kind, leadId: loanId };
+    return { ...work, kind, loanId, ...(returnStatus ? { returnStatus } : {}),
       ...(returnDueAt ? { returnDeadline: { dueAt: returnDueAt, overdue: returnDueAt < checkedAt } } : {}),
-      ...(returnEventId ? { returnEventId } : {}), ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}) }));
+      ...(returnEventId ? { returnEventId } : {}), ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}) };
+  });
   const last = items.at(-1);
   return { items, next: rows.length > pageSize && last ? { id: last.id, kind: last.kind, receivedAt: last.receivedAt } : null };
 }

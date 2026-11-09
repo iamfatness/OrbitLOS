@@ -223,6 +223,8 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const openLoanTask = "task.completedAt IS NULL";
   const openClosingItem = "item.completedAt IS NULL";
   const dueDocument = "request.dueOn IS NOT NULL AND request.status IN ('Requested', 'Needs replacement')";
+  const openLeadDocument = "lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND lead.officerEmail IS NOT NULL";
+  const receivedDocumentAt = "coalesce(request.submittedAt, request.requestedAt)";
   const fundingTask = `(task.id GLOB '${fundingTaskPrefix}borrower:*' OR task.id GLOB '${fundingTaskPrefix}realtor:*')`;
   const lastOutreach = `coalesce((SELECT event.at FROM lead_events event WHERE event.leadId = lead.id AND event.outcome IS NOT NULL
     ORDER BY event.at DESC, event.rowid DESC LIMIT 1), follow.firstContactAt)`;
@@ -390,6 +392,14 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       ${processingJoin} WHERE loan.disposition = 'Active' AND ${dueDocument}`,
     "request.id", "request.dueOn", loanOwnerEmail, loanOwnerName, true, [],
     `document_requests request WHERE ${dueDocument}`),
+    ...select("lead-document", `request.id, lead.id AS recordId, lead.name, request.dueOn AS dueAt,
+      CASE request.status WHEN 'Needs replacement' THEN 'Replacement ' || lower(request.kind) || ' due' ELSE request.kind || ' due' END AS title
+      FROM lead_document_requests request JOIN referral_leads lead ON lead.id = request.leadId WHERE ${openLeadDocument} AND ${dueDocument}`,
+    "request.id", "request.dueOn", "lead.officerEmail", "lead.officer", true),
+    ...(tasks?.view === "Open" ? select("lead-document-review", `request.id, lead.id AS recordId, lead.name,
+      ${receivedDocumentAt} AS dueAt, 'Review ' || lower(request.kind) AS title
+      FROM lead_document_requests request JOIN referral_leads lead ON lead.id = request.leadId WHERE ${openLeadDocument} AND request.status = 'Received'`,
+    "request.id", receivedDocumentAt, "lead.officerEmail", "lead.officer") : []),
     ...(tasks?.view === "Open" ? select("document-review", (join) => `request.id, loan.id AS recordId, contact.name,
       coalesce(request.submittedAt, request.requestedAt) AS dueAt, 'Review ' || lower(request.kind) ||
         CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title
@@ -447,7 +457,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     items.push({ kind, id, recordId, name, title, dueAt, owner: owner || "Unassigned", ...(campaignId ? { campaignId } : {}), ...(target ? { target } : {}),
       ...(handoffDueAt ? { handoffDueAt } : {}), ...(reason ? { reason } : {}),
       ...(completed ? { completedAt: dueAt, blocked } : {}),
-      overdue: !completed && !["appointment", "document-review", "uwm-alert"].includes(kind) && (kind !== "handoff" || !!handoffDueAt) &&
+      overdue: !completed && !["appointment", "document-review", "lead-document-review", "uwm-alert"].includes(kind) && (kind !== "handoff" || !!handoffDueAt) &&
         (dateOnly ? dueAt < today : Date.parse(handoffDueAt ?? dueAt) < now.getTime()) });
     if (items.length === pageSize) break;
   }

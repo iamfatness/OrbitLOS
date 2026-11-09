@@ -96,8 +96,9 @@ function LeadHeading({ lead, now, flagged }: { lead: InboxLeadSummary; now: numb
   </>;
 }
 
-function LeadCard({ lead, staff, members, now, busy, focusTaskId, save, convert, openCampaign, openConversation, close }: {
+function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentId, save, convert, openCampaign, openConversation, close }: {
   lead: InboxLead; staff: WorkspaceStaff | null; members: BrokerageMember[]; now: number; busy: boolean; focusTaskId?: string; save: Save; convert: Convert;
+  focusDocumentId?: string;
   openCampaign: (campaignId: string, leadId: string) => void;
   openConversation: (leadId: string) => void;
   close: () => void;
@@ -115,11 +116,12 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, save, convert,
   });
   const assign = (email: string | null) => void save({ type: "assignInboxLead", leadId: lead.id, email, previousEmail: lead.officerEmail });
   useEffect(() => {
+    if (focusDocumentId) return;
     const task = focusTaskId ? document.getElementById(leadTaskTarget(focusTaskId)) : null;
     const item = task ?? document.getElementById(`inbox-lead-${lead.id}`);
     item?.focus({ preventScroll: true });
     item?.scrollIntoView({ block: task ? "center" : "nearest" });
-  }, [focusTaskId, lead.id, members.length]);
+  }, [focusTaskId, focusDocumentId, lead.id, members.length]);
 
   return <li className="document-item" id={`inbox-lead-${lead.id}`} tabIndex={-1}>
     <LeadHeading lead={lead} now={now} flagged={flagged} />
@@ -209,7 +211,8 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, save, convert,
         </div>}
         <LeadTasks lead={lead} busy={busy} save={save} />
         {lead.officerEmail && (staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&
-          <LeadDocumentChecklist brokerageId={staff?.brokerage.id ?? demoBrokerageId} leadId={lead.id} busy={busy} />}
+          <LeadDocumentChecklist key={focusDocumentId ?? "lead-documents"} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            leadId={lead.id} busy={busy} focusRequestId={focusDocumentId} />}
         {lead.importedContactId && <p className="muted">The migration review linked this lead to its borrower contact.</p>}
         {flagged && lead.restrictedMatch && <p className="muted">A possible match needs brokerage admin review.</p>}
         {flagged && (lead.matches.length > 0 || !lead.restrictedMatch) && <label className="field">Contact to use
@@ -297,9 +300,10 @@ function ArchivedLeads({ brokerageId, busy, restore, focusId }: {
   </section>;
 }
 
-export function LeadInbox({ version, staff, now, busy, focusLeadId, focusTaskId, focusArchivedLeadId, save, convert, openCampaign, openConversation }: {
+export function LeadInbox({ version, staff, now, busy, focusLeadId, focusTaskId, focusDocumentId, focusArchivedLeadId, save, convert, openCampaign, openConversation }: {
   version: object; staff: WorkspaceStaff | null;
   now: number; busy: boolean; focusLeadId?: string; focusTaskId?: string; focusArchivedLeadId?: string; save: Save; convert: Convert;
+  focusDocumentId?: string;
   openCampaign: (campaignId: string, leadId: string) => void;
   openConversation: (leadId: string) => void;
 }) {
@@ -404,7 +408,8 @@ export function LeadInbox({ version, staff, now, busy, focusLeadId, focusTaskId,
       {!readingDetails && currentDetails?.error && <p role="alert">{currentDetails.error}</p>}
       {rows.length > 0 ? <ul className="document-list">{rows.map((lead) => selected?.id === lead.id ?
         <LeadCard key={lead.id} lead={selected} staff={staff} members={members ?? []} now={now} busy={busy || readingDetails}
-          focusTaskId={lead.id === focusLeadId ? focusTaskId : undefined} save={save} convert={convert} openCampaign={openCampaign}
+          focusTaskId={lead.id === focusLeadId ? focusTaskId : undefined} focusDocumentId={lead.id === focusLeadId ? focusDocumentId : undefined}
+          save={save} convert={convert} openCampaign={openCampaign}
           openConversation={openConversation} close={() => selectLead()} /> :
         <li className="document-item" key={lead.id}>
           <LeadHeading lead={lead} now={now} />

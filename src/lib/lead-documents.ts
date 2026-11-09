@@ -3,12 +3,12 @@ import { portalBrokerage } from "./brokerage-model";
 import { pdfColumns } from "./document-files-model";
 import { needsBorrowerDocument, type DocumentKind, type DocumentRequest, type DocumentStatus } from "./document-model";
 import { leadDocumentPortalUnavailable, leadDocumentStaffInput, leadDocumentsUnavailable,
-  type LeadDocumentPage, type LeadSampleUpload } from "./lead-document-model";
+  type LeadDocumentLocation, type LeadDocumentPage, type LeadSampleUpload } from "./lead-document-model";
 import { leadEvent } from "./lead-inbox";
 import type { PilotPortalLink, ProtectPilotLinks } from "./pilot";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
-import { accessEvent } from "./workspace-access";
+import { accessEvent, loanAccess } from "./workspace-access";
 
 const hash = (secret: string) => createHash("sha256").update(secret).digest("hex");
 const unavailable = { status: 404, error: leadDocumentPortalUnavailable };
@@ -31,12 +31,27 @@ function activeLink(db: Store, leadId: string, now: string) {
 }
 
 export async function leadDocumentWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  uploadsEnabled: boolean, protectLinks?: ProtectPilotLinks, clock = new Date()): Promise<LeadDocumentPage | { error: string }> {
+  uploadsEnabled: boolean, protectLinks?: ProtectPilotLinks, clock = new Date()): Promise<LeadDocumentPage | { location: LeadDocumentLocation } | { error: string }> {
   const parsed = leadDocumentStaffInput.safeParse(input);
   if (!parsed.success) return { error: "Check the document type, instructions, and link details." };
   const data = parsed.data;
   const { leadId } = data;
-  if (!staff || staff.brokerage.id !== brokerageId || !access(db, staff, leadId)) return { error: leadDocumentsUnavailable };
+  if (!staff || staff.brokerage.id !== brokerageId) return { error: leadDocumentsUnavailable };
+  if (data.type === "locate") {
+    if (!staff.brokerage.pilot || staff.brokerage.role === "Processor") return { error: leadDocumentsUnavailable };
+    const lead = access(db, staff, leadId);
+    if (lead && !lead.heldAt && db.prepare("SELECT 1 FROM lead_document_requests WHERE leadId = ? AND id = ?").get(leadId, data.requestId)) {
+      return { location: { kind: "lead", recordId: leadId } };
+    }
+    const converted = db.prepare(`SELECT lead.loanId FROM referral_leads lead
+      JOIN document_requests request ON request.loanId = lead.loanId
+      WHERE lead.id = ? AND lead.resolvedAt IS NOT NULL AND request.id = ?`).get(leadId, data.requestId);
+    if (typeof converted?.loanId === "string" && loanAccess(db, staff, converted.loanId)) {
+      return { location: { kind: "loan", recordId: converted.loanId } };
+    }
+    return { error: "This document request is no longer available. Refresh My Tasks." };
+  }
+  if (!access(db, staff, leadId)) return { error: leadDocumentsUnavailable };
   const now = clock.toISOString();
   if (data.type === "revoke" && protectLinks) {
     const link = activeLink(db, leadId, now);

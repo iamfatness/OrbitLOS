@@ -24,6 +24,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
 }) {
   const [view, setView] = useState<(typeof todayViews)[number]>("My Tasks");
   const [query, setQuery] = useState<OfficerQueueQuery>({ horizon: 1 });
+  const [deadlineRefresh, setDeadlineRefresh] = useState(0);
   const [data, setData] = useState<{ version: object; query: OfficerQueueQuery; result: OfficerQueuePage | { error: string } }>();
   const [replyData, setReplyData] = useState<{ brokerageId: string; version: object; query: OfficerQueueQuery;
     result: Extract<ConversationResult, { kind: "replies" } | { error: string }> }>();
@@ -33,7 +34,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
     const update = (result: OfficerQueuePage | { error: string }) => { if (active) setData({ version, query, result }); };
     void readMyTasksToday(query, brokerageId).then(update, () => update({ error: "Could not load My Tasks today. Try refreshing." }));
     return () => { active = false; };
-  }, [brokerageId, query, version, view]);
+  }, [brokerageId, deadlineRefresh, query, version, view]);
   const watchReplies = view === "My Tasks" && !query.replyAfter && !busy && !reviewingLoan;
   useEffect(() => {
     if (!watchReplies) return;
@@ -62,8 +63,9 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
   const today = replyCheckedAt ? easternDate(new Date(replyCheckedAt)) : "";
   const tasks = <section className="integration record-form manager-panel" aria-label="My Tasks today">
     <div className="section-heading"><h2>My Tasks today</h2>{page && <span className="pill">Checked {dateTime(page.checkedAt)} ET</span>}</div>
-    <p className="muted">Open replies, first contacts, callbacks, loan deadlines, and files returned by processing or a lender.</p>
-    <IncomingLoanWorkQueue brokerageId={brokerageId} view="today" paused={busy || reviewingLoan} version={version} open={openIncomingLoanWork} />
+    <p className="muted">Open replies, first contacts, callbacks, lead and loan deadlines, and files returned by processing or a lender.</p>
+    <IncomingLoanWorkQueue brokerageId={brokerageId} view="today" paused={busy || reviewingLoan} version={version} open={openIncomingLoanWork}
+      onLeadDocumentChange={() => setDeadlineRefresh((count) => count + 1)} />
     {replyResult && "error" in replyResult && <p role="alert">{replyResult.error}</p>}
     {replies && <ConversationReplies page={replies} today={today} after={query.replyAfter} open={openReply}
       onPage={(replyAfter) => setQuery((last) => ({ ...last, replyAfter }))} />}
