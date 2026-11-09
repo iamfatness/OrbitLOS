@@ -51,8 +51,8 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F05 | Staff can track disclosure status on the closing file | Specify a versioned package and signer lifecycle with mock evidence before selecting providers. |
 | F06 | Hosted save, resume, status, borrower requests and correction | Verify participant-specific permissions through a joint application and revocation. |
 | F07 | Public quote requests, referrals and attributed campaign intake | Add versioned intake fields and preview brokerage branding at mobile sizes. |
-| F08 | Hosted staff issue, replace, and download fictional PDFs with expiry, 1003 revision, and issuer history | Verify permissioned borrower and realtor publication, expiry and supersession on shared access, and qualified template review. |
-| F09 | Hosted realtor referrals, conversion counts and milestone portal | Verify partner permissions for approved estimates and letter sharing. |
+| F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
+| F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
 | F10 | Hosted staff comparison, exact mock offer, published borrower quote and mock UWM handoff | Validate provider coverage, quote provenance and changed terms. Confirm locks separately. |
 | F11 | Itemized fee worksheets and saved quote estimates | Add source and effective-date metadata and confirm cash-to-close totals against a fixture. |
 | F12 | Dashboard drilldowns, call-report preparation and exports | Reconcile report periods and data coverage before a custom report builder or filing claim. |
@@ -102,7 +102,7 @@ Status: public intake foundation; full configuration unverified. Admin configure
 
 ### F08 — Controlled preapproval letters
 
-The fictional release stores an immutable staff PDF for each issued version. The officer reviews the current purchase 1003, confirms the sample amount and expiry, and selects the property scope. Issuance records the actor and application revision, while a replacement supersedes the prior version. Next verify borrower and realtor access, publication history, and expiry and supersession through shared links. Qualified review must approve templates, eligibility policy, and conditions for production. Build in increments 2–3 and gather provider-dependent evidence in 5. [Hosted letter rehearsal](demo-rehearsal-log.md#hosted-fictional-preapproval-letters)
+The fictional release stores an immutable PDF for each issued version. The officer reviews the current purchase 1003, confirms the sample amount and expiry, and selects the property scope. The officer can publish separately to the borrower and linked realtor after confirming permission. The portal checks the exact grant, version, application revision, recipient, and current link at download time. Staff can withdraw each audience independently. Replacements start private. Qualified review must approve templates, eligibility policy, and conditions for production. Build in increments 2–3 and gather provider-dependent evidence in 5. [Hosted letter rehearsal](demo-rehearsal-log.md#hosted-fictional-preapproval-letters)
 
 ### F09 — Realtor workspace
 
