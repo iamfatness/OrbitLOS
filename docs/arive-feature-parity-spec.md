@@ -49,7 +49,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F03 | Hosted mock UWM intake, conditions, manual MISMO export, acknowledgment and returns | Define verified lender capabilities and reconcile delayed, rejected, and repeated updates. |
 | F04 | Hosted versioned checklist templates with loan purpose, instructions and due dates, plus the existing request, mock-scanned PDF, replacement and clearance workflow | Verify additional checklist criteria and categories, and production scan and delivery contracts. |
 | F05 | Staff can track disclosure status on the closing file | Specify a versioned package and signer lifecycle with mock evidence before selecting providers. |
-| F06 | Hosted save, resume, status, borrower requests and correction | Verify participant-specific permissions through a joint application and revocation. |
+| F06 | Hosted save, resume, status and corrections, plus separate primary and co-borrower 1003 links with revocation | Verify participant-specific document requests and access through replacement and review. |
 | F07 | Versioned brokerage quote form with a mobile borrower preview, one configurable question, branded themes and attributed campaign intake | Verify separate intake profiles, branch and officer overrides, conditional questions and safe mapping to the application. |
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
@@ -96,7 +96,9 @@ Status: planned provider handoffs; complete production behavior unverified. Staf
 
 ### F06 — Borrower work center
 
-Status: partial functioning demo. Reuse application/status components for save/resume, distinct participant access, correction, borrower tasks and status. Provide one prioritized list of outstanding borrower actions with completion reflected in staff queues. Separate milestone visibility from internal stage detail. Acceptance: two borrowers cannot access each other's restricted data, revoked links fail immediately, saved drafts survive interrupted sessions, and mobile application/upload/correction flows finish end to end. Increments 1–2, recovery in 4, live gate in 5.
+The [hosted joint 1003](demo-rehearsal-log.md#hosted-separate-joint-borrower-links) gives a primary borrower and a co-borrower separate drafts, private correction notes, and independent revocation. Orbit creates the reviewable version after both submit. Staff review both on one loan and can export the reviewed fictional version. Recovery keeps retired links blocked when an older workspace snapshot is restored.
+
+Remaining scope covers borrower-specific document and upload permissions and a prioritized list of outstanding actions reflected in the staff queues. Verify revocation, replacement, mobile uploads and review for each participant. Live identity verification and real-data admission have separate release gates. Increments 1–2, recovery in 4, live gate in 5.
 
 ### F07 — Configurable intake and branding
 
