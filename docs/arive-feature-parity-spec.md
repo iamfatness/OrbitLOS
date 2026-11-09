@@ -46,7 +46,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | --- | --- | --- |
 | F01 | Hosted paired mock DU/LPA with separate findings and retry history, tied to the submitted 1003 and authorized sample credit | Verify borrower selection, real consent evidence, service contracts, and reconciliation before any provider order. |
 | F02 | 1003 income answers and mock statement inputs | Review a documented income calculation against its source periods and evidence. |
-| F03 | Hosted mock UWM intake, conditions, manual MISMO export, acknowledgment and returns | Define verified lender capabilities and reconcile delayed, rejected, and repeated updates. |
+| F03 | Hosted mock UWM intake and conditions, manual MISMO export and sample packages, acknowledgment and returns | Define verified lender capabilities and reconcile delayed, rejected, and repeated updates. |
 | F04 | Hosted versioned checklist templates with loan purpose, instructions and due dates, plus the existing request, mock-scanned PDF, replacement and clearance workflow | Verify additional checklist criteria and categories, and production scan and delivery contracts. |
 | F05 | Staff can track disclosure status on the closing file | Specify a versioned package and signer lifecycle with mock evidence before selecting providers. |
 | F06 | Hosted 1003, corrections, document requests, verification and replacement scoped to each borrower on a joint file | Verify a prioritized borrower action list and live identity verification in an approved pilot. |
@@ -57,7 +57,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F11 | Hosted brokerage templates by purpose and ZIP, with effective dates, staff overrides, and immutable shared quote snapshots | Verify payer and payee detail, broader geographic matching, and external fee sources. |
 | F12 | Dashboard drilldowns, call-report preparation and exports | Reconcile report periods and data coverage before a custom report builder or filing claim. |
 | F13 | Internal workflow actions and planned delegated API | Define bounded event subscriptions and safe replay for Zapier. |
-| F14 | Borrower upload tied to a specific request and fictional document verification | Verify revocable, recipient-scoped exchange for leads and loan documents. |
+| F14 | Hosted fictional lender package with link and separate code, exact accepted PDF revisions, and loan-level download history | Verify lead evidence exchange, stronger recipient identity, and live scanning before real use. |
 | F15 | Broker financial visibility and a separate planned non-del channel | Specify investor price, margin policy and registry evidence with a non-del broker. |
 | F16 | Reviewed 1003 revisions, closing checklist, and closing and funding dates | Specify change and package revisions, approvals, and applicable UCD contracts. |
 | F17 | Funding and restricted expected versus received financial entries | Reconcile fictional purchase advice, receipt and reversal with reviewer history. |
@@ -138,7 +138,9 @@ Status: API/MCP planned; no established Zapier release. Reuse delegated API perm
 
 ### F14 — External file exchange
 
-Status: loan upload foundation exists; generic lead upload/download sharing unverified. Issue recipient-scoped, expiring, revocable upload-only or download-only grants for specific leads, loans or document revisions. Record issuer, recipient verification, scope and access events. Downloads never expose a folder or newer revision implicitly. Acceptance: guessed identifiers and revoked/expired links fail, malicious files stay unavailable pending scan, and converting a lead preserves authorized attachments without widening access. Increments 2–3; real-data gate in 5.
+A fictional pilot owner or admin can issue one active package per loan for an hour, a day, or three days. The recipient enters a separate code to download the reviewed MISMO file and up to eight selected, accepted demo-scanned PDF revisions. The staff view retains issue, expiry, download and revocation evidence. Changes to the reviewed 1003, lender details, or selected files block the package. Explicit revocation and scenario reset retire the token hash in the directory. [Hosted manual lender package rehearsal](demo-rehearsal-log.md#hosted-manual-lender-package)
+
+Lead evidence exchange and conversion still need verification. Before handling real files, validate recipient identity, authorized delivery, scanning, and retirement of all affected active grants during snapshot recovery. Earlier PDFs without a recorded mock upload mode require a new sample upload to qualify.
 
 ### F15 — Non-delegated pricing and registry
 
