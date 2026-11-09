@@ -122,7 +122,8 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS application_handoff_events (
       activityId TEXT PRIMARY KEY REFERENCES activity(id) ON DELETE CASCADE,
       loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-      applicationRevision INTEGER NOT NULL, lenderRevision INTEGER NOT NULL, outcome TEXT NOT NULL
+      applicationRevision INTEGER NOT NULL, lenderRevision INTEGER NOT NULL, outcome TEXT NOT NULL,
+      submissionId TEXT REFERENCES submissions(id) ON DELETE SET NULL
     );
     CREATE INDEX IF NOT EXISTS application_handoff_by_revision
       ON application_handoff_events(loanId, applicationRevision, lenderRevision);
@@ -481,6 +482,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(closing_progress)").all().some((column) => column.name === "fundingCycle")) {
       db.exec("ALTER TABLE closing_progress ADD COLUMN fundingCycle INTEGER NOT NULL DEFAULT 1");
+    }
+    if (!db.prepare("PRAGMA table_info(application_handoff_events)").all().some((column) => column.name === "submissionId")) {
+      db.exec("ALTER TABLE application_handoff_events ADD COLUMN submissionId TEXT REFERENCES submissions(id) ON DELETE SET NULL");
     }
     if (!db.prepare("PRAGMA table_info(communication_drafts)").all().some((column) => column.name === "eventKey")) {
       const columns = "id, loanId, contactId, audience, milestone, createdAt, emailCopiedAt, textCopiedAt";

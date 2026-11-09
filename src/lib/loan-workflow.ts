@@ -14,7 +14,7 @@ export const stalledLoanCutoff = (now: number) => now - stalledLoanDays * day;
 
 type LoanActionRecord = Pick<Loan, "id" | "stage" | "contactId" | "officer" | "disposition" | "dispositionReason" | "revisitDate">;
 export type LoanNextActionState = {
-  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "correctionNote"> & {
+  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "correctionNote" | "manualHandoff"> & {
     versions: Pick<Workspace["applications"][number]["versions"][number], "revision" | "uwmReceipt">[];
   })[];
   contacts: Pick<Workspace["contacts"][number], "id" | "outreachSuppressed">[];
@@ -56,21 +56,28 @@ export function canRecordFundingCheckIn(loan: Pick<Loan, "id" | "disposition">, 
     state.tasks.some((item) => item.loanId === loan.id && item.id === fundingTaskId(loan.id, "borrower") && !item.completedAt);
 }
 
-export function mockClosingReviewReady(loan: Pick<Loan, "id" | "stage" | "disposition">,
-  state: Pick<LoanNextActionState, "applications" | "documentRequests" | "submissions" | "loanProcessing" | "pastClients" | "closingProgress">) {
+export function closingReviewReady(loan: Pick<Loan, "id" | "stage" | "disposition">,
+  state: Pick<LoanNextActionState, "applications" | "documentRequests" | "submissions" | "loanProcessing" | "pastClients" | "closingProgress"> &
+    Partial<Pick<LoanNextActionState, "playbook">>) {
   if (pausedLoan(loan) || loan.stage === "Funded" || loan.stage === "Closed" ||
     state.pastClients.some((item) => item.loanId === loan.id && item.closingDate) ||
     state.closingProgress.some((item) => item.loanId === loan.id && item.fundingDate) ||
     state.loanProcessing.some((item) => item.loanId === loan.id && item.processorEmail && item.status !== "Complete")) return false;
   const application = state.applications.find((item) => item.loanId === loan.id);
-  if (!application?.submittedAt || !application.reviewedAt || application.correctionNote ||
-    !application.uwmReference?.startsWith("DEMO-") ||
-    !application.versions.some(({ revision, uwmReceipt }) => revision === application.revision && uwmReceipt)) return false;
+  if (!application?.submittedAt || !application.reviewedAt || application.correctionNote) return false;
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
-  return submissions.some((item) => item.lender === "UWM" && item.externalId === application.uwmReference && item.syncedAt &&
-      item.conditions.length && (item.status === "Conditions cleared" || item.status === "Wholesale - Clear To Close")) &&
-    submissions.every((item) => item.conditions.every(({ satisfiedAt }) => satisfiedAt)) &&
-    !state.documentRequests.some((item) => item.loanId === loan.id && item.status !== "Accepted");
+  if (submissions.some((item) => item.conditions.some(({ satisfiedAt }) => !satisfiedAt)) ||
+    state.documentRequests.some((item) => item.loanId === loan.id && item.status !== "Accepted")) return false;
+  if (!application.uwmReference) {
+    return Boolean(!secondReviewBlocker(Boolean(state.playbook?.requireSecondReview), application) &&
+      application.manualHandoff?.exportPrepared && application.manualHandoff.outcome === "Acknowledged" &&
+      submissions.some((item) => item.id === application.manualHandoff?.submissionId && item.syncedAt === null &&
+        item.conditions.length && item.conditions.every(({ manual }) => manual?.confirmedDelivery)));
+  }
+  return application.uwmReference.startsWith("DEMO-") &&
+    application.versions.some(({ revision, uwmReceipt }) => revision === application.revision && uwmReceipt) &&
+    submissions.some((item) => item.lender === "UWM" && item.externalId === application.uwmReference && item.syncedAt &&
+      item.conditions.length && (item.status === "Conditions cleared" || item.status === "Wholesale - Clear To Close"));
 }
 
 export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionState, role?: BrokerageRole): LoanNextAction {
@@ -125,7 +132,8 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     };
   }
   if (received) return { title: `Review ${received.kind}`, target: `document-${received.id}`, dueAt: null, blocker: null };
-  const outstandingCondition = state.submissions.filter((item) => item.loanId === loan.id && item.lender === "UWM" && item.syncedAt)
+  const outstandingCondition = state.submissions.filter((item) => item.loanId === loan.id &&
+    (item.lender === "UWM" && item.syncedAt || item.id === application?.manualHandoff?.submissionId && item.syncedAt === null))
     .flatMap((item) => item.conditions.filter((condition) => !condition.satisfiedAt).map((condition) => ({
       condition, target: conditionTarget(item.id, condition.id),
       request: documents.find((request) => request.submissionId === item.id && request.conditionId === condition.id),
@@ -133,8 +141,9 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
   const actionable = outstandingCondition.find(({ request }) => request?.status === "Accepted")
     ?? outstandingCondition.find(({ request }) => !request);
   if (actionable) return {
-    title: actionable.request?.uwmReceipt ? "Check mock UWM clearance" : actionable.request ? "Send accepted document" : `Work ${actionable.condition.category.toLowerCase()} condition`,
-    target: actionable.target, dueAt: null, blocker: actionable.request ? null : "Open UWM condition",
+    title: actionable.condition.manual || !actionable.request ? `Work ${actionable.condition.category.toLowerCase()} condition` :
+      actionable.request.uwmReceipt ? "Check mock UWM clearance" : "Send accepted document",
+    target: actionable.target, dueAt: null, blocker: actionable.request ? null : actionable.condition.manual ? "Open lender condition" : "Open UWM condition",
   };
   const waitingCondition = outstandingCondition.find(({ request }) => request && needsBorrowerDocument(request.status));
   if (waitingCondition?.request) return {
@@ -144,7 +153,7 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
   if (!funding && actualClosing && loan.stage !== "Closed") return {
     title: "Record funding", target: "loan-funding", dueAt: null, blocker: null,
   };
-  if (role !== "Processor" && loan.stage !== "Clear to Close" && mockClosingReviewReady(loan, state)) return {
+  if (role !== "Processor" && loan.stage !== "Clear to Close" && closingReviewReady(loan, state)) return {
     title: "Review closing readiness", target: closingWorkbenchTarget, dueAt: closing ? `${closing.targetDate}T21:00:00.000Z` : null, blocker: null,
   };
   if (!pastClient && (loan.stage === "Clear to Close" || closing)) return {

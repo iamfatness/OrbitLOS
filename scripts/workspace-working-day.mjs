@@ -19,7 +19,7 @@ const { defaultPlaybook, fundingTaskId } = await import("../src/lib/playbook-mod
 const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exception-model.ts");
 const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
-const { loanNextAction, mockClosingReviewReady } = await import("../src/lib/loan-workflow.ts");
+const { closingReviewReady, loanNextAction } = await import("../src/lib/loan-workflow.ts");
 const { Miniflare, convertV4MiniflareOptions } = createRequire(import.meta.resolve("wrangler"))("miniflare");
 const server = fileURLToPath(new URL("../dist/server/", import.meta.url));
 const config = createRequire(import.meta.url)(join(server, "wrangler.json"));
@@ -94,11 +94,21 @@ try {
       body: JSON.stringify(scope ? [input, expectedBrokerage, scope] : [input, expectedBrokerage]),
     });
     assert.equal(response.status, 200, name);
-    const line = (await response.text()).split("\n").find((row) => row.startsWith("0:"));
+    const body = await response.text();
+    const line = body.split("\n").find((row) => row.startsWith("0:"));
     assert.ok(line, `No action result for ${name}`);
     const { returnValue } = JSON.parse(line.slice(2));
     assert.equal(returnValue.ok, true, name);
-    return returnValue.data;
+    const data = returnValue.data;
+    // React streams a long XML result as a separate length-prefixed text chunk.
+    const xmlReference = /^\$([a-f0-9]+)$/.exec(data?.mismoXml ?? "");
+    if (xmlReference) {
+      const chunk = new RegExp(`(?:^|\\n)${xmlReference[1]}:T([a-f0-9]+),`).exec(body);
+      assert.ok(chunk, "The MISMO action must include its XML text chunk");
+      const bytes = Buffer.from(body.slice(chunk.index + chunk[0].length));
+      data.mismoXml = bytes.subarray(0, Number.parseInt(chunk[1], 16)).toString("utf8");
+    }
+    return data;
   }
   async function write(staff, input) {
     const result = await action(staff, "mutate", input);
@@ -792,7 +802,7 @@ try {
     assert.doesNotMatch(JSON.stringify(partner), /Internal note/);
   });
 
-  await stage("LO closes, funds, and opens the repeat application", async () => {
+  const repeatFile = await stage("LO closes, funds, and opens the repeat application", async () => {
     const markClosing = { type: "markClearToClose", loanId };
     assert.match((await action(officer, "mutate", markClosing)).error, /no longer ready/i);
     assert.match((await action(processor, "mutate", markClosing)).error, /access/i);
@@ -806,7 +816,7 @@ try {
       expectedSatisfiedAt: condition.satisfiedAt, expectedReopenedAt: condition.mockReopenedAt ?? null });
     assert.match((await action(officer, "mutate", markClosing)).error, /no longer ready/i);
     const reopened = await file(officer, loanId);
-    assert.equal(mockClosingReviewReady(reopened.loans[0], reopened), false);
+    assert.equal(closingReviewReady(reopened.loans[0], reopened), false);
     assert.ok(!reopened.communicationDrafts.some(({ milestone }) => milestone === "Clear to Close"));
     const request = reopened.documentRequests.find(({ conditionId }) => conditionId === condition.id);
     await borrower(token, { type: "attachSample", requestId: request.id, revision: request.revision });
@@ -891,6 +901,68 @@ try {
     assert.match((await file(owner, reported.loanId)).loans[0].address, /^32 Updated Fictional Lane/);
     assert.equal((await file(owner, reported.sourceLoanId)).loans[0].address, sourceAddress);
     assert.match((await action(processor, "readLoanForWork", repeat.applicationLoanId)).error, /unavailable/i);
+
+    return { id: reported.loanId, revision: repeatSubmitted.revision, token: newFile.applications[0].token };
+  });
+
+  await stage("LO exports, clears, and funds the refinance through a manual lender", async () => {
+    const { id: repeatId, revision, token: repeatToken } = repeatFile;
+    await loanAction(officer, repeatId, "reviewApplication", { revision });
+    const handoff = { type: "recordManualHandoff", loanId: repeatId, revision, lenderRevision: 0,
+      eventId: randomUUID(), outcome: "Acknowledged", note: "", lenderFile: { lender: "Fictional Wholesale", externalId: "FICT-REFI-1003" } };
+    assert.match((await action(officer, "mutate", handoff)).error, /Prepare the MISMO export/);
+    const names = [{ first: imported.name.split(" ")[0], middle: "", last: imported.name.split(" ").slice(1).join(" "), suffix: "" }];
+    const exported = await loanAction(officer, repeatId, "exportReviewedApplication", {
+      revision, lenderRevision: 0, eventId: randomUUID(), names,
+    });
+    assert.match(exported.mismoXml, /<LoanPurposeType>Refinance<\/LoanPurposeType>/);
+    assert.match(exported.mismoXml, /<AddressLineText>32 Updated Fictional Lane<\/AddressLineText>/);
+    assert.ok((await action(competingOfficer, "mutate", handoff)).error);
+    const acknowledged = await write(officer, handoff);
+    const submissionId = acknowledged.loanWork.applications[0].manualHandoff.submissionId;
+    assert.ok(submissionId);
+    assert.equal((await write(officer, handoff)).loanWork.applications[0].manualHandoff.submissionId, submissionId);
+    assert.match((await action(officer, "mutate", { ...handoff, lenderFile: { ...handoff.lenderFile, externalId: "OTHER" } })).error, /new handoff entry/);
+    assert.equal((await file(officer, repeatId)).submissions.length, 1);
+    const review = (input) => action(owner, "workOnLoanReview", { loanId: repeatId, ...input });
+    const [pending] = (await review({ type: "loan" })).reviews;
+    const { review: currentReview } = await review({ type: "detail", id: pending.id });
+    const approved = await review({ type: "decide", id: pending.id, revision: currentReview.revision, eventId: randomUUID(),
+      decision: "Approved", note: "Reviewed the fictional refinance." });
+    assert.equal(approved.kind, "saved", approved.error);
+    const conditionId = randomUUID();
+    const condition = { loanId: repeatId, submissionId, conditionId };
+    await write(officer, { type: "saveManualCondition", ...condition, revision: 0,
+      category: "Income", owner: "Loan officer", description: "Fictional pay stub." });
+    const working = await file(officer, repeatId);
+    assert.equal(loanNextAction(working.loans[0], working, "LO").title, "Work income condition");
+    const markClear = { type: "markClearToClose", loanId: repeatId };
+    assert.match((await action(officer, "mutate", markClear)).error, /no longer ready/);
+    await loanAction(officer, repeatId, "requestDocument", { kind: "Pay stub", instructions: "Attach a fictional sample.",
+      condition: { submissionId, conditionId } });
+    const manualRequest = (await file(officer, repeatId)).documentRequests[0];
+    await borrower(repeatToken, { type: "attachSample", statusOnly: true, requestId: manualRequest.id, revision: manualRequest.revision });
+    const received = (await file(officer, repeatId)).documentRequests[0];
+    await loanAction(officer, repeatId, "reviewDocument", { requestId: received.id, revision: received.revision,
+      decision: "Accepted", replacementNote: "" });
+    const accepted = (await file(officer, repeatId)).documentRequests[0];
+    await write(officer, { type: "recordManualDelivery", ...condition, revision: 1,
+      documentRevision: accepted.revision, reference: "FICT-DOC-01" });
+    await write(officer, { type: "recordManualClearance", ...condition, revision: 2, cleared: true, confirmation: "FICT-CLEAR-01" });
+    const cleared = await file(officer, repeatId);
+    assert.equal(cleared.submissions[0].conditions[0].manual.confirmedDelivery, "FICT-CLEAR-01");
+    assert.equal(cleared.submissions[0].conditions[0].manual.deliveries[0].reference, "FICT-DOC-01");
+    assert.equal(loanNextAction(cleared.loans[0], cleared, "LO").title, "Review closing readiness");
+    await write(officer, markClear);
+    await loanAction(officer, repeatId, "recordClosing", { closingDate: today, revision: 0 });
+    await loanAction(officer, repeatId, "recordFunding", { fundingDate: today, revision: 0 });
+    const fundedRepeat = await file(officer, repeatId);
+    assert.equal(fundedRepeat.closingProgress[0].fundingDate, today);
+    assert.equal(fundedRepeat.submissions[0].syncedAt, null);
+    assert.equal(fundedRepeat.applications[0].uwmReference, null);
+    const finalReport = (await workspace(owner)).managerReports.returningClients.find((row) => row.loanId === repeatId && row.metric === "applications");
+    assert.equal(finalReport.detail, "Funded");
+    assert.equal(finalReport.sourceLoanId, loanId);
   });
   await stage("Campaign holds and archives refill without overbooking reopened leads", async () => {
     const capacityCampaign = randomUUID();

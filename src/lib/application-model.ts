@@ -212,7 +212,7 @@ export interface StaffApplication {
   uwmReference: string | null;
   draft: ApplicationDraft | null;
   lender: { details: LenderDetails; revision: number } | null;
-  manualHandoff?: { exportPrepared: boolean; outcome: (typeof manualHandoffOutcomes)[number] | null };
+  manualHandoff?: { exportPrepared: boolean; outcome: (typeof manualHandoffOutcomes)[number] | null; submissionId?: string };
 }
 
 export function secondReviewBlocker(required: boolean, application?: Pick<StaffApplication, "submittedAt" | "reviewedAt" | "secondReviewApproved">) {

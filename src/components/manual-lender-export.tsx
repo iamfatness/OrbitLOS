@@ -14,11 +14,13 @@ const nameFields = [
   ["first", "First name"], ["middle", "Middle name"], ["last", "Last name"], ["suffix", "Suffix"],
 ] as const;
 
-export function ManualLenderExport({ application, busy, save, campaign }: {
+export function ManualLenderExport({ application, busy, save, campaign, linkedFile, openConditions }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   campaign?: { submission?: Submission; openConditions: (id: string) => void };
+  linkedFile?: Submission;
+  openConditions: (id: string) => void;
 }) {
   const originals = application.draft ? [application.draft.borrowerName,
     ...application.draft.urla.additional.map((person) => person.identity.fields.name)] : [];
@@ -26,6 +28,7 @@ export function ManualLenderExport({ application, busy, save, campaign }: {
   const [confirmed, setConfirmed] = useState(false);
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const acknowledgmentAttempt = useRef<string | null>(null);
+  const linkedAttempt = useRef<{ key: string; id: string } | null>(null);
   const ready = application.reviewedAt && application.submittedAt && !application.correctionNote && application.draft?.confirmedDemo;
   const valid = names.length > 0 && names.every((item) => exportName.safeParse(item).success);
   const handoff = application.manualHandoff;
@@ -89,6 +92,29 @@ export function ManualLenderExport({ application, busy, save, campaign }: {
           if (updated?.manualHandoff?.outcome === "Acknowledged" && submission) campaign.openConditions(submission.id);
         });
       }}>{existing ? "Open fictional lender conditions" : "Record simulated acknowledgment"}</Button></div>
+    </section>}
+    {ready && !campaign && handoff?.exportPrepared && <section className="document-item" aria-label="Manual lender acknowledgment">
+      <div className="document-item-head"><strong>Lender acknowledgment</strong><span className="pill">Manual</span></div>
+      {linkedFile ? <>
+        <p className="muted">Acknowledged by {linkedFile.lender} · {linkedFile.externalId}</p>
+        <Button size="sm" onClick={() => openConditions(linkedFile.id)}>Open lender conditions</Button>
+      </> : <form className="record-form" onSubmit={(event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        const input = { type: "recordManualHandoff", loanId: application.loanId, revision: application.revision,
+          lenderRevision: application.lender?.revision ?? 0, outcome: "Acknowledged", note: "",
+          lenderFile: { lender: fields.get("lender"), externalId: fields.get("externalId") } };
+        const key = JSON.stringify(input);
+        if (linkedAttempt.current?.key !== key) linkedAttempt.current = { key, id: crypto.randomUUID() };
+        void save({ ...input, eventId: linkedAttempt.current.id }, () => { linkedAttempt.current = null; });
+      }}>
+        <p className="muted">After the lender confirms receipt, record its reference to open or reuse a condition checklist on this loan.</p>
+        <div className="form-grid">
+          <label className="field">Lender name<input name="lender" required maxLength={160} /></label>
+          <label className="field">Lender file reference<input name="externalId" required maxLength={160} /></label>
+        </div>
+        <div><Button size="sm" type="submit" disabled={busy}>Record lender acknowledgment</Button></div>
+      </form>}
     </section>}
   </details>;
 }

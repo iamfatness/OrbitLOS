@@ -28,7 +28,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     details: lenderDetailsSchema.parse(JSON.parse(String(item.details))), revision: Number(item.revision),
   }]));
   const handoffs = new Map<string, NonNullable<StaffApplication["manualHandoff"]>>();
-  for (const event of db.prepare(`SELECT event.loanId, event.outcome FROM application_handoff_events event
+  for (const event of db.prepare(`SELECT event.loanId, event.outcome, event.submissionId FROM application_handoff_events event
     JOIN activity ON activity.id = event.activityId
     JOIN applications app ON app.loanId = event.loanId AND app.revision = event.applicationRevision AND app.reviewedAt IS NOT NULL
     LEFT JOIN application_lender_details details ON details.loanId = event.loanId
@@ -36,7 +36,10 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     const loanId = String(event.loanId);
     const handoff = handoffs.get(loanId) ?? { exportPrepared: false, outcome: null };
     if (event.outcome === "Export prepared") handoff.exportPrepared = true;
-    else handoff.outcome ??= manualHandoffOutcomes.find((outcome) => outcome === event.outcome) ?? null;
+    else if (!handoff.outcome) {
+      handoff.outcome = manualHandoffOutcomes.find((outcome) => outcome === event.outcome) ?? null;
+      if (handoff.outcome === "Acknowledged" && typeof event.submissionId === "string") handoff.submissionId = event.submissionId;
+    }
     handoffs.set(loanId, handoff);
   }
   return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved

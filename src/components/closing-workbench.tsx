@@ -39,10 +39,11 @@ function ClosingItemForm({ loan, item, targetDate, busy, save }: {
   </details>;
 }
 
-export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, borrowerCheckIn,
+export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, manualClearance, borrowerCheckIn,
   advanceDemoToFunding }: {
   loan: Loan; state: Workspace; busy: boolean; save: Save; preview: (audience: DraftAudience, draftId: string) => void;
   canReverseFunding: boolean; canRehearseFailure: boolean; canMarkClearToClose: boolean;
+  manualClearance: boolean;
   borrowerCheckIn?: { dueAt: string; open: () => void };
   advanceDemoToFunding?: () => void;
 }) {
@@ -69,7 +70,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   return <section className="details-section document-section" aria-label="Closing workbench" id={closingWorkbenchTarget} tabIndex={-1}>
     <div className="section-heading"><h3><CalendarCheck size={17} /> Closing workbench</h3>{actual && <span className="pill">Closing recorded</span>}</div>
     {canMarkClearToClose && <div className="work-queue">
-      <p className="muted">Mock UWM conditions cleared.{loan.partnerId && " Confirming updates the realtor milestone."}</p>
+      <p className="muted">{manualClearance ? "Manual lender clearance recorded." : "Mock UWM conditions cleared."}{loan.partnerId && " Confirming updates the realtor milestone."}</p>
       <div><Button size="sm" disabled={busy} onClick={() => void save({ type: "markClearToClose", loanId: loan.id })}>Mark Clear to Close</Button></div>
     </div>}
     <div className="closing-dates">

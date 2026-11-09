@@ -10,6 +10,12 @@ import type { Store } from "./store";
 import { blankLenderDetails, lenderDetailsSchema, readAddress, type LenderDetails } from "./urla";
 import type { z } from "zod";
 
+export function hasPreparedLenderExport(db: Store, input: { loanId: string; revision: number; lenderRevision: number }) {
+  return Boolean(db.prepare(`SELECT 1 FROM application_handoff_events
+    WHERE loanId = ? AND applicationRevision = ? AND lenderRevision = ? AND outcome = 'Export prepared'`)
+    .get(input.loanId, input.revision, input.lenderRevision));
+}
+
 function originatorParties(details: LenderDetails) {
   const org = details.originator.fields;
   const contact = container("CONTACT_POINTS", [contactPoint("email", org.email), contactPoint("phone", org.phone, "Work")]);

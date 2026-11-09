@@ -32,7 +32,7 @@ import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { canRecordFundingCheckIn, fundingCheckInTarget, loanNextAction, mockClosingReviewReady, pausedLoan } from "@/lib/loan-workflow";
+import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanNextAction, pausedLoan } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
@@ -248,9 +248,9 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl,
   );
 }
 
-function LoanApplication({ loanId, state, busy, save, processor, openCampaignConditions, openReviews, markDraftChanged }: {
+function LoanApplication({ loanId, state, busy, save, processor, openConditions, campaignManual, openReviews, markDraftChanged }: {
   loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean;
-  openCampaignConditions?: (id: string) => void; openReviews?: () => void;
+  openConditions: (id: string) => void; campaignManual: boolean; openReviews?: () => void;
   markDraftChanged: (editor: Node) => void;
 }) {
   const [copyStatus, setCopyStatus] = useState("");
@@ -348,9 +348,9 @@ function LoanApplication({ loanId, state, busy, save, processor, openCampaignCon
         </details>}
       </details>}
       <ManualLenderExport key={`${loanId}:${application.revision}:${application.lender?.revision ?? 0}`}
-        application={application} busy={busy} save={save} campaign={openCampaignConditions ? {
-          submission: campaignManualSubmission(state.submissions, loanId), openConditions: openCampaignConditions,
-        } : undefined} />
+        application={application} busy={busy} save={save} openConditions={openConditions}
+        linkedFile={state.submissions.find((submission) => submission.id === application.manualHandoff?.submissionId && submission.loanId === loanId)}
+        campaign={campaignManual ? { submission: campaignManualSubmission(state.submissions, loanId), openConditions } : undefined} />
       <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy} save={save} markDraftChanged={markDraftChanged} />
     </div>}
@@ -500,8 +500,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const section = loanSection(target);
   const action = loanNextAction(loan, state, staff?.brokerage.role);
   const uwm = submissions.filter((item) => item.lender === "UWM");
-  const uwmStatus = uwm[0]?.status ?? "Awaiting submission";
-  const openCount = uwm.flatMap((item) => item.conditions).filter((item) => !item.satisfiedAt).length;
+  const linkedManual = submissions.find((item) => item.id === application?.manualHandoff?.submissionId && item.syncedAt === null);
+  const displayManual = uwm.length === 0 ? linkedManual : undefined;
+  const lenderStatus = displayManual?.status ?? uwm[0]?.status ?? "Awaiting submission";
+  const openCount = (displayManual ? displayManual.conditions : uwm.flatMap((item) => item.conditions)).filter((item) => !item.satisfiedAt).length;
   const realtorDraft = state.communicationDrafts.find((draft) => draft.loanId === loan.id && draft.audience === "Realtor" && draft.contactId === loan.partnerId);
   const borrowerUrl = application?.submittedAt && !application.revokedAt && application.expiresAt > new Date().toISOString()
     ? `/apply#${application.token}` : undefined;
@@ -519,7 +521,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         </div>
         <div className="details-grid">
           <div><span>Pipeline stage</span><strong>{loan.stage}</strong><span suppressHydrationWarning>{stageDays(loan.stageSince)}d in stage</span></div>
-          <div><span>UWM · Mock</span><strong>{uwmStatus}</strong>{uwm.length > 0 && <button type="button" className="condition-status" data-outstanding={openCount > 0} onClick={() => open("lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
+          <div><span>{displayManual ? `${displayManual.lender} · Manual` : "UWM · Mock"}</span><strong>{lenderStatus}</strong>
+            {(displayManual || uwm.length > 0) && <button type="button" className="condition-status" data-outstanding={openCount > 0}
+              onClick={() => open(displayManual ? submissionTarget(displayManual.id) : "lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
           <div><span>Realtor partner</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
           <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
         </div>
@@ -559,8 +563,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </>}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
-        advanceDemoToFunding={campaignLender && (!staff || staff.brokerage.pilot) ? () => open("loan-funding") : undefined}
-        canMarkClearToClose={!processor && loan.stage !== "Clear to Close" && mockClosingReviewReady(loan, state)}
+        advanceDemoToFunding={(campaignLender || linkedManual) && (!staff || staff.brokerage.pilot) ? () => open("loan-funding") : undefined}
+        canMarkClearToClose={!processor && loan.stage !== "Clear to Close" && closingReviewReady(loan, state)}
+        manualClearance={Boolean(linkedManual && !application?.uwmReference)}
         canRehearseFailure={staff ? Boolean(staff.brokerage.pilot) && staff.brokerage.role === "Admin" : process.env.NODE_ENV === "development"}
         borrowerCheckIn={checkInTask && { dueAt: checkInTask.dueAt, open: () => open(fundingCheckInTarget) }}
         preview={(audience, draftId) => show({ kind: "communication", loanId: loan.id, audience, draftId, returnTo: "closing-workbench", campaignLender })} />
@@ -569,7 +574,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "1003" && <>
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor}
         markDraftChanged={markDraftChanged}
-        openCampaignConditions={campaignLender === "manual" && !processor ? (id) => open(submissionTarget(id)) : undefined}
+        openConditions={(id) => open(submissionTarget(id))} campaignManual={campaignLender === "manual" && !processor}
         openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined} />
       {canOpenReviews && application?.reviewedAt && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
       {staff?.brokerage.pilot && state.mismoLoans.includes(loan.id) && <section className="details-section" aria-label="Synthetic loan file">

@@ -5,6 +5,7 @@ import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { insertSubmission, savedPricingRun, type Store } from "./store";
 import type { BrokerageMember } from "./brokerage-model";
 import { recordedFundingCheckIn } from "./playbooks";
+import { hasPreparedLenderExport } from "./lender-export";
 
 export type CampaignRehearsalMember = StaffIdentity & Partial<Pick<BrokerageMember, "role" | "status">> & { accessRevision?: number };
 
@@ -86,10 +87,7 @@ export function ensureCampaignManualFile(db: Store, input: { loanId: string; rev
     !db.prepare("SELECT 1 FROM referral_leads WHERE id = ? AND loanId = ?").get(rehearsal.leadId, input.loanId)) {
     return { error: "The simulated acknowledgment is available for the fictional campaign loan." };
   }
-  const prepared = db.prepare(`SELECT 1 FROM application_handoff_events
-    WHERE loanId = ? AND applicationRevision = ? AND lenderRevision = ? AND outcome = 'Export prepared'`)
-    .get(input.loanId, input.revision, input.lenderRevision);
-  if (!prepared) return { error: "Prepare the MISMO export for the current reviewed 1003 before recording acknowledgment." };
+  if (!hasPreparedLenderExport(db, input)) return { error: "Prepare the MISMO export for the current reviewed 1003 before recording acknowledgment." };
   const quote = savedPricingRun(db, input.loanId);
   if (quote?.mode !== "mock" || quote.applicationRevision !== input.revision) {
     return { error: "Save a mock quote for the current 1003 before recording the simulated acknowledgment." };

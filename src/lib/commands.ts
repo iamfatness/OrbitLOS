@@ -72,13 +72,13 @@ import { saveCallReport } from "./call-report-model";
 import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEvent } from "./loan-audit";
 
 import { exportReviewedApplication } from "./lender-export-model";
-import { prepareLenderExport } from "./lender-export";
+import { hasPreparedLenderExport, prepareLenderExport } from "./lender-export";
 import { fundingTaskId, reversedFundingTaskPrefix, savePlaybookInput } from "./playbook-model";
 import { readPlaybook, recordedFundingCheckIn, retireFundingFollowUps, writePlaybook } from "./playbooks";
 import { startFundingPlaybook, supersedeFundingPlaybook } from "./playbook-runs";
 import { archiveFundingFinancials } from "./brokerage-finance";
 import { completeContactFollowUp, setClosingChecklistStatus, setClosingTarget, setDocumentDeadline } from "./deadline-actions";
-import { mockClosingReviewReady } from "./loan-workflow";
+import { closingReviewReady } from "./loan-workflow";
 import { routeSecondApplicationReview } from "./loan-reviews";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
@@ -231,7 +231,8 @@ const command = z.discriminatedUnion("type", [
     dueOn: documentDueOn.optional() }),
   z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames) }),
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
-    lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500) }),
+    lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500),
+    lenderFile: z.object({ lender: label, externalId: label }).optional() }),
   z.object({ type: z.literal("acknowledgeCampaignLenderExport"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("sendConditionDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
@@ -404,6 +405,8 @@ function scopedLoanId(data: z.infer<typeof command>) {
   switch (data.type) {
     case "move":
       return data.id;
+    case "recordManualHandoff":
+      return data.lenderFile ? data.loanId : undefined;
     case "markClearToClose":
     case "saveClosingTarget":
     case "saveClosingItem":
@@ -1212,12 +1215,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const simulated = data.type === "acknowledgeCampaignLenderExport";
           const outcome = simulated ? "Acknowledged" : data.outcome;
           const note = simulated ? "Simulated response from the fictional campaign lender." : data.note;
-          const detail = `Manual handoff · ${outcome} · Application revision ${data.revision}${note ? ` · ${note}` : ""}`;
+          const file = simulated ? undefined : data.lenderFile;
+          const detail = `Manual handoff · ${outcome} · Application revision ${data.revision}${file ? ` · ${file.lender} · ${file.externalId}` : ""}${note ? ` · ${note}` : ""}`;
           const previous = db.prepare("SELECT loanId, text FROM activity WHERE id = ?").get(data.eventId);
           if (previous) {
-            const recorded = db.prepare("SELECT lenderRevision FROM application_handoff_events WHERE activityId = ?").get(data.eventId);
+            const recorded = db.prepare("SELECT lenderRevision, submissionId FROM application_handoff_events WHERE activityId = ?").get(data.eventId);
             if (previous.loanId !== data.loanId || previous.text !== detail || (simulated && !recorded) ||
-              (recorded && recorded.lenderRevision !== lenderRevision)) {
+              (recorded && recorded.lenderRevision !== lenderRevision) || (file && !recorded?.submissionId)) {
               throw new WorkspaceError("Start a new handoff entry.");
             }
           }
@@ -1232,13 +1236,28 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             alreadyRecorded ||= latest?.text === detail;
           }
           if (!alreadyRecorded) {
+            let submissionId: string | null = null;
+            if (file) {
+              if (outcome !== "Acknowledged" || data.lenderRevision === undefined ||
+                !hasPreparedLenderExport(db, { ...data, lenderRevision })) {
+                throw new WorkspaceError("Prepare the MISMO export for the current reviewed 1003 before linking a lender acknowledgment.");
+              }
+              const existing = db.prepare("SELECT id, loanId, syncedAt FROM submissions WHERE lender = ? AND externalId = ?")
+                .get(file.lender, file.externalId);
+              if (existing && (existing.loanId !== data.loanId || existing.syncedAt !== null)) {
+                throw new WorkspaceError("That reference already belongs to a different or synced lender file.");
+              }
+              submissionId = existing ? String(existing.id) : crypto.randomUUID();
+              if (!existing) insertSubmission(db, { ...file, id: submissionId, loanId: data.loanId, status: "Acknowledged", conditions: [], syncedAt: null });
+            }
             db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(data.eventId, data.loanId, detail, now);
             if (data.lenderRevision !== undefined) db.prepare(`INSERT INTO application_handoff_events
-              (activityId, loanId, applicationRevision, lenderRevision, outcome) VALUES (?, ?, ?, ?, ?)`)
-              .run(data.eventId, data.loanId, data.revision, lenderRevision, outcome);
+              (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId) VALUES (?, ?, ?, ?, ?, ?)`)
+              .run(data.eventId, data.loanId, data.revision, lenderRevision, outcome, submissionId);
             accessEvent(db, staff, simulated ? "Recorded simulated lender acknowledgment" : `Manual handoff · ${outcome}`, data.loanId, now);
           }
-          message = simulated ? "Simulated acknowledgment recorded. The fictional lender checklist is ready." : "Manual handoff recorded on the loan.";
+          message = simulated ? "Simulated acknowledgment recorded. The fictional lender checklist is ready." :
+            file ? "Lender acknowledgment recorded. Open the linked condition checklist." : "Manual handoff recorded on the loan.";
           break;
         }
         case "sendConditionDocument": {
@@ -1671,7 +1690,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const loan = file ? file.loans[0] : db.prepare("SELECT stage, disposition FROM loans WHERE id = ?").get(loanId);
           if (!loan) throw new WorkspaceError("This loan no longer exists.");
           if (file) {
-            if (!mockClosingReviewReady(file.loans[0], file)) {
+            if (!closingReviewReady(file.loans[0], { ...file, playbook: readPlaybook(db) })) {
               throw new WorkspaceError("This file is no longer ready for Clear to Close. Refresh the loan and check the current 1003, conditions, documents, and handoff.");
             }
             message = "Loan marked Clear to Close.";
