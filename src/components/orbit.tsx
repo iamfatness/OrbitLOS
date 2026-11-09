@@ -14,7 +14,8 @@ import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpC
 import { ContactsDirectory } from "./contacts-directory";
 import { contactUnavailable } from "@/lib/contact-directory-model";
 import { useLeadOwners } from "./use-lead-owners";
-import { fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilters, type WorkFilter } from "@/lib/loan-workflow";
+import { fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan,
+  reopenedMockClosingMessage, workFilters, type WorkFilter } from "@/lib/loan-workflow";
 import { emptyPipelineFilters, type PipelineFilters, type PipelineLoan, type PipelineQuery } from "@/lib/pipeline-model";
 import { usePipeline } from "./use-pipeline";
 import { LoanWorkQueue } from "./loan-work-queue";
@@ -354,7 +355,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
 
   async function save(input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce = true, scope?: WorkspaceMutationScope) {
     if (pending.current) return;
-    loanReadVersion.current += 1;
+    const writeVersion = ++loanReadVersion.current;
     pending.current = true;
     setBusy(true);
     setError("");
@@ -370,10 +371,12 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       } else result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
       if ("error" in result) {
         setError(result.error);
-        if ("closingHoldWork" in result && result.closingHoldWork) {
-          const work = result.closingHoldWork;
-          setState((current) => applyLoanMutation(current, work));
-          setLoanWork(work);
+        if (result.error === reopenedMockClosingMessage && modal?.kind === "details" && writeVersion === loanReadVersion.current) {
+          const currentLoan = await readLoanForWork(modal.loanId, staff?.brokerage.id ?? demoBrokerageId).catch(() => null);
+          if (currentLoan && !("error" in currentLoan) && writeVersion === loanReadVersion.current) {
+            setLoanWork(currentLoan);
+            setState((current) => applyLoanMutation(current, currentLoan));
+          }
         }
         if ("claimConflict" in result && result.claimConflict) {
           if (section === "Lead Inbox") setState((current) => ({ ...current }));

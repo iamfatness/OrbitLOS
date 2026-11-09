@@ -297,14 +297,6 @@ const command = z.discriminatedUnion("type", [
 
 class WorkspaceError extends Error {}
 class LeadClaimConflict extends WorkspaceError {}
-class ReopenedMockClosingConflict extends WorkspaceError {
-  readonly loanId: string;
-
-  constructor(loanId: string) {
-    super(reopenedMockClosingMessage);
-    this.loanId = loanId;
-  }
-}
 
 function addDocumentRequest(db: Store, loanId: string, kind: DocumentKind, instructions: string, now: string,
   source?: { submissionId: string; conditionId: string }, dueOn: string | null = null, recipient: DocumentRecipient = primaryDocumentRecipient) {
@@ -486,7 +478,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     reviewRouting?: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null }; campaignRefillRoster?: CampaignRefillRoster; campaignOptOutRoster?: CampaignOptOutRoster } = {}):
   Promise<WorkspaceMutationSuccess | LeadMutationResult | CampaignMutationResult | CampaignNavigationResult | CampaignQueueResult | LoanMutationResult |
     ContactMutationResult | LeadInboxMutation | TaskMutationResult | TemplateMutationResult | RealtorMutationResult | PlaybookSettingsMutation |
-    MigrationMutationResult | { error: string; claimConflict?: true; closingHoldWork?: LoanMutationResult["loanWork"] }> {
+    MigrationMutationResult | { error: string; claimConflict?: true }> {
   const parsed = command.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Check the form and try again." };
   const data = parsed.data;
@@ -853,7 +845,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (typeof funding === "string" && data.closingDate > funding) throw new WorkspaceError("The closing date cannot be after the recorded funding date.");
           const profile = db.prepare("SELECT closingDate, revision FROM past_client_profiles WHERE loanId = ?").get(data.loanId);
           if (!profile?.closingDate && hasReopenedMockUwmCondition(db, data.loanId)) {
-            throw new ReopenedMockClosingConflict(data.loanId);
+            throw new WorkspaceError(reopenedMockClosingMessage);
           }
           if (profile?.closingDate !== data.closingDate) {
             if (Number(profile?.revision ?? 0) !== data.revision) throw new WorkspaceError("The closing date changed. Refresh the loan before recording it.");
@@ -877,7 +869,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           const previous = db.prepare("SELECT fundingDate, revision FROM closing_progress WHERE loanId = ?").get(data.loanId);
           if (!previous?.fundingDate && hasReopenedMockUwmCondition(db, data.loanId)) {
-            throw new ReopenedMockClosingConflict(data.loanId);
+            throw new WorkspaceError(reopenedMockClosingMessage);
           }
           const dateChanged = previous?.fundingDate !== data.fundingDate;
           const revision = Number(previous?.revision ?? 0);
@@ -1831,7 +1823,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const loan = file ? file.loans[0] : db.prepare("SELECT stage, disposition FROM loans WHERE id = ?").get(loanId);
           if (!loan) throw new WorkspaceError("This loan no longer exists.");
           if ((data.type === "markClearToClose" || loan.stage !== stage) && mockClearanceClosingStages.some((item) => item === stage) &&
-            hasReopenedMockUwmCondition(db, loanId)) throw new ReopenedMockClosingConflict(loanId);
+            hasReopenedMockUwmCondition(db, loanId)) throw new WorkspaceError(reopenedMockClosingMessage);
           if (file) {
             if (!closingReviewReady(file.loans[0], file)) {
               throw new WorkspaceError("This file is no longer ready for Clear to Close. Refresh the loan and check the current 1003, conditions, documents, and handoff.");
@@ -2035,10 +2027,6 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     });
   } catch (error) {
     if (error instanceof LeadClaimConflict) return { error: error.message, claimConflict: true };
-    if (error instanceof ReopenedMockClosingConflict && staff && scopedLoanUpdates) {
-      const closingHoldWork = readEditableLoan(db, error.loanId, staff, staff.brokerage.id);
-      if (!("error" in closingHoldWork)) return { error: error.message, closingHoldWork };
-    }
     if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };
     if (data.type === "runPricing") return { error: "Pricing could not be completed. Try again." };
     console.error("Orbit mutation failed", error);
