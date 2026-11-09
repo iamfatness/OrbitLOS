@@ -12,7 +12,7 @@ import type { WorkspaceStaff } from "@/lib/staff-store";
 import type { LoanProcessing } from "@/lib/processing-model";
 import { rateTargetReached } from "@/lib/client-retention";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
-import { pricingInputsMatch } from "@/lib/pricing-model";
+import { latestSelectedPricingRun, mockUwmQuoteAmountIssue, pricingInputsMatch } from "@/lib/pricing-model";
 import { campaignRehearsalCsv, type CampaignLenderPath, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import { manualLenderAcknowledgmentTarget } from "@/lib/lender-export-model";
 import { fundingTaskId } from "@/lib/playbook-model";
@@ -123,12 +123,12 @@ export function DemoGuide(props: DemoGuideProps) {
   const loan = state.loans.find((item) => item.id === demo?.loanId);
   const application = state.applications.find((item) => item.loanId === loan?.id);
   const credit = state.mockCreditAusRuns.find((item) => item.loanId === loan?.id && item.service === "Credit");
-  const pricing = state.pricingRuns.filter((item) => item.loanId === loan?.id && item.selectedId)
-    .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
+  const pricing = latestSelectedPricingRun(state.pricingRuns, loan?.id);
   const quote = pricing?.mode === "mock" && pricing.selectedId && pricingInputsMatch(pricing, application)
     ? { runId: pricing.id, offerId: pricing.selectedId } : undefined;
   const submission = state.submissions.find((item) => item.loanId === loan?.id && item.lender === "UWM" && item.syncedAt);
   const currentApplicationSent = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
+  const quoteAmountIssue = currentApplicationSent ? null : mockUwmQuoteAmountIssue(pricing, application);
   const condition = submission?.conditions.find((item) => !item.satisfiedAt);
   const alert = state.uwmAlerts.find((item) => !item.reviewedAt && item.submissionId === submission?.id && item.conditionId === condition?.id);
   const partnerDraft = state.communicationDrafts.find((item) => item.loanId === loan?.id && item.contactId === loan?.partnerId &&
@@ -164,12 +164,14 @@ export function DemoGuide(props: DemoGuideProps) {
       action: loan && application?.reviewedAt && (quote ?
         !currentApplicationSent && state.playbook.requireSecondReview && !application.secondReviewApproved ?
           <Button size="sm" onClick={() => open(loan.id, loanReviewsTarget)}>Open required second review</Button> :
+        quoteAmountIssue ? <Button size="sm" onClick={() => openPricing(loan.id)}>Review quote amount</Button> :
           <Button size="sm" disabled={busy || Boolean(currentApplicationSent)}
           onClick={() => void save({ type: "sendApplication", loanId: loan.id, revision: application.revision, quote })}>
           {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button> :
         credit?.result.status === "Report ready" && mockRunMatchesApplication(credit, submittedApplicationRevision(application))
           ? <Button size="sm" onClick={() => openPricing(loan.id)}>Open mock pricing</Button> :
           <Button size="sm" onClick={() => open(loan.id, "credit-aus")}>Open mock credit</Button>),
+      detail: quoteAmountIssue && <p className="muted">{quoteAmountIssue}</p>,
     },
     {
       title: "Work the UWM condition alert",
@@ -334,8 +336,7 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
   const application = state.applications.find((item) => item.loanId === loan?.id);
   const processing = state.loanProcessing.find((item) => item.loanId === loan?.id);
   const credit = state.mockCreditAusRuns.find((item) => item.loanId === loan?.id && item.service === "Credit");
-  const savedQuote = state.pricingRuns.filter((item) => item.loanId === loan?.id && item.selectedId)
-    .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
+  const savedQuote = latestSelectedPricingRun(state.pricingRuns, loan?.id);
   const priced = savedQuote?.mode === "mock" && pricingInputsMatch(savedQuote, application);
   const uwmSubmission = state.submissions.find((item) => item.loanId === loan?.id && item.lender === "UWM" && item.syncedAt);
   const sent = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
@@ -345,6 +346,7 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
     item.id === (handoff?.submissionId ?? application?.lastManualSubmissionId));
   const manual = !mockStarted && Boolean(manualSubmission || handoff?.exportPrepared || (loan && manualChoice === loan.id));
   const campaignLender = manual ? "manual" : "uwm";
+  const quoteAmountIssue = manual || sent ? null : mockUwmQuoteAmountIssue(savedQuote, application);
   const manualAcknowledged = Boolean(manualSubmission && handoff?.exportPrepared && handoff.outcome === "Acknowledged" &&
     handoff.submissionId === manualSubmission.id);
   const manualReady = Boolean(priced && manualAcknowledged);
@@ -428,12 +430,14 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
       done: manual ? manualReady : Boolean(priced && sent),
       action: loan && application?.reviewedAt && (!priced ? pricingAction : reviewBlocker ? openRequiredReview : manual ? !manualSubmission &&
         <Button size="sm" onClick={() => open(loan.id, "manual-lender-export", "manual")}>Open manual MISMO handoff</Button> :
-        !sent && <Button size="sm" disabled={busy} onClick={() => void save({
+        !sent && (quoteAmountIssue ? <Button size="sm" onClick={() => openPricing(loan.id, campaignLender)}>Review quote amount</Button> :
+        <Button size="sm" disabled={busy} onClick={() => void save({
         type: "sendApplication", loanId: loan.id, revision: application.revision,
         quote: { runId: savedQuote.id, offerId: savedQuote.selectedId },
-      })}>Send campaign file to mock UWM</Button>),
+      })}>Send campaign file to mock UWM</Button>)),
       detail: loan && <>
         {reviewBlocker && <p className="muted">{reviewBlocker}</p>}
+        {quoteAmountIssue && <p className="muted">{quoteAmountIssue}</p>}
         {reviewBlocker && !priced && openRequiredReview}
         {manual && manualSubmission ? <>
           <p className="muted">{manualSubmission.lender} · {manualSubmission.externalId} · {manualSubmission.status}</p>

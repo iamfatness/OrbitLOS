@@ -136,6 +136,13 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   const synced = await executeCommand(db, { type: "sync" }, { ...staff, brokerage: { ...staff.brokerage, role: "Admin" } });
   assert.deepEqual(synced.state.submissions.find((item) => item.id === file.id).conditions, file.conditions);
   assert.match((await command("publishQuote", selection(original))).error, /Reprice/);
+  const alternative = (await apply("runPricing", { scenario: { ...scenario, loanAmount: 340000.01 }, applicationRevision: corrected.revision })).pricingRuns[0];
+  await apply("selectOffer", selection(alternative));
+  for (const quote of [undefined, selection(alternative)]) {
+    assert.match((await command("sendApplication", { revision: corrected.revision, quote })).error,
+      /saved quote is \$340,000\.01 and the 1003 requests \$340,000/);
+  }
+  assert.equal(db.prepare("SELECT uwmReceipt FROM application_versions WHERE loanId = ? AND revision = ?").get(loanId, corrected.revision).uwmReceipt, null);
   const fresh = (await apply("runPricing", { scenario: { ...scenario, loanAmount: 340000 }, applicationRevision: corrected.revision }))
     .pricingRuns.find((item) => item.applicationRevision === corrected.revision);
   assert.match((await command("sendApplication", { revision: corrected.revision, quote: selection(original) })).error, /saved mock quote changed/);
@@ -161,6 +168,9 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   const current = (await apply("floatMockRate", { submissionId: file.id, ...selection(fresh),
     previousFloatReference: floating.floatReference })).mockUwmRates[0];
   const locked = (await apply("lockMockRate", { ...lockInput, floatReference: current.floatReference })).mockUwmRates[0];
+  await apply("selectOffer", selection(alternative));
+  const replay = await apply("sendApplication", { revision: corrected.revision });
+  assert.deepEqual(replay.applications[0].versions, resent.applications[0].versions);
   await apply("requestApplicationCorrection", { revision: corrected.revision, note: "Confirm the property address." });
   const extended = (await apply("extendMockLock", { lockReference: locked.lockReference, expectedExpiresAt: locked.lockExpiresAt, days: 7 }))
     .mockUwmRates[0];

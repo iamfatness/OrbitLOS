@@ -1,10 +1,13 @@
-import { insertContact, insertLoan, insertSubmission, type Store } from "./store";
+import { insertContact, insertLoan, insertSubmission, savedPricingRun, type Store } from "./store";
 import type { Condition, Stage, Submission } from "./model";
 import { addApplicationActivity, getApplication, saveApplicationVersion } from "./applications";
 import { createRealtorLenderDraft, restoreClearToCloseDrafts, supersedeClearToCloseDrafts } from "./communications";
 import { recordUwmAlerts } from "./uwm-alerts";
 import { handoffCheckpointError } from "./application-review-checkpoint";
 import { reopenedMockUwmAtSql } from "./processing-conditions";
+import { requestedLoanAmount } from "./application-model";
+import { pricingInputError } from "./income-review-freshness";
+import { mockUwmAmountMismatch } from "./pricing-model";
 
 // The shapes used by the Insights Loans query and the single-loan conditions endpoint.
 interface InsightsLoan {
@@ -211,8 +214,16 @@ function mockApplicationConditions(reference: string, receivedAt: string) {
 
 // Called inside the workspace transaction after LO review. The mock import
 // acknowledgment and its condition snapshot are recorded together.
-export function submitMockApplication(db: Store, loanId: string, revision: number, now: string) {
+export function submitMockApplication(db: Store, loanId: string, revision: number, now: string, quote?: { runId: string; offerId: string }) {
   const application = getApplication(db, loanId);
+  const saved = savedPricingRun(db, loanId);
+  if (quote) {
+    if (saved?.mode !== "mock" || saved.id !== quote.runId || saved.selectedId !== quote.offerId || saved.applicationRevision !== revision) {
+      return { error: "The saved mock quote changed. Refresh pricing and review the current quote before sending." } as const;
+    }
+    const freshness = pricingInputError(db, loanId, { applicationRevision: saved.applicationRevision, incomeReviewRevision: saved.incomeReviewRevision }, application);
+    if (freshness) return { error: freshness } as const;
+  }
   if (!application?.reviewedAt || !application.submittedAt || application.revision !== revision) {
     return { error: "Refresh and review the current submitted 1003 before sending it to mock UWM." } as const;
   }
@@ -228,6 +239,10 @@ export function submitMockApplication(db: Store, loanId: string, revision: numbe
   }
   const checkpoint = handoffCheckpointError(db, loanId);
   if (checkpoint) return { error: checkpoint } as const;
+  if (saved?.mode === "mock" && saved.applicationRevision === revision && typeof saved.quotedAmount === "number") {
+    const mismatch = mockUwmAmountMismatch(saved.quotedAmount, requestedLoanAmount(JSON.parse(application.draft).loanAmount));
+    if (mismatch) return { error: mismatch } as const;
+  }
   if (!existingReference) {
     if (db.prepare("SELECT 1 FROM submissions WHERE loanId = ? AND lender = 'UWM'").get(loanId)) {
       return { error: "This loan already has a separate UWM submission. Use a loan without a UWM file for a first mock handoff." } as const;

@@ -26,7 +26,7 @@ import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-doc
 import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
-import { mockRateStatus, pricingInputsMatch } from "@/lib/pricing-model";
+import { latestSelectedPricingRun, mockRateStatus, mockUwmQuoteAmountIssue, pricingInputsMatch } from "@/lib/pricing-model";
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
@@ -262,9 +262,10 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
   );
 }
 
-function LoanApplication({ loanId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, markDraftChanged, shareBrokerage }: {
+function LoanApplication({ loanId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, openPricing, markDraftChanged, shareBrokerage }: {
   loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean; jointLinks: boolean;
   openConditions: (id: string) => void; campaignManual: boolean; openReviews?: () => void;
+  openPricing: () => void;
   markDraftChanged: (editor: Node) => void;
   shareBrokerage?: string;
 }) {
@@ -283,6 +284,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
   const path = application ? `/apply#${application.token}` : "";
   const lastSent = application?.versions.find((version) => version.uwmReceipt);
   const currentSent = !!lastSent && lastSent.revision === application?.revision;
+  const quoteAmountIssue = currentSent ? null : mockUwmQuoteAmountIssue(latestSelectedPricingRun(state.pricingRuns, loanId), application);
   const linkedFile = state.submissions.find((file) =>
     file.id === application?.manualHandoff?.submissionId && file.loanId === loanId && file.syncedAt === null);
   const processingPending = state.loanProcessing.some((item) => item.loanId === loanId && item.processorEmail &&
@@ -361,9 +363,12 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
           <summary>Review submitted answers</summary>
           <ApplicationAnswers draft={application.draft} />
         </details>}
-        {application.reviewedAt ? !processor && !currentSent && !blocker && <Button size="sm" disabled={busy}
+        {application.reviewedAt ? !processor && !currentSent && (quoteAmountIssue ? <div className="document-item">
+          <p>{quoteAmountIssue}</p>
+          <Button size="sm" variant="outline" disabled={busy} onClick={openPricing}>Review quote amount</Button>
+        </div> : !blocker && <Button size="sm" disabled={busy}
           onClick={() => void save({ type: "sendApplication", loanId, revision: application.revision })}>
-          <Send /> {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button> :
+          <Send /> {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button>) :
           <Button size="sm" disabled={busy} onClick={() => void save({ type: "reviewApplication", loanId, revision: application.revision })}><CheckCircle2 /> Mark reviewed</Button>}
         <details className="loan-task-create"><summary>Request borrower corrections</summary>
           <form className="record-form" onSubmit={(event) => {
@@ -545,8 +550,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const canOpenCheckIn = (!staff || staff.brokerage.role === "Admin" || loan.officerEmail === staff.email) &&
     canRecordFundingCheckIn(loan, state, staff?.brokerage.role);
   const checkInTask = canOpenCheckIn ? tasks.find((task) => task.id === fundingTaskId(loan.id, "borrower")) : undefined;
-  const savedPricing = state.pricingRuns.filter((item) => item.loanId === loan.id && item.selectedAt)
-    .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
+  const savedPricing = latestSelectedPricingRun(state.pricingRuns, loan.id);
   const savedOffer = savedPricing?.offers.find((item) => item.id === savedPricing.selectedId);
   const rate = state.mockUwmRates.find((item) => item.loanId === loan.id);
   const section = loanSection(target);
@@ -646,6 +650,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         markDraftChanged={markDraftChanged}
         openConditions={(id) => open(submissionTarget(id))} campaignManual={campaignLender === "manual" && !processor}
+        openPricing={() => openPricing()}
         openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined} />
       {canOpenReviews && application?.reviewedAt && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
       {staff?.brokerage.pilot && state.mismoLoans.includes(loan.id) && <section className="details-section" aria-label="Synthetic loan file">
@@ -900,6 +905,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     label: handoffBlocker ? (handoffApplication?.reviewedAt ? "Open team reviews" : "Open 1003 review") :
       campaignLender === "manual" ? "Open manual MISMO export" : receivedByUwm ? "Open mock UWM checklist" : "Send reviewed 1003 to mock UWM",
     blocker: handoffBlocker,
+    checkQuoteAmount: campaignLender !== "manual" && !receivedByUwm,
     proceed: (quote: { runId: string; offerId: string }) => {
       if (handoffBlocker) {
         show({ kind: "details", loanId: loan.id, target: handoffApplication?.reviewedAt ? loanReviewsTarget : "loan-application", campaignLender });

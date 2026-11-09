@@ -7,7 +7,7 @@ import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { repriceIncomeMessage, type ReviewedIncomeSource } from "@/lib/income-review-model";
 import type { Loan, Workspace } from "@/lib/model";
-import { pricingPrograms, pricingInputsMatch, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario,
+import { latestSelectedPricingRun, mockUwmQuoteAmountIssue, pricingPrograms, pricingInputsMatch, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario,
   type PublishedQuote } from "@/lib/pricing-model";
 import { dateTime, money, requestedMoney } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -114,11 +114,11 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
   openIncome?: () => void;
-  lenderHandoff?: { label: string; blocker: string | null; proceed: (quote: { runId: string; offerId: string }) => void };
+  lenderHandoff?: { label: string; blocker: string | null; checkQuoteAmount: boolean; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
   const runs = state.pricingRuns.filter((item) => item.loanId === loan.id);
   const current = runs[0];
-  const saved = runs.filter((item) => item.selectedAt).sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
+  const saved = latestSelectedPricingRun(runs, loan.id);
   const selected = saved?.offers.find((offer) => offer.id === saved.selectedId);
   const sourceRun = runs.find((run) => run.id === sourceQuote?.runId);
   const sourceOffer = sourceRun?.offers.find((offer) => offer.id === sourceQuote?.offerId);
@@ -152,7 +152,9 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const isCurrent = (run: PricingRun | undefined) => !!run && pricingInputsMatch(run, application);
   const savedNeedsReprice = !!saved && !isCurrent(saved);
   const requestedAmount = submittedRequestedLoanAmount(application);
+  const quoteAmountIssue = lenderHandoff?.checkQuoteAmount ? mockUwmQuoteAmountIssue(saved, application) : null;
   const handoffAction = lenderHandoff && saved?.mode === "mock" && selected && !savedNeedsReprice &&
+    (!quoteAmountIssue || lenderHandoff.blocker) &&
     (lenderHandoff.blocker || (application?.submittedAt && application.reviewedAt)) && <>
       {lenderHandoff.blocker && <p className="quote-disclaimer">{lenderHandoff.blocker}</p>}
       <Button size="sm" variant={lenderHandoff.blocker ? "outline" : "default"} disabled={busy}
@@ -233,6 +235,12 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       </> : <p className="quote-disclaimer">This pricing option is no longer in the current results. Run pricing again to continue.</p>}
     </section>}
     <form className="pricing-form" onSubmit={(event) => void price(event)}>
+      {quoteAmountIssue && <div className="document-item">
+        <p>{quoteAmountIssue}</p>
+        {!formOutdated && requestedAmount !== null && Number(form.loanAmount) !== requestedAmount &&
+          <Button type="button" size="sm" variant="outline" disabled={busy}
+            onClick={() => change("loanAmount", String(requestedAmount))}>Use 1003 amount in pricing</Button>}
+      </div>}
       {requestedAmount !== null && Math.round(requestedAmount) !== loan.amount && <p className="quote-disclaimer">
         Recorded amount {money(loan.amount)} · 1003 request {requestedMoney(requestedAmount)}. The loan amount entered below is used for the quote.
       </p>}

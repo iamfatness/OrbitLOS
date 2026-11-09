@@ -1592,16 +1592,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "sendApplication": {
-          if (data.quote) {
-            const saved = savedPricingRun(db, data.loanId);
-            if (saved?.mode !== "mock" || saved.id !== data.quote.runId || saved.selectedId !== data.quote.offerId ||
-              saved.applicationRevision !== data.revision) {
-              throw new WorkspaceError("The saved mock quote changed. Refresh pricing and review the current quote before sending.");
-            }
-            const freshness = pricingInputError(db, data.loanId, { applicationRevision: saved.applicationRevision, incomeReviewRevision: saved.incomeReviewRevision }, getApplication(db, data.loanId));
-            if (freshness) throw new WorkspaceError(freshness);
-          }
-          const result = submitMockApplication(db, data.loanId, data.revision, now);
+          const result = submitMockApplication(db, data.loanId, data.revision, now, data.quote);
           if ("error" in result) throw new WorkspaceError(result.error);
           if (result.action !== "retry") {
             accessEvent(db, staff, result.action === "initial" ? "Submitted to mock UWM" : "Sent updated 1003 to mock UWM", data.loanId, now);

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { QuotePresentation } from "./quote-worksheet";
+import { requestedMoney } from "./utils";
+import { submittedRequestedLoanAmount, type StaffApplication } from "./application-model";
 
 const amount = z.number().min(1).max(25_000_000);
 const monthlyExpense = z.number().nonnegative().max(10_000_000);
@@ -101,6 +103,22 @@ export function quoteMatchesApplication(applicationRevision: unknown, applicatio
 
 export function pricingInputsMatch(run: Pick<PricingRun, "applicationRevision" | "incomeReviewCurrent">, application?: PricingApplication) {
   return quoteMatchesApplication(run.applicationRevision, application) && run.incomeReviewCurrent !== false;
+}
+
+export function latestSelectedPricingRun(runs: PricingRun[], loanId: string | undefined) {
+  return runs.filter((run) => run.loanId === loanId && run.selectedId)
+    .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
+}
+
+export function mockUwmAmountMismatch(quoted: number, requested: number | null) {
+  if (requested === null || Math.round(quoted * 100) === Math.round(requested * 100)) return null;
+  return `The saved quote is ${requestedMoney(quoted)} and the 1003 requests ${requestedMoney(requested)}. Save a quote for the 1003 amount before sending to mock UWM.`;
+}
+
+export function mockUwmQuoteAmountIssue(run: PricingRun | undefined,
+  application?: Pick<StaffApplication, "revision" | "correctionNote" | "submittedAt" | "draft">) {
+  return run?.mode === "mock" && quoteMatchesApplication(run.applicationRevision, application)
+    ? mockUwmAmountMismatch(run.scenario.loanAmount, submittedRequestedLoanAmount(application)) : null;
 }
 
 export interface BorrowerQuote {

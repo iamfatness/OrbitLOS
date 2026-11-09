@@ -1209,7 +1209,8 @@ export function insertSubmission(db: Store, submission: Submission) {
 }
 
 export function savedPricingRun(db: Store, loanId: string) {
-  return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt, applicationRevision, incomeReviewRevision FROM pricing_runs
+  return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt, applicationRevision, incomeReviewRevision,
+    json_extract(scenario, '$.loanAmount') AS quotedAmount FROM pricing_runs
     WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1`).get(loanId);
 }
 

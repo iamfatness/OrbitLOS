@@ -746,9 +746,17 @@ try {
     assert.equal(reopenedPlan.record.plan.recommendedId, recommended.id);
     assert.deepEqual(reopenedPlan.record.plan.options[1].quoteSource, { runId: run.id, offerId: offer.id });
     const reprice = await loanAction(officer, loanId, "runPricing", { applicationRevision: corrected.revision,
-      scenario: { ...run.scenario, creditScore: 725 } });
-    assert.notEqual(reprice.state.pricingRuns[0].id, run.id);
+      scenario: { ...run.scenario, creditScore: 725, loanAmount: run.scenario.loanAmount - 500 } });
+    const alternative = reprice.state.pricingRuns[0];
+    assert.notEqual(alternative.id, run.id);
     assert.equal(reprice.state.pricingRuns.find((item) => item.id === run.id).selectedId, null);
+    const alternativeQuote = { runId: alternative.id, offerId: alternative.offers[0].id };
+    await loanAction(officer, loanId, "selectOffer", alternativeQuote);
+    for (const quote of [undefined, alternativeQuote]) {
+      const blocked = await action(officer, "mutate", { type: "sendApplication", loanId, revision: corrected.revision, quote });
+      assert.match(blocked.error, /Save a quote for the 1003 amount before sending to mock UWM/);
+    }
+    assert.equal((await file(officer, loanId)).applications[0].versions.find(({ revision }) => revision === corrected.revision).uwmReceipt, null);
     await loanAction(officer, loanId, "selectOffer", { runId: run.id, offerId: offer.id });
     const feeTemplatePath = `/api/fee-templates?brokerage=${brokerage}`;
     const fees = { origination: 95000, appraisal: 62500, creditReport: 0, settlement: null, government: null, prepaid: null, escrow: null, other: null };
