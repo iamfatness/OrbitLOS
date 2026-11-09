@@ -56,6 +56,12 @@ On `657c6e1e-310f-4f5b-a65e-686412cedf8e`, the owner uploaded and previewed four
 
 Automated checks compared the scoped campaign updates with a fresh workspace, including manager reporting and the rehearsal checkpoint. Stale owner changes failed atomically, retries kept the same assignment state, and an LO could not claim a campaign lead that had since been held or opted out. All 235 tests, lint, typecheck, the production build, and both local rehearsals passed. The [local benchmark](workspace-baseline.md#campaign-csv-and-assignment-responses) records response sizes and timing boundaries.
 
+## Hosted retry limit and automatic slot refill
+
+On Worker `277a2d21-10a9-4ee9-bf17-2180a200cd9d` from `111a0b952efa`, a separate fictional campaign used a one-lead routing cap and two-call retry limit. Three sample CSV rows produced one assigned lead and two in Shared queue. Morgan’s first unanswered call scheduled a retry for November 11 at 10:00 a.m. ET. After the second unanswered call, the live queue showed one ready, one shared, and zero scheduled, without a refresh. Avery kept the original November 10 first-contact deadline at 4:10 p.m. ET. **Retry limit reached** showed Morgan with the original owner and both calls.
+
+The built Worker rehearsal repeated the final attempt with a backup LO working coverage, verified that the replacement kept the configured owner and deadline, and replayed the outcome without routing another lead. SQLite exercised stale submission, LO scoping, the historical-event migration, and a later borrower-requested callback. All 307 tests, lint, typecheck, the production build, and both local rehearsals passed. Both public pages described the change and returned 200.
+
 ## Hosted selected campaign refresh
 
 On `14c3c758-4067-40fc-8234-e9e25e00fa79`, two signed-in owner tabs opened the same fictional campaign. One logged a requested callback for Jordan. In the other, Refresh queue kept Upcoming callbacks selected and displayed the original November 10, 2026, 10:32 a.m. ET deadline. The first tab logged Connected and started the 1003. Refresh queue in the second tab cleared the callback count, displayed the new loan under 1003s started, and opened the correct loan file. Neither tab logged a sampled application error. The updated product copy was verified. The `design-pass/roles` evidence directory contains `hosted-selected-campaign-refresh.png`.
