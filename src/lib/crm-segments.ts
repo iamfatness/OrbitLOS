@@ -126,6 +126,6 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
     leadEvent(db, leadId, staff?.name ?? "Demo workspace", now, `Enrolled from ${segment.name} · ${row.detail}.`, "Campaign");
   }
   accessEvent(db, staff, "Enrolled CRM segment in call campaign", `${segment.id} · ${input.campaignId} · ${batch.length}`, now);
-  const { assigned } = distributeCampaignLeads(db, staff, input.campaignId, members, now, leadIds);
+  const { assigned } = distributeCampaignLeads(db, staff, input.campaignId, staff ? members : undefined, now, leadIds);
   return { message: `${batch.length} ${batch.length === 1 ? "borrower enrolled" : "borrowers enrolled"} from ${segment.name}.${assigned ? ` ${assigned} routed.` : ""}` };
 }

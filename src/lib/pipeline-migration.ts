@@ -376,7 +376,7 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
     db.prepare("INSERT INTO migration_batches (origin, snapshot, part, partCount, contentHash, excluded) VALUES (?, ?, ?, ?, ?, ?)")
       .run(input.origin, importBatch.snapshot, importBatch.part, importBatch.partCount, contentHash, JSON.stringify(excluded));
   }
-  const routed = campaignId ? distributeCampaignLeads(db, staff, campaignId, members, now, campaignLeads).assigned : 0;
+  const routed = campaignId ? distributeCampaignLeads(db, staff, campaignId, staff ? members : undefined, now, campaignLeads).assigned : 0;
   if (campaignId) addCampaignEnrollmentDetails(db, campaignId, rows);
   if (!campaignId && staff) recordMigrationReceipt(db, { origin: input.origin, batch: importBatch }, ordered, rows, staff, now);
   if (corrections) {

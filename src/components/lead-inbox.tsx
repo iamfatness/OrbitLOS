@@ -14,6 +14,7 @@ import { LeadTasks, leadTaskTarget } from "./lead-tasks";
 import { SharedRealtorPolicyForm, SharedRealtorQueueView } from "./shared-realtor-queue";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { leadWorkUnavailable } from "@/lib/lead-work-model";
+import { QuoteIntakeEditor } from "./quote-intake-settings";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void) => void;
@@ -76,6 +77,7 @@ function RoutingForm({ routing, staff, members, busy, save }: {
       }}>Copy quote form link</Button>
       {copyStatus && <span role="status">{copyStatus}</span>}
     </div>}
+    {mayPublish && <QuoteIntakeEditor brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
   </details>;
 }
 

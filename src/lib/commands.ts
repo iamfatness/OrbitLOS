@@ -601,7 +601,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             message = result.message;
           } else {
             if (!readCampaignRouting(db, data.campaignId)?.enabled) throw new WorkspaceError("Enable round-robin routing first.");
-            const result = distributeCampaignLeads(db, staff, data.campaignId, leadMembers, now);
+            const result = distributeCampaignLeads(db, staff, data.campaignId, staff ? leadMembers : undefined, now);
             message = `${result.assigned} routed · ${result.remaining} eligible ${result.remaining === 1 ? "lead remains" : "leads remain"} in the shared inbox.`;
           }
           break;
@@ -633,7 +633,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = result.message;
           if ("added" in result && result.added && data.type === "addCampaignLead") {
             accessEvent(db, staff, "Added lead to call campaign", data.leadId, now);
-            const { assigned } = distributeCampaignLeads(db, staff, data.campaignId, leadMembers, now, [data.leadId]);
+            const { assigned } = distributeCampaignLeads(db, staff, data.campaignId, staff ? leadMembers : undefined, now, [data.leadId]);
             if (assigned) message = "Lead added and routed to the next available officer.";
           }
           if (scopedLeadUpdates && data.type === "addCampaignLead") {
@@ -1844,7 +1844,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       }
       if (refill && (!staff || (campaignRefillRoster?.campaignId === refill.campaignId && campaignRefillRoster.revision === refill.revision &&
         campaignRefillRoster.members.some(({ email }) => email === refill.ownerEmail)))) {
-        const { assigned } = distributeCampaignLeads(db, staff, refill.campaignId, campaignRefillRoster?.members ?? [], now, undefined, { ownerEmail: refill.ownerEmail });
+        const { assigned } = distributeCampaignLeads(db, staff, refill.campaignId, staff ? campaignRefillRoster?.members ?? [] : undefined,
+          now, undefined, { ownerEmail: refill.ownerEmail });
         message += campaignRefillNotice(assigned);
       }
       message += campaignRefillNotice(refillCampaignsAfterOptOut(db, staff, optOutCapacity, now, campaignOptOutRoster));

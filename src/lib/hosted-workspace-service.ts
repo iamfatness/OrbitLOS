@@ -27,6 +27,7 @@ import { leadWorkUnavailable } from "./lead-work-model";
 import { incomingLoanWorkUnavailable } from "./incoming-loan-work-model";
 import { manualReturnFollowUpUnavailable } from "./lender-export-model";
 import { preapprovalUnavailable, sharedPreapprovalUnavailable } from "./preapproval-model";
+import { quoteSettingsUnavailable } from "./quote-intake-model";
 export { currentStaff } from "./current-staff";
 
 function staffWorkspace(staff: WorkspaceStaff | null) {
@@ -319,4 +320,8 @@ export async function loadSharedPreapproval(input: unknown) {
 export async function submitQuoteRequest(input: unknown) {
   const workspace = await linkedWorkspace(input);
   return workspace?.quoteLead(input, [...(googleSettings(env)?.allowedEmails ?? [])]) ?? { status: 404, error: "This quote request link is unavailable." };
+}
+
+export async function loadQuoteIntakeSettings(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).quoteIntakeSettings(staff, input) : { error: quoteSettingsUnavailable };
 }

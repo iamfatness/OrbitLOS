@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { portalTokenPattern } from "./brokerage-model";
 import { referralPhone } from "./referral-matches";
 import type { InboxLead } from "./model";
 import type { EditableLoan } from "./loan-work-model";
@@ -130,11 +129,6 @@ export const leadContactFields = {
   phone: z.string().trim().max(40).refine((value) => !value || /^[+\d().\s-]+$/.test(value) && /^\d{10,15}$/.test(referralPhone(value))),
   purpose: z.enum(["Purchase", "Refinance"]),
 };
-
-export const quoteLeadInput = z.object({
-  token: z.string().regex(portalTokenPattern), requestId: z.uuid(), ...leadContactFields,
-  zip: z.string().trim().regex(/^\d{5}$|^$/), consent: z.literal(true), website: z.literal("").optional(),
-}).refine((value) => !!(value.email || value.phone));
 
 export const defaultLeadRouting: LeadRouting = {
   revision: 0, websiteOwner: null, realtorRoute: "Link owner", realtorOwner: null,

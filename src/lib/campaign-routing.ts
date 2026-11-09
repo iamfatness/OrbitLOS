@@ -117,7 +117,7 @@ export function refillCampaignsAfterOptOut(db: Store, staff: WorkspaceStaff | nu
   const suppression = outreachSuppressionKeys(db);
   let assigned = 0;
   for (const { campaignId, load } of previous) {
-    assigned += distributeCampaignLeads(db, staff, campaignId, roster?.members ?? [], now, undefined, { previous: load, suppression }).assigned;
+    assigned += distributeCampaignLeads(db, staff, campaignId, staff ? roster?.members ?? [] : undefined, now, undefined, { previous: load, suppression }).assigned;
   }
   return assigned;
 }
@@ -142,11 +142,11 @@ export function returnCampaignLeadToShared(db: Store, staff: WorkspaceStaff | nu
     campaignRoutingLeads(db, lead.campaignId).filter(({ officerEmail }) => officerEmail === owner.email).length >= owner.limit;
 }
 
-export function distributeCampaignLeads(db: Store, staff: WorkspaceStaff | null, campaignId: string, members: StaffIdentity[], now: string,
+export function distributeCampaignLeads(db: Store, staff: WorkspaceStaff | null, campaignId: string, members: StaffIdentity[] | undefined, now: string,
   newLeadIds?: string[], release?: CampaignRelease) {
   const routing = readCampaignRouting(db, campaignId);
   if (!routing?.enabled || newLeadIds?.length === 0) return { assigned: 0, remaining: 0 };
-  const roster = staff ? members : localCampaignOfficers;
+  const roster = members ?? localCampaignOfficers;
   const officers = routing.officers.flatMap((rule) => {
     const owner = roster.find(({ email }) => email === rule.email);
     return owner ? [{ ...rule, owner }] : [];

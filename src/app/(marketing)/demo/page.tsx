@@ -19,6 +19,7 @@ export default function DemoPage() {
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s.</li>
+          <li>Preview and publish a brokerage quote form. Send eligible requests to a call campaign and keep their website source.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>
           <li>Issue a fictional preapproval PDF from the reviewed purchase 1003. Share the current version separately with the borrower and their realtor.</li>
           <li>Turn a past-client rate-watch follow-up into a refinance 1003 with the confirmed property address. Open both loans from the returning-client report.</li>

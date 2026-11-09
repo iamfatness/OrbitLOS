@@ -81,7 +81,9 @@ try {
       headers: { Origin: origin, "Content-Type": "application/json", ...(staff ? { Cookie: `__Host-orbit-session=${staff.token}` } : {}) },
       body: JSON.stringify(input),
     });
-    return { status: response.status, result: await response.json() };
+    const result = response.headers.get("Content-Type")?.includes("application/json")
+      ? await response.json() : { error: await response.text() };
+    return { status: response.status, result };
   }
   async function post(path, input, staff) {
     const { status, result } = await postResponse(path, input, staff);
@@ -1285,6 +1287,53 @@ try {
     const repeated = await write(owner, { type: "optOutContact", contactId: bridge.contactId });
     assert.doesNotMatch(repeated.message, /was routed|were routed/);
     assert.equal(read(repeated.state, extraWaiting).officerEmail, null);
+  });
+  await stage("A published website quote routes through campaign capacity into a prefilled 1003", async () => {
+    const campaignId = randomUUID();
+    const { leadRouting: routing } = await workspace(owner);
+    await write(owner, { type: "createCallCampaign", id: campaignId, name: "Fictional website quotes" });
+    await write(owner, { type: "saveCampaignRouting", campaignId, revision: 0, enabled: true,
+      officers: [officer, competingOfficer].map(({ email }) => ({ email, limit: 1 })) });
+    await write(owner, { ...routing, type: "saveLeadRouting", websiteOwner: owner.email, firstContactHours: 1, quoteForm: "Enable or replace" });
+    const { leadRouting: { quoteToken } } = await workspace(owner);
+    assert.ok(quoteToken);
+    const quote = (input) => post("/api/quote-requests", { token: quoteToken, ...input });
+    const initial = await quote({ type: "read" });
+    assert.equal(initial.revision, 0);
+    const settingsPath = `/api/quote-intake-settings?brokerage=${brokerage}`;
+    const config = { ...initial.config, title: "Fictional purchase quote", theme: "Navy", zip: "Required", timing: "Required",
+      question: { prompt: "What is your purchase goal?", required: true }, campaignId };
+    const publish = { type: "publish", revision: initial.revision, config };
+    assert.equal((await postResponse(settingsPath, publish, officer)).status, 403);
+    assert.equal((await postResponse(`/api/quote-intake-settings?brokerage=${randomUUID()}`, publish, owner)).status, 403);
+    assert.equal((await post(settingsPath, publish, owner)).revision, 1);
+    const { revision, config: publicConfig } = await quote({ type: "read" });
+    assert.equal(publicConfig.title, config.title);
+    assert.equal("campaignId" in publicConfig, false);
+    const submission = (index, phone = `248-555-019${index}`) => ({ type: "submit", requestId: randomUUID(), formRevision: revision,
+      name: `Fictional quote borrower ${index}`, email: `working-day-quote-${index}@example.test`, phone,
+      purpose: "Purchase", zip: "48304", timing: "In 1 to 3 months", answer: "A fictional first home.", consent: true });
+    const stale = await postResponse("/api/quote-requests", { ...submission(0), token: quoteToken, formRevision: 0 });
+    assert.equal(stale.status, 409);
+    const requests = [submission(1), submission(2), submission(3), submission(4, "")];
+    for (const input of [...requests, requests[0]]) assert.deepEqual(await quote(input), { received: true });
+    const { inboxLeads } = await workspace(owner);
+    const matches = inboxLeads.filter(({ name }) => name.startsWith("Fictional quote borrower"));
+    assert.equal(matches.length, 4);
+    const leads = requests.map(({ name }) => matches.find((lead) => lead.name === name));
+    assert.deepEqual(leads.map(({ officerEmail }) => officerEmail), [officer.email, competingOfficer.email, null, owner.email]);
+    assert.deepEqual(leads.map((lead) => lead.campaignId ?? null), [campaignId, campaignId, campaignId, null]);
+    assert.ok(leads.every(({ source, zip }) => source === "Website quote request" && zip === "48304"));
+    const [first, , shared] = leads;
+    const { referralLoanId } = await write(officer, { type: "convertReferral", referralId: first.id, contactId: null });
+    const loan = await file(officer, referralLoanId);
+    assert.equal(loan.loans[0].leadSource, "Website quote request");
+    const application = await borrower(loan.applications[0].token, { type: "read" });
+    assert.equal(application.draft.borrowerName, requests[0].name);
+    assert.equal(application.draft.propertyLocation.zip, requests[0].zip);
+    const history = await action(officer, "readHistoryPage", { record: "loan", id: referralLoanId });
+    assert.match(JSON.stringify(history.events), /Website quote request · Form version 1.*fictional first home/);
+    assert.equal((await workspace(owner)).inboxLeads.find(({ id }) => id === shared.id).officerEmail, officer.email);
   });
   await stage("MISMO import returns the exact draft and a scoped duplicate receipt", async () => {
     const fields = { firstName: "Fictional", lastName: "Working Day MISMO", amount: "275000", purpose: "Purchase",

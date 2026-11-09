@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { demoBrokerageId, portalToken, type BrokerageMember } from "./brokerage-model";
 import { isOpenOverdueCallbackPromise } from "./campaign-callback-exceptions";
 import { callbackExceptionChanged, callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
-import { defaultLeadRouting, leadArchiveRequest, leadSequenceSteps, quoteLeadInput, type ArchivedLead, type LeadArchivePage,
+import { defaultLeadRouting, leadArchiveRequest, leadSequenceSteps, type ArchivedLead, type LeadArchivePage,
   type LeadEvent, type LeadFollowUp, type LeadRouting, type restoreLeadInput,
   type assignInboxLeadInput, type leadContactInput, type leadHoldInput, type leadOptOutInput, type leadSequenceInput, type saveLeadRoutingInput } from "./lead-inbox-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
@@ -341,26 +341,4 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
   const eventId = leadEvent(db, data.leadId, actor, now, event, data.type === "leadContact" ? data.channel : "Note",
     data.type === "leadContact" ? data.outcome : null);
   return { message: event, eventId };
-}
-
-export function receiveQuoteLead(db: Store, input: unknown, routing: LeadRouting, owner: StaffIdentity | null, now = new Date().toISOString()) {
-  const parsed = quoteLeadInput.safeParse(input);
-  if (!parsed.success) return { status: 400, error: "Enter a name, an email or phone, a valid ZIP if provided, and permission to follow up." };
-  const data = parsed.data;
-  return db.transaction(() => {
-    const current = leadRouting(db);
-    if (!current.quoteToken || data.token !== current.quoteToken) return { status: 404, error: "This quote request link is unavailable." };
-    if (current.revision !== routing.revision) return { status: 409, error: "Routing changed. Submit your request again." };
-    if (db.prepare("SELECT 1 FROM referral_leads WHERE realtorId IS NULL AND requestId = ?").get(data.requestId)) return { value: { received: true } };
-    const count = db.prepare("SELECT count(*) AS total FROM referral_leads WHERE realtorId IS NULL AND createdAt > ?").get(after(now, -1));
-    if (Number(count?.total) >= 30) return { status: 429, error: "This form has reached its hourly limit. Try again later." };
-    const id = crypto.randomUUID();
-    db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, zip)
-      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, data.requestId, data.name, data.email, data.phone, data.purpose, owner?.name.slice(0, 160) ?? "", owner?.email ?? null, now,
-        firstContactDue(now, current), data.zip);
-    startLeadFollowUp(db, id, now, data);
-    leadEvent(db, id, "Quote form", now, "Requested follow-up about this quote.");
-    return { value: { received: true } };
-  });
 }

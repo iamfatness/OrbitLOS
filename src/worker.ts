@@ -43,8 +43,10 @@ import { migrationInput } from "./lib/pipeline-migration-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, campaignRoutingOfficerLimit, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput } from "./lib/call-campaign-model";
 import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./lib/campaign-routing";
 import { enrollCrmSegmentInput } from "./lib/crm-segment-model";
-import { assignInboxLeadInput, quoteLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
-import { leadRouting, readLeadArchive, receiveQuoteLead } from "./lib/lead-inbox";
+import { assignInboxLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
+import { leadRouting, readLeadArchive } from "./lib/lead-inbox";
+import { quoteLeadInput } from "./lib/quote-intake-model";
+import { quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
 import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
 import { readSharedRealtorQueue } from "./lib/realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./lib/realtor-queue-report";
@@ -630,6 +632,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const [member] = selectedActiveMembers(this.#store, id, [email], emails);
     return member && member.role !== "Processor" ? { email: member.email, name: member.name } : null;
   }
+  quoteIntakeRoster(id: string, selected: string[], bootstrapEmails: string[]): StaffIdentity[] {
+    if (this.#id !== demoBrokerageId || selected.length > campaignRoutingOfficerLimit + 1) return [];
+    return selectedActiveMembers(this.#store, id, selected, bootstrapEmails)
+      .filter(({ role }) => role !== "Processor").map(({ email, name }) => ({ email, name }));
+  }
   teamMembers(staff: WorkspaceStaff, emails: string[]) {
     if (!activeBrokerages(this.#store, staff.email, emails).some((entry) => entry.id === staff.brokerage.id && entry.role === "Admin")) return null;
     return brokerageMembers(this.#store, staff.brokerage.id, emails);
@@ -768,10 +775,23 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return realtorReferrals(this.#store, input, undefined, pilot, { revision: routing.revision, linkRevision, owner });
   }
   async quoteLead(input: unknown, emails: string[]) {
-    const routing = leadRouting(this.#store);
+    const snapshot = quoteIntakeRouting(this.#store);
     const parsed = quoteLeadInput.safeParse(input);
-    const owner = parsed.success && routing.quoteToken === parsed.data.token ? await this.#resolveLeadOwner(routing.websiteOwner, emails) : null;
-    return receiveQuoteLead(this.#store, input, routing, owner);
+    let members: StaffIdentity[] = [];
+    if (parsed.success && snapshot.routing.quoteToken === parsed.data.token && snapshot.form.revision === parsed.data.formRevision) {
+      const campaign = parsed.data.phone && snapshot.campaign?.enabled ? snapshot.campaign.officers.map(({ email }) => email) : [];
+      const selected = [...new Set([...(snapshot.routing.websiteOwner ? [snapshot.routing.websiteOwner] : []), ...campaign])];
+      if (selected.length) {
+        const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+        try { members = await directory.quoteIntakeRoster(this.#id, selected, emails); }
+        catch { /* Directory unavailability leaves the lead in the shared queue. */ }
+      }
+    }
+    return receiveQuoteLead(this.#store, input, snapshot, members);
+  }
+  quoteIntakeSettings(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return workOnQuoteSettings(this.#store, input, staff, this.#id);
   }
 
   reserveAddressLookup(token: string) {
@@ -881,7 +901,7 @@ export default {
         const link = await linkedWorkspace(input);
         return link && (link.pilot || link.id === demoBrokerageId) ? link.store.quoteLead(input, bootstrapEmails)
           : { status: 404, error: "This quote request link is unavailable." };
-      }, 2048);
+      }, 4096);
     }
     const tokenPage = reading && (url.pathname === "/apply" || url.pathname === "/referrals" || url.pathname === "/quote");
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {

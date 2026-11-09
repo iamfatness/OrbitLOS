@@ -18,7 +18,8 @@ import { readDraftQueue } from "./communication-draft-query";
 import { readPastClientQueue } from "./past-client-queue";
 import { readRealtorWork } from "./realtor-work";
 import { readLeadInbox } from "./lead-inbox-query";
-import { leadRouting, readLeadArchive, receiveQuoteLead } from "./lead-inbox";
+import { readLeadArchive } from "./lead-inbox";
+import { receiveQuoteLead, workOnQuoteSettings } from "./quote-intake";
 import { readSharedRealtorQueue } from "./realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./realtor-queue-report";
 import { assignWaitingRealtorInput } from "./realtor-queue-report-model";
@@ -411,6 +412,10 @@ export async function loadSharedPreapproval(input: unknown) {
 }
 
 export async function submitQuoteRequest(input: unknown) {
-  const db = database();
-  return receiveQuoteLead(db, input, leadRouting(db), null);
+  return receiveQuoteLead(database(), input, undefined, [...localCampaignOfficers]);
+}
+
+export async function loadQuoteIntakeSettings(input: unknown, staff: WorkspaceStaff | null) {
+  const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
+  return workOnQuoteSettings(database(), input, actor, demoBrokerageId);
 }

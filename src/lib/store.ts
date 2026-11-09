@@ -728,7 +728,14 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     db.exec(`CREATE INDEX IF NOT EXISTS migration_undo_by_source ON migration_undone_records(origin, recordKey);
       CREATE UNIQUE INDEX IF NOT EXISTS website_request_id ON referral_leads(requestId) WHERE realtorId IS NULL;
-      CREATE TABLE IF NOT EXISTS lead_follow_up (
+    CREATE TABLE IF NOT EXISTS quote_intake_versions (
+      revision INTEGER PRIMARY KEY, config TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS quote_intake_receipts (
+      leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE, formRevision INTEGER NOT NULL,
+      timing TEXT NOT NULL, answer TEXT NOT NULL, campaignId TEXT
+    );
+    CREATE TABLE IF NOT EXISTS lead_follow_up (
         leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
         status TEXT NOT NULL DEFAULT 'Not started', revision INTEGER NOT NULL DEFAULT 0,
         nextStep INTEGER NOT NULL DEFAULT 0, nextAt TEXT, pausedAt TEXT, firstContactAt TEXT

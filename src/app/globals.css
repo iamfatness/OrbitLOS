@@ -384,6 +384,15 @@ button:disabled { cursor: default; }
 .application-intro { margin: 0 0 13px; padding: clamp(16px, 3.6vw, 29px); }
 .application-intro h1 { color: var(--orbit-plum); font-size: clamp(26px, 4vw, 32px); font-weight: 650; letter-spacing: -.035em; line-height: 1.16; }
 .application-intro h1 + p { margin-top: 7px; color: var(--muted); }
+.quote-intake[data-theme="Navy"] { --quote-accent: #25416a; --quote-hover: #1d3252; --quote-wash: #edf3fb; }
+.quote-intake[data-theme="Evergreen"] { --quote-accent: #246345; --quote-hover: #1b4d35; --quote-wash: #eaf5ee; }
+.quote-intake .application-intro { background: var(--quote-wash, var(--orbit-wash)); }
+.quote-intake .application-intro :is(.eyebrow, h1, h3) { color: var(--quote-accent, var(--orbit-plum)); overflow-wrap: anywhere; }
+.quote-intake .application-intro h3 { font-size: clamp(22px, 4vw, 29px); font-weight: 650; letter-spacing: -.035em; line-height: 1.16; }
+.quote-intake .application-intro h3 + p { margin-top: 7px; color: var(--muted); }
+.quote-intake .application-intro > p:last-child { overflow-wrap: anywhere; }
+.quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit { background: var(--quote-accent); }
+.quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit:hover { background: var(--quote-hover); }
 .application-warning, .application-message { padding: 10px 12px; border-radius: 9px; margin-bottom: 12px; background: #f0ebfd; color: #503b91; }
 .application-warning { background: #fff4dd; color: #75530f; }
 .application-message.banner-error { background: #fff0f2; color: #91253a; }
