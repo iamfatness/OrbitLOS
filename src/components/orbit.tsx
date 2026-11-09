@@ -370,6 +370,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       } else result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
       if ("error" in result) {
         setError(result.error);
+        if ("closingHoldWork" in result && result.closingHoldWork) {
+          const work = result.closingHoldWork;
+          setState((current) => applyLoanMutation(current, work));
+          setLoanWork(work);
+        }
         if ("claimConflict" in result && result.claimConflict) {
           if (section === "Lead Inbox") setState((current) => ({ ...current }));
           if (section === "Call Campaigns" && selectedCampaignId) {

@@ -1014,8 +1014,14 @@ try {
     for (const stage of ["Clear to Close", "Funded", "Closed"]) {
       assert.match((await action(officer, "mutate", { type: "move", id: loanId, stage })).error, /reopened mock UWM condition/i);
     }
-    assert.match((await action(officer, "mutate", { type: "recordClosing", loanId, revision: 0, closingDate: today })).error,
-      /reopened mock UWM condition/i);
+    const staleClosing = { type: "recordClosing", loanId, revision: 0, closingDate: today };
+    const closingConflict = await action(officer, "mutate", staleClosing);
+    assert.match(closingConflict.error, /reopened mock UWM condition/i);
+    assert.deepEqual(closingConflict.closingHoldWork.loans.map(({ id }) => id), [loanId]);
+    assert.ok(!closingConflict.closingHoldWork.pastClients[0]?.closingDate);
+    assert.ok(closingConflict.closingHoldWork.submissions[0].conditions.some(({ id, mockReopenedAt, satisfiedAt }) =>
+      id === condition.id && mockReopenedAt && !satisfiedAt));
+    assert.equal((await action(competingOfficer, "mutate", staleClosing)).closingHoldWork, undefined);
     const reopened = await file(officer, loanId);
     assert.equal(closingReviewReady(reopened.loans[0], reopened), false);
     assert.ok(!reopened.communicationDrafts.some(({ milestone }) => milestone === "Clear to Close"));
@@ -1045,8 +1051,12 @@ try {
     const assets = closingReady.submissions[0].conditions.find(({ category }) => category === "Assets");
     await loanAction(owner, loanId, "reopenMockUwmCondition", { submissionId: submission.id, conditionId: assets.id,
       expectedSatisfiedAt: assets.satisfiedAt, expectedReopenedAt: assets.mockReopenedAt ?? null });
-    assert.match((await action(officer, "mutate", { type: "recordFunding", loanId, revision: 0, fundingDate: today })).error,
-      /reopened mock UWM condition/i);
+    const fundingConflict = await action(officer, "mutate", { type: "recordFunding", loanId, revision: 0, fundingDate: today });
+    assert.match(fundingConflict.error, /reopened mock UWM condition/i);
+    assert.equal(fundingConflict.closingHoldWork.pastClients[0].closingDate, today);
+    assert.ok(!fundingConflict.closingHoldWork.closingProgress[0]?.fundingDate);
+    assert.ok(fundingConflict.closingHoldWork.submissions[0].conditions.some(({ id, mockReopenedAt, satisfiedAt }) =>
+      id === assets.id && mockReopenedAt && !satisfiedAt));
     const fundingBlocked = await file(officer, loanId);
     assert.equal(fundingBlocked.pastClients[0].closingDate, today);
     assert.ok(!fundingBlocked.closingProgress[0]?.fundingDate);
