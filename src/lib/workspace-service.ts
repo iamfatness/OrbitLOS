@@ -39,6 +39,7 @@ import { officerDashboardWork } from "./officer-dashboard";
 import { changeProcessingView, readProcessorQueue } from "./processor-queue";
 import { readEditableLoan, readLoanHandoff } from "./editable-loan";
 import { readIncomingLoanWorkPage } from "./incoming-loan-work";
+import { recordManualReturnFollowUp } from "./manual-lender-work";
 import { readEditableLead } from "./editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./sales-dashboard";
 import { changeConversation, readConversations } from "./conversations";
@@ -294,6 +295,11 @@ export async function loadLoanHandoff(loanId: string, knownVersion: string, staf
 
 export async function loadIncomingLoanWork(input: unknown, staff: WorkspaceStaff | null) {
   return readIncomingLoanWorkPage(database(), input, staff ?? localAdmin, demoBrokerageId, staff ? undefined : localAdmin.name);
+}
+
+export async function saveManualReturnFollowUp(input: unknown, staff: WorkspaceStaff | null) {
+  const local = !staff && process.env.NODE_ENV === "development" ? localAdmin : null;
+  return recordManualReturnFollowUp(database(), input, staff ?? local, demoBrokerageId, local?.name);
 }
 
 export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | null) {

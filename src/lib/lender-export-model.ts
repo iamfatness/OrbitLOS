@@ -14,6 +14,21 @@ export const manualLenderAcknowledgmentTarget = "manual-lender-acknowledgment";
 export const manualReturnAssignment = z.object({ eventId: z.uuid(), submissionId: z.string().min(1).max(100) });
 export type ManualReturnAssignment = z.infer<typeof manualReturnAssignment>;
 
+export const manualReturnParties = ["Borrower", "Lender"] as const;
+export const manualReturnChannels = ["Call", "Email", "Text", "Portal"] as const;
+export const manualReturnFollowUpNoteLimit = 400;
+export const manualReturnFollowUpInput = manualReturnAssignment.extend({
+  loanId: z.string().min(1).max(100),
+  entryId: z.uuid(),
+  party: z.enum(manualReturnParties),
+  channel: z.enum(manualReturnChannels),
+  note: z.string().trim().min(1).max(manualReturnFollowUpNoteLimit),
+});
+export type ManualReturnFollowUp = Pick<z.infer<typeof manualReturnFollowUpInput>, "party" | "channel" | "note"> & {
+  at: string; actor: string;
+};
+export const manualReturnFollowUpUnavailable = "This lender return is unavailable in your Today queue.";
+
 export const manualReturnSteps = {
   [manualReturnStatus.borrower]: { action: "Open borrower corrections", target: "loan-application" },
   [manualReturnStatus.review]: { action: "Review corrected 1003", target: "loan-application" },

@@ -1,13 +1,14 @@
 import type { BrokerageRole, VersionedBrokerageMember } from "./brokerage-model";
 import { easternDate } from "./client-retention";
-import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, type FileException, type FileExceptionPage } from "./file-exception-model";
+import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
+  type FileException, type FileExceptionPage } from "./file-exception-model";
 import { loanReviewsTarget, reviewTarget } from "./loan-review-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { conditionTarget } from "./uwm-alert-model";
 import { openSecondReview, pendingRequiredApproval } from "./application-review-checkpoint";
 import { readPlaybook } from "./playbooks";
-import { manualReturnDueAt, manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
+import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
 import { manualReturnSteps, type ManualReturnStatus } from "./lender-export-model";
 
 const limit = 20;
@@ -15,11 +16,11 @@ const active = "loan.disposition = 'Active'";
 const activePipeline = `${active} AND loan.stage NOT IN ('Funded', 'Closed')`;
 const loanColumns = "loan.id AS loanId, contact.name AS borrower, loan.officerEmail, processing.processorEmail";
 const loanJoins = `JOIN contacts contact ON contact.id = loan.contactId LEFT JOIN loan_processing processing ON processing.loanId = loan.id`;
-type Base = Omit<FileException, "target" | "action" | "evidence" | "owner" | "ownerAvailable" | "overdue" | "escalated" | "returnEventId"> & {
+type Base = Omit<FileException, "target" | "action" | "evidence" | "owner" | "ownerAvailable" | "overdue" | "escalated" | "returnEventId" | "returnFollowUp"> & {
   ownerName: string | null; ownerEmail: string | null; officerEmail: string | null; processorEmail: string | null;
   reviewerRole: BrokerageRole | null; reviewerAccessRevision: number | null; escalated: number;
   version: number | null; changed: number; requestStatus: string | null;
-  returnEventId: string | null;
+  returnEventId: string | null; returnFollowUp: string | null;
 };
 type Candidates = { rows: Base[]; next: FileExceptionPage["next"]; today: string; checkedAt: string };
 
@@ -30,8 +31,9 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
   const { filter, after } = parsed.data;
   const today = easternDate(now);
   const checkedAt = now.toISOString();
-  const overdueReturns = filter === overdueManualReturnFilter;
-  const requireApproval = ["All file exceptions", "Required 1003 approvals", "Manual lender returns", overdueManualReturnFilter].includes(filter) && readPlaybook(db).requireSecondReview;
+  const overdueReturns = filter === overdueManualReturnFilter || filter === unattendedManualReturnFilter;
+  const requireApproval = (overdueReturns || ["All file exceptions", "Required 1003 approvals", "Manual lender returns"].includes(filter)) &&
+    readPlaybook(db).requireSecondReview;
   const showCheckpoint = (filter === "All file exceptions" || filter === "Required 1003 approvals") && requireApproval;
   const parts: string[] = [];
   const args: SqlValue[] = [];
@@ -93,7 +95,9 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
     loan.officer AS ownerName, loan.officerEmail AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision,
     0 AS escalated, app.revision AS version, 0 AS changed, NULL AS requestStatus
     FROM loans loan JOIN applications app ON app.loanId = loan.id ${loanJoins} ${pendingManualReturn}
-    WHERE ${activePipeline} AND returnFile.id IS NOT NULL${overdueReturns ? ` AND ${manualReturnDueAt} < ?` : ""}`,
+    WHERE ${activePipeline} AND returnFile.id IS NOT NULL${overdueReturns ? ` AND ${manualReturnDueAt} < ?` : ""}
+      ${filter === unattendedManualReturnFilter ? `AND NOT EXISTS (SELECT 1 FROM manual_return_follow_ups followUp
+        WHERE followUp.returnEventId = returned.activityId)` : ""}`,
   manualReturnDueAt, "loan.id", "returnFile.id", overdueReturns ? [checkedAt] : [], "returned.activityId");
 
   if (showCheckpoint) {
@@ -116,7 +120,9 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
   }
 
   if (!parts.length) return { rows: [], next: null, today, checkedAt };
-  const all = db.prepare(`${parts.join(" UNION ALL ")} ORDER BY sortOn, rank, parentId, id LIMIT ?`).all(...args, limit + 1) as unknown as Base[];
+  const all = db.prepare(`WITH page AS (${parts.join(" UNION ALL ")} ORDER BY sortOn, rank, parentId, id LIMIT ?)
+    SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY sortOn, rank, parentId, id`)
+    .all(...args, limit + 1) as unknown as Base[];
   const rows = all.slice(0, limit);
   const last = rows.at(-1);
   return { rows, next: all.length > limit && last ? { sortOn: last.sortOn, kind: last.kind, parentId: last.parentId, id: last.id } : null, today, checkedAt };
@@ -129,7 +135,7 @@ export function fileExceptionOwners(page: Candidates) {
 export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates, roster: VersionedBrokerageMember[]): FileExceptionPage {
   const members = new Map(roster.filter(({ status }) => status === "Active").map((member) => [member.email, member]));
   const items = rows.map(({ kind, id, parentId, sortOn, loanId, borrower, title, status, ownerName, ownerEmail, officerEmail, processorEmail,
-    reviewerRole, reviewerAccessRevision, dueOn, reopenedAt, version, changed, escalated, requestStatus, nextParty, returnEventId }): FileException => {
+    reviewerRole, reviewerAccessRevision, dueOn, reopenedAt, version, changed, escalated, requestStatus, nextParty, returnEventId, returnFollowUp }): FileException => {
     const member = ownerEmail ? members.get(ownerEmail) : undefined;
     const available = !!member && (member.role === "Admin" || (member.role === "LO" && member.email === officerEmail) ||
       (member.role === "Processor" && member.email === processorEmail)) &&
@@ -149,6 +155,7 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
       ...(returnEventId ? { returnEventId, returnDueAt: sortOn } : {}),
+      ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}),
       ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: returnEventId ? sortOn < checkedAt : !!dueOn && dueOn < today,
       escalated: Boolean(escalated) };
   });

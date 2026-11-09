@@ -127,6 +127,12 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
     CREATE INDEX IF NOT EXISTS application_handoff_by_revision
       ON application_handoff_events(loanId, applicationRevision, lenderRevision);
+    CREATE TABLE IF NOT EXISTS manual_return_follow_ups (
+      activityId TEXT PRIMARY KEY REFERENCES activity(id) ON DELETE CASCADE,
+      returnEventId TEXT NOT NULL REFERENCES application_handoff_events(activityId) ON DELETE CASCADE,
+      actor TEXT NOT NULL, actorEmail TEXT NOT NULL, party TEXT NOT NULL, channel TEXT NOT NULL, note TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS manual_return_follow_ups_by_return ON manual_return_follow_ups(returnEventId);
     CREATE TABLE IF NOT EXISTS uwm_alerts (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       submissionId TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,

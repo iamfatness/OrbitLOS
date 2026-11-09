@@ -66,6 +66,7 @@ import { workOnAppointment } from "./lib/appointments";
 import { changeProcessingView, readProcessorQueue } from "./lib/processor-queue";
 import { readEditableLoan, readLoanHandoff } from "./lib/editable-loan";
 import { readIncomingLoanWorkPage } from "./lib/incoming-loan-work";
+import { recordManualReturnFollowUp } from "./lib/manual-lender-work";
 import { readEditableLead } from "./lib/editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./lib/sales-dashboard";
 import { changeConversation, readConversations } from "./lib/conversations";
@@ -332,6 +333,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   incomingLoanWork(input: unknown, staff: WorkspaceStaff) {
     return readIncomingLoanWorkPage(this.#store, input, staff, this.#id);
+  }
+
+  manualReturnFollowUp(input: unknown, staff: WorkspaceStaff) {
+    return recordManualReturnFollowUp(this.#store, input, staff, this.#id);
   }
 
   editableLead(input: unknown, staff: WorkspaceStaff) {

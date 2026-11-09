@@ -7,6 +7,7 @@ import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { dateTime } from "@/lib/utils";
 import { manualReturnSteps } from "@/lib/lender-export-model";
 import { Button } from "./ui/button";
+import { LenderReturnFollowUp, lenderReturnFollowUpLabel } from "./lender-return-follow-up";
 
 type ReviewResult = IncomingLoanWorkPage | { error: string };
 
@@ -46,15 +47,22 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
     {page && (page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
       const action = item.returnStatus ? manualReturnSteps[item.returnStatus].action :
         item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" : "Open handoff";
-      return <li className="loan-task" key={`${item.kind}:${item.id}`}>
+      return <li className={item.returnEventId ? "loan-task lender-return-task" : "loan-task"} key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
         <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
         {item.returnDeadline && <span className={item.returnDeadline.overdue ? "open-chip" : "muted"}>
-          {item.returnDeadline.overdue ? "Follow-up overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET
+          {item.returnDeadline.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET
         </span>}
-        {item.note && <span>{item.note}</span>}</div>
+        {item.note && <span>{item.note}</span>}
+        {item.returnFollowUp ? <><span>{lenderReturnFollowUpLabel(item.returnFollowUp)}</span><span>{item.returnFollowUp.note}</span></> :
+          item.returnEventId && <span className="muted">No follow-up logged yet.</span>}</div>
       <Button size="sm" variant="outline" disabled={paused} aria-label={`${item.kind === "document" ? `Review ${item.title.toLowerCase()}` : action} for ${item.name}`}
         onClick={() => open(item)}>{action}</Button>
+      {item.returnEventId && <div className="lender-return-follow-up">
+        <LenderReturnFollowUp brokerageId={brokerageId} loanId={item.loanId} name={item.name}
+          lenderReturn={{ eventId: item.returnEventId, submissionId: item.id }} latest={item.returnFollowUp} paused={paused}
+          onSaved={() => setAttempt((current) => current + 1)} />
+      </div>}
     </li>;})}</ul> : <p className="empty-inline">{after ? "No more incoming items need attention." : view === "today" ?
       "New 1003s, received documents, and lender or processor returns appear here." : "Received documents and ready handoffs on assigned files appear here."}</p>)}
     {(after || page?.next) && <div className="loan-application-actions">

@@ -25,6 +25,7 @@ import { sharedRealtorQueueUnavailable } from "./realtor-claim-model";
 import { contactMergeUnavailable } from "./contact-merge-model";
 import { leadWorkUnavailable } from "./lead-work-model";
 import { incomingLoanWorkUnavailable } from "./incoming-loan-work-model";
+import { manualReturnFollowUpUnavailable } from "./lender-export-model";
 export { currentStaff } from "./current-staff";
 
 function staffWorkspace(staff: WorkspaceStaff | null) {
@@ -199,6 +200,10 @@ export async function loadLoanHandoff(loanId: string, knownVersion: string, staf
 
 export async function loadIncomingLoanWork(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).incomingLoanWork(input, staff) : { error: incomingLoanWorkUnavailable };
+}
+
+export async function saveManualReturnFollowUp(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).manualReturnFollowUp(input, staff) : { error: manualReturnFollowUpUnavailable };
 }
 
 export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | null) {

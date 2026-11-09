@@ -35,6 +35,8 @@ const { coverageInput } = await import("../src/lib/coverage-model.ts");
 const { initializeBrokerages, changeBrokerage, selectedActiveMembers, activateBrokerages } = await import("../src/lib/brokerages.ts");
 const { readFileExceptions, nameFileExceptions } = await import("../src/lib/file-exceptions.ts");
 const { recordManualLenderReturn } = await import("../src/lib/lender-export.ts");
+const { recordManualReturnFollowUp } = await import("../src/lib/manual-lender-work.ts");
+const { readRecordHistory } = await import("../src/lib/record-history.ts");
 const { applicationSteps, blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { demoGuideState, loadPilotScenario, loadProtectedPilotScenario, pilotReview, recordPilotMeasurement } = await import("../src/lib/pilot.ts");
 
@@ -1723,6 +1725,64 @@ test("manual return deadlines are fixed at recording and surface overdue work at
   assert.deepEqual(personal(dueAt).find(({ id }) => id === "timed-file").returnDeadline, { dueAt, overdue: false });
   assert.deepEqual(personal(afterDue).find(({ id }) => id === "timed-file").returnDeadline, { dueAt, overdue: true });
   assert.equal(manager("Manual lender returns", afterDue).find(({ id }) => id === "legacy-file").returnDueAt, "2026-11-09T14:00:00.000Z");
+});
+
+test("return follow-up is private to staff, idempotent, and scoped to the current return and owner", (t) => {
+  const { db, loan, officer, other } = fixture(t);
+  const admin = { ...other, brokerage: { ...other.brokerage, role: "Admin" } };
+  const processor = { ...officer, brokerage: { ...officer.brokerage, role: "Processor" } };
+  const returnedAt = "2026-11-08T12:00:00.000Z";
+  const now = new Date("2026-11-09T14:00:00.000Z");
+  const token = "a".repeat(64);
+  loan("returning");
+  insertSubmission(db, { id: "return-file", loanId: "returning", lender: "Fictional Wholesale", externalId: "FICT-1",
+    status: "Returned for changes", conditions: [], syncedAt: null });
+  db.prepare("INSERT INTO applications (loanId, token, expiresAt, draft, updatedAt, correctionNote) VALUES (?, ?, ?, ?, ?, ?)")
+    .run("returning", token, "2099-11-16T15:00:00.000Z", JSON.stringify(blankApplication()), returnedAt, "Borrower instructions");
+  function appendReturn(applicationRevision, at) {
+    const eventId = crypto.randomUUID();
+    db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, 'returning', 'Returned', ?)").run(eventId, at);
+    db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId)
+      VALUES (?, 'returning', ?, 0, 'Returned for changes', 'return-file')`).run(eventId, applicationRevision);
+    return eventId;
+  }
+  const eventId = appendReturn(0, returnedAt);
+  const input = { loanId: "returning", submissionId: "return-file", eventId, entryId: crypto.randomUUID(),
+    party: "Borrower", channel: "Call", note: "Left a fictional voicemail." };
+  const save = (data = input, actor = officer, brokerageId = officer.brokerage.id) => recordManualReturnFollowUp(db, data, actor, brokerageId, undefined, now);
+  const manager = (filter) => nameFileExceptions(readFileExceptions(db, { filter }, admin, officer.brokerage.id, now), []).items;
+  const today = (actor = officer) => readIncomingLoanWorkPage(db, { view: "today" }, actor, officer.brokerage.id, undefined, now).items;
+  const unattended = "Overdue lender returns without follow-up";
+  assert.deepEqual(manager(unattended).map(({ id }) => id), ["return-file"]);
+  assert.ok(save(input, officer, "another-brokerage").error);
+  for (const actor of [null, other, admin, processor]) assert.ok(save(input, actor).error);
+  assert.match(save({ ...input, eventId: crypto.randomUUID() }).error, /return changed/);
+  assert.match(save({ ...input, submissionId: "wrong" }).error, /return changed/);
+  assert.match(save({ ...input, note: " " }).error, /short outcome/);
+  const first = save();
+  assert.equal(first.followUp.note, input.note);
+  assert.deepEqual(save(), first);
+  assert.match(save({ ...input, note: "Different note" }).error, /new follow-up entry/);
+  assert.deepEqual(manager(unattended), []);
+  assert.deepEqual(manager("Overdue lender returns").map(({ overdue, returnFollowUp }) => ({ overdue, returnFollowUp })),
+    [{ overdue: true, returnFollowUp: first.followUp }]);
+  assert.deepEqual(today()[0].returnFollowUp, first.followUp);
+  db.prepare("UPDATE loans SET officer = ?, officerEmail = ? WHERE id = 'returning'").run(other.name, other.email);
+  assert.deepEqual(today(), []);
+  assert.deepEqual(today(other)[0].returnFollowUp, first.followUp);
+  assert.ok(save(input).error);
+  const second = save({ ...input, entryId: crypto.randomUUID(), party: "Lender", channel: "Portal", note: "Requested a response." }, other);
+  assert.deepEqual(today(other)[0].returnFollowUp, second.followUp);
+  assert.deepEqual(manager("All file exceptions")[0].returnFollowUp, second.followUp);
+  const history = readRecordHistory(db, other, { record: "loan", id: "returning" });
+  assert.equal(history.events.filter(({ text }) => text.startsWith("Lender return follow-up")).length, 2);
+  const borrower = borrowerCommandResult(db, { type: "read", token });
+  assert.equal(borrower.application.correctionNote, "Borrower instructions");
+  assert.ok(!JSON.stringify(borrower).includes(input.note));
+  const next = appendReturn(1, now.toISOString());
+  assert.match(save({ ...input, entryId: crypto.randomUUID() }, other).error, /return changed/);
+  assert.equal(today(other)[0].returnEventId, next);
+  assert.equal(today(other)[0].returnFollowUp, undefined);
 });
 
 test("manager file exceptions track lender reopenings independently of alert review and reconcile linked evidence", async (t) => {

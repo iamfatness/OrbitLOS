@@ -976,22 +976,36 @@ try {
     const returnDueAt = afterHours(initialReturn.reopenedAt, 6);
     await write(owner, { type: "savePlaybook", ...(await file(owner, repeatId)).playbook, manualReturnHours: 2 });
     let assignedOfficer = officer;
+    let latestFollowUp;
     async function checkReturnQueues(status) {
       const personal = (await incoming(assignedOfficer, "today")).items.filter((item) => item.loanId === repeatId && item.kind !== "document");
       assert.deepEqual(personal.map(({ kind, id, returnStatus }) => ({ kind, id, returnStatus })),
         [{ kind: "lender-return", id: submissionId, returnStatus: status }]);
       assert.equal(personal[0].note, "Fictional Wholesale · FICT-REFI-1003");
+      assert.equal(personal[0].returnEventId, manualReturn.eventId);
+      assert.deepEqual(personal[0].returnFollowUp, latestFollowUp);
       assert.deepEqual(personal[0].returnDeadline, { dueAt: returnDueAt, overdue: false });
       const managed = (await returns(owner)).items.find((item) => item.loanId === repeatId);
       assert.equal(managed.status, status);
       assert.equal(managed.target, manualReturnSteps[status].target);
       assert.equal(managed.owner, assignedOfficer.name);
       assert.equal(managed.returnEventId, manualReturn.eventId);
+      assert.deepEqual(managed.returnFollowUp, latestFollowUp);
       assert.equal(managed.returnDueAt, returnDueAt);
       assert.equal(managed.dueOn, null);
       assert.equal(managed.overdue, false);
       assert.deepEqual((await file(assignedOfficer, repeatId)).manualReturn, { ...manualReturn, status });
     }
+    await checkReturnQueues(manualReturnStatus.borrower);
+    const followUp = { loanId: repeatId, ...manualReturn, entryId: randomUUID(), party: "Borrower", channel: "Call", note: "Left a fictional voicemail about the return." };
+    const logFollowUp = (actor, input = followUp, expectedBrokerage = brokerage) =>
+      action(actor, "logLenderReturnFollowUp", input, undefined, expectedBrokerage);
+    for (const actor of [competingOfficer, processor, owner]) assert.ok((await logFollowUp(actor)).error);
+    assert.ok((await logFollowUp(officer, followUp, randomUUID())).error);
+    const firstFollowUp = await logFollowUp(officer);
+    latestFollowUp = firstFollowUp.followUp;
+    assert.equal(latestFollowUp.note, followUp.note);
+    assert.deepEqual(await logFollowUp(officer), firstFollowUp);
     await checkReturnQueues(manualReturnStatus.borrower);
     assert.ok(!(await incoming(competingOfficer, "today")).items.some((item) => item.loanId === repeatId));
     assert.ok(!(await incoming(owner, "today")).items.some((item) => item.loanId === repeatId));
@@ -1013,7 +1027,14 @@ try {
     assignedOfficer = competingOfficer;
     assert.ok(!(await incoming(officer, "today")).items.some((item) => item.loanId === repeatId));
     assert.ok((await action(officer, "readLoanForWork", repeatId)).error);
+    assert.ok((await logFollowUp(officer)).error);
     await checkReturnQueues(manualReturnStatus.borrower);
+    const secondFollowUp = { ...followUp, entryId: randomUUID(), party: "Lender", channel: "Portal", note: "Fictional portal check completed." };
+    latestFollowUp = (await logFollowUp(assignedOfficer, secondFollowUp)).followUp;
+    assert.equal(latestFollowUp.note, secondFollowUp.note);
+    await checkReturnQueues(manualReturnStatus.borrower);
+    const returnActivity = await action(assignedOfficer, "readHistoryPage", { record: "loan", id: repeatId });
+    assert.equal(returnActivity.events.filter(({ text }) => text.startsWith("Lender return follow-up")).length, 2);
     const transferred = await file(assignedOfficer, repeatId);
     assert.equal(transferred.applications[0].token, repeatToken);
     assert.equal(transferred.applications[0].revision, returned.applications[0].revision);
@@ -1021,6 +1042,7 @@ try {
     assert.equal(transferred.documentRequests[0].id, accepted.id);
     const draft = await borrower(repeatToken, { type: "read" });
     assert.equal(draft.correctionNote, lenderReturn.note);
+    assert.ok(!JSON.stringify(draft).includes(followUp.note) && !JSON.stringify(draft).includes(secondFollowUp.note));
     const correctedAmount = String(Number(draft.draft.loanAmount) - 500);
     const corrected = await borrower(repeatToken, { type: "submit", revision: draft.revision, step: applicationSteps.length - 1,
       draft: { ...draft.draft, loanAmount: correctedAmount } });
@@ -1039,6 +1061,7 @@ try {
     const pendingRevision = await file(owner, repeatId);
     assert.equal(loanNextAction(pendingRevision.loans[0], pendingRevision, "LO").title, "Prepare revised manual handoff");
     await write(assignedOfficer, reacknowledgment);
+    assert.match((await logFollowUp(assignedOfficer, { ...followUp, entryId: randomUUID() })).error, /return changed/);
     const relinked = await action(owner, "checkLoanHandoff", repeatId, pendingRevision.handoffVersion);
     assert.equal(relinked.applications[0].manualHandoff.submissionId, submissionId);
     assert.equal(relinked.submissions.length, 1);

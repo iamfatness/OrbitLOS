@@ -309,6 +309,13 @@ button:disabled { cursor: default; }
 .loan-task > svg { flex-shrink: 0; margin-top: 2px; }
 .loan-task-copy { display: grid; gap: 2px; flex: 1; min-width: 0; justify-items: start; overflow-wrap: anywhere; }
 .loan-task-copy span { font-size: 12px; }
+.loan-task.lender-return-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.lender-return-task > button { justify-self: start; }
+.lender-return-follow-up { grid-column: 1 / -1; display: grid; gap: 7px; }
+.lender-return-follow-up form { max-width: 32rem; }
+@media (max-width: 600px) {
+  .loan-task.lender-return-task { grid-template-columns: minmax(0, 1fr); }
+}
 .coverage-window { flex-wrap: wrap; align-items: center; }
 .coverage-window .loan-task-copy { flex-basis: 180px; }
 .loan-task-create { margin-top: 8px; }

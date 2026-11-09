@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ManualReturnStatus } from "./lender-export-model";
+import type { ManualReturnFollowUp, ManualReturnStatus } from "./lender-export-model";
 
 export const incomingLoanWorkUnavailable = "Incoming loan work is unavailable in this workspace.";
 export const incomingLoanWorkProcessingStatuses = ["Assigned", "Ready for processing", "In processing", "Returned to LO"] as const;
@@ -10,6 +10,8 @@ export type IncomingLoanWorkQuery = z.infer<typeof incomingLoanWorkQuery>;
 export type IncomingLoanWorkItem = z.infer<typeof cursor> & {
   loanId: string; name: string; title: string; revision: number; assignee: string | null; linkedCondition: boolean; note: string | null;
   returnStatus?: ManualReturnStatus;
+  returnEventId?: string;
   returnDeadline?: { dueAt: string; overdue: boolean };
+  returnFollowUp?: ManualReturnFollowUp;
 };
 export type IncomingLoanWorkPage = { items: IncomingLoanWorkItem[]; next: z.infer<typeof cursor> | null };

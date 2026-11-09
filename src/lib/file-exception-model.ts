@@ -1,9 +1,11 @@
 import { z } from "zod";
+import type { ManualReturnFollowUp } from "./lender-export-model";
 
 export const fileExceptionsUnavailable = "File exceptions are available to brokerage admins.";
 export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns"] as const;
 export const overdueManualReturnFilter = "Overdue lender returns";
-export const fileExceptionFilters = ["All file exceptions", ...fileExceptionKinds, overdueManualReturnFilter] as const;
+export const unattendedManualReturnFilter = "Overdue lender returns without follow-up";
+export const fileExceptionFilters = ["All file exceptions", ...fileExceptionKinds, overdueManualReturnFilter, unattendedManualReturnFilter] as const;
 const key = z.string().min(1).max(500);
 const cursor = z.object({ sortOn: z.union([z.iso.date(), z.iso.datetime()]), kind: z.enum(fileExceptionKinds), id: key, parentId: key });
 export const fileExceptionQuery = z.object({ filter: z.enum(fileExceptionFilters), after: cursor.optional() });
@@ -14,5 +16,6 @@ export type FileException = z.infer<typeof cursor> & {
   evidence: string | null; overdue: boolean; escalated: boolean;
   returnEventId?: string;
   returnDueAt?: string;
+  returnFollowUp?: ManualReturnFollowUp;
 };
 export type FileExceptionPage = { items: FileException[]; next: FileExceptionQuery["after"] | null; today: string };

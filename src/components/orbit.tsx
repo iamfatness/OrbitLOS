@@ -833,7 +833,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
 
   function openIncomingLoanWork(item: IncomingLoanWorkItem, view: IncomingLoanWorkQuery["view"]) {
     if (item.kind === "lender-return") return void openQueueLoan({ kind: "details", loanId: item.loanId },
-      { kind: "manual-return-work", submissionId: item.id, personal: true });
+      { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }

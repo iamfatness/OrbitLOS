@@ -38,8 +38,9 @@ import { realtorWorkUnavailable } from "@/lib/realtor-work-model";
 import { loadManagerExceptionWork } from "@/lib/workspace-service";
 import { managerExceptionsUnavailable } from "@/lib/manager-exception-model";
 import { loadMigrationRecord } from "@/lib/workspace-service";
-import { loadIncomingLoanWork, loadLoanHandoff } from "@/lib/workspace-service";
+import { loadIncomingLoanWork, loadLoanHandoff, saveManualReturnFollowUp } from "@/lib/workspace-service";
 import { incomingLoanWorkUnavailable } from "@/lib/incoming-loan-work-model";
+import { manualReturnFollowUpUnavailable } from "@/lib/lender-export-model";
 import { migrationRecordUnavailable } from "@/lib/migration-record-model";
 import { leadInboxUnavailable } from "@/lib/lead-inbox-model";
 
@@ -260,6 +261,12 @@ export async function readIncomingLoanWork(input: unknown, expectedBrokerage: st
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: incomingLoanWorkUnavailable };
   return loadIncomingLoanWork(input, staff);
+}
+
+export async function logLenderReturnFollowUp(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: manualReturnFollowUpUnavailable };
+  return saveManualReturnFollowUp(input, staff);
 }
 
 export async function readLeadForWork(input: LeadWorkRequest, expectedBrokerage: string) {

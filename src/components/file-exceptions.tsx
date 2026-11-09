@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { readManagerFileExceptions } from "@/app/actions";
 import { dateLabel } from "@/lib/client-retention";
-import { fileExceptionFilters, overdueManualReturnFilter, type FileException, type FileExceptionPage, type FileExceptionQuery } from "@/lib/file-exception-model";
+import { fileExceptionFilters, overdueManualReturnFilter, unattendedManualReturnFilter,
+  type FileException, type FileExceptionPage, type FileExceptionQuery } from "@/lib/file-exception-model";
 import { dateTime } from "@/lib/utils";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import type { ManualReturnAssignment } from "@/lib/lender-export-model";
 import { Button } from "./ui/button";
+import { lenderReturnFollowUpLabel } from "./lender-return-follow-up";
 
 function fileExceptionAction(item: FileException) {
   switch (item.kind) {
@@ -26,7 +28,7 @@ export function FileExceptions({ brokerageId, version, busy, open, assign }: {
 }) {
   const [query, setQuery] = useState<FileExceptionQuery>({ filter: "All file exceptions" });
   const [result, setResult] = useState<{ query: FileExceptionQuery; version: object; data: FileExceptionPage | { error: string } }>();
-  const watchReturns = (query.filter === "Manual lender returns" || query.filter === overdueManualReturnFilter) && !query.after && !busy;
+  const watchReturns = ["Manual lender returns", overdueManualReturnFilter, unattendedManualReturnFilter].includes(query.filter) && !query.after && !busy;
   useEffect(() => {
     let active = true;
     let reading = false;
@@ -64,8 +66,10 @@ export function FileExceptions({ brokerageId, version, busy, open, assign }: {
           {item.dueOn ? ` · Due ${dateLabel(item.dueOn)}` : item.kind === "Required 1003 approvals" ? " · Due date pending" : null}
           {item.reopenedAt && ` · ${item.kind === "Manual lender returns" ? "Returned" : "Reopened"} ${dateTime(item.reopenedAt)} ET`}</p>
         {item.returnDueAt && <p className={item.overdue ? "open-chip" : "muted"}>
-          {item.overdue ? "Follow-up overdue since" : "Follow up by"} {dateTime(item.returnDueAt)} ET
+          {item.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDueAt)} ET
         </p>}
+        {item.returnFollowUp ? <div><p className="muted">{lenderReturnFollowUpLabel(item.returnFollowUp)}</p><p>{item.returnFollowUp.note}</p></div> :
+          item.returnEventId && <p className="muted">No follow-up logged yet.</p>}
         {(item.evidence || item.nextParty || item.overdue || item.escalated) && <p className="muted">
           {[item.evidence, item.nextParty && `${item.kind === "Manual lender returns" ? "Lender file" : "Manual condition next party"} · ${item.nextParty}`, item.overdue && !item.returnDueAt && "Overdue", item.escalated && "Escalated"].filter(Boolean).join(" · ")}
         </p>}
