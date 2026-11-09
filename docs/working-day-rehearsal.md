@@ -68,6 +68,12 @@ On Worker `d3972e58-e2a5-4828-90bf-c3001b56d49c` from `b15422bfbbaa`, the separa
 
 The automated check covered due and upcoming boundaries, first-contact deadline ordering, the selected officer, campaign and segment, and exclusion of shared, held, opted-out and converted leads. All 308 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages described the change and returned 200.
 
+## Hosted callback context
+
+On Worker `0ef90796-8a3c-4dd6-b813-e530059b87b2` from `5aa42d5a0a42`, the fictional campaign had two due callbacks. Morgan’s callback moved from 4:23 to 4:24 p.m. ET after the original deadline. **My campaign callbacks** opened Morgan’s card with the new schedule, the original promise deadline, and the note from the request. **Next call** showed the same context. After a No response outcome, it advanced to Taylor and showed only Taylor’s 4:25 p.m. ET schedule and refinance note.
+
+The targeted SQLite checks covered rescheduling before a promise is due, restoring an overdue promise with a later scheduled time, and retaining the exact request event through CRM import. All 308 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages returned 200 with the new copy.
+
 ## Hosted selected campaign refresh
 
 On `14c3c758-4067-40fc-8234-e9e25e00fa79`, two signed-in owner tabs opened the same fictional campaign. One logged a requested callback for Jordan. In the other, Refresh queue kept Upcoming callbacks selected and displayed the original November 10, 2026, 10:32 a.m. ET deadline. The first tab logged Connected and started the 1003. Refresh queue in the second tab cleared the callback count, displayed the new loan under 1003s started, and opened the correct loan file. Neither tab logged a sampled application error. The updated product copy was verified. The `design-pass/roles` evidence directory contains `hosted-selected-campaign-refresh.png`.
