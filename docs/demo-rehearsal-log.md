@@ -239,3 +239,11 @@ On Worker `b47826dd-a667-44ac-aa96-7e65289d6e0c` from source `c8d2c060d441`, Cas
 The borrower submitted a built-in PDF after mock verification. The staff user accepted it, recorded distinct delivery and clearance references, then followed **Review closing readiness** to **Mark Clear to Close**. Closing and funding saved separately. **Reports → Returning clients** showed the refinance as Funded with links to both loans. No app errors appeared in the sampled staff tab.
 
 The built Worker also checked rejection before export, loan access, duplicate acknowledgment, the open-condition closing guard, and the unchanged campaign attribution. All 273 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed. The public Demo page describes this fictional flow. Lender-specific import acceptance still needs validation against the receiving lender’s profile.
+
+## Hosted manual lender return and corrected export
+
+On Worker `61bf8d5a-05b9-4923-8f44-9e007a3adfe1` from source `1a7431e1ee90`, the fictional lender returned a reviewed refinance that had reached Clear to Close. Orbit moved it back to Underwriting. The same borrower link opened the staff instructions and saved a corrected $359,500 request. The original downloaded MISMO revision 3 parsed at $360,000 and the corrected revision 7 parsed at $359,500.
+
+The revised acknowledgment prefilled reference `FICT-REVISION-01` and reopened its only checklist. It still showed the original accepted sample, delivery revision, and clearance reference. The loan showed **Review closing readiness** again. The first borrower navigation after reload needed a second click. The sampled staff tab reported zero browser errors.
+
+The local built Worker also verified denied cross-officer access, exact return replay, mismatched lender references, rejection before a fresh export, revision-specific second review, and the unchanged condition and document IDs after re-acknowledgment. All 273 tests, lint, typecheck, build, and both local rehearsals passed. The public Demo page describes the return path.
