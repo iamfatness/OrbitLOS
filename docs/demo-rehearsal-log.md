@@ -451,3 +451,9 @@ On Worker `c9ffcd3a-b286-4cd6-a12c-d0277c494927` from `35e2bfd45767`, the isolat
 Staff used the reviewed 1003 amount. Pipeline and the loan record showed $348,500 without a manual refresh, and the audit recorded one change from $360,000 to $348,500. The same $347,500 saved quote and pricing timestamp remained in pricing. The correction was still awaiting its second reviewer for lender handoff. The public Demo and Product pages reflected the reconciliation.
 
 All 306 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. The built Worker rejected an unreviewed or stale revision, a stale recorded amount, a former owner, and a post-closing edit. It also checked that a replay did not duplicate the audit, the second tab received the update, and the exact cents stayed in the reviewed application and MISMO when the recorded amount used whole dollars.
+
+## Match the saved quote before mock UWM handoff
+
+In a new fictional campaign pilot, staff saved a $355,000 mock quote on a reviewed $360,000 1003. The previous release showed a mock send action. On Worker `465e2cc5-c16f-4d5f-be38-088ec4f66fe9` from `83459df564ca`, the guide and 1003 panel opened pricing to review the two amounts. **Use 1003 amount in pricing** loaded $360,000. Send became available after staff priced and saved the matching quote. The handoff produced a mock receipt for revision 1 and opened the lender checklist with two conditions. Both public pages reflected the change.
+
+The built Worker blocked a mismatched quote from both the quote-linked and direct submission commands before writing a receipt. SQLite also checked a one-cent difference, successfully sent the matching revision, and preserved the earlier receipt when a later quote selection differed. All 306 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed.
