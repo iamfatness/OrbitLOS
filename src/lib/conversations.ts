@@ -1,4 +1,5 @@
 import { easternDate } from "./client-retention";
+import { mockCampaignFollowUpPrefix } from "./call-campaign-model";
 import { stopAutomaticCampaignRetriesForReply } from "./campaign-follow-up-runs";
 import { conversationInput, conversationQuery, conversationsUnavailable,
   type ConversationCallback, type ConversationChange, type ConversationCursor, type ConversationDetail, type ConversationEvent, type ConversationQuery, type ConversationReplyPage, type ConversationResult,
@@ -311,7 +312,10 @@ export function readConversations(db: Store, input: unknown, staff: WorkspaceSta
   const { events: eventsTable } = storage(row);
   const rows = db.prepare(`SELECT * FROM (SELECT id, kind, channel, origin, text, actor, at FROM ${eventsTable} WHERE conversationId = ?
     ${leadId ? `UNION ALL SELECT id, CASE WHEN outcome = 'Reply received' THEN 'Inbound' ELSE 'Outbound' END AS kind,
-      kind AS channel, 'Lead log' AS origin, text, actor, at FROM lead_events WHERE leadId = ? AND kind IN ('Call','Email','Text')` : ""})
+      CASE WHEN kind = 'Campaign' THEN CASE WHEN text LIKE '${mockCampaignFollowUpPrefix} · Email%' THEN 'Email' ELSE 'Text' END ELSE kind END AS channel,
+      CASE WHEN kind = 'Campaign' THEN 'Simulated' ELSE 'Lead log' END AS origin, text, actor, at
+      FROM lead_events WHERE leadId = ? AND (kind IN ('Call','Email','Text') OR
+        (kind = 'Campaign' AND text LIKE '${mockCampaignFollowUpPrefix} · %'))` : ""})
     ${after ? "WHERE (at, id) < (?, ?)" : ""} ORDER BY at DESC, id DESC LIMIT ?`)
     .all(row.id, ...(leadId ? [leadId] : []), ...(after ? [after.at, after.id] : []), pageSize + 1) as unknown as ConversationEvent[];
   const events = rows.slice(0, pageSize).map((event) => ({ ...event }));

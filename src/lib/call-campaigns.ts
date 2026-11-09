@@ -1,6 +1,6 @@
 import type { z } from "zod";
-import { assignableCampaignLead, defaultCampaignRules, localCampaignOfficers, unansweredCampaignCall,
-  type assignCampaignLeadsInput, type createCallCampaignInput, type pauseCampaignRetriesInput, type recordCampaignCallInput, type rescheduleCampaignCallbackInput,
+import { assignableCampaignLead, campaignFollowUpAllowed, campaignFollowUpRecipient, defaultCampaignRules, localCampaignOfficers, mockCampaignFollowUpPrefix, unansweredCampaignCall,
+  type assignCampaignLeadsInput, type createCallCampaignInput, type pauseCampaignRetriesInput, type recordCampaignCallInput, type recordCampaignFollowUpInput, type rescheduleCampaignCallbackInput,
   type saveCampaignRulesInput } from "./call-campaign-model";
 import { easternDate, easternDayStart } from "./client-retention";
 import { advanceLeadRevision, leadEvent, updateInboxLead } from "./lead-inbox";
@@ -222,4 +222,48 @@ export function rescheduleCampaignCallback(db: Store, staff: WorkspaceStaff | nu
   leadEvent(db, leadId, staff?.name || "Demo workspace", now,
     `Callback moved from ${dateTime(String(callback.dueAt))} ET to ${when} · ${input.reason}`, "Campaign");
   return { message: `Callback rescheduled for ${when}.` };
+}
+
+export function recordCampaignFollowUp(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof recordCampaignFollowUpInput>, now: string) {
+  if (staff && (!staff.brokerage.pilot || staff.brokerage.role === "Processor")) return { error: "Mock campaign follow-up is available in a fictional pilot." };
+  const lead = db.prepare(`SELECT lead.officerEmail, lead.heldAt, lead.email, lead.phone, lead.importedContactId AS contactId, member.lastOutcome,
+    coalesce(follow.revision, 0) AS revision, follow.replyReceivedAt, call.id AS callEventId, call.at AS callAt, call.outcome AS callOutcome,
+    CASE WHEN member.lastOutcome = 'Requested callback' AND task.completedAt IS NULL THEN task.dueAt END AS callbackAt
+    FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
+    LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
+    LEFT JOIN lead_import_tasks task ON task.id = member.callbackTaskId AND task.leadId = lead.id
+    LEFT JOIN lead_events call ON call.id = (SELECT event.id FROM lead_events event
+      WHERE event.leadId = lead.id AND event.kind = 'Call' ORDER BY event.at DESC, event.rowid DESC LIMIT 1)
+    WHERE member.campaignId = ? AND lead.id = ? AND lead.resolvedAt IS NULL AND lead.loanId IS NULL AND member.attempts > 0`).get(input.campaignId, input.leadId);
+  if (!lead?.officerEmail || (staff?.brokerage.role === "LO" && lead.officerEmail !== staff.email)) {
+    return { error: "This campaign lead is unavailable for follow-up." };
+  }
+  const identity = { ...lead, leadId: input.leadId };
+  if (lead.lastOutcome === "Opted out" || outreachSuppressed(blockedOutreachKeys(db, [identity]), identity)) {
+    return { error: "This borrower opted out of brokerage outreach." };
+  }
+  if (lead.heldAt) return { error: "Reactivate this lead before recording follow-up." };
+  const changed = { error: "The call, recipient, or callback changed. Refresh the campaign and reopen the draft." };
+  const callbackAt = typeof lead.callbackAt === "string" ? lead.callbackAt : null;
+  const recipient = campaignFollowUpRecipient(input.channel, { email: String(lead.email ?? ""), phone: String(lead.phone ?? "") });
+  if (lead.callEventId !== input.callEventId || lead.callOutcome !== lead.lastOutcome || callbackAt !== input.callbackAt || recipient !== input.recipient) {
+    return changed;
+  }
+  const actor = staff?.name || "Demo workspace";
+  const text = `${mockCampaignFollowUpPrefix} · ${input.channel}\nTo: ${input.recipient}\n${input.subject ? `Subject: ${input.subject}\n` : ""}\n${input.body}`;
+  const message = `Mock ${input.channel.toLowerCase()} recorded in the lead conversation.`;
+  const prior = db.prepare("SELECT leadId, actor, kind, text FROM lead_events WHERE id = ?").get(input.eventId);
+  if (prior) return prior.leadId === input.leadId && prior.actor === actor && prior.kind === "Campaign" && prior.text === text ?
+    { message } : { error: "This follow-up action was already used. Reopen the draft." };
+  if (lead.revision !== input.revision ||
+    (typeof lead.replyReceivedAt === "string" && typeof lead.callAt === "string" && lead.replyReceivedAt >= lead.callAt) ||
+    !campaignFollowUpAllowed(lead.lastOutcome, callbackAt, Date.parse(now))) {
+    return changed;
+  }
+  leadEvent(db, input.leadId, actor, now, text, "Campaign", null, input.eventId);
+  advanceLeadRevision(db, input.leadId);
+  db.prepare(`INSERT INTO lead_conversations (id, leadId, updatedAt) VALUES (?, ?, ?)
+    ON CONFLICT (leadId) DO UPDATE SET updatedAt = excluded.updatedAt, revision = lead_conversations.revision + 1`)
+    .run(crypto.randomUUID(), input.leadId, now);
+  return { message };
 }

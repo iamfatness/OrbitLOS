@@ -22,7 +22,8 @@ const { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationCompariso
 const { cutoverReadinessLimit } = await import("../src/lib/migration-cutover-model.ts");
 const { migrationFile, mappedMigrationRows, migrationFileByteLimit } = await import("../src/lib/pipeline-migration-model.ts");
 const { optOutContact, optOutLead, outreachSuppressionKeys, prospectiveOptOutKeys } = await import("../src/lib/outreach-preferences.ts");
-const { campaignCallNote, campaignCallQueues, campaignOrigin, campaignRehearsalCsv, nextCampaignCallId, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
+const { campaignCallNote, campaignCallQueues, campaignFollowUpRecipient, campaignFollowUpSource, campaignOrigin, campaignRehearsalCsv,
+  nextCampaignCallId, parseCampaignLeadCsv, renderCampaignFollowUp } = await import("../src/lib/call-campaign-model.ts");
 const { recordCampaignCall } = await import("../src/lib/call-campaigns.ts");
 const { campaignOptOutPlans } = await import("../src/lib/campaign-routing.ts");
 const { borrowerCommandResult, startApplication } = await import("../src/lib/applications.ts");
@@ -2122,6 +2123,61 @@ test("Today lead links follow current ownership and actionable callback state", 
   assert.ok(queue(staff).some(({ id, dueAt }) => id === callback.id && dueAt === rescheduledAt));
   await apply(call(returned, { outcome: "Connected" }));
   assert.ok(read(callbackLink, staff).error);
+});
+
+test("mock campaign drafts use the saved call and stay with the conversation through conversion", async (t) => {
+  const { db, staff, officer, state, campaignId, leadId, call, apply } = await campaignRecoveryFixture(t);
+  const callbackAt = new Date(Date.now() + 86_400_000).toISOString();
+  const logged = await apply(call(state, { outcome: "Requested callback", callbackAt, note: "Private staff note." }));
+  const lead = logged.inboxLeads.find(({ id }) => id === leadId);
+  const member = logged.callCampaignMembers.find((item) => item.leadId === leadId);
+  const source = campaignFollowUpSource(lead, member, Date.now());
+  assert.equal(source.callbackAt, callbackAt);
+  assert.equal(campaignFollowUpSource(lead, member, Date.parse(callbackAt)), undefined);
+  const base = { type: "recordCampaignFollowUp", campaignId, leadId, callEventId: source.callEventId, callbackAt };
+  const preview = (channel) => renderCampaignFollowUp(source.outcome, channel, lead.name, lead.officer, callbackAt);
+  const email = { ...base, eventId: crypto.randomUUID(), channel: "Email", recipient: campaignFollowUpRecipient("Email", lead),
+    revision: lead.followUp.revision, ...preview("Email") };
+  assert.match(email.subject, /callback/i);
+  assert.match(email.body, /Eastern/);
+  assert.doesNotMatch(email.body, /Private staff note/);
+  const send = (input, actor = staff) => executeCommand(db, input, actor, undefined, [], { scopedLeadUpdates: true });
+  assert.match((await send(email, officer)).error, /unavailable/);
+  assert.match((await send(email, { ...staff, brokerage: { ...staff.brokerage, pilot: false } })).error, /fictional pilot/);
+  assert.match((await send({ ...email, callEventId: crypto.randomUUID() })).error, /changed/);
+  assert.match((await send({ ...email, recipient: "different@example.test" })).error, /changed/);
+  assert.match((await send({ ...email, callbackAt: new Date(Date.parse(callbackAt) + 60_000).toISOString() })).error, /changed/);
+  const recordedEmail = await send(email);
+  assert.match(recordedEmail.message, /Mock email recorded/);
+  assert.deepEqual((await send(email)).leadWork, recordedEmail.leadWork);
+  assert.match((await send({ ...email, body: "A different draft using the same action." })).error, /already used/);
+  assert.equal(recordedEmail.leadWork.member.attempts, member.attempts);
+  assert.equal(recordedEmail.leadWork.member.callbackDueAt, callbackAt);
+  assert.equal(recordedEmail.leadWork.lead.followUp.firstContactAt, lead.followUp.firstContactAt);
+  const text = { ...base, eventId: crypto.randomUUID(), channel: "Text", recipient: campaignFollowUpRecipient("Text", lead),
+    revision: recordedEmail.leadWork.lead.followUp.revision, ...preview("Text") };
+  const recordedText = await send(text);
+  assert.match(recordedText.message, /Mock text recorded/);
+  const tenant = staff.brokerage.id;
+  const thread = readConversations(db, { type: "lead", leadId }, staff, tenant);
+  assert.equal(thread.kind, "thread");
+  assert.equal(thread.thread.campaignCallback.dueAt, callbackAt);
+  assert.deepEqual(new Set(thread.events.filter(({ origin }) => origin === "Simulated").map(({ id }) => id)), new Set([email.eventId, text.eventId]));
+  assert.equal(thread.events.filter(({ channel }) => channel === "Call").length, 1);
+  assert.equal(thread.thread.status, "Open");
+  assert.equal(db.prepare("SELECT count(*) AS count FROM lead_events WHERE leadId = ? AND outcome = 'Sent update'").get(leadId).count, 0);
+
+  const alias = crypto.randomUUID();
+  insertContact(db, { id: alias, name: "Fictional opt-out alias", email: lead.email, phone: "", role: "Borrower" });
+  await apply({ type: "optOutContact", contactId: alias });
+  assert.match((await send({ ...email, eventId: crypto.randomUUID() })).error, /opted out/);
+  const conversion = await executeCommand(db, { type: "convertReferral", referralId: leadId, contactId: alias }, staff);
+  assert.ok(conversion.referralLoanId, conversion.error);
+  const carried = readConversations(db, { type: "thread", id: thread.thread.id }, staff, tenant);
+  assert.equal(carried.thread.loanId, conversion.referralLoanId);
+  assert.equal(carried.events.filter(({ origin }) => origin === "Simulated").length, 2);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM activity WHERE loanId = ? AND text LIKE 'Mock campaign follow-up recorded%'")
+    .get(conversion.referralLoanId).count, 2);
 });
 
 test("rescheduling a campaign callback keeps the original call, task, and owner history", async (t) => {

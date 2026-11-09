@@ -2,8 +2,9 @@ import { z } from "zod";
 import { readCsv } from "./contact-csv";
 import { leadContactFields, type LeadEvent } from "./lead-inbox-model";
 import type { MigrationRow } from "./pipeline-migration-model";
-import type { InboxLead, Loan, Workspace } from "./model";
+import type { DraftChannel, InboxLead, Loan, Workspace } from "./model";
 import { referralPhone } from "./referral-matches";
+import { dateTime } from "./utils";
 
 export const callOutcomes = ["Connected", "Left message", "No response", "Requested callback", "Opted out"] as const;
 export type CallOutcome = (typeof callOutcomes)[number];
@@ -83,6 +84,47 @@ export const rescheduleCampaignCallbackInput = z.object({
   type: z.literal("rescheduleCampaignCallback"), campaignId: z.uuid(), leadId: z.uuid(), revision: z.number().int().nonnegative(),
   callbackAt: z.iso.datetime(), reason: z.string().trim().min(1).max(400),
 });
+
+export const mockCampaignFollowUpPrefix = "Mock campaign follow-up recorded";
+export const recordCampaignFollowUpInput = z.object({
+  type: z.literal("recordCampaignFollowUp"), campaignId: z.uuid(), leadId: z.uuid(), callEventId: z.uuid(), eventId: z.uuid(),
+  revision: z.number().int().nonnegative(), channel: z.enum(["Email", "Text"]), recipient: z.string().trim().min(1).max(254),
+  callbackAt: z.iso.datetime().nullable(), subject: z.string().trim().max(120).regex(/^[^\r\n]*$/), body: z.string().trim().min(1).max(1200),
+}).refine(({ channel, subject }) => channel === "Email" ? !!subject : !subject, "Use a subject for email drafts only.");
+
+type FollowUpOutcome = Exclude<CallOutcome, "Opted out">;
+
+export function campaignFollowUpAllowed(outcome: unknown, callbackAt: string | null, now: number): outcome is FollowUpOutcome {
+  return outcome === "Connected" || outcome === "Left message" || outcome === "No response" ||
+    (outcome === "Requested callback" && !!callbackAt && Date.parse(callbackAt) > now);
+}
+
+export function campaignFollowUpSource(lead: InboxLead, member: CallCampaignMember, now: number) {
+  if (!lead.officerEmail || lead.heldAt || lead.outreachSuppressed || member.outreachSuppressed || member.resolvedAt || member.loanId || !member.attempts) return;
+  const call = lead.followUp.events.find(({ kind }) => kind === "Call");
+  const callbackAt = member.lastOutcome === "Requested callback" ? member.callbackDueAt : null;
+  if (!call || call.outcome !== member.lastOutcome || !campaignFollowUpAllowed(call.outcome, callbackAt, now) ||
+    (lead.followUp.replyReceivedAt && lead.followUp.replyReceivedAt >= call.at) ||
+    (!campaignFollowUpRecipient("Email", lead) && !campaignFollowUpRecipient("Text", lead))) return;
+  return { callEventId: call.id, outcome: call.outcome, callbackAt };
+}
+
+export function campaignFollowUpRecipient(channel: DraftChannel, { email, phone }: { email: string; phone: string }) {
+  const address = channel === "Email" ? email.trim() : phone.trim();
+  const field = channel === "Email" ? leadContactFields.email : leadContactFields.phone;
+  return address && field.safeParse(address).success ? address : "";
+}
+
+export function renderCampaignFollowUp(outcome: FollowUpOutcome, channel: DraftChannel, name: string, officer: string, callbackAt: string | null) {
+  const subject = outcome === "Requested callback" ? "Confirming our callback" : "Following up on your mortgage inquiry";
+  const message = outcome === "Requested callback" && callbackAt ? `Thanks for speaking with me. I’ll call you on ${dateTime(callbackAt)} Eastern. Let me know if your availability changes.` :
+    outcome === "Connected" ? "Thanks for talking with me about your mortgage plans. Let me know if you have questions or would like to go over the next step." :
+      outcome === "Left message" ? "I left you a voicemail about your mortgage inquiry. When would be a good time to connect?" :
+        "I tried to reach you about your mortgage inquiry. Let me know when you’d like to talk.";
+  const signature = officer || "Your loan team";
+  return channel === "Email" ? { subject, body: `Hi ${name},\n\n${message}\n\nThanks,\n${signature}` } :
+    { subject: "", body: `Hi ${name}, ${message} — ${signature}` };
+}
 
 export interface CallCampaign extends CampaignRules {
   id: string;

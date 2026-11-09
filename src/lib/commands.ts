@@ -58,9 +58,9 @@ import { migrationInput, undoMigrationInput, type MigrationReport } from "./pipe
 import { migratePipeline } from "./pipeline-migration";
 import { undoMigration } from "./migration-recovery";
 import type { MigrationMutationResult } from "./migration-record-model";
-import { addCampaignLeadInput, assignCampaignLeadsInput, createCallCampaignInput, loadCampaignRehearsalInput, openCampaignsInput, pauseCampaignRetriesInput, recordCampaignCallInput, refreshCampaignQueueInput, routeCampaignQueueInput,
+import { addCampaignLeadInput, assignCampaignLeadsInput, createCallCampaignInput, loadCampaignRehearsalInput, openCampaignsInput, pauseCampaignRetriesInput, recordCampaignCallInput, recordCampaignFollowUpInput, refreshCampaignQueueInput, routeCampaignQueueInput,
   campaignManualHandoff, rescheduleCampaignCallbackInput, saveCampaignRoutingInput, saveCampaignRulesInput, unansweredCampaignCall } from "./call-campaign-model";
-import { assignCampaignLeads, createCallCampaign, linkCampaignLead, mayManageCampaigns, pauseCampaignRetries, recordCampaignCall, rescheduleCampaignCallback,
+import { assignCampaignLeads, createCallCampaign, linkCampaignLead, mayManageCampaigns, pauseCampaignRetries, recordCampaignCall, recordCampaignFollowUp, rescheduleCampaignCallback,
   saveCampaignRules, stopCampaignFollowUp } from "./call-campaigns";
 import { enrollCrmSegmentInput, saveCrmSegmentInput, type SegmentPreview } from "./crm-segment-model";
 import { enrollCrmSegment, saveCrmSegment } from "./crm-segments";
@@ -202,6 +202,7 @@ const command = z.discriminatedUnion("type", [
   saveCampaignRulesInput,
   pauseCampaignRetriesInput,
   recordCampaignCallInput,
+  recordCampaignFollowUpInput,
   rescheduleCampaignCallbackInput,
   saveReportView,
   saveCallReport,
@@ -416,6 +417,7 @@ function scopedLeadId(data: z.infer<typeof command>) {
     case "assignInboxLead":
     case "claimSharedRealtor":
     case "rescheduleCampaignCallback":
+    case "recordCampaignFollowUp":
     case "completeLeadTask":
       return data.leadId;
     case "assignCampaignLeads":
@@ -692,6 +694,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "rescheduleCampaignCallback": {
           const result = rescheduleCampaignCallback(db, staff, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
+        case "recordCampaignFollowUp": {
+          const result = recordCampaignFollowUp(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;

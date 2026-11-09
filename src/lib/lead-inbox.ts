@@ -127,8 +127,8 @@ export function leadFollowUp(db: Store, leadId: string): LeadFollowUp {
     .all(leadId).map((row) => ({ ...row }) as unknown as LeadEvent) };
 }
 
-export function leadEvent(db: Store, leadId: string, actor: string, at: string, text: string, kind: LeadEvent["kind"] = "Note", outcome: LeadEvent["outcome"] = null) {
-  const id = crypto.randomUUID();
+export function leadEvent(db: Store, leadId: string, actor: string, at: string, text: string, kind: LeadEvent["kind"] = "Note",
+  outcome: LeadEvent["outcome"] = null, id = crypto.randomUUID()) {
   db.prepare("INSERT INTO lead_events (id, leadId, actor, at, kind, outcome, text) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(id, leadId, actor, at, kind, outcome, text);
   return id;

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Phone, RefreshCw, Upload } from "lucide-react";
 import { demoBrokerageId } from "@/lib/brokerage-model";
-import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
+import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignFollowUpSource, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
   type CallCampaign, type CallCampaignMember, type CallOutcome, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { firstContactOverdue } from "@/lib/lead-inbox-model";
@@ -21,10 +21,12 @@ import { CampaignResponse } from "./campaign-response";
 import { CampaignCallbackPerformance } from "./campaign-callback-performance";
 import { LeadTasks, leadTaskTarget } from "./lead-tasks";
 import { PersonalCampaignCallbacks } from "./personal-campaign-callbacks";
+import { CampaignFollowUp } from "./campaign-follow-up";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
 const campaignMetrics = ["Enrolled", "Reached", "1003s started", "1003s submitted", "Funded"] as const;
 const views = [...campaignMetrics, "Unassigned", "First contact overdue", "Ready to call", "Next call", "Replies logged", "Scheduled follow-up", "Upcoming callbacks", "Retry limit reached", "Needs recovery", "On hold", "Opted out"] as const;
+type CallContinuation = { leadId: string; campaignId: string; ownerEmail: string | null; view: (typeof views)[number]; segmentId: string };
 function CampaignRulesForm({ campaign, canManage, busy, save }: { campaign: CallCampaign; canManage: boolean; busy: boolean; save: Save }) {
   const retryTime = campaign.retryTime ?? defaultCampaignRules.retryTime;
   const [hours, minutes] = retryTime.split(":");
@@ -195,8 +197,8 @@ function CampaignCallContext({ lead, member, campaignName }: { lead: InboxLead; 
   </section>;
 }
 
-function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, busy, overdue, callbackDue, showCallContext, allowDirectAssignment, save, openLead, openConversation, convert, onCallSaved, onClaim }: {
-  member: CallCampaignMember; lead?: InboxLead; campaign: CallCampaign; staff: WorkspaceStaff | null; busy: boolean; save: Save;
+function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId, busy, overdue, callbackDue, showCallContext, allowDirectAssignment, save, openLead, openConversation, convert, onCallSaved, onClaim }: {
+  member: CallCampaignMember; lead?: InboxLead; campaign: CallCampaign; staff: WorkspaceStaff | null; now: number; busy: boolean; save: Save;
   focused: boolean; focusTaskId?: string; overdue: boolean; callbackDue: boolean; showCallContext: boolean; allowDirectAssignment: boolean;
   openLead: (id: string) => void; openConversation: (id: string) => void; convert: (id: string) => void;
   onCallSaved: (lead: InboxLead, outcome: CallOutcome, updated: Workspace) => void;
@@ -213,6 +215,7 @@ function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, bus
     target?.scrollIntoView({ block: task ? "center" : "nearest" });
   }, [focused, focusTaskId]);
   const canWork = !staff || (!!lead?.officerEmail && (staff.brokerage.role === "Admin" || lead.officerEmail === staff.email));
+  const followUp = lead && canWork && (!staff || staff.brokerage.pilot) ? campaignFollowUpSource(lead, member, now) : undefined;
   const optedOut = member.outreachSuppressed;
   const held = !!lead?.heldAt;
   const retryExhausted = !!member.retryExhaustedAt && !lead?.followUp.replyReceivedAt;
@@ -287,6 +290,8 @@ function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, bus
           </details>}
           <div><Button size="sm" type="submit" variant="outline" disabled={busy}><Phone /> Log call outcome</Button></div>
         </form>
+        {followUp && <CampaignFollowUp key={JSON.stringify([followUp.callEventId, followUp.callbackAt, lead.email, lead.phone, lead.officerEmail])}
+          campaignId={campaign.id} lead={lead} source={followUp} busy={busy} save={save} openConversation={openConversation} />}
         <div className="loan-application-actions">
           {canStartCampaignApplication(member, lead, staff) && <CampaignApplicationAction lead={lead} busy={busy} openLead={openLead} convert={convert} />}
           <Button size="sm" variant="ghost" onClick={() => openLead(lead.id)}>Open lead</Button>
@@ -306,7 +311,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   openCallback: (item: CampaignCallbackItem) => void;
 }) {
   const [view, setView] = useState<(typeof views)[number]>("Enrolled");
-  const [connected, setConnected] = useState<{ leadId: string; campaignId: string; ownerEmail: string | null; view: typeof view; segmentId: string }>();
+  const [connected, setConnected] = useState<CallContinuation>();
+  const [savedCall, setSavedCall] = useState<CallContinuation & { callEventId: string }>();
   const [segmentFilter, setSegmentFilter] = useState("");
   const [importOpen, setImportOpen] = useState(state.campaignRehearsal?.campaignId === selectedId && state.campaignRehearsal.importedCount < 2);
   const [segmentsOpen, setSegmentsOpen] = useState(false);
@@ -375,11 +381,18 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     "Opted out": records.filter(({ optedOut }) => optedOut),
   };
   const visible = buckets[view];
-  const continuation = connected && connected.campaignId === campaign?.id && connected.view === view && connected.segmentId === segmentId &&
-    !visible.some(({ member }) => member.leadId === connected.leadId)
-    ? records.find(({ member, lead }) => member.leadId === connected.leadId && lead?.officerEmail === connected.ownerEmail)
-    : undefined;
+  const continuationFor = (call?: CallContinuation) => call && call.campaignId === campaign?.id && call.view === view && call.segmentId === segmentId &&
+    !visible.some(({ member }) => member.leadId === call.leadId)
+    ? records.find(({ member, lead }) => member.leadId === call.leadId && lead?.officerEmail === call.ownerEmail) : undefined;
+  const continuation = continuationFor(connected);
   const connectedLead = continuation && canStartCampaignApplication(continuation.member, continuation.lead, staff) ? continuation.lead : undefined;
+  const followUpRecord = continuationFor(savedCall);
+  const followUpLead = followUpRecord?.lead;
+  const followUp = followUpRecord && followUpLead && (!staff || (staff.brokerage.pilot && (staff.brokerage.role === "Admin" || staff.email === followUpLead.officerEmail)))
+    ? campaignFollowUpSource(followUpLead, followUpRecord.member, now) : undefined;
+  const followUpDraft = campaign && followUpLead && followUp && followUp.callEventId === savedCall?.callEventId &&
+    <CampaignFollowUp key={JSON.stringify([followUp.callEventId, followUp.callbackAt, followUpLead.email, followUpLead.phone, followUpLead.officerEmail])}
+      campaignId={campaign.id} lead={followUpLead} source={followUp} busy={busy} save={save} openConversation={openConversation} />;
   const assignmentLeads = visible.flatMap(({ lead, optedOut }) => lead && !optedOut && assignableCampaignLead(lead) ? [lead] : []);
   const showCapacity = canManage && view === "Unassigned" && campaign?.routing?.enabled;
   const routingLeads = showCapacity ? campaignMembers.flatMap((member) => {
@@ -406,7 +419,10 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   }
 
   function changeView(next: typeof view) {
-    if (next !== view) setConnected(undefined);
+    if (next !== view) {
+      setConnected(undefined);
+      setSavedCall(undefined);
+    }
     setClaimedLeadId(undefined);
     if (next === "Next call") selectNextCall(state);
     else setCallLeadId(undefined);
@@ -416,6 +432,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   function changeCampaign(id: string, alreadyLoaded = false) {
     select(id, alreadyLoaded);
     setConnected(undefined);
+    setSavedCall(undefined);
     setClaimedLeadId(undefined);
     setCallLeadId(undefined);
     setView("Enrolled");
@@ -428,14 +445,17 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
       <p className="muted">{loan.officer || "Unassigned"} · {fundingDate ? `Funded ${fundingDate} · ${money(loan.amount)}` : submittedAt ? `Submitted ${dateTime(submittedAt)} ET` : loan.stage}</p>
       <div><Button size="sm" variant="outline" onClick={() => openLoan(loan.id)}>Open loan</Button></div>
     </li>;
-    return <CampaignCall key={member.leadId} member={member} lead={lead} campaign={campaign} staff={staff}
+    return <CampaignCall key={member.leadId} member={member} lead={lead} campaign={campaign} staff={staff} now={now}
       focused={member.leadId === (view === "Next call" ? callLeadId : claimedLeadId ?? focusLeadId)} busy={busy}
       focusTaskId={view !== "Next call" && member.leadId === focusLeadId ? focusTaskId : undefined} overdue={overdueIds.has(member.leadId)} callbackDue={dueCallbackIds.has(member.leadId)}
       showCallContext={view === "Next call" || (member.leadId === focusLeadId && !!member.callbackDueAt)}
       allowDirectAssignment={canManage && view === "Unassigned"} save={save} openLead={openLead} openConversation={openConversation} convert={convert}
       onClaim={(leadId) => { changeView("Enrolled"); setClaimedLeadId(leadId); }}
       onCallSaved={(lead, outcome, updated) => {
-        if (outcome === "Connected") setConnected({ leadId: lead.id, campaignId: member.campaignId, ownerEmail: lead.officerEmail, view, segmentId });
+        const anchor = { leadId: lead.id, campaignId: member.campaignId, ownerEmail: lead.officerEmail, view, segmentId };
+        if (outcome === "Connected") setConnected(anchor);
+        const call = updated.inboxLeads.find(({ id }) => id === lead.id)?.followUp.events.find(({ kind }) => kind === "Call");
+        setSavedCall(call && { ...anchor, callEventId: call.id });
         if (view === "Next call") selectNextCall(updated, lead.id);
       }} />;
   }
@@ -450,6 +470,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
           openCallback={(item) => {
             if (!item.loanId) {
               setConnected(undefined);
+              setSavedCall(undefined);
               setView("Enrolled");
               setSegmentFilter("");
             }
@@ -552,6 +573,11 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         {connectedLead && <div className="document-item" key={connectedLead.id}>
           <div className="document-item-head"><strong id={connectedCallNotice}>Connected with {connectedLead.name}</strong><span className="pill">Call logged</span></div>
           <div><CampaignApplicationAction lead={connectedLead} busy={busy} openLead={openLead} convert={convert} focus={view !== "Next call" || !nextCall} /></div>
+          {followUpLead?.id === connectedLead.id && followUpDraft}
+        </div>}
+        {followUpDraft && followUpLead?.id !== connectedLead?.id && <div className="document-item">
+          <div className="document-item-head"><strong>Follow up with {followUpLead?.name}</strong><span className="pill">Call logged</span></div>
+          {followUpDraft}
         </div>}
         {view === "Next call" && !nextCall ? <p className="empty-inline" role="status">{callLeadId ?
           "This lead is no longer ready. Select Next call to continue." : "You’re caught up. No assigned calls are ready in this view."}</p> :
