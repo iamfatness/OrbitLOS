@@ -1,12 +1,16 @@
 import { isOpenOverdueCallbackPromise } from "./campaign-callback-exceptions";
 import { callbackExceptionChanged, callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
+import { carriedCallbackSource, openCarriedCallback } from "./carried-campaign-callback";
+import { readEditableLoan } from "./editable-loan";
 import { leadTaskUnavailable, leadWorkRequest, leadWorkUnavailable, type LeadWorkRecord } from "./lead-work-model";
+import type { EditableLoan } from "./loan-work-model";
 import { prospectingBlocked } from "./model";
+import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
 import type { WorkspaceStaff } from "./staff-store";
 import { leadWorkRecord, type Store } from "./store";
 
 export function readEditableLead(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  localName?: string): LeadWorkRecord | { error: string } {
+  localName?: string): LeadWorkRecord | { loanWork: EditableLoan; callbackTaskId: string } | { error: string } {
   if (!staff || staff.brokerage.role === "Processor" || staff.brokerage.id !== brokerageId) {
     return { error: leadWorkUnavailable };
   }
@@ -22,6 +26,15 @@ export function readEditableLead(db: Store, input: unknown, staff: WorkspaceStaf
     const teamTask = task?.kind === "lead-task" && task.team && staff.brokerage.role === "Admin";
     if (task && !db.prepare(`SELECT 1 FROM referral_leads WHERE id = ? AND resolvedAt IS NULL AND heldAt IS NULL
       AND (? = 1 OR officerEmail = ? OR (officerEmail IS NULL AND officer = ?))`).get(leadId, Number(!!teamTask), staff.email, localName ?? null)) {
+      const callback = !callbackPromiseId && task.kind === "campaign" && task.expectedCallbackAt ? db.prepare(`
+        SELECT loan.id AS loanId, lead.id AS leadId, loan.contactId, borrower.email, borrower.phone
+        ${carriedCallbackSource} JOIN contacts borrower ON borrower.id = loan.contactId
+        WHERE ${openCarriedCallback} AND lead.id = ? AND task.id = ? AND task.dueAt = ? AND loan.officerEmail = ?`)
+        .get(leadId, task.id, task.expectedCallbackAt, staff.email) : undefined;
+      if (callback && typeof callback.loanId === "string" && !outreachSuppressed(blockedOutreachKeys(db, [callback]), callback)) {
+        const loanWork = readEditableLoan(db, callback.loanId, staff, brokerageId, localName);
+        if (!("error" in loanWork)) return { loanWork, callbackTaskId: task.id };
+      }
       return { error: leadTaskUnavailable };
     }
     const record = leadWorkRecord(db, leadId, staff.brokerage.role === "LO" ? staff.email : undefined);

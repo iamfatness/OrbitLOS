@@ -820,6 +820,12 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       const result = await readLeadForWork(input, staff?.brokerage.id ?? demoBrokerageId);
       if (!openingRecord.current) return;
       if ("error" in result) { setError(result.error); return; }
+      if ("loanWork" in result) {
+        setLoanWork(result.loanWork);
+        setState((current) => applyLoanMutation(current, result.loanWork));
+        show({ kind: "details", loanId: result.loanWork.loanId, target: searchTaskTarget(result.callbackTaskId) });
+        return;
+      }
       setState((current) => applyLeadWork(current, result));
       const campaignId = preferInbox ? undefined : result.campaign?.id;
       openLeadWork(result.lead.id, campaignId, Boolean(campaignId));

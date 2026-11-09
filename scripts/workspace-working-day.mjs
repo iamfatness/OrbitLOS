@@ -1967,6 +1967,8 @@ try {
     const personal = async (staff) => (await upcomingCallbacks(staff)).items.find((item) => item.taskId === taskId);
     const before = await personal(winner);
     assert.equal(before.dueAt, callbackAt);
+    const originalLink = { leadId, task: { kind: "campaign", id: taskId, expectedCallbackAt: callbackAt } };
+    assert.equal((await action(winner, "readLeadForWork", originalLink)).lead.id, leadId);
     const { referralLoanId: loanId } = await write(winner, { type: "convertReferral", referralId: leadId, contactId: null });
     const converted = await file(winner, loanId);
     assert.equal(converted.loans[0].officerEmail, winner.email);
@@ -1975,6 +1977,11 @@ try {
     assert.equal(application.draft.email, email);
     assert.equal(application.draft.propertyLocation.zip, zip);
     assert.deepEqual(await personal(winner), { ...before, loanId });
+    const carriedLink = await action(winner, "readLeadForWork", originalLink);
+    assert.equal(carriedLink.loanWork.loanId, loanId);
+    assert.equal(carriedLink.callbackTaskId, taskId);
+    assert.equal(carriedLink.loanWork.tasks.find(({ id }) => id === taskId).dueAt, callbackAt);
+    for (const staff of [loser, owner, processor]) assert.ok((await action(staff, "readLeadForWork", originalLink)).error);
     assert.equal(await personal(loser), undefined);
     assert.ok((await action(loser, "readLoanForWork", loanId)).error);
   });

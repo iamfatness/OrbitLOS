@@ -228,6 +228,19 @@ test("lead conversations carry ownership, campaign call history, and deadlines t
   assert.equal(after.thread.dueOn, followUp.dueOn);
   const carried = { loanId: converted.referralLoanId, taskId: promised.taskId, dueAt: callbackAt };
   assert.deepEqual(after.thread.campaignCallback, carried);
+  const openCallback = (actor = other, request = callbackLink, workspace = brokerage.id) => readEditableLead(db, request, actor, workspace);
+  const moved = openCallback();
+  assert.equal(moved.loanWork.loanId, carried.loanId);
+  assert.equal(moved.callbackTaskId, promised.taskId);
+  assert.equal(moved.loanWork.tasks.find(({ id }) => id === promised.taskId).campaignCallback, "Pending");
+  for (const actor of [lo, admin, processor]) assert.ok(openCallback(actor).error);
+  assert.ok(openCallback(other, callbackLink, crypto.randomUUID()).error);
+  assert.ok(openCallback(other, { ...callbackLink, leadId: crypto.randomUUID() }).error);
+  assert.ok(openCallback(other, { ...callbackLink, task: { ...callbackLink.task, id: crypto.randomUUID() } }).error);
+  assert.ok(openCallback(other, { leadId, task: { kind: "campaign", id: promised.taskId } }).error);
+  db.prepare("INSERT INTO outreach_opt_outs (source, identityKey, recordedAt) VALUES ('test', ?, ?)").run(`lead:${leadId}`, callbackAt);
+  assert.ok(openCallback().error);
+  db.prepare("DELETE FROM outreach_opt_outs WHERE source = 'test' AND identityKey = ?").run(`lead:${leadId}`);
   assert.equal(after.thread.canOpenCampaignCallback, true);
   assert.deepEqual(read({ type: "myReplies" }, other).page.items[0].campaignCallback, carried);
   assert.equal(after.thread.unread, true);
@@ -248,6 +261,7 @@ test("lead conversations carry ownership, campaign call history, and deadlines t
   assert.equal(replay.state.tasks.find(({ id }) => id === promised.taskId).campaignCallback, "Pending");
   const completed = await executeCommand(db, { type: "completeTask", id: promised.taskId, completed: true }, other);
   assert.ok(completed.message, completed.error);
+  assert.ok(openCallback().error);
   assert.equal(thread(other).thread.campaignCallback, undefined);
   assert.equal(read({ type: "myReplies" }, other).page.items[0].campaignCallback, undefined);
   assert.equal(report().items[0].status, "Closed without attempt");
@@ -259,6 +273,7 @@ test("lead conversations carry ownership, campaign call history, and deadlines t
   assert.ok((await log(input, processor)).error);
   assert.ok((await log({ ...input, dueAt: now.toISOString() })).error);
   db.prepare("UPDATE loans SET disposition = 'On hold' WHERE id = ?").run(carried.loanId);
+  assert.ok(openCallback().error);
   assert.equal(report().items[0].status, "On hold");
   assert.match((await log()).error, /Reopen the loan/);
   db.prepare("UPDATE loans SET disposition = 'Active' WHERE id = ?").run(carried.loanId);
@@ -274,6 +289,8 @@ test("lead conversations carry ownership, campaign call history, and deadlines t
   assert.equal(report().items[0].dueAt, revisedDueAt);
   assert.equal(report().items[0].originalDueAt, callbackAt);
   assert.equal(thread(other).thread.campaignCallback.dueAt, revisedDueAt);
+  assert.ok(openCallback().error);
+  assert.equal(openCallback(other, { ...callbackLink, task: { ...callbackLink.task, expectedCallbackAt: revisedDueAt } }).loanWork.loanId, carried.loanId);
   assert.ok((await log(reschedule)).message);
   assert.ok((await log({ ...reschedule, reason: "Different reason" })).error);
   assert.ok((await log({ ...reschedule, eventId: crypto.randomUUID(), callbackAt: callbackAt })).error);
@@ -290,6 +307,7 @@ test("lead conversations carry ownership, campaign call history, and deadlines t
   assert.ok((await log({ ...reschedule, eventId: crypto.randomUUID() })).error);
   const logged = await log();
   assert.ok(logged.loanWork, logged.error);
+  assert.ok(openCallback().error);
   const loggedTask = logged.loanWork.tasks.find(({ id }) => id === promised.taskId);
   assert.equal(loggedTask.campaignCallback, "Recorded");
   assert.equal((await log()).loanWork.tasks.find(({ id }) => id === promised.taskId).completedAt, loggedTask.completedAt);
