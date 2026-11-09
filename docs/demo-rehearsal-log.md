@@ -371,3 +371,9 @@ Staff left an overdue bank statement task open in one tab and converted the lead
 The fictional request and borrower link existed before Worker `b86e973e-77d8-434a-8c70-5b00af3cc837` from `f90e5ae2532a`. The admin opened the assigned officer's bank statement request from November 10 in the Brokerage calendar. Moving it to November 12 removed the original calendar entry. Refreshing the same borrower link showed the new date. Clearing the date removed the item from the agenda and left the bank statement request open for the borrower. The public Product and Demo pages showed the updated workflow.
 
 All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. SQLite verified permission boundaries, the same-date retry, stale-write rejection, upload continuity during a date change, and preservation of the deadline revision and history during conversion.
+
+## Hosted lead document ownership recovery
+
+On Worker `6486b48f-51a2-4b30-9d67-131bd4734203` from `72f8b0c8cbce`, the Guided Demo admin opened Playbooks → Ownership and deadlines → Lead documents. A fictional campaign lead in the shared inbox showed one borrower upload outstanding, one received upload ready for review, and the November 8 deadline. Open lead took the admin to the current ownership field in Lead Inbox. Assign lead cleared the exception and the receiving owner's Today showed both the received pay stub and the overdue bank statement. The same borrower link still showed the received status and original due date. The public Product and Demo pages showed the reassignment flow.
+
+All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. SQLite also covered an unavailable owner, source and campaign filters, the admin permission check, a held lead, a stale assignment, and an idempotent retry with one recovery audit event.
