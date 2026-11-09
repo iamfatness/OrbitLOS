@@ -65,6 +65,7 @@ import { defaultManagerExceptionFilters } from "@/lib/manager-exception-model";
 import type { MigrationDestination } from "@/lib/migration-record-model";
 import { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, applyLeadMutation, applyLeadWork, type LeadWorkRequest } from "@/lib/lead-work-model";
 import type { WorkspaceMutationScope, WorkspaceMutationSuccess } from "@/lib/commands";
+import type { LeadInboxMutation } from "@/lib/lead-inbox-model";
 import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
 import { announceBorrowerChange, borrowerChecklistTokens } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
@@ -359,7 +360,14 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     setError("");
     setNotice("");
     try {
-      const result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
+      let result: Awaited<ReturnType<typeof mutate>>;
+      if (staff && input && typeof input === "object" && "type" in input && input.type === "convertReferral") {
+        const response = await fetch(`/api/lead-conversion?brokerage=${encodeURIComponent(staff.brokerage.id)}`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+        });
+        if (response.status === 401) throw new Error(staffSignInRequired);
+        result = await response.json() as LeadInboxMutation | { error: string };
+      } else result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
       if ("error" in result) {
         setError(result.error);
         if ("claimConflict" in result && result.claimConflict) {
@@ -403,8 +411,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         return;
       }
       if ("inboxChanged" in result) {
-        const { inboxLoan, referralLoanId, restoredLeadId, message } = result;
-        const apply = (current: Workspace) => inboxLoan ? applyLoanMutation(current, inboxLoan) : { ...current };
+        const { inboxLoan, referralLoanId, restoredLeadId, convertedCampaign, message } = result;
+        const apply = (current: Workspace) => {
+          const refreshed = convertedCampaign ? applyCampaignQueue(current, convertedCampaign) : current;
+          return inboxLoan ? applyLoanMutation(refreshed, inboxLoan) : { ...refreshed };
+        };
         setState(apply);
         setWorkspaceStatus("cold");
         setLoanWork(inboxLoan);

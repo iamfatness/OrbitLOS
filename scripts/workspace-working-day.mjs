@@ -506,16 +506,36 @@ try {
     const overflow = (await workspace(owner)).inboxLeads.filter(({ campaignId: campaign, officerEmail }) => campaign === campaignId && !officerEmail);
     assert.equal(overflow.length, 1);
     const conversion = { type: "convertReferral", referralId: leadId, contactId: null };
-    const result = await write(officer, conversion);
+    const conversionPath = `/api/lead-conversion?brokerage=${brokerage}`;
+    assert.equal((await postResponse(conversionPath, conversion)).status, 401);
+    assert.equal((await postResponse(conversionPath, conversion, processor)).status, 403);
+    assert.equal((await postResponse(conversionPath, conversion, competingOfficer)).status, 409);
+    assert.equal((await postResponse(`/api/lead-conversion?brokerage=${randomUUID()}`, conversion, officer)).status, 403);
+    const foreign = await runtime.dispatchFetch(`${origin}${conversionPath}`, { method: "POST", headers: {
+      Origin: "https://unrelated.example.test", "Content-Type": "application/json", Cookie: `__Host-orbit-session=${officer.token}`,
+    }, body: JSON.stringify(conversion) });
+    assert.equal(foreign.status, 403);
+    const response = await runtime.dispatchFetch(`${origin}${conversionPath}`, { method: "POST", headers: {
+      Origin: origin, "Content-Type": "application/json", Cookie: `__Host-orbit-session=${officer.token}`,
+      "X-Vinext-RSC-Compatibility-Id": "fictional-previous-client",
+    }, body: JSON.stringify(conversion) });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /^application\/json/);
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    const result = await response.json();
     const loanId = result.referralLoanId;
+    assert.equal(result.inboxChanged, true);
+    assert.equal(result.inboxLoan.loanId, loanId);
+    assert.equal(result.state, undefined);
     assert.match(result.message, /shared lead was routed/);
-    const next = result.state.inboxLeads.find(({ id }) => id === overflow[0].id);
+    const next = result.convertedCampaign.inboxLeads.find(({ id }) => id === overflow[0].id);
     assert.equal(next.officerEmail, officer.email);
     assert.equal(next.dueAt, overflow[0].dueAt);
     assert.equal((await queue(officer)).items.find(({ recordId }) => recordId === next.id)?.dueAt, next.dueAt);
-    const replay = await write(officer, conversion);
+    const replay = await post(conversionPath, conversion, officer);
     assert.equal(replay.referralLoanId, loanId);
-    assert.equal(replay.state.inboxLeads.find(({ id }) => id === next.id).followUp.events.filter(({ text }) => text === `Assigned to ${officer.name}.`).length, 1);
+    assert.equal(replay.inboxLoan.applications[0].token, result.inboxLoan.applications[0].token);
+    assert.equal(replay.convertedCampaign.inboxLeads.find(({ id }) => id === next.id).followUp.events.filter(({ text }) => text === `Assigned to ${officer.name}.`).length, 1);
     const current = await file(officer, loanId);
     assert.equal(current.loans[0].officerEmail, officer.email);
     const convertedQueue = (await write(officer, { type: "refreshCampaignQueue", campaignId })).campaignQueue;

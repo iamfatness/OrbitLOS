@@ -2,6 +2,7 @@ import { z } from "zod";
 import { referralPhone } from "./referral-matches";
 import type { InboxLead } from "./model";
 import type { EditableLoan } from "./loan-work-model";
+import type { CampaignQueueSnapshot } from "./lead-work-model";
 import type { RealtorClaimPolicy } from "./realtor-claim-model";
 
 export type InboxLeadSummary = Pick<InboxLead, "id" | "name" | "realtorName" | "source" | "purpose" | "zip" |
@@ -36,7 +37,13 @@ export type LeadInboxMutation = {
   referralLoanId?: string;
   restoredLeadId?: string;
   inboxLoan?: EditableLoan;
+  convertedCampaign?: CampaignQueueSnapshot;
 };
+
+export const convertReferralInput = z.object({
+  type: z.literal("convertReferral"), referralId: z.uuid(), contactId: z.string().min(1).max(100).nullable(),
+  allowDuplicate: z.boolean().default(false),
+});
 
 const ownerEmail = z.email().max(254);
 export const saveLeadRoutingInput = z.object({

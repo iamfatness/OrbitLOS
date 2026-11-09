@@ -45,7 +45,7 @@ export default function DemoPage() {
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>
           <li>Record a post-funding check-in, see its note on the scheduled callback in Tasks, and confirm the original property address when starting a separate refinance.</li>
-          <li>Claim an imported lead from the shared queue and start a prefilled 1003 after scheduling a callback. Open the same callback from an existing queue tab after conversion. Reschedule from the loan and keep missed deadlines visible in reporting.</li>
+          <li>Claim an imported lead from the shared queue and open the prefilled 1003 directly from the campaign. Scheduled callbacks follow the loan, including from an existing queue tab. Reschedule from the loan and keep missed deadlines visible in reporting.</li>
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Compare staff time and handoffs with your current process using the same fictional case.</li>
         </ul>

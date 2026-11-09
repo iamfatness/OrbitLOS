@@ -41,7 +41,7 @@ import { loadProtectedPilotScenario, trackPilotBorrower, type ProtectPilotLinks 
 import { contactCsvDuplicateKeys, contactCsvKeys, contactImportRows } from "./contact-csv";
 import { matchingContactCsvKeys } from "./contact-directory";
 import { contactUnavailable, type ContactMutationResult } from "./contact-directory-model";
-import { assignInboxLeadInput, leadContactInput, leadHoldInput, leadOptOutInput, leadSequenceInput, restoreLeadInput,
+import { assignInboxLeadInput, convertReferralInput, leadContactInput, leadHoldInput, leadOptOutInput, leadSequenceInput, restoreLeadInput,
   saveLeadRoutingInput, type LeadInboxMutation } from "./lead-inbox-model";
 import { inboxLeadScope } from "./lead-inbox-query";
 import { claimSharedRealtorInput, saveRealtorClaimPolicyInput } from "./realtor-claim-model";
@@ -93,7 +93,6 @@ import { routeSecondApplicationReview } from "./loan-reviews";
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
 const id = z.string().min(1).max(100);
 export const reviewApplicationInput = z.object({ type: z.literal("reviewApplication"), loanId: id, revision: z.number().int().nonnegative().optional() });
-const convertReferralInput = z.object({ type: z.literal("convertReferral"), referralId: z.uuid(), contactId: id.nullable(), allowDuplicate: z.boolean().default(false) });
 const dismissReferralInput = z.object({ type: z.literal("dismissReferral"), referralId: z.uuid(), revision: z.number().int().nonnegative() });
 
 export function campaignRefillTarget(input: unknown) {
@@ -1983,7 +1982,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         const inboxLoan = referralLoanId && staff ? readEditableLoan(db, referralLoanId, staff, staff.brokerage.id) : undefined;
         if (inboxLoan && "error" in inboxLoan) throw new WorkspaceError(inboxLoan.error);
-        return { inboxChanged: true as const, message, referralLoanId, restoredLeadId, inboxLoan };
+        const campaignId = inboxLoan && data.type === "convertReferral" ?
+          db.prepare("SELECT campaignId FROM call_campaign_members WHERE leadId = ?").get(data.referralId)?.campaignId : undefined;
+        const convertedCampaign = typeof campaignId === "string" ? readCampaignQueue(db, campaignId, staff) : undefined;
+        return { inboxChanged: true as const, message, referralLoanId, restoredLeadId, inboxLoan, convertedCampaign };
       }
       if (leadId) {
         const officerEmail = staff?.brokerage.role === "LO" ? staff.email : undefined;
