@@ -4,7 +4,7 @@ import { useState } from "react";
 import { LockKeyhole } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
 import type { Submission } from "@/lib/model";
-import { mockLockExtensionPeriods, mockLockPeriods, mockRateStatus, mockUwmRateReceiptIssue,
+import { mockLockExtensionPeriods, mockLockPeriods, mockRateQuoteTermsLabel, mockRateStatus, mockUwmRateReceiptIssue,
   type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer, type PricingRun } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -54,6 +54,7 @@ export function UwmRateLock({ loanId, submissions, application, rate, saved, off
     {application?.uwmReference && receipt && !receiptIssue && <p className="muted">Mock UWM received 1003 revision {application.revision} · {dateTime(receipt.sentAt)} ET</p>}
     {rate && <div className="quote-preview">
       <div className="section-heading"><strong>{rate.product} at {rate.rate.toFixed(3)}%</strong><span className="pill">{status}</span></div>
+      {rate.quoteTerms && <p><strong>{rate.lockReference ? "Locked amount" : "Floated amount"}</strong> {mockRateQuoteTermsLabel(rate.quoteTerms)}</p>}
       <p className="muted">UWM file {rate.loanNumber} · Quoted {dateTime(rate.quotedAt)} ET</p>
       <p className="rate-receipt">Floated {dateTime(rate.floatedAt)} ET · {rate.floatReference}</p>
       {rate.lockReference && rate.lockedAt && rate.lockExpiresAt && <>

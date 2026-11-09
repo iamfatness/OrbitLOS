@@ -322,7 +322,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <div className="section-heading"><h3><BadgeCheck size={17} /> Saved quote</h3>
         <Button size="sm" variant="outline" aria-expanded={preview} onClick={() => setPreview(!preview)}><Eye /> {preview ? "Hide preview" : "Preview borrower quote"}</Button>
       </div>
-      <p>{selected.product} · {percentage(selected.rate)} · {cash(selected.principalAndInterest)} monthly P&amp;I</p>
+      <p>{selected.product} · {requestedMoney(saved.scenario.loanAmount)} loan · {percentage(selected.rate)} · {cash(selected.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">{saved.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced {dateTime(saved.quotedAt)} ET</p>
       {saved.incomeReviewRevision && <p className="muted">Income worksheet v{saved.incomeReviewRevision} · {cash(saved.scenario.monthlyIncome ?? null)} monthly</p>}
       {saved.id !== current?.id && handoffAction}

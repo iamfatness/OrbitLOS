@@ -188,16 +188,22 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.match((await command("floatMockRate", { ...freshFloat, submissionId: otherFile.id })).error, /Use the mock UWM file linked to the current 1003/);
   const current = (await apply("floatMockRate", freshFloat)).mockUwmRates[0];
   const locked = (await apply("lockMockRate", { ...lockInput, floatReference: current.floatReference })).mockUwmRates[0];
+  assert.deepEqual(locked.quoteTerms, { loanAmount: 340000, applicationRevision: corrected.revision });
   await apply("selectOffer", selection(alternative));
   assert.deepEqual((await apply("lockMockRate", { ...lockInput, floatReference: current.floatReference })).mockUwmRates[0], locked);
+  const confirmations = db.prepare("SELECT text FROM activity WHERE loanId = ? AND text LIKE 'Mock UWM rate lock confirmed%'").all(loanId);
+  assert.equal(confirmations.length, 1);
+  assert.ok(confirmations[0].text.endsWith(`${locked.lockReference} · $340,000 · 1003 revision ${corrected.revision}`));
   const replay = await apply("sendApplication", { revision: corrected.revision });
   assert.deepEqual(replay.applications[0].versions, resent.applications[0].versions);
   await apply("requestApplicationCorrection", { revision: corrected.revision, note: "Confirm the property address." });
   const extended = (await apply("extendMockLock", { lockReference: locked.lockReference, expectedExpiresAt: locked.lockExpiresAt, days: 7 }))
     .mockUwmRates[0];
   assert.ok(extended.lockExpiresAt > locked.lockExpiresAt);
+  assert.deepEqual(extended.quoteTerms, locked.quoteTerms);
   const cancelled = await apply("cancelMockLock", { lockReference: locked.lockReference, expectedExpiresAt: extended.lockExpiresAt });
   assert.ok(cancelled.mockUwmRates[0].lockCancellationReference);
+  assert.deepEqual(cancelled.mockUwmRates[0].quoteTerms, locked.quoteTerms);
   assert.equal(cancelled.sharedQuoteHistory[0].runId, original.id);
   await apply("revokeApplication", { token });
   assert.equal(borrowerCommandResult(db, { type: "status", token }).status, 404);
@@ -210,5 +216,7 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   const importedRun = (await apply("runPricing", { loanId: importedId, scenario, applicationRevision: null })).pricingRuns.find((run) => run.loanId === importedId);
   await apply("selectOffer", { loanId: importedId, ...selection(importedRun) });
   const imported = await apply("floatMockRate", { loanId: importedId, submissionId: importedFile.id, ...selection(importedRun), previousFloatReference: null });
-  assert.equal(imported.mockUwmRates.find((rate) => rate.loanId === importedId).loanNumber, importedFile.externalId);
+  const importedRate = imported.mockUwmRates.find((rate) => rate.loanId === importedId);
+  assert.equal(importedRate.loanNumber, importedFile.externalId);
+  assert.deepEqual(importedRate.quoteTerms, { loanAmount: scenario.loanAmount, applicationRevision: null });
 });

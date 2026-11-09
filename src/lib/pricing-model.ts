@@ -162,6 +162,12 @@ export const mockLockExtensionPeriods = [7, 15] as const;
 export type MockLockExtensionPeriod = (typeof mockLockExtensionPeriods)[number];
 export const mockLockNoticeDays = 7;
 
+export type MockRateQuoteTerms = { loanAmount: number; applicationRevision: number | null };
+
+export function mockRateQuoteTermsLabel(terms: MockRateQuoteTerms) {
+  return `${requestedMoney(terms.loanAmount)} · ${terms.applicationRevision === null ? "Synced-file quote" : `1003 revision ${terms.applicationRevision}`}`;
+}
+
 export interface MockUwmRate {
   loanId: string;
   submissionId: string;
@@ -181,6 +187,7 @@ export interface MockUwmRate {
   lockExtensionDays: MockLockExtensionPeriod | null;
   lockCancellationReference: string | null;
   lockCancelledAt: string | null;
+  quoteTerms?: MockRateQuoteTerms;
 }
 
 export function mockRateStatus(rate: MockUwmRate, now: string) {

@@ -1286,7 +1286,12 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
       .map(({ inputs, origin, ...row }) => ({ ...row, inputs: JSON.parse(inputs), ...(origin ? { origin: JSON.parse(origin) } : {}) })),
     publishedQuotes: quoteRows<PublishedQuote>(db, `SELECT * FROM published_quotes ${where()}`, ...args),
     sharedQuoteHistory: quoteRows<SharedQuoteEvent>(db, `SELECT * FROM shared_quote_history ${where()} ORDER BY endedAt DESC, rowid DESC`, ...args),
-    mockUwmRates: rows<MockUwmRate>(db, `SELECT * FROM mock_uwm_rates ${where()}`, ...args),
+    mockUwmRates: rows<MockUwmRate & { quotedAmount: number | null; quoteRevision: number | null }>(db, `
+      SELECT rate.*, json_extract(run.scenario, '$.loanAmount') AS quotedAmount, run.applicationRevision AS quoteRevision
+      FROM mock_uwm_rates rate LEFT JOIN pricing_runs run ON run.id = rate.runId AND run.loanId = rate.loanId
+      ${where("rate.loanId")}`, ...args).map(({ quotedAmount, quoteRevision, ...rate }) => ({
+        ...rate, ...(typeof quotedAmount === "number" ? { quoteTerms: { loanAmount: quotedAmount, applicationRevision: quoteRevision } } : {}),
+      })),
     mockCreditAusRuns: mockCreditAusRuns(db, loanId),
     uwmAlerts: rows<UwmAlert>(db, `SELECT * FROM uwm_alerts ${where()} ORDER BY detectedAt DESC, rowid DESC`, ...args),
   };

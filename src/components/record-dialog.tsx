@@ -26,7 +26,7 @@ import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-doc
 import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
-import { latestSelectedPricingRun, mockRateStatus, mockUwmQuoteAmountIssue, pricingInputsMatch } from "@/lib/pricing-model";
+import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mockUwmQuoteAmountIssue, pricingInputsMatch } from "@/lib/pricing-model";
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
@@ -620,10 +620,11 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
           {!processor && <Button size="sm" variant="outline" onClick={() => openPricing()}>Price loan</Button>}
         </div>
-        <p className="empty-inline">{savedOffer ? `${savedPricing?.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare sample rate and fee options, then save a quote to the loan."}</p>
+        <p className="empty-inline">{savedOffer && savedPricing ? `${savedPricing.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${requestedMoney(savedPricing.scenario.loanAmount)} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare sample rate and fee options, then save a quote to the loan."}</p>
         {savedPricing && !pricingInputsMatch(savedPricing, application) &&
           <p className="quote-disclaimer">Saved quote needs repricing with the current 1003 and income inputs.</p>}
-        {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%{rate.lockCancelledAt
+        {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%
+          {rate.quoteTerms && ` · ${mockRateQuoteTermsLabel(rate.quoteTerms)}`}{rate.lockCancelledAt
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
       {(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&

@@ -1,6 +1,6 @@
 import { addApplicationActivity, getApplication } from "./applications";
 import { requestedLoanAmount } from "./application-model";
-import { mockRateStatus, mockUwmAmountMismatch, mockUwmRateReceiptIssue,
+import { mockRateQuoteTermsLabel, mockRateStatus, mockUwmAmountMismatch, mockUwmRateReceiptIssue,
   type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer } from "./pricing-model";
 import { pricingInputError } from "./income-review-freshness";
 import { savedPricingRun, type Store } from "./store";
@@ -89,7 +89,10 @@ export function lockMockRate(db: Store, input: { loanId: string; floatReference:
   const expiresAt = new Date(Date.parse(now) + days * 86_400_000).toISOString();
   db.prepare("UPDATE mock_uwm_rates SET lockReference = ?, lockedAt = ?, lockDays = ?, lockExpiresAt = ? WHERE loanId = ?")
     .run(reference, now, days, expiresAt, loanId);
-  addApplicationActivity(db, loanId, `Mock UWM rate lock confirmed · ${current.rate.toFixed(3)}% for ${days} days · ${reference}`, now);
+  const terms = typeof run.quotedAmount === "number" ? mockRateQuoteTermsLabel({
+    loanAmount: run.quotedAmount, applicationRevision: typeof run.applicationRevision === "number" ? run.applicationRevision : null,
+  }) : null;
+  addApplicationActivity(db, loanId, `Mock UWM rate lock confirmed · ${current.rate.toFixed(3)}% for ${days} days · ${reference}${terms ? ` · ${terms}` : ""}`, now);
   return { message: `Mock lock confirmed · ${reference}` };
 }
 
