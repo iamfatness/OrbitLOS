@@ -223,6 +223,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const openLoanTask = "task.completedAt IS NULL";
   const openClosingItem = "item.completedAt IS NULL";
   const dueDocument = "request.dueOn IS NOT NULL AND request.status IN ('Requested', 'Needs replacement')";
+  const lenderAlertTitle = "CASE alert.kind WHEN 'Reopened condition' THEN 'Reopened · ' || alert.message ELSE alert.message END";
   const openLeadDocument = "lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND lead.officerEmail IS NOT NULL";
   const receivedDocumentAt = "coalesce(request.submittedAt, request.requestedAt)";
   const fundingTask = `(task.id GLOB '${fundingTaskPrefix}borrower:*' OR task.id GLOB '${fundingTaskPrefix}realtor:*')`;
@@ -265,7 +266,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       FROM closing_items item JOIN loans loan ON loan.id = item.loanId JOIN contacts contact ON contact.id = loan.contactId
       ${processingJoin} WHERE item.completedAt IS NOT NULL`,
     "item.id", "item.completedAt", loanOwnerEmail, loanOwnerName),
-    ...select("uwm-alert", `alert.id, loan.id AS recordId, contact.name, alert.reviewedAt AS dueAt, alert.message AS title
+    ...select("uwm-alert", `alert.id, loan.id AS recordId, contact.name, alert.reviewedAt AS dueAt, ${lenderAlertTitle} AS title
       FROM uwm_alerts alert JOIN loans loan ON loan.id = alert.loanId JOIN contacts contact ON contact.id = loan.contactId
       WHERE alert.reviewedAt IS NOT NULL`, "alert.id", "alert.reviewedAt", "loan.officerEmail", "loan.officer"),
   ] : [];
@@ -407,7 +408,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       ${processingJoin} WHERE loan.disposition = 'Active' AND request.status = 'Received'`,
     "request.id", "coalesce(request.submittedAt, request.requestedAt)", loanOwnerEmail, loanOwnerName, false, [],
     "document_requests request WHERE request.status = 'Received'") : []),
-    ...(tasks?.view === "Open" ? select("uwm-alert", (join) => `alert.id, loan.id AS recordId, contact.name, alert.detectedAt AS dueAt, alert.message AS title
+    ...(tasks?.view === "Open" ? select("uwm-alert", (join) => `alert.id, loan.id AS recordId, contact.name, alert.detectedAt AS dueAt, ${lenderAlertTitle} AS title
       FROM uwm_alerts alert ${join} loans loan ON loan.id = alert.loanId JOIN contacts contact ON contact.id = loan.contactId
       WHERE loan.disposition = 'Active' AND alert.reviewedAt IS NULL`,
     "alert.id", "alert.detectedAt", "loan.officerEmail", "loan.officer", false, [],

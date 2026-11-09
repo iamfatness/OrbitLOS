@@ -958,7 +958,8 @@ try {
     assert.ok(!reopened.pastClients[0]?.closingDate);
     const reopenedAlert = reopened.uwmAlerts.find(({ kind, conditionId }) => kind === "Reopened condition" && conditionId === condition.id);
     const lenderWork = await action(officer, "readTaskWork", { type: "list", view: "Open", scope: "Mine", group: "Lender updates" });
-    assert.ok(reopenedAlert && lenderWork.items.some(({ id, recordId }) => id === reopenedAlert.id && recordId === loanId));
+    assert.ok(reopenedAlert && lenderWork.items.some(({ id, recordId, title }) =>
+      id === reopenedAlert.id && recordId === loanId && title.startsWith("Reopened · ")));
     const request = reopened.documentRequests.find(({ conditionId }) => conditionId === condition.id);
     await borrower(token, { type: "attachSample", requestId: request.id, revision: request.revision });
     const replacement = (await file(officer, loanId)).documentRequests.find(({ id }) => id === request.id);
