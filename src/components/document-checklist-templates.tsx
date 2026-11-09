@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { dateLabel } from "@/lib/client-retention";
-import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds, type DocumentKind, type LoanDocumentRequest } from "@/lib/document-model";
+import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds, documentRecipient, documentRecipients, primaryDocumentRecipient,
+  type DocumentKind, type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
 import { documentTemplateConfig, documentTemplateDueOn, documentTemplatePurposes, type DocumentTemplate,
   type DocumentTemplateConfig, type DocumentTemplatePage } from "@/lib/document-template-model";
 import { Button } from "./ui/button";
@@ -147,15 +148,16 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
   </section>;
 }
 
-export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, requests, officer, processor, openAssignment, busy, save }: {
+export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, requests, officer, processor, openAssignment, joint, busy, save }: {
   brokerageId: string; loanId: string; customAvailable: boolean; requests: LoanDocumentRequest[];
-  officer: string; processor?: string | null; openAssignment?: () => void; busy: boolean; save: (input: unknown) => Promise<void>;
+  officer: string; processor?: string | null; openAssignment?: () => void; joint: boolean; busy: boolean; save: (input: unknown) => Promise<void>;
 }) {
   const [opened, setOpened] = useState(false);
   const [page, setPage] = useState<DocumentTemplatePage>();
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string>(checklistPresetNames[0]);
+  const [recipient, setRecipient] = useState<DocumentRecipient>(primaryDocumentRecipient);
   useEffect(() => {
     if (!opened || !customAvailable) return;
     const controller = new AbortController();
@@ -168,7 +170,7 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
   const template = customAvailable && page ? page.templates.find(({ id }) => id === selected) : undefined;
   const preset = checklistPresetNames.find((name) => name === selected);
   const items = template?.items ?? (preset && checklistPresets[preset].map((kind) => ({ kind, instructions: checklistInstructions[kind], dueDays: null })));
-  const preview = items?.map((item) => ({ ...item, existing: requests.find((request) => request.kind === item.kind && !request.conditionId),
+  const preview = items?.map((item) => ({ ...item, existing: requests.find((request) => request.kind === item.kind && !request.conditionId && documentRecipient(request) === recipient),
     dueOn: page ? documentTemplateDueOn(page.asOf, item.dueDays) : null }));
   const missing = preview?.filter((item) => !item.existing).length ?? 0;
   return <details className="document-form" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
@@ -177,6 +179,9 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
       <p className="muted">Preview the requests before adding them. Existing requests keep their dates and instructions.</p>
       <p className="muted">Loan officer · {officer || "Unassigned"}{processor ? ` · Processor · ${processor}` : " · No processor assigned"}</p>
       {openAssignment && <div><Button size="sm" variant="outline" onClick={openAssignment}>Review loan assignment</Button></div>}
+      {joint && <label className="field">Checklist recipient<select value={recipient} disabled={busy} onChange={(event) => setRecipient(event.target.value as DocumentRecipient)}>
+        {documentRecipients.map((option) => <option key={option}>{option}</option>)}
+      </select></label>}
       <label className="field">Checklist<select value={selected} disabled={busy} onChange={(event) => setSelected(event.target.value)}>
         <optgroup label="Standard checklists">{checklistPresetNames.map((name) => <option key={name}>{name}</option>)}</optgroup>
         {!!page?.templates.length && customAvailable && <optgroup label="Brokerage templates">{page.templates.map((entry) =>
@@ -199,8 +204,8 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
         </>}
       </li>)}</ul>}
       {preview && <div><Button size="sm" disabled={busy || !missing} onClick={() => {
-        if (template && page) void save({ type: "applyDocumentTemplate", loanId, templateId: template.id, revision: template.revision, asOf: page.asOf });
-        else if (preset) void save({ type: "applyDocumentPreset", loanId, preset });
+        if (template && page) void save({ type: "applyDocumentTemplate", loanId, templateId: template.id, revision: template.revision, asOf: page.asOf, recipient });
+        else if (preset) void save({ type: "applyDocumentPreset", loanId, preset, recipient });
       }}>Add missing requests{missing > 0 ? ` (${missing})` : ""}</Button></div>}
     </div>}
   </details>;

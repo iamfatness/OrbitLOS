@@ -26,8 +26,6 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
   token: string; status: BorrowerLoanStatus; submittedAt: string; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
   uploadsMode?: DocumentUploadMode;
 }) {
-  const pdf = useBorrowerPdf(token, refresh, uploadsMode);
-  const demo = uploadsMode === "mock";
   const stage = stageUpdates[status.stage];
   const waiting = status.documents.filter((item) => needsBorrowerDocument(item.status)).length;
   const received = status.documents.filter((item) => item.status === "Received").length;
@@ -64,13 +62,25 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
       <h2 id="borrower-letter-heading">Your shared sample preapproval</h2>
       <SharedPreapprovalDownload key={status.preapproval.grantId} letter={status.preapproval} token={token} audience="Borrower" />
     </section>}
-    <section className="application-panel application-receipt document-section" aria-labelledby="borrower-documents-heading">
+    <BorrowerDocumentChecklist token={token} documents={status.documents} busy={busy} refresh={refresh} attach={attach} uploadsMode={uploadsMode} />
+  </div>;
+}
+
+export function BorrowerDocumentChecklist({ token, documents, busy, refresh, attach, uploadsMode }: {
+  token: string; documents: DocumentRequest[]; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
+  uploadsMode?: DocumentUploadMode;
+}) {
+  const pdf = useBorrowerPdf(token, refresh, uploadsMode);
+  const demo = uploadsMode === "mock";
+  const waiting = documents.filter((item) => needsBorrowerDocument(item.status)).length;
+  const received = documents.filter((item) => item.status === "Received").length;
+  return <section className="application-panel application-receipt document-section" aria-labelledby="borrower-documents-heading">
       <div className="section-heading"><h2 id="borrower-documents-heading"><FileCheck2 size={19} /> Document checklist</h2></div>
       {uploadsMode && waiting > 0 && !pdf.session && <BorrowerPdfVerification pdf={pdf} busy={busy} demo={demo} />}
       {pdf.error && <p role="alert" className="application-message banner-error">{pdf.error}</p>}
       {pdf.notice && <p role="status" className="muted">{pdf.notice}</p>}
-      {status.documents.length > 0 && <p className="document-counts">{waiting} to attach · {received} in review · {status.documents.length - waiting - received} accepted</p>}
-      {status.documents.length ? <ul className="document-list">{status.documents.map((request) =>
+      {documents.length > 0 && <p className="document-counts">{waiting} to attach · {received} in review · {documents.length - waiting - received} accepted</p>}
+      {documents.length ? <ul className="document-list">{documents.map((request) =>
         <li className="document-item" key={request.id}>
           <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
           {request.instructions && <p>{request.instructions}</p>}
@@ -87,6 +97,5 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
           </> : request.submittedAt && <small className="muted">{request.pdfUploadedAt ? (demo ? "Demo PDF received" : "PDF received") : "Sample attached"} {dateTime(request.submittedAt)} ET</small>}
         </li>
       )}</ul> : <p className="muted">No documents requested.</p>}
-    </section>
-  </div>;
+  </section>;
 }

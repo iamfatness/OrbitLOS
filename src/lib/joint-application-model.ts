@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ApplicationDraft } from "./application-model";
 import { portalTokenPattern } from "./brokerage-model";
+import type { DocumentRequest } from "./document-model";
 import { borrowerDetailsSchema, normalizeBorrowerDetails, sampleUrla, type BorrowerDetails, type BorrowerSection } from "./urla";
 
 const loanId = z.string().min(1).max(100);
@@ -22,6 +23,7 @@ export const jointLinkCommand = z.discriminatedUnion("type", [
 
 export const coBorrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
+  z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision }),
   z.object({ type: z.enum(["save", "submit"]), token, revision, step: z.number().int().min(0).max(coBorrowerReviewStep),
     draft: borrowerDetailsSchema, confirmedDemo: z.boolean() }),
 ]);
@@ -43,6 +45,8 @@ export interface CoBorrowerApplication {
   submittedAt: string | null;
   complete: boolean;
   confirmedDemo: boolean;
+  documents?: DocumentRequest[];
+  documentUploadsMode?: "mock";
   correctionNote?: string;
 }
 

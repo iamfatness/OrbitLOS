@@ -50,7 +50,8 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const documentArgs = processing ? (team ? [] : [staff.email]) : ownerArgs;
   const rows = db.prepare(`WITH incoming AS (
     SELECT 'document' AS kind, request.id, loan.id AS loanId, contact.name,
-      coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision, request.kind AS title,
+      coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision,
+      request.kind || CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title,
       ${team ? "processing.processorName" : "NULL"} AS assignee, request.conditionId IS NOT NULL AS linkedCondition, NULL AS note,
       NULL AS returnStatus, NULL AS returnDueAt, NULL AS returnEventId
     ${from} ${contacts}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { documentKinds } from "./document-model";
+import { documentKinds, documentRecipients } from "./document-model";
 import { shiftReportDate } from "./report-date-range";
 
 export const documentTemplatePurposes = ["Any loan purpose", "Purchase", "Refinance"] as const;
@@ -29,6 +29,7 @@ export const documentTemplateRequest = z.discriminatedUnion("type", [
 
 export const applyDocumentTemplateInput = z.object({
   type: z.literal("applyDocumentTemplate"), loanId, templateId: z.uuid(), revision: revision.min(1), asOf: z.iso.date(),
+  recipient: z.enum(documentRecipients).optional(),
 });
 
 export function documentTemplateDueOn(asOf: string, days: number | null) {

@@ -55,6 +55,7 @@ const runtime = new Miniflare({ ...convertV4MiniflareOptions({
   bindings: { ORBIT_AUTH_MODE: "google", GOOGLE_CLIENT_ID: "local-fixture", GOOGLE_CLIENT_SECRET: "local-fixture",
     ORBIT_STAFF_EMAILS: owner.email, ORBIT_DOCUMENT_UPLOADS: "mock", ORBIT_PRICING_MODE: "mock" },
   serviceBindings: { ASSETS: () => new Response(null, { status: 404 }) },
+  r2Buckets: { DOCUMENTS: "working-day-fictional-documents" },
   durableObjects: { WORKSPACE: { className: "WorkingDayWorkspace", useSQLite: true } },
 }), telemetry: { enabled: false } });
 
@@ -1391,7 +1392,7 @@ try {
     const history = await action(officer, "readHistoryPage", { record: "loan", id: loanId });
     assert.equal(history.events.filter(({ text }) => text.includes(`Applied ${config.title} · Version 1`)).length, 1);
   });
-  await stage("Separate borrower links produce one reviewable joint 1003 with isolated corrections", async () => {
+  const jointFile = await stage("Separate borrower links produce one reviewable joint 1003 with isolated corrections", async () => {
     const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Joint Primary",
       borrowerEmail: "working-day-joint-primary@example.test", start1003: true, partnerId: null, officer: officer.name,
       address: "", amount: 0, purpose: "Purchase", stage: "Lead" });
@@ -1457,6 +1458,69 @@ try {
     assert.equal(revised.draft.urla.additional[0].identity.fields.cell, "248-555-0157");
     assert.deepEqual(revised.draft.urla.primary, app.draft.urla.primary);
     assert.equal(revised.reviewedAt, null);
+    return { loanId, primaryToken, coToken: replacement };
+  });
+  await stage("Both borrowers verify and upload only their assigned joint evidence", async () => {
+    const { loanId, primaryToken, coToken } = jointFile;
+    const primaryNote = "Fictional primary ID request.";
+    const coNote = "Fictional co-borrower ID request.";
+    await loanAction(officer, loanId, "requestDocument", { kind: "Photo ID", instructions: primaryNote });
+    await loanAction(officer, loanId, "requestDocument", { kind: "Photo ID", instructions: coNote, recipient: "Co-borrower" });
+    const templatePath = `/api/document-templates?brokerage=${brokerage}`;
+    const { asOf, templates } = await post(templatePath, { type: "loan", loanId }, officer);
+    const template = templates.find(({ title }) => title === "Fictional Purchase Starter revised");
+    assert.ok(template);
+    const applied = await loanAction(officer, loanId, "applyDocumentTemplate",
+      { templateId: template.id, revision: template.revision, asOf, recipient: "Co-borrower" });
+    assert.match(applied.message, /Added 1 document request/);
+    const readCo = () => post("/api/joint-application", { type: "read", token: coToken });
+    const readPrimary = () => borrower(primaryToken, { type: "status" });
+    const [primary] = (await readPrimary()).loanStatus.documents;
+    const coDocuments = (await readCo()).documents;
+    const co = coDocuments.find(({ kind }) => kind === "Photo ID");
+    assert.deepEqual(coDocuments.map(({ kind }) => kind).sort(), ["Bank statement", "Photo ID"]);
+    assert.equal(primary.instructions, primaryNote);
+    assert.equal(co.instructions, coNote);
+    assert.doesNotMatch(JSON.stringify(await readCo()), /Fictional primary ID request/);
+    assert.doesNotMatch(JSON.stringify(await readPrimary()), /Fictional co-borrower ID request|Bank statement/);
+    const attach = (route, token, request) => postResponse(route, { type: "attachSample", token, requestId: request.id,
+      revision: request.revision, statusOnly: true });
+    assert.equal((await attach("/api/demo-application", primaryToken, co)).status, 404);
+    assert.equal((await attach("/api/joint-application", coToken, primary)).status, 404);
+
+    const verifyPath = "/api/borrower-documents/verify";
+    const uploadPath = "/api/borrower-documents/upload";
+    const verify = (token, code) => post(verifyPath, { token, type: "verifyCode", code });
+    const primaryCode = await post(verifyPath, { type: "sendCode", token: primaryToken });
+    const coCode = await post(verifyPath, { type: "sendCode", token: coToken });
+    const { session: primarySession } = await verify(primaryToken, primaryCode.demoCode);
+    const { session: coSession } = await verify(coToken, coCode.demoCode);
+    const upload = (token, session, request, fixture = "clean") => postResponse(uploadPath,
+      { token, session, requestId: request.id, revision: request.revision, fixture });
+    assert.equal((await upload(coToken, primarySession, co)).status, 401);
+    assert.equal((await upload(coToken, coSession, primary)).status, 404);
+    assert.equal((await upload(primaryToken, primarySession, co)).status, 404);
+    assert.equal((await upload(primaryToken, primarySession, primary)).status, 200);
+    assert.equal((await upload(coToken, coSession, co)).status, 200);
+    const received = (await readCo()).documents.find(({ id }) => id === co.id);
+    assert.equal(received.status, "Received");
+    assert.ok(received.pdfUploadedAt);
+    const note = "Replace only the fictional co-borrower ID.";
+    await loanAction(officer, loanId, "reviewDocument", { requestId: received.id, revision: received.revision,
+      decision: "Needs replacement", replacementNote: note });
+    const needsReplacement = (await readCo()).documents.find(({ id }) => id === co.id);
+    assert.equal(needsReplacement.replacementNote, note);
+    assert.doesNotMatch(JSON.stringify(await readPrimary()), /Replace only the fictional/);
+    await delay(1_010);
+    assert.equal((await upload(coToken, coSession, needsReplacement, "replacement")).status, 200);
+    const replaced = (await readCo()).documents.find(({ id }) => id === co.id);
+    await loanAction(officer, loanId, "reviewDocument", { requestId: replaced.id, revision: replaced.revision,
+      decision: "Accepted", replacementNote: "" });
+    assert.equal((await readCo()).documents.find(({ id }) => id === co.id).status, "Accepted");
+    assert.equal((await readPrimary()).loanStatus.documents[0].status, "Received");
+    const staffRequests = (await file(officer, loanId)).documentRequests;
+    assert.equal(staffRequests.find(({ id }) => id === primary.id).recipient, "Primary borrower");
+    assert.equal(staffRequests.find(({ id }) => id === co.id).recipient, "Co-borrower");
   });
   await stage("MISMO import returns the exact draft and a scoped duplicate receipt", async () => {
     const fields = { firstName: "Fictional", lastName: "Working Day MISMO", amount: "275000", purpose: "Purchase",

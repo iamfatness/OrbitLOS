@@ -50,7 +50,8 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
   const processorActs = `processing.processorEmail IS NOT NULL AND (lower(trim(item.manualOwner)) = 'processor' OR
     (coalesce(trim(item.manualOwner), '') = '' AND processing.status IN ('Ready for processing', 'In processing')))`;
 
-  add("Missing evidence", `${loanColumns}, request.kind AS title, request.status, request.dueOn, NULL AS reopenedAt, NULL AS nextParty,
+  add("Missing evidence", `${loanColumns}, request.kind || CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title,
+    request.status, request.dueOn, NULL AS reopenedAt, NULL AS nextParty,
     loan.officer AS ownerName, loan.officerEmail AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision,
     0 AS escalated, request.revision AS version, 0 AS changed, NULL AS requestStatus
     FROM document_requests request JOIN loans loan ON loan.id = request.loanId ${loanJoins}

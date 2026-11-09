@@ -6,7 +6,7 @@ import { BuyerFAQ } from "../buyer-faq";
 export const metadata: Metadata = { title: "Product · OrbitLOS", alternates: { canonical: "https://orbitlos.com/product" }, description: "Explore mortgage CRM, borrower applications, processing, dashboards, financials, and daily team workflows in OrbitLOS." };
 const tools = [
   {icon:ListChecks,title:"Website quote intake",text:"Preview and publish a brokerage quote form. Route eligible requests into a call campaign and carry the website source and form answers into the loan history."},
-  {icon:ListChecks,title:"Document checklists",text:"Reuse brokerage templates with borrower instructions and deadlines. Preview what is missing, then track those requests in the borrower portal and staff queues."},
+  {icon:ListChecks,title:"Document checklists",text:"Reuse brokerage templates with borrower instructions and deadlines. On joint files, each borrower sees their own requests while staff track both in one checklist."},
   {icon:ShieldCheck,title:"Separate joint borrower links",text:"Each borrower saves and submits their own answers. Loan staff review one combined 1003 and can return a portion to its borrower for correction."},
   {icon:MessagesSquare,title:"Shared conversations",text:"Open shared conversations and keep team notes with the relationship. Page through borrower and realtor milestone drafts, preview the current recipient, and track which messages were copied."},
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},

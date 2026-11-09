@@ -1,14 +1,24 @@
 import type { StaffApplication } from "./application-model";
+import { coBorrowerDocumentRecipient, documentRecipient, primaryDocumentRecipient, type LoanDocumentRequest } from "./document-model";
 
 const checklistWrites = new Set([
   "requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline",
   "reviewDocument", "reopenMockUwmCondition",
 ]);
 
-export function borrowerChecklistToken(input: unknown, applications: readonly StaffApplication[]) {
+export function borrowerChecklistTokens(input: unknown, applications: readonly StaffApplication[], requests: readonly LoanDocumentRequest[] = []) {
   if (!input || typeof input !== "object" || !("type" in input) || typeof input.type !== "string" ||
-    !checklistWrites.has(input.type) || !("loanId" in input) || typeof input.loanId !== "string") return;
-  return applications.find((application) => application.loanId === input.loanId && application.submittedAt && !application.revokedAt)?.token;
+    !checklistWrites.has(input.type) || !("loanId" in input) || typeof input.loanId !== "string") return [];
+  const app = applications.find((application) => application.loanId === input.loanId && application.submittedAt);
+  const joint = app?.joint;
+  const request = "requestId" in input ? requests.find((item) => item.id === input.requestId && item.loanId === app?.loanId)
+    : "conditionId" in input && "submissionId" in input ? requests.find((item) =>
+      item.conditionId === input.conditionId && item.submissionId === input.submissionId && item.loanId === app?.loanId) : undefined;
+  const recipient = request ? documentRecipient(request) : "recipient" in input && input.recipient === coBorrowerDocumentRecipient ?
+    coBorrowerDocumentRecipient : ["requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate"].includes(input.type) ?
+      primaryDocumentRecipient : undefined;
+  return [...(app && !app.revokedAt && recipient !== coBorrowerDocumentRecipient ? [app.token] : []),
+    ...(joint?.token && joint.submittedAt && !joint.revokedAt && recipient !== primaryDocumentRecipient ? [joint.token] : [])];
 }
 
 export async function borrowerChangeChannel(token: string) {

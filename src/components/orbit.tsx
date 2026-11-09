@@ -66,7 +66,7 @@ import type { MigrationDestination } from "@/lib/migration-record-model";
 import { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, applyLeadMutation, applyLeadWork, type LeadWorkRequest } from "@/lib/lead-work-model";
 import type { WorkspaceMutationScope, WorkspaceMutationSuccess } from "@/lib/commands";
 import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
-import { announceBorrowerChange, borrowerChecklistToken } from "@/lib/borrower-change-signal";
+import { announceBorrowerChange, borrowerChecklistTokens } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
 import { manualReturnSteps } from "@/lib/lender-export-model";
@@ -428,8 +428,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         return;
       }
       if (!("leadWork" in result)) {
-        const application = borrowerChecklistToken(input, ("loanWork" in result ? result.loanWork : result.state).applications);
-        if (application) void announceBorrowerChange(application, "checklist-changed");
+        const updated = "loanWork" in result ? result.loanWork : result.state;
+        for (const token of borrowerChecklistTokens(input, updated.applications, updated.documentRequests)) {
+          void announceBorrowerChange(token, "checklist-changed");
+        }
       }
       if ("leadWork" in result) {
         setState((current) => applyLeadMutation(current, result));

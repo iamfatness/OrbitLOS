@@ -13,7 +13,11 @@ const continuationDelay = 60_000;
 const blockedPreviewLimit = 5;
 const outstanding = `document.status IN ('Requested', 'Needs replacement')`;
 const activeFile = `loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')`;
-const openLink = `application.submittedAt IS NOT NULL AND application.revokedAt IS NULL AND application.expiresAt > ?`;
+const openLink = `application.submittedAt IS NOT NULL AND CASE WHEN document.recipient = 'Co-borrower'
+  THEN CASE WHEN joint.submittedAt IS NOT NULL AND joint.revokedAt IS NULL THEN joint.expiresAt END
+  ELSE CASE WHEN application.revokedAt IS NULL THEN application.expiresAt END END > ?`;
+const recipientName = `CASE WHEN document.recipient = 'Co-borrower'
+  THEN coalesce(nullif(json_extract(joint.draft, '$.identity.fields.name'), ''), 'Co-borrower') ELSE contact.name END`;
 const idleUpload = `NOT EXISTS (SELECT 1 FROM document_files file WHERE file.requestId = document.id AND file.pendingUntil > ?)`;
 const obsolete = `(document.revision <> run.documentRevision OR document.deadlineRevision <> run.deadlineRevision
   OR document.dueOn IS NOT run.dueOn OR NOT (${outstanding}) OR loan.stage IN ('Funded', 'Closed') OR loan.disposition IN ('Withdrawn', 'Lost'))`;
@@ -26,7 +30,8 @@ const blocked = `CASE WHEN NOT (${activeFile}) THEN 'Resume the loan before retr
   WHEN ${eligibleOn} > ? THEN 'This reminder is not eligible yet.' END`;
 const joins = `FROM document_reminder_runs run JOIN document_requests document ON document.id = run.requestId
   JOIN loans loan ON loan.id = document.loanId JOIN contacts contact ON contact.id = loan.contactId
-  LEFT JOIN applications application ON application.loanId = loan.id`;
+  LEFT JOIN applications application ON application.loanId = loan.id
+  LEFT JOIN joint_applications joint ON joint.loanId = loan.id`;
 
 type ReminderAttempt = { id: string; attemptCount: number };
 function recordMockAttempt(db: Store, run: ReminderAttempt, mode: "Trigger" | "Retry", operationId: string, actor: string, at: string, interrupted: boolean) {
@@ -54,6 +59,7 @@ function processReminderBatch(db: Store, now: Date, operationId: string, actor: 
   const due = db.prepare(`SELECT document.id, document.revision, document.deadlineRevision, document.dueOn
       FROM document_requests document CROSS JOIN loans loan ON loan.id = document.loanId
       CROSS JOIN applications application ON application.loanId = loan.id
+      LEFT JOIN joint_applications joint ON joint.loanId = loan.id
       WHERE ${outstanding} AND document.dueOn IS NOT NULL AND document.dueOn <= ? AND ${activeFile}
         AND ${openLink} AND ${idleUpload} AND NOT EXISTS (SELECT 1 FROM document_reminder_runs existing
           WHERE existing.requestId = document.id AND existing.documentRevision = document.revision AND existing.deadlineRevision = document.deadlineRevision)
@@ -127,7 +133,7 @@ export function documentReminderPage(db: Store, query: Extract<PlaybookRunQuery,
   const filter = query.filter === "All runs" ? "" : `AND ${status} = ?`;
   const { after } = query;
   const rows = db.prepare(`SELECT 'document' AS source, run.id, run.requestId, loan.id AS loanId, document.kind AS documentKind,
-    contact.name AS borrower, ${status} AS status,
+    ${recipientName} AS borrower, ${status} AS status,
     CASE WHEN run.status = 'Failed' AND ${obsolete} THEN ? ELSE run.reason END AS reason,
     run.dueOn, ${eligibleOn} AS eligibleOn, run.timingOffsetDays, run.documentRevision, run.deadlineRevision, run.receipt, run.at, run.attemptCount,
     CASE WHEN run.status = 'Failed' AND NOT ${obsolete} THEN ${blocked} END AS blockedReason ${joins}
@@ -164,7 +170,7 @@ export function retryDocumentReminder(db: Store, input: Extract<PlaybookRunQuery
 export function previewDocumentRecovery(db: Store, now: Date): PlaybookRunResult {
   function candidates(ready: boolean, limit: number) {
     return db.prepare(`WITH candidates AS (
-        SELECT run.id, run.attemptCount AS attempt, loan.id AS loanId, run.requestId, contact.name AS borrower,
+        SELECT run.id, run.attemptCount AS attempt, loan.id AS loanId, run.requestId, ${recipientName} AS borrower,
           document.kind AS documentKind, run.dueOn, ${eligibleOn} AS eligibleOn, run.at, ${blocked} AS blockedReason ${joins}
         WHERE run.status = 'Failed' AND NOT ${obsolete}
       ) SELECT id, attempt, loanId, requestId, borrower, documentKind, dueOn, eligibleOn, blockedReason FROM candidates

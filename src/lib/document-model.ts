@@ -1,9 +1,27 @@
 import type { Condition, Stage } from "./model";
 import type { BorrowerQuote } from "./pricing-model";
 import type { SharedPreapprovalLetter } from "./preapproval-model";
+import type { StaffApplication } from "./application-model";
 
 export const documentKinds = ["Pay stub", "Bank statement", "Tax form", "Photo ID", "Homeowners insurance"] as const;
 export type DocumentKind = (typeof documentKinds)[number];
+export const documentRecipients = ["Primary borrower", "Co-borrower"] as const;
+export type DocumentRecipient = (typeof documentRecipients)[number];
+export const primaryDocumentRecipient = documentRecipients[0];
+export const coBorrowerDocumentRecipient = documentRecipients[1];
+
+export function documentRecipient(request: { recipient?: DocumentRecipient }) {
+  return request.recipient ?? primaryDocumentRecipient;
+}
+
+export function borrowerChecklistLinks(application: StaffApplication | undefined, now = new Date().toISOString()): Partial<Record<DocumentRecipient, string>> {
+  if (!application?.submittedAt) return {};
+  const { joint } = application;
+  return {
+    "Primary borrower": !application.revokedAt && application.expiresAt > now ? `/apply#${application.token}` : undefined,
+    "Co-borrower": joint?.token && joint.submittedAt && !joint.revokedAt && joint.expiresAt > now ? `/co-borrower#${joint.token}` : undefined,
+  };
+}
 export const conditionDocumentBatchLimit = 50;
 const suggestedDocumentKinds = new Map<string, DocumentKind>([
   ["Income", "Pay stub"], ["Assets", "Bank statement"], ["Identity", "Photo ID"], ["Insurance", "Homeowners insurance"],
@@ -44,6 +62,7 @@ export interface DocumentRequest {
 
 export interface LoanDocumentRequest extends DocumentRequest {
   loanId: string;
+  recipient?: DocumentRecipient;
   templateRevision?: number | null;
   templateTitle?: string | null;
   requestedAt: string;

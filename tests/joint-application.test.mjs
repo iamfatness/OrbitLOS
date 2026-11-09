@@ -10,6 +10,8 @@ const { jointApplication } = await import("../src/lib/joint-application.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { readEditableLoan } = await import("../src/lib/editable-loan.ts");
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
+const { beginDocumentUpload, finishDocumentUpload, failDocumentUpload, issueDocumentCode, verifyDocumentCode } = await import("../src/lib/document-files.ts");
+const { checkDocumentReminders, documentReminderPage } = await import("../src/lib/document-reminder-runs.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -151,4 +153,110 @@ test("the co-borrower can submit first, revoke and replace, then correct only th
     VALUES (?, ?, ?, 'Assigned', '', ?, 1)`).run(f.loanId, f.processor.email, f.processor.name, f.now);
   assert.equal(readEditableLoan(f.db, f.loanId, f.processor, f.brokerage.id).applications[0].joint.token, undefined);
   assert.ok(readEditableLoan(f.db, f.loanId, f.outsider, f.brokerage.id).error);
+});
+
+test("same-kind evidence, upload sessions, and replacement notes stay with each borrower", async (t) => {
+  const f = fixture(t);
+  const request = (recipient, instructions) => f.run("requestDocument", { kind: "Bank statement", recipient, instructions, dueOn: "2026-11-05" });
+  assert.ok((await request("Co-borrower", "Co-borrower sample only")).error);
+  await f.enable();
+  const primary = f.primary().application;
+  const co = f.co().value;
+  assert.ok((await request(undefined, "Primary sample only")).message);
+  assert.ok((await request("Co-borrower", "Co-borrower sample only")).message);
+  assert.ok((await request("Co-borrower", "Duplicate")).error);
+  assert.equal(f.co().value.documents, undefined);
+  f.primary(f.primaryWrite(f.primarySample(primary.draft), primary.revision));
+  assert.equal(f.co().value.documents, undefined);
+  const coToken = jointApplication(f.db, f.loanId).token;
+  assert.equal(issueDocumentCode(f.db, coToken, coToken, "mock").status, 404);
+  assert.ok(f.co(f.coWrite(f.coSample(co.draft), co.revision)).value.complete);
+  const [primaryRequest] = f.primary({ type: "status" }).statusView.loanStatus.documents;
+  const [coRequest] = f.co().value.documents;
+  assert.equal(primaryRequest.instructions, "Primary sample only");
+  assert.equal(coRequest.instructions, "Co-borrower sample only");
+  assert.notEqual(primaryRequest.id, coRequest.id);
+  const sample = ({ id, revision }) => ({ type: "attachSample", requestId: id, revision, statusOnly: true });
+  assert.equal(f.primary(sample(coRequest)).status, 404);
+  assert.equal(f.co(sample(primaryRequest)).status, 404);
+  const now = Date.now();
+  const verify = (token) => {
+    const { code } = issueDocumentCode(f.db, token, token, "mock", now);
+    assert.match(code, /^\d{6}$/);
+    const { session } = verifyDocumentCode(f.db, token, code, token, "mock", now + 1);
+    assert.ok(session);
+    return session;
+  };
+  const primarySession = verify(f.primaryToken);
+  const coSession = verify(coToken);
+  assert.notEqual(primarySession, coSession);
+  assert.equal(issueDocumentCode(f.db, coToken, "unused", "live", now).status, 404);
+  const access = (token, session, item) => ({ token, session, requestId: item.id, revision: item.revision, mode: "mock" });
+  assert.equal(beginDocumentUpload(f.db, access(coToken, primarySession, coRequest), now + 2).status, 401);
+  assert.equal(beginDocumentUpload(f.db, access(coToken, coSession, primaryRequest), now + 2).status, 404);
+  assert.equal(beginDocumentUpload(f.db, access(f.primaryToken, primarySession, coRequest), now + 2).status, 404);
+  const primaryUpload = access(f.primaryToken, primarySession, primaryRequest);
+  const primaryLease = beginDocumentUpload(f.db, primaryUpload, now + 3);
+  assert.ok(finishDocumentUpload(f.db, primaryUpload, primaryLease.objectId, now + 4).received);
+  const coUpload = access(coToken, coSession, coRequest);
+  const lease = beginDocumentUpload(f.db, coUpload, now + 3);
+  assert.ok(finishDocumentUpload(f.db, coUpload, lease.objectId, now + 4).received);
+  const coReceived = f.co().value.documents[0];
+  const replacementNote = "Fictional co-borrower-only replacement note";
+  assert.ok((await f.run("reviewDocument", { requestId: coReceived.id, revision: coReceived.revision, decision: "Needs replacement",
+    replacementNote, dueOn: "2026-11-05" })).message);
+  assert.equal(f.co().value.documents[0].replacementNote, replacementNote);
+  assert.doesNotMatch(JSON.stringify(f.primary()), /co-borrower-only replacement/);
+  const replacementUpload = access(coToken, coSession, f.co().value.documents[0]);
+  const replacementLease = beginDocumentUpload(f.db, replacementUpload, now + 1_100);
+  assert.ok(replacementLease.objectId);
+  assert.ok((await f.run("revokeJointLink", { token: coToken })).message);
+  assert.equal(finishDocumentUpload(f.db, replacementUpload, replacementLease.objectId, now + 1_101).status, 404);
+  failDocumentUpload(f.db, coRequest.id, replacementLease.objectId);
+  assert.equal(f.primary({ type: "status" }).statusView.loanStatus.documents[0].status, "Received");
+  assert.equal(f.co({ type: "read" }, coToken).status, 404);
+  assert.ok((await f.run("replaceJointLink", { token: coToken })).message);
+  const updatedToken = jointApplication(f.db, f.loanId).token;
+  assert.equal(f.co().value.documents[0].status, "Needs replacement");
+  assert.equal(beginDocumentUpload(f.db, access(updatedToken, coSession, f.co().value.documents[0]), now + 1_102).status, 401);
+});
+
+test("legacy upload access survives migration and co-borrower reminders follow their own link", async (t) => {
+  const f = fixture(t);
+  await f.enable();
+  const primary = f.primary().application;
+  const co = f.co().value;
+  f.co(f.coWrite(f.coSample(co.draft), co.revision));
+  f.primary(f.primaryWrite(f.primarySample(primary.draft), primary.revision));
+  const now = Date.now();
+  const { code } = issueDocumentCode(f.db, f.primaryToken, f.primaryToken, "mock", now);
+  const { session } = verifyDocumentCode(f.db, f.primaryToken, code, f.primaryToken, "mock", now + 1);
+  const columns = "loanId, tokenHash, email, codeHash, codeUntil, sendWindow, sendCount, sentAt, attempts, sessionHash, sessionUntil";
+  f.db.exec(`ALTER TABLE borrower_upload_access RENAME TO current_access;
+    CREATE TABLE borrower_upload_access (
+      loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE, tokenHash TEXT NOT NULL, email TEXT NOT NULL,
+      codeHash TEXT, codeUntil INTEGER NOT NULL, sendWindow INTEGER NOT NULL, sendCount INTEGER NOT NULL, sentAt INTEGER NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0, sessionHash TEXT, sessionUntil INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT INTO borrower_upload_access (${columns}) SELECT ${columns} FROM current_access;
+    DROP TABLE current_access;`);
+  initializeStore(f.db, false);
+  const add = (recipient) => f.run("requestDocument", { kind: "Pay stub", recipient, instructions: "", dueOn: "2026-11-01" });
+  assert.ok((await add("Primary borrower")).message);
+  assert.ok((await add("Co-borrower")).message);
+  const [request] = f.primary({ type: "status" }).statusView.loanStatus.documents;
+  const access = { token: f.primaryToken, session, requestId: request.id, revision: request.revision, mode: "mock" };
+  const begun = beginDocumentUpload(f.db, access, now + 2);
+  assert.ok(begun.objectId);
+  failDocumentUpload(f.db, request.id, begun.objectId);
+  const admin = { ...f.officer, brokerage: { ...f.brokerage, role: "Admin" } };
+  const coToken = jointApplication(f.db, f.loanId).token;
+  const check = () => checkDocumentReminders(f.db, { type: "checkDocuments", operationId: crypto.randomUUID(), simulate: false }, admin, new Date(now));
+  assert.ok((await f.run("revokeJointLink", { token: coToken })).message);
+  assert.equal(check().processed, 1);
+  assert.ok((await f.run("replaceJointLink", { token: coToken })).message);
+  assert.equal(check().processed, 1);
+  const runs = documentReminderPage(f.db, { type: "list", filter: "All runs", automation: "Document reminders" }, new Date(now), 10);
+  assert.deepEqual(new Set(runs.map(({ borrower }) => borrower)), new Set(["Fictional Primary", "Jordan Sample"]));
+  assert.deepEqual(f.db.prepare("PRAGMA foreign_key_check").all(), []);
 });

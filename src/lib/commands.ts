@@ -30,7 +30,8 @@ import type { PlaybookSettingsMutation } from "./manager-exception-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { activeRateWatchTask, returningClientSource } from "./past-client-queue";
 import { checklistInstructions, checklistPresetNames, checklistPresets, conditionDocumentBatchLimit, documentKinds,
-  suggestedConditionDocument, type DocumentKind } from "./document-model";
+  documentRecipients, primaryDocumentRecipient, suggestedConditionDocument, type DocumentKind, type DocumentRecipient } from "./document-model";
+import { documentRecipientAvailable } from "./borrower-documents";
 import { referralMatches } from "./referral-matches";
 import { mockAusInput, mockCreditInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
 import { loadProtectedPilotScenario, trackPilotBorrower, type ProtectPilotLinks } from "./pilot";
@@ -226,7 +227,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("revokeApplication"), loanId: id, token: z.string().regex(portalTokenPattern) }),
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
   z.object({ type: z.literal("requestDocument"), loanId: id, kind: z.enum(documentKinds), instructions: z.string().trim().max(500),
-    condition: z.object({ submissionId: id, conditionId: z.string().min(1).max(240) }).optional(), dueOn: documentDueOn.optional() }),
+    condition: z.object({ submissionId: id, conditionId: z.string().min(1).max(240) }).optional(), dueOn: documentDueOn.optional(),
+    recipient: z.enum(documentRecipients).default(primaryDocumentRecipient) }),
   z.object({ type: z.literal("setDocumentDeadline"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
     deadlineRevision: z.number().int().nonnegative(), dueOn: documentDueOn }),
   z.object({ type: z.literal("requestSuggestedUwmDocuments"), loanId: id, submissionId: id,
@@ -234,7 +236,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500), sendToMockUwm: z.boolean().optional(),
     dueOn: documentDueOn.optional() }),
-  z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames) }),
+  z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames),
+    recipient: z.enum(documentRecipients).default(primaryDocumentRecipient) }),
   applyDocumentTemplateInput,
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500),
@@ -282,11 +285,11 @@ const command = z.discriminatedUnion("type", [
 class WorkspaceError extends Error {}
 
 function addDocumentRequest(db: Store, loanId: string, kind: DocumentKind, instructions: string, now: string,
-  source?: { submissionId: string; conditionId: string }, dueOn: string | null = null) {
-  db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, submissionId, conditionId, dueOn)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(crypto.randomUUID(), loanId, kind, instructions, now, source?.submissionId ?? null, source?.conditionId ?? null, dueOn);
-  addApplicationActivity(db, loanId, `Document requested · ${kind}${source ? " · Lender condition" : ""}${dueOn ? ` · Due ${dueOn}` : ""}`, now);
+  source?: { submissionId: string; conditionId: string }, dueOn: string | null = null, recipient: DocumentRecipient = primaryDocumentRecipient) {
+  db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, submissionId, conditionId, dueOn, recipient)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(crypto.randomUUID(), loanId, kind, instructions, now, source?.submissionId ?? null, source?.conditionId ?? null, dueOn, recipient);
+  addApplicationActivity(db, loanId, `Document requested · ${kind}${source ? " · Lender condition" : ""}${dueOn ? ` · Due ${dueOn}` : ""}${recipient !== primaryDocumentRecipient ? ` · ${recipient}` : ""}`, now);
 }
 
 function addContactActivity(db: Store, input: {
@@ -1138,6 +1141,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         case "requestDocument": {
           const source = data.condition;
+          if (!documentRecipientAvailable(db, data.loanId, data.recipient)) throw new WorkspaceError("Set up a separate co-borrower link before assigning documents to them.");
           if (source) {
             const manual = db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ? AND syncedAt IS NULL")
               .get(source.submissionId, data.loanId);
@@ -1154,11 +1158,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             if (!data.instructions) throw new WorkspaceError("Enter instructions for the borrower.");
           } else {
             if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
-            if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ? AND conditionId IS NULL").get(data.loanId, data.kind)) {
-              throw new WorkspaceError("This document is already on the checklist. Refresh the loan to see its status.");
+            if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ? AND recipient = ? AND conditionId IS NULL")
+              .get(data.loanId, data.kind, data.recipient)) {
+              throw new WorkspaceError("This document is already on that borrower’s checklist. Refresh the loan to see its status.");
             }
           }
-          addDocumentRequest(db, data.loanId, data.kind, data.instructions, now, source, data.dueOn);
+          addDocumentRequest(db, data.loanId, data.kind, data.instructions, now, source, data.dueOn, data.recipient);
           message = source ? "Condition linked to the borrower checklist." : "Document added to the borrower checklist.";
           break;
         }
@@ -1187,7 +1192,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "reviewDocument": {
-          const request = db.prepare("SELECT kind, status, revision, dueOn, submissionId, conditionId FROM document_requests WHERE id = ? AND loanId = ?")
+          const request = db.prepare("SELECT kind, status, revision, dueOn, submissionId, conditionId, recipient FROM document_requests WHERE id = ? AND loanId = ?")
             .get(data.requestId, data.loanId);
           const submission = request?.submissionId && db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ?").get(request.submissionId, data.loanId);
           const open = submission && (JSON.parse(String(submission.conditions)) as Condition[]).some((item) => item.id === request?.conditionId && !item.satisfiedAt);
@@ -1204,7 +1209,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (replaceAccepted) archiveMockDocumentDelivery(db, data.requestId);
           const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(data.requestId)?.objectId;
           const accepted = pdf ? (staff?.brokerage.id === demoBrokerageId || staff?.brokerage.pilot ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
-          addApplicationActivity(db, data.loanId, `${replacement ? "Replacement requested" : accepted} · ${request.kind}${replacement && nextDueOn ? ` · Due ${nextDueOn}` : ""}`, now);
+          addApplicationActivity(db, data.loanId, `${replacement ? "Replacement requested" : accepted} · ${request.kind}${request.recipient !== primaryDocumentRecipient ? ` · ${request.recipient}` : ""}${replacement && nextDueOn ? ` · Due ${nextDueOn}` : ""}`, now);
           message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
           if (data.sendToMockUwm) {
             const delivery = sendMockConditionDocument(db, data.loanId, data.requestId, data.revision + 1, now);
@@ -1215,14 +1220,16 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "applyDocumentPreset": {
           if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(data.loanId)) throw new WorkspaceError("This loan no longer exists.");
+          if (!documentRecipientAvailable(db, data.loanId, data.recipient)) throw new WorkspaceError("Set up a separate co-borrower link before assigning documents to them.");
           let added = 0;
           for (const kind of checklistPresets[data.preset]) {
-            if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ? AND conditionId IS NULL").get(data.loanId, kind)) continue;
-            db.prepare("INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt) VALUES (?, ?, ?, ?, ?)")
-              .run(crypto.randomUUID(), data.loanId, kind, checklistInstructions[kind], now);
+            if (db.prepare("SELECT 1 FROM document_requests WHERE loanId = ? AND kind = ? AND recipient = ? AND conditionId IS NULL")
+              .get(data.loanId, kind, data.recipient)) continue;
+            db.prepare("INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, recipient) VALUES (?, ?, ?, ?, ?, ?)")
+              .run(crypto.randomUUID(), data.loanId, kind, checklistInstructions[kind], now, data.recipient);
             added++;
           }
-          if (added) addApplicationActivity(db, data.loanId, `Applied ${data.preset.toLowerCase()} checklist · ${added} added`, now);
+          if (added) addApplicationActivity(db, data.loanId, `Applied ${data.preset.toLowerCase()} checklist · ${added} added · ${data.recipient}`, now);
           message = added ? `Added ${added} document requests.` : "This checklist is already in place.";
           break;
         }

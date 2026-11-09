@@ -893,8 +893,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/joint-application") {
       return borrowerJson(request, async (input) => {
         const link = await linkedWorkspace(input);
-        return link && (link.pilot || link.id === demoBrokerageId) ? link.store.coBorrower(input, link.pilot) :
-          { status: 404, error: jointLinkUnavailable };
+        if (!link || (!link.pilot && link.id !== demoBrokerageId)) return { status: 404, error: jointLinkUnavailable };
+        const result = await link.store.coBorrower(input, link.pilot);
+        return "value" in result && documentUploadMode(uploads?.mode, link.id, link.pilot) === "mock"
+          ? { value: { ...result.value, documentUploadsMode: "mock" as const } } : result;
       }, 262_144);
     }
     if (request.method === "POST" && url.pathname === "/api/demo-address") {

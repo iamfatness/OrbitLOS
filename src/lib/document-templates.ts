@@ -7,6 +7,8 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
 import type { z } from "zod";
+import { documentRecipientAvailable } from "./borrower-documents";
+import { primaryDocumentRecipient } from "./document-model";
 
 function supported(staff: WorkspaceStaff | null) {
   return !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
@@ -103,27 +105,29 @@ export function applyDocumentTemplate(db: Store, data: z.infer<typeof applyDocum
   if (!supported(staff)) return { error: documentTemplatesUnavailable };
   const loan = readLoan(db, data.loanId, staff);
   if (!loan) return { error: "Checklists are available on active, unfunded loans you can work." };
+  const recipient = data.recipient ?? primaryDocumentRecipient;
+  if (!documentRecipientAvailable(db, data.loanId, recipient)) return { error: "Set up a separate co-borrower link before assigning documents to them." };
   const row = db.prepare(`${templateQuery} WHERE template.id = ? AND template.archived = 0 AND template.revision = ?`).get(data.templateId, data.revision);
   if (!row || data.asOf !== easternDate(new Date(now))) return { error: documentTemplateChanged };
   const template = templateFromRow(row);
   if (template.purpose !== "Any loan purpose" && template.purpose !== loan.purpose) {
     return { error: "Choose a checklist for the current loan purpose." };
   }
-  const existing = new Set(db.prepare("SELECT kind FROM document_requests WHERE loanId = ? AND conditionId IS NULL")
-    .all(data.loanId).map(({ kind }) => kind));
-  const insert = db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, dueOn) VALUES (?, ?, ?, ?, ?, ?)`);
+  const existing = new Set(db.prepare("SELECT kind FROM document_requests WHERE loanId = ? AND recipient = ? AND conditionId IS NULL")
+    .all(data.loanId, recipient).map(({ kind }) => kind));
+  const insert = db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, dueOn, recipient) VALUES (?, ?, ?, ?, ?, ?, ?)`);
   const origin = db.prepare("INSERT INTO document_checklist_origins (requestId, templateId, revision) VALUES (?, ?, ?)");
   let added = 0;
   for (const item of template.items) {
     if (existing.has(item.kind)) continue;
     const requestId = crypto.randomUUID();
     const dueOn = documentTemplateDueOn(data.asOf, item.dueDays);
-    insert.run(requestId, data.loanId, item.kind, item.instructions, now, dueOn);
+    insert.run(requestId, data.loanId, item.kind, item.instructions, now, dueOn, recipient);
     origin.run(requestId, template.id, template.revision);
     added++;
   }
   if (added) {
-    addApplicationActivity(db, data.loanId, `Applied ${template.title} · Version ${template.revision} · ${added} added · ${staff?.name ?? "Demo workspace"}`, now);
+    addApplicationActivity(db, data.loanId, `Applied ${template.title} · Version ${template.revision} · ${added} added · ${recipient} · ${staff?.name ?? "Demo workspace"}`, now);
     accessEvent(db, staff, "Applied document checklist", data.loanId, now);
   }
   return { message: added ? `Added ${added} document ${added === 1 ? "request" : "requests"} from ${template.title}.` :

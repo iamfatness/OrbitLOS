@@ -27,6 +27,7 @@ export default function DemoPage() {
           <li>See requests and sample PDFs reach open borrower and staff views. Reopen the lender checklist from the guide to review attachments already received.</li>
           <li>Preview a brokerage document checklist with borrower instructions and due dates. Add missing requests and find outstanding items in staff queues.</li>
           <li>Give two borrowers separate links to save and submit their own portions. Review the combined fictional 1003 on one loan.</li>
+          <li>Assign document requests to each borrower on a joint loan. Each private checklist shows that person’s evidence and mock upload status.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Watch it appear in the open Ready to accept queue, work through mock lender clearance, and pick it back up in Today with the processor’s internal note.</li>
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>

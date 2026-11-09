@@ -59,9 +59,19 @@ const documentRequestColumns = `
   status TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested', 'Received', 'Accepted', 'Needs replacement')),
   replacementNote TEXT NOT NULL DEFAULT '', submittedAt TEXT, revision INTEGER NOT NULL DEFAULT 0,
   dueOn TEXT, deadlineRevision INTEGER NOT NULL DEFAULT 0,
+  recipient TEXT NOT NULL DEFAULT 'Primary borrower' CHECK (recipient IN ('Primary borrower', 'Co-borrower')),
   submissionId TEXT REFERENCES submissions(id) ON DELETE CASCADE, conditionId TEXT,
   CHECK ((submissionId IS NULL) = (conditionId IS NULL)),
   UNIQUE (submissionId, conditionId)
+`;
+
+const borrowerUploadAccessColumns = `
+  loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
+  recipient TEXT NOT NULL DEFAULT 'Primary borrower' CHECK (recipient IN ('Primary borrower', 'Co-borrower')),
+  tokenHash TEXT NOT NULL, email TEXT NOT NULL, codeHash TEXT, codeUntil INTEGER NOT NULL,
+  sendWindow INTEGER NOT NULL, sendCount INTEGER NOT NULL, sentAt INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+  sessionHash TEXT, sessionUntil INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (loanId, recipient)
 `;
 
 const salesTargetColumns = `
@@ -927,10 +937,13 @@ export function initializeStore(db: Store, seedDemo = true) {
     const requestColumns = new Set(db.prepare("PRAGMA table_info(document_requests)").all().map((column) => column.name));
     if (!requestColumns.has("dueOn")) db.exec("ALTER TABLE document_requests ADD COLUMN dueOn TEXT");
     if (!requestColumns.has("deadlineRevision")) db.exec("ALTER TABLE document_requests ADD COLUMN deadlineRevision INTEGER NOT NULL DEFAULT 0");
+    if (!requestColumns.has("recipient")) db.exec(`ALTER TABLE document_requests ADD COLUMN recipient TEXT NOT NULL
+      DEFAULT 'Primary borrower' CHECK (recipient IN ('Primary borrower', 'Co-borrower'))`);
     const coverageColumns = new Set(db.prepare("PRAGMA table_info(staff_coverage)").all().map((column) => column.name));
     if (!coverageColumns.has("absentAccessRevision")) db.exec("ALTER TABLE staff_coverage ADD COLUMN absentAccessRevision INTEGER NOT NULL DEFAULT 0");
     if (!coverageColumns.has("backupAccessRevision")) db.exec("ALTER TABLE staff_coverage ADD COLUMN backupAccessRevision INTEGER NOT NULL DEFAULT 0");
-    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS manual_document_by_loan_kind ON document_requests(loanId, kind) WHERE conditionId IS NULL");
+    db.exec(`DROP INDEX IF EXISTS manual_document_by_loan_kind;
+      CREATE UNIQUE INDEX IF NOT EXISTS manual_document_by_recipient ON document_requests(loanId, recipient, kind) WHERE conditionId IS NULL`);
     db.exec("CREATE INDEX IF NOT EXISTS document_requests_by_loan ON document_requests(loanId, requestedAt, id)");
     db.exec("CREATE INDEX IF NOT EXISTS received_documents_by_loan ON document_requests(loanId) WHERE status = 'Received'");
     db.exec(`CREATE INDEX IF NOT EXISTS borrower_documents_by_due ON document_requests(dueOn, id)
@@ -982,12 +995,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE,
       revision INTEGER NOT NULL, failedAt TEXT NOT NULL, PRIMARY KEY (requestId, revision)
     )`);
-    db.exec(`CREATE TABLE IF NOT EXISTS borrower_upload_access (
-      loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
-      tokenHash TEXT NOT NULL, email TEXT NOT NULL, codeHash TEXT, codeUntil INTEGER NOT NULL,
-      sendWindow INTEGER NOT NULL, sendCount INTEGER NOT NULL, sentAt INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-      sessionHash TEXT, sessionUntil INTEGER NOT NULL DEFAULT 0
-    );
+    db.exec(`CREATE TABLE IF NOT EXISTS borrower_upload_access (${borrowerUploadAccessColumns});
     CREATE TABLE IF NOT EXISTS document_files (
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
       objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL, failed INTEGER NOT NULL DEFAULT 0
@@ -1003,6 +1011,13 @@ export function initializeStore(db: Store, seedDemo = true) {
         AND OLD.pendingId IS NOT NEW.pendingId AND OLD.pendingId IS NOT NEW.objectId;
     END;`);
     // Earlier presenter scenarios seeded a request ID that staff actions reject.
+    if (!db.prepare("PRAGMA table_info(borrower_upload_access)").all().some((column) => column.name === "recipient")) {
+      const columns = "loanId, tokenHash, email, codeHash, codeUntil, sendWindow, sendCount, sentAt, attempts, sessionHash, sessionUntil";
+      db.exec(`CREATE TABLE borrower_upload_access_next (${borrowerUploadAccessColumns});
+        INSERT INTO borrower_upload_access_next (${columns}) SELECT ${columns} FROM borrower_upload_access;
+        DROP TABLE borrower_upload_access;
+        ALTER TABLE borrower_upload_access_next RENAME TO borrower_upload_access;`);
+    }
     const legacyInsurance = db.prepare(`SELECT request.id FROM pilot_scenario scenario
       JOIN document_requests request ON request.loanId = 'demo-presenter:' || scenario.id || ':closing'
       WHERE scenario.presenter = 1 AND request.id = request.loanId || ':insurance'
@@ -1012,9 +1027,9 @@ export function initializeStore(db: Store, seedDemo = true) {
       const newId = crypto.randomUUID();
       // Use a temporary kind while both rows exist under the per-loan unique index.
       db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, status, replacementNote, submittedAt,
-        revision, dueOn, deadlineRevision, submissionId, conditionId)
+        revision, dueOn, deadlineRevision, submissionId, conditionId, recipient)
         SELECT ?, loanId, ?, instructions, requestedAt, status, replacementNote, submittedAt,
-          revision, dueOn, deadlineRevision, submissionId, conditionId FROM document_requests WHERE id = ?`).run(newId, newId, oldId);
+          revision, dueOn, deadlineRevision, submissionId, conditionId, recipient FROM document_requests WHERE id = ?`).run(newId, newId, oldId);
       for (const table of ["uwm_document_deliveries", "uwm_document_delivery_history", "mock_delivery_failures", "document_files"]) {
         db.prepare(`UPDATE ${table} SET requestId = ? WHERE requestId = ?`).run(newId, oldId);
       }

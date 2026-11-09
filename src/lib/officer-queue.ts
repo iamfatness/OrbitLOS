@@ -384,13 +384,15 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       ${processingJoin} WHERE ${dueForLoan} AND ${openClosingItem}`,
     "item.id", "item.dueDate", loanOwnerEmail, loanOwnerName, true, [], `closing_items item WHERE ${openClosingItem}`),
     ...select("document", (join) => `request.id, loan.id AS recordId, contact.name, request.dueOn AS dueAt,
-      CASE request.status WHEN 'Needs replacement' THEN 'Replacement ' || lower(request.kind) || ' due' ELSE request.kind || ' due' END AS title
+      CASE request.status WHEN 'Needs replacement' THEN 'Replacement ' || lower(request.kind) || ' due' ELSE request.kind || ' due' END ||
+        CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title
       FROM document_requests request ${join} loans loan ON loan.id = request.loanId JOIN contacts contact ON contact.id = loan.contactId
       ${processingJoin} WHERE loan.disposition = 'Active' AND ${dueDocument}`,
     "request.id", "request.dueOn", loanOwnerEmail, loanOwnerName, true, [],
     `document_requests request WHERE ${dueDocument}`),
     ...(tasks?.view === "Open" ? select("document-review", (join) => `request.id, loan.id AS recordId, contact.name,
-      coalesce(request.submittedAt, request.requestedAt) AS dueAt, 'Review ' || lower(request.kind) AS title
+      coalesce(request.submittedAt, request.requestedAt) AS dueAt, 'Review ' || lower(request.kind) ||
+        CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title
       FROM document_requests request ${join} loans loan ON loan.id = request.loanId JOIN contacts contact ON contact.id = loan.contactId
       ${processingJoin} WHERE loan.disposition = 'Active' AND request.status = 'Received'`,
     "request.id", "coalesce(request.submittedAt, request.requestedAt)", loanOwnerEmail, loanOwnerName, false, [],

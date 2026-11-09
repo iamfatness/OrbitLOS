@@ -5,10 +5,13 @@ import { ArrowLeft, ArrowRight, Check, Save } from "lucide-react";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { coBorrowerReviewStep, coBorrowerSections, coBorrowerSubmissionIssues, sampleCoBorrower, type CoBorrowerApplication } from "@/lib/joint-application-model";
 import { observeVisibleChecks } from "@/lib/tab-return";
+import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-change-signal";
+import type { DocumentRequest } from "@/lib/document-model";
 import { borrowerDefinition, jointQuestions, type BorrowerDetails } from "@/lib/urla";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 import { QuestionnaireAnswers, QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { Button } from "./ui/button";
+import { BorrowerDocumentChecklist } from "./borrower-status";
 
 async function requestCoBorrower(token: string, input: object, signal: AbortSignal): Promise<CoBorrowerApplication> {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete co-borrower link from your loan officer.");
@@ -33,6 +36,8 @@ export function CoBorrowerApplicationForm() {
 }
 
 const labels = [...coBorrowerSections.map(([, label]) => label), "Review"];
+type CoBorrowerAction = { type: "read" } | { type: "attachSample"; requestId: string; revision: number } |
+  { type: "save" | "submit"; step: number; revision: number; draft: BorrowerDetails; confirmedDemo: boolean };
 
 function CoBorrowerForm({ token }: { token?: string }) {
   const [view, setView] = useState<CoBorrowerApplication>();
@@ -40,6 +45,7 @@ function CoBorrowerForm({ token }: { token?: string }) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const pending = useRef<AbortController | null>(null);
+  const requestVersion = useRef(0);
   const submitted = Boolean(view?.submittedAt);
   const awaitingOtherPortion = submitted && !view?.complete;
 
@@ -55,21 +61,29 @@ function CoBorrowerForm({ token }: { token?: string }) {
   useEffect(() => {
     if (!token || !submitted) return;
     const controller = new AbortController();
-    const stop = observeVisibleChecks(document, window, async (isCurrent) => {
-      if (pending.current || controller.signal.aborted) return;
+    let refreshing = false;
+    async function refresh(isCurrent: () => boolean) {
+      if (!token) return;
+      if (pending.current || controller.signal.aborted || refreshing) return;
+      const version = requestVersion.current;
+      refreshing = true;
       try {
         const next = await requestCoBorrower(token, { type: "read" }, controller.signal);
-        if (isCurrent() && !controller.signal.aborted && !pending.current) {
+        if (isCurrent() && !controller.signal.aborted && version === requestVersion.current) {
           setView((current) => current?.submittedAt ? next : current);
         }
       } catch { /* A manual refresh shows any link error. */ }
-    });
-    return () => { stop(); controller.abort(); };
+      finally { refreshing = false; }
+    }
+    const stop = observeVisibleChecks(document, window, refresh);
+    const stopChanges = observeBorrowerChange(token, "checklist-changed", () => void refresh(() => !controller.signal.aborted));
+    return () => { stop(); stopChanges(); controller.abort(); };
   }, [submitted, token]);
 
-  async function perform(input: object, success: string, move = false) {
+  async function perform(input: CoBorrowerAction, success: string, move = false) {
     if (!token || pending.current) return;
     const controller = new AbortController();
+    requestVersion.current += 1;
     pending.current = controller;
     setBusy(true);
     setError("");
@@ -79,6 +93,7 @@ function CoBorrowerForm({ token }: { token?: string }) {
       if (!controller.signal.aborted && window.location.hash.slice(1) === token) {
         setView(next);
         setNotice(success);
+        if (input.type === "attachSample") void announceBorrowerChange(token);
         if (move) window.scrollTo(0, 0);
       }
     } catch (failure) {
@@ -112,6 +127,9 @@ function CoBorrowerForm({ token }: { token?: string }) {
   const step = view?.step ?? 0;
   const reviewing = step === coBorrowerReviewStep;
   const section = coBorrowerSections[step]?.[0];
+  const refresh = () => void perform({ type: "read" }, "Joint application progress refreshed.");
+  const attach = (request: DocumentRequest) => void perform({ type: "attachSample", requestId: request.id, revision: request.revision },
+    `Sample attached for ${request.kind.toLowerCase()}.`);
   return <><PortalHeader label="Fictional pilot" /><main className="application-shell borrower-portal">
     <div className="application-intro"><OrbitRings />
       <h1>{submitted ? "Your portion is submitted" : "Co-borrower application"}</h1>
@@ -122,11 +140,14 @@ function CoBorrowerForm({ token }: { token?: string }) {
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status">Opening your portion…</p>}
-    {submitted ? <section className="pipeline relationship-panel" aria-label="Joint application progress">
+    {submitted ? <div className="borrower-status"><section className="pipeline relationship-panel" aria-label="Joint application progress">
       <h2>{awaitingOtherPortion ? "Waiting for the primary borrower" : "Joint application ready for review"}</h2>
       <p>{awaitingOtherPortion ? "Your loan officer receives the joint 1003 once both portions are submitted." : "Your loan officer can review both portions on the loan."}</p>
-      <div><Button variant="outline" size="sm" disabled={busy} onClick={() => void perform({ type: "read" }, "Joint application progress refreshed.")}>Refresh joint status</Button></div>
-    </section> : view && <section className="application-panel" aria-label="Co-borrower portion">
+      <div><Button variant="outline" size="sm" disabled={busy} onClick={refresh}>Refresh joint status</Button></div>
+    </section>
+      {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}
+        busy={busy} refresh={refresh} attach={attach} uploadsMode={view.documentUploadsMode} />}
+    </div> : view && <section className="application-panel" aria-label="Co-borrower portion">
       <form className="application-form" onSubmit={submit} noValidate>
         <fieldset disabled={busy} className="application-step">
           <label className="field">Your application section · {step + 1} of {labels.length}

@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { addApplicationActivity } from "./applications";
-import { needsBorrowerDocument, type DocumentKind, type DocumentStatus } from "./document-model";
+import { coBorrowerDocumentRecipient, needsBorrowerDocument, primaryDocumentRecipient, type DocumentKind, type DocumentStatus } from "./document-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
@@ -19,31 +19,38 @@ const failure = (status: number, error: string) => ({ status, error });
 const inactive = () => failure(404, "This borrower link is unavailable. Ask your loan officer for a new link.");
 const unverified = () => failure(401, "Verify your email before uploading a PDF.");
 
-function application(db: Store, token: string, now: number) {
+function application(db: Store, token: string, mode: DocumentUploadMode, now: number) {
+  const at = new Date(now).toISOString();
   const row = db.prepare(`SELECT a.loanId, contacts.email FROM applications a JOIN loans ON loans.id = a.loanId
     JOIN contacts ON contacts.id = loans.contactId
-    WHERE a.token = ? AND a.expiresAt > ? AND a.revokedAt IS NULL AND a.submittedAt IS NOT NULL`).get(token, new Date(now).toISOString());
-  return row ? { loanId: String(row.loanId), email: String(row.email).trim().toLowerCase() } : null;
+    WHERE a.token = ? AND a.expiresAt > ? AND a.revokedAt IS NULL AND a.submittedAt IS NOT NULL`).get(token, at);
+  if (row) return { loanId: String(row.loanId), email: String(row.email).trim().toLowerCase(), recipient: primaryDocumentRecipient };
+  if (mode !== "mock") return null;
+  const co = db.prepare(`SELECT joint.loanId FROM joint_applications joint JOIN applications app ON app.loanId = joint.loanId
+    WHERE joint.token = ? AND joint.expiresAt > ? AND joint.revokedAt IS NULL AND joint.submittedAt IS NOT NULL
+    AND app.submittedAt IS NOT NULL`).get(token, at);
+  return co ? { loanId: String(co.loanId), email: "", recipient: coBorrowerDocumentRecipient } : null;
 }
 
 export function issueDocumentCode(db: Store, token: string, secret: string, mode: DocumentUploadMode, now = Date.now()) {
   return db.transaction(() => {
-    const borrower = application(db, token, now);
+    const borrower = application(db, token, mode, now);
     if (!borrower) return inactive();
     const email = verificationEmail(borrower.email, mode);
     const scope = verificationToken(token, mode);
     if (!emailAddress.safeParse(email).success) return failure(409, "Ask your loan officer to add your email to the loan before uploading.");
-    const previous = db.prepare("SELECT sendWindow, sendCount, sentAt FROM borrower_upload_access WHERE loanId = ?").get(borrower.loanId);
+    const previous = db.prepare("SELECT sendWindow, sendCount, sentAt FROM borrower_upload_access WHERE loanId = ? AND recipient = ?")
+      .get(borrower.loanId, borrower.recipient);
     const inWindow = previous && Number(previous.sendWindow) + 60 * minute > now;
     if ((previous && Number(previous.sentAt) + minute > now) || (inWindow && Number(previous.sendCount) >= 5)) {
       return failure(429, "A verification code was requested recently. Try again later.");
     }
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-    db.prepare(`INSERT INTO borrower_upload_access (loanId,tokenHash,email,codeHash,codeUntil,sendWindow,sendCount,sentAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId) DO UPDATE SET tokenHash = excluded.tokenHash,
+    db.prepare(`INSERT INTO borrower_upload_access (loanId,recipient,tokenHash,email,codeHash,codeUntil,sendWindow,sendCount,sentAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId,recipient) DO UPDATE SET tokenHash = excluded.tokenHash,
       email = excluded.email, codeHash = excluded.codeHash, codeUntil = excluded.codeUntil, sendWindow = excluded.sendWindow,
       sendCount = excluded.sendCount, sentAt = excluded.sentAt, attempts = 0, sessionHash = NULL, sessionUntil = 0`)
-      .run(borrower.loanId, digest(scope), email, issueHash(secret, scope, email, code),
+      .run(borrower.loanId, borrower.recipient, digest(scope), email, issueHash(secret, scope, email, code),
         now + 10 * minute, inWindow ? Number(previous.sendWindow) : now, inWindow ? Number(previous.sendCount) + 1 : 1, now);
     return { email, code };
   });
@@ -51,22 +58,22 @@ export function issueDocumentCode(db: Store, token: string, secret: string, mode
 
 export function verifyDocumentCode(db: Store, token: string, code: string, secret: string, mode: DocumentUploadMode, now = Date.now()) {
   return db.transaction(() => {
-    const borrower = application(db, token, now);
+    const borrower = application(db, token, mode, now);
     if (!borrower) return inactive();
     const email = verificationEmail(borrower.email, mode);
     const scope = verificationToken(token, mode);
     const access = db.prepare(`SELECT codeHash, codeUntil, attempts FROM borrower_upload_access
-      WHERE loanId = ? AND tokenHash = ? AND email = ?`).get(borrower.loanId, digest(scope), email);
+      WHERE loanId = ? AND recipient = ? AND tokenHash = ? AND email = ?`).get(borrower.loanId, borrower.recipient, digest(scope), email);
     if (typeof access?.codeHash !== "string" || Number(access.codeUntil) <= now || Number(access.attempts) >= 5) {
       return failure(409, "Request a new verification code.");
     }
     if (!timingSafeEqual(Buffer.from(access.codeHash, "hex"), Buffer.from(issueHash(secret, scope, email, code), "hex"))) {
-      db.prepare("UPDATE borrower_upload_access SET attempts = attempts + 1 WHERE loanId = ?").run(borrower.loanId);
+      db.prepare("UPDATE borrower_upload_access SET attempts = attempts + 1 WHERE loanId = ? AND recipient = ?").run(borrower.loanId, borrower.recipient);
       return failure(400, "That verification code did not match.");
     }
     const session = randomBytes(32).toString("base64url");
-    db.prepare("UPDATE borrower_upload_access SET codeHash = NULL, sessionHash = ?, sessionUntil = ? WHERE loanId = ?")
-      .run(digest(session), now + 30 * minute, borrower.loanId);
+    db.prepare("UPDATE borrower_upload_access SET codeHash = NULL, sessionHash = ?, sessionUntil = ? WHERE loanId = ? AND recipient = ?")
+      .run(digest(session), now + 30 * minute, borrower.loanId, borrower.recipient);
     return { session };
   });
 }
@@ -74,17 +81,18 @@ export function verifyDocumentCode(db: Store, token: string, code: string, secre
 export type UploadAccess = { token: string; session: string; requestId: string; revision: number; mode: DocumentUploadMode };
 
 function uploadRequest(db: Store, input: UploadAccess, now: number) {
-  const borrower = application(db, input.token, now);
+  const borrower = application(db, input.token, input.mode, now);
   if (!borrower) return inactive();
-  if (!db.prepare(`SELECT 1 FROM borrower_upload_access WHERE loanId = ? AND tokenHash = ? AND email = ?
-    AND sessionHash = ? AND sessionUntil > ?`).get(borrower.loanId, digest(verificationToken(input.token, input.mode)),
+  if (!db.prepare(`SELECT 1 FROM borrower_upload_access WHERE loanId = ? AND recipient = ? AND tokenHash = ? AND email = ?
+    AND sessionHash = ? AND sessionUntil > ?`).get(borrower.loanId, borrower.recipient, digest(verificationToken(input.token, input.mode)),
       verificationEmail(borrower.email, input.mode), digest(input.session), now)) return unverified();
-  const item = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?").get(input.requestId, borrower.loanId);
+  const item = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ? AND recipient = ?")
+    .get(input.requestId, borrower.loanId, borrower.recipient);
   if (!item) return failure(404, "This document request is unavailable.");
   if (item.revision !== input.revision || !needsBorrowerDocument(item.status as DocumentStatus)) {
     return failure(409, "This request changed. Refresh your checklist before uploading.");
   }
-  return { loanId: borrower.loanId, kind: item.kind as DocumentKind, replacement: item.status === "Needs replacement" };
+  return { loanId: borrower.loanId, recipient: borrower.recipient, kind: item.kind as DocumentKind, replacement: item.status === "Needs replacement" };
 }
 
 export function beginDocumentUpload(db: Store, input: UploadAccess, now = Date.now()) {
@@ -114,8 +122,9 @@ export function finishDocumentUpload(db: Store, input: UploadAccess, objectId: s
     db.prepare("UPDATE document_requests SET status = 'Received', submittedAt = ?, revision = revision + 1 WHERE id = ?").run(at, input.requestId);
     const action = input.mode === "mock" ? (item.replacement ? "Replacement demo PDF received" : "Demo PDF received")
       : item.replacement ? "Replacement PDF received" : "Borrower PDF received";
-    addApplicationActivity(db, item.loanId, `${action} · ${item.kind}`, at);
-    accessEvent(db, { email: "Borrower", name: "Borrower" }, action, input.requestId, at);
+    const actor = item.recipient === coBorrowerDocumentRecipient ? item.recipient : "Borrower";
+    addApplicationActivity(db, item.loanId, `${action} · ${item.kind}${actor === "Borrower" ? "" : ` · ${actor}`}`, at);
+    accessEvent(db, { email: actor, name: actor }, action, input.requestId, at);
     return { received: true };
   });
 }

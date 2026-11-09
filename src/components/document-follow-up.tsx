@@ -3,24 +3,30 @@
 import { useRef, useState } from "react";
 import { Copy } from "lucide-react";
 import { draftChannels } from "@/lib/communication-templates";
-import { needsBorrowerDocument } from "@/lib/document-model";
+import { borrowerChecklistLinks, coBorrowerDocumentRecipient, documentRecipient, documentRecipients, needsBorrowerDocument,
+  primaryDocumentRecipient, type DocumentRecipient } from "@/lib/document-model";
 import { dateLabel } from "@/lib/client-retention";
 import type { DraftChannel, Loan, Workspace } from "@/lib/model";
 import { Button } from "./ui/button";
 
 export function DocumentFollowUp({ loan, state }: { loan: Loan; state: Workspace }) {
   const [channel, setChannel] = useState<DraftChannel>("Email");
+  const [selection, setSelection] = useState<DocumentRecipient>();
   const [status, setStatus] = useState("");
   const message = useRef<HTMLTextAreaElement>(null);
   const application = state.applications.find((item) => item.loanId === loan.id);
-  const borrower = state.contacts.find((contact) => contact.id === loan.contactId);
-  const outstanding = state.documentRequests.filter((item) => item.loanId === loan.id && needsBorrowerDocument(item.status));
-  if (!borrower || !outstanding.length) return <p className="empty-inline">There are no borrower requests to follow up on.</p>;
+  const primary = state.contacts.find((contact) => contact.id === loan.contactId);
+  const allOutstanding = state.documentRequests.filter((item) => item.loanId === loan.id && needsBorrowerDocument(item.status));
+  if (!primary || !allOutstanding.length) return <p className="empty-inline">There are no borrower requests to follow up on.</p>;
   if (!application?.submittedAt) return <p className="empty-inline">The borrower can open the checklist after submitting their 1003.</p>;
-  const expiresAt = application.expiresAt;
-  if (application.revokedAt || expiresAt <= new Date().toISOString()) return <p className="empty-inline">Issue a new borrower link in the 1003 section before copying this follow-up.</p>;
-
-  const link = new URL(`/apply#${application.token}`, window.location.origin).href;
+  const recipient = selection ?? (allOutstanding.some((item) => documentRecipient(item) === primaryDocumentRecipient) ?
+    primaryDocumentRecipient : coBorrowerDocumentRecipient);
+  const outstanding = allOutstanding.filter((item) => documentRecipient(item) === recipient);
+  const coBorrower = application.draft?.urla.additional[0]?.identity.fields;
+  const borrower = recipient === primaryDocumentRecipient ? primary :
+    { name: coBorrower?.name || "Co-borrower", email: coBorrower?.email, phone: coBorrower?.cell };
+  const path = borrowerChecklistLinks(application)[recipient];
+  const link = path ? new URL(path, window.location.origin).href : "";
   const officer = loan.officer || "Your loan team";
   const email = channel === "Email";
   const items = outstanding.map((request) => {
@@ -33,8 +39,8 @@ export function DocumentFollowUp({ loan, state }: { loan: Loan; state: Workspace
     : `Hi ${borrower.name}, please attach these fictional samples in your OrbitLOS checklist. ${items.join(" | ")}\n${link}\n— ${officer}`;
 
   async function copy() {
-    if (expiresAt <= new Date().toISOString()) {
-      setStatus("This borrower link expired. Renew it in the 1003 section.");
+    if (!borrowerChecklistLinks(application)[recipient]) {
+      setStatus("The selected borrower needs an active link. Check the 1003 section.");
       return;
     }
     try {
@@ -49,6 +55,12 @@ export function DocumentFollowUp({ loan, state }: { loan: Loan; state: Workspace
 
   return <div className="communication-preview">
     <div className="section-heading"><h3>Borrower document follow-up</h3><span className="pill">Preview only</span></div>
+    {application.joint && <label className="field">Follow-up recipient<select value={recipient} onChange={(event) => {
+      setSelection(event.target.value as DocumentRecipient); setStatus("");
+    }}>{documentRecipients.map((option) => <option key={option}>{option}</option>)}</select></label>}
+    {!outstanding.length ? <p className="empty-inline">This borrower has no outstanding document requests.</p> :
+      !path ? <p className="empty-inline">{recipient === coBorrowerDocumentRecipient && application.joint && !application.joint.token
+        ? "Ask the loan officer or an admin to open the co-borrower follow-up." : "Issue a current link for this borrower in the 1003 section."}</p> : <>
     <div className="view-toggle" aria-label="Message channel">
       {draftChannels.map((option) => <button key={option} type="button" aria-pressed={channel === option} onClick={() => { setChannel(option); setStatus(""); }}>{option}</button>)}
     </div>
@@ -56,5 +68,6 @@ export function DocumentFollowUp({ loan, state }: { loan: Loan; state: Workspace
     <textarea ref={message} readOnly aria-label={`${channel} follow-up preview`} className="communication-message" value={draft} rows={email ? 10 : 6} />
     <Button variant="outline" size="sm" onClick={() => void copy()}><Copy /> Copy {channel.toLowerCase()} follow-up</Button>
     {status && <p className="muted" role="status">{status}</p>}
+    </>}
   </div>;
 }

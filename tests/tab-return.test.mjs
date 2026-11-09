@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { registerHooks } from "node:module";
 import { observeTabReturn, observeVisibleChecks } from "../src/lib/tab-return.ts";
-import { announceBorrowerChange, borrowerChangeChannel, borrowerChecklistToken } from "../src/lib/borrower-change-signal.ts";
+
+registerHooks({ resolve(specifier, context, next) {
+  try { return next(specifier, context); }
+  catch (error) {
+    if (error.code !== "ERR_MODULE_NOT_FOUND" || !specifier.startsWith("./")) throw error;
+    return next(`${specifier}.ts`, context);
+  }
+} });
+const { announceBorrowerChange, borrowerChangeChannel, borrowerChecklistTokens } = await import("../src/lib/borrower-change-signal.ts");
 
 function tabs() {
   const page = Object.assign(new EventTarget(), { hidden: false, hasFocus: () => true });
@@ -129,15 +138,19 @@ test("checklist writes signal only the matching submitted and unrevoked applicat
   const submittedAt = "2026-11-09T14:00:00.000Z";
   const applications = [
     { loanId: "one", submittedAt, revokedAt: null, token: "first" },
-    { loanId: "two", submittedAt, revokedAt: null, token: "second" },
+    { loanId: "two", submittedAt, revokedAt: null, token: "second", joint: { token: "co", submittedAt, revokedAt: null } },
     { loanId: "draft", submittedAt: null, revokedAt: null, token: "draft" },
     { loanId: "revoked", submittedAt, revokedAt: submittedAt, token: "revoked" },
   ];
   for (const type of ["requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline", "reviewDocument", "reopenMockUwmCondition"]) {
-    assert.equal(borrowerChecklistToken({ type, loanId: "two" }, applications), "second");
+    const mutation = { type, loanId: "two", requestId: "primary-request" };
+    assert.deepEqual(borrowerChecklistTokens(mutation, applications, [{ id: "primary-request", loanId: "two" }]), ["second"]);
   }
   for (const input of [null, { type: "refreshApplication", loanId: "one" }, { type: "requestDocument" },
     { type: "requestDocument", loanId: "draft" }, { type: "requestDocument", loanId: "revoked" }]) {
-    assert.equal(borrowerChecklistToken(input, applications), undefined);
+    assert.deepEqual(borrowerChecklistTokens(input, applications), []);
   }
+  assert.deepEqual(borrowerChecklistTokens({ type: "applyDocumentTemplate", loanId: "two", recipient: "Co-borrower" }, applications), ["co"]);
+  assert.deepEqual(borrowerChecklistTokens({ type: "reviewDocument", loanId: "two", requestId: "co-request" }, applications,
+    [{ id: "co-request", loanId: "two", recipient: "Co-borrower" }]), ["co"]);
 });

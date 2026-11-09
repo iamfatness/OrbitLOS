@@ -5,11 +5,11 @@ import type { Store } from "./store";
 import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
 import { borrowerDetailsSchema, lenderDetailsSchema, normalizeBorrowerDetails, normalizeUrla, type BorrowerDetails } from "./urla";
-import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
+import { coBorrowerDocumentRecipient, needsBorrowerDocument, primaryDocumentRecipient, type BorrowerLoanStatus, type DocumentRecipient, type DocumentRequest } from "./document-model";
 import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
 import { quoteMatchesApplication, type BorrowerQuote } from "./pricing-model";
-import { pdfColumns } from "./document-files-model";
+import { borrowerDocuments } from "./borrower-documents";
 import { accessEvent } from "./workspace-access";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 import { zipCityState } from "./zip-city-state";
@@ -158,9 +158,7 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
     readSharedPreapprovalLetters(db, [row.loanId], "Borrower", token, now).get(row.loanId);
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
-    documents: db.prepare(`SELECT requests.id, kind, instructions, status, replacementNote, submittedAt, revision, dueOn, ${pdfColumns()}
-      FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
-      WHERE loanId = ? ORDER BY requestedAt, requests.id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
+    documents: borrowerDocuments(db, row.loanId, primaryDocumentRecipient),
     quote: published && currentAlternatives ? { ...published, presentation } as unknown as BorrowerQuote : null,
     ...(preapproval ? { preapproval } : {}),
   } : null;
@@ -223,11 +221,12 @@ function invalidApplication(issues: string[]) {
   return { status: 422, error: `Complete these items before submitting: ${issues.join("; ")}.` };
 }
 
-function attachBorrowerSample(db: Store, row: BorrowerStatusRow, data: { requestId: string; revision: number }, allowSample: boolean, now: string) {
+function attachBorrowerSample(db: Store, row: Pick<BorrowerStatusRow, "loanId" | "submittedAt">, data: { requestId: string; revision: number },
+  allowSample: boolean, now: string, recipient: DocumentRecipient = primaryDocumentRecipient) {
   if (!allowSample) return { status: 409, error: "Use the verified PDF upload for this checklist." };
   if (!row.submittedAt) return { status: 409, error: "Submit your application to open the document checklist." };
-  const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
-    .get(data.requestId, row.loanId);
+  const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ? AND recipient = ?")
+    .get(data.requestId, row.loanId, recipient);
   if (!request) return { status: 404, error: "This document request is unavailable." };
   if (db.prepare("SELECT 1 FROM document_files WHERE requestId = ? AND (objectId IS NOT NULL OR pendingUntil > ?)").get(data.requestId, Date.parse(now))) {
     return { status: 409, error: "Continue with the PDF upload for this request." };
@@ -238,7 +237,7 @@ function attachBorrowerSample(db: Store, row: BorrowerStatusRow, data: { request
   }
   db.prepare("UPDATE document_requests SET status = 'Received', submittedAt = ?, revision = revision + 1 WHERE id = ?")
     .run(now, data.requestId);
-  addApplicationActivity(db, row.loanId, `Sample document received · ${request.kind}`, now);
+  addApplicationActivity(db, row.loanId, `Sample document received · ${request.kind}${recipient === coBorrowerDocumentRecipient ? ` · ${recipient}` : ""}`, now);
   return null;
 }
 
@@ -328,8 +327,13 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
     const view = (draft = current, revision = row.revision, step = row.step, updatedAt = row.updatedAt,
       submittedAt = row.submittedAt, complete = Boolean(application.submittedAt), confirmedDemo = Boolean(row.confirmedDemo)): { value: CoBorrowerApplication } =>
       ({ value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
+        ...(complete && submittedAt ? { documents: borrowerDocuments(db, row.loanId, coBorrowerDocumentRecipient) } : {}),
         ...(row.correctionNote && !submittedAt ? { correctionNote: row.correctionNote } : {}) } });
     if (data.type === "read") return view();
+    if (data.type === "attachSample") {
+      const ready = row.submittedAt && application.submittedAt;
+      return attachBorrowerSample(db, { loanId: row.loanId, submittedAt: ready }, data, true, now, coBorrowerDocumentRecipient) ?? view();
+    }
     const submitted = data.type === "submit";
     const { borrower, issues } = normalizeBorrowerDetails(data.draft, false, false, true);
     if (issues.length) return { status: 422, error: "Use a fictional tax ID in the format 000-00-1234 and only four digits for account references." };

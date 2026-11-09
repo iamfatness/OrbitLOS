@@ -22,7 +22,7 @@ function loanHandoffVersion(db: Store, loanId: string) {
       WHERE event.loanId = app.loanId AND event.applicationRevision = app.revision AND event.submissionId IS NOT NULL
       ORDER BY event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS linkedHandoff
     FROM applications app WHERE loanId = ?`).get(loanId);
-  const documents = db.prepare(`SELECT requests.id, requests.status, requests.revision, requests.deadlineRevision, ${pdfColumns()}
+  const documents = db.prepare(`SELECT requests.id, requests.status, requests.revision, requests.deadlineRevision, requests.recipient, ${pdfColumns()}
     FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
     WHERE requests.loanId = ? ORDER BY requests.requestedAt, requests.id`).all(loanId);
   const joint = db.prepare("SELECT submittedAt, primarySubmittedAt, revokedAt, expiresAt FROM joint_applications WHERE loanId = ?").get(loanId);

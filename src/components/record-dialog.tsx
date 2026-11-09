@@ -24,7 +24,8 @@ import type { ReturningClientOption } from "@/lib/past-client-queue-model";
 import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
 import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-documents";
 import { DocumentFollowUp } from "./document-follow-up";
-import { conditionDocumentBatchLimit, needsBorrowerDocument, suggestedConditionDocument, type LoanDocumentRequest } from "@/lib/document-model";
+import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
+  type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
 import { mockRateStatus, quoteMatchesApplication } from "@/lib/pricing-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
@@ -174,8 +175,9 @@ function ContactFields({ contact }: { contact?: Contact }) {
   </>;
 }
 
-function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl, brokerageId, pilot, canSimulate }: {
-  submission: Submission; requests: LoanDocumentRequest[]; busy: boolean; save: Save; onEdit: () => void; borrowerUrl?: string; brokerageId: string; pilot?: boolean;
+function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLinks, joint, brokerageId, pilot, canSimulate }: {
+  submission: Submission; requests: LoanDocumentRequest[]; busy: boolean; save: Save; onEdit: () => void;
+  checklistLinks: Partial<Record<DocumentRecipient, string>>; joint: boolean; brokerageId: string; pilot?: boolean;
   canSimulate: boolean;
 }) {
   const open = submission.conditions.filter((item) => !item.satisfiedAt);
@@ -186,10 +188,11 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl,
     const document = !byCondition.has(item.id) && suggestedConditionDocument(item);
     return document ? [{ id: item.id, kind: document.kind }] : [];
   }).slice(0, conditionDocumentBatchLimit) : [];
-  const waitingCount = open.filter((item) => {
+  const waiting = open.flatMap((item) => {
     const request = byCondition.get(item.id);
-    return request && needsBorrowerDocument(request.status);
-  }).length;
+    return request && needsBorrowerDocument(request.status) ? [documentRecipient(request)] : [];
+  });
+  const waitingCount = waiting.length;
   const sentCount = open.filter((item) => byCondition.get(item.id)?.uwmReceipt).length;
   return (
     <article className="submission" id={submissionTarget(submission.id)} tabIndex={-1}>
@@ -208,9 +211,11 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl,
             {suggested.length > 1 && <Button size="sm" disabled={busy} onClick={() => void save({
               type: "requestSuggestedUwmDocuments", loanId: submission.loanId, submissionId: submission.id, conditionIds: suggested.map((item) => item.id),
             })}>Request {suggested.length} suggested documents</Button>}
-            {suggested.length > 1 && <small className="muted">{suggested.map((item) => item.kind).join(" · ")}</small>}
+            {suggested.length > 1 && <small className="muted">{suggested.map((item) => item.kind).join(" · ")}{joint ? " · For primary borrower" : ""}</small>}
             {waitingCount > 0 && <>
-              {waitingCount > 1 && borrowerUrl && <Button size="sm" variant="outline" asChild><a href={borrowerUrl} target="_blank" rel="noopener noreferrer">Open borrower checklist <ExternalLink /></a></Button>}
+              {waitingCount > 1 && [...new Set(waiting)].map((recipient) => checklistLinks[recipient] && <Button key={recipient} size="sm" variant="outline" asChild>
+                <a href={checklistLinks[recipient]} target="_blank" rel="noopener noreferrer">Open {joint ? recipient.toLowerCase() : "borrower"} checklist <ExternalLink /></a>
+              </Button>)}
               <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({
                 type: "refreshApplication", loanId: submission.loanId,
               })}><RefreshCw /> Refresh requested documents</Button>
@@ -221,18 +226,19 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl,
           </div>}
         {[...open, ...cleared].map((item) => {
           const request = byCondition.get(item.id);
+          const borrowerUrl = request && checklistLinks[documentRecipient(request)];
           return <div className="condition" key={item.id} id={conditionTarget(submission.id, item.id)} tabIndex={-1}>
             {item.satisfiedAt ? <CheckCircle2 size={16} className="text-emerald-700" /> : <Circle size={16} className="text-amber-600" />}
             <div><strong>{item.category}{item.group && ` · ${item.group}`}</strong><p>{item.description}</p>
               <small>{submission.lender === "UWM" && "UWM · "}{item.satisfiedAt ? `Cleared ${dateTime(item.satisfiedAt)} ET` : item.uploaded ? "Document uploaded" : "Outstanding"}</small>
               {request ? <>
                 {!item.satisfiedAt && (request.status === "Requested" || request.status === "Needs replacement") && <div className="loan-application-actions">
-                  {borrowerUrl && <Button size="sm" variant="outline" asChild><a href={borrowerUrl} target="_blank" rel="noopener noreferrer">Open borrower checklist <ExternalLink /></a></Button>}
+                  {borrowerUrl && <Button size="sm" variant="outline" asChild><a href={borrowerUrl} target="_blank" rel="noopener noreferrer">Open {joint ? documentRecipient(request).toLowerCase() : "borrower"} checklist <ExternalLink /></a></Button>}
                   <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ type: "refreshApplication", loanId: submission.loanId })}>Refresh condition</Button>
                 </div>}
                 <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot}
-                  openCondition={!item.satisfiedAt} replaceable={!item.satisfiedAt} busy={busy} save={save} compact />
-              </> : !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} quick />}
+                  openCondition={!item.satisfiedAt} replaceable={!item.satisfiedAt} busy={busy} save={save} compact showRecipient={joint} />
+              </> : !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} quick joint={joint} />}
               {!item.satisfiedAt && <ConditionResponse condition={item} request={request} lender={submission.lender} />}
               {canSimulate && submission.lender === "UWM" && item.satisfiedAt && <div>
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
@@ -246,7 +252,7 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl,
           </div>;
         })}
       </>}
-      {!submission.syncedAt && <ManualConditions submission={submission} requests={requests} borrowerUrl={borrowerUrl}
+      {!submission.syncedAt && <ManualConditions submission={submission} requests={requests} checklistLinks={checklistLinks} joint={joint}
         brokerageId={brokerageId} pilot={pilot} busy={busy} save={save} />}
     </article>
   );
@@ -523,8 +529,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const lenderStatus = displayManual?.status ?? uwm[0]?.status ?? "Awaiting submission";
   const openCount = (displayManual ? displayManual.conditions : uwm.flatMap((item) => item.conditions)).filter((item) => !item.satisfiedAt).length;
   const realtorDraft = state.communicationDrafts.find((draft) => draft.loanId === loan.id && draft.audience === "Realtor" && draft.contactId === loan.partnerId);
-  const borrowerUrl = application?.submittedAt && !application.revokedAt && application.expiresAt > new Date().toISOString()
-    ? `/apply#${application.token}` : undefined;
+  const checklistLinks = borrowerChecklistLinks(application);
+  const joint = !!application?.joint;
   const open = (destination: string) => show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
   const openPricing = (useMockScore?: boolean) => show({ kind: "pricing", loanId: loan.id, campaignLender, useMockScore });
   const inlineRequests = new Set(submissions.flatMap((item) => requests.filter((request) => request.submissionId === item.id &&
@@ -614,11 +620,11 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         {submissions.length === 0 && <p className="empty-inline">No lender submissions yet. Add a manual lender or send the reviewed 1003 to mock UWM.</p>}
         {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
-          borrowerUrl={borrowerUrl} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot}
+          checklistLinks={checklistLinks} joint={joint} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot}
           canSimulate={!processor && (!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot)}
           onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
-      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} inlineRequests={inlineRequests}
+      <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} joint={joint} requests={requests} inlineRequests={inlineRequests}
         openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
         customTemplates={!pausedLoan(loan) && !pastClientLoan(loan) && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot :
           process.env.NODE_ENV === "development")}
@@ -761,7 +767,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
   const returnSection = modal.kind === "details" ? loanSection(target) : undefined;
   const returnLoanId = refreshLoanOnReturn && (returnSection === "1003" || returnSection === "Conditions") ? loan?.id : undefined;
-  const returnToken = returnLoanId ? state.applications.find((application) => application.loanId === returnLoanId)?.token : undefined;
+  const returnApplication = returnLoanId ? state.applications.find((application) => application.loanId === returnLoanId) : undefined;
+  const returnToken = returnApplication?.token;
+  const returnJointToken = returnApplication?.joint?.token;
   const returnBrokerageId = staff?.brokerage.id;
   const returnEmail = staff?.email;
   const returnRole = staff?.brokerage.role;
@@ -784,14 +792,16 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     const stopObserving = observeTabReturn(document, window, (isCurrent) => void refreshReturnedLoan(returnLoanId, isCurrent));
     let active = true;
     const stopChanges = observeBorrowerChange(returnToken, "changed", () => void refreshReturnedLoan(returnLoanId, () => active));
+    const stopJointChanges = returnJointToken && observeBorrowerChange(returnJointToken, "changed", () => void refreshReturnedLoan(returnLoanId, () => active));
     const stopChecks = observeVisibleChecks(document, window, (isCurrent) => refreshReturnedLoan(returnLoanId, isCurrent, true));
     return () => {
       active = false;
       stopChanges();
+      if (stopJointChanges) stopJointChanges();
       stopObserving();
       stopChecks();
     };
-  }, [modal, returnLoanId, returnToken, returnBrokerageId, returnEmail, returnRole]);
+  }, [modal, returnLoanId, returnToken, returnJointToken, returnBrokerageId, returnEmail, returnRole]);
   function markDraftChanged(editor: Node) {
     if (returnLoanId) dirtyEditors.current.add(editor);
   }

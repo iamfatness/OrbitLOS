@@ -1,7 +1,9 @@
 "use client";
 
 import { FileCheck2, Mail, Plus, RefreshCw, Send } from "lucide-react";
-import { documentKinds, needsBorrowerDocument, suggestedConditionDocument, type DocumentKind, type LoanDocumentRequest } from "@/lib/document-model";
+import { useState } from "react";
+import { documentKinds, documentRecipient, documentRecipients, needsBorrowerDocument, primaryDocumentRecipient, suggestedConditionDocument,
+  type DocumentKind, type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
 import type { Condition } from "@/lib/model";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { dateLabel } from "@/lib/client-retention";
@@ -12,54 +14,66 @@ import { ApplyDocumentChecklist, ManageDocumentTemplates } from "./document-chec
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
 
-export function DocumentRequestForm({ loanId, kinds = documentKinds, source, busy, save, quick = false }: {
-  loanId: string; kinds?: readonly DocumentKind[]; source?: { submissionId: string; condition: Condition }; busy: boolean; save: Save; quick?: boolean;
+export function DocumentRequestForm({ loanId, source, busy, save, quick = false, joint = false, existing = [] }: {
+  loanId: string; source?: { submissionId: string; condition: Condition }; busy: boolean; save: Save; quick?: boolean;
+  joint?: boolean; existing?: LoanDocumentRequest[];
 }) {
   const suggested = source && suggestedConditionDocument(source.condition);
   if (quick && source && suggested) return <div className="loan-application-actions">
     <Button size="sm" type="button" disabled={busy} onClick={() => void save({ type: "requestDocument", loanId,
       ...suggested,
       condition: { submissionId: source.submissionId, conditionId: source.condition.id },
-    })}><Plus /> Request {suggested.kind.toLowerCase()}</Button>
-    <RequestForm loanId={loanId} kinds={kinds} source={source} busy={busy} save={save} suggestedKind={suggested.kind} />
+    })}><Plus /> Request {suggested.kind.toLowerCase()}{joint && " for primary borrower"}</Button>
+    <RequestForm loanId={loanId} source={source} busy={busy} save={save} suggestedKind={suggested.kind} joint={joint} existing={existing} />
   </div>;
-  return <RequestForm loanId={loanId} kinds={kinds} source={source} busy={busy} save={save} suggestedKind={suggested?.kind} />;
+  return <RequestForm loanId={loanId} source={source} busy={busy} save={save} suggestedKind={suggested?.kind} joint={joint} existing={existing} />;
 }
 
-function RequestForm({ loanId, kinds, source, busy, save, suggestedKind }: {
-  loanId: string; kinds: readonly DocumentKind[]; source?: { submissionId: string; condition: Condition }; busy: boolean;
-  save: Save; suggestedKind?: DocumentKind;
+function RequestForm({ loanId, source, busy, save, suggestedKind, joint, existing }: {
+  loanId: string; source?: { submissionId: string; condition: Condition }; busy: boolean;
+  save: Save; suggestedKind?: DocumentKind; joint: boolean; existing: LoanDocumentRequest[];
 }) {
+  const [recipient, setRecipient] = useState<DocumentRecipient>(primaryDocumentRecipient);
+  const kinds = source ? documentKinds : availableKinds(existing, recipient);
   return <details className="document-form">
     <summary><Plus size={15} /> {suggestedKind ? "Customize request" : source ? "Request borrower document" : "Request document"}</summary>
     <form onSubmit={(event) => {
       event.preventDefault();
       const form = event.currentTarget;
       const data = new FormData(form);
-      void save({ type: "requestDocument", loanId, kind: data.get("kind"), instructions: data.get("instructions"), dueOn: data.get("dueOn") || null,
+      if (!kinds.length) return;
+      void save({ type: "requestDocument", loanId, kind: data.get("kind"), instructions: data.get("instructions"), dueOn: data.get("dueOn") || null, recipient,
         condition: source && { submissionId: source.submissionId, conditionId: source.condition.id },
       }, () => {
         form.reset();
         form.closest("details")?.removeAttribute("open");
       });
     }}>
-      <label>Document type<select name="kind" defaultValue={source ? suggestedKind ?? "" : kinds[0]} required>
+      {joint && <label>Document recipient<select value={recipient} onChange={(event) => setRecipient(event.target.value as DocumentRecipient)} disabled={busy}>
+        {documentRecipients.map((option) => <option key={option}>{option}</option>)}
+      </select></label>}
+      <label>Document type<select key={recipient} name="kind" defaultValue={source ? suggestedKind ?? "" : kinds[0]} required disabled={!kinds.length || busy}>
         {source && <option value="" disabled>Choose a document type</option>}
+        {!kinds.length && <option value="">All document types requested</option>}
         {kinds.map((kind) => <option key={kind}>{kind}</option>)}
       </select></label>
       <label>{source ? "Instructions shown to borrower" : "Instructions for borrower (optional)"}
         <textarea name="instructions" rows={2} maxLength={500} required={Boolean(source)} defaultValue={source?.condition.description.slice(0, 500)} />
       </label>
       <label>Borrower due date (optional)<input name="dueOn" type="date" /></label>
-      <Button size="sm" type="submit" disabled={busy}>Add to checklist</Button>
+      <Button size="sm" type="submit" disabled={busy || !kinds.length}>Add to checklist</Button>
     </form>
   </details>;
 }
 
+function availableKinds(existing: readonly LoanDocumentRequest[], recipient: DocumentRecipient) {
+  return documentKinds.filter((kind) => !existing.some((request) => request.kind === kind && !request.conditionId && documentRecipient(request) === recipient));
+}
+
 export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequests, openConditionRequests, replaceableRequests,
-  applicationStarted, applicationSubmitted, customTemplates, officer, processor, openAssignment, localTemplateEditor, busy, save, followUp }: {
+  applicationStarted, applicationSubmitted, customTemplates, officer, processor, openAssignment, localTemplateEditor, joint = false, busy, save, followUp }: {
   loanId: string; brokerageId: string; requests: LoanDocumentRequest[]; inlineRequests: Set<string>; openConditionRequests: Set<string>;
-  pilot?: boolean;
+  pilot?: boolean; joint?: boolean;
   replaceableRequests: Set<string>;
   customTemplates: boolean; officer: string; processor?: string | null; openAssignment?: () => void; localTemplateEditor?: boolean;
   applicationStarted: boolean; applicationSubmitted: boolean; busy: boolean; save: Save; followUp: () => void;
@@ -67,7 +81,7 @@ export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequ
   const standalone = requests.filter((item) => !inlineRequests.has(item.id));
   const waiting = requests.filter((item) => needsBorrowerDocument(item.status)).length;
   const received = requests.filter((item) => item.status === "Received").length;
-  const available = documentKinds.filter((kind) => !requests.some((request) => request.kind === kind && !request.conditionId));
+  const available = (joint ? documentRecipients : [primaryDocumentRecipient]).some((recipient) => availableKinds(requests, recipient).length > 0);
 
   return <section className="details-section document-section" id="document-checklist" tabIndex={-1} aria-label="Document checklist">
     <div className="section-heading"><h3><FileCheck2 size={17} /> Document checklist</h3>
@@ -75,26 +89,28 @@ export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequ
     </div>
     {requests.length > 0 && <p className="document-counts">{waiting} waiting on borrower · {received} ready for review · {requests.length - waiting - received} accepted</p>}
     {waiting > 0 && applicationSubmitted && <div><Button size="sm" variant="outline" onClick={followUp}><Mail /> Preview document follow-up</Button></div>}
-    {!applicationSubmitted && <p className="muted">{applicationStarted ? "Available to the borrower after 1003 submission." : "Start a 1003 to share the checklist."}</p>}
-    {available.length > 0 && <DocumentRequestForm loanId={loanId} kinds={available} busy={busy} save={save} />}
+    {!applicationSubmitted && <p className="muted">{joint ? "Borrowers can open their checklists after both 1003 portions are submitted." :
+      applicationStarted ? "Available to the borrower after 1003 submission." : "Start a 1003 to share the checklist."}</p>}
+    {available && <DocumentRequestForm loanId={loanId} joint={joint} existing={requests} busy={busy} save={save} />}
     <ApplyDocumentChecklist key={loanId} loanId={loanId} brokerageId={brokerageId} customAvailable={customTemplates} requests={requests}
-      officer={officer} processor={processor} openAssignment={openAssignment} busy={busy} save={save} />
+      officer={officer} processor={processor} openAssignment={openAssignment} joint={joint} busy={busy} save={save} />
     {localTemplateEditor && <ManageDocumentTemplates brokerageId={brokerageId} />}
     {standalone.length ? <ul className="document-list">{standalone.map((request) => <li key={request.id}>
       <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot} busy={busy} save={save}
-        openCondition={openConditionRequests.has(request.id)} replaceable={replaceableRequests.has(request.id)} />
+        openCondition={openConditionRequests.has(request.id)} replaceable={replaceableRequests.has(request.id)} showRecipient={joint} />
     </li>)}</ul> : <p className="empty-inline">No standalone document requests. Linked requests appear with their conditions.</p>}
   </section>;
 }
 
-export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, replaceable, busy, save, compact = false }: {
+export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, replaceable, busy, save, compact = false, showRecipient = false }: {
   request: LoanDocumentRequest; brokerageId: string; pilot?: boolean; openCondition: boolean; replaceable: boolean;
-  busy: boolean; save: Save; compact?: boolean;
+  busy: boolean; save: Save; compact?: boolean; showRecipient?: boolean;
 }) {
   const loanId = request.loanId;
   const pdfLabel = brokerageId === demoBrokerageId || pilot ? "demo PDF" : "PDF";
   return <div className="document-item" id={`document-${request.id}`} tabIndex={-1}>
         <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
+        {(showRecipient || documentRecipient(request) !== primaryDocumentRecipient) && <small className="muted">For {documentRecipient(request).toLowerCase()}</small>}
         {request.conditionId && !compact && <small className="muted">Linked lender condition</small>}
         {request.templateTitle && <small className="muted">{request.templateTitle} · Version {request.templateRevision}</small>}
         {request.instructions && !compact && <p>{request.instructions}</p>}
