@@ -74,6 +74,12 @@ On Worker `0ef90796-8a3c-4dd6-b813-e530059b87b2` from `5aa42d5a0a42`, the fictio
 
 The targeted SQLite checks covered rescheduling before a promise is due, restoring an overdue promise with a later scheduled time, and retaining the exact request event through CRM import. All 308 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages returned 200 with the new copy.
 
+## Hosted mock campaign follow-up drafts
+
+On Worker `38570c2c-dae1-414d-8633-f6a426793068` from `5eeab7c4bd9c`, **Next call** opened Taylor’s fictional callback. Staff recorded a new requested callback and previewed both draft channels from the saved call. Both included the 4:48 p.m. ET callback. The email subject edit survived switching to text and back. The lead conversation showed one simulated email and one simulated text, alongside the unchanged callback. After **Start 1003**, both entries appeared in the loan’s Activity.
+
+In a separate pair of QA tabs, Morgan’s open draft was blocked after the fictional lead opted out in the other tab. The SQLite test also exercised opt-out on a matching contact, wrong owner and recipient, stale call and callback references, replay, and conversion. All 309 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages returned 200 with the release copy.
+
 ## Hosted selected campaign refresh
 
 On `14c3c758-4067-40fc-8234-e9e25e00fa79`, two signed-in owner tabs opened the same fictional campaign. One logged a requested callback for Jordan. In the other, Refresh queue kept Upcoming callbacks selected and displayed the original November 10, 2026, 10:32 a.m. ET deadline. The first tab logged Connected and started the 1003. Refresh queue in the second tab cleared the callback count, displayed the new loan under 1003s started, and opened the correct loan file. Neither tab logged a sampled application error. The updated product copy was verified. The `design-pass/roles` evidence directory contains `hosted-selected-campaign-refresh.png`.
