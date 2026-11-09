@@ -26,6 +26,7 @@ import { contactMergeUnavailable } from "./contact-merge-model";
 import { leadWorkUnavailable } from "./lead-work-model";
 import { incomingLoanWorkUnavailable } from "./incoming-loan-work-model";
 import { manualReturnFollowUpUnavailable } from "./lender-export-model";
+import { preapprovalUnavailable } from "./preapproval-model";
 export { currentStaff } from "./current-staff";
 
 function staffWorkspace(staff: WorkspaceStaff | null) {
@@ -208,6 +209,10 @@ export async function saveManualReturnFollowUp(input: unknown, staff: WorkspaceS
 
 export async function loadLoanScenarios(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).loanScenarios(staff, input) : { error: "Sign in to view loan scenarios." };
+}
+
+export async function loadPreapprovalLetters(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).preapprovalLetters(staff, input) : { error: preapprovalUnavailable };
 }
 
 export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | null) {

@@ -7,9 +7,11 @@ import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Loan, Workspace } from "@/lib/model";
 import { money } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { PreapprovalLetters } from "./preapproval-letters";
 
-export function FileReadiness({ loan, state, busy, save, open }: {
+export function FileReadiness({ loan, state, busy, save, open, preapprovalBrokerage }: {
   loan: Loan; state: Workspace; busy: boolean;
+  preapprovalBrokerage?: string;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   open: (target: string) => void;
 }) {
@@ -72,10 +74,7 @@ export function FileReadiness({ loan, state, busy, save, open }: {
         <div><Button size="sm" disabled={busy} type="submit">Record manual handoff</Button></div>
       </form>}
     </details>
-    {application?.reviewedAt && <details className="loan-task-create"><summary>Prepare sample preapproval draft</summary>
-      <label className="field">Editable sample draft<textarea key={application.revision} rows={5} defaultValue={
-        `SAMPLE PREAPPROVAL DRAFT · FICTIONAL DEMO\n${borrower}\nProposed loan amount: ${money(Number(application.draft?.loanAmount) || loan.amount)}.\nSubject to verification of the application, property, and lender requirements.\nPrepared for LO review.`
-      } /></label>
-    </details>}
+    {preapprovalBrokerage && (loan.purpose === "Purchase" || !!application?.reviewedAt) &&
+      <PreapprovalLetters loanId={loan.id} brokerageId={preapprovalBrokerage} revision={application?.revision} />}
   </section>;
 }

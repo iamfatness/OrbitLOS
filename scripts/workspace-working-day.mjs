@@ -628,6 +628,9 @@ try {
     assert.ok(history.some((event) => event.subject === loanId && event.loanName === imported.name && event.action === "Assigned shared processor"));
     const blockedHandoff = await action(officer, "mutate", { type: "updateProcessing", action: "Send to processing", loanId, revision: 1, note: "" });
     assert.match(blockedHandoff.error, /approved second review/i);
+    const letterPath = `/api/preapproval-letters?brokerage=${brokerage}`;
+    const letterRead = { type: "read", loanId };
+    assert.match((await post(letterPath, letterRead, officer)).page.issue.blocked, /approved second review/i);
     assert.equal((await file(processor, loanId)).loanProcessing[0].status, "Assigned");
     const refreshedReview = (await review(owner, detail)).review;
     assert.equal(refreshedReview.applicationRevision, corrected.revision);
@@ -635,6 +638,24 @@ try {
       decision: "Approved", note: "Verified the corrected fictional revision." })).kind, "saved");
     assert.equal((await file(officer, loanId)).applications[0].secondReviewApproved, true);
     assert.deepEqual((await pendingApprovals()).items, []);
+    const available = (await post(letterPath, letterRead, officer)).page.issue;
+    assert.equal(available.applicationRevision, corrected.revision);
+    const issueLetter = { type: "issue", loanId, applicationRevision: corrected.revision, previousVersion: 0, requestId: randomUUID(),
+      amountCents: available.amountCents, expiresOn: available.suggestedExpiry, scope: "Property search", confirmed: true };
+    assert.equal((await postResponse(letterPath, issueLetter, competingOfficer)).status, 409);
+    assert.equal((await postResponse(letterPath, letterRead, processor)).status, 409);
+    assert.equal((await post(letterPath, issueLetter, officer)).issuedVersion, 1);
+    assert.equal((await post(letterPath, issueLetter, officer)).issuedVersion, 1);
+    const downloadFirst = { type: "download", loanId, version: 1 };
+    const firstLetter = await post(letterPath, downloadFirst, officer);
+    assert.match(firstLetter.pdf, /^%PDF-1\.4/);
+    assert.equal((await postResponse(letterPath, downloadFirst, competingOfficer)).status, 409);
+    assert.equal((await post(letterPath, { ...issueLetter, requestId: randomUUID(), previousVersion: 1,
+      amountCents: issueLetter.amountCents - 100 }, officer)).issuedVersion, 2);
+    assert.deepEqual(await post(letterPath, downloadFirst, officer), firstLetter);
+    assert.deepEqual((await post(letterPath, letterRead, owner)).page.letters.map(({ status }) => status), ["Current", "Superseded"]);
+    const letterHistory = await action(officer, "readHistoryPage", { record: "loan", id: loanId });
+    assert.equal(letterHistory.events.filter(({ text }) => text.startsWith("Issued fictional preapproval letter")).length, 2);
     await loanAction(officer, loanId, "runMockCredit", { attemptId: randomUUID(), previousId: null, authorized: true, scenario: "ready" });
     const pricedFile = await file(officer, loanId);
     const report = pricedFile.mockCreditAusRuns.find(({ service }) => service === "Credit");
@@ -680,6 +701,7 @@ try {
     assert.equal(status.loanStatus.quote.rate, offer.rate);
     assert.equal(status.loanStatus.quote.presentation.primary.offerId, offer.id);
     assert.ok(!JSON.stringify(status).includes(recommendation));
+    assert.ok(!JSON.stringify(status).includes("preapproval"));
     assert.ok(!("draft" in status));
     assert.match((await action(officer, "mutate", { type: "sendApplication", loanId, revision: corrected.revision,
       quote: { runId: run.id, offerId: run.offers[1].id } })).error, /saved mock quote changed/i);

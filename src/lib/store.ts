@@ -127,6 +127,12 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
     CREATE INDEX IF NOT EXISTS application_handoff_by_revision
       ON application_handoff_events(loanId, applicationRevision, lenderRevision);
+    CREATE TABLE IF NOT EXISTS sample_preapproval_letters (
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, version INTEGER NOT NULL,
+      requestId TEXT NOT NULL UNIQUE, applicationRevision INTEGER NOT NULL, issuedAt TEXT NOT NULL,
+      expiresOn TEXT NOT NULL, issuer TEXT NOT NULL, issuerEmail TEXT NOT NULL, amountCents INTEGER NOT NULL,
+      scope TEXT NOT NULL, pdf TEXT NOT NULL, PRIMARY KEY (loanId, version)
+    );
     CREATE TABLE IF NOT EXISTS manual_return_follow_ups (
       activityId TEXT PRIMARY KEY REFERENCES activity(id) ON DELETE CASCADE,
       returnEventId TEXT NOT NULL REFERENCES application_handoff_events(activityId) ON DELETE CASCADE,

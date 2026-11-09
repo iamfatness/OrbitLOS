@@ -36,6 +36,7 @@ import { z } from "zod";
 import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback, type PilotPortalLink } from "./lib/pilot";
 import { explorationInput, loadExplorationExamples } from "./lib/pilot-exploration";
 import { loanScenarioWork } from "./lib/loan-scenarios";
+import { workOnPreapprovalLetters } from "./lib/preapproval-letters";
 import { migrationInput } from "./lib/pipeline-migration-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, campaignRoutingOfficerLimit, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput } from "./lib/call-campaign-model";
 import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./lib/campaign-routing";
@@ -719,6 +720,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   loanScenarios(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return loanScenarioWork(this.#store, input, staff, this.#id);
+  }
+  preapprovalLetters(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return workOnPreapprovalLetters(this.#store, input, staff, this.#id);
   }
   pilotFeedback(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;

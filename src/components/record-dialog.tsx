@@ -556,7 +556,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnToHandoff: true }) : undefined} />
       {canOpenReviews && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
-      <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} />
+      <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open}
+        preapprovalBrokerage={staff ? !processor && (staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) ? staff.brokerage.id : undefined :
+          process.env.NODE_ENV === "development" ? demoBrokerageId : undefined} />
       </>}
       {section === "Scenarios" && (staff || process.env.NODE_ENV === "development") && <LoanScenarios key={loan.id} loan={loan} state={state}
         brokerageId={staff?.brokerage.id ?? demoBrokerageId} sampleAllowed={!staff || staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot)}

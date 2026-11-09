@@ -41,6 +41,7 @@ import { readEditableLoan, readLoanHandoff } from "./editable-loan";
 import { readIncomingLoanWorkPage } from "./incoming-loan-work";
 import { recordManualReturnFollowUp } from "./manual-lender-work";
 import { loanScenarioWork } from "./loan-scenarios";
+import { workOnPreapprovalLetters } from "./preapproval-letters";
 import { readEditableLead } from "./editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./sales-dashboard";
 import { changeConversation, readConversations } from "./conversations";
@@ -306,6 +307,11 @@ export async function saveManualReturnFollowUp(input: unknown, staff: WorkspaceS
 export async function loadLoanScenarios(input: unknown, staff: WorkspaceStaff | null) {
   const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
   return actor ? loanScenarioWork(database(), input, actor, demoBrokerageId) : { error: "Sign in to view loan scenarios." };
+}
+
+export async function loadPreapprovalLetters(input: unknown, staff: WorkspaceStaff | null) {
+  const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
+  return workOnPreapprovalLetters(database(), input, actor, demoBrokerageId);
 }
 
 export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | null) {
