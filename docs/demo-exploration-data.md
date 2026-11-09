@@ -1,6 +1,6 @@
 # Self-guided demo examples
 
-Admins in the shared Orbit demo or a fictional pilot can open **Team → Self-guided demo examples**, choose an active loan officer and optional processor, and select **Add or refresh demo examples**. Ordinary brokerage workspaces do not expose or accept this action.
+Admins in the shared Orbit demo or a fictional pilot can open **Team → Self-guided demo examples**, choose an active or already-invited loan officer/admin and optional active processor, and select **Add or refresh demo examples**. Ordinary brokerage workspaces do not expose or accept this action. Preparing an invited evaluator's examples leaves their invitation and authentication unchanged; the records become available through their normal sign-in. Review assignments use the next invitation-acceptance revision so the review inbox works on that first visit.
 
 Each officer's additive pack contains:
 
@@ -11,6 +11,7 @@ Each officer's additive pack contains:
 - Submitted applications, three processing files, document requests, closing targets and checklists.
 - Two funded loans with fictional receipts, expenses, compensation and past-client rate-watch profiles.
 - One requested document review and review-inbox notice when another eligible active staff member exists. A single-person workspace does not fabricate another staff identity.
+- A saved three-option comparison on Olivia Parker, with a five-year horizon, $3,500 monthly budget, $120,000 cash budget and an explicitly fictional recommendation. Existing packs and edited comparisons are preserved by refresh.
 
 The records use fictional names, `.test` emails and example addresses. Setup sends no email or text. Data flows through the existing queries and permissions, so linked navigation opens working records.
 

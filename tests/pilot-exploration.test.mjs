@@ -14,6 +14,8 @@ const {loadPilotScenario}=await import('../src/lib/pilot.ts');
 const {loanReviewWork}=await import('../src/lib/loan-reviews.ts');
 const {readDraftQueue}=await import('../src/lib/communication-draft-query.ts');
 const {officerDashboardWork}=await import('../src/lib/officer-dashboard.ts');
+const {initializeBrokerages,activeBrokerages,activateBrokerages,brokerageMembers}=await import('../src/lib/brokerages.ts');
+const {scenarioPlanSchema,compareLoanScenarios}=await import('../src/lib/loan-scenario-model.ts');
 function fixture(t){
  const sqlite=new DatabaseSync(':memory:');t.after(()=>sqlite.close());
  const db={exec:s=>sqlite.exec(s),prepare:s=>sqlite.prepare(s),transaction:fn=>{sqlite.exec('BEGIN');try{const result=fn();sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
@@ -86,4 +88,43 @@ test('exploration setup rejects non-pilot, restricted and revoked staff',t=>{
  assert.ok(seed(undefined,{...admin,brokerage:{...admin.brokerage,pilot:false}}).error);
  assert.ok(seed(undefined,admin,members.map(m=>m.email===officer.email?{...m,status:'Revoked'}:m)).error);
  assert.equal(db.prepare('SELECT count(*) AS n FROM loans').get().n,0);
+});
+
+test('invited evaluators receive complete personal data without activating access, then see reviews after normal sign-in',t=>{
+ const {db,admin,processor,input,members}=fixture(t);
+ initializeBrokerages(db);
+ db.prepare('INSERT INTO brokerages (id,name,pilot) VALUES (?,?,1)').run(admin.brokerage.id,'Evaluator demo');
+ for(const member of members) db.prepare('INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,?,?,4)')
+  .run(admin.brokerage.id,member.email,member.name,member.role,member.status);
+ const emails=['first@example.test','second@example.test'];
+ for(const email of emails) db.prepare("INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,'Admin','Invited',7)")
+  .run(admin.brokerage.id,email,email);
+ const now=new Date('2026-11-09T15:00:00.000Z');
+ for(const email of emails){
+  const request={...input,officerEmail:email};
+  assert.ok(loadExplorationExamples(db,admin,request,brokerageMembers(db,admin.brokerage.id,[]),now).message);
+  assert.deepEqual(activeBrokerages(db,email,[]),[]);
+  assert.deepEqual({...db.prepare('SELECT status,accessRevision FROM brokerage_members WHERE email=?').get(email)},{status:'Invited',accessRevision:7});
+  assert.equal(db.prepare('SELECT count(*) AS n FROM loans WHERE officerEmail=?').get(email).n,8);
+  const row=db.prepare('SELECT plan FROM loan_scenario_plans s JOIN loans l ON l.id=s.loanId WHERE l.officerEmail=?').get(email);
+  const plan=scenarioPlanSchema.parse(JSON.parse(row.plan));
+  assert.equal(plan.options.length,3);assert.equal(plan.holdingMonths,60);
+  assert.equal(plan.recommendedId,plan.options[1].id);
+  assert.equal(compareLoanScenarios(plan).every(option=>option.withinBudget),true);
+  const brokerage=activateBrokerages(db,{email,name:'Evaluator'},[])[0];
+  assert.equal(brokerage.accessRevision,8);
+  const viewer={email,name:'Evaluator',brokerage};
+  const roster=brokerageMembers(db,brokerage.id,[]);
+  assert.ok(readOfficerQueue(db,{horizon:1},viewer,brokerage.id,now).items.length>=5);
+  assert.equal(readWorkspaceCalendar(db,{week:'2026-11-09',scope:'Mine',group:'Appointments'},viewer,brokerage.id,now).items.length,5);
+  assert.ok(readLeadInbox(db,{type:'list',view:'Mine'},viewer,now).leads.length>=4);
+  assert.equal(loanReviewWork(db,{type:'queue',view:'Assigned to me',filter:'Open'},viewer,brokerage.id,roster,now).reviews.length,1);
+  assert.ok(loanReviewWork(db,{type:'inbox',unread:true},viewer,brokerage.id,roster,now).notices.length);
+  assert.ok(loadExplorationExamples(db,admin,request,roster,now).message);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM loans WHERE officerEmail=?').get(email).n,8);
+ }
+ assert.equal(db.prepare('SELECT count(*) AS n FROM loan_scenario_plans').get().n,2);
+ assert.ok(loadExplorationExamples(db,admin,{...input,officerEmail:'unknown@example.test'},brokerageMembers(db,admin.brokerage.id,[]),now).error);
+ assert.ok(loadExplorationExamples(db,admin,{...input,officerEmail:processor.email},brokerageMembers(db,admin.brokerage.id,[]),now).error);
+ assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
 });

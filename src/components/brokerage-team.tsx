@@ -31,6 +31,8 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
   const pilot = staff.brokerage.pilot;
   const activeMembers = settings?.members.filter((member) => member.status === "Active") ?? [];
   const scenarioOwners = activeMembers.filter((member) => member.role !== "Processor");
+  const explorationOwners = settings?.members.filter(member => member.role !== "Processor" &&
+    (member.status === "Active" || member.status === "Invited")) ?? [];
   const scenario = settings?.pilotScenario;
 
   useEffect(() => {
@@ -133,7 +135,7 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
             void change({ type: "loadPilotExploration", officerEmail: fields.get("officerEmail"), processorEmail: fields.get("processorEmail") || null });
           }}>
             <label className="field">Loan officer for demo examples<select name="officerEmail" required defaultValue={staff.email}>
-              {scenarioOwners.map(member => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
+              {explorationOwners.map(member => <option key={member.email} value={member.email}>{member.name === member.email ? member.email : `${member.name} · ${member.email}`}{member.status === "Invited" ? " · Invited" : ""}</option>)}
             </select></label>
             <label className="field">Processor for demo examples<select name="processorEmail" defaultValue="">
               <option value="">Assign processing later</option>

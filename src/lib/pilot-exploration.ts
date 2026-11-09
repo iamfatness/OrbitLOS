@@ -13,6 +13,7 @@ import { beginCampaignAssignment } from "./campaign-response";
 import { accessEvent } from "./workspace-access";
 import { createMilestoneDrafts } from "./communications";
 import { recordReviewNotice } from "./review-inbox";
+import { sampleScenarioPlan } from "./loan-scenario-model";
 
 export const explorationInput = z.object({ type: z.literal("loadPilotExploration"), officerEmail: z.email().max(254),
   processorEmail: z.email().max(254).nullable().default(null) });
@@ -40,10 +41,13 @@ export function loadExplorationExamples(db: Store, staff: WorkspaceStaff, input:
   members: VersionedBrokerageMember[], clock = new Date()): { message: string } | { error: string } {
   if (staff.brokerage.role !== "Admin" || (staff.brokerage.pilot !== true && staff.brokerage.id !== demoBrokerageId)) return { error: "Only an admin in a demo or pilot workspace can add demo examples." };
   const parsed = explorationInput.safeParse(input);
-  if (!parsed.success) return { error: "Choose an active loan officer and an optional processor." };
-  const owner = members.find(m => m.email === parsed.data.officerEmail && m.status === "Active" && m.role !== "Processor");
+  if (!parsed.success) return { error: "Choose an active or invited loan officer and an optional active processor." };
+  const owner = members.find(m => m.email === parsed.data.officerEmail && (m.status === "Active" || m.status === "Invited") && m.role !== "Processor");
   const processor = parsed.data.processorEmail ? members.find(m => m.email === parsed.data.processorEmail && m.status === "Active" && m.role === "Processor") : null;
-  if (!owner || (parsed.data.processorEmail && !processor)) return { error: "Choose active staff in this brokerage." };
+  if (!owner || (parsed.data.processorEmail && !processor)) return { error: "Choose an active or invited loan officer and an active processor in this brokerage." };
+  // Accepting an existing invitation advances its access revision exactly once.
+  // Preparing fictional records does not activate the membership or create a session.
+  const reviewer = { ...owner, accessRevision: (owner.accessRevision ?? 0) + (owner.status === "Invited" ? 1 : 0) };
   const key = `pilot-exploration:v1:${owner.email}`;
   const now = clock.toISOString();
   const today = easternDate(clock);
@@ -95,6 +99,15 @@ export function loadExplorationExamples(db: Store, staff: WorkspaceStaff, input:
         stage: file.stage, stageSince: createdAt, createdAt, leadSource: i % 2 ? "Website quote request" : "Realtor referral" });
       db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)")
         .run(crypto.randomUUID(), id, "Fictional exploration example · Ready to explore", now);
+      if (i === 0) {
+        const plan = sampleScenarioPlan(file.amount * 100, "Purchase");
+        plan.monthlyBudget = 350000;
+        plan.cashBudget = 12000000;
+        plan.recommendedId = plan.options[1].id;
+        plan.recommendation = "Demo example: Lowest borrowing cost over five years, within the $3,500 monthly budget and $120,000 available for closing. The additional upfront cost breaks even after 32 months.";
+        db.prepare("INSERT INTO loan_scenario_plans (loanId, plan, revision, updatedAt, updatedBy, applicationRevision) VALUES (?, ?, 1, ?, ?, NULL)")
+          .run(id, JSON.stringify(plan), now, staff.name);
+      }
       if (i >= 2) {
         const draft = { ...sampleApplication({ ...blankApplication(), borrowerName: file.name, email, phone,
           loanAmount: String(file.amount), purpose: i === 7 ? "Refinance" : "Purchase", propertyAddress: street, propertyLocation: { city: "Troy", state: "MI", zip: "48084", unit: "" } }), confirmedDemo: true };
@@ -150,11 +163,11 @@ export function loadExplorationExamples(db: Store, staff: WorkspaceStaff, input:
         db.prepare(`INSERT INTO loan_reviews (id, loanId, title, category, requesterEmail, requesterName, reviewerEmail, reviewerName,
           reviewerRole, reviewerAccessRevision, dueOn, status, applicationRevision, createdAt, updatedAt)
           VALUES (?, ?, 'Review Sofia’s document checklist', 'Document checklist', ?, ?, ?, ?, ?, ?, ?, 'Requested', NULL, ?, ?)`)
-          .run(reviewId, id, requester.email, requester.name, owner.email, owner.name, owner.role, owner.accessRevision ?? 0, dated("review", reviewId, 0), now, now);
+          .run(reviewId, id, requester.email, requester.name, owner.email, owner.name, owner.role, reviewer.accessRevision, dated("review", reviewId, 0), now, now);
         db.prepare(`INSERT INTO loan_review_events (id, reviewId, actorEmail, actorName, action, note, at, request, context)
           VALUES (?, ?, ?, ?, 'Requested', 'Fictional demo example: review the requested documents before the next handoff.', ?, '{}', 'Exploration example')`)
           .run(eventId, reviewId, requester.email, requester.name, now);
-        recordReviewNotice(db, eventId, owner, "Demo review assigned", now);
+        recordReviewNotice(db, eventId, reviewer, "Demo review assigned", now);
       }
       return { id, contactId };
     });
