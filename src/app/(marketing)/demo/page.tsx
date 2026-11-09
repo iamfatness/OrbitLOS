@@ -36,6 +36,7 @@ export default function DemoPage() {
           <li>When the brokerage requires a second 1003 review, open it from the guide. The manager queue distinguishes a corrected revision that needs approval from a file whose current revision already has a lender receipt.</li>
           <li>Compare the recorded Pipeline amount with a corrected 1003 request. Use the reviewed amount from the loan and see the change in its audit history.</li>
           <li>Keep alternative quotes for comparison. If the saved quote differs from the reviewed 1003, load the 1003 amount in pricing before sending to mock UWM.</li>
+          <li>Float and lock a matching mock quote. Manage an existing lock by its confirmation even after saving another quote.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Keep the original instructions visible after acceptance, work through mock lender clearance, and pick the file back up in Today with the processor’s internal note.</li>
           <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. Work the exact condition, replace its evidence, and continue when it clears.</li>

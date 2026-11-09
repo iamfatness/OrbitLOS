@@ -110,7 +110,9 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   const retry = await apply("sendApplication", { revision: first.revision });
   assert.deepEqual(retry.applications[0].versions[0].uwmReceipt, firstReceipt);
   assert.deepEqual(retry.uwmAlerts, firstSend.uwmAlerts);
-  const original = (await apply("runPricing", { scenario, applicationRevision: first.revision })).pricingRuns[0];
+  const original = (await apply("runPricing", {
+    scenario: { ...scenario, loanAmount: Number(first.draft.loanAmount) }, applicationRevision: first.revision,
+  })).pricingRuns[0];
   await apply("selectOffer", selection(original));
   await apply("publishQuote", selection(original));
   assert.ok(read().loanStatus.quote);
@@ -165,10 +167,21 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   await apply("publishQuote", { ...selection(fresh), alternatives: [{ runId: fresh.id, offerId: fresh.offers[1].id, feeRevision: 0 }] });
   assert.equal(read().loanStatus.quote.presentation.primary.loanAmount, 340000);
   assert.deepEqual(status(), { kind: "status", submittedAt: corrected.submittedAt, loanStatus: read().loanStatus });
+  await apply("selectOffer", selection(alternative));
+  const mismatchedRate = /\$340,000\.01 and the 1003 requests \$340,000.*before floating or locking/;
+  assert.match((await command("floatMockRate", { submissionId: file.id, ...selection(alternative),
+    previousFloatReference: floating.floatReference })).error, mismatchedRate);
+  // Simulate a float created before the amount check was introduced.
+  db.prepare("UPDATE mock_uwm_rates SET runId = ?, offerId = ? WHERE loanId = ?")
+    .run(alternative.id, alternative.offers[0].id, loanId);
+  assert.match((await command("lockMockRate", lockInput)).error, mismatchedRate);
+  assert.equal(db.prepare("SELECT lockReference FROM mock_uwm_rates WHERE loanId = ?").get(loanId).lockReference, null);
+  await apply("selectOffer", selection(fresh));
   const current = (await apply("floatMockRate", { submissionId: file.id, ...selection(fresh),
     previousFloatReference: floating.floatReference })).mockUwmRates[0];
   const locked = (await apply("lockMockRate", { ...lockInput, floatReference: current.floatReference })).mockUwmRates[0];
   await apply("selectOffer", selection(alternative));
+  assert.deepEqual((await apply("lockMockRate", { ...lockInput, floatReference: current.floatReference })).mockUwmRates[0], locked);
   const replay = await apply("sendApplication", { revision: corrected.revision });
   assert.deepEqual(replay.applications[0].versions, resent.applications[0].versions);
   await apply("requestApplicationCorrection", { revision: corrected.revision, note: "Confirm the property address." });

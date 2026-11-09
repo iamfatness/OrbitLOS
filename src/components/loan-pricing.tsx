@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
 import { submittedRequestedLoanAmount, type ApplicationDraft } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
@@ -144,6 +144,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const [incomeRevision, setIncomeRevision] = useState(reviewedIncome?.revision ?? initialRun?.incomeReviewRevision ?? undefined);
   const [preview, setPreview] = useState(Boolean(sourceIsSaved));
   const [pricing, setPricing] = useState(false);
+  const amountInput = useRef<HTMLInputElement>(null);
   const [alternativeKeys, setAlternativeKeys] = useState(() =>
     published?.presentation?.alternatives.map((item) => `${item.runId}/${item.offerId}`) ?? []);
   const change = (name: keyof typeof form, value: string | boolean) => setForm((last) => ({ ...last, [name]: value }));
@@ -152,6 +153,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const isCurrent = (run: PricingRun | undefined) => !!run && pricingInputsMatch(run, application);
   const savedNeedsReprice = !!saved && !isCurrent(saved);
   const requestedAmount = submittedRequestedLoanAmount(application);
+  const rateAmountIssue = mockUwmQuoteAmountIssue(saved, application, "rate");
   const quoteAmountIssue = lenderHandoff?.checkQuoteAmount ? mockUwmQuoteAmountIssue(saved, application) : null;
   const handoffAction = lenderHandoff && saved?.mode === "mock" && selected && !savedNeedsReprice &&
     (!quoteAmountIssue || lenderHandoff.blocker) &&
@@ -163,6 +165,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const publishedNeedsReprice = !!published && (!application?.submittedAt || !isCurrent(publishedRun) ||
     !!published.presentation?.alternatives.some((item) => !isCurrent(runs.find((run) => run.id === item.runId))));
   const formOutdated = formRevision !== (application?.revision ?? null);
+  const canUse1003Amount = !formOutdated && requestedAmount !== null && Number(form.loanAmount) !== requestedAmount;
   const useIncomeRevision = form.program === "Conventional" ? incomeRevision : undefined;
   const incomeOutdated = useIncomeRevision !== undefined && runs.some((run) => run.incomeReviewRevision === useIncomeRevision && run.incomeReviewCurrent === false);
   const scenario = scenarioFromForm(form);
@@ -216,6 +219,12 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
     });
   }
 
+  function use1003Amount() {
+    if (!canUse1003Amount) return;
+    change("loanAmount", String(requestedAmount));
+    amountInput.current?.focus();
+  }
+
   return <div className="pricing-panel" id="pricing-workbench" tabIndex={-1}>
     <header className="pricing-heading">
       <div><h3><Calculator size={18} /> UWM Easy Qualifier</h3><p>Conventional, DSCR, and bank statement scenarios.</p></div>
@@ -237,9 +246,9 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
     <form className="pricing-form" onSubmit={(event) => void price(event)}>
       {quoteAmountIssue && <div className="document-item">
         <p>{quoteAmountIssue}</p>
-        {!formOutdated && requestedAmount !== null && Number(form.loanAmount) !== requestedAmount &&
+        {canUse1003Amount &&
           <Button type="button" size="sm" variant="outline" disabled={busy}
-            onClick={() => change("loanAmount", String(requestedAmount))}>Use 1003 amount in pricing</Button>}
+            onClick={use1003Amount}>Use 1003 amount in pricing</Button>}
       </div>}
       {requestedAmount !== null && Math.round(requestedAmount) !== loan.amount && <p className="quote-disclaimer">
         Recorded amount {money(loan.amount)} · 1003 request {requestedMoney(requestedAmount)}. The loan amount entered below is used for the quote.
@@ -252,7 +261,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         {form.purpose === "Refinance" && (dscr || bank) && <label className="field"><span>Refinance type</span><select value={form.refinanceType} onChange={(event) => change("refinanceType", event.target.value)}>
           <option>Rate and term</option><option>Cash out</option>
         </select></label>}
-        <label className="field"><span>Loan amount</span><input required type="number" min="1" max="25000000" step="0.01" value={form.loanAmount} onChange={(event) => change("loanAmount", event.target.value)} /></label>
+        <label className="field"><span>Loan amount</span><input ref={amountInput} required type="number" min="1" max="25000000" step="0.01" value={form.loanAmount} onChange={(event) => change("loanAmount", event.target.value)} /></label>
         <label className="field"><span>Estimated property value</span><input required type="number" min="1" max="25000000" step="0.01" value={form.propertyValue} onChange={(event) => change("propertyValue", event.target.value)} /></label>
         {form.purpose === "Purchase" && <label className="field"><span>Purchase price (optional)</span><input type="number" min="1" max="25000000" step="0.01" value={form.purchasePrice} onChange={(event) => change("purchasePrice", event.target.value)} /></label>}
         <label className="field"><span>Property ZIP</span><input required inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={form.zip} onChange={(event) => change("zip", event.target.value)} /></label>
@@ -361,7 +370,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       </div>}
     </section>}
     <UwmRateLock loanId={loan.id} submissions={state.submissions.filter((item) => item.loanId === loan.id)}
-      rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} needsReprice={savedNeedsReprice} busy={busy} save={save} />
+      rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} needsReprice={savedNeedsReprice}
+      amountIssue={rateAmountIssue} use1003Amount={canUse1003Amount && !quoteAmountIssue ? use1003Amount : undefined} busy={busy} save={save} />
     {published && <section className="quote-saved" aria-label="Shared borrower quote">
       <div className="section-heading"><h3>Shared with borrower</h3>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>

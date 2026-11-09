@@ -110,15 +110,18 @@ export function latestSelectedPricingRun(runs: PricingRun[], loanId: string | un
     .sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
 }
 
-export function mockUwmAmountMismatch(quoted: number, requested: number | null) {
+type MockUwmQuoteAction = "send" | "rate";
+
+export function mockUwmAmountMismatch(quoted: number, requested: number | null, action: MockUwmQuoteAction = "send") {
   if (requested === null || Math.round(quoted * 100) === Math.round(requested * 100)) return null;
-  return `The saved quote is ${requestedMoney(quoted)} and the 1003 requests ${requestedMoney(requested)}. Save a quote for the 1003 amount before sending to mock UWM.`;
+  const next = action === "rate" ? "floating or locking a mock rate" : "sending to mock UWM";
+  return `The saved quote is ${requestedMoney(quoted)} and the 1003 requests ${requestedMoney(requested)}. Save a quote for the 1003 amount before ${next}.`;
 }
 
 export function mockUwmQuoteAmountIssue(run: PricingRun | undefined,
-  application?: Pick<StaffApplication, "revision" | "correctionNote" | "submittedAt" | "draft">) {
+  application?: Pick<StaffApplication, "revision" | "correctionNote" | "submittedAt" | "draft">, action?: MockUwmQuoteAction) {
   return run?.mode === "mock" && quoteMatchesApplication(run.applicationRevision, application)
-    ? mockUwmAmountMismatch(run.scenario.loanAmount, submittedRequestedLoanAmount(application)) : null;
+    ? mockUwmAmountMismatch(run.scenario.loanAmount, submittedRequestedLoanAmount(application), action) : null;
 }
 
 export interface BorrowerQuote {
