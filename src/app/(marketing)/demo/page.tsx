@@ -19,6 +19,7 @@ export default function DemoPage() {
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s.</li>
+          <li>Turn a past-client rate-watch follow-up into a prefilled refinance 1003 when the borrower asks to proceed.</li>
           <li>See requests and sample PDFs reach open borrower and staff views. Reopen the lender checklist from the guide to review attachments already received.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Watch it appear in the open Ready to accept queue, work through mock lender clearance, and pick it back up in Today with the processor’s internal note.</li>

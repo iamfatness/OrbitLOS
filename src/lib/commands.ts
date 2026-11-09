@@ -28,6 +28,7 @@ import { saveRealtorLinkOwner } from "./realtor-portal";
 import type { RealtorMutationResult } from "./realtor-work-model";
 import type { PlaybookSettingsMutation } from "./manager-exception-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
+import { activeRateWatchTask, returningClientSource } from "./past-client-queue";
 import { checklistInstructions, checklistPresetNames, checklistPresets, conditionDocumentBatchLimit, documentKinds,
   suggestedConditionDocument, type DocumentKind } from "./document-model";
 import { referralMatches } from "./referral-matches";
@@ -155,7 +156,7 @@ const command = z.discriminatedUnion("type", [
     kind: z.enum(["Call", "Email", "Text"]), outcome: z.enum(contactOutcomes), note: z.string().trim().max(500),
     followUp: z.iso.date().nullable(), purpose: z.enum(followUpPurposes).default("Loan service"),
   }).refine((data) => data.outcome !== "Requested callback" || data.followUp, "Choose a follow-up date for the requested callback."),
-  z.object({ type: z.literal("startReturningClient1003"), loanId: id, purpose: z.enum(["Purchase", "Refinance"]) }),
+  z.object({ type: z.literal("startReturningClient1003"), loanId: id, purpose: z.enum(["Purchase", "Refinance"]), fromRateWatch: z.literal(true).optional() }),
   z.object({ type: z.literal("reverseFunding"), loanId: id, revision: z.number().int().positive(),
     fundingDate: z.iso.date(), reason: z.string().trim().min(1).max(500) }),
   z.object({ type: z.literal("saveDisclosureStatus"), loanId: id, revision: z.number().int().nonnegative(),
@@ -856,21 +857,22 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "startReturningClient1003": {
-          const funded = db.prepare(`SELECT loan.contactId, loan.officer, loan.officerEmail, borrower.role
-            FROM loans loan JOIN closing_progress closing ON closing.loanId = loan.id
-            JOIN contacts borrower ON borrower.id = loan.contactId
-            WHERE loan.id = ? AND loan.disposition = 'Active' AND closing.fundingDate IS NOT NULL`).get(data.loanId);
-          if (!funded) throw new WorkspaceError("This loan no longer has active funding. Refresh the post-funding tasks.");
-          if (funded.role === "Realtor") throw new WorkspaceError("A returning-client 1003 needs a borrower contact.");
-          const existing = db.prepare("SELECT loanId FROM returning_client_loans WHERE fundedLoanId = ?").get(data.loanId)?.loanId;
+          const funded = returningClientSource(db, data.loanId);
+          if (!funded) throw new WorkspaceError(data.fromRateWatch ? "This past-client loan is unavailable. Refresh the follow-up before starting a 1003." :
+            "This loan no longer has active funding. Refresh the post-funding tasks.");
+          const existing = funded.repeatId;
           if (typeof existing === "string") {
             if (staff && !loanAccess(db, staff, existing)) throw new WorkspaceError("Ask a brokerage admin to review access to the linked returning-client application.");
             applicationLoanId = existing;
             message = "Opened the existing returning-client 1003.";
             break;
           }
-          if (!db.prepare("SELECT 1 FROM tasks WHERE id = ? AND loanId = ? AND completedAt IS NULL")
-            .get(fundingTaskId(data.loanId, "borrower"), data.loanId) && !recordedFundingCheckIn(db, data.loanId)) {
+          const rateTaskId = data.fromRateWatch ? activeRateWatchTask(db, data.loanId) : undefined;
+          if (data.fromRateWatch && (!rateTaskId || data.purpose !== "Refinance")) {
+            throw new WorkspaceError("The rate-watch follow-up changed. Refresh the loan before starting its refinance 1003.");
+          }
+          if (!data.fromRateWatch && (!funded.fundingDate || (!db.prepare("SELECT 1 FROM tasks WHERE id = ? AND loanId = ? AND completedAt IS NULL")
+            .get(fundingTaskId(data.loanId, "borrower"), data.loanId) && !recordedFundingCheckIn(db, data.loanId)))) {
             throw new WorkspaceError("Open the borrower’s post-funding check-in before starting its returning-client 1003.");
           }
           const loanId = crypto.randomUUID();
@@ -881,8 +883,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           });
           if (!startApplication(db, loanId, now, staff?.brokerage.id)) throw new WorkspaceError("Orbit could not start the returning-client 1003.");
           db.prepare("INSERT INTO returning_client_loans (fundedLoanId, loanId) VALUES (?, ?)").run(data.loanId, loanId);
+          if (rateTaskId) db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ?").run(now, rateTaskId);
           recordLoanAudit(db, loanId, staff, "Created returning-client loan", now, null);
-          addApplicationActivity(db, data.loanId, "Started a returning-client 1003 from the borrower check-in.", now);
+          addApplicationActivity(db, data.loanId, rateTaskId ? "Started a refinance 1003 from the rate-watch follow-up." :
+            "Started a returning-client 1003 from the borrower check-in.", now);
           accessEvent(db, staff, "Started returning-client 1003", loanId, now);
           applicationLoanId = loanId;
           message = "Returning-client lead saved and 1003 started.";

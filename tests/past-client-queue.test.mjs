@@ -7,9 +7,10 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { readPastClientQueue } = await import("../src/lib/past-client-queue.ts");
 const { readEditableLoan } = await import("../src/lib/editable-loan.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
+const { borrowerCommandResult } = await import("../src/lib/applications.ts");
 const { fundingTaskId } = await import("../src/lib/playbook-model.ts");
 
-const brokerage = { id: "fictional", pilot: true };
+const brokerage = { id: "5baaf77a-0cef-4a83-b160-c30be9fbf447", pilot: true };
 const staff = (name, role) => ({ name, email: `${name.toLowerCase()}@example.test`, brokerage: { ...brokerage, role } });
 const officer = staff("Officer", "LO");
 const other = staff("Other", "LO");
@@ -105,4 +106,44 @@ test("retention saves return the authorized loan with its follow-up, and repeat 
   db.prepare("UPDATE closing_progress SET fundingDate = NULL WHERE loanId = ?").run(id);
   assert.equal(read(admin, "All clients", "source").rows[0].repeat, "unavailable");
   assert.ok((await write(admin, start)).error);
+});
+
+test("an active rate-watch task starts one linked refinance for a historical closed client", async (t) => {
+  const { db, loan, read, write } = fixture(t);
+  const id = loan("historical", { stage: "Closed" });
+  db.prepare("UPDATE contacts SET email = ?, phone = ? WHERE id = ?").run("history@example.test", "248-555-0142", `${id}-borrower`);
+  const start = { type: "startReturningClient1003", loanId: id, purpose: "Refinance", fromRateWatch: true };
+  const observe = (observedRate, revision = 0) => write(officer, { type: "saveRetention", loanId: id, revision, closingDate: date,
+    currentRate: "7", targetRate: "6", observedRate, watchEnabled: true, note: "" });
+  await observe("6.25");
+  assert.equal(read(officer, "Rate watchlist").rows[0].repeat, "unavailable");
+  assert.match((await write(officer, start)).error, /follow-up changed/);
+  await observe("5.875", 1);
+  assert.deepEqual(readEditableLoan(db, id, officer, brokerage.id).repeatOption, { kind: "start", fromRateWatch: true });
+  assert.ok((await write(other, start)).error);
+  assert.ok((await write(processor, start)).error);
+  assert.match((await write(officer, { ...start, purpose: "Purchase" })).error, /follow-up changed/);
+
+  const result = await write(officer, start);
+  assert.notEqual(result.applicationLoanId, id);
+  assert.equal(result.loanWork.loans[0].contactId, `${id}-borrower`);
+  assert.equal(result.loanWork.loans[0].officerEmail, officer.email);
+  assert.equal(result.loanWork.loans[0].leadSource, "Returning client");
+  const { draft } = borrowerCommandResult(db, { type: "read", token: result.loanWork.applications[0].token }).application;
+  assert.equal(draft.email, "history@example.test");
+  assert.equal(draft.phone, "248-555-0142");
+  assert.equal(draft.purpose, "Refinance");
+  const source = readEditableLoan(db, id, officer, brokerage.id);
+  assert.equal(source.loans[0].stage, "Closed");
+  assert.ok(source.tasks.find((task) => task.id === `rate-watch:${id}`)?.completedAt);
+  assert.deepEqual(source.repeatOption, { kind: "open", loanId: result.applicationLoanId });
+  assert.equal((await write(officer, start)).applicationLoanId, result.applicationLoanId);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM returning_client_loans WHERE fundedLoanId = ?").get(id).n, 1);
+
+  const blocked = loan("blocked", { watch: { observed: 5.5 } });
+  db.prepare("INSERT INTO tasks (id, loanId, title, dueAt, purpose) VALUES (?, ?, 'Rate watch', ?, 'Prospecting')").run(`rate-watch:${blocked}`, blocked, at);
+  assert.equal(read(officer, "Rate watchlist", "blocked").rows[0].repeat, "start");
+  await write(officer, { type: "optOutContact", contactId: `${blocked}-borrower` });
+  assert.equal(read(officer, "Rate watchlist", "blocked").rows[0].repeat, "unavailable");
+  assert.ok((await write(officer, { ...start, loanId: blocked })).error);
 });

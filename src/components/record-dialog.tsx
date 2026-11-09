@@ -18,7 +18,7 @@ import { changedApplicationSections, secondReviewBlocker, type StaffApplication 
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
 import type { ReturningClientOption } from "@/lib/past-client-queue-model";
-import { rateFollowUpContext } from "@/lib/client-retention";
+import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
 import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-documents";
 import { DocumentFollowUp } from "./document-follow-up";
 import { conditionDocumentBatchLimit, needsBorrowerDocument, suggestedConditionDocument, type LoanDocumentRequest } from "@/lib/document-model";
@@ -68,7 +68,7 @@ export type Modal =
   | { kind: "communication"; loanId: string; audience: DraftAudience; draftId?: string;
     returnTo?: "closing-workbench" | "lender-submissions"; campaignLender?: CampaignLenderPath }
   | { kind: "documentFollowUp"; loanId: string }
-  | { kind: "returningClient"; loanId: string }
+  | { kind: "returningClient"; loanId: string; fromRateWatch?: true }
   | { kind: "fundingCheckIn"; loanId: string; returnToLoan?: boolean; campaignLender?: CampaignLenderPath }
   | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean }
   | { kind: "retention"; loanId: string }
@@ -458,10 +458,11 @@ function CarriedCallbackRescheduleForm({ loanId, taskId, dueAt, revision, busy, 
   </details>;
 }
 
-function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, openConversation, appointmentChanged, reviewChanged, markDraftChanged }: {
+function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, openConversation, openRateWatchRefinance, appointmentChanged, reviewChanged, markDraftChanged }: {
   target?: string; campaignLender?: CampaignLenderPath; loan: Loan; state: Workspace; staff: WorkspaceStaff | null;
   busy: boolean; save: Save; show: (modal: Modal) => void;
   openConversation: (subject: ConversationSubject) => void;
+  openRateWatchRefinance: (loanId: string) => void;
   appointmentChanged: () => void;
   reviewChanged: () => void;
   markDraftChanged: (editor: Node) => void;
@@ -484,6 +485,11 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const application = state.applications.find((item) => item.loanId === loan.id);
   const callReportFile = state.callReportFiles?.find((file) => file.loanId === loan.id);
   const tasks = state.tasks.filter((item) => item.loanId === loan.id);
+  const profile = state.pastClients.find((item) => item.loanId === loan.id);
+  const rateContext = rateFollowUpContext(profile);
+  const closingProgress = state.closingProgress.find((item) => item.loanId === loan.id);
+  const canStartRateRefinance = !processor && pastClientLoan(loan) && (loan.disposition ?? "Active") === "Active" &&
+    borrower?.role !== "Realtor" && !borrower?.outreachSuppressed && (!closingProgress || Boolean(closingProgress.fundingDate)) && Boolean(rateContext);
   const canOpenCheckIn = (!staff || staff.brokerage.role === "Admin" || loan.officerEmail === staff.email) &&
     canRecordFundingCheckIn(loan, state, staff?.brokerage.role);
   const checkInTask = canOpenCheckIn ? tasks.find((task) => task.id === fundingTaskId(loan.id, "borrower")) : undefined;
@@ -599,16 +605,18 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         <Button size="sm" variant="outline" onClick={() => show({ kind: "communication", loanId: loan.id, audience: "Realtor",
           draftId: realtorDraft.id, returnTo: "lender-submissions", campaignLender })}>Preview latest realtor draft</Button>
       </section>}
-      {!processor && <div id="loan-retention" tabIndex={-1}><LoanRetention loan={loan} profile={state.pastClients.find((profile) => profile.loanId === loan.id)} edit={() => show({ kind: "retention", loanId: loan.id })} /></div>}
+      {!processor && <div id="loan-retention" tabIndex={-1}><LoanRetention loan={loan} profile={profile} edit={() => show({ kind: "retention", loanId: loan.id })} /></div>}
       {!sharedProcessor && <section className="details-section" aria-label="Loan follow-up tasks" id="loan-tasks" tabIndex={-1}>
         <div className="section-heading"><h3><CheckCircle2 size={17} /> Follow-up tasks</h3></div>
         {tasks.length ? <ul className="loan-task-list">{tasks.map((task) =>
           <LoanTaskRow key={task.id} id={searchTaskTarget(task.id)} task={task} officer={loan.officer} busy={busy}
             blocked={prospectingBlocked(task.purpose, borrower?.outreachSuppressed)}
-            context={task.id.startsWith("rate-watch:") ? rateFollowUpContext(state.pastClients.find((profile) => profile.loanId === loan.id)) : undefined}
+            context={task.id === `rate-watch:${loan.id}` ? rateContext : undefined}
             action={task.id === checkInTask?.id ? <Button size="sm" variant="outline" disabled={busy} onClick={() => open(fundingCheckInTarget)}>Record check-in</Button> : undefined}
             onChange={task.campaignCallback || task.id.startsWith(reversedFundingTaskPrefix) ? undefined :
               () => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })}>
+            {task.id === `rate-watch:${loan.id}` && !task.completedAt && canStartRateRefinance &&
+              <div><Button size="sm" variant="outline" disabled={busy} onClick={() => openRateWatchRefinance(loan.id)}>Start refinance 1003</Button></div>}
             {task.campaignCallback === "Recorded" && <span className="pill">Callback outcome recorded</span>}
             {task.campaignCallback === "Pending" && (loan.disposition && loan.disposition !== "Active" ?
               <span className="pill">Reopen loan to work callback</span> :
@@ -671,7 +679,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   );
 }
 
-export function RecordDialog({ modal, state, staff, busy, error, save, show, close, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, assignmentChanged, assignmentVersion }: {
+export function RecordDialog({ modal, state, staff, busy, error, save, show, close, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion }: {
   modal: Modal; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; error: ReactNode; save: Save; show: (modal: Modal) => void; close: () => void;
   refreshLoan?: () => void;
   refreshLoanOnReturn?: (loanId: string, canApply: () => boolean, periodic: boolean) => Promise<void>;
@@ -683,6 +691,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   reviewChanged: () => void;
   searchContact?: SearchContact;
   repeatOption?: ReturningClientOption;
+  openRateWatchRefinance: (loanId: string) => void;
   openContact: (id: string) => void;
   openContactLoan: (id: string, target?: string) => void;
   assignmentChanged: () => void;
@@ -844,6 +853,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
         }}>
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} staff={staff} busy={busy}
           save={save} show={show} target={target} campaignLender={campaignLender} openConversation={openConversation}
+          openRateWatchRefinance={openRateWatchRefinance}
           appointmentChanged={appointmentChanged} reviewChanged={reviewChanged} markDraftChanged={markDraftChanged} />}
         {modal.kind === "assignment" && staff?.brokerage.role === "Admin" && <LoanAssignmentEditor key={modal.loanId}
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
@@ -857,17 +867,18 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           <p className="empty-inline">Refresh the post-funding tasks to see the current check-in.</p>)}
         {modal.kind === "returningClient" && loan && <form className="record-form" onSubmit={(event) => {
           event.preventDefault();
-          const purpose = new FormData(event.currentTarget).get("purpose");
-          void save({ type: "startReturningClient1003", loanId: loan.id, purpose }, ({ applicationLoanId }) => {
+          const purpose = modal.fromRateWatch ? "Refinance" : new FormData(event.currentTarget).get("purpose");
+          void save({ type: "startReturningClient1003", loanId: loan.id, purpose, fromRateWatch: modal.fromRateWatch }, ({ applicationLoanId }) => {
             if (applicationLoanId) show({ kind: "details", loanId: applicationLoanId, target: "loan-application" });
           });
         }}>
           <p>Start a separate application for <strong>{state.contacts.find((item) => item.id === loan.contactId)?.name ?? "this borrower"}</strong> using their saved contact details. Open or copy the borrower link from the new loan record.</p>
-          <Field label="Loan purpose"><select name="purpose" id="returning-client-purpose" required defaultValue="">
+          {modal.fromRateWatch ? <p>Start the refinance once the borrower asks to proceed. This completes the rate-watch task.</p> :
+            <Field label="Loan purpose"><select name="purpose" id="returning-client-purpose" required defaultValue="">
             <option value="" disabled>Choose a loan purpose</option><option>Purchase</option><option>Refinance</option>
-          </select></Field>
+          </select></Field>}
           <div className="dialog-footer"><div className="spacer" /><Button variant="outline" onClick={close}>Cancel</Button>
-            <Button type="submit" disabled={busy}>Start and open 1003</Button></div>
+            <Button id={modal.fromRateWatch ? "returning-client-purpose" : undefined} type="submit" disabled={busy}>Start and open 1003</Button></div>
         </form>}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} />}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, useSyncExternalStore } from "react";
 import { brokerageUrl } from "@/lib/brokerage-model";
 import { loanReviewsTarget } from "@/lib/loan-review-model";
+import { searchTaskTarget } from "@/lib/workspace-search-model";
 import { prospectingBlocked, type PastClientProfile, type Submission, type Workspace } from "@/lib/model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import type { LoanProcessing } from "@/lib/processing-model";
@@ -364,6 +365,7 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
   const linkedSampleRealtor = sampleRealtor && loan?.partnerId === sampleRealtor.id;
   const watch = state.pastClients.find((item) => item.loanId === watchLoan?.id);
   const watchedTask = watch && state.tasks.find((item) => item.id === `rate-watch:${watch.loanId}` && !item.completedAt);
+  const watchRepeat = watch && state.returningClientLoans.find((item) => item.fundedLoanId === watch.loanId);
   const partnerDraft = loan && state.communicationDrafts.find((item) => item.loanId === loan.id && item.contactId === loan.partnerId &&
     item.audience === "Realtor" && item.milestone === "Lender review complete" && !item.supersededAt);
   const partnerPortal = linkedSampleRealtor && companion?.realtorToken ? `/referrals#${companion.realtorToken}` : null;
@@ -508,10 +510,11 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
       </div>
     </section>}
     {watch && <section className="work-queue" aria-label="Past-client rate watch rehearsal">
-      <div className="section-heading"><h3>Show the next rate-watch opportunity</h3>{watchedTask && <span className="pill">Follow-up ready</span>}</div>
-      <p className="muted">Casey’s fictional watch target is {watch.targetRate?.toFixed(3) ?? "—"}%. Record a sample 6.000% observation to see the resulting follow-up.</p>
+      <div className="section-heading"><h3>Show the next rate-watch opportunity</h3>{(watchRepeat || watchedTask) && <span className="pill">{watchRepeat ? "Refinance started" : "Follow-up ready"}</span>}</div>
+      <p className="muted">Casey’s fictional watch target is {watch.targetRate?.toFixed(3) ?? "—"}%. Record a sample 6.000% observation to open the follow-up and start a prefilled refinance when Casey asks to proceed.</p>
       <div className="loan-application-actions">
-        {watchedTask ? <Button size="sm" onClick={() => showTasks(watch.loanId)}>Open rate-watch follow-up queue</Button> :
+        {watchRepeat ? <Button size="sm" onClick={() => open(watchRepeat.loanId, "loan-application")}>Open rate-watch refinance</Button> :
+          watchedTask ? <Button size="sm" onClick={() => open(watch.loanId, searchTaskTarget(watchedTask.id))}>Open rate-watch follow-up</Button> :
           <Button size="sm" disabled={busy} onClick={() => void recordSampleRate(save, watch)}>Record sample 6.000%</Button>}
         <Button size="sm" variant="outline" onClick={() => open(watch.loanId, "loan-retention")}>View past-client record</Button>
       </div>

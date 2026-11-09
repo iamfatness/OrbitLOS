@@ -849,11 +849,21 @@ try {
     await loanAction(officer, loanId, "recordFundingCheckIn", { eventId, fundingRevision: funded.closingProgress[0].revision,
       kind: "Call", outcome: "Requested callback", note: "Discuss a later refinance review.", followUp: today, purpose: "Loan service" });
     assert.ok((await queue(officer)).items.some(({ id }) => id === eventId));
-    const start = () => loanAction(officer, loanId, "startReturningClient1003", { purpose: "Refinance" });
+    await loanAction(officer, loanId, "saveRetention", { revision: funded.pastClients[0].revision, closingDate: today,
+      currentRate: "6.750", targetRate: "6.125", observedRate: "6.000", watchEnabled: true, note: "Fictional rate review requested." });
+    const rateTaskId = `rate-watch:${loanId}`;
+    assert.ok((await file(officer, loanId)).tasks.some(({ id, completedAt }) => id === rateTaskId && !completedAt));
+    const start = () => loanAction(officer, loanId, "startReturningClient1003", { purpose: "Refinance", fromRateWatch: true });
     const repeat = await start();
     assert.notEqual(repeat.applicationLoanId, loanId);
     assert.equal((await start()).applicationLoanId, repeat.applicationLoanId);
-    assert.deepEqual((await file(officer, loanId)).returningClientLoans, [{ fundedLoanId: loanId, loanId: repeat.applicationLoanId }]);
+    const priorFile = await file(officer, loanId);
+    assert.deepEqual(priorFile.returningClientLoans, [{ fundedLoanId: loanId, loanId: repeat.applicationLoanId }]);
+    assert.ok(priorFile.tasks.some(({ id, completedAt }) => id === rateTaskId && completedAt));
+    assert.equal(priorFile.closingProgress[0].fundingDate, today);
+    const unchangedCampaign = (await write(officer, { type: "refreshCampaignQueue", campaignId })).campaignQueue;
+    assert.equal(unchangedCampaign.files.find(({ id }) => id === loanId).fundingDate, today);
+    assert.ok(!unchangedCampaign.files.some(({ id }) => id === repeat.applicationLoanId));
     const newFile = await file(officer, repeat.applicationLoanId);
     assert.equal(newFile.loans[0].contactId, funded.loans[0].contactId);
     const repeatBorrower = await borrower(newFile.applications[0].token, { type: "read" });

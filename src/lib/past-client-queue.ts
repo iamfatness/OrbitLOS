@@ -1,4 +1,5 @@
 import { easternDate, nextAnniversary } from "./client-retention";
+import { loanOutreachSuppressed } from "./outreach-preferences";
 import { pastClientInput, pastClientsUnavailable, type PastClientPage, type PastClientRow, type ReturningClientOption } from "./past-client-queue-model";
 import { fundingTaskId } from "./playbook-model";
 import { recordedFundingCheckIn } from "./playbooks";
@@ -6,23 +7,38 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { loanAccess } from "./workspace-access";
 
-export function returningClientOption(db: Store, loanId: string, staff: WorkspaceStaff | null): ReturningClientOption {
-  if (staff?.brokerage.role === "Processor") return { kind: "unavailable" };
-  const source = db.prepare(`SELECT repeat.loanId AS repeatId FROM loans loan
-    JOIN closing_progress closing ON closing.loanId = loan.id
+const reached = "(profile.watchEnabled = 1 AND profile.observedRate IS NOT NULL AND profile.targetRate IS NOT NULL AND profile.observedRate <= profile.targetRate)";
+
+export function returningClientSource(db: Store, loanId: string) {
+  return db.prepare(`SELECT loan.contactId, loan.officer, loan.officerEmail, closing.fundingDate, repeat.loanId AS repeatId
+    FROM loans loan LEFT JOIN closing_progress closing ON closing.loanId = loan.id
     JOIN contacts borrower ON borrower.id = loan.contactId
     LEFT JOIN returning_client_loans repeat ON repeat.fundedLoanId = loan.id
-    WHERE loan.id = ? AND loan.disposition = 'Active' AND closing.fundingDate IS NOT NULL AND borrower.role <> 'Realtor'`).get(loanId);
+    WHERE loan.id = ? AND loan.disposition = 'Active' AND borrower.role <> 'Realtor'
+    AND (closing.fundingDate IS NOT NULL OR (closing.loanId IS NULL AND loan.stage IN ('Funded', 'Closed')))`).get(loanId);
+}
+
+export function activeRateWatchTask(db: Store, loanId: string) {
+  const taskId = `rate-watch:${loanId}`;
+  return db.prepare(`SELECT 1 FROM past_client_profiles profile JOIN tasks task ON task.loanId = profile.loanId
+    JOIN loans loan ON loan.id = profile.loanId
+    WHERE profile.loanId = ? AND task.id = ? AND task.completedAt IS NULL
+    AND loan.stage IN ('Funded', 'Closed') AND ${reached}`).get(loanId, taskId) &&
+    !loanOutreachSuppressed(db, loanId) ? taskId : undefined;
+}
+
+export function returningClientOption(db: Store, loanId: string, staff: WorkspaceStaff | null): ReturningClientOption {
+  if (staff?.brokerage.role === "Processor") return { kind: "unavailable" };
+  const source = returningClientSource(db, loanId);
   if (!source) return { kind: "unavailable" };
   if (typeof source.repeatId === "string") return !staff || loanAccess(db, staff, source.repeatId) ?
     { kind: "open", loanId: source.repeatId } : { kind: "restricted" };
-  const open = db.prepare("SELECT 1 FROM tasks WHERE id = ? AND loanId = ? AND completedAt IS NULL")
-    .get(fundingTaskId(loanId, "borrower"), loanId);
-  return { kind: open || recordedFundingCheckIn(db, loanId) ? "start" : "unavailable" };
+  if (source.fundingDate && (db.prepare("SELECT 1 FROM tasks WHERE id = ? AND loanId = ? AND completedAt IS NULL")
+    .get(fundingTaskId(loanId, "borrower"), loanId) || recordedFundingCheckIn(db, loanId))) return { kind: "start" };
+  return activeRateWatchTask(db, loanId) ? { kind: "start", fromRateWatch: true } : { kind: "unavailable" };
 }
 
 const pageSize = 20;
-const reached = "(profile.watchEnabled = 1 AND profile.observedRate IS NOT NULL AND profile.targetRate IS NOT NULL AND profile.observedRate <= profile.targetRate)";
 const closingDate = "coalesce(profile.closingDate, '') <> ''";
 const year = "max(CAST(substr(profile.closingDate, 1, 4) AS INTEGER) + 1, CAST(substr(clock.today, 1, 4) AS INTEGER))";
 function anniversary(yearSql: string) {

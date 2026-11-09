@@ -613,6 +613,14 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           show({ kind: "details", loanId: option.loanId, target: "loan-application" });
           return;
         }
+        if (next.fromRateWatch && (!result.tasks.some((task) => task.id === `rate-watch:${next.loanId}` && !task.completedAt) ||
+          !rateFollowUpContext(result.pastClients[0]) || result.contacts.some((contact) => contact.id === result.loans[0].contactId && contact.outreachSuppressed))) {
+          setError("This rate-watch follow-up changed. Refresh the loan before starting its refinance 1003.");
+          return;
+        }
+        setLoanWork(result);
+        show(option.fromRateWatch ? { ...next, fromRateWatch: true } : next);
+        return;
       }
       if (next.kind === "communication" && !result.communicationDrafts.some((draft) => draft.id === next.draftId && draft.audience === next.audience &&
         draft.contactId === (next.audience === "Borrower" ? result.loans[0]?.contactId : result.loans[0]?.partnerId))) {
@@ -1425,6 +1433,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         refreshLoanOnReturn={staff ? refreshLoanOnReturn : undefined}
         searchContact={searchContact} openContact={(id) => void openContactRecord(id)}
         repeatOption={loanWork && "loanId" in modal && modal.loanId === loanWork.loanId ? loanWork.repeatOption : undefined}
+        openRateWatchRefinance={(loanId) => void openQueueLoan({ kind: "returningClient", loanId, fromRateWatch: true })}
         openContactLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}
         assignmentChanged={invalidateWorkspace}
         assignmentVersion={state}

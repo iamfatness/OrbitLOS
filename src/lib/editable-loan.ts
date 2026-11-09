@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { pastClientLoan } from "./client-retention";
 import { pdfColumns } from "./document-files-model";
 import { fundingCheckInTarget, isStalledLoan, loanNextAction } from "./loan-workflow";
 import type { Contact, Loan } from "./model";
@@ -66,7 +67,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
     WHERE repeat.fundedLoanId = ? ${staff.brokerage.role === "LO" ? "AND next.officerEmail = ?" : ""}
   `).all(loanId, ...(staff.brokerage.role === "LO" ? [staff.email] : []))
     .map(({ fundedLoanId, loanId }) => ({ fundedLoanId: String(fundedLoanId), loanId: String(loanId) }));
-  const repeatOption: ReturningClientOption = records.closingProgress[0]?.fundingDate ?
+  const repeatOption: ReturningClientOption = pastClientLoan(loan) || records.closingProgress[0]?.fundingDate ?
     returningClientOption(db, loanId, staff) : { kind: "unavailable" };
   return {
     ...records, loanId, handoffVersion, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
