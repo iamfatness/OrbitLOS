@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { easternDate } from "./client-retention";
-import { leadSources } from "./model";
+import { leadSources, type Purpose } from "./model";
 
 export const reportFilters = z.object({
   from: z.union([z.iso.date(), z.literal("")]),
@@ -57,6 +57,8 @@ export interface ReturningClientReportRow {
   name: string;
   contactId: string;
   loanId: string | null;
+  sourceLoanId?: string | null;
+  purpose?: Purpose;
   officer: string;
   officerEmail: string | null;
   at: string;

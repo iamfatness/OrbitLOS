@@ -853,7 +853,11 @@ try {
       currentRate: "6.750", targetRate: "6.125", observedRate: "6.000", watchEnabled: true, note: "Fictional rate review requested." });
     const rateTaskId = `rate-watch:${loanId}`;
     assert.ok((await file(officer, loanId)).tasks.some(({ id, completedAt }) => id === rateTaskId && !completedAt));
-    const start = () => loanAction(officer, loanId, "startReturningClient1003", { purpose: "Refinance", fromRateWatch: true });
+    const sourceAddress = funded.loans[0].address;
+    assert.ok(sourceAddress);
+    const start = () => loanAction(officer, loanId, "startReturningClient1003", {
+      purpose: "Refinance", fromRateWatch: true, confirmedPropertyAddress: sourceAddress,
+    });
     const repeat = await start();
     assert.notEqual(repeat.applicationLoanId, loanId);
     assert.equal((await start()).applicationLoanId, repeat.applicationLoanId);
@@ -870,6 +874,22 @@ try {
     assert.equal(repeatBorrower.draft.email, imported.email);
     assert.equal(repeatBorrower.draft.phone, imported.phone);
     assert.equal(repeatBorrower.draft.purpose, "Refinance");
+    assert.equal(repeatBorrower.draft.propertyAddress, funded.applications[0].draft.propertyAddress);
+    assert.equal(repeatBorrower.draft.propertyLocation.zip, funded.applications[0].draft.propertyLocation.zip);
+    const returns = (await workspace(owner)).managerReports.returningClients;
+    const matches = returns.filter((row) => row.metric === "applications" && row.loanId === repeat.applicationLoanId);
+    assert.equal(matches.length, 1);
+    const [reported] = matches;
+    assert.equal(reported.sourceLoanId, loanId);
+    assert.equal(reported.officerEmail, officer.email);
+    assert.equal(reported.purpose, "Refinance");
+    assert.equal(reported.detail, "Draft");
+    const repeatDraft = { ...sampleApplication(repeatBorrower.draft), propertyAddress: "32 Updated Fictional Lane", confirmedDemo: true };
+    const step = applicationSteps.indexOf("Review");
+    const repeatSubmitted = await borrower(newFile.applications[0].token, { type: "submit", revision: repeatBorrower.revision, step, draft: repeatDraft });
+    assert.ok(repeatSubmitted.submittedAt, repeatSubmitted.error);
+    assert.match((await file(owner, reported.loanId)).loans[0].address, /^32 Updated Fictional Lane/);
+    assert.equal((await file(owner, reported.sourceLoanId)).loans[0].address, sourceAddress);
     assert.match((await action(processor, "readLoanForWork", repeat.applicationLoanId)).error, /unavailable/i);
   });
   await stage("Campaign holds and archives refill without overbooking reopened leads", async () => {

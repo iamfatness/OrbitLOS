@@ -25,10 +25,10 @@ const returningMetrics = [
   ["check-ins", "Completed check-ins"], ["callbacks", "Open callbacks"], ["applications", "Returning-client 1003s"],
 ] as const;
 
-export function ReturningClientReports({ rows, contactActivity, members, ownerError, busy, save, refresh, openApplication, openContact }: {
+export function ReturningClientReports({ rows, contactActivity, members, ownerError, busy, save, refresh, openApplication, openOriginalLoan, openContact }: {
   rows: ReturningClientReportRow[]; busy: boolean; refresh: () => void;
   contactActivity: ContactActivity[]; members?: BrokerageMember[]; ownerError: string; save: Save;
-  openApplication: (loanId: string) => void; openContact: (contactId: string) => void;
+  openApplication: (loanId: string) => void; openOriginalLoan: (loanId: string) => void; openContact: (contactId: string) => void;
 }) {
   const [from, setFrom] = useState("");
   const [through, setThrough] = useState("");
@@ -85,7 +85,7 @@ export function ReturningClientReports({ rows, contactActivity, members, ownerEr
         {drill.length ? <ul className="loan-task-list">{drill.map((row) => {
           const callback = row.metric === "callbacks" ? callbacks.get(row.id) : undefined;
           return <li className="loan-task" key={row.id}>
-            <div className="loan-task-copy"><strong>{row.name}</strong><span>{row.officer || "Unassigned"} · {row.detail}</span>
+            <div className="loan-task-copy"><strong>{row.name}</strong><span>{[row.officer || "Unassigned", row.purpose, row.detail].filter(Boolean).join(" · ")}</span>
               <span>{row.metric === "callbacks" ? "Due" : row.metric === "applications" ? "Lead created" : "Completed"} {dateTime(row.at)} ET</span>
               {callback && <ContactFollowUpCompletion item={callback} busy={busy} save={save} />}
               {callback && <BorrowerCallbackReschedule item={callback} busy={busy} save={save} />}
@@ -97,7 +97,10 @@ export function ReturningClientReports({ rows, contactActivity, members, ownerEr
                 })} />}
             </div>
             {row.metric === "applications" && row.loanId
-              ? <Button variant="outline" size="sm" onClick={() => openApplication(row.loanId!)}>Open 1003</Button>
+              ? <div className="loan-application-actions">
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => openApplication(row.loanId!)}>Open 1003</Button>
+                {row.sourceLoanId && <Button variant="ghost" size="sm" disabled={busy} onClick={() => openOriginalLoan(row.sourceLoanId!)}>Open original loan</Button>}
+              </div>
               : <Button variant="outline" size="sm" onClick={() => openContact(row.contactId)}>Open borrower history</Button>}
           </li>;
         })}</ul> : <p className="muted">No records match this selection.</p>}

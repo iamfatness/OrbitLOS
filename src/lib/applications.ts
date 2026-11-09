@@ -82,7 +82,7 @@ function fillPropertyLocality(location: AddressLocation): AddressLocation {
 }
 
 export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string,
-  intake?: { email: string; phone: string; propertyZip: string }) {
+  intake?: { email?: string; phone?: string; propertyZip?: string; propertyAddress?: string }) {
   const loan = db.prepare(`SELECT loans.address, loans.amount, loans.purpose, contacts.name, contacts.email, contacts.phone
     FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?`).get(loanId);
   if (!loan) return false;
@@ -95,7 +95,7 @@ export function startApplication(db: Store, loanId: string, now: string, brokera
     db.prepare("UPDATE applications SET token = ?, expiresAt = ?, revokedAt = NULL WHERE loanId = ?").run(token, expiresAt, loanId);
     return true;
   }
-  const property = splitLegacyAddress(String(loan.address));
+  const property = splitLegacyAddress(intake?.propertyAddress ?? String(loan.address));
   const zip = property.location.zip || intake?.propertyZip || "";
   const email = intake?.email || String(loan.email);
   const draft: ApplicationDraft = {

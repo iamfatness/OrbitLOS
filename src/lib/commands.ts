@@ -13,7 +13,7 @@ import type { LoanMutationResult } from "./loan-work-model";
 import { archiveMockDocumentDelivery, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
-import { manualHandoffOutcomes } from "./application-model";
+import { manualHandoffOutcomes, reusablePropertyAddress } from "./application-model";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, quoteMatchesApplication, repriceQuoteMessage, type PricingOffer } from "./pricing-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider } from "./pricing-provider";
@@ -156,7 +156,8 @@ const command = z.discriminatedUnion("type", [
     kind: z.enum(["Call", "Email", "Text"]), outcome: z.enum(contactOutcomes), note: z.string().trim().max(500),
     followUp: z.iso.date().nullable(), purpose: z.enum(followUpPurposes).default("Loan service"),
   }).refine((data) => data.outcome !== "Requested callback" || data.followUp, "Choose a follow-up date for the requested callback."),
-  z.object({ type: z.literal("startReturningClient1003"), loanId: id, purpose: z.enum(["Purchase", "Refinance"]), fromRateWatch: z.literal(true).optional() }),
+  z.object({ type: z.literal("startReturningClient1003"), loanId: id, purpose: z.enum(["Purchase", "Refinance"]),
+    fromRateWatch: z.literal(true).optional(), confirmedPropertyAddress: z.string().trim().min(1).max(240).optional() }),
   z.object({ type: z.literal("reverseFunding"), loanId: id, revision: z.number().int().positive(),
     fundingDate: z.iso.date(), reason: z.string().trim().min(1).max(500) }),
   z.object({ type: z.literal("saveDisclosureStatus"), loanId: id, revision: z.number().int().nonnegative(),
@@ -875,13 +876,19 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             .get(fundingTaskId(data.loanId, "borrower"), data.loanId) && !recordedFundingCheckIn(db, data.loanId)))) {
             throw new WorkspaceError("Open the borrower’s post-funding check-in before starting its returning-client 1003.");
           }
+          const propertyAddress = data.confirmedPropertyAddress;
+          if (propertyAddress && (!rateTaskId || propertyAddress !== reusablePropertyAddress(String(funded.address)))) {
+            throw new WorkspaceError("The original property address changed. Reopen the rate-watch follow-up and confirm the current address.");
+          }
           const loanId = crypto.randomUUID();
           insertLoan(db, {
             id: loanId, contactId: String(funded.contactId), partnerId: null, officer: String(funded.officer),
             officerEmail: funded.officerEmail as string | null, address: "", amount: 0, purpose: data.purpose,
             stage: "Lead", stageSince: now, leadSource: "Returning client",
           });
-          if (!startApplication(db, loanId, now, staff?.brokerage.id)) throw new WorkspaceError("Orbit could not start the returning-client 1003.");
+          if (!startApplication(db, loanId, now, staff?.brokerage.id, { propertyAddress })) {
+            throw new WorkspaceError("Orbit could not start the returning-client 1003.");
+          }
           db.prepare("INSERT INTO returning_client_loans (fundedLoanId, loanId) VALUES (?, ?)").run(data.loanId, loanId);
           if (rateTaskId) db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ?").run(now, rateTaskId);
           recordLoanAudit(db, loanId, staff, "Created returning-client loan", now, null);

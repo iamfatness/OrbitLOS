@@ -10,7 +10,7 @@ import { loanAccess } from "./workspace-access";
 const reached = "(profile.watchEnabled = 1 AND profile.observedRate IS NOT NULL AND profile.targetRate IS NOT NULL AND profile.observedRate <= profile.targetRate)";
 
 export function returningClientSource(db: Store, loanId: string) {
-  return db.prepare(`SELECT loan.contactId, loan.officer, loan.officerEmail, closing.fundingDate, repeat.loanId AS repeatId
+  return db.prepare(`SELECT loan.contactId, loan.officer, loan.officerEmail, loan.address, closing.fundingDate, repeat.loanId AS repeatId
     FROM loans loan LEFT JOIN closing_progress closing ON closing.loanId = loan.id
     JOIN contacts borrower ON borrower.id = loan.contactId
     LEFT JOIN returning_client_loans repeat ON repeat.fundedLoanId = loan.id

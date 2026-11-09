@@ -30,6 +30,11 @@ export function splitLegacyAddress(value: string): { street: string; location: A
   };
 }
 
+export function reusablePropertyAddress(address: string) {
+  const value = address.trim();
+  return value.length <= 240 && splitLegacyAddress(value).street ? value : undefined;
+}
+
 const storedApplicationDraft = z.object({
   borrowerName: shortText, email: shortText, phone: z.string().trim().max(40),
   currentAddress: shortText, priorAddress: shortText, coBorrowerName: shortText,

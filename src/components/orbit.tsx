@@ -1338,7 +1338,9 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               loans={state.loans} version={state.closingProgress} openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "closing-workbench" })} /> :
               reportTab === "Returning clients" ? <ReturningClientReports rows={state.managerReports.returningClients} busy={busy} save={save}
                 contactActivity={state.contactActivity} members={followUpOwners} ownerError={followUpOwnerError}
-                refresh={() => void save({ type: "refreshWorkspace" })} openApplication={(loanId) => show({ kind: "details", loanId, target: "loan-application" })}
+                refresh={() => void save({ type: "refreshWorkspace" })}
+                openApplication={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-application" })}
+                openOriginalLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
                 openContact={(contactId) => show({ kind: "contactHistory", contactId })} /> :
               <ManagerReports data={state.managerReports} campaigns={state.callCampaigns} segments={state.crmSegments} busy={busy} now={taskNow} save={save}
                 openLoan={(loanId) => show({ kind: "details", loanId })}

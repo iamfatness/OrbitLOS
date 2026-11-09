@@ -14,7 +14,7 @@ import { CommunicationPreview, LoanCommunications } from "./loan-communications"
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { blankLenderDetails, lenderQuestions, lenderSupplement, type LenderDetails } from "@/lib/urla";
-import { changedApplicationSections, secondReviewBlocker, type StaffApplication } from "@/lib/application-model";
+import { changedApplicationSections, reusablePropertyAddress, secondReviewBlocker, type StaffApplication } from "@/lib/application-model";
 import { QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { LoanRetention, RetentionFields } from "./past-client-crm";
 import type { ReturningClientOption } from "@/lib/past-client-queue-model";
@@ -796,6 +796,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const retention = modal.kind === "retention" ? state.pastClients.find((profile) => profile.loanId === modal.loanId) : undefined;
   const checkIn = modal.kind === "fundingCheckIn" ? state.closingProgress.find((item) => item.loanId === modal.loanId) : undefined;
   const checkInBorrower = checkIn && loan ? state.contacts.find((item) => item.id === loan.contactId) : undefined;
+  const originalProperty = modal.kind === "returningClient" && modal.fromRateWatch && loan ? reusablePropertyAddress(loan.address) : undefined;
   const canStartRepeat = repeatOption ? repeatOption.kind === "start" : checkInBorrower && checkInBorrower.role !== "Realtor" &&
     !state.returningClientLoans.some((item) => item.fundedLoanId === loan?.id);
   const key = `${modal.kind}-${loan?.id ?? contact?.id ?? "new"}-${modal.kind === "communication" ? modal.draftId ?? modal.audience : submission?.id ?? ""}`;
@@ -867,18 +868,26 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           <p className="empty-inline">Refresh the post-funding tasks to see the current check-in.</p>)}
         {modal.kind === "returningClient" && loan && <form className="record-form" onSubmit={(event) => {
           event.preventDefault();
-          const purpose = modal.fromRateWatch ? "Refinance" : new FormData(event.currentTarget).get("purpose");
-          void save({ type: "startReturningClient1003", loanId: loan.id, purpose, fromRateWatch: modal.fromRateWatch }, ({ applicationLoanId }) => {
+          const form = new FormData(event.currentTarget);
+          const purpose = modal.fromRateWatch ? "Refinance" : form.get("purpose");
+          const confirmedPropertyAddress = form.has("confirmProperty") ? originalProperty : undefined;
+          void save({ type: "startReturningClient1003", loanId: loan.id, purpose, fromRateWatch: modal.fromRateWatch, confirmedPropertyAddress }, ({ applicationLoanId }) => {
             if (applicationLoanId) show({ kind: "details", loanId: applicationLoanId, target: "loan-application" });
           });
         }}>
           <p>Start a separate application for <strong>{state.contacts.find((item) => item.id === loan.contactId)?.name ?? "this borrower"}</strong> using their saved contact details. Open or copy the borrower link from the new loan record.</p>
-          {modal.fromRateWatch ? <p>Start the refinance once the borrower asks to proceed. This completes the rate-watch task.</p> :
+          {modal.fromRateWatch ? <>
+            <p>Start the refinance once the borrower asks to proceed. This completes the rate-watch task.</p>
+            {originalProperty && <label className="demo-confirm">
+              <input type="checkbox" name="confirmProperty" id="returning-client-purpose" />
+              <span>Reuse the original property address <strong>{originalProperty}</strong></span>
+            </label>}
+          </> :
             <Field label="Loan purpose"><select name="purpose" id="returning-client-purpose" required defaultValue="">
             <option value="" disabled>Choose a loan purpose</option><option>Purchase</option><option>Refinance</option>
           </select></Field>}
           <div className="dialog-footer"><div className="spacer" /><Button variant="outline" onClick={close}>Cancel</Button>
-            <Button id={modal.fromRateWatch ? "returning-client-purpose" : undefined} type="submit" disabled={busy}>Start and open 1003</Button></div>
+            <Button id={modal.fromRateWatch && !originalProperty ? "returning-client-purpose" : undefined} type="submit" disabled={busy}>Start and open 1003</Button></div>
         </form>}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} />}

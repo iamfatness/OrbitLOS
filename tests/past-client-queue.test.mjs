@@ -111,6 +111,8 @@ test("retention saves return the authorized loan with its follow-up, and repeat 
 test("an active rate-watch task starts one linked refinance for a historical closed client", async (t) => {
   const { db, loan, read, write } = fixture(t);
   const id = loan("historical", { stage: "Closed" });
+  const address = "24 Fictional Lane, Troy, MI 48084";
+  db.prepare("UPDATE loans SET address = ? WHERE id = ?").run(address, id);
   db.prepare("UPDATE contacts SET email = ?, phone = ? WHERE id = ?").run("history@example.test", "248-555-0142", `${id}-borrower`);
   const start = { type: "startReturningClient1003", loanId: id, purpose: "Refinance", fromRateWatch: true };
   const observe = (observedRate, revision = 0) => write(officer, { type: "saveRetention", loanId: id, revision, closingDate: date,
@@ -124,7 +126,8 @@ test("an active rate-watch task starts one linked refinance for a historical clo
   assert.ok((await write(processor, start)).error);
   assert.match((await write(officer, { ...start, purpose: "Purchase" })).error, /follow-up changed/);
 
-  const result = await write(officer, start);
+  assert.match((await write(officer, { ...start, confirmedPropertyAddress: "Former address, Troy, MI 48084" })).error, /property address changed/);
+  const result = await write(officer, { ...start, confirmedPropertyAddress: address });
   assert.notEqual(result.applicationLoanId, id);
   assert.equal(result.loanWork.loans[0].contactId, `${id}-borrower`);
   assert.equal(result.loanWork.loans[0].officerEmail, officer.email);
@@ -133,12 +136,21 @@ test("an active rate-watch task starts one linked refinance for a historical clo
   assert.equal(draft.email, "history@example.test");
   assert.equal(draft.phone, "248-555-0142");
   assert.equal(draft.purpose, "Refinance");
+  assert.equal(draft.propertyAddress, "24 Fictional Lane");
+  assert.deepEqual(draft.propertyLocation, { unit: "", city: "Troy", state: "MI", zip: "48084" });
+  assert.equal(draft.loanAmount, "");
+  assert.equal(result.loanWork.loans[0].address, "");
   const source = readEditableLoan(db, id, officer, brokerage.id);
   assert.equal(source.loans[0].stage, "Closed");
+  assert.equal(source.loans[0].address, address);
   assert.ok(source.tasks.find((task) => task.id === `rate-watch:${id}`)?.completedAt);
   assert.deepEqual(source.repeatOption, { kind: "open", loanId: result.applicationLoanId });
   assert.equal((await write(officer, start)).applicationLoanId, result.applicationLoanId);
   assert.equal(db.prepare("SELECT count(*) AS n FROM returning_client_loans WHERE fundedLoanId = ?").get(id).n, 1);
+  const report = await write(admin, { type: "refreshWorkspace" });
+  assert.deepEqual(report.state.managerReports.returningClients.filter((row) => row.metric === "applications")
+    .map(({ loanId, sourceLoanId, purpose, detail }) => ({ loanId, sourceLoanId, purpose, detail })),
+    [{ loanId: result.applicationLoanId, sourceLoanId: id, purpose: "Refinance", detail: "Draft" }]);
 
   const blocked = loan("blocked", { watch: { observed: 5.5 } });
   db.prepare("INSERT INTO tasks (id, loanId, title, dueAt, purpose) VALUES (?, ?, 'Rate watch', ?, 'Prospecting')").run(`rate-watch:${blocked}`, blocked, at);
