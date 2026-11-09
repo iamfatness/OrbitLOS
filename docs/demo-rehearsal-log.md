@@ -535,3 +535,11 @@ The previous release advanced Kit's card on the first conversion in Enrolled. Fi
 The invited LO converted Ari from Upcoming callbacks. The first click opened the draft, and closing it showed one 1003 started card with Open loan while Upcoming callbacks stayed selected. Open loan reopened the same borrower link. The callback stayed due Nov 19 at 10:45 a.m. Eastern. The next shared lead, Sam, took the available slot with the original first-contact deadline. The LO recorded Connected for Sam and converted from Enrolled. The first click opened the draft and advanced the only Sam card.
 
 The built Worker checked the connected and scheduled first responses, the exact card from a workspace with no cached loans, and the same result with the campaign snapshot omitted. All 310 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages returned 200 with the updated copy.
+
+## First-click conversation opening and replay
+
+The prior hosted release opened Noel's conversation on the first click. The earlier return to Today did not recur in that baseline, and its cause remains unconfirmed. Worker `4e4e7b58-d629-4229-b712-b37531e9081c` from `c48eb03d523a` returns the authorized thread, first history page and filtered queue after Start conversation. The workspace uses those results to display the thread without waiting for a second detail request.
+
+Two hosted tabs loaded Drew's unstarted conversation. The invited LO started it from the Active view, then used the still-visible Start conversation button in the other tab. Both stayed in Communications and showed the call note and Nov 20 at 10:25 a.m. Eastern callback. Active showed one row. The second tab retained Closed and its list omitted the open thread. After the LO saved a staff note and converted the lead, the second tab refreshed to the linked loan and retained the call note, staff note and callback.
+
+Two concurrent starts in the built Worker returned the same thread ID and one list row. A replay after conversion returned the same ID with the current loan and original history. The unauthenticated request, another officer, and the processor on the open lead were denied. All 310 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages returned 200 with the updated copy.
