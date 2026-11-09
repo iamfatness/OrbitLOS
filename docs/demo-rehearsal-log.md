@@ -405,3 +405,11 @@ On Worker `4f0c2c2d-8871-4055-91fa-69f447318010` from `99d5f87ffea1`, the admin 
 Clearing the replacement restored Clear to Close in both portals. Activity kept the old copied draft in superseded history and showed fresh borrower and realtor drafts. The new realtor draft accepted a copy. After staff recorded closing and reopened a bank statement, both portals showed Funding on hold and the closing-complete draft stayed available. Both portals showed Funded after the second replacement cleared and funding was recorded. The public Demo and Product pages reflected the workflow.
 
 All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. The focused SQLite case also verified older unretired drafts are superseded on upgrade, the earlier copy receipt is retained, and a replay does not regenerate an already-restored draft.
+
+## Replacing a manual lender package after a 1003 correction
+
+On Worker `5ea9f3db-f895-46db-959d-62a35fe13e78` from `7424518c8f3e`, a fictional lender downloaded the original reviewed MISMO package. Staff acknowledged it, then recorded a lender return. The lender's already-open download button denied access as soon as staff reopened the application. The borrower used the original borrower link to correct and resubmit the 1003.
+
+After review, **Replace lender link** prefilled the recipient and issued a new link and code. The old link remained unavailable and the old code did not unlock the replacement. Both downloaded files parsed as MISMO XML. Revision 1 contained a $360,000 requested loan and revision 5 contained $349,500. The loan displayed one download on each revision and reused the original lender reference for acknowledgment. This hosted run used an XML-only package and a separate fictional pilot. The public Demo and Product pages reflected the change.
+
+All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. The working-day rehearsal matched each package download byte for byte with its corresponding reviewed export, retained the old download receipt, denied a previous owner, and checked that retrying the replacement returned the same receipt. The focused SQLite test checked that a current link could not be replaced and that failed link protection left the staff record unchanged.
