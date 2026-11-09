@@ -397,3 +397,11 @@ In the fictional hosted handoff file, the admin reopened a cleared income condit
 On final Worker `46c06d18-c309-4cb3-8859-9992e549c52c` from `c669beadb478`, the **Reopened** alert in Tasks distinguished the event from the original income alert and focused the same request. The stage picker disabled closing stages and Record closing was disabled while the condition was open. The borrower uploaded a replacement sample and staff cleared it, then marked Clear to Close and recorded closing. A second reopening left the actual closing date recorded and blocked first funding. After the replacement bank statement cleared, the fictional file funded. Both public pages reflected the safeguard.
 
 All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. The authenticated Worker checked the stage-move bypasses, first closing and funding writes, the exact lender alert, and recovery through the replacement and clearance. The hosted run used one admin identity and a separate borrower browser.
+
+## Closing holds in borrower and realtor views
+
+On Worker `4f0c2c2d-8871-4055-91fa-69f447318010` from `99d5f87ffea1`, the admin used a fresh fictional pilot with both portals at Clear to Close. Staff copied the original realtor email draft, left its text preview open in another tab, and reopened the income condition. Both portals showed Closing on hold after refresh. The realtor row showed the neutral status and update time without the evidence request. The already-open preview refused the copy and identified the draft as out of date.
+
+Clearing the replacement restored Clear to Close in both portals. Activity kept the old copied draft in superseded history and showed fresh borrower and realtor drafts. The new realtor draft accepted a copy. After staff recorded closing and reopened a bank statement, both portals showed Funding on hold and the closing-complete draft stayed available. Both portals showed Funded after the second replacement cleared and funding was recorded. The public Demo and Product pages reflected the workflow.
+
+All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. The focused SQLite case also verified older unretired drafts are superseded on upgrade, the earlier copy receipt is retained, and a replay does not regenerate an already-restored draft.
