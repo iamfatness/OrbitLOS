@@ -9,6 +9,7 @@ import { coBorrowerDocumentRecipient, needsBorrowerDocument, primaryDocumentReci
 import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
 import { quoteMatchesApplication, type BorrowerQuote } from "./pricing-model";
+import { borrowerQuotePresentation } from "./quote-worksheet";
 import { borrowerDocuments } from "./borrower-documents";
 import { accessEvent } from "./workspace-access";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
@@ -159,7 +160,7 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: borrowerDocuments(db, row.loanId, primaryDocumentRecipient),
-    quote: published && currentAlternatives ? { ...published, presentation } as unknown as BorrowerQuote : null,
+    quote: published && currentAlternatives ? { ...published, presentation: borrowerQuotePresentation(presentation) } as unknown as BorrowerQuote : null,
     ...(preapproval ? { preapproval } : {}),
   } : null;
 }

@@ -437,6 +437,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "runMockAus":
     case "runMockPairedAus":
     case "retryMockCreditAus":
+    case "saveFeeWorksheet":
     case "applyDocumentPreset":
     case "applyDocumentTemplate":
     case "sendConditionDocument":
@@ -1412,7 +1413,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "saveFeeWorksheet": {
-          const result = saveFeeWorksheet(db, data);
+          const result = saveFeeWorksheet(db, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;

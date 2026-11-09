@@ -21,6 +21,7 @@ import { readLeadInbox } from "./lead-inbox-query";
 import { readLeadArchive } from "./lead-inbox";
 import { receiveQuoteLead, workOnQuoteSettings } from "./quote-intake";
 import { documentTemplateWork } from "./document-templates";
+import { feeTemplateWork } from "./fee-templates";
 import { readSharedRealtorQueue } from "./realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./realtor-queue-report";
 import { assignWaitingRealtorInput } from "./realtor-queue-report-model";
@@ -428,4 +429,9 @@ export async function loadQuoteIntakeSettings(input: unknown, staff: WorkspaceSt
 export async function workOnDocumentTemplates(input: unknown, staff: WorkspaceStaff | null) {
   const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
   return documentTemplateWork(database(), input, actor, demoBrokerageId);
+}
+
+export async function workOnFeeTemplates(input: unknown, staff: WorkspaceStaff | null) {
+  const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
+  return feeTemplateWork(database(), input, actor, demoBrokerageId);
 }

@@ -748,11 +748,31 @@ try {
     assert.notEqual(reprice.state.pricingRuns[0].id, run.id);
     assert.equal(reprice.state.pricingRuns.find((item) => item.id === run.id).selectedId, null);
     await loanAction(officer, loanId, "selectOffer", { runId: run.id, offerId: offer.id });
-    await loanAction(officer, loanId, "publishQuote", { runId: run.id, offerId: offer.id });
+    const feeTemplatePath = `/api/fee-templates?brokerage=${brokerage}`;
+    const fees = { origination: 95000, appraisal: 62500, creditReport: 0, settlement: null, government: null, prepaid: null, escrow: null, other: null };
+    const config = { title: "Fictional working-day fees", source: "Fictional staff-only fee schedule", effectiveOn: "2025-01-01",
+      purpose: run.scenario.purpose, zip: run.scenario.zip, fees };
+    const feeTemplate = { type: "publish", id: randomUUID(), revision: 0, config };
+    assert.equal((await postResponse(feeTemplatePath, feeTemplate, officer)).status, 409);
+    const forQuote = { type: "forQuote", loanId, runId: run.id };
+    assert.equal((await postResponse(feeTemplatePath, forQuote, competingOfficer)).status, 409);
+    const v1 = (await post(feeTemplatePath, feeTemplate, owner)).templates[0];
+    assert.deepEqual((await post(feeTemplatePath, forQuote, officer)).templates, [v1]);
+    const feeSelection = { runId: run.id, offerId: offer.id };
+    const worksheet = { fees, purchasePrice: Math.round((run.scenario.purchasePrice ?? run.scenario.propertyValue) * 100),
+      payoffs: null, deposit: 0, sellerCredits: 0, otherCredits: 0 };
+    const savedFees = await loanAction(officer, loanId, "saveFeeWorksheet", { ...feeSelection, feeRevision: 0, worksheet, template: { id: v1.id, revision: 1 } });
+    assert.equal(savedFees.loanWork.feeWorksheets[0].origin.source, config.source);
+    await loanAction(officer, loanId, "publishQuote", { ...feeSelection, feeRevision: 1 });
+    const v2 = await post(feeTemplatePath, { ...feeTemplate, revision: 1, config: { ...config, fees: { ...fees, appraisal: 72500 } } }, owner);
+    assert.equal(v2.templates[0].revision, 2);
+    assert.equal((await file(officer, loanId)).publishedQuotes[0].presentation.primary.feeOrigin.revision, 1);
     const status = await borrower(token, { type: "status" });
     assert.equal(status.kind, "status");
     assert.equal(status.loanStatus.quote.rate, offer.rate);
     assert.equal(status.loanStatus.quote.presentation.primary.offerId, offer.id);
+    assert.deepEqual(status.loanStatus.quote.presentation.primary.estimate.inputs.fees, fees);
+    assert.ok(!JSON.stringify(status).includes(config.source));
     assert.ok(!JSON.stringify(status).includes(recommendation));
     assert.ok(!JSON.stringify(status).includes("preapproval"));
     assert.ok(!("draft" in status));

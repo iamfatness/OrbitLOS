@@ -1,6 +1,10 @@
 import type { z } from "zod";
+import { addApplicationActivity } from "./applications";
+import { easternDate } from "./client-retention";
+import { feeTemplateChanged } from "./fee-template-model";
+import { feeOriginForQuote } from "./fee-templates";
 import { quoteMatchesApplication, repriceQuoteMessage, type PricingApplication, type PricingOffer, type PricingScenario } from "./pricing-model";
-import { estimateFees, quoteOption, type FeeInputs, type FeeWorksheet, type quoteSelection, type saveFeeWorksheetInput } from "./quote-worksheet";
+import { estimateFees, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type quoteSelection, type saveFeeWorksheetInput } from "./quote-worksheet";
 import type { Store } from "./store";
 
 function priceOption(db: Store, loanId: string, runId: string, offerId: string) {
@@ -11,23 +15,38 @@ function priceOption(db: Store, loanId: string, runId: string, offerId: string) 
 }
 
 export function quoteFeeWorksheet(db: Store, loanId: string, runId: string, offerId: string): FeeWorksheet | undefined {
-  const row = db.prepare("SELECT inputs, revision FROM fee_worksheets WHERE runId = ? AND offerId = ?").get(runId, offerId);
-  return row ? { loanId, runId, offerId, inputs: JSON.parse(String(row.inputs)) as FeeInputs, revision: Number(row.revision) } : undefined;
+  const row = db.prepare("SELECT inputs, revision, origin FROM fee_worksheets WHERE runId = ? AND offerId = ?").get(runId, offerId);
+  return row ? { loanId, runId, offerId, inputs: JSON.parse(String(row.inputs)) as FeeInputs, revision: Number(row.revision),
+    ...(row.origin ? { origin: JSON.parse(String(row.origin)) as FeeTemplateOrigin } : {}) } : undefined;
 }
 
-export function saveFeeWorksheet(db: Store, data: z.infer<typeof saveFeeWorksheetInput>) {
-  const { loanId, runId, offerId, feeRevision, worksheet } = data;
+export function saveFeeWorksheet(db: Store, data: z.infer<typeof saveFeeWorksheetInput>, now: string) {
+  const { loanId, runId, offerId, feeRevision, worksheet, template } = data;
   const option = priceOption(db, loanId, runId, offerId);
   if (!option) return { error: "Choose a sample pricing option on this loan." };
+  const app = db.prepare("SELECT revision, correctionNote FROM applications WHERE loanId = ?").get(loanId);
+  if (!quoteMatchesApplication(option.applicationRevision, app ? { revision: Number(app.revision), correctionNote: String(app.correctionNote ?? "") } : undefined)) {
+    return { error: repriceQuoteMessage };
+  }
   if (!estimateFees(option.scenario, option.offer, worksheet)) {
     return { error: option.scenario.purpose === "Purchase" ? "Enter a purchase price at or above the loan amount." : "Enter estimated refinance payoffs, including zero if applicable." };
   }
   const before = quoteFeeWorksheet(db, loanId, runId, offerId);
-  if (JSON.stringify(before?.inputs) === JSON.stringify(worksheet)) return { message: "Fee worksheet is up to date." };
+  let origin = template === null ? undefined : before?.origin;
+  if (template && (template.id !== origin?.id || template.revision !== origin.revision)) {
+    origin = feeOriginForQuote(db, template, option.scenario, easternDate(new Date(now)));
+    if (!origin) return { error: feeTemplateChanged };
+  }
+  if (JSON.stringify(before?.inputs) === JSON.stringify(worksheet) && JSON.stringify(before?.origin) === JSON.stringify(origin)) {
+    return { message: "Fee worksheet is up to date." };
+  }
   if ((before?.revision ?? 0) !== feeRevision) return { error: "The fee worksheet changed. Refresh the loan before saving." };
-  db.prepare(`INSERT INTO fee_worksheets (runId, offerId, inputs, revision) VALUES (?, ?, ?, 1)
-    ON CONFLICT (runId, offerId) DO UPDATE SET inputs = excluded.inputs, revision = revision + 1`)
-    .run(runId, offerId, JSON.stringify(worksheet));
+  db.prepare(`INSERT INTO fee_worksheets (runId, offerId, inputs, revision, origin) VALUES (?, ?, ?, 1, ?)
+    ON CONFLICT (runId, offerId) DO UPDATE SET inputs = excluded.inputs, origin = excluded.origin, revision = revision + 1`)
+    .run(runId, offerId, JSON.stringify(worksheet), origin ? JSON.stringify(origin) : null);
+  if (origin && (origin.id !== before?.origin?.id || origin.revision !== before.origin.revision)) {
+    addApplicationActivity(db, loanId, `Saved sample fees from ${origin.title} · Version ${origin.revision} · Effective ${origin.effectiveOn}`, now);
+  }
   return { message: "Sample fee worksheet saved." };
 }
 

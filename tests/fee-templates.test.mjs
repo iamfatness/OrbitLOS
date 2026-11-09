@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
+import test from "node:test";
+import { sqliteStore } from "../scripts/workspace-baseline.mjs";
+
+const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
+const { blankApplication } = await import("../src/lib/application-model.ts");
+const { executeCommand } = await import("../src/lib/commands.ts");
+const { feeTemplateWork } = await import("../src/lib/fee-templates.ts");
+const { blankFees, estimateFees, missingFees } = await import("../src/lib/quote-worksheet.ts");
+
+test("fee templates scope use and preserve the original fee and source snapshot", async (t) => {
+  const sqlite = new DatabaseSync(":memory:");
+  t.after(() => sqlite.close());
+  const db = sqliteStore(sqlite);
+  initializeStore(db, false);
+  const at = "2026-11-06T17:00:00.000Z";
+  const tenant = "fictional";
+  const staff = (role) => ({ email: `${role.toLowerCase()}@example.test`, name: `Fictional ${role}`,
+    brokerage: { id: tenant, role, pilot: true } });
+  const owner = staff("Admin");
+  const officer = staff("LO");
+  const loanId = "fictional-loan";
+  const runId = randomUUID();
+  const offerId = randomUUID();
+  const manage = (input, actor = owner, brokerageId = tenant) => feeTemplateWork(db, input, actor, brokerageId, new Date(at));
+  const send = (input) => executeCommand(db, { loanId, ...input }, officer, undefined, [], { scopedLoanUpdates: true });
+
+  insertContact(db, { id: "sample-borrower", name: "Fictional Borrower", email: "", phone: "", role: "Borrower" });
+  insertLoan(db, { id: loanId, contactId: "sample-borrower", partnerId: null, officer: officer.name, officerEmail: officer.email,
+    stage: "Application", stageSince: at, address: "", amount: 350000, purpose: "Purchase" });
+  db.prepare(`INSERT INTO applications (loanId, token, expiresAt, draft, revision, updatedAt, submittedAt)
+    VALUES (?, ?, ?, ?, 3, ?, ?)`).run(loanId, randomUUID(), at, JSON.stringify(blankApplication()), at, at);
+  const scenario = { purpose: "Purchase", loanAmount: 350000, propertyValue: 360000, purchasePrice: 360000, zip: "48304" };
+  const offer = { id: offerId, product: "Fictional 30 year fixed", rate: 6.5, years: 30, principalAndInterest: 2212.24, pricingAmount: -500 };
+  db.prepare(`INSERT INTO pricing_runs (id, loanId, provider, mode, scenario, offers, notices, quotedAt, selectedId, selectedAt, applicationRevision)
+    VALUES (?, ?, 'sample', 'mock', ?, ?, '[]', ?, ?, ?, 3)`)
+    .run(runId, loanId, JSON.stringify(scenario), JSON.stringify([offer]), at, offerId, at);
+  const fees = { ...blankFees(), origination: 99500, appraisal: 65000, creditReport: 0 };
+  const config = { title: "Sample purchase", source: "Internal fictional fee schedule", effectiveOn: "2025-01-01",
+    purpose: "Purchase", zip: scenario.zip, fees };
+  const publish = { type: "publish", id: randomUUID(), revision: 0, config };
+  const forQuote = { type: "forQuote", loanId, runId };
+  assert.match(manage(publish, officer).error, /admins/);
+  assert.match(manage(publish, owner, "different-brokerage").error, /unavailable/);
+  assert.match(manage(forQuote, staff("Processor")).error, /unavailable/);
+  assert.match(manage(forQuote, { ...officer, email: "other@example.test" }).error, /unavailable/);
+  assert.match(manage({ ...publish, config: { ...config, effectiveOn: "2026-11-07" } }).error, /on or before/);
+  const v1 = manage(publish).templates[0];
+  assert.equal(v1.revision, 1);
+  assert.deepEqual(manage(publish).templates, [v1]);
+  assert.ok(manage({ ...publish, id: randomUUID(), config: { ...config, title: "Other ZIP", zip: "10001" } }).templates);
+  assert.ok(manage({ ...publish, id: randomUUID(), config: { ...config, title: "Refinance", purpose: "Refinance", zip: "" } }).templates);
+  assert.deepEqual(manage(forQuote, officer).templates, [v1]);
+
+  const worksheet = { fees, purchasePrice: 36000000, payoffs: null, deposit: 100000, sellerCredits: 100000, otherCredits: 0 };
+  const estimate = estimateFees(scenario, offer, worksheet);
+  assert.deepEqual(missingFees(estimate.inputs.fees), ["settlement", "government", "prepaid", "escrow", "other"]);
+  assert.equal(estimate.lenderCredit, 50000);
+  assert.equal(estimate.closingCosts, 114500);
+  assert.equal(estimate.cashToClose, 914500);
+
+  const choice = { runId, offerId, feeRevision: 0 };
+  const save = { type: "saveFeeWorksheet", ...choice, worksheet, template: { id: v1.id, revision: v1.revision } };
+  const result = await send(save);
+  const saved = result.loanWork.feeWorksheets[0];
+  assert.equal(saved.origin.source, config.source);
+  assert.equal(saved.inputs.fees.settlement, null);
+  assert.equal(saved.inputs.fees.creditReport, 0);
+  assert.equal((await send(save)).loanWork.feeWorksheets[0].revision, 1);
+  const share = { type: "publishQuote", ...choice, feeRevision: 1 };
+  const first = (await send(share)).state.publishedQuotes[0].presentation;
+  assert.deepEqual(first.primary.feeOrigin, saved.origin);
+  assert.equal(first.primary.estimate.cashToClose, 914500);
+  const v2 = { ...publish, revision: 1, config: { ...config, source: "New fee schedule", fees: { ...fees, appraisal: 75000 } } };
+  assert.equal(manage(v2).templates.find(({ id }) => id === v1.id).revision, 2);
+  assert.match(manage({ ...v2, config: { ...config, title: "Stale edit" } }).error, /changed/i);
+
+  const edited = { ...worksheet, fees: { ...fees, appraisal: 67500 } };
+  const edit = await send({ ...save, worksheet: edited, feeRevision: 1 });
+  assert.equal(edit.loanWork.feeWorksheets[0].origin.fees.appraisal, 65000);
+  assert.deepEqual(edit.loanWork.publishedQuotes[0].presentation, first);
+  assert.match((await send(share)).error, /changed/);
+  const replacement = (await send({ ...share, feeRevision: 2 })).state;
+  assert.deepEqual(replacement.sharedQuoteHistory[0].presentation, first);
+  assert.equal(replacement.publishedQuotes[0].presentation.primary.estimate.inputs.fees.appraisal, 67500);
+  assert.equal(replacement.publishedQuotes[0].presentation.primary.feeOrigin.revision, 1);
+  assert.ok(manage({ type: "archive", id: v1.id, revision: 2, archived: true }).templates);
+  assert.deepEqual(manage(forQuote, officer).templates, []);
+  assert.match((await send({ ...save, feeRevision: 2, template: { id: v1.id, revision: 2 } })).error, /no longer applies/);
+  db.prepare("UPDATE applications SET revision = 4 WHERE loanId = ?").run(loanId);
+  assert.match((await send({ ...save, feeRevision: 2 })).error, /Reprice/);
+});

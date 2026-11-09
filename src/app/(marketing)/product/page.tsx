@@ -9,6 +9,7 @@ const tools = [
   {icon:ListChecks,title:"Document checklists",text:"Reuse brokerage templates with borrower instructions and deadlines. On joint files, each borrower sees their own requests while staff track both in one checklist."},
   {icon:ShieldCheck,title:"Separate joint borrower links",text:"Each borrower saves and submits their own answers. Loan staff review one combined 1003 and can return a portion to its borrower for correction."},
   {icon:ShieldCheck,title:"Paired mock underwriting",text:"Run mock DU and LPA together on the same submitted 1003 and sample credit report. Keep each service’s findings and retry history separate."},
+  {icon:Wallet,title:"Brokerage fee templates",text:"Reuse sample estimates by loan purpose and ZIP. Saved quotes preserve the itemized amounts, and staff can see the template version, source, and effective date."},
   {icon:MessagesSquare,title:"Shared conversations",text:"Open shared conversations and keep team notes with the relationship. Page through borrower and realtor milestone drafts, preview the current recipient, and track which messages were copied."},
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},

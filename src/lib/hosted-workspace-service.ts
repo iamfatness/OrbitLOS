@@ -337,3 +337,7 @@ export async function loadQuoteIntakeSettings(input: unknown, staff: WorkspaceSt
 export async function workOnDocumentTemplates(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).documentTemplates(staff, input) : { error: "Document templates are unavailable in this workspace." };
 }
+
+export async function workOnFeeTemplates(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).feeTemplates(staff, input) : { error: "Fee templates are unavailable in this workspace." };
+}

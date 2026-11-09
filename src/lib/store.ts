@@ -507,9 +507,14 @@ export function initializeStore(db: Store, seedDemo = true) {
       offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT
     );
     CREATE INDEX IF NOT EXISTS pricing_by_loan ON pricing_runs(loanId, quotedAt);
+    CREATE TABLE IF NOT EXISTS brokerage_fee_templates (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, revision INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
+      effectiveOn TEXT NOT NULL, purpose TEXT NOT NULL, zip TEXT NOT NULL, config TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS active_fee_template_title ON brokerage_fee_templates(title COLLATE NOCASE) WHERE archived = 0;
     CREATE TABLE IF NOT EXISTS fee_worksheets (
       runId TEXT NOT NULL REFERENCES pricing_runs(id) ON DELETE CASCADE, offerId TEXT NOT NULL,
-      inputs TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY (runId, offerId)
+      inputs TEXT NOT NULL, revision INTEGER NOT NULL, origin TEXT, PRIMARY KEY (runId, offerId)
     );
     CREATE TABLE IF NOT EXISTS published_quotes (
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
@@ -1044,6 +1049,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS initial_mock_order_by_batch ON mock_credit_aus_runs(batchId, service)
       WHERE batchId IS NOT NULL AND retryOf IS NULL`);
+    if (!db.prepare("PRAGMA table_info(fee_worksheets)").all().some(({ name }) => name === "origin")) {
+      db.exec("ALTER TABLE fee_worksheets ADD COLUMN origin TEXT");
+    }
     for (const [column, type] of Object.entries({
       lockExtensionReference: "TEXT", lockExtensionDays: "INTEGER", lockCancellationReference: "TEXT", lockCancelledAt: "TEXT",
     })) {
@@ -1210,9 +1218,9 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
            WHERE plan.loanId = run.loanId AND json_extract(option.value, '$.quoteSource.runId') = run.id))
       ORDER BY run.quotedAt DESC, run.rowid DESC
     `, ...args).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
-    feeWorksheets: rows<Omit<FeeWorksheet, "inputs"> & { inputs: string }>(db, `SELECT pricing_runs.loanId, worksheet.*
+    feeWorksheets: rows<Omit<FeeWorksheet, "inputs" | "origin"> & { inputs: string; origin: string | null }>(db, `SELECT pricing_runs.loanId, worksheet.*
       FROM fee_worksheets worksheet JOIN pricing_runs ON pricing_runs.id = worksheet.runId ${where("pricing_runs.loanId")}`, ...args)
-      .map((row) => ({ ...row, inputs: JSON.parse(row.inputs) })),
+      .map(({ inputs, origin, ...row }) => ({ ...row, inputs: JSON.parse(inputs), ...(origin ? { origin: JSON.parse(origin) } : {}) })),
     publishedQuotes: quoteRows<PublishedQuote>(db, `SELECT * FROM published_quotes ${where()}`, ...args),
     sharedQuoteHistory: quoteRows<SharedQuoteEvent>(db, `SELECT * FROM shared_quote_history ${where()} ORDER BY endedAt DESC, rowid DESC`, ...args),
     mockUwmRates: rows<MockUwmRate>(db, `SELECT * FROM mock_uwm_rates ${where()}`, ...args),

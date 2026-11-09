@@ -7,22 +7,33 @@ export const feeLabels = {
 } as const;
 export type FeeKey = keyof typeof feeLabels;
 export const feeKeys = Object.keys(feeLabels) as FeeKey[];
-const cents = z.number().int().min(0).max(2_500_000_000);
+export const feeCents = z.number().int().min(0).max(2_500_000_000);
+export const feeAmounts = z.record(z.enum(feeKeys), feeCents.nullable());
+const cents = feeCents;
 const worksheet = z.object({
-  fees: z.record(z.enum(feeKeys), cents), purchasePrice: cents.nullable(), payoffs: cents.nullable(), deposit: cents, sellerCredits: cents, otherCredits: cents,
+  fees: feeAmounts, purchasePrice: cents.nullable(), payoffs: cents.nullable(), deposit: cents, sellerCredits: cents, otherCredits: cents,
 });
 const id = z.string().min(1).max(100);
+export const feeTemplateChoice = z.object({ id: z.uuid(), revision: z.number().int().positive() });
 export const quoteSelection = z.object({ runId: id, offerId: id, feeRevision: z.number().int().nonnegative() });
 export const saveFeeWorksheetInput = z.object({
-  type: z.literal("saveFeeWorksheet"), loanId: id, ...quoteSelection.shape, worksheet,
+  type: z.literal("saveFeeWorksheet"), loanId: id, ...quoteSelection.shape, worksheet, template: feeTemplateChoice.nullable().optional(),
 });
 export type FeeInputs = z.infer<typeof worksheet>;
+export interface FeeTemplateOrigin extends z.infer<typeof feeTemplateChoice> {
+  title: string;
+  source: string;
+  effectiveOn: string;
+  zip: string;
+  fees: FeeInputs["fees"];
+}
 export interface FeeWorksheet {
   loanId: string;
   runId: string;
   offerId: string;
   revision: number;
   inputs: FeeInputs;
+  origin?: FeeTemplateOrigin;
 }
 export interface FeeEstimate {
   inputs: FeeInputs;
@@ -42,6 +53,7 @@ export interface QuoteOption {
   loanAmount: number;
   purpose: PricingScenario["purpose"];
   estimate: FeeEstimate | null;
+  feeOrigin?: FeeTemplateOrigin;
 }
 export interface QuotePresentation {
   primary: QuoteOption;
@@ -49,7 +61,11 @@ export interface QuotePresentation {
 }
 
 export function blankFees(): FeeInputs["fees"] {
-  return { origination: 0, appraisal: 0, creditReport: 0, settlement: 0, government: 0, prepaid: 0, escrow: 0, other: 0 };
+  return { origination: null, appraisal: null, creditReport: null, settlement: null, government: null, prepaid: null, escrow: null, other: null };
+}
+
+export function missingFees(fees: FeeInputs["fees"]) {
+  return feeKeys.filter((key) => fees[key] === null);
 }
 
 export function estimateFees(scenario: PricingScenario, offer: PricingOffer, input: FeeInputs): FeeEstimate | null {
@@ -61,7 +77,7 @@ export function estimateFees(scenario: PricingScenario, offer: PricingOffer, inp
   const adjustment = Math.round((offer.pricingAmount ?? 0) * 100);
   const points = Math.max(0, adjustment);
   const lenderCredit = Math.max(0, -adjustment);
-  const closingCosts = feeKeys.reduce((total, key) => total + input.fees[key], 0) + points - lenderCredit;
+  const closingCosts = feeKeys.reduce((total, key) => total + (input.fees[key] ?? 0), 0) + points - lenderCredit;
   const downPayment = purchase && purchasePrice !== null ? purchasePrice - principal : null;
   const cashToClose = (downPayment ?? (payoffs ?? 0) - principal) + closingCosts - input.deposit - input.sellerCredits - input.otherCredits;
   return { inputs: input, points, lenderCredit, closingCosts, downPayment, cashToClose };
@@ -72,5 +88,16 @@ export function quoteOption(run: Pick<PricingRun, "id" | "scenario">, offer: Pri
     runId: run.id, offerId: offer.id, product: offer.product, rate: offer.rate, years: offer.years, principalAndInterest: offer.principalAndInterest,
     loanAmount: run.scenario.loanAmount, purpose: run.scenario.purpose,
     estimate: worksheet ? estimateFees(run.scenario, offer, worksheet.inputs) : null,
+    ...(worksheet?.origin ? { feeOrigin: worksheet.origin } : {}),
   };
+}
+
+export function borrowerQuotePresentation(presentation: QuotePresentation | null | undefined) {
+  if (!presentation) return null;
+  function publicOption(option: QuoteOption) {
+    const publicFields = { ...option };
+    delete publicFields.feeOrigin;
+    return publicFields;
+  }
+  return { primary: publicOption(presentation.primary), alternatives: presentation.alternatives.map(publicOption) };
 }

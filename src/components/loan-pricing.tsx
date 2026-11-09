@@ -106,9 +106,10 @@ function Terms({ offer }: { offer: PricingOffer }) {
   </dl>;
 }
 
-export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHandoff, sourceQuote }: {
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
+  brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   lenderHandoff?: { label: string; blocker: string | null; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
@@ -292,7 +293,8 @@ export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHando
         <p className="muted">{cash(saved.scenario.loanAmount)} loan · {saved.scenario.purpose}</p>
         {primary && presentation ? <>
           <FeeWorksheetEditor key={`${primary.key}:${primary.worksheet?.revision ?? 0}`}
-            run={primary.run} offer={primary.offer} saved={primary.worksheet} busy={busy} save={save} />
+            run={primary.run} offer={primary.offer} saved={primary.worksheet} busy={busy} save={save}
+            brokerageId={brokerageId} current={!savedNeedsReprice} />
           {comparable.length > 0 && <details className="document-form">
             <summary>Choose alternatives to compare</summary>
             <p className="muted">Include up to two alternatives for the same loan purpose. Save each worksheet to include its fees.</p>
@@ -309,7 +311,8 @@ export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHando
             </div>
           </details>}
           {alternatives.map((item) => <FeeWorksheetEditor key={`${item.key}:${item.worksheet?.revision ?? 0}`}
-            run={item.run} offer={item.offer} saved={item.worksheet} busy={busy} save={save} />)}
+            run={item.run} offer={item.offer} saved={item.worksheet} busy={busy} save={save}
+            brokerageId={brokerageId} current={isCurrent(item.run)} />)}
           <SampleQuotePresentation quote={presentation} />
           <SampleMetrics scenario={saved.scenario} offer={selected} />
         </> : <><Terms offer={selected} /><SampleMetrics scenario={saved.scenario} offer={selected} /></>}

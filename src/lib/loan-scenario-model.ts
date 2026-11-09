@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PricingOffer, PricingRun } from "./pricing-model";
-import { quoteSelection, type FeeInputs } from "./quote-worksheet";
+import { missingFees, quoteSelection, type FeeInputs } from "./quote-worksheet";
 
 export const scenarioGoals = ["Lower monthly payment", "Less cash upfront", "Lower borrowing cost"] as const;
 const money = z.number().int().min(0).max(2_500_000_000);
@@ -103,10 +103,10 @@ export function scenarioPricingTerms(run: Pick<PricingRun, "scenario">, offer: P
 export function pricingScenarioOption(run: PricingRun, offer: PricingOffer, worksheet: FeeInputs | undefined, name: string,
   baseline?: LoanScenarioOption): LoanScenarioOption {
   const terms = scenarioPricingTerms(run, offer);
-  const fees = worksheet?.fees;
+  const fees = worksheet?.fees && !missingFees(worksheet.fees).length ? worksheet.fees : undefined;
   const expenses = run.scenario.nonAgency;
   return { ...blankScenarioOption(terms.loanAmount, name), ...terms, program: offer.product.slice(0, 60),
-    fees: fees ? fees.origination + fees.appraisal + fees.creditReport + fees.settlement + fees.government + fees.other : baseline?.fees ?? 0,
+    fees: fees ? (fees.origination ?? 0) + (fees.appraisal ?? 0) + (fees.creditReport ?? 0) + (fees.settlement ?? 0) + (fees.government ?? 0) + (fees.other ?? 0) : baseline?.fees ?? 0,
     prepaids: fees?.prepaid ?? baseline?.prepaids ?? 0, escrow: fees?.escrow ?? baseline?.escrow ?? 0,
     monthlyTaxes: expenses ? Math.round(expenses.monthlyTaxes * 100) : baseline?.monthlyTaxes ?? 0,
     monthlyInsurance: expenses ? Math.round(expenses.monthlyInsurance * 100) : baseline?.monthlyInsurance ?? 0,

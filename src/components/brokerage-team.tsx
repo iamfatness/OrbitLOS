@@ -10,6 +10,7 @@ import { StaffOffboarding } from "./staff-offboarding";
 import type { DepartureItem } from "@/lib/offboarding-model";
 import { TeamLoanAssignment } from "./loan-assignment";
 import { ManageDocumentTemplates } from "./document-checklist-templates";
+import { ManageFeeTemplates } from "./fee-templates";
 
 export function BrokerageTeam({ staff, version, refresh, openLoan, openDepartureWork }: {
   staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string) => void;
@@ -278,6 +279,7 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
         </li>)}</ul>
       </section>
       {(pilot || staff.brokerage.id === demoBrokerageId) && <ManageDocumentTemplates key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
+      <ManageFeeTemplates key={`fees-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
       <TeamLoanAssignment brokerageId={staff.brokerage.id} version={version} openLoan={openLoan} onChanged={() => {
         void Promise.all([refresh(), reloadTeam()]).catch(() => setError("Assignment saved. Refresh Team to see the latest access history."));
       }} />

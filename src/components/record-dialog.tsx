@@ -938,6 +938,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             <Button id={modal.fromRateWatch && !originalProperty ? "returning-client-purpose" : undefined} type="submit" disabled={busy}>Start and open 1003</Button></div>
         </form>}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
+          brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} />}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({
