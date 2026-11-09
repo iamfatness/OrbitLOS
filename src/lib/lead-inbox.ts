@@ -222,6 +222,10 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
   { campaignCall = false, coveredOwnerEmail, verifiedRealtorClaim = false, shareOnReactivation = false }:
     { campaignCall?: boolean; coveredOwnerEmail?: string; verifiedRealtorClaim?: boolean; shareOnReactivation?: boolean } = {}): Outcome & { eventId?: string } {
   const callbackPromiseId = data.type === "assignInboxLead" ? data.callbackPromiseId : undefined;
+  const documentRecovery = data.type === "assignInboxLead" && data.documentRecovery;
+  if (documentRecovery && (staff?.brokerage.role !== "Admin" || !staff.brokerage.pilot || callbackPromiseId)) {
+    return { error: "Lead document recovery is unavailable." };
+  }
   if (callbackPromiseId) {
     if (staff?.brokerage.role !== "Admin" || !staff.brokerage.pilot) {
       return { error: callbackExceptionUnavailable };
@@ -244,9 +248,15 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
   const suppressed = () => campaign?.lastOutcome === "Opted out" || outreachSuppressed(blockedOutreachKeys(db, [identity]), identity);
   if (data.type === "assignInboxLead") {
     if (isOfficer && data.email !== staff.email) return { error: "A brokerage admin can reassign this lead." };
+    const activeOfficer = (member: LeadOwner) => member.status === "Active" && (member.role === "LO" || member.role === "Admin");
     const owner = isOfficer ? staff : members.find((member) => member.email === data.email &&
-      (!callbackPromiseId || (member.status === "Active" && (member.role === "LO" || member.role === "Admin"))));
-    if ((data.email || callbackPromiseId) && !owner) return { error: "Select an active loan officer or admin in this brokerage." };
+      ((!callbackPromiseId && !documentRecovery) || activeOfficer(member)));
+    if ((data.email || callbackPromiseId || documentRecovery) && !owner) return { error: "Select an active loan officer or admin in this brokerage." };
+    if (documentRecovery && (lead.heldAt || (lead.officerEmail !== data.email && members.some((member) =>
+      member.email === lead.officerEmail && activeOfficer(member))) ||
+      !db.prepare("SELECT 1 FROM lead_document_requests WHERE leadId = ? AND status <> 'Accepted'").get(data.leadId))) {
+      return { error: "This lead document exception changed. Refresh the manager queue before assigning." };
+    }
     if (lead.officerEmail === data.email) return { message: "Lead assignment is up to date." };
     if (lead.officerEmail !== data.previousEmail) return { error: "The owner changed. Refresh the inbox before assigning." };
     const campaignEligible = Boolean(campaign) && !suppressed();
@@ -254,6 +264,7 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
       return { error: "This campaign lead is no longer available to claim. Refresh the queue." };
     }
     saveLeadAssignment(db, data.leadId, owner, now, actor, campaignEligible);
+    if (documentRecovery) accessEvent(db, staff, "Recovered lead document ownership", data.leadId, now);
     return { message: "Lead assignment saved." };
   }
 

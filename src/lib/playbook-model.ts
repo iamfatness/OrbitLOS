@@ -71,6 +71,7 @@ type Member = Workspace["callCampaignMembers"][number];
 type Application = Workspace["applications"][number];
 export type PlaybookFacts = Pick<Workspace, "playbook"> & {
   inboxLeads: (Pick<Lead, "id" | "name" | "officer" | "officerEmail" | "dueAt" | "heldAt" | "revisitDate" | "outreachSuppressed" | "campaignId" | "source"> & {
+    documentOwnership?: { awaitingBorrower: number; readyForReview: number; dueOn: string | null };
     importedTasks: Pick<Lead["importedTasks"][number], "dueAt" | "purpose" | "completedAt">[];
     followUp: Pick<Lead["followUp"], "firstContactAt" | "replyReceivedAt" | "status"> & ({
       events: Pick<Lead["followUp"]["events"][number], "at" | "outcome">[];

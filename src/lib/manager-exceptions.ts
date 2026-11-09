@@ -13,20 +13,29 @@ const leadSource = "coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL
 const read = <T>(db: Store, sql: string, ...params: SqlValue[]) =>
   db.prepare(sql).all(...params).map((row) => ({ ...row })) as T[];
 
-function leadFacts(db: Store, filters: ManagerExceptionFilters, officers: string, now: string, quietCutoff: string) {
+function leadFacts(db: Store, filters: ManagerExceptionFilters, officers: string, now: string, quietCutoff: string, includeDocumentOwnership: boolean) {
   type Lead = PlaybookFacts["inboxLeads"][number];
   type Member = PlaybookFacts["callCampaignMembers"][number];
-  type Raw = Omit<Lead, "outreachSuppressed" | "followUp" | "importedTasks"> &
+  type Raw = Omit<Lead, "outreachSuppressed" | "followUp" | "importedTasks" | "documentOwnership"> &
     Pick<Lead["followUp"], "firstContactAt" | "replyReceivedAt" | "status"> & Pick<Member, "lastOutcome" | "callbackTaskId" | "callbackDueAt" | "followUpRunStatus"> & {
       email: string; phone: string; contactId: string | null; runId: string | null; runDueAt: string | null;
       latestAt: string | null; connectedAt: string | null; serviceDueAt: string | null; prospectingDueAt: string | null;
+      documentOwnership: string | null;
     };
+  const documentOnly = filters.type === "Lead documents";
+  const documentOwnership = includeDocumentOwnership ? `CASE
+    WHEN lead.heldAt IS NULL AND (lead.officerEmail IS NULL OR lead.officerEmail NOT IN (SELECT value FROM roster)) THEN (
+      SELECT json_object('awaitingBorrower', count(*) FILTER (WHERE status <> 'Received'),
+        'readyForReview', count(*) FILTER (WHERE status = 'Received'), 'dueOn', min(dueOn) FILTER (WHERE status <> 'Received'))
+      FROM lead_document_requests WHERE leadId = lead.id AND status <> 'Accepted' HAVING count(*) > 0
+    ) END` : "NULL";
   const leadRows = read<Raw>(db, `WITH roster AS (SELECT value FROM json_each(?)), candidates AS (
     SELECT lead.id, lead.name, lead.officer, lead.officerEmail, lead.dueAt, lead.heldAt, lead.revisitDate, lead.email, lead.phone,
       lead.importedContactId AS contactId, ${leadSource} AS source, member.campaignId, member.lastOutcome, member.callbackTaskId,
       callback.dueAt AS callbackDueAt, run.status AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt,
       follow.firstContactAt, follow.replyReceivedAt, coalesce(follow.status, 'Not started') AS status,
-      (SELECT at FROM lead_events WHERE leadId = lead.id AND outcome IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT 1) AS latestAt
+      (SELECT at FROM lead_events WHERE leadId = lead.id AND outcome IS NOT NULL ORDER BY at DESC, rowid DESC LIMIT 1) AS latestAt,
+      ${documentOwnership} AS documentOwnership
     FROM referral_leads lead
     LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
     LEFT JOIN call_campaign_members member ON member.leadId = lead.id
@@ -43,11 +52,11 @@ function leadFacts(db: Store, filters: ManagerExceptionFilters, officers: string
     (SELECT min(dueAt) FROM lead_import_tasks WHERE leadId = candidate.id AND completedAt IS NULL AND purpose <> 'Prospecting') AS serviceDueAt,
     (SELECT min(dueAt) FROM lead_import_tasks WHERE leadId = candidate.id AND completedAt IS NULL AND purpose = 'Prospecting') AS prospectingDueAt
   FROM candidates candidate
-  WHERE candidate.officerEmail IS NULL OR candidate.officerEmail NOT IN (SELECT value FROM roster)
+  WHERE ${documentOnly ? "candidate.documentOwnership IS NOT NULL" : `candidate.officerEmail IS NULL OR candidate.officerEmail NOT IN (SELECT value FROM roster)
     OR candidate.runId IS NOT NULL OR julianday(candidate.callbackDueAt) <= julianday(?)
-    OR julianday(candidate.dueAt) <= julianday(?) OR julianday(coalesce(candidate.latestAt, candidate.firstContactAt)) <= julianday(?)`,
+    OR julianday(candidate.dueAt) <= julianday(?) OR julianday(coalesce(candidate.latestAt, candidate.firstContactAt)) <= julianday(?)`}`,
   officers, ...(filters.source ? [filters.source] : []), ...(filters.campaign && filters.campaign !== "none" ? [filters.campaign] : []),
-  now, now, quietCutoff);
+  ...(documentOnly ? [] : [now, now, quietCutoff]));
   const identity = (row: Raw) => ({ email: row.email, phone: row.phone, contactId: row.contactId, leadId: row.id });
   const suppressed = blockedOutreachKeys(db, leadRows.map(identity));
   const inboxLeads: PlaybookFacts["inboxLeads"] = [];
@@ -57,6 +66,7 @@ function leadFacts(db: Store, filters: ManagerExceptionFilters, officers: string
       status, serviceDueAt, prospectingDueAt, lastOutcome, callbackTaskId, callbackDueAt, followUpRunStatus, runId, runDueAt } = row;
     const blocked = lastOutcome === "Opted out" || outreachSuppressed(suppressed, identity(row));
     inboxLeads.push({ id, name, officer, officerEmail, dueAt, heldAt, revisitDate, campaignId, source, outreachSuppressed: blocked,
+      ...(row.documentOwnership ? { documentOwnership: JSON.parse(row.documentOwnership) } : {}),
       followUp: { firstContactAt, replyReceivedAt, status, latestOutreach: latestAt, contacted: Boolean(connectedAt) },
       importedTasks: [
         ...(serviceDueAt ? [{ dueAt: serviceDueAt, purpose: "Loan service" as const, completedAt: null }] : []),
@@ -116,7 +126,11 @@ export function readManagerExceptionWork(db: Store, input: unknown, staff: Works
   const officers = JSON.stringify(active?.filter(({ role }) => role !== "Processor").map(({ email }) => email) ?? []);
   const processors = JSON.stringify(active?.filter(({ role }) => role === "Processor").map(({ email }) => email) ?? []);
   const clock = now.toISOString();
-  const leadOnly = Boolean(filters.source || filters.campaign || filters.type === "Campaign recovery");
+  const documentOnly = filters.type === "Lead documents";
+  const includeDocumentOwnership = staff?.brokerage.pilot === true && active !== null &&
+    filters.type !== "Campaign recovery" && filters.type !== "Stalled handoffs";
+  if (documentOnly && !includeDocumentOwnership) return { kind: "owners", rows: [], next: null };
+  const leadOnly = Boolean(filters.source || filters.campaign || filters.type === "Campaign recovery" || documentOnly);
   const { selected, tasks } = leadOnly ? { selected: [], tasks: [] } : loanFacts(db, officers, processors);
   const fundingCallback = "EXISTS (SELECT 1 FROM funding_check_ins WHERE activityId = activity.id)";
   const activity = leadOnly ? [] : read<PlaybookFacts["contactActivity"][number] & { name: string; role: string; email: string; phone: string }>(db,
@@ -132,7 +146,7 @@ export function readManagerExceptionWork(db: Store, input: unknown, staff: Works
   const blocked = blockedOutreachKeys(db, people);
   const state: PlaybookFacts = {
     playbook: policy,
-    ...leadFacts(db, filters, officers, clock, new Date(now.getTime() - policy.quietHours * 3_600_000).toISOString()),
+    ...leadFacts(db, filters, officers, clock, new Date(now.getTime() - policy.quietHours * 3_600_000).toISOString(), includeDocumentOwnership),
     callCampaigns: read<PlaybookFacts["callCampaigns"][number]>(db, `SELECT campaign.id, campaign.name, coalesce(rules.automaticPaused, 0) AS automaticPaused
       FROM call_campaigns campaign LEFT JOIN call_campaign_rules rules ON rules.campaignId = campaign.id`),
     loans: selected.map(({ id, contactId, stage, disposition, officer, officerEmail, revisitDate }) =>

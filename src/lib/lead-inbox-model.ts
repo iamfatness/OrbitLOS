@@ -49,7 +49,7 @@ export const saveLeadRoutingInput = z.object({
 
 export const assignInboxLeadInput = z.object({
   type: z.literal("assignInboxLead"), leadId: z.uuid(), email: ownerEmail.nullable(), previousEmail: ownerEmail.nullable(),
-  callbackPromiseId: z.uuid().optional(),
+  callbackPromiseId: z.uuid().optional(), documentRecovery: z.literal(true).optional(),
 });
 
 const leadRevision = { leadId: z.uuid(), revision: z.number().int().nonnegative() };

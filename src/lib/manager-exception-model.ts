@@ -1,16 +1,18 @@
 import type { BrokerageMember } from "./brokerage-model";
 import { z } from "zod";
+import { easternDate } from "./client-retention";
 import { leadSources, type InboxLead } from "./model";
 import { campaignFollowUpWork, contactFollowUpExceptions, ownerRecoveryWork, type CampaignFollowUpWork, type ContactFollowUpWork,
   type OwnerRecoveryWork, type PlaybookFacts, type PlaybookSettings, type PlaybookWork } from "./playbook-model";
 
-export const managerExceptionTypes = ["All exceptions", "Campaign recovery", "Overdue", "Unassigned", "Owner unavailable", "Stalled handoffs"] as const;
+export const managerExceptionTypes = ["All exceptions", "Campaign recovery", "Lead documents", "Overdue", "Unassigned", "Owner unavailable", "Stalled handoffs"] as const;
 export type ManagerExceptionFilters = {
   type: (typeof managerExceptionTypes)[number]; source: InboxLead["source"] | ""; campaign: string;
 };
 export const defaultManagerExceptionFilters: ManagerExceptionFilters = { type: "All exceptions", source: "", campaign: "" };
 type CampaignRecoveryWork = Omit<CampaignFollowUpWork, "kind"> & { kind: "campaign-recovery" };
-export type ExceptionWork = PlaybookWork | OwnerRecoveryWork | ContactFollowUpWork | CampaignFollowUpWork | CampaignRecoveryWork;
+type LeadDocumentOwnershipWork = Omit<PlaybookWork, "kind" | "dueAt"> & { kind: "lead-document-owner"; dueAt: string | null };
+export type ExceptionWork = PlaybookWork | OwnerRecoveryWork | ContactFollowUpWork | CampaignFollowUpWork | CampaignRecoveryWork | LeadDocumentOwnershipWork;
 
 export function managerExceptions(state: PlaybookFacts, work: PlaybookWork[], members: BrokerageMember[] | null,
   signedIn: boolean, now: number, filters: ManagerExceptionFilters) {
@@ -35,25 +37,43 @@ export function managerExceptions(state: PlaybookFacts, work: PlaybookWork[], me
   }) : [];
   const campaignWork = [...campaignFollowUpWork(state), ...campaignRecovery];
   const campaignDeadlines = new Map(campaignWork.map((item) => [item.recordId, item.dueAt]));
+  const documentWork = members && signedIn ? state.inboxLeads.flatMap((lead): LeadDocumentOwnershipWork[] => {
+    const documents = lead.documentOwnership;
+    if (!documents || lead.heldAt || officers.some(({ email }) => email === lead.officerEmail)) return [];
+    const { awaitingBorrower, readyForReview, dueOn } = documents;
+    const reason = [
+      awaitingBorrower > 0 && `${awaitingBorrower} awaiting a borrower upload`,
+      readyForReview > 0 && `${readyForReview} ready for staff review`,
+    ].filter(Boolean).join(" · ");
+    return [{ id: `lead-document-owner:${lead.id}`, recordId: lead.id, kind: "lead-document-owner", title: "Assign open lead documents",
+      name: lead.name, owner: lead.officer, ownerEmail: lead.officerEmail, dueAt: dueOn, reason }];
+  }) : [];
+  const documentLeads = new Set(documentWork.map(({ recordId }) => recordId));
   const recovery = members ? ownerRecoveryWork(state, members).filter((item) =>
     !(item.kind === "lead-owner" && campaignDeadlines.get(item.recordId) === item.dueAt) &&
+    !(item.kind === "lead-owner" && documentLeads.has(item.recordId) && (!item.dueAt || Date.parse(item.dueAt) > now)) &&
     !(item.kind === "loan-owner" && primaryOwnerWork.has(item.recordId)) &&
     !(item.kind === "processor-owner" && processorWork.has(item.recordId))) : [];
   const recoveryLeads = new Set(recovery.filter((item) => item.kind === "lead-owner").map((item) => item.recordId));
-  const queue: ExceptionWork[] = [...work.filter((item) => item.kind !== "lead" || !recoveryLeads.has(item.recordId)), ...recovery,
-    ...campaignWork, ...contactFollowUpExceptions(state, members ? officers : null, now)];
+  const queue: ExceptionWork[] = [...work.filter((item) => item.kind !== "lead" || (!recoveryLeads.has(item.recordId) &&
+    (!documentLeads.has(item.recordId) || Date.parse(item.dueAt) <= now))), ...recovery,
+    ...documentWork, ...campaignWork, ...contactFollowUpExceptions(state, members ? officers : null, now)];
+  const today = easternDate(new Date(now));
   return queue.flatMap((item) => {
     const needsRecovery = item.kind === "campaign-recovery";
-    const overdue = !!item.dueAt && Date.parse(item.dueAt) <= now;
+    const documentOwner = item.kind === "lead-document-owner";
+    const overdue = !!item.dueAt && (documentOwner ? item.dueAt < today : Date.parse(item.dueAt) <= now);
     const unassigned = item.kind === "assign" || (signedIn ? !item.ownerEmail : !item.owner);
     const unavailable = item.kind !== "assign" && !!members && !!item.ownerEmail &&
       !(item.kind === "accept" || item.kind === "processor-owner" ? processors : officers).some((member) => member.email === item.ownerEmail);
     const stalled = overdue && (item.kind === "assign" || item.kind === "prepare" || item.kind === "accept");
     if (!(needsRecovery || overdue || unassigned || unavailable)) return [];
-    if (filters.type === "Campaign recovery" && !needsRecovery || filters.type === "Overdue" && !overdue || filters.type === "Unassigned" && !unassigned ||
+    if (filters.type === "Campaign recovery" && !needsRecovery || filters.type === "Lead documents" && !documentOwner ||
+      filters.type === "Overdue" && !overdue || filters.type === "Unassigned" && !unassigned ||
       filters.type === "Owner unavailable" && !unavailable || filters.type === "Stalled handoffs" && !stalled) return [];
 
-    const lead = item.kind === "lead" || item.kind === "lead-owner" || item.kind === "campaign-follow-up" || needsRecovery ? leads.get(item.recordId) : undefined;
+    const lead = item.kind === "lead" || item.kind === "lead-owner" || item.kind === "campaign-follow-up" || documentOwner || needsRecovery
+      ? leads.get(item.recordId) : undefined;
     const campaign = lead?.campaignId ? campaigns.get(lead.campaignId) : undefined;
     if (filters.source && lead?.source !== filters.source) return [];
     if (filters.campaign === "none" && (!lead || campaign)) return [];

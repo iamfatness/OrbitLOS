@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { readManagerExceptions } from "@/app/actions";
 import { demoBrokerageId } from "@/lib/brokerage-model";
+import { dateLabel } from "@/lib/client-retention";
 import { leadSources } from "@/lib/model";
 import { documentReminderTimingLabel, documentReminderTimingLimit, manualReturnHoursLimit, secondReviewDueDaysLimit, type PlaybookWork } from "@/lib/playbook-model";
 import { defaultManagerExceptionFilters, managerExceptionsUnavailable, managerExceptionTypes, type ManagerExceptionFilters,
@@ -25,7 +26,7 @@ const reminderTimingOptions = Array.from({ length: 2 * documentReminderTimingLim
 export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead, openCampaignRun, openCallbackPromise, openContactFollowUp, openLoan, openAssignment, openFunding, openDocument, fileVersion, openFile, view, setView, filters, setFilters, reporting }: {
   staff: WorkspaceStaff | null; busy: boolean;
   save: (input: unknown, after?: () => void) => Promise<void>; refresh: () => Promise<void>; open: (item: PlaybookWork) => void;
-  openLead: (id: string) => void; openCampaignRun: (leadId: string, campaignId: string) => void;
+  openLead: (id: string, preferInbox?: boolean) => void; openCampaignRun: (leadId: string, campaignId: string) => void;
   openCallbackPromise: React.ComponentProps<typeof ManagerCallbackExceptions>["open"];
   openContactFollowUp: (contactId: string, activityId: string) => void;
   openLoan: (id: string, processing: boolean) => void;
@@ -103,8 +104,10 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
   async function reassign({ item, processingRevision }: ManagerExceptionRow, email: string) {
     setError("");
     setMessage("");
-    if (item.kind === "lead" || item.kind === "lead-owner" || item.kind === "campaign-follow-up" || item.kind === "campaign-recovery") {
-      await save({ type: "assignInboxLead", leadId: item.recordId, email, previousEmail: item.ownerEmail });
+    if (item.kind === "lead" || item.kind === "lead-owner" || item.kind === "campaign-follow-up" || item.kind === "campaign-recovery" ||
+      item.kind === "lead-document-owner") {
+      await save({ type: "assignInboxLead", leadId: item.recordId, email, previousEmail: item.ownerEmail,
+        ...(item.kind === "lead-document-owner" ? { documentRecovery: true } : {}) });
       return;
     }
     if (item.kind === "contact-follow-up") {
@@ -156,11 +159,11 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
         teamLoaded={members !== null} version={fileVersion} busy={busy} save={save} open={openCallbackPromise} openAssignment={openAssignment}
         reviewRecovery={(id) => runHistory.current?.reviewCampaignRun(id)} /> :
       view === "reporting" ? <ReportingReadinessPanel brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={fileVersion} busy={busy} {...reporting} /> : <>
-      <p className="muted">Resolve overdue work, interrupted campaign follow-ups, missing owners, and unaccepted handoffs. Assigning an owner preserves the original deadline.</p>
+      <p className="muted">Resolve overdue work, interrupted campaign follow-ups, missing owners, and unaccepted handoffs. Open lead documents and their deadlines follow the new owner.</p>
       <div className="loan-application-actions" role="group" aria-label="Exception filters">
         <label className="field playbook-filter">Exception type<select value={filters.type} onChange={(event) => setFilters({
           ...filters, type: event.target.value as ManagerExceptionFilters["type"],
-        })}>{managerExceptionTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
+        })}>{managerExceptionTypes.filter((type) => type !== "Lead documents" || staff?.brokerage.pilot).map((type) => <option key={type}>{type}</option>)}</select></label>
         <label className="field playbook-filter">Lead source<select value={filters.source} onChange={(event) => setFilters({
           ...filters, source: event.target.value as ManagerExceptionFilters["source"],
         })}>
@@ -189,21 +192,24 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
           member.email !== otherOwner);
         const backup = item.kind === "lead" && choices.some((member) => member.email === policy?.backupEmail) ? policy?.backupEmail : "";
         const campaignRecovery = item.kind === "campaign-recovery";
-        const assignmentLabel = `${unassigned ? "Assign" : "Reassign"}${item.kind === "campaign-follow-up" || campaignRecovery ? " lead" : ""}`;
+        const documentOwner = item.kind === "lead-document-owner";
+        const assignmentLabel = `${unassigned ? "Assign" : "Reassign"}${item.kind === "campaign-follow-up" || campaignRecovery || documentOwner ? " lead" : ""}`;
         return <li className="document-item" key={item.id}>
           <div className="document-item-head"><strong>{item.title} · {item.name}</strong><span className="open-chip">
             {[campaignRecovery && "Recovery needed", unassigned && "Unassigned", unavailable && "Owner unavailable", overdue && "Overdue", stalled && "Stalled"].filter(Boolean).join(" · ")}
           </span></div>
           {intake && <p className="muted">{intake.source}{intake.campaign && item.kind !== "campaign-follow-up" && ` · ${intake.campaign.name}`}</p>}
-          <p>{item.reason}</p><p className="muted">{item.owner || item.ownerEmail || "No owner"}{item.dueAt && ` · Due ${dateTime(item.dueAt)} ET`}</p>
+          <p>{item.reason}</p><p className="muted">{item.owner || item.ownerEmail || "No owner"}{item.dueAt &&
+            ` · Due ${documentOwner ? dateLabel(item.dueAt) : `${dateTime(item.dueAt)} ET`}`}</p>
           <div className="loan-application-actions">
             {campaignRecovery && <Button size="sm" disabled={busy || changing || unavailable} onClick={() => runHistory.current?.reviewCampaignRun(item.id)}>Review recovery</Button>}
             <Button size="sm" variant="outline" disabled={busy || changing} onClick={() => {
-            if (item.kind === "lead" || item.kind === "lead-owner" || item.kind === "campaign-follow-up" || campaignRecovery) openLead(item.recordId);
+            if (documentOwner) openLead(item.recordId, true);
+            else if (item.kind === "lead" || item.kind === "lead-owner" || item.kind === "campaign-follow-up" || campaignRecovery) openLead(item.recordId);
             else if (item.kind === "contact-follow-up") openContactFollowUp(item.recordId, item.id);
             else if (item.kind === "loan-owner" || item.kind === "processor-owner") openLoan(item.recordId, item.kind === "processor-owner");
             else open(item);
-          }}>{item.kind === "contact-follow-up" ? "Open follow-up" : intake?.campaign ? "Open campaign" : intake ? "Open lead" : "Open work"}</Button>
+          }}>{item.kind === "contact-follow-up" ? "Open follow-up" : documentOwner ? "Open lead" : intake?.campaign ? "Open campaign" : intake ? "Open lead" : "Open work"}</Button>
             {openAssignment && (processor || item.kind === "loan-owner") && <Button size="sm" variant="outline" disabled={busy || changing}
               onClick={() => openAssignment(item.recordId)}>Manage assignment</Button>}
           </div>

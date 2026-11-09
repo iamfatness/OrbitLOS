@@ -12,6 +12,8 @@ const { beginLeadSample, convertedLeadLinkHashes, failLeadSample, finishLeadSamp
 const { startLeadFollowUp } = await import("../src/lib/lead-inbox.ts");
 const { readIncomingLoanWorkPage } = await import("../src/lib/incoming-loan-work.ts");
 const { readOfficerQueue, readWorkspaceCalendar, readWorkspaceTasks } = await import("../src/lib/officer-queue.ts");
+const { readManagerExceptionWork } = await import("../src/lib/manager-exceptions.ts");
+const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exception-model.ts");
 
 test("lead conversion atomically carries the exact sample file and closes its old access", async (t) => {
   const sqlite = new DatabaseSync(":memory:");
@@ -25,6 +27,10 @@ test("lead conversion atomically carries the exact sample file and closes its ol
   const officer = { name: "Fictional Officer", email: "lead-owner@example.test", brokerage: { id: tenant, role: "LO", pilot: true } };
   const other = { ...officer, email: "unrelated@example.test" };
   const admin = { ...other, brokerage: { ...other.brokerage, role: "Admin" } };
+  const members = [officer, admin].map(({ name, email, brokerage }) => ({ name, email, role: brokerage.role, status: "Active" }));
+  const managerDocs = (filters = {}, roster = members, staff = admin) =>
+    readManagerExceptionWork(db, { view: "owners", filters: { ...defaultManagerExceptionFilters, type: "Lead documents", ...filters } },
+      staff, roster, new Date(clock + 2_000));
   db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt)
     VALUES (?, ?, 'Fictional Evidence Lead', 'evidence@example.test', '2485550127', 'Purchase', ?, ?, ?, ?)`)
     .run(leadId, randomUUID(), officer.name, officer.email, at, at);
@@ -99,6 +105,36 @@ test("lead conversion atomically carries the exact sample file and closes its ol
   assert.equal(incoming(admin, "processing").length, 0);
   assert.ok(!today().some((item) => item.id === pay.requestId));
   assert.equal(tasks("Open", "Team", admin).find((item) => item.id === pay.requestId)?.kind, "lead-document-review");
+  assert.deepEqual(managerDocs().rows, []);
+  assert.ok(managerDocs({}, members, officer).error);
+  assert.equal(managerDocs({}, [members[1]]).rows[0].unavailable, true);
+  const assign = (email, previousEmail, recovery = false, staff = admin) =>
+    executeCommand(db, { type: "assignInboxLead", leadId, email, previousEmail, ...(recovery ? { documentRecovery: true } : {}) },
+      staff, undefined, members, { scopedLeadUpdates: true });
+  assert.equal((await assign(null, officer.email)).message, "Lead assignment saved.");
+  assert.equal(readLeadDocumentPortal(db, { token, code }, clock).status, 404);
+  assert.deepEqual(incoming(), []);
+  const [documentException] = managerDocs({ source: "Website quote request", campaign: "none" }).rows;
+  assert.equal(documentException.item.recordId, leadId);
+  assert.equal(documentException.unassigned, true);
+  assert.equal(documentException.overdue, true);
+  assert.equal(documentException.item.dueAt, bankDueOn);
+  assert.equal(documentException.item.reason, "1 awaiting a borrower upload · 1 ready for staff review");
+  assert.deepEqual(managerDocs({ source: "Realtor referral" }).rows, []);
+  assert.ok((await assign(officer.email, null, true, officer)).error);
+  db.prepare("UPDATE referral_leads SET heldAt = ? WHERE id = ?").run(at, leadId);
+  assert.deepEqual(managerDocs().rows, []);
+  assert.ok((await assign(officer.email, null, true)).error);
+  db.prepare("UPDATE referral_leads SET heldAt = NULL WHERE id = ?").run(leadId);
+  assert.equal((await assign(officer.email, null, true)).message, "Lead assignment saved.");
+  assert.equal((await assign(officer.email, null, true)).message, "Lead assignment is up to date.");
+  assert.ok((await assign(admin.email, null, true)).error);
+  assert.deepEqual(managerDocs().rows, []);
+  assert.equal(incoming()[0].id, pay.requestId);
+  assert.equal(today().find(({ id }) => id === bank.requestId)?.dueAt, bankDueOn);
+  assert.equal(readLeadDocumentPortal(db, { token, code }, clock).value.requests.length, 2);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM workspace_access_history WHERE action = 'Recovered lead document ownership' AND subject = ?")
+    .get(leadId).total, 1);
   const accepted = await work({ type: "review", requestId: pay.requestId, revision: 1, decision: "Accepted", replacementNote: "" });
   assert.equal(accepted.requests[0].status, "Accepted");
   assert.equal(incoming().length, 0);

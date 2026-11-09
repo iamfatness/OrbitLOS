@@ -792,7 +792,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     }
   }
 
-  async function openScopedLead(input: LeadWorkRequest) {
+  async function openScopedLead(input: LeadWorkRequest, preferInbox = false) {
     if (pending.current) return;
     pending.current = true;
     openingRecord.current = true;
@@ -805,7 +805,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       if (!openingRecord.current) return;
       if ("error" in result) { setError(result.error); return; }
       setState((current) => applyLeadWork(current, result));
-      openLeadWork(result.lead.id, result.campaign?.id, Boolean(result.campaign));
+      const campaignId = preferInbox ? undefined : result.campaign?.id;
+      openLeadWork(result.lead.id, campaignId, Boolean(campaignId));
       if (input.task?.kind === "lead-task") setFocusLeadTaskId(input.task.id);
     } catch (failure) {
       if (openingRecord.current) setError(staff && failure instanceof Error && failure.message === staffSignInRequired
@@ -1413,7 +1414,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             save={(input, after) => save(input, after, true,
               input && typeof input === "object" && "type" in input && input.type === "assignInboxLead" ? "inbox" : "tasks")}
             refresh={async () => invalidateWorkspace()} open={openPlaybook}
-            openLead={(leadId) => void openScopedLead({ leadId })} openCampaignRun={openLeadWork}
+            openLead={(leadId, preferInbox) => void openScopedLead({ leadId }, preferInbox)} openCampaignRun={openLeadWork}
             openContactFollowUp={(contactId, activityId) => {
               if (staff) showGuideTasks(undefined, activityId, false, true);
               else void openContactRecord(contactId);
