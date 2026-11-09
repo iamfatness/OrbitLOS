@@ -1,87 +1,120 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type DragEvent } from "react";
 import {
-  ArrowDownUp, ArrowRight, CircleCheck, ClipboardCheck, Columns3, ContactRound, FileCheck2, LayoutDashboard,
-  HeartHandshake, List, LogOut, Mail, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, UsersRound, X, Zap,
+  ArrowDownUp, ArrowRight, Bell, CircleCheck, List, LogOut, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, X,
 } from "lucide-react";
-import { mutate } from "@/app/actions";
-import { stages, type Loan, type Stage, type Workspace } from "@/lib/model";
+import { checkLoanHandoff, mutate, readContactsWork, readLeadForWork, readLoanForWork, searchWorkspace } from "@/app/actions";
+import { prospectingBlocked, stages, type Loan, type LoanTask, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { compactMoney, dateTime, initials, money, stageDays } from "@/lib/utils";
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
-import { ContactImport } from "./contact-crm";
-import { loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilters, type WorkFilter } from "@/lib/loan-workflow";
+import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpCompletion, ContactFollowUpResult, ContactImport } from "./contact-crm";
+import { ContactsDirectory } from "./contacts-directory";
+import { contactUnavailable } from "@/lib/contact-directory-model";
+import { useLeadOwners } from "./use-lead-owners";
+import { fundingCheckInTarget, loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan, workFilters, type WorkFilter } from "@/lib/loan-workflow";
+import { emptyPipelineFilters, type PipelineFilters, type PipelineLoan, type PipelineQuery } from "@/lib/pipeline-model";
+import { usePipeline } from "./use-pipeline";
 import { LoanWorkQueue } from "./loan-work-queue";
+import { PagedTaskQueue } from "./paged-task-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
-import { rateFollowUpContext } from "@/lib/client-retention";
-import { demoBrokerageId } from "@/lib/brokerage-model";
+import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
+import { demoBrokerageId, staffSignInRequired } from "@/lib/brokerage-model";
 import { CallReportWorkbench } from "./call-report";
-import { ManagerReports } from "./manager-reports";
+import { callReportFactsTarget, currentReportingPeriod } from "@/lib/call-report-readiness-model";
+import { ManagerReports, ReturningClientReports } from "./manager-reports";
+import { FundingDashboard } from "./funding-dashboard";
+import { BrokerageFinance } from "./brokerage-finance";
+import { canManageFinance } from "@/lib/brokerage-finance-model";
+import { SalesDashboard, type SalesSelection } from "./sales-dashboard";
+import { currentReportMonth } from "@/lib/report-date-range";
+import { OfficerToday } from "./officer-today";
+import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
+import { StaffCoverage } from "./staff-coverage";
+import { LoanReviewQueue } from "./loan-reviews";
+import { ReviewInboxPanel, useReviewInbox } from "./review-inbox";
+import { reviewTarget } from "@/lib/loan-review-model";
+import { WorkspaceSearch, type SearchSelection } from "./workspace-search";
+import { searchRecordUnavailable, searchTaskTarget, type SearchContact, type SearchRecord } from "@/lib/workspace-search-model";
+import { ProcessorQueue } from "./processor-queue";
+import type { CalendarQuery, OfficerQueueItem } from "@/lib/officer-queue-model";
+import { stalledLoanUnavailable } from "@/lib/officer-dashboard-model";
+import { StalledLoans } from "./officer-dashboard";
 import { MigrationWorkspace } from "./migration-workspace";
 import { BrokerageTeam } from "./brokerage-team";
-import { BrokerageTemplates, CommunicationQueue } from "./loan-communications";
+import { CommunicationQueue } from "./loan-communications";
+import { ConversationQueue } from "./conversation-queue";
+import { InboundReplyQueue } from "./inbound-reply-queue";
+import type { ConversationCallback, ConversationFocus } from "@/lib/conversation-model";
 import { RealtorCrm } from "./realtor-crm";
 import { PastClients } from "./past-client-crm";
 import { ReferralQueue } from "./referral-queue";
-import { LeadInbox, firstContactOverdue } from "./lead-inbox";
-import { DemoGuide } from "./demo-guide";
+import { LeadInbox } from "./lead-inbox";
+import { RealtorQueueReport } from "./realtor-queue-report";
+import { firstContactOverdue } from "@/lib/lead-inbox-model";
+import { DemoGuide, type GuideTrack } from "./demo-guide";
 import { UwmAlertQueue } from "./uwm-alert-queue";
-import { OrbitRings } from "./orbit-brand";
-import { BrokeragePlaybooks } from "./brokerage-playbooks";
-import { fundingMilestones, fundingTaskAudience, playbookWork, type PlaybookWork } from "@/lib/playbook-model";
-import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import { workspaceIcons } from "./workspace-icons";
+import { BrokeragePlaybooks, type ManagerExceptionView } from "./brokerage-playbooks";
+import { CallCampaigns } from "./call-campaigns";
+import { localCampaignOfficers } from "@/lib/call-campaign-model";
+import { fundingMilestones, fundingTaskAudience, playbookWork, reversedFundingTaskPrefix, type PlaybookWork } from "@/lib/playbook-model";
+import { defaultManagerExceptionFilters } from "@/lib/manager-exception-model";
+import type { MigrationDestination } from "@/lib/migration-record-model";
+import { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, applyLeadMutation, applyLeadWork, type LeadWorkRequest } from "@/lib/lead-work-model";
+import type { WorkspaceMutationScope, WorkspaceMutationSuccess } from "@/lib/commands";
+import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
+import { announceBorrowerChange, borrowerChecklistToken } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
+import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
+import { secondReviewBlocker } from "@/lib/application-model";
 
-type Section = "Demo Guide" | "Pipeline" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks";
-const demoOfficer = "Alex Morgan";
+type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
+const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
+  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration"]);
+const reportTabs = ["Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report"] as const;
+const [localOfficer] = localCampaignOfficers;
+const demoOfficer = localOfficer.name;
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
 type TaskView = (typeof taskViews)[number];
 const navigation = [
   { title: "Loan operations", items: [
-    { label: "Pipeline", icon: LayoutDashboard },
-    { label: "Lead Inbox", icon: ContactRound },
-    { label: "Tasks", icon: ClipboardCheck },
+    { label: "Today", icon: workspaceIcons.today },
+    { label: "Calendar", icon: workspaceIcons.calendar },
+    { label: "Coverage", icon: workspaceIcons.coverage },
+    { label: "Pipeline", icon: workspaceIcons.pipeline },
+    { label: "Processing", icon: workspaceIcons.processing },
+    { label: "Reviews", icon: workspaceIcons.reviews },
+    { label: "Lead Inbox", icon: workspaceIcons.intake },
+    { label: "Call Campaigns", icon: workspaceIcons.calls },
+    { label: "Tasks", icon: workspaceIcons.tasks },
   ] },
   { title: "Relationships", items: [
-    { label: "Contacts", icon: ContactRound },
-    { label: "Realtors", icon: UsersRound },
-    { label: "Past Clients", icon: HeartHandshake },
-    { label: "Communications", icon: Mail },
+    { label: "Contacts", icon: workspaceIcons.contacts },
+    { label: "Realtors", icon: workspaceIcons.realtors },
+    { label: "Past Clients", icon: workspaceIcons.pastClients },
+    { label: "Communications", icon: workspaceIcons.communications },
   ] },
   { title: "Workspace", items: [
-    { label: "Demo Guide", icon: OrbitIcon },
-    { label: "Reports", icon: FileCheck2 },
-    { label: "Playbooks", icon: ClipboardCheck },
-    { label: "Integrations", icon: Zap },
-    { label: "Migration", icon: ArrowDownUp },
-    { label: "Team", icon: UsersRound },
+    { label: "Demo Guide", icon: workspaceIcons.demo },
+    { label: "Reports", icon: workspaceIcons.reports },
+    { label: "Playbooks", icon: workspaceIcons.playbooks },
+    { label: "Integrations", icon: workspaceIcons.integrations },
+    { label: "Migration", icon: workspaceIcons.migration },
+    { label: "Team", icon: workspaceIcons.team },
   ] },
 ] as const;
 
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
-const emptyFilters = { stage: "", lender: "", officer: "", partner: "", days: "", work: "" as WorkFilter | "" };
 const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
-const descriptions = {
-  Pipeline: "Manage your loans and keep up with lender updates.",
-  "Lead Inbox": "Route quote requests and referrals, follow up, and start a 1003.",
-  Contacts: "Manage borrowers, co-borrowers, and realtor partners.",
-  Realtors: "Track referred loans and share milestone updates with realtor partners.",
-  "Past Clients": "Keep in touch after closing with anniversary reminders and rate targets.",
-  Tasks: "See which loans need a follow-up and who owns it.",
-  Communications: "Preview and copy milestone drafts for borrowers and realtors.",
-  Integrations: "Manage your lender connections and refresh loan data.",
-  Team: "Switch brokerages and manage access to your loans.",
-  Reports: "Review lead response, application conversion, and funding across your brokerage.",
-  Migration: "Rehearse moving brokerage records and loan files with fictional data.",
-  Playbooks: "Set deadlines and resolve exceptions from lead intake through funding.",
-};
 
-function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEnd }: {
-  loan: Loan; name: string; lenders: string[]; count: number; action: ReturnType<typeof loanNextAction>; onOpen: () => void;
+function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
+  loan: PipelineLoan; onOpen: () => void;
   onDrag: (event: DragEvent<HTMLButtonElement>) => void; onDragEnd: () => void;
 }) {
+  const { name, lenders, openConditions: count, action } = loan;
   return (
     <button className="loan-card" onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
       <span className="loan-person"><span className={`avatar avatar-${stages.indexOf(loan.stage) % 4}`}>{initials(name)}</span><strong>{name}</strong></span>
@@ -98,174 +131,342 @@ function LoanCard({ loan, name, lenders, count, action, onOpen, onDrag, onDragEn
   );
 }
 
-export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: boolean }) {
+export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
+  initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: GuideTrack; deferredWorkspace: boolean;
+}) {
+  const processor = staff?.brokerage.role === "Processor";
+  const canOpenToday = !processor && (Boolean(staff) || process.env.NODE_ENV === "development");
+  const canOpenCalendar = Boolean(staff) || process.env.NODE_ENV === "development";
+  const canOpenProcessing = processor || staff?.brokerage.role === "Admin" || (!staff && process.env.NODE_ENV === "development");
+  const processorTaskEntry = processor && initialGuide === "campaign";
   const [state, setState] = useState(initial);
-  const [reportTab, setReportTab] = useState<"Production" | "Call report">("Production");
-  const [section, setSection] = useState<Section>(initialGuide && staff?.brokerage.role !== "Processor" ? "Demo Guide" : "Pipeline");
+  const [workspaceStatus, setWorkspaceStatus] = useState<"cold" | "loading" | "failed" | "ready">(deferredWorkspace ? "cold" : "ready");
+  const [reviewVersion, setReviewVersion] = useState(0);
+  const queueVersion = useMemo(() => ({ state, reviewVersion }), [state, reviewVersion]);
+  const [searchSelection, setSearchSelection] = useState<SearchSelection>({ query: "", filter: "All records" });
+  const [searchContact, setSearchContact] = useState<SearchContact>();
+  const [contactToolsOpen, setContactToolsOpen] = useState(false);
+  const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
+  const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff?.brokerage.role === "Admin" ? "Production" : "Funding dashboard");
+  const [reportingPeriod, setReportingPeriod] = useState(currentReportingPeriod);
+  const [managerExceptionView, setManagerExceptionView] = useState<ManagerExceptionView>("files");
+  const [managerExceptionFilters, setManagerExceptionFilters] = useState(defaultManagerExceptionFilters);
+  const [salesSelection, setSalesSelection] = useState<SalesSelection>(() => ({ filters: { ...currentReportMonth(), channel: "Campaigns", owner: "", windowDays: 0 } }));
+  const [section, setSection] = useState<Section>(processorTaskEntry ? "Tasks" : initialGuide && !processor ? "Demo Guide" :
+    processor ? "Processing" : staff ? "Today" : "Pipeline");
+  const reviewInbox = useReviewInbox(staff?.brokerage.id ?? demoBrokerageId, canOpenCalendar, section === "Review Inbox", reviewVersion);
+  const [guideTrack, setGuideTrack] = useState<GuideTrack>(initialGuide ?? "referral");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [view, setView] = useState<"Board" | "List">("Board");
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filters, setFilters] = useState(emptyFilters);
+  const [filters, setFilters] = useState(emptyPipelineFilters);
+  const pipelineQuery = useMemo<PipelineQuery>(() => ({ view, search: query.trim().slice(0, 200), filters }), [view, query, filters]);
+  const pipeline = usePipeline(staff?.brokerage.id ?? demoBrokerageId, section === "Pipeline", pipelineQuery, state);
   const [modal, setModal] = useState<Modal | null>(null);
+  const [detailedTasks, setDetailedTasks] = useState(processorTaskEntry);
+  const [focusContactTask, setFocusContactTask] = useState<string>();
+  const pagedTasks = !!staff && !detailedTasks;
+  const showDetailedTaskLists = section === "Tasks" && !pagedTasks;
+  const waitingForWorkspace = workspaceStatus !== "ready" && (!scopedSections.has(section) || (section === "Tasks" && !pagedTasks) ||
+    modal?.kind === "contactDuplicates");
+  const [loanWork, setLoanWork] = useState<EditableLoan>();
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
+  const saveError = error === staffSignInRequired && staff ? <>
+    Your Orbit session ended. <a className="name-link" href={`/login?brokerage=${encodeURIComponent(staff.brokerage.id)}`}>Sign in again</a> to return to this workspace.
+  </> : error;
   const [notice, setNotice] = useState("");
   const [dropStage, setDropStage] = useState<Stage | null>(null);
   const [taskView, setTaskView] = useState<TaskView>("Open");
-  const [taskOfficer, setTaskOfficer] = useState("");
+  const [taskOfficer, setTaskOfficer] = useState(processorTaskEntry ? "mine" : "");
+  const [guideCallbackId, setGuideCallbackId] = useState<string>();
+  const [conversationFocus, setConversationFocus] = useState<ConversationFocus | null>(null);
+  const [communicationView, setCommunicationView] = useState<"Conversations" | "Reply review">("Conversations");
   const [focusLeadId, setFocusLeadId] = useState<string>();
+  const [focusArchivedLeadId, setFocusArchivedLeadId] = useState<string>();
+  const [focusLeadTaskId, setFocusLeadTaskId] = useState<string>();
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
   const [taskFocus, setTaskFocus] = useState<WorkFilter | "">("");
   const pending = useRef(false);
-  const dragged = useRef<string | null>(null);
+  const deferredCampaignLoad = useRef<{ id?: string; loadIntake: boolean }>(undefined);
+  const loanReadVersion = useRef(0);
+  const loanRefreshInFlight = useRef<number | null>(null);
+  const openingRecord = useRef(false);
+  const dragged = useRef<{ id: string; stage: Stage } | null>(null);
   const board = useRef<HTMLDivElement>(null);
   const mobileMenu = useRef<HTMLButtonElement>(null);
   const admin = !staff || staff.brokerage.role === "Admin";
-  const processor = staff?.brokerage.role === "Processor";
+  const canReviewReplies = admin && (staff ? staff.brokerage.pilot === true : process.env.NODE_ENV === "development");
   const canReport = staff?.brokerage.role === "Admin";
+  const canOpenReports = canReport || (!staff && process.env.NODE_ENV === "development");
+  const canOpenFinance = canManageFinance(staff) || (!staff && process.env.NODE_ENV === "development");
   const canMigrate = canReport && staff.brokerage.pilot;
+  const managesFollowUps = showDetailedTaskLists || (section === "Reports" && (reportTab === "Returning clients" || reportTab === "Referral queue"));
+  const { members: followUpOwners, error: followUpOwnerError } = useLeadOwners(managesFollowUps && canReport ? staff.brokerage.id : null);
+  useEffect(() => {
+    if (section === "Tasks" && guideCallbackId) document.getElementById(`contact-follow-up-${guideCallbackId}`)?.focus();
+  }, [section, guideCallbackId, state.contactActivity]);
 
-  const names = new Map(state.contacts.map((contact) => [contact.id, contact.name]));
-  const borrowers = (loan: Loan) => names.get(loan.contactId) ?? "Unknown borrower";
-  const loanSubmissions = (loan: Loan) => state.submissions.filter((item) => item.loanId === loan.id);
-  const countOpen = (loan: Loan) => loanSubmissions(loan).reduce((total, item) => total + item.conditions.filter((condition) => !condition.satisfiedAt).length, 0);
-  const active = state.loans.filter((loan) => !pausedLoan(loan) && loan.stage !== "Funded" && loan.stage !== "Closed");
-  const openConditions = state.submissions.flatMap((item) => item.conditions).filter((condition) => !condition.satisfiedAt).length;
-  const search = query.trim().toLowerCase();
+  const contactsById = new Map(state.contacts.map((contact) => [contact.id, contact]));
+  const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
+  const returningByFundedLoan = new Map(state.returningClientLoans.map(({ fundedLoanId, loanId }) => [fundedLoanId, loanId]));
+  const fundedLoans = new Set(state.closingProgress.filter((item) => item.fundingDate).map((item) => item.loanId));
+  const loanTaskBlocked = (task: LoanTask) => {
+    const loan = taskLoans.get(task.loanId);
+    return prospectingBlocked(task.purpose, loan && contactsById.get(loan.contactId)?.outreachSuppressed);
+  };
+  const borrowers = (loan: Loan) => contactsById.get(loan.contactId)?.name ?? "Unknown borrower";
   const [taskNow, setTaskNow] = useState(Date.now);
   useEffect(() => {
     const timer = window.setInterval(() => setTaskNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const nextActions = new Map(state.loans.map((loan) => [loan.id, loanNextAction(loan, state)] as const));
+  const nextActions = new Map(state.loans.map((loan) => [loan.id, loanNextAction(loan, state, staff?.brokerage.role)] as const));
   const workMatches = (loan: Loan, filter: WorkFilter | "") => matchesWorkFilter(loan, nextActions.get(loan.id)?.dueAt ?? null, filter, taskNow, Boolean(staff)) ||
-    (filter === "Overdue" && !pausedLoan(loan) && state.tasks.some((task) => task.loanId === loan.id && !task.completedAt && Date.parse(task.dueAt) < taskNow));
-  const visibleLoans = state.loans.filter((loan) => {
-    const submissions = loanSubmissions(loan);
-    return (!search || [borrowers(loan), loan.address, loan.officer, ...submissions.flatMap((item) => [item.lender, item.externalId])]
-      .some((field) => field.toLowerCase().includes(search)))
-      && (!filters.stage || loan.stage === filters.stage)
-      && (!filters.lender || submissions.some((item) => item.lender === filters.lender))
-      && (!filters.officer || loan.officer === filters.officer)
-      && (!filters.partner || loan.partnerId === filters.partner)
-      && (!filters.days || stageDays(loan.stageSince) >= Number(filters.days))
-      && workMatches(loan, filters.work);
-  });
-  const visibleContacts = state.contacts.filter((contact) => [contact.name, contact.email, contact.role, contact.phone].some((field) => field.toLowerCase().includes(search)));
+    (filter === "Overdue" && !pausedLoan(loan) && state.tasks.some((task) => task.loanId === loan.id && !task.completedAt && !loanTaskBlocked(task) && Date.parse(task.dueAt) < taskNow));
   const filterCount = Object.values(filters).filter(Boolean).length;
   const uwmCount = state.submissions.filter((item) => item.lender === "UWM").length;
-  const taskLoans = new Map(state.loans.map((loan) => [loan.id, loan]));
   const playbook = playbookWork(state);
   const escalatedLeads = new Set(playbook.filter((item) => item.kind === "lead" && Date.parse(item.dueAt) <= taskNow).map((item) => item.recordId));
   const applicationReviews = new Set(playbook.filter((item) => item.kind === "review").map((item) => item.recordId));
   const coveredHandoffs = new Set(playbook.filter((item) => item.kind === "accept" || item.kind === "prepare").map((item) => item.recordId));
   const correctionLoans = new Set(state.applications.filter((item) => item.correctionNote).map((item) => item.loanId));
+  const isApplicationReviewTask = (id: string) => id.startsWith("application-follow-up:") || id.startsWith("application-correction:");
   const isPlaybookTask = (task: Workspace["tasks"][number]) => !task.completedAt && (fundingTaskAudience(task.id) ||
-    (task.id.startsWith("application-") && applicationReviews.has(task.loanId)));
-  const activePlaybook = playbook.filter((item) => (admin || (processor ? item.kind === "accept" && item.ownerEmail === staff?.email :
+    (isApplicationReviewTask(task.id) && applicationReviews.has(task.loanId)));
+  const activePlaybook = playbook.filter((item) => (admin || (processor ? item.kind === "review" || (item.kind === "accept" && item.ownerEmail === staff?.email) :
     item.kind !== "accept" && (item.ownerEmail === staff?.email || (item.kind === "lead" && !item.ownerEmail)))) &&
     (item.kind !== "lead" || escalatedLeads.has(item.recordId)));
-  const pendingContact = state.inboxLeads.filter((lead) => !lead.followUp.firstContactAt && !escalatedLeads.has(lead.id));
+  const pendingContact = state.inboxLeads.filter((lead) => !lead.heldAt && !lead.outreachSuppressed &&
+    !lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt && !escalatedLeads.has(lead.id));
   const assignedProcessing = new Set(state.loanProcessing.filter((item) => item.processorEmail === staff?.email).map((item) => item.loanId));
-  const actionableProcessing = state.loanProcessing.filter((item) => !coveredHandoffs.has(item.loanId) && !applicationReviews.has(item.loanId) &&
-    !(item.status === "Ready for processing" && correctionLoans.has(item.loanId))).filter((item) => admin
+  const activeLoanWork = (loanId: string) => {
+    const loan = taskLoans.get(loanId);
+    return loan && !pausedLoan(loan);
+  };
+  const holdsToRevisit = processor ? [] : state.loans.filter((loan) => loan.disposition === "On hold" && loan.revisitDate);
+  const actionableProcessing = state.loanProcessing.filter((item) => activeLoanWork(item.loanId) && !coveredHandoffs.has(item.loanId) &&
+    !applicationReviews.has(item.loanId) && !(item.status === "Ready for processing" && correctionLoans.has(item.loanId))).filter((item) => admin
     ? item.status === "Ready for processing" || item.status === "In processing" || item.status === "Returned to LO"
     : processor ? assignedProcessing.has(item.loanId) && (item.status === "Ready for processing" || item.status === "In processing") : item.status === "Returned to LO");
-  const openTasks = state.tasks.filter((task) => !task.completedAt && !isPlaybookTask(task) && taskLoans.has(task.loanId) && !pausedLoan(taskLoans.get(task.loanId)!)).length + pendingContact.length + activePlaybook.length
-    + state.inboxLeads.flatMap((lead) => lead.importedTasks).filter((task) => !task.completedAt).length
-    + state.uwmAlerts.filter((alert) => !alert.reviewedAt).length + actionableProcessing.length;
-  const officers = new Map([...state.loans, ...state.inboxLeads].filter((loan) => loan.officer).map((loan) => [
+  const assignedContacts = new Map(state.followUpContacts.map((contact) => [contact.id, contact]));
+  const contactFollowUps = state.contactActivity.flatMap((item) => {
+    const contact = contactsById.get(item.contactId) ?? assignedContacts.get(item.contactId);
+    if (!contact || !item.dueAt || (!admin && item.followUpOwnerEmail !== staff?.email)) return [];
+    const owner = { id: item.id, officer: item.followUpOwner ?? "", officerEmail: item.followUpOwnerEmail };
+    return [{ item, contact, owner, dueAt: item.dueAt, blocked: prospectingBlocked(item.purpose, contact.outreachSuppressed) }];
+  }).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const openTasks = state.tasks.filter((task) => !task.completedAt && !loanTaskBlocked(task) && !isPlaybookTask(task) && activeLoanWork(task.loanId)).length + pendingContact.length + activePlaybook.length
+    + contactFollowUps.filter(({ item, blocked }) => !item.completedAt && !blocked).length
+    + state.inboxLeads.reduce((total, lead) => total + (lead.heldAt ? Number(!!lead.revisitDate && (admin || lead.officerEmail === staff?.email))
+      : lead.importedTasks.filter((task) => !task.completedAt && !prospectingBlocked(task.purpose, lead.outreachSuppressed)).length), 0)
+    + state.uwmAlerts.filter((alert) => !alert.reviewedAt && activeLoanWork(alert.loanId)).length + actionableProcessing.length + holdsToRevisit.length;
+  const officers = new Map([...state.loans, ...state.inboxLeads, ...contactFollowUps.map(({ owner }) => owner)].filter((loan) => loan.officer).map((loan) => [
     taskOwner(loan), loan.officerEmail ? `${loan.officer} (${loan.officerEmail})` : loan.officer,
   ]));
-  const mine = staff ? `account:${staff.email}` : `name:${demoOfficer}`;
-  const taskScope = (item: Pick<Loan, "id" | "officer" | "officerEmail">) => !taskOfficer ||
-    (taskOfficer === "mine" && processor && assignedProcessing.has(item.id)) || taskOwner(item) === (taskOfficer === "mine" ? mine : taskOfficer);
-  const visibleProcessing = taskView === "Open" || taskView === "All" ? actionableProcessing.flatMap((item) => {
+  const matchesTaskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => {
+    if (!taskOfficer) return true;
+    if (taskOfficer !== "mine") return taskOwner(item) === taskOfficer;
+    if (staff) return item.officerEmail === staff.email;
+    return item.officerEmail === localOfficer.email || (!item.officerEmail && item.officer === demoOfficer);
+  };
+  const taskScope = (item: Pick<Loan, "id" | "officer" | "officerEmail">) =>
+    (taskOfficer === "mine" && processor && assignedProcessing.has(item.id)) || matchesTaskOwner(item);
+  const visibleProcessing = showDetailedTaskLists && (taskView === "Open" || taskView === "All") ? actionableProcessing.flatMap((item) => {
     const loan = taskLoans.get(item.loanId);
-    return loan && !pausedLoan(loan) && taskScope(loan) ? [{ item, loan }] : [];
+    return loan && taskScope(loan) && (!taskFocus || workMatches(loan, taskFocus)) ? [{ item, loan }] : [];
   }) : [];
-  const focusedLoans = state.loans.filter((loan) => taskScope(loan) && (taskFocus ? workMatches(loan, taskFocus)
-    : !!loan.revisitDate && workMatches(loan, "Overdue")));
+  const focusedLoans = (showDetailedTaskLists ? taskFocus ? state.loans : holdsToRevisit : []).filter((loan) => {
+    if (!taskScope(loan)) return false;
+    if (taskFocus) return workMatches(loan, taskFocus);
+    const dueAt = nextActions.get(loan.id)?.dueAt;
+    return !!dueAt && dueInView(dueAt);
+  });
   function dueInView(dueAt: string) {
     const due = Date.parse(dueAt);
     if (taskView === "Overdue") return due < taskNow;
     if (taskView === "Due in 24 hours") return due >= taskNow && due <= taskNow + 86_400_000;
     return true;
   }
-  const visiblePlaybook = taskView === "Completed" ? [] : activePlaybook.filter((item) => {
-    const owner = taskOwner({ officer: item.owner, officerEmail: item.ownerEmail });
+  const visibleContactFollowUps = taskFocus || !showDetailedTaskLists ? [] : contactFollowUps.filter(({ item, owner, dueAt, blocked }) => taskScope(owner) &&
+    (taskView === "All" || (taskView === "Completed" ? !!item.completedAt : !item.completedAt && !blocked && dueInView(dueAt))));
+  const visiblePlaybook = taskView === "Completed" || !showDetailedTaskLists ? [] : activePlaybook.filter((item) => {
     const loan = item.kind !== "lead" ? taskLoans.get(item.recordId) : undefined;
-    const ownerFilter = taskOfficer === "mine" ? mine : taskOfficer;
-    return (!ownerFilter || owner === ownerFilter || (taskOfficer === "mine" && admin && !item.owner)) &&
+    const matchesOwner = item.kind === "review" && loan ? taskScope(loan) : matchesTaskOwner({ officer: item.owner, officerEmail: item.ownerEmail });
+    return (matchesOwner || (taskOfficer === "mine" && admin && !item.owner)) &&
       (!taskFocus || !loan || workMatches(loan, taskFocus)) && dueInView(item.dueAt);
   });
-  const visibleReferrals = state.referralLeads.filter((lead) => {
+  const visibleReferrals = showDetailedTaskLists ? state.referralLeads.filter((lead) => {
     const brokerageQueue = !lead.officerEmail && (!staff || staff.brokerage.role === "Admin");
     return taskView !== "Completed" && pendingContact.some((item) => item.id === lead.id) &&
       (taskScope(lead) || (taskOfficer === "mine" && brokerageQueue)) && dueInView(lead.dueAt);
-  });
-  const incomingLeadTasks = taskView === "Completed" ? [] : state.inboxLeads.flatMap((lead) => {
-    if (escalatedLeads.has(lead.id)) return [];
+  }) : [];
+  const incomingLeadTasks = taskView === "Completed" || !showDetailedTaskLists ? [] : state.inboxLeads.flatMap((lead) => {
     const shared = !lead.officerEmail && admin && taskOfficer === "mine";
     if (!taskScope(lead) && !shared) return [];
+    if (lead.heldAt) {
+      const dueAt = lead.revisitDate && `${lead.revisitDate}T17:00:00.000Z`;
+      return dueAt && dueInView(dueAt) && (admin || lead.officerEmail === staff?.email)
+        ? [{ lead, title: "Review lead on hold", dueAt }] : [];
+    }
+    if (lead.outreachSuppressed || escalatedLeads.has(lead.id)) return [];
     const due = firstContactOverdue(lead, taskNow);
-    if (!lead.followUp.firstContactAt && (due || !lead.realtorId) && dueInView(lead.dueAt)) {
+    if (!lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt && (due || !lead.realtorId) && dueInView(lead.dueAt)) {
       return [{ lead, title: due ? "First contact overdue" : "Contact new lead", dueAt: lead.dueAt }];
     }
     const nextAt = lead.followUp.nextAt;
-    return lead.followUp.status === "Active" && nextAt && Date.parse(nextAt) <= taskNow && dueInView(nextAt)
+    return !lead.campaignId && lead.followUp.status === "Active" && nextAt && Date.parse(nextAt) <= taskNow && dueInView(nextAt)
       ? [{ lead, title: "Mock follow-up step due", dueAt: nextAt }] : [];
   });
-  const importedLeadTasks = state.inboxLeads.flatMap((lead) => {
+  const importedLeadTasks = showDetailedTaskLists ? state.inboxLeads.flatMap((lead) => {
     const shared = !lead.officerEmail && admin && taskOfficer === "mine";
     if (!taskScope(lead) && !shared) return [];
-    return lead.importedTasks.filter((task) => taskView === "All" || (taskView === "Completed" ? task.completedAt : !task.completedAt && dueInView(task.dueAt)))
-      .map((task) => ({ lead, task }));
-  });
-  const showUwmAlerts = taskView === "Open" || taskView === "Completed" || taskView === "All";
+    return lead.importedTasks.map((task) => ({ lead, task, blocked: prospectingBlocked(task.purpose, lead.outreachSuppressed) }))
+      .filter(({ task, blocked }) => taskView === "All" || (taskView === "Completed" ? task.completedAt : !lead.heldAt && !task.completedAt && !blocked && dueInView(task.dueAt)));
+  }) : [];
+  const campaignByCallback = new Map(state.callCampaignMembers.flatMap((member) =>
+    member.callbackTaskId ? [[member.callbackTaskId, member.campaignId] as const] : []));
+  const showUwmAlerts = showDetailedTaskLists && (taskView === "Open" || taskView === "Completed" || taskView === "All");
   const visibleUwmAlerts = showUwmAlerts ? state.uwmAlerts.flatMap((alert) => {
     const loan = taskLoans.get(alert.loanId);
-    const matchesView = taskView === "All" || (taskView === "Completed" ? !!alert.reviewedAt : !alert.reviewedAt);
-    return loan && taskScope(loan) && matchesView ? [{ loan, alert }] : [];
+    const matchesView = taskView === "All" || (taskView === "Completed" ? !!alert.reviewedAt : !alert.reviewedAt && activeLoanWork(alert.loanId));
+    return loan && taskScope(loan) && matchesView && (!taskFocus || workMatches(loan, taskFocus)) ? [{ loan, alert }] : [];
   }) : [];
-  const visibleTasks = state.tasks.filter((task) => {
+  const visibleTasks = showDetailedTaskLists ? state.tasks.filter((task) => {
     if (isPlaybookTask(task)) return false;
     const loan = taskLoans.get(task.loanId);
     if (!loan || !taskScope(loan) || (taskFocus && !workMatches(loan, taskFocus))) return false;
     if (taskView === "All") return true;
     if (taskView === "Completed") return !!task.completedAt;
-    if (task.completedAt || pausedLoan(loan)) return false;
+    if (task.completedAt || loanTaskBlocked(task) || pausedLoan(loan)) return false;
     return dueInView(task.dueAt);
-  });
+  }) : [];
 
-  async function save(input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce = true) {
+  async function save(input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce = true, scope?: WorkspaceMutationScope) {
     if (pending.current) return;
+    loanReadVersion.current += 1;
     pending.current = true;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId);
+      const result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
       if ("error" in result) {
         setError(result.error);
         return;
       }
+      if ("campaignNavigation" in result) {
+        setState((current) => applyCampaignNavigation(current, result.campaignNavigation));
+        setSelectedCampaignId(result.campaignNavigation.queue?.campaignId ?? "");
+        return;
+      }
+      if ("campaignQueue" in result) {
+        setState((current) => applyCampaignQueue(current, result.campaignQueue));
+        if (announce) setNotice(result.message);
+        return;
+      }
+      if ("campaignWork" in result) {
+        const patch = result.campaignWork;
+        if (patch) setState((current) => applyCampaignMutation(current, patch));
+        if (announce) setNotice(result.message);
+        after?.({ state: patch ? applyCampaignMutation(state, patch) : state, message: result.message, migration: result.migration });
+        return;
+      }
+      if ("contactsChanged" in result || "tasksChanged" in result) {
+        setState((current) => ({ ...current }));
+        setWorkspaceStatus("cold");
+        setLoanWork(undefined);
+        setSearchContact(undefined);
+        if (announce) setNotice(result.message);
+        after?.({ state, message: result.message });
+        return;
+      }
+      if ("inboxChanged" in result) {
+        const { inboxLoan, referralLoanId, restoredLeadId, message } = result;
+        const apply = (current: Workspace) => inboxLoan ? applyLoanMutation(current, inboxLoan) : { ...current };
+        setState(apply);
+        setWorkspaceStatus("cold");
+        setLoanWork(inboxLoan);
+        setSearchContact(undefined);
+        if (announce) setNotice(message);
+        after?.({ state: apply(state), message, referralLoanId, restoredLeadId });
+        return;
+      }
+      if ("realtorChanged" in result) {
+        setState((current) => ({ ...current }));
+        setWorkspaceStatus("cold");
+        if (announce) setNotice(result.message);
+        after?.({ state, message: result.message });
+        return;
+      }
+      if ("migrationChanged" in result) {
+        if (result.migrationChanged) invalidateWorkspace();
+        if (announce) setNotice(result.message);
+        after?.({ state, message: result.message, migration: result.migration,
+          applicationLoanId: result.applicationLoanId, mismoDuplicateLoanId: result.mismoDuplicateLoanId });
+        return;
+      }
+      if ("playbookSettings" in result) {
+        setState((current) => ({ ...current, playbook: result.playbookSettings }));
+        setLoanWork((current) => current && { ...current, playbook: result.playbookSettings });
+        if (announce) setNotice(result.message);
+        after?.({ state: { ...state, playbook: result.playbookSettings }, message: result.message });
+        return;
+      }
+      if ("template" in result) {
+        const { template, message } = result;
+        const update = (templates: Workspace["brokerageTemplates"]) => [...templates.filter((item) =>
+          item.audience !== template.audience || item.milestone !== template.milestone), template];
+        const apply = (current: Workspace) => ({ ...current, brokerageTemplates: update(current.brokerageTemplates) });
+        setState(apply);
+        setLoanWork((current) => current && { ...current, brokerageTemplates: update(current.brokerageTemplates) });
+        if (announce) setNotice(message);
+        after?.({ state: apply(state), message });
+        return;
+      }
+      if (!("leadWork" in result)) {
+        const application = borrowerChecklistToken(input, ("loanWork" in result ? result.loanWork : result.state).applications);
+        if (application) void announceBorrowerChange(application, "checklist-changed");
+      }
+      if ("leadWork" in result) {
+        setState((current) => applyLeadMutation(current, result));
+        if (announce) setNotice(result.message);
+        after?.({ state: applyLeadMutation(state, result), message: result.message });
+        return;
+      }
+      if ("loanWork" in result) {
+        setState((current) => applyLoanMutation(current, result.loanWork));
+        setLoanWork(result.loanWork);
+        if (result.loanFormSaved || result.applicationLoanId) setWorkspaceStatus("cold");
+        if (announce) setNotice(result.message);
+        after?.({ state: applyLoanMutation(state, result.loanWork), message: result.message,
+          applicationToken: result.applicationToken, applicationLoanId: result.applicationLoanId });
+        return;
+      }
       setState(result.state);
+      setWorkspaceStatus("ready");
+      setLoanWork(undefined);
+      setSearchContact(undefined);
       if (announce) setNotice(result.message);
       after?.(result);
-    } catch {
-      setError("Could not reach Orbit. Please try again.");
+    } catch (failure) {
+      setError(staff && failure instanceof Error && failure.message === staffSignInRequired
+        ? staffSignInRequired : "Could not reach Orbit. Please try again.");
     } finally {
       pending.current = false;
       setBusy(false);
     }
   }
 
-  function convertLead(id: string, contactId: string | null, allowDuplicate: boolean) {
+  function convertLead(id: string, contactId: string | null, allowDuplicate: boolean, scope?: "inbox", after?: () => void) {
     void save({ type: "convertReferral", referralId: id, contactId, allowDuplicate }, ({ referralLoanId }) => {
-      if (referralLoanId) setModal({ kind: "details", loanId: referralLoanId, target: "loan-application" });
-    });
+      if (referralLoanId) {
+        after?.();
+        setModal({ kind: "details", loanId: referralLoanId, target: "loan-application" });
+      }
+    }, true, scope);
   }
 
   async function sync() {
@@ -278,42 +479,425 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
     }
   }
 
-  function navigate(next: Section) {
+  function loadCampaigns(id?: string, loadIntake = false) {
+    if (pending.current) {
+      deferredCampaignLoad.current = { id, loadIntake };
+      return;
+    }
+    void save({ type: "openCampaigns", campaignId: id || undefined, loadIntake }, undefined, false);
+  }
+
+  async function loadFullWorkspace() {
+    if (pending.current) return;
+    setWorkspaceStatus("loading");
+    await save({ type: "refreshWorkspace" }, undefined, false);
+    setWorkspaceStatus((current) => current === "loading" ? "failed" : current);
+  }
+
+  const loadWorkspaceOnDemand = useEffectEvent(() => { void loadFullWorkspace(); });
+  useEffect(() => {
+    if (waitingForWorkspace && !busy && workspaceStatus === "cold") loadWorkspaceOnDemand();
+  }, [waitingForWorkspace, busy, workspaceStatus]);
+
+  const resumeCampaignLoad = useEffectEvent(() => {
+    const request = deferredCampaignLoad.current;
+    if (!request || pending.current) return;
+    deferredCampaignLoad.current = undefined;
+    loadCampaigns(request.id, request.loadIntake);
+  });
+  useEffect(() => {
+    if (section === "Call Campaigns" && !busy) resumeCampaignLoad();
+  }, [busy, section]);
+
+  function selectCampaign(id: string, alreadyLoaded = false) {
+    if (alreadyLoaded) setSelectedCampaignId(id);
+    else loadCampaigns(id);
+  }
+
+  function navigate(next: Section, refresh = true, campaignId?: string) {
+    openingRecord.current = false;
+    if (next !== "Call Campaigns") deferredCampaignLoad.current = undefined;
     setSection(next);
+    if (next !== "Contacts") setContactToolsOpen(false);
+    setGuideCallbackId(undefined);
+    setFocusContactTask(undefined);
     if (mobileNavOpen) {
       setMobileNavOpen(false);
       mobileMenu.current?.focus();
     }
     setFocusLeadId(undefined);
+    setFocusArchivedLeadId(undefined);
+    setFocusLeadTaskId(undefined);
     setQuery("");
     setError("");
-    if (next === "Lead Inbox" || next === "Tasks" || next === "Communications" || next === "Realtors" || next === "Past Clients" || next === "Playbooks") {
+    if (workspaceStatus === "failed") setWorkspaceStatus("cold");
+    if (next === "Call Campaigns") {
+      if (campaignId) setSelectedCampaignId(campaignId);
+      if (refresh) loadCampaigns(campaignId ?? selectedCampaignId, true);
+    } else if (workspaceStatus === "ready" && refresh && ((next === "Tasks" && !pagedTasks) ||
+      (next === "Reports" && canReport && reportTab !== "Funding dashboard" && reportTab !== "Pipeline workload" && reportTab !== "Sales conversion" && reportTab !== "Referral queue"))) {
       void save({ type: "refreshWorkspace" }, undefined, false);
     }
   }
 
   function show(next: Modal) {
+    loanReadVersion.current += 1;
+    openingRecord.current = false;
+    setSearchContact(undefined);
     setError("");
-    setModal(next);
+    setModal(next.kind === "details" && next.target === fundingCheckInTarget ? {
+      kind: "fundingCheckIn", loanId: next.loanId, campaignLender: next.campaignLender,
+      returnToLoan: modal?.kind === "details" && modal.loanId === next.loanId,
+    } : next);
+  }
+
+  async function openContactRecord(id: string, edit = false, relationshipKind?: "contact" | "partner") {
+    if (pending.current) return;
+    pending.current = true;
+    openingRecord.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const brokerageId = staff?.brokerage.id ?? demoBrokerageId;
+      const result = relationshipKind ? await searchWorkspace({ type: "open", id, kind: relationshipKind }, brokerageId) :
+        await readContactsWork({ type: "open", id }, brokerageId);
+      if (!openingRecord.current) return;
+      if ("error" in result) setError(result.error);
+      else if (result.kind === "contact") {
+        if (edit && result.contact.id !== id) { setError(contactUnavailable); return; }
+        show({ kind: edit ? "contact" : "contactHistory", contactId: result.contact.id });
+        setSearchContact(result);
+      }
+    } catch {
+      if (openingRecord.current) setError(contactUnavailable);
+    } finally {
+      openingRecord.current = false;
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function openQueueLoan(next: Extract<Modal, { kind: "details" | "pricing" | "communication" | "retention" | "returningClient" }>,
+    expected?: { kind: "task" | "document" | "retention" | "alert"; id: string } | { kind: "stalled" | "brokerage-stalled" } |
+      { kind: "promised-callback"; id: string; dueAt: string; source?: "personal" | "manager" } |
+      { kind: "guide-conditions"; submissionId: string; conditionId?: string } |
+      { kind: "incoming-loan-work"; item: IncomingLoanWorkItem; view: IncomingLoanWorkQuery["view"] }) {
+    if (pending.current) return;
+    loanReadVersion.current += 1;
+    pending.current = true;
+    openingRecord.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const context = expected?.kind === "stalled" || expected?.kind === "brokerage-stalled" ? expected.kind : undefined;
+      const result = await readLoanForWork(next.loanId, staff?.brokerage.id ?? demoBrokerageId, context);
+      if (!openingRecord.current) return;
+      if ("error" in result) { setError(result.error ?? "Could not open the loan. Please try again."); return; }
+      if (next.kind === "retention" && (processor || !pastClientLoan(result.loans[0]))) {
+        setError("Past-client follow-up is unavailable on this loan.");
+        return;
+      }
+      if (next.kind === "returningClient") {
+        const option = result.repeatOption;
+        if (option.kind === "restricted" || option.kind === "unavailable") {
+          setError(option.kind === "restricted" ? "Ask a brokerage admin to review access to the linked returning-client application." :
+            "This returning-client application is unavailable. Refresh Past Clients.");
+          return;
+        }
+        if (option.kind === "open") {
+          const repeat = await readLoanForWork(option.loanId, staff?.brokerage.id ?? demoBrokerageId);
+          if (!openingRecord.current) return;
+          if ("error" in repeat) { setError(repeat.error ?? "Could not open the repeat 1003. Please try again."); return; }
+          setLoanWork(repeat);
+          show({ kind: "details", loanId: option.loanId, target: "loan-application" });
+          return;
+        }
+      }
+      if (next.kind === "communication" && !result.communicationDrafts.some((draft) => draft.id === next.draftId && draft.audience === next.audience &&
+        draft.contactId === (next.audience === "Borrower" ? result.loans[0]?.contactId : result.loans[0]?.partnerId))) {
+        setError("This draft or its recipient changed. Refresh drafts before opening it.");
+        return;
+      }
+      if (expected?.kind === "incoming-loan-work") {
+        const { item, view } = expected;
+        const loan = result.loans[0];
+        const assigned = result.loanProcessing[0];
+        const inQueue = view === "today" ? !staff || loan.officerEmail === staff.email :
+          !!assigned?.processorEmail && incomingLoanWorkProcessingStatuses.some((status) => status === assigned.status) &&
+          (!processor || assigned.processorEmail === staff?.email);
+        const application = result.applications[0];
+        const readyToAccept = !application?.correctionNote && (!application?.submittedAt || !!application.reviewedAt) &&
+          !secondReviewBlocker(result.playbook.requireSecondReview, application);
+        const current = item.kind === "application" ? application?.loanId === item.id && application.revision === item.revision &&
+          application.submittedAt && !application.reviewedAt : item.kind === "document" ?
+          result.documentRequests.some((request) => request.id === item.id && request.revision === item.revision && request.status === "Received") :
+          assigned?.loanId === item.id && assigned.revision === item.revision && !!assigned.processorEmail &&
+          (view === "today" ? assigned.status === "Returned to LO" : assigned.status === "Ready for processing" && readyToAccept);
+        if (!inQueue || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
+          setReviewVersion((version) => version + 1);
+          setError("This item changed. Check the updated incoming work list.");
+          return;
+        }
+      }
+      if (expected && "id" in expected &&
+        !(expected.kind === "document" ? result.documentRequests : expected.kind === "alert" ? result.uwmAlerts : result.tasks).some(({ id }) => id === expected.id)) {
+        setError(expected.kind === "retention" ? "This follow-up is no longer available. Refresh your opportunities." : searchRecordUnavailable);
+        return;
+      }
+      if (expected?.kind === "promised-callback") {
+        const loan = result.loans[0];
+        const task = result.tasks.find(({ id }) => id === expected.id);
+        const contact = result.contacts.find(({ id }) => id === loan.contactId);
+        if (!task || task.completedAt || task.dueAt !== expected.dueAt || loan.disposition !== "Active" ||
+          (staff && loan.officerEmail !== staff.email && !(expected.source === "manager" && admin)) ||
+          (expected.source && task.campaignCallback !== "Pending") || prospectingBlocked(task.purpose, contact?.outreachSuppressed)) {
+          const view = expected.source === "manager" ? "Overdue callbacks" : expected.source === "personal" ? "My campaign callbacks" : "the conversation";
+          setError(`This promised callback changed. Refresh ${view} to see the current task.`);
+          return;
+        }
+      }
+      if (expected?.kind === "retention") {
+        const loan = result.loans[0];
+        const task = result.tasks.find(({ id }) => id === expected.id);
+        if (!loan || !pastClientLoan(loan) || loan.disposition !== "Active" || (staff && loan.officerEmail !== staff.email) || task?.completedAt ||
+          result.contacts.some((contact) => contact.id === loan.contactId && contact.outreachSuppressed)) {
+          setError("This follow-up is no longer available. Refresh your opportunities.");
+          return;
+        }
+      }
+      setLoanWork(result);
+      if (expected?.kind === "guide-conditions" || result.playbook.requireSecondReview || state.playbook.requireSecondReview ||
+        state.campaignQueueFiles?.some(({ id }) => id === next.loanId)) {
+        setState((current) => applyLoanMutation(current, result));
+      }
+      if (expected?.kind === "guide-conditions") {
+        const submission: Submission | undefined = result.submissions.find(({ id }) => id === expected.submissionId);
+        if (!submission) {
+          setError("This lender checklist changed. Choose the current step in the demo guide.");
+          return;
+        }
+        const condition = submission.conditions.find(({ id }) => id === expected.conditionId);
+        show({ kind: "details", loanId: next.loanId,
+          target: condition ? conditionTarget(submission.id, condition.id) : submissionTarget(submission.id) });
+        return;
+      }
+      const fundingId = expected?.kind === "task" && next.kind === "details" && next.target === "loan-communications" ? expected.id : undefined;
+      const fundingAudience = fundingId ? fundingTaskAudience(fundingId) : null;
+      const fundingTask = fundingAudience && result.tasks.some((task) => task.id === fundingId && !task.completedAt);
+      if (fundingAudience && fundingTask) {
+        const loan = result.loans[0];
+        const recipient = fundingAudience === "Borrower" ? loan?.contactId : loan?.partnerId;
+        const draft = result.communicationDrafts.find((item) => !item.supersededAt && item.audience === fundingAudience &&
+          item.contactId === recipient && item.milestone === fundingMilestones[fundingAudience]);
+        if (draft) {
+          show({ kind: "communication", loanId: next.loanId, audience: fundingAudience, draftId: draft.id });
+          return;
+        }
+      }
+      const alert = expected?.kind === "alert" ? result.uwmAlerts.find(({ id }) => id === expected.id) : undefined;
+      const submission: Submission | undefined = alert && result.submissions.find(({ id }) => id === alert.submissionId);
+      const condition = submission?.conditions.find(({ id }) => id === alert?.conditionId);
+      const target = alert ? submission ? condition ? conditionTarget(submission.id, condition.id) : submissionTarget(submission.id) :
+        "lender-submissions" : result.workTarget;
+      show(next.kind === "details" && target ? { ...next, target } : next);
+    } catch (failure) {
+      if (openingRecord.current) setError(staff && failure instanceof Error && failure.message === staffSignInRequired
+        ? staffSignInRequired : "Could not open the loan. Please try again.");
+    } finally {
+      openingRecord.current = false;
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function refreshLoanOnReturn(loanId: string, canApply: () => boolean, periodic: boolean) {
+    if (!staff || pending.current || (periodic && loanRefreshInFlight.current !== null)) return;
+    const version = ++loanReadVersion.current;
+    loanRefreshInFlight.current = version;
+    try {
+      const knownVersion = periodic && loanWork?.loanId === loanId ? loanWork.handoffVersion : undefined;
+      const result = knownVersion ? await checkLoanHandoff(loanId, staff.brokerage.id, knownVersion) : await readLoanForWork(loanId, staff.brokerage.id);
+      if (version !== loanReadVersion.current || pending.current || "error" in result || "unchanged" in result || !canApply()) return;
+      setLoanWork(result);
+      setState((current) => applyLoanMutation(current, result));
+    } catch {
+      // The explicit refresh remains available if the background read fails.
+    } finally {
+      if (loanRefreshInFlight.current === version) loanRefreshInFlight.current = null;
+    }
+  }
+
+  function showGuideTasks(loanId?: string, callbackId?: string, refresh = true, allOfficers = false) {
+    if (staff && callbackId) {
+      setDetailedTasks(false);
+      navigate("Tasks", false);
+      setFocusContactTask(callbackId);
+      return;
+    }
+    const loan = loanId && taskLoans.get(loanId);
+    const callback = callbackId && state.contactActivity.find((item) => item.id === callbackId);
+    const owner = callback ? { officer: callback.followUpOwner ?? "", officerEmail: callback.followUpOwnerEmail } : loan;
+    setTaskView("Open");
+    setDetailedTasks(true);
+    setTaskFocus("");
+    const otherOwner = owner && canReport && owner.officerEmail !== staff.email;
+    setTaskOfficer(allOfficers || (!staff && callback) ? "" : otherOwner ? (owner.officer || owner.officerEmail ? taskOwner(owner) : "") : "mine");
+    navigate("Tasks", refresh);
+    setGuideCallbackId(callbackId);
+  }
+
+  function openLeadWork(leadId: string, campaignId?: string | null, refresh = true) {
+    navigate(campaignId ? "Call Campaigns" : "Lead Inbox", refresh, campaignId ?? undefined);
+    setFocusLeadId(leadId);
+  }
+
+  function openMigrationDestination(destination: MigrationDestination) {
+    switch (destination.kind) {
+      case "loan": return void openQueueLoan({ kind: "details", loanId: destination.id, target: destination.target });
+      case "lead": return void openScopedLead({ leadId: destination.id });
+      case "archivedLead":
+        navigate("Lead Inbox", false);
+        setFocusArchivedLeadId(destination.id);
+        return;
+      case "contact": return void openContactRecord(destination.id);
+      case "contactTask": return showGuideTasks(undefined, destination.id, false, true);
+    }
+  }
+
+  async function openScopedLead(input: LeadWorkRequest) {
+    if (pending.current) return;
+    pending.current = true;
+    openingRecord.current = true;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    setFocusLeadId(undefined);
+    try {
+      const result = await readLeadForWork(input, staff?.brokerage.id ?? demoBrokerageId);
+      if (!openingRecord.current) return;
+      if ("error" in result) { setError(result.error); return; }
+      setState((current) => applyLeadWork(current, result));
+      openLeadWork(result.lead.id, result.campaign?.id, Boolean(result.campaign));
+      if (input.task?.kind === "lead-task") setFocusLeadTaskId(input.task.id);
+    } catch (failure) {
+      if (openingRecord.current) setError(staff && failure instanceof Error && failure.message === staffSignInRequired
+        ? staffSignInRequired : "Could not open the lead. Please try again.");
+    } finally {
+      openingRecord.current = false;
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+
+  function openConversation(focus: ConversationFocus) {
+    navigate("Communications", false);
+    setCommunicationView("Conversations");
+    setConversationFocus(focus);
+  }
+
+  function openConversationCallback(callback: ConversationCallback) {
+    const { taskId, dueAt } = callback;
+    if ("leadId" in callback) return void openScopedLead({ leadId: callback.leadId, task: { kind: "campaign", id: taskId, expectedCallbackAt: dueAt } });
+    void openQueueLoan({ kind: "details", loanId: callback.loanId, target: searchTaskTarget(taskId) }, { kind: "promised-callback", id: taskId, dueAt });
+  }
+
+  function openTodayWork(item: OfficerQueueItem) {
+    if (item.kind === "lead" || item.kind === "campaign") {
+      return void openScopedLead({ leadId: item.recordId, task: { kind: item.kind, id: item.id } });
+    }
+    openDeadlineWork(item);
+  }
+
+  function openIncomingLoanWork(item: IncomingLoanWorkItem, view: IncomingLoanWorkQuery["view"]) {
+    const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` : "processing-handoff";
+    void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
+  }
+
+  function openDeadlineWork(item: OfficerQueueItem) {
+    if (item.kind === "conversation") {
+      openConversation({ id: item.recordId });
+      return;
+    }
+    if (item.kind === "lead-task") {
+      return void openScopedLead({ leadId: item.recordId, task: {
+        kind: "lead-task", id: item.id, team: section === "Calendar" && calendar.scope === "Team" ? true : undefined,
+      } });
+    }
+    if (item.kind === "lead" || item.kind === "campaign") {
+      return openLeadWork(item.recordId, item.campaignId, !state.inboxLeads.some((lead) => lead.id === item.recordId));
+    } else if (item.kind === "contact") {
+      return showGuideTasks(undefined, item.id, !state.contactActivity.some((activity) => activity.id === item.id), section === "Calendar");
+    } else {
+      return void openQueueLoan(item.kind === "lock" ? { kind: "pricing", loanId: item.recordId } : { kind: "details", loanId: item.recordId, target: item.target });
+    }
+  }
+
+  function openActiveTask(item: OfficerQueueItem) {
+    if (item.kind === "lead-hold" || item.kind === "quiet-lead") {
+      openLeadWork(item.recordId, item.campaignId);
+      return;
+    }
+    if (item.kind === "lead-task") {
+      openLeadWork(item.recordId);
+      setFocusLeadTaskId(item.id);
+      return;
+    }
+    if (item.kind === "uwm-alert" || item.kind === "document" || item.kind === "document-review" || item.kind === "loan" || item.kind === "funding") {
+      const kind = item.kind === "uwm-alert" ? "alert" : item.kind === "loan" || item.kind === "funding" ? "task" : "document";
+      void openQueueLoan({ kind: "details", loanId: item.recordId, target: item.target }, { kind, id: item.id });
+      return;
+    }
+    openDeadlineWork(item);
+  }
+
+  function openReturningClient(fundedLoanId: string) {
+    void openQueueLoan({ kind: "returningClient", loanId: fundedLoanId });
+  }
+
+  async function openSearchResult(record: SearchRecord) {
+    const { kind, id, loanId } = record;
+    if (kind === "conversation") {
+      openConversation({ id });
+      return;
+    }
+    if (kind === "loan" || kind === "task" || kind === "document") {
+      if (!loanId) { setError(searchRecordUnavailable); return; }
+      const target = kind === "task" ? searchTaskTarget(id) : kind === "document" ? `document-${id}` : undefined;
+      await openQueueLoan({ kind: "details", loanId, target }, kind === "loan" ? undefined : { kind, id });
+      return;
+    }
+    if (pending.current) return;
+    pending.current = true;
+    openingRecord.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await searchWorkspace({ type: "open", kind, id }, staff?.brokerage.id ?? demoBrokerageId);
+      if (!openingRecord.current) return;
+      if ("error" in result) setError(result.error);
+      else if (result.kind === "contact") { show({ kind: "contactHistory", contactId: result.contact.id }); setSearchContact(result); }
+      else if (result.kind === "lead") {
+        setState((current) => applyLeadWork(current, result));
+        openLeadWork(result.lead.id, undefined, false);
+      }
+    } catch {
+      if (openingRecord.current) setError("Could not open this search result. Try again.");
+    } finally {
+      openingRecord.current = false;
+      pending.current = false;
+      setBusy(false);
+    }
   }
 
   function openPlaybook(item: PlaybookWork) {
     if (item.kind === "lead") {
-      navigate("Lead Inbox");
-      setFocusLeadId(item.recordId);
+      void openScopedLead({ leadId: item.recordId });
       return;
     }
-    if (item.kind === "funding") {
-      const audience = fundingTaskAudience(item.id);
-      const loan = taskLoans.get(item.recordId);
-      const draft = audience && state.communicationDrafts.find((entry) => entry.loanId === item.recordId && entry.audience === audience &&
-        entry.milestone === fundingMilestones[audience] && entry.contactId === (audience === "Borrower" ? loan?.contactId : loan?.partnerId));
-      if (audience && draft) {
-        show({ kind: "communication", loanId: item.recordId, audience, draftId: draft.id });
-        return;
-      }
-    }
-    show({ kind: "details", loanId: item.recordId, target: item.kind === "review" ? "loan-application" : item.kind === "funding" ? "loan-communications" : "processing-handoff" });
+    void openQueueLoan({ kind: "details", loanId: item.recordId,
+      target: item.kind === "review" ? "loan-application" : item.kind === "funding" ? "loan-communications" : "processing-handoff" },
+    item.kind === "funding" ? { kind: "task", id: item.id } : undefined);
   }
 
   function openUwmAlert(alert: UwmAlert) {
@@ -324,18 +908,33 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
     show({ kind: "details", loanId: alert.loanId, target });
   }
 
+  function invalidateWorkspace() {
+    setState((current) => ({ ...current }));
+    setWorkspaceStatus("cold");
+  }
+
   function close() {
+    loanReadVersion.current += 1;
+    openingRecord.current = false;
     setError("");
+    setLoanWork(undefined);
+    setSearchContact(undefined);
     setModal(null);
   }
 
   function drop(event: DragEvent, stage: Stage) {
     if (!dragged.current) return;
     event.preventDefault();
-    const id = dragged.current;
+    const loan = dragged.current;
     dragged.current = null;
     setDropStage(null);
-    if (state.loans.find((loan) => loan.id === id)?.stage !== stage) void save({ type: "move", id, stage });
+    if (loan.stage !== stage) void save({ type: "move", id: loan.id, stage });
+  }
+
+  function openPipelineLoan(loanId: string, target?: string) {
+    const next = { kind: "details" as const, loanId, target };
+    if (staff || !state.loans.some(({ id }) => id === loanId)) void openQueueLoan(next);
+    else show(next);
   }
 
   function syncButton() {
@@ -352,7 +951,10 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
           mobileMenu.current?.focus();
         }
       }}>
-        <div className="brand"><span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span></div>
+        <button type="button" className="brand w-fit rounded-lg hover:text-[var(--orbit-lilac)]" aria-label="OrbitLOS home, back to Pipeline"
+          onClick={() => navigate("Pipeline")}>
+          <span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span>
+        </button>
         <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button"
           aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
           {mobileNavOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />} Menu
@@ -361,13 +963,14 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
           {navigation.map(({ title, items }) => (
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
-              {items.filter(({ label }) => (label !== "Team" || staff) && (label !== "Reports" || canReport) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide"))).map(({ label, icon: Icon }) => (
+              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => (
                 <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
-                  <Icon size={17} aria-hidden="true" /><span>{label}</span>{label === "Tasks" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
+                  <Icon size={20} aria-hidden="true" /><span>{label}</span>{label === "Tasks" && workspaceStatus === "ready" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
                 </button>
               ))}
             </div>
           ))}
+          {staff && <p className="mobile-workspace-label">{staff.brokerage.name} · {staff.brokerage.role}</p>}
         </nav>
         <div className="sidebar-bottom">
           <div className="demo-label"><span /> {staff?.brokerage.name ?? "Demo workspace"} · {staff?.brokerage.role ?? "Local demo"}</div>
@@ -380,119 +983,183 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
         <header className="topbar">
           <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section}</strong></span>
           <div className="topbar-actions">
+            {canOpenCalendar && <Button className="workspace-search-trigger" type="button" size="sm" variant="ghost" data-tooltip="Search workspace"
+              aria-label="Search workspace" aria-current={section === "Search" ? "page" : undefined}
+              onClick={() => navigate("Search", false)}><Search aria-hidden="true" /><span>Search</span></Button>}
+            {canOpenCalendar && <Button type="button" size="sm" variant="ghost" className="review-inbox-trigger" data-tooltip="Review inbox"
+              aria-label={reviewInbox.unread ? `Review inbox, ${reviewInbox.unread} unread` : "Review inbox"}
+              aria-current={section === "Review Inbox" ? "page" : undefined} onClick={() => navigate("Review Inbox", false)}>
+              <Bell aria-hidden="true" />{reviewInbox.unread && <span aria-hidden="true">{reviewInbox.unread}</span>}
+            </Button>}
             <button className="connection-chip" onClick={() => navigate("Integrations")}><span /> UWM mock</button>
             {staff && <form method="post" action="/auth/logout"><Button type="submit" size="sm" variant="ghost"><LogOut /> Sign out</Button></form>}
           </div>
         </header>
         <div className="content">
-          {staff?.brokerage.pilot && <p className="application-message">Pilot workspace · Use fictional borrowers and built-in documents.</p>}
-          {section === "Pipeline" ? <section className="pipeline-hero" aria-labelledby="pipeline-title">
-            <OrbitRings />
+          {staff?.brokerage.pilot && <p className="application-message">Fictional pilot · Use sample borrowers and documents.</p>}
+          {!waitingForWorkspace && section === "Pipeline" ? <section className="pipeline-hero" aria-labelledby="pipeline-title">
             <div className="page-heading">
               <div>
-                <p className="eyebrow">ORBIT WORKSPACE{staff && ` · ${staff.brokerage.role.toUpperCase()}`}</p>
                 <h1 id="pipeline-title">Loan pipeline</h1>
-                <p>{descriptions.Pipeline}</p>
               </div>
               <div className="heading-actions pipeline-actions">
                 {!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}
                 {syncButton()}
-                {!processor && <Button className="pipeline-demo" variant="ghost" onClick={() => navigate("Demo Guide")}><OrbitIcon /> Guided demo</Button>}
+                {!processor && <Button className="pipeline-demo" variant="ghost" onClick={() => navigate("Demo Guide")}><workspaceIcons.demo aria-hidden="true" /> Guided demo</Button>}
               </div>
             </div>
             <dl className="metrics">
-              <div><dt>Active loans</dt><dd>{active.length}</dd><dd className="metric-context">{state.loans.length} total in pipeline</dd></div>
-              <div><dt>Active loan volume</dt><dd>{compactMoney(active.reduce((total, loan) => total + loan.amount, 0))}</dd><dd className="metric-context">Across active stages</dd></div>
-              <div><dt>Open UWM conditions</dt><dd data-outstanding={openConditions > 0}>{openConditions}</dd><dd className="metric-context">{state.uwmSyncedAt ? "Across synced loan files" : "Available after the first sync"}</dd></div>
+              <div><dt>Active loans</dt><dd>{pipeline.page?.metrics.active ?? "—"}</dd><dd className="metric-context">{pipeline.page ? `${pipeline.page.metrics.total} total in pipeline` : "Total in pipeline"}</dd></div>
+              <div><dt>Active loan volume</dt><dd>{pipeline.page ? compactMoney(pipeline.page.metrics.volume) : "—"}</dd><dd className="metric-context">Across active stages</dd></div>
+              <div><dt>Open lender conditions</dt><dd data-outstanding={(pipeline.page?.metrics.openConditions ?? 0) > 0}>{pipeline.page?.metrics.openConditions ?? "—"}</dd><dd className="metric-context">Across linked lender files</dd></div>
             </dl>
           </section> : <div className="page-heading">
-            <div><p className="eyebrow">ORBIT WORKSPACE{staff && ` · ${staff.brokerage.role.toUpperCase()}`}</p>
-              <h1>{section}</h1>
-              {section !== "Demo Guide" && <p>{descriptions[section]}</p>}
-            </div>
-            <div className="heading-actions">
+            <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
+            {!waitingForWorkspace && <div className="heading-actions">
               {section === "Contacts" && admin && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
-              {section === "Tasks" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
-              {section === "Communications" && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh drafts</Button>}
-            </div>
+              {section === "Tasks" && staff && <Button variant="outline" disabled={busy}
+                onClick={() => { setDetailedTasks(pagedTasks); setFocusContactTask(undefined); }}>
+                {pagedTasks ? "Detailed queues" : "Paged task queue"}
+              </Button>}
+              {section === "Tasks" && !pagedTasks && <Button variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh tasks</Button>}
+            </div>}
           </div>}
 
-          {(notice || (error && !modal)) && (
-            <div className={error && !modal ? "banner banner-error" : "banner"} role={error && !modal ? "alert" : "status"}>
-              <span>{error && !modal ? error : notice}</span>
+          {(notice || (error && (!modal || waitingForWorkspace))) && (
+            <div className={error && (!modal || waitingForWorkspace) ? "banner banner-error" : "banner"} role={error && (!modal || waitingForWorkspace) ? "alert" : "status"}>
+              <span>{error && (!modal || waitingForWorkspace) ? saveError : notice}</span>
               <Button variant="ghost" size="icon" aria-label="Dismiss notification" onClick={() => { setError(""); setNotice(""); }}><X /></Button>
             </div>
           )}
 
+          {waitingForWorkspace ? <section className="integration record-form" aria-label="Workspace data" aria-busy={workspaceStatus !== "failed"}>
+            {workspaceStatus === "failed" ? <div>
+              <p>Workspace data couldn’t be loaded.</p>
+              <Button variant="outline" disabled={busy} onClick={() => void loadFullWorkspace()}>Retry loading workspace</Button>
+            </div> : <p role="status">Loading workspace data…</p>}
+            {modal && <div><Button variant="ghost" onClick={close}>Cancel</Button></div>}
+          </section> : <>
           {section === "Pipeline" && <section className="pipeline pipeline-board" data-view={view} aria-label="Pipeline views">
-              <div className="pipeline-heading"><div><h2>Pipeline overview <span>{visibleLoans.length}</span></h2><p>Track each loan from lead to close.</p></div>
-                {view === "Board" && <Button variant="ghost" size="sm" className="board-next" onClick={() => board.current?.scrollBy({ left: 490, behavior: "smooth" })}>More stages <ArrowRight /></Button>}
+              <div className="pipeline-heading"><h2>Pipeline overview {pipeline.page && <span>{pipeline.page.matches}</span>}</h2>
+                {view === "Board" && <Button variant="ghost" size="sm" className="board-next" onClick={() => board.current?.scrollBy({
+                  left: 490, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+                })}>More stages <ArrowRight /></Button>}
               </div>
               <div className="toolbar">
                 <label className="search"><Search size={17} /><input aria-label="Search loans" placeholder="Search loans…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
                 <Button variant="outline" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)}><SlidersHorizontal /> Filters{filterCount ? ` (${filterCount})` : ""}</Button>
                 <div className="spacer" />
                 <div className="view-toggle" aria-label="Pipeline view">
-                  <button aria-pressed={view === "Board"} onClick={() => setView("Board")}><Columns3 size={16} /> Board</button>
+                  <button aria-pressed={view === "Board"} onClick={() => setView("Board")}><workspaceIcons.pipeline size={16} aria-hidden="true" /> Board</button>
                   <button aria-pressed={view === "List"} onClick={() => setView("List")}><List size={16} /> List</button>
                 </div>
-                {view === "Board" && <select className="pipeline-stage-picker" aria-label="Show stage" value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value })}>
+                <Button variant="ghost" size="sm" disabled={busy || pipeline.loadingMore} onClick={pipeline.refresh}><RefreshCw /> Refresh pipeline</Button>
+                {view === "Board" && <select className="pipeline-stage-picker" aria-label="Show stage" value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value as PipelineFilters["stage"] })}>
                   <option value="">All stages</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}
                 </select>}
               </div>
               {filtersOpen && <div className="filter-row">
-                <select className="pipeline-stage-filter" aria-label="Filter by stage" value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value })}><option value="">All stages</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select>
-                <select aria-label="Filter by lender" value={filters.lender} onChange={(event) => setFilters({ ...filters, lender: event.target.value })}><option value="">All lenders</option>{[...new Set(state.submissions.map((item) => item.lender))].sort().map((lender) => <option key={lender}>{lender}</option>)}</select>
-                <select aria-label="Filter by officer" value={filters.officer} onChange={(event) => setFilters({ ...filters, officer: event.target.value })}><option value="">All officers</option>{[...new Set(state.loans.map((loan) => loan.officer).filter(Boolean))].sort().map((officer) => <option key={officer}>{officer}</option>)}</select>
-                <select aria-label="Filter by realtor" value={filters.partner} onChange={(event) => setFilters({ ...filters, partner: event.target.value })}><option value="">All realtors</option>{state.contacts.filter((contact) => contact.role === "Realtor").map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}</select>
-                <select aria-label="Filter by days in stage" value={filters.days} onChange={(event) => setFilters({ ...filters, days: event.target.value })}><option value="">Any stage age</option><option value="3">3+ days</option><option value="7">7+ days</option><option value="14">14+ days</option></select>
+                <select className="pipeline-stage-filter" aria-label="Filter by stage" value={filters.stage} onChange={(event) => setFilters({ ...filters, stage: event.target.value as PipelineFilters["stage"] })}><option value="">All stages</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select>
+                <select aria-label="Filter by lender" value={filters.lender} onChange={(event) => setFilters({ ...filters, lender: event.target.value })}><option value="">All lenders</option>{pipeline.options?.lenders.map((lender) => <option key={lender}>{lender}</option>)}</select>
+                <select aria-label="Filter by officer" value={filters.officer} onChange={(event) => setFilters({ ...filters, officer: event.target.value })}><option value="">All officers</option>{pipeline.options?.officers.map((officer) => <option key={officer}>{officer}</option>)}</select>
+                <select aria-label="Filter by realtor" value={filters.partner} onChange={(event) => setFilters({ ...filters, partner: event.target.value })}><option value="">All realtors</option>{pipeline.options?.partners.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}</select>
+                <select aria-label="Filter by days in stage" value={filters.days} onChange={(event) => setFilters({ ...filters, days: event.target.value as PipelineFilters["days"] })}><option value="">Any stage age</option><option value="3">3+ days</option><option value="7">7+ days</option><option value="14">14+ days</option></select>
                 <select aria-label="Filter by work status" value={filters.work} onChange={(event) => setFilters({ ...filters, work: event.target.value as WorkFilter | "" })}><option value="">Any work status</option>{workFilters.map((item) => <option key={item}>{item}</option>)}</select>
-                <Button variant="ghost" size="sm" onClick={() => setFilters(emptyFilters)}>Clear filters</Button>
+                <Button variant="ghost" size="sm" onClick={() => setFilters(emptyPipelineFilters)}>Clear filters</Button>
               </div>}
-              {visibleLoans.length === 0 && <p className="empty-inline no-matches">No loans match this view.</p>}
-              {view === "Board" ? (
+              {pipeline.error && <p className="empty-inline no-matches" role="alert">{pipeline.error}</p>}
+              {!pipeline.page && !pipeline.error && <p className="empty-inline no-matches" role="status">Loading pipeline…</p>}
+              {pipeline.page?.matches === 0 && <p className="empty-inline no-matches">No loans match this view.</p>}
+              {pipeline.page && (view === "Board" ? (
                 <div className="board" ref={board} tabIndex={0} aria-label="Loan stages">
-                  {stages.filter((stage) => !filters.stage || filters.stage === stage).map((stage) => {
-                    const items = visibleLoans.filter((loan) => loan.stage === stage);
+                  {pipeline.page.lanes.map(({ stage, loans, count, volume, next }) => {
                     const color = stageColors[stages.indexOf(stage)];
                     return <section key={stage} className={dropStage === stage ? "lane drag-over" : "lane"} data-tone={color}
                       onDragOver={(event) => { if (dragged.current && !busy) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropStage(stage); } }}
                       onDrop={(event) => drop(event, stage)}>
-                      <div className="lane-title"><span className={`stage-dot ${color}`} /><h3>{stage}</h3><span className="lane-count">{items.length}</span>{!processor && <Button variant="ghost" size="icon" aria-label={`Add lead to ${stage}`} onClick={() => show({ kind: "loan", stage })}><Plus /></Button>}</div>
-                      <p className="lane-volume">{compactMoney(items.reduce((total, loan) => total + loan.amount, 0))}</p>
-                      {items.map((loan) => <LoanCard key={loan.id} loan={loan} name={borrowers(loan)} lenders={[...new Set(loanSubmissions(loan).map((item) => item.lender))]} count={countOpen(loan)} action={nextActions.get(loan.id)!}
-                        onOpen={() => show({ kind: "details", loanId: loan.id })}
-                        onDrag={(event) => { if (busy || processor) { event.preventDefault(); return; } dragged.current = loan.id; event.dataTransfer.setData("text/plain", loan.id); event.dataTransfer.effectAllowed = "move"; }}
+                      <div className="lane-title"><span className={`stage-dot ${color}`} /><h3>{stage}</h3><span className="lane-count">{count}</span>{!processor && <Button variant="ghost" size="icon" aria-label={`Add lead to ${stage}`} onClick={() => show({ kind: "loan", stage })}><Plus /></Button>}</div>
+                      <p className="lane-volume">{compactMoney(volume)}</p>
+                      {loans.map((loan) => <LoanCard key={loan.id} loan={loan}
+                        onOpen={() => openPipelineLoan(loan.id)}
+                        onDrag={(event) => { if (busy || processor) { event.preventDefault(); return; } dragged.current = loan; event.dataTransfer.setData("text/plain", loan.id); event.dataTransfer.effectAllowed = "move"; }}
                         onDragEnd={() => { dragged.current = null; setDropStage(null); }} />)}
-                      {items.length === 0 && <p className="lane-empty">No loans in this stage</p>}
+                      {loans.length === 0 && <p className="lane-empty">No loans in this stage</p>}
+                      {next && <Button variant="outline" size="sm" disabled={pipeline.loadingMore || busy} aria-label={`Load more ${stage} loans`}
+                        onClick={() => void pipeline.loadMore(next, stage)}>Load more · {loans.length} of {count}</Button>}
                     </section>;
                   })}
                 </div>
-              ) : visibleLoans.length > 0 && <div className="table-scroll"><table className="data-table pipeline-list"><thead><tr><th>Borrower</th><th className="pipeline-list-extra">Stage</th><th>Amount</th><th className="pipeline-list-extra">Officer</th><th className="pipeline-list-extra">Lender</th><th className="pipeline-list-extra">Stage age</th><th>Next action</th></tr></thead><tbody>
-                {visibleLoans.map((loan) => <tr key={loan.id}><td><button className="name-link" onClick={() => show({ kind: "details", loanId: loan.id })}>{borrowers(loan)}</button><small>{loan.address}</small><small className="pipeline-mobile-stage">{loan.stage}{pausedLoan(loan) && ` · ${loan.disposition}`}</small></td>
-                  <td className="pipeline-list-extra"><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td><td>{money(loan.amount)}</td><td className="pipeline-list-extra">{loan.officer || "Unassigned"}</td><td className="pipeline-list-extra">{[...new Set(loanSubmissions(loan).map((item) => item.lender))].join(", ") || "—"}</td><td className="pipeline-list-extra" suppressHydrationWarning>{stageDays(loan.stageSince)} days</td>
-                  <td><button className="name-link" onClick={() => show({ kind: "details", loanId: loan.id, target: nextActions.get(loan.id)?.target })}>{nextActions.get(loan.id)?.title}</button>
-                    <small>{nextActions.get(loan.id)?.blocker}</small>
-                    {!!nextActions.get(loan.id)?.dueAt && <small>Due {dateTime(nextActions.get(loan.id)!.dueAt!)} ET</small>}</td></tr>)}
-              </tbody></table></div>}
+              ) : pipeline.page.list.loans.length > 0 && <div className="table-scroll"><table className="data-table pipeline-list"><thead><tr><th>Borrower</th><th className="pipeline-list-extra">Stage</th><th className="numeric">Amount</th><th className="pipeline-list-extra">Officer</th><th className="pipeline-list-extra">Lender</th><th className="pipeline-list-extra numeric">Stage age</th><th>Next action</th></tr></thead><tbody>
+                {pipeline.page.list.loans.map((loan) => <tr key={loan.id}><td><button className="name-link" onClick={() => openPipelineLoan(loan.id)}>{loan.name}</button><small>{loan.address}</small><small className="pipeline-mobile-stage">{loan.stage}{pausedLoan(loan) && ` · ${loan.disposition}`}</small></td>
+                  <td className="pipeline-list-extra"><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td><td className="numeric">{money(loan.amount)}</td><td className="pipeline-list-extra">{loan.officer || "Unassigned"}</td><td className="pipeline-list-extra">{loan.lenders.join(", ") || "—"}</td><td className="pipeline-list-extra numeric" suppressHydrationWarning>{stageDays(loan.stageSince)} days</td>
+                  <td><button className="name-link" onClick={() => openPipelineLoan(loan.id, loan.action.target)}>{loan.action.title}</button>
+                    <small>{loan.action.blocker}</small>
+                    {loan.action.dueAt && <small>Due {dateTime(loan.action.dueAt)} ET</small>}</td></tr>)}
+              </tbody></table></div>)}
+              {view === "List" && pipeline.page?.list.next && <div className="loan-application-actions p-3"><Button variant="outline" size="sm"
+                disabled={pipeline.loadingMore || busy} onClick={() => void pipeline.loadMore(pipeline.page!.list.next!)}>Load more loans · {pipeline.page.list.loans.length} of {pipeline.page.matches}</Button></div>}
             </section>
           }
 
-          {section === "Lead Inbox" && <LeadInbox leads={state.inboxLeads} routing={state.leadRouting} staff={staff} now={taskNow} busy={busy}
-            focusLeadId={focusLeadId} save={save} convert={convertLead} />}
+          {section === "Lead Inbox" && <LeadInbox version={state} staff={staff} now={taskNow} busy={busy}
+            focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} focusArchivedLeadId={focusArchivedLeadId}
+            save={(input, after) => save(input, after, true, "inbox")}
+            convert={(id, contactId, allowDuplicate, after) => convertLead(id, contactId, allowDuplicate, "inbox", after)}
+            openCampaign={(campaignId, leadId) => openLeadWork(leadId, campaignId)} openConversation={(leadId) => openConversation({ leadId })} />}
+          {section === "Call Campaigns" && !processor && <CallCampaigns state={state} staff={staff} selectedId={selectedCampaignId} select={selectCampaign}
+            focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} now={taskNow} busy={busy} save={save} openLead={(id) => { navigate("Lead Inbox"); setFocusLeadId(id); }}
+            openCallback={({ leadId, loanId, taskId, dueAt, requested }) => loanId ?
+              void openQueueLoan({ kind: "details", loanId, target: searchTaskTarget(taskId) },
+                { kind: "promised-callback", id: taskId, dueAt, source: "personal" }) :
+              void openScopedLead({ leadId, task: { kind: "campaign", id: taskId, ...(requested ? { expectedCallbackAt: dueAt } : {}) } })}
+            openLoan={(loanId) => staff || !state.loans.some(({ id }) => id === loanId) ?
+              void openQueueLoan({ kind: "details", loanId }) : show({ kind: "details", loanId })}
+            openConversation={(leadId) => openConversation({ leadId })}
+            convert={(id) => convertLead(id, null, false)} />}
 
-          {section === "Contacts" && <section className="pipeline">
-            <div className="pipeline-heading"><div><h2>All contacts <span>{visibleContacts.length}</span></h2><p>Your borrowers and referral partners.</p></div></div>
-            <div className="toolbar"><label className="search"><Search size={17} /><input aria-label="Search contacts" placeholder="Search contacts…" value={query} onChange={(event) => setQuery(event.target.value)} /></label></div>
-            {!processor && <ContactImport contacts={state.contacts} busy={busy} save={save} />}
-            {visibleContacts.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Name</th><th>Contact type</th><th>Email</th><th>Phone</th></tr></thead><tbody>
-              {visibleContacts.map((contact) => <tr key={contact.id}><td><button className="name-link" onClick={() => show({ kind: "contactHistory", contactId: contact.id })}>{contact.name}</button>
-                {admin && <small><button className="name-link" onClick={() => show({ kind: "contact", contactId: contact.id })}>Edit contact</button></small>}</td><td>{contact.role}</td><td>{contact.email || "—"}</td><td>{contact.phone || "—"}</td></tr>)}
-            </tbody></table></div> : <p className="empty-inline no-matches">No contacts match your search.</p>}
-          </section>}
+          {section === "Contacts" && <>
+            <ContactsDirectory brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state} admin={admin} busy={busy}
+              openContact={(id, edit) => void openContactRecord(id, edit)} tools={<>
+              {admin && <>
+                <Button size="sm" variant="outline" onClick={() => show({ kind: "contactDuplicateQueue" })}>Possible duplicates</Button>
+                <Button size="sm" variant="outline" onClick={() => show({ kind: "contactMergeHistory" })}>Merge history</Button>
+              </>}
+              {!processor && <Button size="sm" variant="outline" aria-expanded={contactToolsOpen}
+                onClick={() => setContactToolsOpen(!contactToolsOpen)}>Import or export contacts</Button>}
+            </>} />
+            {!processor && contactToolsOpen && <ContactImport brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} />}
+          </>}
 
-          {section === "Tasks" && <section className="pipeline" aria-label="Loan tasks">
-            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length + importedLeadTasks.length + visibleProcessing.length + visiblePlaybook.length} shown</span></h2><p>Review leads, lender updates, and loan follow-ups.</p></div></div>
+          {section === "Today" && canOpenToday && <OfficerToday brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
+            version={queueVersion} busy={busy} openWork={openTodayWork} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
+            openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}
+            openStalled={(loanId) => void openQueueLoan({ kind: "details", loanId }, { kind: "stalled" })}
+            refreshStalled={() => setError((current) => current === stalledLoanUnavailable ? "" : current)}
+            openOpportunity={(item) => void openQueueLoan({ kind: "details", loanId: item.loanId, target: searchTaskTarget(item.id) }, { kind: "retention", id: item.id })}
+            openPastClients={() => navigate("Past Clients")} />}
+          {section === "Calendar" && canOpenCalendar && <WorkspaceCalendar brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            canSeeTeam={admin} processor={processor} query={calendar} onChange={setCalendar} version={queueVersion} openWork={openDeadlineWork} />}
+          {section === "Coverage" && canOpenCalendar && <StaffCoverage brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            staffEmail={staff?.email ?? localOfficer.email} admin={admin} onWorkSaved={() => setCalendar((current) => ({ ...current, after: undefined }))} />}
+          {section === "Search" && canOpenCalendar && <WorkspaceSearch brokerageId={staff?.brokerage.id ?? demoBrokerageId} processor={processor}
+            selection={searchSelection} onSearch={setSearchSelection} version={state} busy={busy} open={(record) => void openSearchResult(record)} />}
+          {section === "Reviews" && canOpenCalendar && <LoanReviewQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
+            version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
+          {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
+          {section === "Processing" && canOpenProcessing && <ProcessorQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor}
+            reviewingLoan={!!modal || busy} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "processing")}
+            version={state} openTasks={() => navigate("Tasks")} openReply={(id) => openConversation({ id })}
+            openLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}
+            onAssignment={canReport ? invalidateWorkspace : undefined}
+            openAssignment={canReport ? (loanId) => show({ kind: "assignment", loanId }) : undefined} />}
+          {section === "Tasks" && staff && pagedTasks && <PagedTaskQueue staff={staff} version={queueVersion} busy={busy}
+            focusContact={focusContactTask} openWork={openActiveTask} openHistory={(id, realtor) => void openContactRecord(id, false, realtor ? "partner" : "contact")}
+            save={(input, after) => save(input, after, true, "tasks")} />}
+
+          {showDetailedTaskLists && <section className="pipeline" aria-label="Tasks">
+            <div className="pipeline-heading"><div><h2>Follow-up queue <span>{visibleTasks.length + visibleReferrals.length + visibleUwmAlerts.length + incomingLeadTasks.length + importedLeadTasks.length + visibleProcessing.length + visiblePlaybook.length + visibleContactFollowUps.length + (taskView === "Completed" ? 0 : focusedLoans.length)} shown</span></h2><p>Review leads, lender updates, and loan and contact follow-ups.</p></div></div>
             <div className="filter-row">
               <Button size="sm" variant={taskOfficer === "mine" ? "default" : "outline"} aria-pressed={taskOfficer === "mine"}
                 onClick={() => setTaskOfficer(taskOfficer === "mine" ? "" : "mine")}>My Tasks</Button>
@@ -507,12 +1174,19 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
               review={(alert) => void save({ type: "reviewUwmAlert", loanId: alert.loanId, alertId: alert.id })} />}
             {visiblePlaybook.length > 0 && <section className="work-queue" aria-label="Playbook tasks">
               <div className="section-heading"><h3>Playbook tasks</h3><span className="pill">{visiblePlaybook.length} open</span></div>
-              <ul className="loan-task-list">{visiblePlaybook.map((item) => <li className="loan-task" key={item.id}>
-                <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.name} · {item.owner || "Unassigned"}</span>
-                  <span>{item.reason} · Due {dateTime(item.dueAt)} ET</span></div>
-                <div className="loan-application-actions"><Button size="sm" variant="outline" onClick={() => openPlaybook(item)}>{item.kind === "funding" ? "Preview draft" : "Open work"}</Button>
-                  {item.kind === "funding" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ type: "completeTask", id: item.id, completed: true })}>Mark complete</Button>}</div>
-              </li>)}</ul>
+              <ul className="loan-task-list">{visiblePlaybook.map((item) => {
+                const repeatId = returningByFundedLoan.get(item.recordId);
+                const borrowerCheckIn = item.kind === "funding" && fundingTaskAudience(item.id) === "Borrower" && fundedLoans.has(item.recordId) && !processor;
+                return <li className="loan-task" key={item.id}>
+                  <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.name} · {item.owner || "Unassigned"}</span>
+                    <span>{item.reason} · Due {dateTime(item.dueAt)} ET</span></div>
+                  <div className="loan-application-actions"><Button size="sm" variant="outline" onClick={() => openPlaybook(item)}>{item.kind === "funding" ? "Preview draft" : "Open work"}</Button>
+                    {borrowerCheckIn && <Button size="sm" variant="outline" disabled={busy} onClick={() => openReturningClient(item.recordId)}>
+                      {repeatId ? "Open returning-client 1003" : "Start returning-client 1003"}</Button>}
+                    {borrowerCheckIn ? <Button size="sm" disabled={busy} onClick={() => show({ kind: "fundingCheckIn", loanId: item.recordId })}>Record check-in</Button> :
+                      item.kind === "funding" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ type: "completeTask", id: item.id, completed: true })}>Mark complete</Button>}</div>
+                </li>;
+              })}</ul>
             </section>}
             {visibleProcessing.length > 0 && <section className="work-queue" aria-label="Processing handoffs">
               <div className="section-heading"><h3>Processing handoffs</h3><span className="pill">{visibleProcessing.length} open</span></div>
@@ -524,22 +1198,48 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
             {incomingLeadTasks.length > 0 && <div className="work-queue" aria-label="Lead follow-ups">
               <div className="section-heading"><h3>Lead follow-ups</h3><span className="pill">{incomingLeadTasks.length} open</span></div>
               <ul className="loan-task-list">{incomingLeadTasks.map(({ lead, title, dueAt }) => <li className="loan-task" key={lead.id}>
-                <div className="loan-task-copy"><strong>{title}</strong><span>{lead.name} · {lead.officer || "Shared inbox"}</span><span>{dateTime(dueAt)} ET</span></div>
-                <Button size="sm" variant="outline" onClick={() => { navigate("Lead Inbox"); setFocusLeadId(lead.id); }}>Open lead</Button>
+                <div className="loan-task-copy"><strong>{title}</strong><span>{lead.name} · {lead.officer || "Shared inbox"}</span>
+                  <span>{lead.heldAt ? `Revisit ${lead.revisitDate} · ${lead.holdReason}` : `${dateTime(dueAt)} ET`}</span></div>
+                <Button size="sm" variant="outline" onClick={() => openLeadWork(lead.id, lead.heldAt ? null : lead.campaignId)}>
+                  {lead.campaignId && !lead.heldAt ? "Open campaign" : "Open lead"}</Button>
               </li>)}</ul>
             </div>}
-            {importedLeadTasks.length > 0 && <div className="work-queue" aria-label="Imported lead tasks">
-              <div className="section-heading"><h3>Imported lead tasks</h3><span className="pill">{importedLeadTasks.length} shown</span></div>
-              <ul className="loan-task-list">{importedLeadTasks.map(({ lead, task }) => <li className="loan-task" key={task.id}>
+            {importedLeadTasks.length > 0 && <section className="work-queue" aria-label="Lead tasks">
+              <div className="section-heading"><h3>Lead tasks</h3><span className="pill">{importedLeadTasks.length} shown</span></div>
+              <ul className="loan-task-list">{importedLeadTasks.map(({ lead, task, blocked }) => <li className="loan-task" key={task.id}>
                 <div className="loan-task-copy"><strong>{task.title}</strong><span>{lead.name} · {lead.officer || "Shared inbox"}</span>
-                  <span>{task.completedAt ? "Completed" : "Due"} {dateTime(task.completedAt ?? task.dueAt)} ET</span></div>
-                <Button size="sm" variant="outline" onClick={() => { navigate("Lead Inbox"); setFocusLeadId(lead.id); }}>Open lead</Button>
+                  <span>{task.purpose} · {task.completedAt ? "Completed" : "Due"} {dateTime(task.completedAt ?? task.dueAt)} ET</span>
+                  {lead.heldAt && !task.completedAt && <span className="pill">Lead on hold</span>}
+                  {blocked && <span className="pill">Blocked by outreach opt-out</span>}</div>
+                <Button size="sm" variant="outline" onClick={() => openLeadWork(lead.id, lead.heldAt ? null : campaignByCallback.get(task.id))}>
+                  {campaignByCallback.has(task.id) && !lead.heldAt ? "Open campaign" : "Open lead"}
+                </Button>
               </li>)}</ul>
-            </div>}
+            </section>}
+            {visibleContactFollowUps.length > 0 && <section className="work-queue" aria-label="Contact follow-ups">
+              <div className="section-heading"><h3>Contact follow-ups</h3><span className="pill">{visibleContactFollowUps.length} shown</span></div>
+              {canReport && followUpOwnerError && <p role="alert">{followUpOwnerError}</p>}
+              <ul className="loan-task-list">{visibleContactFollowUps.map(({ item, contact, owner, dueAt, blocked }) => <LoanTaskRow key={item.id}
+                id={`contact-follow-up-${item.id}`}
+                task={{ title: item.postFundingCheckIn ? "Post-funding follow-up" : `Follow up after ${item.kind.toLowerCase()}`,
+                  dueAt, completedAt: item.completedAt, purpose: item.purpose }}
+                officer={owner.officer} borrower={contact.name} busy={busy} blocked={blocked} context={item.outcome ?? undefined}
+                openLoan={() => show({ kind: "contactHistory", contactId: contact.id })}
+                onChange={item.completedAt ? () => void save({ type: "completeContactFollowUp", contactId: contact.id, eventId: item.id,
+                  revision: item.revision, completed: false }) : undefined}>
+                <ContactFollowUpResult completion={item.latestCompletion} current={!!item.completedAt} />
+                {!item.completedAt && !blocked && <ContactFollowUpCompletion item={item} busy={busy} save={save} />}
+                {!blocked && <BorrowerCallbackReschedule item={item} busy={busy} save={save} />}
+                {canReport && followUpOwners && !item.completedAt && !blocked && <ContactFollowUpAssignment item={item} members={followUpOwners} busy={busy} save={save} />}
+              </LoanTaskRow>)}</ul>
+            </section>}
             {taskView !== "Completed" && <ReferralQueue leads={visibleReferrals} now={taskNow} busy={busy}
               refresh={() => void save({ type: "refreshWorkspace" }, undefined, false)}
               convert={(lead, contactId, allowDuplicate) => convertLead(lead.id, contactId, allowDuplicate)}
-              dismiss={(lead) => void save({ type: "dismissReferral", referralId: lead.id })} />}
+              dismiss={(lead) => {
+                const record = state.inboxLeads.find((item) => item.id === lead.id);
+                if (record) void save({ type: "dismissReferral", referralId: lead.id, revision: record.followUp.revision });
+              }} />}
             {taskView !== "Completed" && (focusedLoans.length > 0 || taskFocus) && <div className="work-queue">
               <div className="section-heading"><h3>{taskFocus || "Holds to revisit"}</h3><span className="pill">{focusedLoans.length} loans</span></div>
               {focusedLoans.length ? <ul className="loan-task-list">{focusedLoans.map((loan) => {
@@ -557,55 +1257,147 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
                 const loan = taskLoans.get(task.loanId);
                 if (!loan) return null;
                 return <LoanTaskRow key={task.id} task={task} officer={loan.officer} borrower={borrowers(loan)} busy={busy}
+                  blocked={loanTaskBlocked(task)}
                   context={task.id.startsWith("rate-watch:") ? rateFollowUpContext(state.pastClients.find((profile) => profile.loanId === loan.id)) : undefined}
-                  openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id) })}
-                  onChange={() => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
+                  openLoan={() => show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id, processor || Boolean(task.completedAt)) })}
+                  onChange={task.id.startsWith(reversedFundingTaskPrefix) || (task.completedAt && isApplicationReviewTask(task.id)) ? undefined :
+                    () => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
-            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length || visiblePlaybook.length ? "No other loan tasks match this view." : taskOfficer === "mine" && staff && !state.loans.some((loan) => loan.officerEmail === staff.email || assignedProcessing.has(loan.id))
-              ? "No loans are assigned to your account. Open a loan and use Assign to my account under Edit loan."
-              : state.tasks.length ? "No tasks match this view." : "Add a task from a loan, or submit a 1003 to create a follow-up."}</p>}
+            </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length || visiblePlaybook.length || visibleContactFollowUps.length || (taskView !== "Completed" && focusedLoans.length)
+              ? "No other loan tasks match this view." : state.tasks.length || contactFollowUps.length ? "No tasks match this view."
+              : "Add a follow-up from a contact or loan, or submit a 1003 to create a review task."}</p>}
           </section>}
 
-          {section === "Communications" && <><CommunicationQueue state={state}
-            preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />
-            {admin && <BrokerageTemplates state={state} busy={busy} save={save} />}</>}
+          {section === "Communications" && <div className="record-form">
+            {canReviewReplies && <div className="view-toggle" role="group" aria-label="Communications view">
+              <button type="button" aria-pressed={communicationView === "Conversations"} onClick={() => setCommunicationView("Conversations")}>Conversations</button>
+              <button type="button" aria-pressed={communicationView === "Reply review"} onClick={() => setCommunicationView("Reply review")}>Reply review</button>
+            </div>}
+            {canReviewReplies && communicationView === "Reply review" ? <InboundReplyQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+              openConversation={(id) => { setConversationFocus({ id }); setCommunicationView("Conversations"); }} /> :
+              <><ConversationQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
+                version={state} focus={conversationFocus} setFocus={setConversationFocus} openPipeline={() => navigate("Pipeline")}
+                openCallback={openConversationCallback}
+                openLead={(leadId) => openLeadWork(leadId)} openInbox={!processor ? () => navigate("Lead Inbox") : undefined}
+                openContacts={!processor ? () => navigate("Contacts") : undefined}
+                openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-communications" })} />
+                <CommunicationQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state} busy={busy} save={save}
+                  preview={(loanId, audience, draftId) => {
+                    const next = { kind: "communication", loanId, audience, draftId } as const;
+                    if (staff) void openQueueLoan(next);
+                    else show(next);
+                  }} /></>}
+          </div>}
 
-          {section === "Realtors" && <RealtorCrm state={state} staff={staff} busy={busy} save={save}
-            openLoan={(loanId) => show({ kind: "details", loanId })} editRealtor={(contactId) => show({ kind: "contact", contactId })} />}
+          {section === "Realtors" && admin && <RealtorCrm version={state} staff={staff} busy={busy}
+            save={(input) => save(input, undefined, true, "realtors")}
+            openLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}
+            openLead={(leadId) => void openScopedLead({ leadId })}
+            openArchived={(leadId) => { navigate("Lead Inbox", false); setFocusArchivedLeadId(leadId); }}
+            editRealtor={(contactId) => void openContactRecord(contactId, true, "partner")}
+            openContact={(contactId) => void openContactRecord(contactId, false, "partner")} />}
 
-          {section === "Past Clients" && <PastClients state={state} openLoan={(loanId) => show({ kind: "details", loanId })}
-            editRetention={(loanId) => show({ kind: "retention", loanId })} />}
+          {section === "Past Clients" && <PastClients brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state} busy={busy}
+            openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
+            editRetention={processor ? undefined : (loanId) => void openQueueLoan({ kind: "retention", loanId })}
+            openContact={(contactId) => void openContactRecord(contactId)}
+            openRepeat={processor ? undefined : openReturningClient} />}
 
-          {section === "Reports" && canReport && state.managerReports && <div className="record-form">
+          {section === "Reports" && canOpenReports && <div className="record-form">
             <div className="loan-application-actions" aria-label="Report view">
-              {(["Production", "Call report"] as const).map((tab) => <Button size="sm" key={tab} aria-pressed={reportTab === tab}
+              {reportTabs.filter((tab) => tab === "Financials" ? canOpenFinance : tab === "Referral queue" ? canReport : tab === "Pipeline workload" ? canOpenReports :
+                state.managerReports || tab === "Funding dashboard" || tab === "Sales conversion" || tab === "Call report").map((tab) => <Button size="sm" key={tab} aria-pressed={reportTab === tab}
                 variant={reportTab === tab ? "default" : "outline"} onClick={() => setReportTab(tab)}>{tab}</Button>)}
             </div>
-            {reportTab === "Call report" ? <CallReportWorkbench state={state}
-              openLoan={(loanId) => show({ kind: "details", loanId, target: "loan-call-report" })} /> :
-              <ManagerReports data={state.managerReports} busy={busy} now={taskNow} save={save}
+            {reportTab === "Financials" && canOpenFinance ? <BrokerageFinance brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+              loans={state.loans} fundingVersion={state.closingProgress} openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })} /> :
+              reportTab === "Pipeline workload" ? <StalledLoans team brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state} busy={busy}
+                openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId }, { kind: "brokerage-stalled" })}
+                onRefresh={() => setError((current) => current === stalledLoanUnavailable ? "" : current)} /> :
+              reportTab === "Sales conversion" ? <SalesDashboard brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+              version={state} selection={salesSelection} setSelection={setSalesSelection}
+              openLead={(row, channel) => channel === "Lead sources" ? void openScopedLead({ leadId: row.id }) :
+                openLeadWork(row.id, channel === "Campaigns" ? row.groupId : null)}
+              openLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })} /> :
+              reportTab === "Referral queue" && staff ? <RealtorQueueReport brokerageId={staff.brokerage.id} version={state}
+                members={followUpOwners} memberError={followUpOwnerError}
+                openLead={(leadId) => openLeadWork(leadId)} openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })} /> :
+              reportTab === "Call report" ? <CallReportWorkbench state={state} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+                period={reportingPeriod} setPeriod={setReportingPeriod}
+                openReadiness={() => { setManagerExceptionView("reporting"); navigate("Playbooks", false); }}
+                openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget })} /> :
+              reportTab === "Funding dashboard" || !state.managerReports ? <FundingDashboard brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+              loans={state.loans} version={state.closingProgress} openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "closing-workbench" })} /> :
+              reportTab === "Returning clients" ? <ReturningClientReports rows={state.managerReports.returningClients} busy={busy} save={save}
+                contactActivity={state.contactActivity} members={followUpOwners} ownerError={followUpOwnerError}
+                refresh={() => void save({ type: "refreshWorkspace" })} openApplication={(loanId) => show({ kind: "details", loanId, target: "loan-application" })}
+                openContact={(contactId) => show({ kind: "contactHistory", contactId })} /> :
+              <ManagerReports data={state.managerReports} campaigns={state.callCampaigns} segments={state.crmSegments} busy={busy} now={taskNow} save={save}
                 openLoan={(loanId) => show({ kind: "details", loanId })}
                 openLead={(leadId) => { navigate("Lead Inbox"); setFocusLeadId(leadId); }} />}
           </div>}
 
-          {section === "Migration" && canMigrate && <MigrationWorkspace busy={busy} save={save}
-            openLoan={(loanId) => show({ kind: "details", loanId, target: "loan-application" })} />}
-          {section === "Playbooks" && admin && <BrokeragePlaybooks state={state} work={playbook} staff={staff} now={taskNow} busy={busy}
-            save={(input) => void save(input)} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)} open={openPlaybook} />}
+          {section === "Migration" && canMigrate && <MigrationWorkspace busy={busy}
+            save={(input, after, announce) => save(input, after, announce, "migration")} brokerageId={staff.brokerage.id} version={state}
+            openRecord={openMigrationDestination}
+            openLinkedLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })} />}
+          {section === "Playbooks" && admin && <BrokeragePlaybooks staff={staff} busy={busy}
+            save={(input, after) => save(input, after, true,
+              input && typeof input === "object" && "type" in input && input.type === "assignInboxLead" ? "inbox" : "tasks")}
+            refresh={async () => invalidateWorkspace()} open={openPlaybook}
+            openLead={(leadId) => void openScopedLead({ leadId })} openCampaignRun={openLeadWork}
+            openContactFollowUp={(contactId, activityId) => {
+              if (staff) showGuideTasks(undefined, activityId, false, true);
+              else void openContactRecord(contactId);
+            }}
+            openCallbackPromise={({ leadId, id, loanTask }) => loanTask ?
+              void openQueueLoan({ kind: "details", loanId: loanTask.loanId, target: searchTaskTarget(loanTask.taskId) },
+                { kind: "promised-callback", id: loanTask.taskId, dueAt: loanTask.dueAt, source: "manager" }) :
+              void openScopedLead({ leadId, callbackPromiseId: id })}
+            fileVersion={queueVersion} openFile={(item) => void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
+              item.kind === "Missing evidence" ? { kind: "document", id: item.id } : undefined)}
+            view={managerExceptionView} setView={setManagerExceptionView} filters={managerExceptionFilters} setFilters={setManagerExceptionFilters}
+            reporting={{ period: reportingPeriod, setPeriod: setReportingPeriod,
+              openLoan: (loanId) => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget }),
+              openReport: () => { setReportTab("Call report"); navigate("Reports", false); } }}
+            openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}
+            openDocument={(loanId, requestId) => void openQueueLoan({ kind: "details", loanId, target: `document-${requestId}` }, { kind: "document", id: requestId })}
+            openLoan={(loanId, processing) => void openQueueLoan({ kind: "details", loanId, target: processing ? "processing-handoff" : undefined })}
+            openAssignment={canReport ? (loanId) => show({ kind: "assignment", loanId }) : undefined} />}
 
-          {section === "Team" && staff && <BrokerageTeam staff={staff} state={state} refresh={() => save({ type: "refreshWorkspace" }, undefined, false)}
-            openLoan={(loanId) => show({ kind: "details", loanId })} />}
+          {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} refresh={async () => invalidateWorkspace()}
+            openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
+            openDepartureWork={(item) => {
+              if (item.kind === "Lead") return openLeadWork(item.recordId, item.campaignId);
+              if (item.kind === "Contact follow-up") return showGuideTasks(undefined, item.id, false, true);
+              if (item.kind === "Contact conversation") return openConversation({ id: item.recordId });
+              const target = item.kind === "Reviewer" || item.kind === "Review requester" ? reviewTarget(item.id) : undefined;
+              void openQueueLoan({ kind: "details", loanId: item.recordId, target });
+            }} />}
 
-          {section === "Demo Guide" && !processor && <DemoGuide state={state} staff={staff} busy={busy} save={save}
-            open={(loanId, target) => show({ kind: "details", loanId, target })}
-            openPricing={(loanId) => show({ kind: "pricing", loanId })}
+          {section === "Demo Guide" && !processor && <div className="record-form">
+            <div className="view-toggle" role="group" aria-label="Walkthrough path">
+              <button type="button" aria-pressed={guideTrack === "referral"} onClick={() => setGuideTrack("referral")}>Realtor referral</button>
+              <button type="button" aria-pressed={guideTrack === "campaign"} onClick={() => setGuideTrack("campaign")}>CSV to repeat loan</button>
+            </div>
+            <DemoGuide track={guideTrack} state={state} staff={staff} busy={busy} save={save}
+            open={(loanId, target, campaignLender) => show({ kind: "details", loanId, target, campaignLender })}
+            openConditions={(loanId, submissionId, conditionId) => void openQueueLoan({ kind: "details", loanId },
+              { kind: "guide-conditions", submissionId, conditionId })}
+            openPricing={(loanId, campaignLender) => show({ kind: "pricing", loanId, campaignLender })}
             openLead={(id) => { navigate("Lead Inbox"); setFocusLeadId(id); }}
             convert={(id) => convertLead(id, null, false)}
             previewRealtor={(loanId, draftId) => show({ kind: "communication", loanId, audience: "Realtor", draftId })}
-            showTasks={() => { navigate("Tasks"); setTaskOfficer("mine"); }} />}
+            openCampaign={(id, leadId) => { navigate("Call Campaigns", true, id); setFocusLeadId(leadId); }}
+            openContact={(id) => show({ kind: "contactHistory", contactId: id })}
+            openProcessorAssignment={(loanId) => show({ kind: "assignment", loanId })}
+            recordCheckIn={(loanId) => show({ kind: "fundingCheckIn", loanId })}
+            startRepeat={(loanId) => show({ kind: "returningClient", loanId })}
+            showTasks={showGuideTasks} />
+          </div>}
 
           {section === "Integrations" && <section className="integration">
-            <div className="integration-head"><span className="metric-icon lavender"><Zap size={20} /></span><div><h2>United Wholesale Mortgage</h2><p>Mock lender connection</p></div><span className="pill">Demo mode</span></div>
+            <div className="integration-head"><span className="metric-icon lavender"><workspaceIcons.integrations size={20} aria-hidden="true" /></span><div><h2>United Wholesale Mortgage</h2></div><span className="pill">Mock connection</span></div>
             <p className="integration-description">Import sample pipeline loans and refresh their lender status and underwriting conditions.</p>
             <details className="document-form">
               <summary>Connection settings</summary>
@@ -621,9 +1413,30 @@ export function Orbit({ initial, staff, initialGuide }: { initial: Workspace; st
               ? "Sample lender changes applied. Review Charlotte Kim’s alerts under Tasks. My Tasks shows alerts for your assigned loans."
               : "After the first sync, simulate three lender changes on Charlotte Kim’s loan. Assign her loan to yourself to see the alerts in My Tasks."}</p>}
           </section>}
+          </>}
         </div>
       </main>
-      {modal && <RecordDialog modal={modal} state={state} staff={staff} busy={busy} error={error} save={save} show={show} close={close} />}
+      {modal && (!waitingForWorkspace || modal.kind === "assignment") && <RecordDialog modal={modal} state={loanWork && "loanId" in modal && modal.loanId === loanWork.loanId ? {
+        ...state, ...loanWork,
+        loans: [...loanWork.loans, ...state.loans.filter((loan) => loan.id !== loanWork.loanId)],
+        contacts: [...loanWork.contacts, ...state.contacts.filter((contact) => !loanWork.contacts.some((item) => item.id === contact.id))],
+      } : state} staff={staff} busy={busy} error={saveError} save={save} show={show} close={close}
+        refreshLoan={modal.kind === "details" && staff ? () => void openQueueLoan(modal) : undefined}
+        refreshLoanOnReturn={staff ? refreshLoanOnReturn : undefined}
+        searchContact={searchContact} openContact={(id) => void openContactRecord(id)}
+        repeatOption={loanWork && "loanId" in modal && modal.loanId === loanWork.loanId ? loanWork.repeatOption : undefined}
+        openContactLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}
+        assignmentChanged={invalidateWorkspace}
+        assignmentVersion={state}
+        appointmentChanged={() => setCalendar((current) => ({ ...current, after: undefined }))}
+        reviewChanged={() => {
+          setReviewVersion((version) => version + 1);
+          if (modal.kind === "details" && (loanWork?.playbook.requireSecondReview || state.playbook.requireSecondReview)) void openQueueLoan(modal);
+        }}
+        openConversation={(subject) => { close(); openConversation(subject); }}
+        openContactConversation={(contactId) => { close(); openConversation({ contactId }); }}
+        openConversationThread={(id) => { close(); openConversation({ id }); }}
+        openLead={(id) => { close(); navigate("Lead Inbox"); setFocusLeadId(id); }} />}
     </div>
   );
 }

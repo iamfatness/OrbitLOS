@@ -1,9 +1,10 @@
 "use client";
 
 import { FileCheck2, Mail, Plus, RefreshCw, Send } from "lucide-react";
-import { documentKinds, needsBorrowerDocument, type DocumentKind, type LoanDocumentRequest } from "@/lib/document-model";
+import { documentKinds, needsBorrowerDocument, suggestedConditionDocument, type DocumentKind, type LoanDocumentRequest } from "@/lib/document-model";
 import type { Condition } from "@/lib/model";
 import { demoBrokerageId } from "@/lib/brokerage-model";
+import { dateLabel } from "@/lib/client-retention";
 import { dateTime } from "@/lib/utils";
 import { DocumentStatusPill, SampleDocument } from "./sample-document";
 import { Button } from "./ui/button";
@@ -13,18 +14,15 @@ type Save = (input: unknown, after?: () => void) => Promise<void>;
 export function DocumentRequestForm({ loanId, kinds = documentKinds, source, busy, save, quick = false }: {
   loanId: string; kinds?: readonly DocumentKind[]; source?: { submissionId: string; condition: Condition }; busy: boolean; save: Save; quick?: boolean;
 }) {
-  const suggestedKind = source && ({
-    Income: "Pay stub", Assets: "Bank statement", Identity: "Photo ID", Insurance: "Homeowners insurance",
-  } as Record<string, DocumentKind>)[source.condition.category];
-  const suggestedInstructions = suggestedKind && source?.condition.description.slice(0, 500);
-  if (quick && suggestedKind && suggestedInstructions) return <div className="loan-application-actions">
+  const suggested = source && suggestedConditionDocument(source.condition);
+  if (quick && source && suggested) return <div className="loan-application-actions">
     <Button size="sm" type="button" disabled={busy} onClick={() => void save({ type: "requestDocument", loanId,
-      kind: suggestedKind, instructions: suggestedInstructions,
+      ...suggested,
       condition: { submissionId: source.submissionId, conditionId: source.condition.id },
-    })}><Plus /> Request {suggestedKind.toLowerCase()}</Button>
-    <RequestForm loanId={loanId} kinds={kinds} source={source} busy={busy} save={save} suggestedKind={suggestedKind} />
+    })}><Plus /> Request {suggested.kind.toLowerCase()}</Button>
+    <RequestForm loanId={loanId} kinds={kinds} source={source} busy={busy} save={save} suggestedKind={suggested.kind} />
   </div>;
-  return <RequestForm loanId={loanId} kinds={kinds} source={source} busy={busy} save={save} suggestedKind={suggestedKind} />;
+  return <RequestForm loanId={loanId} kinds={kinds} source={source} busy={busy} save={save} suggestedKind={suggested?.kind} />;
 }
 
 function RequestForm({ loanId, kinds, source, busy, save, suggestedKind }: {
@@ -37,7 +35,7 @@ function RequestForm({ loanId, kinds, source, busy, save, suggestedKind }: {
       event.preventDefault();
       const form = event.currentTarget;
       const data = new FormData(form);
-      void save({ type: "requestDocument", loanId, kind: data.get("kind"), instructions: data.get("instructions"),
+      void save({ type: "requestDocument", loanId, kind: data.get("kind"), instructions: data.get("instructions"), dueOn: data.get("dueOn") || null,
         condition: source && { submissionId: source.submissionId, conditionId: source.condition.id },
       }, () => {
         form.reset();
@@ -51,6 +49,7 @@ function RequestForm({ loanId, kinds, source, busy, save, suggestedKind }: {
       <label>{source ? "Instructions shown to borrower" : "Instructions for borrower (optional)"}
         <textarea name="instructions" rows={2} maxLength={500} required={Boolean(source)} defaultValue={source?.condition.description.slice(0, 500)} />
       </label>
+      <label>Borrower due date (optional)<input name="dueOn" type="date" /></label>
       <Button size="sm" type="submit" disabled={busy}>Add to checklist</Button>
     </form>
   </details>;
@@ -73,7 +72,7 @@ export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequ
     </div>
     {requests.length > 0 && <p className="document-counts">{waiting} waiting on borrower · {received} ready for review · {requests.length - waiting - received} accepted</p>}
     {waiting > 0 && applicationSubmitted && <div><Button size="sm" variant="outline" onClick={followUp}><Mail /> Preview document follow-up</Button></div>}
-    <p className="muted">{applicationStarted ? "The checklist appears in the borrower’s link after they submit the 1003." : "Start a 1003 on this loan to give the borrower access to the checklist after submission."} Use fictional files in the demo.</p>
+    {!applicationSubmitted && <p className="muted">{applicationStarted ? "Available to the borrower after 1003 submission." : "Start a 1003 to share the checklist."}</p>}
     {available.length > 0 && <DocumentRequestForm loanId={loanId} kinds={available} busy={busy} save={save} />}
     {standalone.length ? <ul className="document-list">{standalone.map((request) => <li key={request.id}>
       <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot} busy={busy} save={save}
@@ -93,6 +92,23 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
         {request.conditionId && !compact && <small className="muted">Linked lender condition</small>}
         {request.instructions && !compact && <p>{request.instructions}</p>}
         {request.replacementNote && <p><strong>Replacement instructions</strong> · {request.replacementNote}</p>}
+        {needsBorrowerDocument(request.status) && <>
+          {request.dueOn && <p><strong>Due <time dateTime={request.dueOn}>{dateLabel(request.dueOn)}</time></strong></p>}
+          <details className="document-form" key={request.deadlineRevision}>
+            <summary>{request.dueOn ? "Edit due date" : "Set due date"}</summary>
+            <form onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const dueOn = new FormData(form).get("dueOn") || null;
+              void save({ type: "setDocumentDeadline", loanId, requestId: request.id, revision: request.revision,
+                deadlineRevision: request.deadlineRevision, dueOn }, () => form.closest("details")?.removeAttribute("open"));
+            }}>
+              <label>Borrower due date<input name="dueOn" type="date" defaultValue={request.dueOn ?? ""} /></label>
+              <p className="muted">Leave the date blank to clear it.</p>
+              <Button size="sm" type="submit" disabled={busy}>Save due date</Button>
+            </form>
+          </details>
+        </>}
         <small className="muted">Requested {dateTime(request.requestedAt)} ET{request.submittedAt && ` · Last ${request.pdfUploadedAt ? pdfLabel : "sample"} received ${dateTime(request.submittedAt)} ET`}</small>
         {request.pdfStatus === "Processing" && <p className="muted">Borrower PDF is processing.</p>}
         {request.pdfUploadedAt ? <div><Button size="sm" variant="outline" asChild>
@@ -110,7 +126,9 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
             <RefreshCw /> Check UWM clearance (mock)
           </Button>}
         {request.status === "Accepted" && !request.uwmReceipt && openCondition && <div className="loan-application-actions">
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "sendConditionDocument", loanId, requestId: request.id })}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
+            type: "sendConditionDocument", loanId, requestId: request.id, revision: request.revision,
+          })}>
             <Send /> {request.uwmDeliveryFailedAt ? "Retry delivery to UWM (mock)" : request.pdfUploadedAt ? "Record delivery to UWM (mock)" : "Send sample to UWM (mock)"}
           </Button>
           {request.uwmDeliveryFailedAt ? <span className="muted">Mock delivery failed · {dateTime(request.uwmDeliveryFailedAt)} ET</span> :
@@ -132,9 +150,10 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
               event.preventDefault();
               const data = new FormData(event.currentTarget);
               void save({ type: "reviewDocument", loanId, requestId: request.id, revision: request.revision,
-                decision: "Needs replacement", replacementNote: data.get("replacementNote") });
+                decision: "Needs replacement", replacementNote: data.get("replacementNote"), dueOn: data.get("dueOn") || null });
             }}>
               <label>Message to borrower<textarea name="replacementNote" required rows={2} maxLength={500} /></label>
+              <label>Replacement due date (optional)<input name="dueOn" type="date" /></label>
               <Button type="submit" size="sm" variant="outline" disabled={busy}>Add replacement request</Button>
             </form>
           </details>

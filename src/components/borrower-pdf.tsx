@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import type { DocumentRequest } from "@/lib/document-model";
 import { demoPdfFixtures, maxPdfBytes, type DocumentUploadMode } from "@/lib/document-files-model";
+import { announceBorrowerChange } from "@/lib/borrower-change-signal";
 import { Button } from "./ui/button";
 
 async function pdfResponse(response: Response) {
@@ -61,6 +62,7 @@ export function useBorrowerPdf(token: string, refresh: () => void, mode?: Docume
       });
       if (response.status === 401) { setSession(""); setCodeSent(false); setDemoCode(""); }
       await pdfResponse(response);
+      void announceBorrowerChange(token);
       form.reset();
       setNotice(mode === "mock" ? "Demo PDF passed the mock scan and is ready for review." : "PDF received and ready for your loan team to review.");
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not upload this PDF."); }

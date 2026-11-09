@@ -1,4 +1,4 @@
-import type { CommunicationDraft, DraftAudience, DraftChannel, DraftMilestone, Loan, Stage } from "./model";
+import { stages, type DraftAudience, type DraftChannel, type DraftMilestone, type Loan, type Stage } from "./model";
 
 export const draftChannels = ["Email", "Text"] as const;
 
@@ -10,6 +10,7 @@ const borrowerUpdates: Record<DraftMilestone, string> = {
   "Closing complete": "Your closing is complete. I’ll be in touch with any remaining next steps.",
   Processing: "Your loan has moved into processing. I’ll let you know if we need anything else from you.",
   "Lender review started": "The lender has started reviewing your loan.",
+  "Lender review resumed": "The lender is reviewing a follow-up item. I’ll be in touch with any next steps.",
   "Lender review complete": "This lender review step is complete. I’ll be in touch with what comes next.",
   Underwriting: "Your loan has moved to underwriting for review. I’ll share updates as they become available.",
   "Clear to Close": "Your loan has reached clear to close. I’ll be in touch to confirm the closing details.",
@@ -23,15 +24,17 @@ export function draftRecipient(loan: Loan, audience: DraftAudience) {
   return audience === "Borrower" ? loan.contactId : loan.partnerId;
 }
 
-export function draftCopied(draft: CommunicationDraft) {
-  return Boolean(draft.emailCopiedAt || draft.textCopiedAt);
-}
+const fundedStages = ["Funded", "Closed"] as const;
+const activeStages = stages.filter((stage) => stage !== "Funded" && stage !== "Closed");
+export const draftMilestoneStages: Partial<Record<DraftMilestone, readonly Stage[]>> = {
+  "Post-funding check-in": fundedStages, "Realtor thank-you": fundedStages,
+  "Lender review started": ["Lead", "Pre-qual", "Application", "Processing", "Underwriting"],
+  "Lender review complete": activeStages, "Lender review resumed": activeStages,
+};
 
 export function currentDraftMilestone(milestone: DraftMilestone, stage: Stage, hasClosingDate: boolean) {
-  if (milestone === "Post-funding check-in" || milestone === "Realtor thank-you") return stage === "Funded" || stage === "Closed";
-  if (milestone === "Lender review started") return ["Lead", "Pre-qual", "Application", "Processing", "Underwriting"].includes(stage);
-  if (milestone === "Lender review complete") return stage !== "Funded" && stage !== "Closed";
-  return milestone === "Closing complete" ? hasClosingDate : milestone === "Application received" || milestone === stage;
+  if (milestone === "Closing complete") return hasClosingDate;
+  return milestone === "Application received" || (draftMilestoneStages[milestone]?.includes(stage) ?? milestone === stage);
 }
 
 export function renderDraft(audience: DraftAudience, milestone: DraftMilestone, channel: DraftChannel, recipientName: string, officerName: string, customBody?: string) {
@@ -40,6 +43,7 @@ export function renderDraft(audience: DraftAudience, milestone: DraftMilestone, 
     : milestone === "Application received"
     ? "A quick milestone update on your referral. The application was received."
     : milestone === "Lender review started" ? "The loan is in lender review. I’ll keep you posted on the next milestone."
+      : milestone === "Lender review resumed" ? "Lender review has resumed for a follow-up item. I’ll share an update when that review is complete."
       : milestone === "Lender review complete" ? "The lender review step is complete. I’ll be in touch about closing preparations."
       : milestone === "Closing complete" ? "A quick milestone update on your referral. The closing is complete."
       : `A quick milestone update on your referral. The loan reached ${milestone}.`;

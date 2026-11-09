@@ -2,16 +2,29 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Check, Save } from "lucide-react";
-import { applicationIssues, applicationSteps, sampleApplication, type BorrowerApplication } from "@/lib/application-model";
+import { applicationIssues, applicationSteps, sampleApplication, type BorrowerApplication, type BorrowerStatusRefresh } from "@/lib/application-model";
 import type { DocumentRequest } from "@/lib/document-model";
 import { portalTokenPattern } from "@/lib/brokerage-model";
+import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-change-signal";
+import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
 import { BorrowerStatus } from "./borrower-status";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 
-async function requestApplication(token: string, input: object, signal?: AbortSignal) {
+type SubmittedView = Extract<BorrowerStatusRefresh, { kind: "status" }>;
+type ApplicationView = BorrowerApplication | SubmittedView;
+type BorrowerAction = { type: "save" | "submit"; step: number; revision: number; draft: BorrowerApplication["draft"] }
+  | { type: "status" }
+  | { type: "attachSample"; requestId: string; revision: number; statusOnly: true };
+
+function applicationView(application: BorrowerApplication): ApplicationView {
+  const { submittedAt, loanStatus, documentUploadsMode } = application;
+  return submittedAt && loanStatus ? { kind: "status", submittedAt, loanStatus, documentUploadsMode } : application;
+}
+
+async function requestApplication<Result = BorrowerApplication>(token: string, input: object, signal: AbortSignal) {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete application link from your loan officer.");
   const response = await fetch("/api/demo-application", {
     method: "POST", credentials: "omit", signal,
@@ -23,7 +36,7 @@ async function requestApplication(token: string, input: object, signal?: AbortSi
     const error = result && typeof result === "object" && "error" in result ? result.error : null;
     throw new Error(typeof error === "string" ? error : "Orbit could not save the application. Try again.");
   }
-  return result as BorrowerApplication;
+  return result as Result;
 }
 
 export function BorrowerApplicationForm() {
@@ -38,39 +51,105 @@ export function BorrowerApplicationForm() {
 }
 
 function BorrowerApplication({ token }: { token: string | null }) {
-  const [application, setApplication] = useState<BorrowerApplication | null>(null);
+  const [view, setView] = useState<ApplicationView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const pending = useRef(false);
+  const pending = useRef<AbortController | null>(null);
+  const statusRead = useRef<AbortController | null>(null);
+  const queuedStatusRead = useRef<(() => void) | null>(null);
+  const application = view && !("kind" in view) ? view : null;
+  const submitted = !!view && "kind" in view;
 
   useEffect(() => {
     if (token === null) return;
     const controller = new AbortController();
-    requestApplication(token, { type: "read" }, controller.signal).then((next) => {
-      if (!controller.signal.aborted) setApplication(next);
+    const { signal } = controller;
+    const isCurrent = () => !signal.aborted && window.location.hash.slice(1) === token;
+    requestApplication(token, { type: "read" }, signal).then((next) => {
+      if (isCurrent()) setView(applicationView(next));
     }).catch((failure: unknown) => {
-      if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "Could not open the application.");
+      if (isCurrent()) setError(failure instanceof Error ? failure.message : "Could not open the application.");
     });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      pending.current?.abort();
+    };
   }, [token]);
 
-  async function perform(input: object, onSuccess: (next: BorrowerApplication) => void) {
+  useEffect(() => {
+    if (!token || !submitted) return;
+    let active = true;
+    async function refreshStatus(isCurrent: () => boolean, periodic = false) {
+      const canRefresh = () => active && isCurrent() && window.location.hash.slice(1) === token;
+      if (!token || !canRefresh() || (periodic && (pending.current || statusRead.current))) return;
+      if (pending.current) {
+        queuedStatusRead.current = () => void refreshStatus(isCurrent);
+        return;
+      }
+      statusRead.current?.abort();
+      const controller = new AbortController();
+      statusRead.current = controller;
+      try {
+        const status = await requestApplication<BorrowerStatusRefresh>(token, { type: "status" }, controller.signal);
+        if (controller.signal.aborted || !canRefresh()) return;
+        const next = status.kind === "resume" ? applicationView(await requestApplication(token, { type: "read" }, controller.signal)) : status;
+        if (!controller.signal.aborted && canRefresh()) setView((current) => current && "kind" in current ? next : current);
+      } catch {
+        // Keep the current checklist usable if a background read fails.
+      } finally {
+        if (statusRead.current === controller) statusRead.current = null;
+      }
+    }
+    const stopReturn = observeTabReturn(document, window, (isCurrent) => void refreshStatus(isCurrent));
+    const stopChanges = observeBorrowerChange(token, "checklist-changed", () => void refreshStatus(() => active));
+    const stopChecks = observeVisibleChecks(document, window, (isCurrent) => refreshStatus(isCurrent, true));
+    return () => {
+      active = false;
+      statusRead.current?.abort();
+      queuedStatusRead.current = null;
+      stopReturn();
+      stopChanges();
+      stopChecks();
+    };
+  }, [submitted, token]);
+
+  async function perform(input: BorrowerAction, onSuccess: (next: ApplicationView) => void) {
     if (!token || pending.current) return;
-    pending.current = true;
+    statusRead.current?.abort();
+    const controller = new AbortController();
+    pending.current = controller;
+    const { signal } = controller;
+    const isCurrent = () => !signal.aborted && window.location.hash.slice(1) === token;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const next = await requestApplication(token, input);
-      if (window.location.hash.slice(1) !== token) return;
-      setApplication(next);
+      let next: ApplicationView;
+      if (input.type === "status" || input.type === "attachSample") {
+        const status = await requestApplication<BorrowerStatusRefresh>(token, input, signal);
+        if (!isCurrent()) return;
+        if (status.kind === "resume") {
+          const draft = await requestApplication(token, { type: "read" }, signal);
+          if (isCurrent()) setView(applicationView(draft));
+          return;
+        }
+        next = status;
+      } else {
+        next = applicationView(await requestApplication(token, input, signal));
+      }
+      if (!isCurrent()) return;
+      setView(next);
+      if (input.type === "submit" || input.type === "attachSample") void announceBorrowerChange(token);
       onSuccess(next);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "Could not save the application. Try again.");
+      if (isCurrent()) setError(failure instanceof Error ? failure.message : "Could not save the application. Try again.");
     } finally {
-      pending.current = false;
-      setBusy(false);
+      pending.current = null;
+      if (!signal.aborted) setBusy(false);
+      const refresh = queuedStatusRead.current;
+      queuedStatusRead.current = null;
+      if (!signal.aborted) refresh?.();
     }
   }
 
@@ -83,7 +162,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
   }
 
   function attach(request: DocumentRequest) {
-    void perform({ type: "attachSample", requestId: request.id, revision: request.revision }, () => {
+    void perform({ type: "attachSample", requestId: request.id, revision: request.revision, statusOnly: true }, () => {
       setNotice(`Sample attached for ${request.kind.toLowerCase()}.`);
     });
   }
@@ -92,7 +171,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
   const reviewing = step === applicationSteps.length - 1;
   const update: UpdateDraft = (changes) => {
     if (pending.current) return;
-    setApplication((current) => current && ({ ...current, draft: { ...current.draft, ...changes(current.draft) } }));
+    setView((current) => current && !("kind" in current) ? { ...current, draft: { ...current.draft, ...changes(current.draft) } } : current);
     setNotice("");
   };
 
@@ -114,18 +193,17 @@ function BorrowerApplication({ token }: { token: string | null }) {
   return <><PortalHeader label="Demo only" /><main className="application-shell borrower-portal">
     <div className="application-intro">
       <OrbitRings />
-      <p className="eyebrow">BORROWER WORKSPACE</p>
-      <h1>{application?.submittedAt ? "Your loan status" : "Mortgage application"}</h1>
-      <p>{application?.submittedAt ? "See where your loan stands and what your loan team needs from you." : "Walk through a sample 1003 and send it to your loan officer for review."}</p>
+      <h1>{view?.submittedAt ? "Your loan status" : "Mortgage application"}</h1>
+      {!view?.submittedAt && <p>Save your progress and return with this link.</p>}
     </div>
-    <aside className="application-warning">{application?.submittedAt ? (application.documentUploadsMode === "mock" ? "Demo verification and scanning use built-in fictional files." : application.documentUploadsEnabled ? "Use fictional PDFs when testing the document checklist." : "This checklist uses built-in fictional sample documents.") : "Use fictional information. Enter only a test tax ID in the format 000-00-1234. Keep real Social Security numbers, account numbers, and documents out of the demo."}</aside>
+    <aside className="application-warning">{view?.submittedAt ? (view.documentUploadsMode === "mock" ? "Use sample files. Verification and scanning are simulated." : view.documentUploadsMode === "live" ? "Use fictional PDFs when testing uploads." : "Use the built-in sample documents.") : "Fictional information only. Use a test tax ID such as 000-00-1234. Leave real tax IDs, account numbers, and documents out of the demo."}</aside>
     {application?.correctionNote && <aside className="application-warning"><strong>Corrections requested</strong><p>{application.correctionNote}</p>
       <p>Your previous answers are filled in. Make the requested changes, then submit the 1003 again to return to your loan status and checklist.</p></aside>}
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
-    {!application && !error && <p role="status" className="application-message">Opening your application…</p>}
-    {application?.submittedAt ? token && application.loanStatus && <BorrowerStatus token={token} status={application.loanStatus} submittedAt={application.submittedAt}
-      busy={busy} attach={attach} uploadsMode={application.documentUploadsMode} refresh={() => void perform({ type: "read" }, () => setNotice("Loan status refreshed."))} />
+    {!view && !error && <p role="status" className="application-message">Opening your application…</p>}
+    {view?.submittedAt ? token && view.loanStatus && <BorrowerStatus token={token} status={view.loanStatus} submittedAt={view.submittedAt}
+      busy={busy} attach={attach} uploadsMode={view.documentUploadsMode} refresh={() => void perform({ type: "status" }, () => setNotice("Loan status refreshed."))} />
       : application && <section className="application-panel application-editor" aria-label="1003 application">
       <div className="application-steps">
         <p className="eyebrow">Application sections</p>
@@ -147,12 +225,12 @@ function BorrowerApplication({ token }: { token: string | null }) {
         <fieldset disabled={busy} className="application-step">
           <div className="application-step-meta"><small>Step {step + 1} of {applicationSteps.length}</small>
             {step === 0 && <Button variant="outline" size="sm" onClick={() => {
-              setApplication({ ...application, draft: sampleApplication(application.draft) });
+              setView({ ...application, draft: sampleApplication(application.draft) });
               setNotice("Sample answers loaded. Save or continue to keep them.");
               setError("");
             }}>Load sample answers</Button>}
             {step === 0 && !application.correctionNote && <Button variant="outline" size="sm" onClick={() => {
-              setApplication({ ...application, step: applicationSteps.length - 1, draft: sampleApplication(application.draft) });
+              setView({ ...application, step: applicationSteps.length - 1, draft: sampleApplication(application.draft) });
               setNotice("Sample answers loaded. Confirm the fictional information to submit.");
               setError("");
               window.scrollTo(0, 0);
@@ -167,7 +245,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
         </fieldset>
         <div className="application-actions">
           {step > 0 && <Button variant="ghost" disabled={busy} onClick={() => {
-            setApplication({ ...application, step: step - 1 });
+            setView({ ...application, step: step - 1 });
             setError("");
             window.scrollTo(0, 0);
           }}><ArrowLeft /> Back</Button>}

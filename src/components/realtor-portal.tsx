@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import type { RealtorReferrals } from "@/lib/model";
+import type { RealtorReferralCursor, RealtorReferrals } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { portalTokenPattern } from "@/lib/brokerage-model";
@@ -78,19 +78,20 @@ function ReferralForm({ token, onSubmitted }: { token: string; onSubmitted: (vie
 }
 
 export function RealtorReferralPortal() {
-  const [portal, setPortal] = useState<{ token: string; view: RealtorReferrals } | null>(null);
+  const [portal, setPortal] = useState<{ token: string; view: RealtorReferrals; after?: RealtorReferralCursor;
+    previous: (RealtorReferralCursor | undefined)[] } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const pending = useRef<AbortController | null>(null);
 
-  const load = useCallback(() => {
+  const load = useCallback((after?: RealtorReferralCursor, previous: (RealtorReferralCursor | undefined)[] = []) => {
     pending.current?.abort();
     const controller = new AbortController();
     pending.current = controller;
     const { signal } = controller;
     const token = window.location.hash.slice(1);
-    void requestReferrals(token, signal).then((view) => {
-      if (!signal.aborted) setPortal({ token, view });
+    void requestReferrals(token, signal, { type: "read", after }).then((view) => {
+      if (!signal.aborted && window.location.hash.slice(1) === token) setPortal({ token, view, after, previous });
     }).catch((failure: unknown) => {
       if (!signal.aborted) {
         setPortal(null);
@@ -116,10 +117,16 @@ export function RealtorReferralPortal() {
     };
   }, [load]);
 
+  function showPage(after?: RealtorReferralCursor, previous: (RealtorReferralCursor | undefined)[] = []) {
+    setBusy(true);
+    setError("");
+    load(after, previous);
+  }
+
   return <><PortalHeader label="Referral updates" /><main className="referral-portal">
-    <div className="page-heading application-intro"><OrbitRings /><div><p className="eyebrow">REALTOR WORKSPACE</p>
-      <h1>Your referrals</h1><p>{portal ? `Loan milestones for ${portal.view.realtorName}.` : "Open your referral link to see updates from your loan team."}</p>
-    </div><Button variant="outline" disabled={busy} onClick={() => { setBusy(true); setError(""); load(); }}>
+    <div className="page-heading application-intro"><OrbitRings /><div>
+      <h1>Your referrals</h1>{portal && <p>{portal.view.realtorName}</p>}
+    </div><Button variant="outline" disabled={busy} onClick={() => showPage()}>
       {busy ? "Refreshing…" : "Refresh referrals"}
     </Button></div>
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
@@ -128,13 +135,20 @@ export function RealtorReferralPortal() {
       <ReferralForm key={portal.token} token={portal.token} onSubmitted={(view) => {
         pending.current?.abort();
         setBusy(false);
-        setPortal({ token: portal.token, view });
+        setPortal({ token: portal.token, view, previous: [] });
       }} />
       <section className="pipeline" aria-label="Your referred loans">
       {portal.view.referrals.length ? <div className="table-scroll"><table className="data-table">
         <thead><tr><th>Borrower</th><th>Milestone</th><th>Milestone updated</th></tr></thead>
         <tbody>{portal.view.referrals.map((loan, index) => <tr key={index}><td>{loan.borrowerName}</td><td>{loan.stage}</td><td>{dateTime(loan.updatedAt)} ET</td></tr>)}</tbody>
-      </table></div> : <p className="empty-inline no-matches">Submit a referral above. The loan team can follow up and share pipeline milestones here.</p>}
+      </table></div> : <p className="empty-inline no-matches">No referrals yet.</p>}
+      {(portal.previous.length > 0 || portal.view.next) && <div className="toolbar" aria-label="Referral pages">
+        <Button variant="outline" disabled={busy || !portal.previous.length}
+          onClick={() => showPage(portal.previous.at(-1), portal.previous.slice(0, -1))}>Newer referrals</Button>
+        <Button variant="outline" disabled={busy || !portal.view.next}
+          onClick={() => showPage(portal.view.next ?? undefined, [...portal.previous, portal.after])}>Older referrals</Button>
+        <span className="muted" role="status">Page {portal.previous.length + 1}</span>
+      </div>}
       </section>
     </div>}
     <p className="muted referral-portal-help">Keep this link private. Ask your loan officer for a new link when it expires.</p>

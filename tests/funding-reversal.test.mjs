@@ -1,0 +1,684 @@
+import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
+import { DatabaseSync } from "node:sqlite";
+import test from "node:test";
+
+registerHooks({
+  resolve(specifier, context, next) {
+    try {
+      return next(specifier, context);
+    } catch (error) {
+      if (error.code !== "ERR_MODULE_NOT_FOUND" || !specifier.startsWith("./")) throw error;
+      return next(`${specifier}.ts`, context);
+    }
+  },
+});
+
+const { executeCommand } = await import("../src/lib/commands.ts");
+const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
+const { quarterlyCallReport, emptyCallReportFacts, quarterRange } = await import("../src/lib/call-report-model.ts");
+const { callReportFiles } = await import("../src/lib/call-report.ts");
+const { reportingReadinessWork } = await import("../src/lib/call-report-readiness.ts");
+const { easternDate } = await import("../src/lib/client-retention.ts");
+const { borrowerCommandResult } = await import("../src/lib/applications.ts");
+const { contactFollowUpExceptions, fundingTaskId } = await import("../src/lib/playbook-model.ts");
+const { readRecordHistory } = await import("../src/lib/record-history.ts");
+const { fundingRecordAction, readFundingDashboard } = await import("../src/lib/funding-dashboard.ts");
+const { currentFundingMonth } = await import("../src/lib/funding-dashboard-model.ts");
+const { playbookRunWork } = await import("../src/lib/playbook-runs.ts");
+const { brokerageFinanceWork } = await import("../src/lib/brokerage-finance.ts");
+const { initializeBrokerages, activateBrokerages, changeBrokerage, activeBrokerages } = await import("../src/lib/brokerages.ts");
+const { readCsv } = await import("../src/lib/contact-csv.ts");
+const { canRecordFundingCheckIn, fundingCheckInTarget, loanNextAction } = await import("../src/lib/loan-workflow.ts");
+const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
+const { queueActionLabel } = await import("../src/lib/officer-queue-model.ts");
+
+function fundingFixture(t) {
+  const sqlite = new DatabaseSync(":memory:");
+  t.after(() => sqlite.close());
+  const db = {
+    exec: (query) => sqlite.exec(query),
+    prepare: (query) => sqlite.prepare(query),
+    transaction(run) {
+      sqlite.exec("BEGIN IMMEDIATE");
+      try {
+        const result = run();
+        sqlite.exec("COMMIT");
+        return result;
+      } catch (error) {
+        sqlite.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  };
+  initializeStore(db, false);
+  const brokerage = { id: crypto.randomUUID(), role: "Admin", pilot: true, name: "Fictional team" };
+  const admin = { name: "Demo Admin", email: "admin@example.test", brokerage };
+  const officer = { name: "Demo Officer", email: "lo@example.test", brokerage: { ...brokerage, role: "LO" } };
+  const loanId = crypto.randomUUID();
+  const contactId = crypto.randomUUID();
+  const partnerId = crypto.randomUUID();
+  const day = (offset) => easternDate(new Date(Date.now() + offset * 86_400_000));
+  const closing = day(-3);
+  const initialFunding = day(-2);
+  const correctedFunding = day(-1);
+  const stageSince = `${closing}T15:00:00.000Z`;
+  insertContact(db, { id: contactId, name: "Fictional Borrower", email: "borrower@example.test", phone: "", role: "Borrower" });
+  insertContact(db, { id: partnerId, name: "Fictional Realtor", email: "realtor@example.test", phone: "", role: "Realtor" });
+  insertLoan(db, { id: loanId, contactId, partnerId, officer: officer.name, officerEmail: officer.email,
+    address: "", amount: 350000, purpose: "Purchase", stage: "Underwriting", stageSince });
+  const run = (input, actor = admin) => executeCommand(db, { loanId, ...input }, actor);
+  const apply = async (input, actor) => {
+    const result = await run(input, actor);
+    assert.ok(result.state, result.error);
+    return result.state;
+  };
+  return { db, admin, officer, loanId, contactId, partnerId, day, closing, initialFunding, correctedFunding, stageSince, run, apply };
+}
+
+test("reporting readiness and reconciled export share blockers, including a funding correction across quarters", async (t) => {
+  const { db, admin, officer, loanId, run, apply } = fundingFixture(t);
+  const checkedAt = new Date("2026-11-08T15:00:00.000Z");
+  const work = (type, quarter, actor = admin, brokerageId = admin.brokerage.id) =>
+    reportingReadinessWork(db, { type, year: 2026, quarter }, actor, brokerageId, checkedAt);
+  await apply({ type: "recordClosing", closingDate: "2026-09-28", revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: "2026-09-30", revision: 0 });
+  const pending = work("list", 3);
+  assert.equal(pending.blockers, 1);
+  assert.equal(pending.items[0].officer, officer.name);
+  assert.equal(pending.items[0].fundingDate, "2026-09-30");
+  assert.match(work("export", 3).error, /Resolve the quarter/);
+  assert.match(work("export", 3, officer).error, /brokerage admins/);
+  assert.match(work("list", 3, admin, crypto.randomUUID()).error, /brokerage admins/);
+  const facts = { ...emptyCallReportFacts, eligibility: "Include", state: "MI", originator: "0000000", receivedDate: "2026-09-01",
+    receivedAmount: 350000, outcome: "Closed and funded", outcomeDate: "2026-09-30", outcomeAmount: 345000 };
+  await apply({ type: "saveCallReport", revision: 0, facts });
+  assert.equal(work("list", 3).blockers, 0);
+  const ready = work("export", 3);
+  assert.equal(ready.count, 1);
+  const [, initial] = readCsv(ready.csv);
+  assert.deepEqual(initial.slice(2, 11), [loanId, "MI", "0000000", "Applications received | Closed and funded", "2026-09-01", "350000",
+    "Closed and funded", "2026-09-30", "345000"]);
+
+  await apply({ type: "recordFunding", fundingDate: "2026-10-01", revision: 1 });
+  for (const quarter of [3, 4]) {
+    const [row] = quarterlyCallReport(callReportFiles(db, loanId), quarterRange(2026, quarter));
+    const result = work("list", quarter);
+    assert.equal(result.blockers, 1);
+    assert.equal(result.items[0].revision, 1);
+    assert.deepEqual(result.items[0].issues, row.issues);
+    assert.match(work("export", quarter).error, /Resolve the quarter/);
+  }
+  assert.match((await run({ type: "saveCallReport", revision: 0, facts: { ...facts, outcomeDate: "2026-10-01" } })).error, /changed/);
+  await apply({ type: "saveCallReport", revision: 1, facts: { ...facts, outcomeDate: "2026-10-01" } });
+  assert.equal(work("list", 3).blockers, 0);
+  const [, corrected] = readCsv(work("export", 4).csv);
+  assert.equal(corrected[5], "Beginning pipeline | Closed and funded");
+  assert.equal(corrected[9], "2026-10-01");
+  await apply({ type: "reverseFunding", fundingDate: "2026-10-01", revision: 2, reason: "Fictional QA reversal" });
+  const [, reversed] = readCsv(work("export", 4).csv);
+  assert.equal(reversed[5], "Beginning pipeline | Ending pipeline");
+  assert.equal(reversed[8], "");
+});
+
+test("reporting readiness resumes a bounded legacy backfill and excludes reviewed files from the blocker queue", (t) => {
+  const { db, admin, officer, contactId } = fundingFixture(t);
+  const now = new Date("2026-11-08T15:00:00.000Z");
+  const query = { type: "list", year: 2026, quarter: 4 };
+  const work = (input) => reportingReadinessWork(db, input, admin, admin.brokerage.id, now);
+  for (let i = 0; i < 322; i++) {
+    insertLoan(db, { id: `legacy-${String(i).padStart(3, "0")}`, contactId, partnerId: null, officer: officer.name, officerEmail: officer.email,
+      address: "", amount: 0, purpose: "Purchase", stage: "Underwriting", stageSince: now.toISOString() });
+  }
+  db.exec("DELETE FROM call_report_readiness_dirty");
+  assert.match(work({ ...query, type: "export" }).error, /still being checked/);
+  const partial = work(query);
+  assert.equal(partial.indexing, true);
+  assert.equal(partial.items.length, 20);
+  const complete = work(query);
+  assert.equal(complete.indexing, false);
+  assert.equal(complete.blockers, 323);
+  const next = work({ ...query, after: complete.next });
+  assert.equal(new Set([...complete.items, ...next.items].map(({ id }) => id)).size, 40);
+  const excluded = { ...emptyCallReportFacts, eligibility: "Exclude", exclusionReason: "Fictional or training file" };
+  db.prepare("INSERT INTO call_report_facts VALUES ('legacy-000', ?, 1)").run(JSON.stringify(excluded));
+  assert.equal(work(query).blockers, 322);
+  db.exec("DELETE FROM loans WHERE id = 'legacy-001'");
+  assert.equal(work(query).blockers, 321);
+});
+
+test("the finance grant follows the active fictional workspace creator and denies another admin", (t) => {
+  const { db, admin, officer } = fundingFixture(t);
+  initializeBrokerages(db);
+  const bootstrap = [admin.email];
+  activateBrokerages(db, admin, bootstrap);
+  const id = admin.brokerage.id;
+  assert.deepEqual(changeBrokerage(db, "orbit-demo", admin, bootstrap, { type: "create", id, name: "Fictional team", pilot: true }), { created: id });
+  const staff = (actor) => ({ ...actor, brokerage: activeBrokerages(db, actor.email, bootstrap).find((entry) => entry.id === id) });
+  const otherAdmin = { ...officer, name: "Another admin" };
+  assert.ok(changeBrokerage(db, id, admin, bootstrap, { type: "invite", email: otherAdmin.email, role: "Admin" }).message);
+  activateBrokerages(db, otherAdmin, bootstrap);
+  const detail = { type: "detail", loanId: "unknown", cycle: 1 };
+  assert.equal(staff(admin).brokerage.financeAccess, true);
+  assert.equal(staff(otherAdmin).brokerage.financeAccess, undefined);
+  assert.match(brokerageFinanceWork(db, detail, staff(admin), id).error, /financial record is unavailable/);
+  assert.match(brokerageFinanceWork(db, detail, staff(otherAdmin), id).error, /workspace owner/);
+  assert.ok(changeBrokerage(db, id, otherAdmin, bootstrap, { type: "role", email: admin.email, role: "LO" }).message);
+  assert.equal(staff(admin).brokerage.financeAccess, undefined);
+  assert.match(brokerageFinanceWork(db, detail, staff(admin), id).error, /workspace owner/);
+  assert.equal(activeBrokerages(db, admin.email, bootstrap).find(({ id }) => id === "orbit-demo").financeAccess, undefined);
+});
+
+test("partial receipts and offset entries reconcile to the loan, cohort, and export", async (t) => {
+  const { db, admin, officer, loanId, contactId, day, closing, initialFunding, apply } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  const work = (input, staff = owner, brokerageId = owner.brokerage.id) => brokerageFinanceWork(db, input, staff, brokerageId);
+  const detail = { type: "detail", loanId, cycle: 1 };
+  const list = { type: "list", from: day(-10), through: day(0), view: "Funded", owner: "" };
+  const current = () => work(detail);
+  const post = (fields) => ({ ...detail, fundingDate: initialFunding, revision: current().loan.revision, entryId: crypto.randomUUID(), ...fields });
+  assert.match(work(detail).error, /record is unavailable/);
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 }, officer);
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 }, officer);
+  assert.equal(current().loan.marginCents, null);
+  assert.equal(work(list).totals.expectedCount, 0);
+  for (const staff of [null, admin, officer, { ...owner, brokerage: { ...owner.brokerage, role: "Processor" } }]) {
+    assert.match(work(list, staff).error, /workspace owner/);
+    assert.match(work({ ...list, type: "export" }, staff).error, /workspace owner/);
+  }
+  assert.match(work(detail, owner, crypto.randomUUID()).error, /workspace owner/);
+  const estimate = { type: "estimate", expectedCents: 500_000, commissionCents: 125_000, expenseReviewed: false };
+  assert.equal(work(post(estimate)).kind, "saved");
+  const receipt = { type: "post", kind: "Receipt", amountCents: 310_012, occurredOn: day(0), reference: "Sample receipt 1", note: "" };
+  const first = post(receipt);
+  assert.equal(work(first).kind, "saved");
+  assert.equal(work(first).kind, "saved");
+  assert.match(work({ ...first, amountCents: 200 }).error, /already used/);
+  assert.equal(work(post({ ...receipt, amountCents: 75_000, reference: "Sample receipt 2" })).kind, "saved");
+  assert.equal(work(post({ ...receipt, kind: "Expense", amountCents: 27_540, reference: "Fictional processing invoice" })).kind, "saved");
+  assert.equal(current().loan.marginCents, null);
+  assert.equal(work(post({ ...estimate, expenseReviewed: true })).kind, "saved");
+  assert.equal(current().loan.marginCents, 347_460);
+  assert.equal(current().loan.remainingCents, 114_988);
+  const stale = post({ ...receipt, reference: "Stale copy" });
+  const reverse = post({ type: "reverse", originalId: first.entryId, occurredOn: day(0), note: "Corrected reference" });
+  assert.equal(work(reverse).kind, "saved");
+  assert.equal(work(reverse).kind, "saved");
+  assert.match(work(stale).error, /changed/);
+  assert.match(work(post({ type: "reverse", originalId: first.entryId, occurredOn: day(0), note: "Repeated reversal" })).error, /unreversed/);
+  assert.equal(current().entries.find((entry) => entry.id === first.entryId).reversedBy, reverse.entryId);
+  const totals = work(list).totals;
+  assert.deepEqual(totals, { count: 1, expectedCount: 1, expectedCents: 500_000, receiptsCents: 75_000, expensesCents: 27_540, marginCount: 1, marginCents: 347_460 });
+  assert.equal(work({ ...list, owner: `email:${officer.email}` }).totals.count, 1);
+  assert.equal(work({ ...list, owner: "email:other@example.test" }).totals.count, 0);
+  db.prepare("UPDATE contacts SET name = ? WHERE id = ?").run('=SUM("1,2")', contactId);
+  const exported = work({ ...list, type: "export" });
+  assert.equal(exported.count, 1);
+  const [, row] = readCsv(exported.csv);
+  assert.equal(row[1], "'=SUM(\"1,2\")");
+  assert.deepEqual(row.slice(6), ["5000.00", "750.00", "4250.00", "1250.00", "275.40", "Yes", "3474.60"]);
+  const workspace = await apply({ type: "refreshWorkspace" }, officer);
+  assert.doesNotMatch(JSON.stringify(workspace), /Fictional processing invoice|commissionCents|375000|347460/);
+});
+
+test("correcting a funding date preserves its ledger, and reversing then refunding starts a clean cycle", async (t) => {
+  const { db, admin, loanId, day, closing, initialFunding, correctedFunding, apply, run } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  const work = (input) => brokerageFinanceWork(db, input, owner, owner.brokerage.id);
+  const query = { type: "list", from: day(-10), through: day(0), view: "Funded", owner: "" };
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
+  const entry = { type: "post", loanId, cycle: 1, fundingDate: initialFunding, revision: 0, entryId: crypto.randomUUID(),
+    kind: "Receipt", amountCents: 50_000, occurredOn: day(0), reference: "Original funding receipt", note: "" };
+  assert.equal(work(entry).kind, "saved");
+  await apply({ type: "recordFunding", fundingDate: correctedFunding, revision: 1 });
+  assert.equal(work(query).loans[0].date, correctedFunding);
+  assert.equal(work(query).totals.receiptsCents, 50_000);
+  assert.match(work({ ...entry, revision: 1, entryId: crypto.randomUUID() }).error, /changed/);
+  await apply({ type: "reverseFunding", fundingDate: correctedFunding, revision: 2, reason: "Fictional reversal" });
+  assert.equal(work(query).totals.count, 0);
+  const [archived] = work({ ...query, view: "Reversed" }).loans;
+  assert.equal(archived.date, correctedFunding);
+  assert.ok(archived.reversedAt);
+  assert.equal(work({ type: "detail", loanId, cycle: 1 }).entries[0].id, entry.entryId);
+  await apply({ type: "recordFunding", fundingDate: correctedFunding, revision: 3 });
+  const [refunded] = work(query).loans;
+  assert.equal(refunded.cycle, 2);
+  assert.equal(refunded.receiptsCents, 0);
+  assert.equal(refunded.expectedCents, null);
+  assert.match(work({ ...entry, fundingDate: correctedFunding, revision: 1, entryId: crypto.randomUUID() }).error, /changed/);
+  assert.equal(work({ ...query, view: "Reversed" }).totals.receiptsCents, 50_000);
+  assert.match((await run({ type: "deleteLoan", id: loanId })).error, /retained records/);
+  db.prepare("DELETE FROM loans WHERE id = ?").run(loanId);
+  assert.equal(work({ ...query, view: "Reversed" }).totals.count, 0);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM loan_financial_entries").get().count, 0);
+});
+
+test("a real task-write failure leaves a funded loan and an admin can retry the original playbook exactly once", async (t) => {
+  const { db, admin, officer, loanId, closing, initialFunding, run, apply } = fundingFixture(t);
+  const id = admin.brokerage.id;
+  const work = (input, actor = admin, workspaceId = id) => playbookRunWork(db, input, actor, workspaceId);
+  const list = { type: "list", filter: "Failed" };
+  const taskIds = [fundingTaskId(loanId, "borrower"), fundingTaskId(loanId, "realtor")];
+  const tasks = () => db.prepare("SELECT id, dueAt FROM tasks WHERE id IN (?, ?) ORDER BY id").all(...taskIds);
+  db.exec(`CREATE TRIGGER interrupt_realtor_follow_up BEFORE INSERT ON tasks WHEN NEW.id LIKE 'post-funding:realtor:%'
+    BEGIN SELECT RAISE(ABORT, 'Fictional write failure'); END;`);
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 }, officer);
+  const record = { type: "recordFunding", fundingDate: initialFunding, revision: 0 };
+  const failure = await run(record, officer);
+  assert.match(failure.message, /admin can retry/);
+  assert.equal(failure.state.closingProgress[0].fundingDate, initialFunding);
+  assert.equal(failure.state.loans[0].stage, "Funded");
+  assert.ok(failure.state.communicationDrafts.some(({ milestone }) => milestone === "Funded"));
+  assert.deepEqual(tasks(), []);
+  const [failed] = work(list).runs;
+  assert.equal(failed.attemptCount, 1);
+  assert.equal(failed.ruleRevision, 0);
+  assert.equal(failed.delayDays, 7);
+  assert.equal(failed.canRetry, true);
+  assert.doesNotMatch(failed.reason, /Fictional write failure/);
+  assert.ok(work(list, officer).error);
+  assert.ok(work(list, admin, crypto.randomUUID()).error);
+  await apply(record, officer);
+  assert.equal(work(list).runs[0].attemptCount, 1);
+
+  const retry = { type: "retry", id: failed.id, attempt: 1, operationId: crypto.randomUUID() };
+  assert.ok(work(retry, officer).error);
+  assert.equal(work(retry).status, "Failed");
+  assert.equal(work(retry).status, "Failed");
+  assert.match(work({ ...retry, operationId: crypto.randomUUID() }).error, /changed/);
+  assert.deepEqual(tasks(), []);
+  db.exec("DROP TRIGGER interrupt_realtor_follow_up");
+  await apply({ type: "savePlaybook", revision: 0, quietHours: 48, reviewHours: 24, handoffHours: 24, fundingDays: 2, backupEmail: null });
+  await apply({ type: "saveDisclosureStatus", status: "Delivered manually", date: initialFunding, revision: 1 }, officer);
+  const recover = { ...retry, attempt: 2, operationId: crypto.randomUUID() };
+  assert.equal(work(recover).status, "Completed");
+  assert.equal(work(recover).status, "Completed");
+  assert.deepEqual(work(list).runs, []);
+  assert.deepEqual(tasks().map(({ id, dueAt }) => [id, dueAt]), taskIds.map((id) => [id, failed.dueAt]));
+  const { attempts } = work({ type: "attempts", id: failed.id });
+  assert.deepEqual(attempts.map(({ mode, status, taskChanges }) => [mode, status, taskChanges]), [
+    ["Retry", "Completed", 2], ["Retry", "Failed", 0], ["Trigger", "Failed", 0],
+  ]);
+});
+
+test("a funding correction retires a failed schedule and a reversal blocks even same-date retries", async (t) => {
+  const { db, admin, officer, loanId, closing, initialFunding, correctedFunding, run, apply } = fundingFixture(t);
+  const work = (input) => playbookRunWork(db, input, admin, admin.brokerage.id);
+  const find = (filter) => work({ type: "list", filter }).runs;
+  const borrowerTask = fundingTaskId(loanId, "borrower");
+  const realtorTask = fundingTaskId(loanId, "realtor");
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
+  await apply({ type: "completeTask", id: borrowerTask, completed: true }, officer);
+  const original = find("Completed")[0];
+  const correction = { type: "recordFunding", fundingDate: correctedFunding, revision: 1, simulateFollowUpFailure: true };
+  assert.match((await run(correction, officer)).error, /fictional pilot admin/i);
+  const ordinaryAdmin = { ...admin, brokerage: { ...admin.brokerage, pilot: false } };
+  assert.match((await run(correction, ordinaryAdmin)).error, /fictional pilot admin/i);
+  await apply(correction);
+  assert.equal(find("Superseded")[0].id, original.id);
+  assert.equal(find("Superseded")[0].reason, "Funding date corrected");
+  const corrected = find("Failed")[0];
+  assert.match(corrected.reason, /Fictional pilot/);
+  assert.ok(db.prepare("SELECT completedAt FROM tasks WHERE id = ?").get(borrowerTask)?.completedAt);
+  assert.equal(db.prepare("SELECT 1 FROM tasks WHERE id = ?").get(realtorTask), undefined);
+  const retry = { type: "retry", id: corrected.id, attempt: 1, operationId: crypto.randomUUID() };
+  await apply({ type: "reverseFunding", fundingDate: correctedFunding, revision: 2, reason: "Fictional reversal for test" });
+  assert.ok(work(retry).error);
+  await apply({ type: "recordFunding", fundingDate: correctedFunding, revision: 3 });
+  assert.ok(work(retry).error);
+  assert.equal(find("Completed")[0].fundingRevision, 4);
+  assert.equal(find("Superseded").find(({ id }) => id === corrected.id).reason, "Funding reversed");
+  assert.equal(work({ type: "attempts", id: corrected.id }).attempts[0].status, "Failed");
+  assert.equal(db.prepare("SELECT count(*) AS total FROM tasks WHERE id IN (?, ?)").get(borrowerTask, realtorTask).total, 2);
+  db.prepare("DELETE FROM loans WHERE id = ?").run(loanId);
+  assert.deepEqual(find("All runs"), []);
+  assert.ok(work({ type: "attempts", id: corrected.id }).error);
+});
+
+test("the borrower funding task opens one new 1003 with the original borrower and owner", async (t) => {
+  const { db, admin, officer, loanId, contactId, closing, initialFunding, run, apply } = fundingFixture(t);
+  db.prepare("UPDATE loans SET address = ? WHERE id = ?").run("987 Fictional Way, Troy, MI 48084", loanId);
+  db.prepare("UPDATE contacts SET phone = ? WHERE id = ?").run("2485550100", contactId);
+  const start = { type: "startReturningClient1003", purpose: "Refinance" };
+  assert.match((await run(start, officer)).error, /active funding/);
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 }, officer);
+  const funded = await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 }, officer);
+  const taskId = fundingTaskId(loanId, "borrower");
+  await apply({ type: "completeTask", id: taskId, completed: true }, officer);
+  assert.match((await run(start, officer)).error, /post-funding check-in/);
+  await apply({ type: "completeTask", id: taskId, completed: false }, officer);
+
+  const created = await run(start, admin);
+  assert.ok(created.state, created.error);
+  const repeatId = created.applicationLoanId;
+  assert.notEqual(repeatId, loanId);
+  const repeat = created.state.loans.find((item) => item.id === repeatId);
+  assert.equal(repeat.contactId, contactId);
+  assert.equal(repeat.officerEmail, officer.email);
+  assert.equal(repeat.stage, "Lead");
+  assert.equal(repeat.leadSource, "Returning client");
+  assert.equal(repeat.partnerId, null);
+  assert.equal(repeat.callCampaignName, null);
+  assert.equal(created.state.loans.find((item) => item.id === loanId).stage, "Funded");
+  assert.equal(created.state.tasks.find((item) => item.id === taskId).completedAt, null);
+  const report = created.state.managerReports.returningClients;
+  assert.deepEqual(report.map(({ metric, loanId, officerEmail, detail }) => ({ metric, loanId, officerEmail, detail })),
+    [{ metric: "applications", loanId: repeatId, officerEmail: officer.email, detail: "Draft" }]);
+  const token = created.state.applications.find((item) => item.loanId === repeatId).token;
+  const { draft } = borrowerCommandResult(db, { type: "read", token }).application;
+  assert.equal(draft.borrowerName, "Fictional Borrower");
+  assert.equal(draft.email, "borrower@example.test");
+  assert.equal(draft.phone, "2485550100");
+  assert.equal(draft.purpose, "Refinance");
+  assert.equal(draft.loanAmount, "");
+  assert.equal(draft.propertyAddress, "");
+
+  const retry = await run({ ...start, purpose: "Purchase" }, officer);
+  assert.equal(retry.applicationLoanId, repeatId);
+  assert.equal(retry.state.loans.find((item) => item.id === repeatId).purpose, "Refinance");
+  assert.deepEqual(retry.state.returningClientLoans, [{ fundedLoanId: loanId, loanId: repeatId }]);
+  assert.equal(retry.state.applications[0].token, token);
+  assert.equal(retry.state.managerReports, null);
+  const newOwner = { ...officer, name: "New LO", email: "new-lo@example.test" };
+  db.prepare("UPDATE loans SET officerEmail = ?, officer = ? WHERE id = ?").run(newOwner.email, newOwner.name, loanId);
+  assert.deepEqual((await apply({ type: "refreshWorkspace" }, newOwner)).returningClientLoans, []);
+  assert.match((await run(start, newOwner)).error, /review access/);
+  const reversed = await apply({ type: "reverseFunding", fundingDate: initialFunding, revision: funded.closingProgress[0].revision,
+    reason: "The funding was recorded in error." });
+  assert.deepEqual(reversed.returningClientLoans, [{ fundedLoanId: loanId, loanId: repeatId }]);
+  assert.match((await run(start, newOwner)).error, /active funding/);
+});
+
+test("a borrower check-in logs one outcome and schedules the next reminder for the loan owner", async (t) => {
+  const { db, admin, officer, loanId, contactId, day, closing, initialFunding, run, apply } = fundingFixture(t);
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 }, officer);
+  const funded = await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 }, officer);
+  const fundingRevision = funded.closingProgress[0].revision;
+  const taskId = fundingTaskId(loanId, "borrower");
+  const loan = funded.loans.find(({ id }) => id === loanId);
+  const queue = (actor) => readOfficerQueue(db, { horizon: 7 }, actor, admin.brokerage.id).items;
+  const openTask = queue(officer).find(({ id }) => id === taskId);
+  assert.equal(loanNextAction(loan, funded, "LO").target, fundingCheckInTarget);
+  assert.equal(openTask.target, fundingCheckInTarget);
+  assert.equal(queueActionLabel(openTask), "Record check-in");
+  assert.equal(canRecordFundingCheckIn(loan, funded, "LO"), true);
+  assert.equal(canRecordFundingCheckIn(loan, funded, "Processor"), false);
+  assert.equal(canRecordFundingCheckIn({ ...loan, disposition: "On hold" }, funded, "LO"), false);
+  assert.equal(canRecordFundingCheckIn(loan, { ...funded, closingProgress: [] }, "LO"), false);
+  assert.notEqual(loanNextAction(loan, funded, "Processor").target, fundingCheckInTarget);
+  const checkIn = { type: "recordFundingCheckIn", eventId: crypto.randomUUID(), fundingRevision,
+    kind: "Call", outcome: "Requested callback", note: "The borrower asked to discuss their next move.", followUp: day(3), purpose: "Loan service" };
+  const otherOfficer = { ...officer, email: "other@example.test" };
+  assert.match((await run(checkIn, otherOfficer)).error, /access/);
+  assert.match((await run({ ...checkIn, followUp: null })).error, /requested callback/);
+  assert.match((await run({ ...checkIn, followUp: day(-1) })).error, /future date/);
+  assert.match((await run({ ...checkIn, fundingRevision: fundingRevision - 1 })).error, /changed/);
+  await apply({ type: "optOutContact", contactId }, officer);
+  assert.match((await run({ ...checkIn, purpose: "Prospecting" })).error, /opted out/);
+
+  const saved = await apply(checkIn, admin);
+  assert.ok(saved.tasks.find((task) => task.id === taskId).completedAt);
+  assert.equal(canRecordFundingCheckIn(loan, saved, "LO"), false);
+  assert.notEqual(loanNextAction(loan, saved, "LO").target, fundingCheckInTarget);
+  assert.equal(queue(officer).some(({ id }) => id === taskId), false);
+  assert.equal(queue(officer).find(({ id }) => id === checkIn.eventId).kind, "contact");
+  assert.equal(queue(admin).some(({ id }) => id === checkIn.eventId), false);
+  const reminder = saved.contactActivity.find((item) => item.id === checkIn.eventId);
+  assert.equal(reminder.outcome, checkIn.outcome);
+  assert.equal(reminder.postFundingCheckIn, true);
+  assert.equal(reminder.officerEmail, admin.email);
+  assert.equal(reminder.followUpOwnerEmail, officer.email);
+  assert.equal(reminder.dueAt, `${checkIn.followUp}T17:00:00.000Z`);
+  const deadline = Date.parse(reminder.dueAt);
+  const owners = [{ name: officer.name, email: officer.email, status: "Active", role: "LO" }];
+  assert.deepEqual(contactFollowUpExceptions(saved, owners, deadline - 1), []);
+  const callbacks = contactFollowUpExceptions(saved, owners, deadline);
+  assert.deepEqual(callbacks.map(({ id, title, ownerEmail, dueAt }) => ({ id, title, ownerEmail, dueAt })),
+    [{ id: checkIn.eventId, title: "Post-funding callback", ownerEmail: officer.email, dueAt: reminder.dueAt }]);
+  assert.equal(contactFollowUpExceptions(saved, [], deadline).length, 1);
+  assert.equal(contactFollowUpExceptions(saved, null, deadline).length, 1);
+  assert.deepEqual(contactFollowUpExceptions({ ...saved, contactActivity: [{ ...reminder, purpose: "Prospecting" }] },
+    owners, deadline), []);
+  assert.deepEqual(saved.managerReports.returningClients.map(({ metric, officerEmail }) => ({ metric, officerEmail })),
+    [{ metric: "check-ins", officerEmail: officer.email }, { metric: "callbacks", officerEmail: officer.email }]);
+  assert.deepEqual((await apply(checkIn)).contactActivity, saved.contactActivity);
+  assert.match((await run({ ...checkIn, eventId: crypto.randomUUID() })).error, /changed/);
+  assert.match((await run({ ...checkIn, note: "Different note." })).error, /new check-in entry/);
+
+  await apply({ type: "completeTask", id: taskId, completed: false }, officer);
+  const noteOnly = { ...checkIn, eventId: crypto.randomUUID(), outcome: "Connected", followUp: null, note: "No additional action requested." };
+  const recorded = await apply(noteOnly);
+  assert.equal(recorded.contactActivity.filter((item) => item.postFundingCheckIn).length, 1);
+  const history = readRecordHistory(db, officer, { record: "contact", id: contactId });
+  assert.equal(history.events.find((item) => item.id === noteOnly.eventId).text, "Post-funding borrower check-in · No additional action requested.");
+  assert.equal(history.events.find((item) => item.id === checkIn.eventId).followUpOwner, officer.name);
+  const reassigned = await executeCommand(db, { type: "assignContactFollowUp", contactId, eventId: checkIn.eventId,
+    revision: 0, email: otherOfficer.email }, admin, undefined, [otherOfficer]);
+  assert.ok(reassigned.state, reassigned.error);
+  assert.equal(reassigned.state.managerReports.returningClients.find((item) => item.metric === "callbacks").officerEmail, otherOfficer.email);
+  assert.ok(reassigned.state.managerReports.returningClients.filter((item) => item.metric === "check-ins").every((item) => item.officerEmail === officer.email));
+
+  const reversed = await apply({ type: "reverseFunding", fundingDate: initialFunding, revision: fundingRevision,
+    reason: "The funding date was recorded in error." });
+  assert.equal(reversed.contactActivity.find((item) => item.id === checkIn.eventId).completedAt, null);
+  assert.equal(reversed.managerReports.returningClients.filter((item) => item.metric === "check-ins").length, 2);
+  const refunded = await apply({ type: "recordFunding", fundingDate: day(0), revision: reversed.closingProgress[0].revision }, officer);
+  assert.equal(refunded.tasks.find((item) => item.id === taskId).completedAt, null);
+  assert.match((await run({ ...checkIn, eventId: crypto.randomUUID() })).error, /changed/);
+  const replay = await apply(checkIn);
+  assert.equal(replay.tasks.find((item) => item.id === taskId).completedAt, null);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM funding_check_ins").get().count, 2);
+  const completed = await apply({ type: "completeContactFollowUp", contactId, eventId: checkIn.eventId, revision: 1, completed: true }, otherOfficer);
+  assert.deepEqual(contactFollowUpExceptions(completed, [], deadline), []);
+  const afterCallback = (await apply({ type: "refreshWorkspace" })).managerReports.returningClients;
+  assert.equal(afterCallback.filter((item) => item.metric === "callbacks").length, 0);
+  assert.equal(afterCallback.filter((item) => item.metric === "check-ins").length, 2);
+});
+
+test("rescheduling a borrower callback preserves history and rejects stale or unauthorized edits", async (t) => {
+  const { db, admin, officer, contactId, day, closing, initialFunding, run, apply } = fundingFixture(t);
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 }, officer);
+  const funded = await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 }, officer);
+  const checkIn = { type: "recordFundingCheckIn", eventId: crypto.randomUUID(), fundingRevision: funded.closingProgress[0].revision,
+    kind: "Call", outcome: "Requested callback", note: "Check in on refinance plans.", followUp: day(1), purpose: "Prospecting" };
+  await apply(checkIn, officer);
+  const repeat = await run({ type: "startReturningClient1003", purpose: "Refinance" }, officer);
+  assert.ok(repeat.applicationLoanId, repeat.error);
+  assert.equal(repeat.state.returningClientLoans[0].loanId, repeat.applicationLoanId);
+  const move = { type: "rescheduleBorrowerCallback", contactId, eventId: checkIn.eventId, revision: 0, date: day(3),
+    reason: "Borrower asked for a later call." };
+  const stranger = { ...officer, email: "another@example.test" };
+  const processor = { ...officer, brokerage: { ...officer.brokerage, role: "Processor" } };
+  assert.match((await run(move, stranger)).error, /unavailable/);
+  assert.match((await run(move, processor)).error, /access/);
+  assert.match((await run({ ...move, reason: " " })).error, /Enter a reason/);
+  assert.match((await run({ ...move, date: day(-1) })).error, /future/);
+  assert.match((await run({ ...move, date: checkIn.followUp })).error, /different callback date/);
+  const first = await apply(move);
+  const originalDueAt = `${checkIn.followUp}T17:00:00.000Z`;
+  const firstDueAt = `${move.date}T17:00:00.000Z`;
+  assert.deepEqual(first.managerReports.returningClients.filter((row) => row.metric === "callbacks").map((row) => row.at), [firstDueAt]);
+  assert.equal(contactFollowUpExceptions(first, null, Date.parse(originalDueAt)).length, 0);
+  assert.deepEqual((await apply(move)).contactActivity, first.contactActivity);
+  assert.match((await run({ ...move, reason: "Different reason" })).error, /callback changed/);
+  const next = { ...move, revision: 1, date: day(5), reason: "Borrower will be traveling." };
+  const updated = await apply(next, officer);
+  const callback = updated.contactActivity.find((item) => item.id === checkIn.eventId);
+  assert.equal(callback.followUpOwnerEmail, officer.email);
+  assert.equal(callback.dueAt, `${next.date}T17:00:00.000Z`);
+  assert.equal(callback.completedAt, null);
+  assert.equal((await apply(checkIn, officer)).contactActivity[0].dueAt, callback.dueAt);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM contact_callback_reschedules").get().count, 2);
+  const { events } = readRecordHistory(db, officer, { record: "contact", id: contactId });
+  const changes = events.filter((item) => item.source === "reschedule");
+  assert.equal(changes.length, 2);
+  const earlier = changes.find((item) => item.text === move.reason);
+  const later = changes.find((item) => item.text === next.reason);
+  assert.deepEqual([earlier.author, earlier.previousDueAt, earlier.dueAt], [admin.name, originalDueAt, firstDueAt]);
+  assert.deepEqual([later.author, later.previousDueAt, later.dueAt], [officer.name, firstDueAt, callback.dueAt]);
+  assert.ok(readRecordHistory(db, stranger, { record: "contact", id: contactId }).error);
+  await apply({ type: "optOutContact", contactId }, officer);
+  assert.match((await run({ ...move, revision: 2, date: day(7) })).error, /opted out/);
+});
+
+test("reversing funding reconciles reports and keeps completed work when the loan funds again", async (t) => {
+  const { db, admin, officer, loanId, partnerId, day, closing, initialFunding, correctedFunding, stageSince, run, apply } = fundingFixture(t);
+  const filters = { from: correctedFunding, through: correctedFunding, owner: "", metric: "actual", period: "selected" };
+  const dashboard = (input = {}) => readFundingDashboard(db, { ...filters, ...input }, admin, admin.brokerage.id);
+  await apply({ type: "saveClosingTarget", targetDate: closing, previous: null });
+  await apply({ type: "saveDisclosureStatus", status: "Signed", date: closing, revision: 0 });
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 }, officer);
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 1 }, officer);
+  assert.deepEqual(dashboard().periods.selected.actual, { count: 0, volume: 0 });
+  assert.deepEqual(dashboard({ period: "previous" }).loans.map(({ id, date }) => ({ id, date })), [{ id: loanId, date: initialFunding }]);
+  const funded = await apply({ type: "recordFunding", fundingDate: correctedFunding, revision: 2 }, officer);
+  assert.deepEqual(dashboard().periods.selected.actual, { count: 1, volume: 350000 });
+  assert.deepEqual(dashboard().periods.previous.actual, { count: 0, volume: 0 });
+  assert.equal(funded.loans[0].stage, "Funded");
+  assert.equal(funded.closingProgress[0].preFundingStage, "Underwriting");
+  assert.equal((await apply({ type: "refreshWorkspace" })).managerReports.records[0].fundingDate, correctedFunding);
+  const borrowerTask = funded.tasks.find((task) => task.id.startsWith("post-funding:borrower:"));
+  await apply({ type: "completeTask", id: borrowerTask.id, completed: true });
+  const oldDraft = funded.communicationDrafts.find((draft) => draft.milestone === "Realtor thank-you");
+  await apply({ type: "copyDraft", draftId: oldDraft.id, contactId: partnerId, audience: "Realtor", milestone: oldDraft.milestone, channel: "Email" });
+  const facts = { ...emptyCallReportFacts, eligibility: "Include", state: "MI", originator: "12345", receivedDate: day(-7),
+    receivedAmount: 350000, outcome: "Closed and funded", outcomeDate: correctedFunding, outcomeAmount: 350000 };
+  await apply({ type: "saveCallReport", revision: 0, facts });
+  const reverse = { type: "reverseFunding", fundingDate: correctedFunding, revision: 3, reason: "Funding confirmation was entered on the wrong file." };
+  assert.match((await run(reverse, officer)).error, /admin/);
+  assert.ok((await run({ ...reverse, revision: 2 })).error);
+  const reversed = await apply(reverse);
+  const backInProjection = dashboard({ from: closing, metric: "projected" });
+  assert.deepEqual(backInProjection.periods.selected.actual, { count: 0, volume: 0 });
+  assert.deepEqual(backInProjection.periods.selected.projected, { count: 1, volume: 350000 });
+  assert.deepEqual(backInProjection.loans.map(({ id, date }) => ({ id, date })), [{ id: loanId, date: closing }]);
+  assert.equal(reversed.loans[0].stage, "Underwriting");
+  assert.equal(reversed.loans[0].stageSince, stageSince);
+  assert.equal(reversed.closingProgress[0].fundingDate, null);
+  assert.equal(reversed.closingProgress[0].disclosureStatus, "Signed");
+  assert.equal(reversed.pastClients[0].closingDate, closing);
+  assert.equal(reversed.managerReports.records[0].fundingDate, null);
+  assert.equal(reversed.managerReports.records[0].targetDate, closing);
+  assert.equal(reversed.callReportFiles[0].facts.outcome, "");
+  assert.equal(reversed.callReportFiles[0].facts.originator, facts.originator);
+  assert.equal(reversed.callReportFiles[0].revision, 2);
+  assert.ok(quarterlyCallReport(reversed.callReportFiles, { from: day(-10), through: day(0) })[0].groups.includes("Ending pipeline"));
+  assert.ok(reversed.tasks.every((task) => !task.id.startsWith("post-funding:") && !task.id.startsWith("closing-anniversary:")));
+  const completed = reversed.tasks.find((task) => task.id.startsWith("reversed-funding:"));
+  assert.ok(completed.completedAt);
+  assert.deepEqual(reversed.managerReports.returningClients.map(({ metric, detail }) => ({ metric, detail })),
+    [{ metric: "check-ins", detail: "Marked complete" }]);
+  assert.ok((await run({ type: "completeTask", id: completed.id, completed: false })).error);
+  const historical = reversed.communicationDrafts.find((draft) => draft.id === oldDraft.id);
+  assert.ok(historical.supersededAt && historical.emailCopiedAt);
+  assert.ok((await run(reverse)).error);
+  assert.ok((await run({ type: "recordFunding", fundingDate: correctedFunding, revision: 3 }, officer)).error);
+  const audit = await run({ type: "loadLoanAudit" });
+  assert.ok(audit.loanAudit.some((entry) => entry.action === "Reversed funding" &&
+    entry.changes.some((change) => change.field === "Funding date" && change.before === correctedFunding && change.after === null)));
+
+  const again = await apply({ type: "recordFunding", fundingDate: day(0), revision: 4 });
+  assert.ok(again.tasks.some((task) => task.id === borrowerTask.id && !task.completedAt));
+  assert.ok(again.tasks.some((task) => task.id === completed.id && task.completedAt));
+  const fresh = again.communicationDrafts.find((draft) => draft.milestone === oldDraft.milestone && !draft.supersededAt);
+  assert.notEqual(fresh.id, oldDraft.id);
+  assert.equal(fresh.emailCopiedAt, null);
+
+  db.prepare("UPDATE closing_progress SET preFundingStage = NULL, preFundingStageSince = NULL WHERE loanId = ?").run(loanId);
+  const legacy = await apply({ ...reverse, fundingDate: again.closingProgress[0].fundingDate, revision: 5 });
+  assert.equal(legacy.loans[0].stage, "Clear to Close");
+});
+
+test("funding totals and bounded loan pages use the same brokerage, officer, date and eligibility rules", (t) => {
+  const { db, admin, officer, contactId, loanId, closing, stageSince } = fundingFixture(t);
+  const read = (query, staff = admin, brokerageId = admin.brokerage.id) => readFundingDashboard(db, query, staff, brokerageId);
+  const query = { from: closing, through: closing, owner: `email:${officer.email}`, metric: "projected", period: "selected" };
+  const record = db.prepare("INSERT INTO closing_plans (loanId, targetDate) VALUES (?, ?)");
+  record.run(loanId, closing);
+  const addLoan = (id, overrides = {}) => {
+    insertLoan(db, { id, contactId, partnerId: null, officer: officer.name, officerEmail: officer.email,
+      address: "", amount: 100000, purpose: "Purchase", stage: "Underwriting", stageSince, ...overrides });
+    record.run(id, closing);
+  };
+  for (let i = 0; i < 33; i++) addLoan(`page-${i.toString().padStart(2, "0")}`);
+  addLoan("other-officer", { officer: admin.name, officerEmail: admin.email });
+  addLoan("held");
+  db.prepare("UPDATE loans SET disposition = 'On hold' WHERE id = ?").run("held");
+  addLoan("stage-only", { stage: "Funded" });
+  addLoan("recorded");
+  db.prepare("INSERT INTO closing_progress (loanId, fundingDate) VALUES (?, ?)").run("recorded", closing);
+
+  const first = read(query);
+  assert.deepEqual(first.periods.selected.projected, { count: 34, volume: 3650000 });
+  assert.deepEqual(first.periods.selected.actual, { count: 1, volume: 100000 });
+  assert.equal(first.loans.length, 30);
+  assert.equal(Object.getPrototypeOf(first.loans[0]), Object.prototype);
+  const second = read({ ...query, after: first.next });
+  assert.equal(second.loans.length, 4);
+  assert.equal(second.next, null);
+  const all = [...first.loans, ...second.loans];
+  assert.equal(new Set(all.map(({ id }) => id)).size, 34);
+  assert.equal(all.reduce((sum, row) => sum + row.amount, 0), first.periods.selected.projected.volume);
+  assert.deepEqual(read({ ...query, metric: "actual" }).loans.map(({ id }) => id), ["recorded"]);
+  assert.equal(read({ ...query, owner: `email:${admin.email}` }).periods.selected.projected.count, 1);
+  assert.equal(read({ ...query, owner: "" }).periods.selected.projected.count, 35);
+  assert.ok(read(query, officer).error);
+  assert.ok(read(query, { ...officer, brokerage: { ...officer.brokerage, role: "Processor" } }).error);
+  assert.ok(read(query, admin, crypto.randomUUID()).error);
+  assert.ok(read(query, null).error);
+  assert.ok(read({ ...query, from: "2020-01-01", through: "2022-01-01" }).error);
+
+  db.exec("DROP INDEX closing_plans_by_target; DROP INDEX closing_progress_by_funding;");
+  initializeStore(db, false);
+  initializeStore(db, false);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM sqlite_master WHERE name IN ('closing_plans_by_target', 'closing_progress_by_funding')").get().count, 2);
+  assert.deepEqual(read(query).periods, first.periods);
+  assert.deepEqual(read(query).loans, first.loans);
+});
+
+test("funding loan details, saved views and monthly targets stay scoped and survive retries", async (t) => {
+  const { db, admin, officer, loanId, closing, initialFunding, apply } = fundingFixture(t);
+  db.exec("DROP TABLE funding_dashboard_views; DROP TABLE funding_monthly_targets;");
+  initializeStore(db, false);
+  const otherBrokerage = fundingFixture(t);
+  const action = (input, staff = admin, id = admin.brokerage.id) => fundingRecordAction(db, input, staff, id);
+  const query = { ...currentFundingMonth(), owner: "", metric: "actual", period: "selected" };
+  const report = (input = {}) => readFundingDashboard(db, { ...query, ...input }, admin, admin.brokerage.id);
+  const view = { type: "saveView", id: crypto.randomUUID(), name: "Fictional funded loans", filters: { ...query,
+    metric: "projected", after: { date: closing, id: loanId } } };
+  const target = { type: "saveTarget", month: query.from.slice(0, 7), revision: 0, count: 12, volume: 4000000 };
+  const detail = { type: "loan", id: loanId };
+
+  assert.ok(action(detail, officer).error);
+  assert.ok(action(view, officer).error);
+  assert.ok(action(target, admin, otherBrokerage.admin.brokerage.id).error);
+  assert.ok(fundingRecordAction(otherBrokerage.db, detail, otherBrokerage.admin, otherBrokerage.admin.brokerage.id).error);
+  assert.deepEqual(action(detail).loan, { id: loanId, name: "Fictional Borrower", officer: officer.name, stage: "Underwriting",
+    amount: 350000, address: "", targetDate: null, closingDate: null, fundingDate: null, disclosureStatus: null, outstanding: 0 });
+  await apply({ type: "saveClosingTarget", targetDate: closing, previous: null });
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 }, officer);
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 }, officer);
+  assert.equal(action(detail).loan.fundingDate, initialFunding);
+
+  assert.ok(action(view).message);
+  assert.ok(action(view).message);
+  assert.ok(action({ ...view, id: crypto.randomUUID(), name: view.name.toUpperCase() }).error);
+  assert.deepEqual(report().views, [{ id: view.id, name: view.name, filters: { ...query, metric: "projected" } }]);
+  assert.ok(action(target).message);
+  assert.ok(action(target).message);
+  assert.match(action({ ...target, volume: 5000000 }).error, /changed/);
+  assert.ok(action({ ...target, revision: 1, volume: 5000000 }).message);
+  assert.deepEqual(report().target, { month: target.month, revision: 2, count: 12, volume: 5000000 });
+  assert.equal(report({ owner: `email:${officer.email}` }).target, null);
+  assert.equal(report({ through: query.from }).target, null);
+  initializeStore(db, false);
+  assert.equal(report().target.revision, 2);
+  assert.equal(report().views.length, 1);
+  assert.ok(action({ type: "removeView", id: view.id }).message);
+  assert.ok(action({ type: "removeView", id: view.id }).message);
+  assert.ok(action(view).error);
+  assert.deepEqual(report().views, []);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM workspace_access_history WHERE action = 'Saved monthly production target'").get().count, 2);
+});

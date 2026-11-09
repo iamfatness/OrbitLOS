@@ -25,11 +25,16 @@ function retryAttempt(run: MockCreditAusRun, save: Save) {
   void save({ type: "retryMockCreditAus", loanId: run.loanId, attemptId: crypto.randomUUID(), previousId: run.id, service: run.service });
 }
 
-function CreditPanel({ loanId, credit, busy, save }: { loanId: string; credit?: MockCreditAusRun; busy: boolean; save: Save }) {
+function CreditPanel({ loanId, credit, busy, save, openPricing }: {
+  loanId: string; credit?: MockCreditAusRun; busy: boolean; save: Save; openPricing?: () => void;
+}) {
   const [authorized, setAuthorized] = useState(false);
   return <section className="credit-aus-panel" aria-label="Mock credit">
     <h4>Credit report</h4>
     {credit ? <Attempt run={credit} /> : <p className="muted">Confirm demo authorization to generate a fictional report and reference.</p>}
+    {credit?.result.status === "Report ready" && openPricing && <div>
+      <Button size="sm" disabled={busy} onClick={openPricing}>Price with mock score</Button>
+    </div>}
     <form className="credit-aus-panel" onSubmit={(event) => {
       event.preventDefault();
       const scenario = new FormData(event.currentTarget).get("scenario");
@@ -75,7 +80,9 @@ function AusPanel({ loanId, method, run, credit, previousCredit, busy, save }: {
   </section>;
 }
 
-export function CreditAusWorkbench({ loanId, runs, busy, readOnly, save }: { loanId: string; runs: MockCreditAusRun[]; busy: boolean; readOnly?: boolean; save: Save }) {
+export function CreditAusWorkbench({ loanId, runs, busy, readOnly, save, openPricing }: {
+  loanId: string; runs: MockCreditAusRun[]; busy: boolean; readOnly?: boolean; save: Save; openPricing?: () => void;
+}) {
   const credit = runs.find((run) => run.service === "Credit");
   const methods = ausMethods.map((method) => ({ method, run: runs.find((run) => run.service === method) }));
   const latestIds = new Set([credit?.id, ...methods.map(({ run }) => run?.id)]);
@@ -89,7 +96,7 @@ export function CreditAusWorkbench({ loanId, runs, busy, readOnly, save }: { loa
     {readOnly ? <><p className="muted">The loan officer runs credit and AUS. Saved results are available for review.</p>
       {runs.filter((run) => latestIds.has(run.id)).map((run) => <Attempt key={run.id} run={run} creditReference={run.creditId ? byId.get(run.creditId)?.reference : undefined} />)}
     </> : <>
-      <CreditPanel loanId={loanId} credit={credit} busy={busy} save={save} />
+      <CreditPanel loanId={loanId} credit={credit} busy={busy} save={save} openPricing={openPricing} />
       {methods.map(({ method, run }) => <AusPanel key={method} loanId={loanId} method={method} run={run} credit={credit}
         previousCredit={run?.creditId ? byId.get(run.creditId) : undefined} busy={busy} save={save} />)}
     </>}

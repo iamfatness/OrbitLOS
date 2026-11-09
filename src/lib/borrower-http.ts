@@ -1,4 +1,4 @@
-import type { BorrowerResult } from "./application-model";
+import type { BorrowerApplication, BorrowerResult, BorrowerStatusRefresh } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
 import type { DocumentUploadMode } from "./document-files-model";
 
@@ -61,10 +61,11 @@ export function documentUploadMode(mode: DocumentUploadMode | undefined, brokera
 }
 
 export function borrowerHttp(request: Request, run: (input: unknown) => Promise<BorrowerResult & { uploadsMode?: DocumentUploadMode }>, addressLookupEnabled = false) {
-  return borrowerJson(request, async (input) => {
+  return borrowerJson<BorrowerApplication | BorrowerStatusRefresh>(request, async (input) => {
     const result = await run(input);
     if ("error" in result) return result;
     const mode = result.uploadsMode;
+    if ("statusView" in result) return { value: { ...result.statusView, documentUploadsMode: mode } };
     return { value: { ...result.application, addressLookupEnabled, documentUploadsEnabled: Boolean(mode), documentUploadsMode: mode } };
   }, maxRequestBytes);
 }

@@ -11,14 +11,28 @@ export const contactImportRow = z.object({
   separate: z.boolean().optional(),
 });
 export const contactImportLimit = 100;
+export const contactImportRows = z.array(contactImportRow).min(1).max(contactImportLimit);
 export type ContactImportRow = z.infer<typeof contactImportRow>;
+export type ContactCsvFields = Pick<Contact, "name" | "role" | "email" | "phone">;
 
-export function contactDuplicate(row: ContactImportRow, contacts: Pick<Contact, "name" | "role" | "email" | "phone">[]) {
-  const email = row.email.toLowerCase();
-  const phone = referralPhone(row.phone);
-  return contacts.some((existing) => (existing.role === "Realtor") === (row.role === "Realtor") &&
-    ((email && existing.email.trim().toLowerCase() === email) || (phone && referralPhone(existing.phone) === phone) ||
-      (!email && !phone && existing.name.trim().toLowerCase() === row.name.toLowerCase())));
+export function contactCsvKeys(contact: ContactCsvFields, trim = true) {
+  const group = contact.role === "Realtor" ? "realtor" : "borrower";
+  const email = (trim ? contact.email.trim() : contact.email).toLowerCase();
+  const name = (trim ? contact.name.trim() : contact.name).toLowerCase();
+  const phone = referralPhone(contact.phone);
+  return { name: `${group}:name:${name}`,
+    email: email ? `${group}:email:${email}` : "",
+    phone: phone ? `${group}:phone:${phone}` : "" };
+}
+
+export function contactCsvDuplicateKeys(contact: ContactCsvFields) {
+  const { name, email, phone } = contactCsvKeys(contact, false);
+  return email || phone ? [email, phone].filter(Boolean) : [name];
+}
+
+export function contactDuplicate(row: ContactImportRow, contacts: ContactCsvFields[]) {
+  const keys = contactCsvDuplicateKeys(row);
+  return contacts.some((contact) => Object.values(contactCsvKeys(contact)).some((key) => keys.includes(key)));
 }
 
 export function readCsv(input: string) {
@@ -71,7 +85,8 @@ export function parseContactCsv(input: string) {
   });
 }
 
-export function exportContactCsv(contacts: Contact[]) {
+export const contactCsvHeader = "name,email,phone,role";
+export function contactCsvLines(contacts: ContactCsvFields[]) {
   const cell = (value: string) => `"${(/^[\s]*[=+\-@]/.test(value) ? "'" + value : value).replaceAll('"', '""')}"`;
-  return ["name,email,phone,role", ...contacts.map((item) => [item.name, item.email, item.phone, item.role].map(cell).join(","))].join("\r\n");
+  return contacts.map((item) => [item.name, item.email, item.phone, item.role].map(cell).join(",")).join("\r\n");
 }

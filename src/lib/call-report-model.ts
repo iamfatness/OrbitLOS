@@ -56,32 +56,46 @@ export function quarterRange(year: number, quarter: number) {
   return { from: day(new Date(Date.UTC(year, (quarter - 1) * 3, 1))), through: day(new Date(Date.UTC(year, quarter * 3, 0))) };
 }
 
+export function callReportActivity(file: CallReportFile) {
+  const { facts, suggested } = file;
+  const received = facts.receivedDate || suggested.receivedDate;
+  const outcomeDate = facts.outcomeDate || suggested.fundingDate;
+  const candidate = Boolean(received || outcomeDate || file.revision || !["Lead", "Pre-qual"].includes(file.stage) || file.disposition === "Withdrawn");
+  return { received, outcomeDate, candidate };
+}
+
+export function callReportIssues(file: CallReportFile) {
+  const { facts, suggested } = file;
+  const issues: string[] = [];
+  if (facts.eligibility === "Exclude") return issues;
+  if (facts.eligibility === "Review") issues.push("Confirm reporting eligibility");
+  if (!facts.state) issues.push("Confirm property state");
+  if (!facts.originator) issues.push("Enter originator NMLS ID");
+  if (!facts.receivedDate) issues.push("Confirm application received date");
+  if (facts.receivedAmount === null) issues.push("Confirm application amount");
+  if (facts.outcome && !facts.outcomeDate) issues.push("Enter outcome date");
+  if (facts.outcome && facts.outcomeAmount === null) issues.push("Confirm outcome amount");
+  if (!facts.outcome && (suggested.fundingDate || ["Funded", "Closed"].includes(file.stage) || ["Withdrawn", "Lost"].includes(file.disposition))) {
+    issues.push("Confirm the reporting outcome");
+  }
+  if (facts.outcome === "Closed and funded" && (!suggested.fundingDate || facts.outcomeDate !== suggested.fundingDate)) {
+    issues.push("Reconcile the reporting outcome with the recorded funding date");
+  } else if (suggested.fundingDate && facts.outcome && facts.outcome !== "Closed and funded") {
+    issues.push("Reconcile this outcome with the recorded funding");
+  }
+  return issues;
+}
+
 export function quarterlyCallReport(files: CallReportFile[], range: ReturnType<typeof quarterRange>): CallReportRow[] {
   const inRange = (value: string) => value >= range.from && value <= range.through;
   return files.flatMap((file) => {
-    const { facts, suggested } = file;
-    const received = facts.receivedDate || suggested.receivedDate;
-    const outcomeDate = facts.outcomeDate || suggested.fundingDate;
-    const candidate = Boolean(received || outcomeDate || file.revision || !["Lead", "Pre-qual"].includes(file.stage) || file.disposition === "Withdrawn");
-    if (!candidate || (!inRange(received) && !inRange(outcomeDate) && (received > range.through || Boolean(outcomeDate && outcomeDate < range.from)))) return [];
+    const { facts } = file;
+    const { received, outcomeDate, candidate } = callReportActivity(file);
+    if (!candidate || (!inRange(received) && !inRange(outcomeDate) && !inRange(file.suggested.fundingDate) &&
+      (received > range.through || Boolean(outcomeDate && outcomeDate < range.from)))) return [];
     const groups: CallReportGroup[] = [];
-    const issues: string[] = [];
+    const issues = callReportIssues(file);
     if (facts.eligibility === "Exclude") return [{ file, groups: ["Excluded"], issues }];
-    if (facts.eligibility === "Review") issues.push("Confirm reporting eligibility");
-    if (!facts.state) issues.push("Confirm property state");
-    if (!facts.originator) issues.push("Enter originator NMLS ID");
-    if (!facts.receivedDate) issues.push("Confirm application received date");
-    if (facts.receivedAmount === null) issues.push("Confirm application amount");
-    if (facts.outcome && !facts.outcomeDate) issues.push("Enter outcome date");
-    if (facts.outcome && facts.outcomeAmount === null) issues.push("Confirm outcome amount");
-    if (!facts.outcome && (suggested.fundingDate || ["Funded", "Closed"].includes(file.stage) || ["Withdrawn", "Lost"].includes(file.disposition))) {
-      issues.push("Confirm the reporting outcome");
-    }
-    if (facts.outcome === "Closed and funded" && (!suggested.fundingDate || facts.outcomeDate !== suggested.fundingDate)) {
-      issues.push("Reconcile the reporting outcome with the recorded funding date");
-    } else if (suggested.fundingDate && facts.outcome && facts.outcome !== "Closed and funded") {
-      issues.push("Reconcile this outcome with the recorded funding");
-    }
     if (issues.length) groups.push("Needs review");
     else {
       if (received < range.from) groups.push("Beginning pipeline");

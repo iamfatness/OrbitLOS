@@ -90,6 +90,13 @@ export interface PricingRun extends PricingResult {
   applicationRevision: number | null;
 }
 
+export type PricingApplication = { revision: number; correctionNote?: string };
+export const repriceQuoteMessage = "Reprice from the current 1003 before using this quote.";
+
+export function quoteMatchesApplication(applicationRevision: unknown, application?: PricingApplication) {
+  return !application?.correctionNote && applicationRevision === (application?.revision ?? null);
+}
+
 export interface BorrowerQuote {
   product: string;
   rate: number;

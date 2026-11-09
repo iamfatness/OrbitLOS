@@ -2,13 +2,60 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
+import { contactMergeWork } from "./contact-merge";
 import { borrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
 import type { WorkspaceStaff } from "./staff-store";
+import { demoBrokerageId } from "./brokerage-model";
+import { localCampaignOfficers } from "./call-campaign-model";
 import { scopeWorkspace } from "./workspace-access";
 import { realtorReferrals } from "./realtor-portal";
-import { initializeStore, readWorkspace, type SqlValue, type Store } from "./store";
-import { leadRouting, receiveQuoteLead } from "./lead-inbox";
+import { initializeStore, readStaffWorkspaceEntry, readWorkspace, type SqlValue, type Store } from "./store";
+import { readPipeline } from "./pipeline";
+import { readLoanContactPicker } from "./loan-contact-picker";
+import { readContactDirectory } from "./contact-directory";
+import { readDraftQueue } from "./communication-draft-query";
+import { readPastClientQueue } from "./past-client-queue";
+import { readRealtorWork } from "./realtor-work";
+import { readLeadInbox } from "./lead-inbox-query";
+import { leadRouting, readLeadArchive, receiveQuoteLead } from "./lead-inbox";
+import { readSharedRealtorQueue } from "./realtor-claim-queue";
+import { assignWaitingRealtor, readRealtorQueueReport } from "./realtor-queue-report";
+import { assignWaitingRealtorInput } from "./realtor-queue-report-model";
+import { readRecordHistory } from "./record-history";
+import { exportPilotPipeline } from "./pipeline-export";
+import { reviewMigrationRecovery } from "./migration-recovery";
+import { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
+  saveCutoverFileInventory, saveMigrationCutover } from "./migration-cutover";
+import { fundingRecordAction, readFundingDashboard } from "./funding-dashboard";
+import { readCampaignCallbacks, readOfficerQueue, readWorkspaceCalendar, readWorkspaceTasks } from "./officer-queue";
+import type { WorkspaceMutationScope } from "./commands";
+import { campaignCallbacksUnavailable } from "./officer-queue-model";
+import { readCampaignCallbackPerformance } from "./campaign-callback-performance";
+import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
+import { readCampaignCallbackExceptions } from "./campaign-callback-exceptions";
+import { callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
+import { officerDashboardWork } from "./officer-dashboard";
+import { changeProcessingView, readProcessorQueue } from "./processor-queue";
+import { readEditableLoan, readLoanHandoff } from "./editable-loan";
+import { readIncomingLoanWorkPage } from "./incoming-loan-work";
+import { readEditableLead } from "./editable-lead";
+import { changeSalesSettings, readSalesDashboard } from "./sales-dashboard";
+import { changeConversation, readConversations } from "./conversations";
+import { changeInboundReply, readInboundReplies } from "./inbound-replies";
+import { workOnAppointment } from "./appointments";
+import { coverageWork } from "./coverage";
+import { coverageInput, type CoverageResult } from "./coverage-model";
+import { readWorkspaceSearch } from "./workspace-search";
+import { loanReviewWork } from "./loan-reviews";
+import { reviewInput, type ReviewResult } from "./loan-review-model";
+import { playbookRunWork } from "./playbook-runs";
+import { brokerageFinanceWork } from "./brokerage-finance";
+import { nameFileExceptions, readFileExceptions } from "./file-exceptions";
+import { readManagerExceptionWork } from "./manager-exceptions";
+import { readMigrationRecord } from "./migration-record";
+import { reportingReadinessWork } from "./call-report-readiness";
+import type { VersionedBrokerageMember } from "./brokerage-model";
 
 let connection: Store | undefined;
 
@@ -56,12 +103,270 @@ function database(): Store {
   return store;
 }
 
-export function loadWorkspace(staff: WorkspaceStaff | null = null) {
+export function loadWorkspace(staff: WorkspaceStaff | null = null, deferred = false) {
+  if (deferred && staff) return readStaffWorkspaceEntry(database(), staff);
   return scopeWorkspace(readWorkspace(database(), staff?.brokerage.role === "Admin"), staff);
 }
 
-export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | null) {
-  return executeCommand(database(), input, staff);
+export async function loadPipeline(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readPipeline(db, input, staff));
+}
+
+export async function loadLoanContactPicker(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readLoanContactPicker(db, input, staff));
+}
+
+export async function loadContactDirectory(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readContactDirectory(db, input, staff));
+}
+
+export async function loadLeadInbox(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readLeadInbox(db, input, staff));
+}
+
+export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | null, scope?: WorkspaceMutationScope) {
+  if (!staff && process.env.NODE_ENV === "development" && input && typeof input === "object" && "type" in input && input.type === "saveCallReport") {
+    return executeCommand(database(), input, localAdmin);
+  }
+  if (!staff && process.env.NODE_ENV === "development" && process.env.ORBIT_LOCAL_REHEARSAL === "1" &&
+    input && typeof input === "object" && "type" in input && input.type === "exportReviewedApplication") {
+    return executeCommand(database(), input, {
+      ...localCampaignOfficers[0],
+      brokerage: { id: demoBrokerageId, name: "Local rehearsal", role: "Admin", pilot: true },
+    });
+  }
+  return executeCommand(database(), input, staff, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
+    scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks", scopedTemplateUpdates: true,
+    scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration" });
+}
+
+export async function loadWorkspaceTasks(input: unknown, staff: WorkspaceStaff) {
+  const db = database();
+  return db.transaction(() => readWorkspaceTasks(db, input, staff, demoBrokerageId));
+}
+
+export async function loadDraftQueue(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readDraftQueue(db, input, staff));
+}
+
+export async function loadPastClientQueue(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readPastClientQueue(db, input, staff));
+}
+
+export async function loadRealtorWork(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readRealtorWork(db, input, staff));
+}
+
+export async function loadRecordHistory(input: unknown, staff: WorkspaceStaff | null) {
+  return readRecordHistory(database(), staff, input);
+}
+
+export async function loadLeadArchive(input: unknown, staff: WorkspaceStaff | null) {
+  return readLeadArchive(database(), staff, input);
+}
+
+export async function loadSharedRealtorQueue(input: unknown, staff: WorkspaceStaff | null) {
+  return readSharedRealtorQueue(database(), staff, demoBrokerageId, input);
+}
+
+export async function loadRealtorQueueReport(input: unknown, staff: WorkspaceStaff) {
+  return readRealtorQueueReport(database(), staff, demoBrokerageId, input);
+}
+
+export async function updateRealtorQueueAssignment(input: unknown, staff: WorkspaceStaff) {
+  const parsed = assignWaitingRealtorInput.safeParse(input);
+  if (!parsed.success) return { error: "Choose a waiting referral and an active officer." };
+  return assignWaitingRealtor(database(), staff, demoBrokerageId, parsed.data, parsed.data.officerEmail === staff.email ? staff : null);
+}
+
+const localAdmin: WorkspaceStaff = { ...localCampaignOfficers[0], brokerage: { id: demoBrokerageId, name: "Local demo", role: "Admin" } };
+const localPilotAdmin: WorkspaceStaff = { ...localAdmin, brokerage: { ...localAdmin.brokerage, pilot: true } };
+
+export async function workOnContactMerge(input: unknown, staff: WorkspaceStaff | null) {
+  return contactMergeWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+}
+
+export async function loadReportingReadiness(input: unknown, staff: WorkspaceStaff | null) {
+  return reportingReadinessWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+}
+const localReviewMembers: VersionedBrokerageMember[] = [
+  { name: localAdmin.name, email: localAdmin.email, role: "Admin", status: "Active" },
+  { ...localCampaignOfficers[1], role: "LO", status: "Active" },
+  { name: "Fictional Processor", email: "processor@example.test", role: "Processor", status: "Active" },
+];
+
+export async function loadFileExceptions(input: unknown, staff: WorkspaceStaff | null) {
+  const page = readFileExceptions(database(), input, staff ?? localAdmin, demoBrokerageId);
+  return "error" in page ? page : nameFileExceptions(page, localReviewMembers);
+}
+
+export async function loadManagerExceptionWork(input: unknown, staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readManagerExceptionWork(db, input, staff, staff ? localReviewMembers : null));
+}
+
+export async function workOnBrokerageFinance(input: unknown, staff: WorkspaceStaff | null) {
+  const localOwner = process.env.NODE_ENV === "development" ? { ...localPilotAdmin,
+    brokerage: { ...localPilotAdmin.brokerage, financeAccess: true } } : null;
+  return brokerageFinanceWork(database(), input, staff ?? localOwner, demoBrokerageId);
+}
+
+export async function workOnPlaybookRun(input: unknown, staff: WorkspaceStaff | null) {
+  return playbookRunWork(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function loadFundingDashboard(input: unknown, staff: WorkspaceStaff | null) {
+  return readFundingDashboard(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function loadOfficerQueue(input: unknown, staff: WorkspaceStaff | null) {
+  return readOfficerQueue(database(), input, staff ?? localAdmin, demoBrokerageId, new Date(), staff ? undefined : localAdmin.name);
+}
+
+export async function loadCampaignCallbacks(input: unknown, staff: WorkspaceStaff | null) {
+  if (!staff || staff.brokerage.role === "Processor") return { error: campaignCallbacksUnavailable };
+  return readCampaignCallbacks(database(), input, staff, demoBrokerageId);
+}
+
+export async function loadCampaignCallbackPerformance(input: unknown, staff: WorkspaceStaff | null) {
+  const viewer = staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null);
+  if (viewer?.brokerage.role !== "Admin" || viewer.brokerage.pilot !== true) return { error: callbackPerformanceUnavailable };
+  return readCampaignCallbackPerformance(database(), input, viewer, demoBrokerageId);
+}
+
+export async function loadCampaignCallbackExceptions(input: unknown, staff: WorkspaceStaff | null) {
+  if (staff?.brokerage.role !== "Admin" || staff.brokerage.pilot !== true) return { error: callbackExceptionUnavailable };
+  return readCampaignCallbackExceptions(database(), input, staff, demoBrokerageId);
+}
+
+export async function workOnOfficerDashboard(input: unknown, staff: WorkspaceStaff | null) {
+  const local = !staff && process.env.NODE_ENV === "development" ? localAdmin : null;
+  return officerDashboardWork(database(), input, staff ?? local, demoBrokerageId, new Date(), local?.name);
+}
+
+export async function loadWorkspaceCalendar(input: unknown, staff: WorkspaceStaff | null) {
+  return readWorkspaceCalendar(database(), input, staff ?? localAdmin, demoBrokerageId, new Date(), staff ? undefined : localAdmin.name);
+}
+
+export async function updateAppointments(input: unknown, staff: WorkspaceStaff | null) {
+  return workOnAppointment(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function updateStaffCoverage(input: unknown, staff: WorkspaceStaff | null): Promise<CoverageResult> {
+  const parsed = coverageInput.safeParse(input);
+  if (!parsed.success) return { error: "Check the coverage dates or work details and try again." };
+  const roster = localCampaignOfficers.map((person, index) => ({ ...person, role: index === 0 ? "Admin" as const : "LO" as const, status: "Active" as const }));
+  return coverageWork(database(), parsed.data, staff ?? localAdmin, demoBrokerageId, roster);
+}
+
+export async function loadWorkspaceSearch(input: unknown, staff: WorkspaceStaff | null) {
+  return readWorkspaceSearch(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function updateLoanReview(input: unknown, staff: WorkspaceStaff | null): Promise<ReviewResult> {
+  const parsed = reviewInput.safeParse(input);
+  if (!parsed.success) return { error: "Check the reviewer, dates, and note before continuing." };
+  return loanReviewWork(database(), parsed.data, staff ?? localAdmin, demoBrokerageId, localReviewMembers);
+}
+
+export async function loadProcessorQueue(input: unknown, staff: WorkspaceStaff | null) {
+  return readProcessorQueue(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function updateProcessingView(input: unknown, staff: WorkspaceStaff | null) {
+  return changeProcessingView(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function loadEditableLoan(input: unknown, staff: WorkspaceStaff | null) {
+  return readEditableLoan(database(), input, staff ?? localAdmin, demoBrokerageId, staff ? undefined : localAdmin.name);
+}
+
+export async function loadLoanHandoff(loanId: string, knownVersion: string, staff: WorkspaceStaff) {
+  return readLoanHandoff(database(), loanId, knownVersion, staff, demoBrokerageId);
+}
+
+export async function loadIncomingLoanWork(input: unknown, staff: WorkspaceStaff | null) {
+  return readIncomingLoanWorkPage(database(), input, staff ?? localAdmin, demoBrokerageId, staff ? undefined : localAdmin.name);
+}
+
+export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | null) {
+  return readEditableLead(database(), input, staff ?? localAdmin, demoBrokerageId, staff ? undefined : localAdmin.name);
+}
+
+export async function loadSalesDashboard(input: unknown, staff: WorkspaceStaff | null) {
+  return readSalesDashboard(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {
+  return changeSalesSettings(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function loadConversations(input: unknown, staff: WorkspaceStaff | null) {
+  return readConversations(database(), input, staff ?? localAdmin, demoBrokerageId, new Date(), staff ? undefined : localAdmin.name);
+}
+
+export async function updateConversation(input: unknown, staff: WorkspaceStaff | null) {
+  return changeConversation(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function loadInboundReplies(input: unknown, staff: WorkspaceStaff | null) {
+  return readInboundReplies(database(), input, staff ?? localPilotAdmin, demoBrokerageId);
+}
+
+export async function updateInboundReply(input: unknown, staff: WorkspaceStaff | null) {
+  return changeInboundReply(database(), input, staff ?? localPilotAdmin, demoBrokerageId);
+}
+
+export async function updateFundingRecord(input: unknown, staff: WorkspaceStaff | null) {
+  return fundingRecordAction(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function loadPipelineExport(staff: WorkspaceStaff) {
+  return exportPilotPipeline(database(), staff);
+}
+
+export async function loadMigrationRecovery(staff: WorkspaceStaff, importId: unknown) {
+  return reviewMigrationRecovery(database(), staff, importId);
+}
+
+export async function loadMigrationRecord(staff: WorkspaceStaff, input: unknown) {
+  const db = database();
+  return db.transaction(() => readMigrationRecord(db, input, staff));
+}
+
+export async function loadMigrationCutover(staff: WorkspaceStaff, origin: unknown) {
+  return readMigrationCutover(database(), staff, demoBrokerageId, origin, new Set([...localCampaignOfficers.map(({ email }) => email), staff.email]));
+}
+
+export async function loadCutoverHandoff(staff: WorkspaceStaff, query: unknown) {
+  return exportCutoverHandoff(database(), staff, demoBrokerageId, query, new Set([...localCampaignOfficers.map(({ email }) => email), staff.email]));
+}
+
+export async function loadCutoverFileLookup(staff: WorkspaceStaff, query: unknown) {
+  return lookupCutoverFile(database(), staff, demoBrokerageId, query);
+}
+
+export async function loadCutoverApplicationComparison(staff: WorkspaceStaff, query: unknown) {
+  return readCutoverApplicationComparison(database(), staff, demoBrokerageId, query);
+}
+
+export async function loadCutoverFileInventory(staff: WorkspaceStaff, query: unknown) {
+  return readCutoverFileInventory(database(), staff, demoBrokerageId, query);
+}
+
+export async function updateCutoverFileInventory(staff: WorkspaceStaff, input: unknown) {
+  return saveCutoverFileInventory(database(), staff, demoBrokerageId, input);
+}
+
+export async function updateMigrationCutover(staff: WorkspaceStaff, input: unknown) {
+  return saveMigrationCutover(database(), staff, demoBrokerageId, input, undefined, new Set([...localCampaignOfficers.map(({ email }) => email), staff.email]));
 }
 
 export async function updateBorrowerApplication(input: unknown) {

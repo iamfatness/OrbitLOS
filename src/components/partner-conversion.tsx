@@ -1,87 +1,85 @@
-import { useState } from "react";
 import { dateLabel } from "@/lib/client-retention";
-import { leadSources, type Contact, type Workspace } from "@/lib/model";
+import { leadSources } from "@/lib/model";
+import { conversionMetrics, type ConversionPartner, type RealtorDirectoryPage, type RealtorFilters,
+  type RealtorRecord, type RealtorRecordsPage, type RealtorRecordView } from "@/lib/realtor-work-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
-const metrics = [
-  { key: "referrals", label: "Referrals" },
-  { key: "submitted", label: "Submitted 1003s" },
-  { key: "funded", label: "Funded loans" },
-] as const;
-type Metric = (typeof metrics)[number]["key"];
+export type ConversionMetric = keyof typeof conversionMetrics;
+export type ConversionSelection = { partnerId: string; view: ConversionMetric };
+const metricKeys = Object.keys(conversionMetrics) as ConversionMetric[];
 
-export function PartnerConversion({ partners, state, openLoan }: {
-  partners: Contact[]; state: Workspace; openLoan: (id: string) => void;
+export function PartnerConversion({ page, selected, selection, filters, search, busy, setFilters, setSearch, selectPartner, open, refresh, loadMore }: {
+  page?: RealtorDirectoryPage; selected: string; selection?: ConversionSelection; filters: RealtorFilters; search: string; busy: boolean;
+  setFilters: (filters: RealtorFilters) => void; setSearch: (search: string) => void; selectPartner: (partnerId: string) => void;
+  open: (selection: ConversionSelection) => void; refresh: () => void; loadMore?: () => void;
 }) {
-  const [selection, setSelection] = useState<{ partnerId: string; metric: Metric }>();
-  const [from, setFrom] = useState("");
-  const [through, setThrough] = useState("");
-  const [officer, setOfficer] = useState("");
-  const [source, setSource] = useState("");
-  const names = new Map(state.contacts.map((contact) => [contact.id, contact.name]));
-  const applications = new Map(state.applications.map((application) => [application.loanId, application.versions.at(-1)?.submittedAt ?? application.submittedAt]));
-  const funding = new Map(state.closingProgress.map((progress) => [progress.loanId, progress.fundingDate]));
-  const owner = (entry: { officer: string; officerEmail: string | null }) => entry.officerEmail || entry.officer;
-  const officers = new Map([...state.loans, ...state.unlinkedReferrals].map((item) => [owner(item), item.officer]));
-  const inDates = (date: string) => (!from || date.slice(0, 10) >= from) && (!through || date.slice(0, 10) <= through);
-  const qualifies = state.loans.filter((loan) => (!officer || owner(loan) === officer) &&
-    (!source || loan.leadSource === source) && inDates(loan.createdAt ?? loan.stageSince));
-  const buckets = [...partners.map((partner) => ({ id: partner.id, name: partner.name })), { id: "", name: "No realtor linked" }];
-  const report = buckets.map((partner) => {
-    const referrals = qualifies.filter((loan) => (loan.referralSourcePartnerId ?? loan.partnerId ?? "") === partner.id);
-    return { partner, referrals, submitted: referrals.filter((loan) => applications.get(loan.id)),
-      funded: referrals.filter((loan) => funding.get(loan.id)), unlinked: state.unlinkedReferrals.filter((lead) =>
-        (!source || source === "Realtor referral") && lead.realtorId === partner.id && (!officer || owner(lead) === officer) && inDates(lead.createdAt)) };
-  });
-  const selected = report.find((item) => item.partner.id === selection?.partnerId);
-  const metric = metrics.find((item) => item.key === selection?.metric);
-  const selectedLoans = selected && metric ? selected[metric.key] : [];
-  const selectedLeads = selected && metric?.key === "referrals" ? selected.unlinked : [];
+  const report = page ? [...page.partners, ...(page.direct ? [page.direct] : [])] : [];
+  function change<K extends keyof RealtorFilters>(key: K, value: RealtorFilters[K]) {
+    setFilters({ ...filters, [key]: value });
+  }
 
   return <section className="pipeline" aria-label="Partner conversion">
     <div className="pipeline-heading"><div><h2>Partner conversion</h2>
-      <p>Filters use the date a lead entered Orbit and its current owner. Funded counts use recorded funding dates. Open a count to see its records.</p></div></div>
+      <p>Open a realtor to manage the relationship or a count to see the records behind it. Conversion credit follows the original referral.</p></div></div>
     <div className="filter-row">
-      <label className="field">Leads from<input type="date" value={from} max={through || undefined} onChange={(event) => setFrom(event.target.value)} /></label>
-      <label className="field">Leads through<input type="date" value={through} min={from || undefined} onChange={(event) => setThrough(event.target.value)} /></label>
-      <label className="field">Officer<select value={officer} onChange={(event) => setOfficer(event.target.value)}><option value="">All officers</option>
-        {[...officers].filter(([key]) => key).map(([key, name]) => <option key={key} value={key}>{name || key}</option>)}</select></label>
-      <label className="field">Lead source<select value={source} onChange={(event) => setSource(event.target.value)}><option value="">All lead sources</option>
+      <label className="field">Search realtors<input type="search" value={search} maxLength={120}
+        placeholder="Name, email, or phone" onChange={(event) => setSearch(event.target.value)} /></label>
+      <label className="field">Leads from<input type="date" value={filters.from} max={filters.through || undefined} onChange={(event) => change("from", event.target.value)} /></label>
+      <label className="field">Leads through<input type="date" value={filters.through} min={filters.from || undefined} onChange={(event) => change("through", event.target.value)} /></label>
+      <label className="field">Officer<select value={filters.officer} onChange={(event) => change("officer", event.target.value)}><option value="">All officers</option>
+        {page?.officers?.map(({ key, name }) => <option key={key} value={key}>{name || key}</option>)}
+        {filters.officer && !page?.officers?.some(({ key }) => key === filters.officer) && <option value={filters.officer}>{filters.officer}</option>}</select></label>
+      <label className="field">Lead source<select value={filters.source} onChange={(event) => change("source", event.target.value as RealtorFilters["source"])}><option value="">All lead sources</option>
         {leadSources.map((value) => <option key={value}>{value}</option>)}</select></label>
+      <Button variant="outline" size="sm" onClick={refresh} disabled={busy}>Refresh realtors</Button>
     </div>
-    <div className="table-scroll"><table className="data-table">
-      <thead><tr><th scope="col">Realtor</th>{metrics.map((item) => <th scope="col" key={item.key}>{item.label}</th>)}<th scope="col">Funded conversion</th></tr></thead>
-      <tbody>{report.map((row) => <tr key={row.partner.id}>
-        <th scope="row">{row.partner.name}{!row.partner.id && <small>Direct and other unlinked leads</small>}</th>
-        {metrics.map((item) => {
-          const count = row[item.key].length + (item.key === "referrals" ? row.unlinked.length : 0);
-          const active = selection?.partnerId === row.partner.id && selection.metric === item.key;
-          return <td key={item.key}><Button size="sm" variant={active ? "default" : "outline"} aria-pressed={active}
-            aria-label={`${row.partner.name} · ${item.label} · ${count}`}
-            onClick={() => setSelection({ partnerId: row.partner.id, metric: item.key })}>{count}</Button></td>;
+    <p className="relationship-inset muted">Dates filter intake. Officer follows the current owner. Funded counts use recorded funding dates.</p>
+    {page && (report.length ? <div className="table-scroll"><table className="data-table">
+      <thead><tr><th scope="col">Realtor</th>{metricKeys.map((key) => <th scope="col" key={key}>{conversionMetrics[key]}</th>)}<th scope="col">Funded conversion</th></tr></thead>
+      <tbody>{report.map((row: ConversionPartner) => <tr key={row.id}>
+        <th scope="row">{row.id ? <button className="name-link" type="button" aria-pressed={selected === row.id}
+          disabled={busy} onClick={() => selectPartner(row.id)}>{row.name}</button> : <>{row.name}<small>Direct and other unattributed loans</small></>}</th>
+        {metricKeys.map((view) => {
+          const count = row.counts[view];
+          const active = selection?.partnerId === row.id && selection.view === view;
+          return <td key={view}><Button size="sm" variant={active ? "default" : "outline"} aria-pressed={active} disabled={busy || !count}
+            aria-label={`${row.name} · ${conversionMetrics[view]} · ${count}`}
+            onClick={() => open({ partnerId: row.id, view })}>{count}</Button></td>;
         })}
-        <td>{row.referrals.length + row.unlinked.length ? `${Math.round(100 * row.funded.length / (row.referrals.length + row.unlinked.length))}%` : "—"}
-          <small>{row.funded.length} funded / {row.referrals.length + row.unlinked.length} leads</small></td>
+        <td>{row.counts.referrals ? `${Math.round(100 * row.counts.funded / row.counts.referrals)}%` : "—"}
+          <small>{row.counts.funded} funded / {row.counts.referrals} leads</small></td>
       </tr>)}</tbody>
-    </table></div>
-    {selected && metric && <section aria-labelledby="partner-conversion-details">
-      <div className="pipeline-heading"><div><h3 id="partner-conversion-details">{selected.partner.name} · {metric.label}</h3>
-        <p>{selectedLoans.length + selectedLeads.length} records</p></div></div>
-      {selectedLoans.length || selectedLeads.length ? <div className="table-scroll"><table className="data-table">
-        <thead><tr><th scope="col">Borrower or prospect</th><th scope="col">Status</th><th scope="col">Submitted 1003</th><th scope="col">Funded</th></tr></thead>
-        <tbody>
-          {selectedLoans.map((loan) => {
-            const submittedAt = applications.get(loan.id);
-            const fundedOn = funding.get(loan.id);
-            return <tr key={loan.id}><td><button className="name-link" onClick={() => openLoan(loan.id)}>{names.get(loan.contactId) ?? "Borrower"}</button></td>
-              <td>{loan.disposition && loan.disposition !== "Active" ? loan.disposition : loan.stage}<small>{loan.leadSource}</small></td>
-              <td>{submittedAt ? `${dateTime(submittedAt)} ET` : "—"}</td><td>{fundedOn ? dateLabel(fundedOn) : "—"}</td></tr>;
-          })}
-          {selectedLeads.map((lead) => <tr key={lead.id}><td>{lead.name}<small>Referred {dateTime(lead.createdAt)} ET</small></td>
-            <td>{lead.resolvedAt ? "Closed without a linked loan" : "Awaiting conversion"}</td><td>—</td><td>—</td></tr>)}
-        </tbody>
-      </table></div> : <p className="empty-inline no-matches">No matching records for this realtor.</p>}
-    </section>}
+    </table></div> : <p className="empty-inline no-matches">No realtors match your search.</p>)}
+    {loadMore && <div className="filter-row"><Button variant="outline" size="sm" onClick={loadMore} disabled={busy}>Load more realtors</Button></div>}
+  </section>;
+}
+
+const recordTitles: Record<RealtorRecordView, string> = { ...conversionMetrics, linked: "Referred loans", open: "Open referrals" };
+export function RealtorRecords({ view, page, busy, error, openRecord, loadMore, close }: {
+  view: RealtorRecordView; page?: RealtorRecordsPage; busy: boolean; error?: string; openRecord: (row: RealtorRecord) => void;
+  loadMore?: () => void; close?: () => void;
+}) {
+  return <section className="pipeline" aria-label={recordTitles[view]} tabIndex={-1} id={close ? "partner-conversion-details" : "realtor-partner-records"}>
+    <div className="pipeline-heading"><div><h3>{page?.partnerName && `${page.partnerName} · `}{recordTitles[view]}</h3>
+      {page?.total != null && <p>{page.rows.length} of {page.total} records</p>}</div>
+      {close && <Button size="sm" variant="outline" onClick={close}>Close conversion records</Button>}</div>
+    {error && <p className="empty-inline" role="alert">{error}</p>}
+    {!page && !error && <p className="empty-inline" role="status">Loading records…</p>}
+    {page && (page.rows.length ? <div className="table-scroll"><table className="data-table">
+      <thead><tr><th scope="col">Borrower or prospect</th><th scope="col">Status</th><th scope="col">Loan officer</th>
+        {view === "linked" ? <><th scope="col">Open tasks</th><th scope="col">Last activity</th></> :
+          <><th scope="col">Submitted 1003</th><th scope="col">Funded</th></>}</tr></thead>
+      <tbody>{page.rows.map((row) => <tr key={`${row.kind}:${row.id}`}><td>
+        {row.kind === "loan" || row.archived || row.status !== "Closed without a linked loan" ?
+          <button className="name-link" type="button" disabled={busy} onClick={() => openRecord(row)}>{row.name}</button> : row.name}
+        {row.kind === "lead" && <small>Referred {dateTime(row.at)} ET</small>}</td>
+        <td>{row.archived ? "Archived" : row.status}<small>{row.source}</small></td><td>{row.officer || "Shared inbox"}</td>
+        {view === "linked" ? <><td>{row.openTasks}</td><td>{row.lastActivityAt ? `${dateTime(row.lastActivityAt)} ET` : "—"}</td></> :
+          <><td>{row.submittedAt ? `${dateTime(row.submittedAt)} ET` : "—"}</td><td>{row.fundedOn ? dateLabel(row.fundedOn) : "—"}</td></>}
+      </tr>)}</tbody>
+    </table></div> : <p className="empty-inline no-matches">{view === "linked" ? "Link this realtor on a loan to see it here." :
+      view === "open" ? "No open referrals for this realtor." : "No records match the current filters."}</p>)}
+    {loadMore && <div className="filter-row"><Button variant="outline" size="sm" onClick={loadMore} disabled={busy}>Load more records</Button></div>}
   </section>;
 }

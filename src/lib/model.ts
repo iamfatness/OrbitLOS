@@ -4,6 +4,7 @@ import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "
 import type { MockCreditAusRun } from "./credit-aus-model";
 import type { UwmAlert } from "./uwm-alert-model";
 import type { LeadFollowUp, LeadRouting } from "./lead-inbox-model";
+import type { RealtorClaimPolicy } from "./realtor-claim-model";
 import type { LoanProcessing } from "./processing-model";
 import type { FeeWorksheet } from "./quote-worksheet";
 
@@ -25,9 +26,12 @@ export interface Contact {
   phone: string;
   role: ContactRole;
   addedBy?: string | null;
+  outreachSuppressed?: boolean;
 }
 
 export interface Loan {
+  lastActivityAt?: string | null;
+  lastOutreachAt?: string | null;
   id: string;
   contactId: string;
   partnerId: string | null;
@@ -43,6 +47,7 @@ export interface Loan {
   revisitDate?: string | null;
   dispositionRevision?: number;
   leadSource?: (typeof leadSources)[number];
+  callCampaignName?: string | null;
   referralSourcePartnerId?: string | null;
   createdAt?: string | null;
 }
@@ -54,9 +59,12 @@ export interface Condition {
   description: string;
   uploaded: boolean;
   satisfiedAt: string | null;
+  mockReopenedAt?: string;
   manual?: {
     owner: string;
     revision: number;
+    openedAt?: string;
+    reopenedAt?: string;
     deliveries: { documentRevision: number; reference: string; at: string }[];
     confirmedDelivery: string | null;
   };
@@ -77,13 +85,45 @@ export interface Activity {
   loanId: string;
   text: string;
   createdAt: string;
-  kind: ActivityKind;
+  kind: ActivityKind | "Campaign";
   outcome?: string | null;
 }
 
 export const activityKinds = ["Note", "Call", "Email", "Text"] as const;
 export const contactOutcomes = ["Connected", "Left message", "Sent update", "No response", "Requested callback"] as const;
+export const followUpOutcomes = ["Resolved", ...contactOutcomes, "No further follow-up needed"] as const;
 export type ActivityKind = (typeof activityKinds)[number];
+
+export const followUpPurposes = ["Loan service", "Prospecting"] as const;
+export type FollowUpPurpose = (typeof followUpPurposes)[number];
+
+export function prospectingBlocked(purpose: FollowUpPurpose, outreachSuppressed?: boolean) {
+  return purpose === "Prospecting" && !!outreachSuppressed;
+}
+
+export interface ContactActivity {
+  id: string;
+  contactId: string;
+  officer: string;
+  officerEmail: string | null;
+  followUpOwner: string | null;
+  followUpOwnerEmail: string | null;
+  kind: ActivityKind;
+  outcome: (typeof contactOutcomes)[number] | null;
+  text: string;
+  createdAt: string;
+  dueAt: string | null;
+  completedAt: string | null;
+  latestCompletion: {
+    at: string;
+    actor: string;
+    outcome: (typeof followUpOutcomes)[number] | null;
+    note: string;
+  } | null;
+  purpose: FollowUpPurpose;
+  postFundingCheckIn?: boolean;
+  revision: number;
+}
 
 export interface LoanTask {
   id: string;
@@ -91,10 +131,14 @@ export interface LoanTask {
   title: string;
   dueAt: string;
   completedAt: string | null;
+  purpose: FollowUpPurpose;
+  campaignCallback?: "Pending" | "Recorded";
+  campaignCallbackRevision?: number;
 }
 
 export type DraftAudience = "Borrower" | "Realtor";
-export const draftMilestones = [...stages, "Application received", "Closing complete", "Lender review started", "Lender review complete", "Post-funding check-in", "Realtor thank-you"] as const;
+export const draftMilestones = [...stages, "Application received", "Closing complete", "Lender review started", "Lender review resumed",
+  "Lender review complete", "Post-funding check-in", "Realtor thank-you"] as const;
 export type DraftMilestone = (typeof draftMilestones)[number];
 export type DraftChannel = "Email" | "Text";
 
@@ -107,6 +151,7 @@ export interface CommunicationDraft {
   createdAt: string;
   emailCopiedAt: string | null;
   textCopiedAt: string | null;
+  supersededAt: string | null;
 }
 export interface BrokerageTemplate {
   audience: DraftAudience;
@@ -135,9 +180,15 @@ export const disclosureStatuses = ["Not started", "Prepared", "Delivered manuall
 export interface ClosingProgress {
   loanId: string;
   fundingDate: string | null;
+  preFundingStage: Stage | null;
+  preFundingStageSince: string | null;
   disclosureStatus: (typeof disclosureStatuses)[number];
   disclosureDate: string | null;
   revision: number;
+}
+
+export function fundingReversalStage(stage: Stage, preFundingStage: Stage | null) {
+  return stage === "Funded" || stage === "Closed" ? preFundingStage ?? "Clear to Close" : stage;
 }
 
 export interface ClosingItem {
@@ -151,6 +202,7 @@ export interface ClosingItem {
 }
 
 export interface RealtorPortal {
+  revision: number;
   realtorId: string;
   token: string;
   expiresAt: string;
@@ -160,7 +212,10 @@ export interface RealtorPortal {
 export interface RealtorReferrals {
   realtorName: string;
   referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string }[];
+  next: RealtorReferralCursor | null;
 }
+
+export type RealtorReferralCursor = { at: string; id: string; source: "loan" | "referral" };
 
 export interface ReferralLead {
   id: string;
@@ -181,6 +236,13 @@ export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName
   realtorName: string | null;
   zip: string;
   importedContactId: string | null;
+  campaignId: string | null;
+  campaignTaskId: string | null;
+  campaignOptedOut: boolean;
+  outreachSuppressed: boolean;
+  heldAt: string | null;
+  holdReason: string | null;
+  revisitDate: string | null;
   source: (typeof leadSources)[number];
   importedTasks: ImportedLeadTask[];
   followUp: LeadFollowUp;
@@ -193,6 +255,7 @@ export interface ImportedLeadTask {
   title: string;
   dueAt: string;
   completedAt: string | null;
+  purpose: FollowUpPurpose;
 }
 
 export interface ReferralReview extends ReferralLead {
@@ -212,9 +275,10 @@ export interface UnlinkedReferral {
 
 export interface Workspace {
   contacts: Contact[];
+  followUpContacts: Contact[];
   loans: Loan[];
   submissions: Submission[];
-  activity: Activity[];
+  contactActivity: ContactActivity[];
   tasks: LoanTask[];
   communicationDrafts: CommunicationDraft[];
   brokerageTemplates: BrokerageTemplate[];
@@ -222,13 +286,23 @@ export interface Workspace {
   closingPlans: ClosingPlan[];
   closingItems: ClosingItem[];
   closingProgress: ClosingProgress[];
+  returningClientLoans: { fundedLoanId: string; loanId: string }[];
   loanProcessing: LoanProcessing[];
   realtorPortals: RealtorPortal[];
   referralLeads: ReferralReview[];
   inboxLeads: InboxLead[];
   leadRouting: LeadRouting | null;
+  realtorClaimPolicy?: RealtorClaimPolicy;
+  sharedRealtorClaimEnabled?: boolean;
+  callCampaigns: import("./call-campaign-model").CallCampaign[];
+  crmSegments: import("./crm-segment-model").CrmSegment[];
+  campaignResponses: import("./campaign-response-model").CampaignResponseRecord[];
+  callCampaignMembers: import("./call-campaign-model").CallCampaignMember[];
+  campaignQueueFiles?: import("./call-campaign-model").CampaignQueueFile[];
+  campaignLeadOptions?: import("./call-campaign-model").CampaignLeadOption[];
   playbook: import("./playbook-model").PlaybookSettings;
   demoGuide: import("./brokerage-model").DemoGuideState | null;
+  campaignRehearsal: import("./call-campaign-model").CampaignRehearsal | null;
   managerReports: import("./manager-report-model").ManagerReports | null;
   callReportFiles: import("./call-report-model").CallReportFile[] | null;
   mismoLoans: string[];

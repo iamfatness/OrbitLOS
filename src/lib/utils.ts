@@ -10,7 +10,7 @@ const shortUsd = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 export const money = (amount: number) => amount ? usd.format(amount) : "—";
 export const compactMoney = (amount: number) => shortUsd.format(amount);
 export const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-export const stageDays = (since: string) => Math.max(0, Math.floor((Date.now() - Date.parse(since)) / 86_400_000));
-export const dateTime = (date: string) => new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York",
+export const stageDays = (since: string, now = Date.now()) => Math.max(0, Math.floor((now - Date.parse(since)) / 86_400_000));
+export const dateTime = (date: string, timeStyle: "short" | "medium" = "short") => new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium", timeStyle, timeZone: "America/New_York",
 }).format(new Date(date));

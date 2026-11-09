@@ -1,8 +1,18 @@
-import type { Stage } from "./model";
+import type { Condition, Stage } from "./model";
 import type { BorrowerQuote } from "./pricing-model";
 
 export const documentKinds = ["Pay stub", "Bank statement", "Tax form", "Photo ID", "Homeowners insurance"] as const;
 export type DocumentKind = (typeof documentKinds)[number];
+export const conditionDocumentBatchLimit = 50;
+const suggestedDocumentKinds = new Map<string, DocumentKind>([
+  ["Income", "Pay stub"], ["Assets", "Bank statement"], ["Identity", "Photo ID"], ["Insurance", "Homeowners insurance"],
+]);
+
+export function suggestedConditionDocument(condition: Pick<Condition, "category" | "description">) {
+  const kind = suggestedDocumentKinds.get(condition.category);
+  const instructions = condition.description.slice(0, 500).trim();
+  return kind && instructions ? { kind, instructions } : null;
+}
 export const checklistPresets = {
   "Wage income": ["Photo ID", "Pay stub", "Bank statement"],
   "Self-employed": ["Photo ID", "Tax form", "Bank statement"],
@@ -25,6 +35,7 @@ export interface DocumentRequest {
   status: DocumentStatus;
   replacementNote: string;
   submittedAt: string | null;
+  dueOn: string | null;
   revision: number;
   pdfStatus: "Processing" | "Ready" | "Retry" | null;
   pdfUploadedAt: string | null;
@@ -33,6 +44,7 @@ export interface DocumentRequest {
 export interface LoanDocumentRequest extends DocumentRequest {
   loanId: string;
   requestedAt: string;
+  deadlineRevision: number;
   submissionId: string | null;
   conditionId: string | null;
   uwmReceipt: string | null;

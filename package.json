@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
+    "demo:local": "node scripts/local-demo.mjs",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "build:cloudflare": "vite build",
     "preview:cloudflare": "wrangler dev --config dist/server/wrangler.json --local --infer-origin-from-routes=false",
-    "deploy:cloudflare": "wrangler deploy --config dist/server/wrangler.json",
+    "deploy:cloudflare": "node --env-file-if-exists=.orbit/release.env scripts/deploy-cloudflare.mjs",
     "types:cloudflare": "wrangler types --include-runtime=false"
   },
   "type": "module",

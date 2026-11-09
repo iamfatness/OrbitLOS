@@ -1,5 +1,5 @@
-import { addApplicationActivity } from "./applications";
-import { mockRateStatus, type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer } from "./pricing-model";
+import { addApplicationActivity, getApplication } from "./applications";
+import { mockRateStatus, quoteMatchesApplication, repriceQuoteMessage, type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer } from "./pricing-model";
 import { savedPricingRun, type Store } from "./store";
 
 type Result = { message: string } | { error: string };
@@ -19,11 +19,9 @@ export function floatMockRate(db: Store, input: {
   const { loanId, submissionId, runId, offerId, previousFloatReference } = input;
   const previous = currentRate(db, loanId);
   const status = previous && mockRateStatus(previous, now);
-  if (previous && (status === "Floating" || status === "Mock locked") && previous.submissionId === submissionId && previous.runId === runId && previous.offerId === offerId) {
-    return { message: previous.lockReference ? "This sample rate already has a mock lock." : `Rate already floating · ${previous.floatReference}` };
-  }
+  const sameQuote = previous?.submissionId === submissionId && previous.runId === runId && previous.offerId === offerId;
+  if (status === "Mock locked" && sameQuote) return { message: "This sample rate already has a mock lock." };
   if (status === "Mock locked") return { error: "This loan already has an active mock rate lock." };
-  if ((previous?.floatReference ?? null) !== previousFloatReference) return { error: "The floating rate changed. Reopen pricing before floating another quote." };
 
   const file = uwmFile(db, loanId, submissionId);
   if (!file) return { error: "Select a synced UWM submission on this loan before floating a rate." };
@@ -31,6 +29,9 @@ export function floatMockRate(db: Store, input: {
   if (run?.id !== runId || run.selectedId !== offerId || run.mode !== "mock") {
     return { error: "Save the current sample quote before floating its rate." };
   }
+  if (!quoteMatchesApplication(run.applicationRevision, getApplication(db, loanId))) return { error: repriceQuoteMessage };
+  if (previous && status === "Floating" && sameQuote) return { message: `Rate already floating · ${previous.floatReference}` };
+  if ((previous?.floatReference ?? null) !== previousFloatReference) return { error: "The floating rate changed. Reopen pricing before floating another quote." };
   const offer = (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === offerId);
   if (!offer) return { error: "This sample quote is unavailable." };
 
@@ -61,6 +62,7 @@ export function lockMockRate(db: Store, input: { loanId: string; floatReference:
   if (run?.id !== current.runId || run.selectedId !== current.offerId || run.mode !== "mock") {
     return { error: "The saved quote changed. Float it before requesting a mock lock." };
   }
+  if (!quoteMatchesApplication(run.applicationRevision, getApplication(db, loanId))) return { error: repriceQuoteMessage };
   if (uwmFile(db, loanId, current.submissionId)?.externalId !== current.loanNumber) {
     return { error: "This UWM submission is unavailable. Refresh the loan before locking the rate." };
   }

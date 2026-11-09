@@ -141,5 +141,7 @@ export function prepareLenderExport(db: Store, input: z.infer<typeof exportRevie
   const previous = db.prepare("SELECT loanId, text FROM activity WHERE id = ?").get(input.eventId);
   if (previous && (previous.loanId !== input.loanId || previous.text !== message)) return { error: "Reopen the export panel and start a new download." };
   if (!previous) db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(input.eventId, input.loanId, message, now);
+  db.prepare(`INSERT OR IGNORE INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome)
+    VALUES (?, ?, ?, ?, 'Export prepared')`).run(input.eventId, input.loanId, input.revision, input.lenderRevision);
   return { xml };
 }

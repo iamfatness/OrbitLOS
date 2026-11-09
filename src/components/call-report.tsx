@@ -9,14 +9,18 @@ import { Button } from "./ui/button";
 import { downloadSampleFile } from "./sample-download";
 import type { Workspace } from "@/lib/model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import { callReportFactsTarget, type ReportingPeriod } from "@/lib/call-report-readiness-model";
+import { ReconciledCallReportExport, ReportingPeriodFields } from "./call-report-readiness";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 
-export function CallReportWorkbench({ state, openLoan }: { state: Workspace; openLoan: (loanId: string) => void }) {
+export function CallReportWorkbench({ state, brokerageId, period, setPeriod, openLoan, openReadiness }: {
+  state: Workspace; brokerageId: string; period: ReportingPeriod; setPeriod: (period: ReportingPeriod) => void;
+  openLoan: (loanId: string) => void; openReadiness: () => void;
+}) {
   const [today] = useState(() => easternDate());
   const currentYear = Number(today.slice(0, 4));
-  const [year, setYear] = useState(String(currentYear));
-  const [quarter, setQuarter] = useState(Math.ceil(Number(today.slice(5, 7)) / 3));
+  const { year, quarter } = period;
   const [propertyState, setPropertyState] = useState("");
   const [originator, setOriginator] = useState("");
   const [group, setGroup] = useState<(typeof callReportGroups)[number]>("Needs review");
@@ -37,12 +41,7 @@ export function CallReportWorkbench({ state, openLoan }: { state: Workspace; ope
     <div><h2>Mortgage Call Report prep</h2><p>Reconcile quarterly application activity for a wholesale broker and open the files behind the totals.</p></div>
     <p className="muted">Confirm each file’s reporting eligibility and facts. Beginning and ending pipeline amounts use the confirmed application amount at intake. Outcomes use their separately confirmed amounts. It covers selected residential mortgage activity and leaves net amount adjustments, fee and financial data, and filing to separate review.</p>
     <div className="form-grid">
-      <label className="field">Reporting year<input type="number" min={1900} max={currentYear} value={year} onChange={(event) => {
-        setYear(event.target.value); setPropertyState(""); setOriginator("");
-      }} /></label>
-      <label className="field">Reporting quarter<select value={quarter} onChange={(event) => {
-        setQuarter(Number(event.target.value)); setPropertyState(""); setOriginator("");
-      }}>{[1, 2, 3, 4].map((value) => <option key={value} value={value}>Q{value}</option>)}</select></label>
+      <ReportingPeriodFields period={period} maxYear={String(currentYear)} change={(value) => { setPeriod(value); setPropertyState(""); setOriginator(""); }} />
       <label className="field">Property state filter<select value={propertyState} onChange={(event) => setPropertyState(event.target.value)}>
         <option value="">All states</option><option value="unconfirmed">Unconfirmed state</option>
         {states.map((code) => <option key={code}>{code}</option>)}</select></label>
@@ -55,8 +54,9 @@ export function CallReportWorkbench({ state, openLoan }: { state: Workspace; ope
         <span className="pill">{range.from} through {range.through}</span>
         <Button variant="outline" size="sm" disabled={!filtered.length} onClick={() =>
           downloadSampleFile(callReportCsv(filtered, range.from, range.through), `orbit-call-report-review-${year}-Q${quarter}.csv`, "text/csv")
-        }>Download review CSV</Button>
+        }>Download draft review CSV</Button>
       </div>
+      <ReconciledCallReportExport key={`${year}:${quarter}`} brokerageId={brokerageId} period={period} openReadiness={openReadiness} />
       <div className="loan-application-actions">
         {callReportGroups.map((label) => {
           const items = filtered.filter((item) => item.groups.includes(label));
@@ -90,7 +90,7 @@ export function CallReportLoanFacts({ file, busy, save }: { file: CallReportFile
   const [facts, setFacts] = useState(file.facts);
   const checked = callReportFacts.safeParse(facts);
   const updateAmount = (value: string) => value === "" ? null : Number(value);
-  return <section className="details-section" id="loan-call-report" aria-label="Call report facts" tabIndex={-1}>
+  return <section className="details-section" id={callReportFactsTarget} aria-label="Call report facts" tabIndex={-1}>
     <h3>Call report facts</h3>
     <p className="muted">Confirm the first received date and amount, property state, and reportable outcome. Orbit keeps these separate from pipeline status.</p>
     <p className="muted">Orbit records · First 1003 {file.suggested.receivedDate || "—"} · Funding {file.suggested.fundingDate || "—"} · Current loan amount {money(file.suggested.currentAmount)}</p>
@@ -103,6 +103,10 @@ export function CallReportLoanFacts({ file, busy, save }: { file: CallReportFile
         receivedAmount: facts.receivedAmount ?? file.suggested.receivedAmount,
         state: facts.state || (reportStates.includes(file.suggested.state) ? file.suggested.state : ""),
       })}>Use first 1003 as a starting point</Button></div>}
+      {facts.outcome === "Closed and funded" && file.suggested.fundingDate && facts.outcomeDate !== file.suggested.fundingDate &&
+        <div><Button size="sm" variant="outline" disabled={busy} onClick={() => setFacts({ ...facts, outcomeDate: file.suggested.fundingDate })}>
+          Use recorded funding date
+        </Button></div>}
       <div className="form-grid">
         <label className="field">Reporting eligibility<select value={facts.eligibility} onChange={(event) => {
           const eligibility = event.target.value as typeof facts.eligibility;

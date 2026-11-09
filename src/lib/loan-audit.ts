@@ -17,10 +17,11 @@ export interface LoanAuditEvent {
 }
 
 export function loanAuditSnapshot(db: Store, loanId: string) {
-  const row = db.prepare(`SELECT loan.officerEmail, loan.officer, loan.amount, loan.stage, loan.purpose, loan.disposition, loan.leadSource,
+  const row = db.prepare(`SELECT loan.officerEmail, loan.officer, loan.amount, loan.stage, loan.purpose, loan.disposition, loan.leadSource, realtor.name AS realtorName,
     plan.targetDate, client.closingDate, closing.fundingDate, closing.disclosureStatus, closing.disclosureDate,
     processing.processorEmail, processing.status AS processingStatus, app.submittedAt, app.reviewedAt, prep.facts
     FROM loans loan
+    LEFT JOIN contacts realtor ON realtor.id = loan.partnerId
     LEFT JOIN closing_plans plan ON plan.loanId = loan.id
     LEFT JOIN past_client_profiles client ON client.loanId = loan.id
     LEFT JOIN closing_progress closing ON closing.loanId = loan.id
@@ -33,7 +34,7 @@ export function loanAuditSnapshot(db: Store, loanId: string) {
   return {
     "Owner": row.officerEmail ?? (row.officer || null), "Processor": row.processorEmail, "Processing handoff": row.processingStatus,
     "Loan amount": row.amount, "Pipeline stage": row.stage, "Purpose": row.purpose, "Loan status": row.disposition,
-    "Lead source": row.leadSource, "Target closing": row.targetDate, "Actual closing": row.closingDate,
+    "Lead source": row.leadSource, "Realtor partner": row.realtorName, "Target closing": row.targetDate, "Actual closing": row.closingDate,
     "Funding date": row.fundingDate, "Disclosure status": row.disclosureStatus, "Disclosure date": row.disclosureDate,
     "1003 submitted": row.submittedAt, "1003 reviewed": row.reviewedAt,
     "Reporting eligibility": facts?.eligibility ?? null, "Reporting exclusion": facts?.exclusionReason || null, "Reporting state": facts?.state || null,

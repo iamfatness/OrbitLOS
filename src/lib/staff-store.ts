@@ -1,5 +1,5 @@
 import type { Store } from "./store";
-import type { Brokerage } from "./brokerage-model";
+import { workspaceGuide, type Brokerage } from "./brokerage-model";
 
 export interface StaffIdentity {
   email: string;
@@ -15,14 +15,20 @@ export interface GoogleAttempt {
   verifier: string;
   expiresAt: number;
   brokerageId: string | null;
+  guide: ReturnType<typeof workspaceGuide>;
 }
 
 export interface StaffAuthStore {
   startGoogle(attempt: GoogleAttempt, now: number): Promise<void>;
-  consumeGoogle(state: string, browserHash: string, now: number): Promise<Pick<GoogleAttempt, "nonce" | "verifier" | "brokerageId"> | null>;
+  consumeGoogle(state: string, browserHash: string, now: number): Promise<Pick<GoogleAttempt, "nonce" | "verifier" | "brokerageId" | "guide"> | null>;
   createStaffSession(tokenHash: string, identity: StaffIdentity, expiresAt: number, now: number): Promise<void>;
   getStaffSession(tokenHash: string, now: number): Promise<StaffIdentity | null>;
   removeStaffSession(tokenHash: string): Promise<void>;
+}
+
+export function readStaffSession(db: Store, tokenHash: string, now: number): StaffIdentity | null {
+  const match = db.prepare("SELECT email, name FROM staff_sessions WHERE tokenHash = ? AND expiresAt > ?").get(tokenHash, now);
+  return match ? { email: String(match.email), name: String(match.name) } : null;
 }
 
 export function staffAuthStore(db: Store): StaffAuthStore {
@@ -30,17 +36,18 @@ export function staffAuthStore(db: Store): StaffAuthStore {
     async startGoogle(attempt, now) {
       db.transaction(() => {
         db.prepare("DELETE FROM staff_google_attempts WHERE expiresAt <= ?").run(now);
-        db.prepare("INSERT INTO staff_google_attempts (state, browserHash, nonce, verifier, expiresAt, brokerageId) VALUES (?, ?, ?, ?, ?, ?)")
-          .run(attempt.state, attempt.browserHash, attempt.nonce, attempt.verifier, attempt.expiresAt, attempt.brokerageId);
+        db.prepare("INSERT INTO staff_google_attempts (state, browserHash, nonce, verifier, expiresAt, brokerageId, guide) VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .run(attempt.state, attempt.browserHash, attempt.nonce, attempt.verifier, attempt.expiresAt, attempt.brokerageId, attempt.guide);
       });
     },
     async consumeGoogle(state, browserHash, now) {
       return db.transaction(() => {
-        const match = db.prepare("SELECT nonce, verifier, brokerageId FROM staff_google_attempts WHERE state = ? AND browserHash = ? AND expiresAt > ?")
+        const match = db.prepare("SELECT nonce, verifier, brokerageId, guide FROM staff_google_attempts WHERE state = ? AND browserHash = ? AND expiresAt > ?")
           .get(state, browserHash, now);
         if (!match) return null;
         db.prepare("DELETE FROM staff_google_attempts WHERE state = ?").run(state);
-        return { nonce: String(match.nonce), verifier: String(match.verifier), brokerageId: typeof match.brokerageId === "string" ? match.brokerageId : null };
+        return { nonce: String(match.nonce), verifier: String(match.verifier),
+          brokerageId: typeof match.brokerageId === "string" ? match.brokerageId : null, guide: workspaceGuide(match.guide) };
       });
     },
     async createStaffSession(tokenHash, identity, expiresAt, now) {
@@ -51,8 +58,7 @@ export function staffAuthStore(db: Store): StaffAuthStore {
       });
     },
     async getStaffSession(tokenHash, now) {
-      const match = db.prepare("SELECT email, name FROM staff_sessions WHERE tokenHash = ? AND expiresAt > ?").get(tokenHash, now);
-      return match ? { email: String(match.email), name: String(match.name) } : null;
+      return readStaffSession(db, tokenHash, now);
     },
     async removeStaffSession(tokenHash) {
       db.prepare("DELETE FROM staff_sessions WHERE tokenHash = ?").run(tokenHash);

@@ -4,22 +4,34 @@ export const mismoNamespace = "http://www.mismo.org/residential/2009/schemas";
 const purposes = { Purchase: "Purchase", Refinance: "Refinance" } as const;
 const uses = { PrimaryResidence: "Primary residence", SecondHome: "Second home", Investment: "Investment property" } as const;
 
+export function mismoBorrowerName({ firstName, middleName, lastName, suffix }: {
+  firstName: string; middleName?: string; lastName: string; suffix?: string;
+}) {
+  return [firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
+}
+
 export const mismoFields = z.object({
   firstName: z.string().trim().min(1).max(70), lastName: z.string().trim().min(1).max(85),
+  middleName: z.string().trim().min(1).max(85).optional(), suffix: z.string().trim().min(1).max(30).optional(),
   amount: z.string().regex(/^\d{1,10}(\.\d{1,2})?$/).refine((value) => Number(value) > 0 && Number(value) <= 1_000_000_000),
   purpose: z.enum(["Purchase", "Refinance"]),
   occupancy: z.enum(["", "Primary residence", "Second home", "Investment property"]),
   street: z.string().trim().max(240), unit: z.string().trim().max(30),
   city: z.string().trim().max(100), state: z.string().regex(/^([A-Z]{2})?$/), zip: z.string().regex(/^(\d{5}(-\d{4})?)?$/),
-});
+}).refine((fields) => mismoBorrowerName(fields).length <= 160, { path: ["borrowerName"], message: "The borrower name must fit in 160 characters." });
 export type MismoFields = z.infer<typeof mismoFields>;
 
-export const importMismo = z.object({ type: z.literal("importMismo"), requestId: z.uuid(), fields: mismoFields, fictional: z.literal(true) });
+export const importMismo = z.object({ type: z.literal("importMismo"), requestId: z.uuid(), fields: mismoFields,
+  existingContactId: z.string().min(1).max(100).optional(), confirmedDuplicateLoanId: z.string().min(1).max(100).optional(),
+  extraBorrowers: z.int().nonnegative().optional(), fictional: z.literal(true) });
+export type MismoImport = z.infer<typeof importMismo>;
 export const exportMismo = z.object({ type: z.literal("exportMismo"), loanId: z.string().max(100) });
 
 export const mismoMapping = [
   ["firstName", "Borrower first name", "PARTY / INDIVIDUAL / NAME / FirstName"],
+  ["middleName", "Borrower middle name", "PARTY / INDIVIDUAL / NAME / MiddleName"],
   ["lastName", "Borrower last name", "PARTY / INDIVIDUAL / NAME / LastName"],
+  ["suffix", "Borrower suffix", "PARTY / INDIVIDUAL / NAME / SuffixName"],
   ["amount", "Loan amount", "LOAN / TERMS_OF_LOAN / NoteAmount"],
   ["purpose", "Loan purpose", "LOAN / TERMS_OF_LOAN / LoanPurposeType"],
   ["occupancy", "Occupancy", "SUBJECT_PROPERTY / PROPERTY_DETAIL / PropertyUsageType"],
@@ -56,8 +68,11 @@ export function readMismo(xml: string) {
   const terms = first(loans[0], "TERMS_OF_LOAN");
   const use = value(property, "PropertyUsageType");
   const purpose = value(terms, "LoanPurposeType");
+  const middleName = value(person, "MiddleName");
+  const suffix = value(person, "SuffixName");
   const parsed = mismoFields.safeParse({
     firstName: value(person, "FirstName"), lastName: value(person, "LastName"),
+    ...(middleName ? { middleName } : {}), ...(suffix ? { suffix } : {}),
     amount: value(terms, "NoteAmount"), purpose: purposes[purpose as keyof typeof purposes] ?? "",
     occupancy: use ? uses[use as keyof typeof uses] : "",
     street: value(address, "AddressLineText"), unit: value(address, "AddressUnitIdentifier"),
@@ -83,7 +98,7 @@ export function mismoXml(fields: MismoFields) {
     </SUBJECT_PROPERTY></COLLATERAL></COLLATERALS>
     <LOANS><LOAN LoanRoleType="SubjectLoan"><TERMS_OF_LOAN>${field("LoanPurposeType", fields.purpose)}${field("NoteAmount", fields.amount)}</TERMS_OF_LOAN></LOAN></LOANS>
     <PARTIES><PARTY>
-      <INDIVIDUAL><NAME>${field("FirstName", fields.firstName)}${field("LastName", fields.lastName)}</NAME></INDIVIDUAL>
+      <INDIVIDUAL><NAME>${field("FirstName", fields.firstName)}${field("LastName", fields.lastName)}${field("MiddleName", fields.middleName ?? "")}${field("SuffixName", fields.suffix ?? "")}</NAME></INDIVIDUAL>
       <ROLES><ROLE><ROLE_DETAIL><PartyRoleType>Borrower</PartyRoleType></ROLE_DETAIL></ROLE></ROLES>
     </PARTY></PARTIES>
   </DEAL></DEALS></DEAL_SET></DEAL_SETS>

@@ -1,38 +1,61 @@
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import { applicationDraft, applicationIssues, applicationSteps, blankApplication, splitLegacyAddress, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
+import { applicationDraft, applicationIssues, applicationSteps, blankApplication, manualHandoffOutcomes, splitLegacyAddress, type AddressLocation, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
 import type { Store } from "./store";
 import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
 import { lenderDetailsSchema, normalizeUrla } from "./urla";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
-import type { BorrowerQuote } from "./pricing-model";
+import { quoteMatchesApplication, type BorrowerQuote } from "./pricing-model";
 import { pdfColumns } from "./document-files-model";
-import type { Contact } from "./model";
 import { accessEvent } from "./workspace-access";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
+import { zipCityState } from "./zip-city-state";
+import { approvedSecondReview } from "./application-review-checkpoint";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "lender" | "versions" | "previousAnswers"> & { draft: string; step: number };
+type ApplicationRow = Omit<StaffApplication, "draft" | "lender" | "manualHandoff" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
+type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
 export function getApplication(db: Store, loanId: string) {
   return db.prepare("SELECT * FROM applications WHERE loanId = ?").get(loanId) as ApplicationRow | undefined;
 }
 
-export function staffApplications(db: Store): StaffApplication[] {
-  const lender = new Map(db.prepare("SELECT * FROM application_lender_details").all().map((item) => [item.loanId, {
+export function staffApplications(db: Store, loanId?: string): StaffApplication[] {
+  const filter = loanId ? " WHERE loanId = ?" : "";
+  const args = loanId ? [loanId] : [];
+  const lender = new Map(db.prepare(`SELECT * FROM application_lender_details${filter}`).all(...args).map((item) => [item.loanId, {
     details: lenderDetailsSchema.parse(JSON.parse(String(item.details))), revision: Number(item.revision),
   }]));
-  return db.prepare("SELECT * FROM applications").all().map((value) => {
-    const row = value as ApplicationRow;
+  const handoffs = new Map<string, NonNullable<StaffApplication["manualHandoff"]>>();
+  for (const event of db.prepare(`SELECT event.loanId, event.outcome FROM application_handoff_events event
+    JOIN activity ON activity.id = event.activityId
+    JOIN applications app ON app.loanId = event.loanId AND app.revision = event.applicationRevision AND app.reviewedAt IS NOT NULL
+    LEFT JOIN application_lender_details details ON details.loanId = event.loanId
+    WHERE event.lenderRevision = coalesce(details.revision, 0)${loanId ? " AND event.loanId = ?" : ""} ORDER BY activity.rowid DESC`).all(...args)) {
+    const loanId = String(event.loanId);
+    const handoff = handoffs.get(loanId) ?? { exportPrepared: false, outcome: null };
+    if (event.outcome === "Export prepared") handoff.exportPrepared = true;
+    else handoff.outcome ??= manualHandoffOutcomes.find((outcome) => outcome === event.outcome) ?? null;
+    handoffs.set(loanId, handoff);
+  }
+  return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved
+    FROM applications app${filter}`).all(...args).map((value) => {
+    const row = value as ApplicationRow & { secondReviewApproved: number };
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
       ORDER BY reviewedAt IS NOT NULL DESC, revision DESC LIMIT 1`).get(row.loanId, row.revision);
-    const versions = db.prepare("SELECT revision, submittedAt, reviewedAt FROM application_versions WHERE loanId = ? ORDER BY revision DESC")
-      .all(row.loanId).map((item) => ({ revision: Number(item.revision), submittedAt: String(item.submittedAt), reviewedAt: item.reviewedAt as string | null }));
+    const versions = db.prepare("SELECT revision, submittedAt, reviewedAt, uwmReceipt, uwmSentAt FROM application_versions WHERE loanId = ? ORDER BY revision DESC")
+      .all(row.loanId).map((item) => ({
+        revision: Number(item.revision), submittedAt: String(item.submittedAt), reviewedAt: item.reviewedAt as string | null,
+        uwmReceipt: typeof item.uwmReceipt === "string" && typeof item.uwmSentAt === "string"
+          ? { reference: item.uwmReceipt, sentAt: item.uwmSentAt } : null,
+      }));
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
-      submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, uwmReference: row.uwmReference,
+      submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, secondReviewApproved: Boolean(row.secondReviewApproved), uwmReference: row.uwmReference,
       draft: row.submittedAt ? applicationDraft.parse(JSON.parse(row.draft)) : null,
       lender: lender.get(row.loanId) ?? null,
+      manualHandoff: handoffs.get(row.loanId),
       revision: row.revision, correctionNote: row.correctionNote, versions,
       previousAnswers: prior ? applicationDraft.parse(JSON.parse(String(prior.draft))) : null,
     };
@@ -51,8 +74,17 @@ export function addApplicationActivity(db: Store, loanId: string, text: string, 
     .run(crypto.randomUUID(), loanId, text, now);
 }
 
-export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string, contact?: Pick<Contact, "email" | "phone">, propertyZip?: string) {
-  const loan = db.prepare("SELECT loans.address, loans.amount, loans.purpose, contacts.name FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?").get(loanId);
+function fillPropertyLocality(location: AddressLocation): AddressLocation {
+  if (location.city && location.state) return location;
+  const locality = zipCityState(location.zip);
+  if (!locality) return location;
+  return { ...location, city: location.city || locality.city, state: location.state || locality.state };
+}
+
+export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string,
+  intake?: { email: string; phone: string; propertyZip: string }) {
+  const loan = db.prepare(`SELECT loans.address, loans.amount, loans.purpose, contacts.name, contacts.email, contacts.phone
+    FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?`).get(loanId);
   if (!loan) return false;
   const existing = getApplication(db, loanId);
   if (existing && !existing.revokedAt && existing.expiresAt > now) return true;
@@ -64,10 +96,12 @@ export function startApplication(db: Store, loanId: string, now: string, brokera
     return true;
   }
   const property = splitLegacyAddress(String(loan.address));
+  const zip = property.location.zip || intake?.propertyZip || "";
+  const email = intake?.email || String(loan.email);
   const draft: ApplicationDraft = {
     ...blankApplication(), borrowerName: String(loan.name), propertyAddress: property.street,
-    propertyLocation: { ...property.location, zip: property.location.zip || propertyZip || "" },
-    email: contact && contact.email.length <= 160 ? contact.email : "", phone: contact?.phone ?? "",
+    propertyLocation: fillPropertyLocality({ ...property.location, zip }),
+    email: email.length <= 160 ? email : "", phone: intake?.phone || String(loan.phone),
     loanAmount: Number(loan.amount) > 0 ? String(loan.amount) : "",
     purpose: loan.purpose === "Refinance" ? "Refinance" : "Purchase",
   };
@@ -85,27 +119,62 @@ const write = {
 };
 const borrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
+  z.object({ type: z.literal("status"), token }),
   z.object({ type: z.literal("save"), ...write }),
   z.object({ type: z.literal("submit"), ...write }),
-  z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
+  z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision: z.number().int().nonnegative(), statusOnly: z.boolean().optional() }),
 ]);
+const borrowerLink = "FROM applications WHERE token = ? AND expiresAt > ? AND revokedAt IS NULL";
+const borrowerLinkUnavailable = { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
 
-function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
+function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow): BorrowerLoanStatus | null {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
-  const quote = loan && db.prepare("SELECT product, rate, principalAndInterest, quotedAt, publishedAt, presentation FROM published_quotes WHERE loanId = ?").get(row.loanId);
-  const loanStatus: BorrowerLoanStatus | null = loan ? {
+  const published = loan && !row.correctionNote && db.prepare(`SELECT quote.product, quote.rate, quote.principalAndInterest,
+    quote.quotedAt, quote.publishedAt, quote.presentation FROM published_quotes quote
+    JOIN pricing_runs run ON run.id = quote.runId AND run.loanId = quote.loanId
+    WHERE quote.loanId = ? AND run.applicationRevision = ?`).get(row.loanId, row.revision);
+  const presentation = published && published.presentation ? JSON.parse(String(published.presentation)) as BorrowerQuote["presentation"] : null;
+  const currentAlternatives = presentation?.alternatives.every((option) => {
+    const run = db.prepare("SELECT applicationRevision FROM pricing_runs WHERE id = ? AND loanId = ?").get(option.runId, row.loanId);
+    return run && quoteMatchesApplication(run.applicationRevision, row);
+  }) ?? true;
+  return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
-    documents: db.prepare(`SELECT requests.id, kind, instructions, status, replacementNote, submittedAt, revision, ${pdfColumns()}
+    documents: db.prepare(`SELECT requests.id, kind, instructions, status, replacementNote, submittedAt, revision, dueOn, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
       WHERE loanId = ? ORDER BY requestedAt, requests.id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
-    quote: quote ? { ...quote, presentation: quote.presentation ? JSON.parse(String(quote.presentation)) : null } as unknown as BorrowerQuote : null,
+    quote: published && currentAlternatives ? { ...published, presentation } as unknown as BorrowerQuote : null,
   } : null;
+}
+
+function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
+  const draft = applicationDraft.parse(JSON.parse(row.draft));
+  if (!row.submittedAt) draft.propertyLocation = fillPropertyLocality(draft.propertyLocation);
   return { application: {
-    draft: applicationDraft.parse(JSON.parse(row.draft)),
+    draft,
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt,
-    loanStatus,
+    loanStatus: readBorrowerLoanStatus(db, row),
     correctionNote: row.correctionNote || undefined,
   } };
+}
+
+function attachBorrowerSample(db: Store, row: BorrowerStatusRow, data: { requestId: string; revision: number }, allowSample: boolean, now: string) {
+  if (!allowSample) return { status: 409, error: "Use the verified PDF upload for this checklist." };
+  if (!row.submittedAt) return { status: 409, error: "Submit your application to open the document checklist." };
+  const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
+    .get(data.requestId, row.loanId);
+  if (!request) return { status: 404, error: "This document request is unavailable." };
+  if (db.prepare("SELECT 1 FROM document_files WHERE requestId = ? AND (objectId IS NOT NULL OR pendingUntil > ?)").get(data.requestId, Date.parse(now))) {
+    return { status: 409, error: "Continue with the PDF upload for this request." };
+  }
+  if (request.status === "Received" && request.revision === data.revision + 1) return null;
+  if (request.revision !== data.revision || !needsBorrowerDocument(request.status as DocumentRequest["status"])) {
+    return { status: 409, error: "This document request changed. Refresh status before attaching a sample." };
+  }
+  db.prepare("UPDATE document_requests SET status = 'Received', submittedAt = ?, revision = revision + 1 WHERE id = ?")
+    .run(now, data.requestId);
+  addApplicationActivity(db, row.loanId, `Sample document received · ${request.kind}`, now);
+  return null;
 }
 
 export function borrowerCommandResult(db: Store, input: unknown, allowSample = true, pilot = false): BorrowerResult {
@@ -114,34 +183,31 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
   const data = parsed.data;
   const now = new Date().toISOString();
   return db.transaction(() => {
-    const row = db.prepare("SELECT * FROM applications WHERE token = ? AND expiresAt > ? AND revokedAt IS NULL")
-      .get(data.token, now) as ApplicationRow | undefined;
-    if (!row) return { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
-    if (data.type === "read" || (data.type === "submit" && row.submittedAt)) return borrowerResult(db, row);
-    if (data.type === "attachSample") {
-      if (!allowSample) return { status: 409, error: "Use the verified PDF upload for this checklist." };
-      if (!row.submittedAt) return { status: 409, error: "Submit your application to open the document checklist." };
-      const request = db.prepare("SELECT kind, status, revision FROM document_requests WHERE id = ? AND loanId = ?")
-        .get(data.requestId, row.loanId);
-      if (!request) return { status: 404, error: "This document request is unavailable." };
-      if (db.prepare("SELECT 1 FROM document_files WHERE requestId = ? AND (objectId IS NOT NULL OR pendingUntil > ?)").get(data.requestId, Date.parse(now))) {
-        return { status: 409, error: "Continue with the PDF upload for this request." };
+    if (data.type === "status" || (data.type === "attachSample" && data.statusOnly)) {
+      const row = db.prepare(`SELECT loanId, submittedAt, reviewedAt, correctionNote, revision ${borrowerLink}`)
+        .get(data.token, now) as BorrowerStatusRow | undefined;
+      if (!row) return borrowerLinkUnavailable;
+      if (!row.submittedAt) return { statusView: { kind: "resume" } };
+      if (data.type === "attachSample") {
+        const failure = attachBorrowerSample(db, row, data, allowSample, now);
+        if (failure) return failure;
       }
-      if (request.status === "Received" && request.revision === data.revision + 1) return borrowerResult(db, row);
-      if (request.revision !== data.revision || !needsBorrowerDocument(request.status as DocumentRequest["status"])) {
-        return { status: 409, error: "This document request changed. Refresh status before attaching a sample." };
-      }
-      db.prepare("UPDATE document_requests SET status = 'Received', submittedAt = ?, revision = revision + 1 WHERE id = ?")
-        .run(now, data.requestId);
-      addApplicationActivity(db, row.loanId, `Sample document received · ${request.kind}`, now);
-      return borrowerResult(db, row);
+      const loanStatus = readBorrowerLoanStatus(db, row);
+      return loanStatus ? { statusView: { kind: "status", submittedAt: row.submittedAt, loanStatus } } : borrowerLinkUnavailable;
     }
-    if (row.submittedAt) return { status: 409, error: "This application has been submitted. Reopen the link to see your status." };
-    if (row.revision !== data.revision) {
+    const row = db.prepare(`SELECT * ${borrowerLink}`).get(data.token, now) as ApplicationRow | undefined;
+    if (!row) return borrowerLinkUnavailable;
+    if (data.type === "read") return borrowerResult(db, row);
+    if (data.type === "attachSample") {
+      return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row);
+    }
+    const submitted = data.type === "submit";
+    const alreadySubmitted = { status: 409, error: "This application has been submitted. Reopen the link to see your loan status." };
+    if (row.submittedAt && (!submitted || row.revision !== data.revision + 1 || row.step !== data.step)) return alreadySubmitted;
+    if (!row.submittedAt && row.revision !== data.revision) {
       return { status: 409, error: "This application was updated in another tab. Reopen the link to continue from the latest saved draft." };
     }
 
-    const submitted = data.type === "submit";
     const normalized = normalizeUrla(data.draft.urla, false);
     if (normalized.issues.length) return { status: 422, error: "Use a fictional tax ID in the format 000-00-1234 and only four digits for account references." };
     const draft = { ...data.draft, urla: normalized.details };
@@ -156,13 +222,17 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       draft.employer = current[0]?.employer?.slice(0, 160) ?? "";
       draft.monthlyIncome = Math.min(1_000_000_000, Math.max(0, monthlyIncome)).toFixed(2);
     }
+    const serializedDraft = JSON.stringify(draft);
+    if (row.submittedAt) {
+      return isDeepStrictEqual(JSON.parse(serializedDraft), JSON.parse(row.draft)) ? borrowerResult(db, row) : alreadySubmitted;
+    }
     if (submitted) {
       const issues = applicationIssues(draft);
       if (issues.length) return { status: 422, error: `Complete these items before submitting: ${issues.join("; ")}.` };
     }
     const auditBefore = submitted ? loanAuditSnapshot(db, row.loanId) : null;
     const next: ApplicationRow = {
-      ...row, draft: JSON.stringify(draft), step: data.step, revision: row.revision + 1,
+      ...row, draft: serializedDraft, step: data.step, revision: row.revision + 1,
       updatedAt: now, submittedAt: submitted ? now : null, correctionNote: submitted ? "" : row.correctionNote,
     };
     db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ?, correctionNote = ? WHERE loanId = ?")

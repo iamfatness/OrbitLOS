@@ -118,8 +118,9 @@ export const sampleAddresses = [
 
 export function sampleApplication(current: ApplicationDraft): ApplicationDraft {
   const [home, , exampleProperty] = sampleAddresses;
-  const property = completeAddress(current.propertyAddress, current.propertyLocation)
-    ? { street: current.propertyAddress, location: current.propertyLocation } : exampleProperty;
+  const location = current.propertyLocation;
+  const hasPropertyDetails = current.propertyAddress || location.city || location.state || location.zip || location.unit;
+  const property = hasPropertyDetails ? { street: current.propertyAddress || exampleProperty.street, location } : exampleProperty;
   const name = current.borrowerName || "Riley Sample";
   return {
     ...blankApplication(),
@@ -178,10 +179,22 @@ export interface BorrowerApplication {
   documentUploadsMode?: DocumentUploadMode;
 }
 
+export type BorrowerStatusRefresh = (
+  | { kind: "status"; submittedAt: string; loanStatus: BorrowerLoanStatus }
+  | { kind: "resume" }
+) & { documentUploadsMode?: DocumentUploadMode };
+
+export const manualHandoffOutcomes = ["Prepared", "Delivered manually", "Acknowledged", "Returned for changes"] as const;
+
 export interface StaffApplication {
   revision: number;
   correctionNote: string;
-  versions: { revision: number; submittedAt: string; reviewedAt: string | null }[];
+  versions: {
+    revision: number;
+    submittedAt: string;
+    reviewedAt: string | null;
+    uwmReceipt: { reference: string; sentAt: string } | null;
+  }[];
   previousAnswers: ApplicationDraft | null;
   loanId: string;
   token: string;
@@ -190,9 +203,18 @@ export interface StaffApplication {
   updatedAt: string;
   submittedAt: string | null;
   reviewedAt: string | null;
+  secondReviewApproved?: boolean;
   uwmReference: string | null;
   draft: ApplicationDraft | null;
   lender: { details: LenderDetails; revision: number } | null;
+  manualHandoff?: { exportPrepared: boolean; outcome: (typeof manualHandoffOutcomes)[number] | null };
 }
 
-export type BorrowerResult = { application: BorrowerApplication } | { status: number; error: string };
+export function secondReviewBlocker(required: boolean, application?: Pick<StaffApplication, "submittedAt" | "reviewedAt" | "secondReviewApproved">) {
+  if (!required) return null;
+  if (!application?.submittedAt) return "Submit the current 1003 before the required second review.";
+  if (!application.reviewedAt) return "Complete the first review of the current 1003.";
+  return application.secondReviewApproved ? null : "The current 1003 needs an approved second review before handoff.";
+}
+
+export type BorrowerResult = { application: BorrowerApplication } | { statusView: BorrowerStatusRefresh } | { status: number; error: string };

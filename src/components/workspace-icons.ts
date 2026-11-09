@@ -1,0 +1,26 @@
+import {
+  ArrowDownUp, CalendarClock, CalendarDays, ChartNoAxesCombined, Clock3, Columns3, Compass, ContactRound,
+  Files, Handshake, HeartHandshake, Inbox, ListTodo, MessagesSquare, Phone, Plug, ShieldCheck, UsersRound, Workflow,
+} from "lucide-react";
+
+export const workspaceIcons = {
+  today: Clock3,
+  calendar: CalendarDays,
+  coverage: CalendarClock,
+  pipeline: Columns3,
+  processing: Files,
+  reviews: ShieldCheck,
+  intake: Inbox,
+  calls: Phone,
+  tasks: ListTodo,
+  contacts: ContactRound,
+  realtors: Handshake,
+  pastClients: HeartHandshake,
+  communications: MessagesSquare,
+  demo: Compass,
+  reports: ChartNoAxesCombined,
+  playbooks: Workflow,
+  integrations: Plug,
+  migration: ArrowDownUp,
+  team: UsersRound,
+} as const;

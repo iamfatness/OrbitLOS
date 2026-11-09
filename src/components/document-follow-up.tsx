@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Copy } from "lucide-react";
 import { draftChannels } from "@/lib/communication-templates";
 import { needsBorrowerDocument } from "@/lib/document-model";
+import { dateLabel } from "@/lib/client-retention";
 import type { DraftChannel, Loan, Workspace } from "@/lib/model";
 import { Button } from "./ui/button";
 
@@ -25,7 +26,8 @@ export function DocumentFollowUp({ loan, state }: { loan: Loan; state: Workspace
   const items = outstanding.map((request) => {
     const description = request.status === "Needs replacement" ? `Replacement ${request.kind.toLowerCase()} · ${request.replacementNote}`
       : [request.kind, request.instructions].filter(Boolean).join(" · ");
-    return email ? `• ${description}` : description;
+    const due = request.dueOn ? ` · Due ${dateLabel(request.dueOn)}` : "";
+    return `${email ? "• " : ""}${description}${due}`;
   });
   const draft = email ? `Subject: Documents for your OrbitLOS demo loan\n\nHi ${borrower.name},\n\nPlease open your checklist and attach the fictional samples below.\n\n${items.join("\n")}\n\n${link}\n\nThanks,\n${officer}`
     : `Hi ${borrower.name}, please attach these fictional samples in your OrbitLOS checklist. ${items.join(" | ")}\n${link}\n— ${officer}`;

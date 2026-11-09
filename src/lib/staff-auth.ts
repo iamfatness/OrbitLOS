@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { GoogleAttempt, StaffAuthStore, StaffIdentity } from "./staff-store";
-import { brokerageIdPattern, brokerageUrl, type Brokerage } from "./brokerage-model";
+import { brokerageIdPattern, brokerageUrl, demoBrokerageId, workspaceGuide, type Brokerage } from "./brokerage-model";
 
 const attemptCookie = "__Host-orbit-google";
 const sessionCookie = "__Host-orbit-session";
@@ -66,11 +66,12 @@ function safeBrokerageId(value: string | null) {
   return value && brokerageIdPattern.test(value) ? value : null;
 }
 
-export function staffLoginUrl(brokerageId: string | null = null, error?: "denied" | "restart") {
+export function staffLoginUrl(brokerageId: string | null = null, error?: "denied" | "restart", guide?: ReturnType<typeof workspaceGuide>) {
   const search = new URLSearchParams();
   if (error) search.set("error", error);
   const target = safeBrokerageId(brokerageId);
   if (target) search.set("brokerage", target);
+  if (guide) search.set("guide", guide);
   return search.size ? `/login?${search}` : "/login";
 }
 
@@ -78,25 +79,30 @@ function loginPage(settings: GoogleSettings, url: URL) {
   const ready = configured(settings);
   const error = url.searchParams.get("error");
   const brokerageId = safeBrokerageId(url.searchParams.get("brokerage"));
-  const startUrl = brokerageId ? `/auth/google?brokerage=${brokerageId}` : "/auth/google";
+  const guide = workspaceGuide(url.searchParams.get("guide"));
+  const start = new URLSearchParams();
+  if (brokerageId) start.set("brokerage", brokerageId);
+  if (guide) start.set("guide", guide);
+  const startUrl = start.size ? `/auth/google?${start.toString().replaceAll("&", "&amp;")}` : "/auth/google";
   const message = !ready ? "Orbit staff sign-in is being configured."
     : error === "denied" ? (brokerageId ? "This Google account doesn’t have access to this brokerage." : "This Google account hasn’t been approved for Orbit.")
     : error ? "The sign-in attempt ended. Start again to continue." : "";
   return new Response(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · OrbitLOS</title>
 <style>
-*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:radial-gradient(ellipse at 75% 0%,#483361,transparent 67%),#211833;color:#2d1b4b;font:16px system-ui,sans-serif;padding:16px}
-main{width:min(100%,440px);background:linear-gradient(145deg,#fff,#f1eafb);border:1px solid #ded3f4;border-radius:18px;padding:clamp(20px,6vw,36px);box-shadow:0 18px 50px #120a2560}
-small{font-weight:750;letter-spacing:.12em;color:#6042bf}h1{margin:8px 0;font-size:clamp(26px,7vw,34px);letter-spacing:-.04em}p{color:#60596f;line-height:1.5}
-a{display:block;background:#6749d3;color:white;text-align:center;text-decoration:none;border-radius:9px;font-weight:700;padding:11px;margin-top:18px}
+@font-face{font-family:Inter;src:url('/fonts/InterVariable.woff2') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:#211833;color:#2d1b4b;font:16px/1.5 Inter,'Segoe UI',system-ui,sans-serif;padding:16px}
+main{width:min(100%,440px);background:#fff;border:1px solid #ded3f4;border-radius:12px;padding:clamp(20px,6vw,32px);box-shadow:0 18px 50px #120a2560}
+small{font-weight:600;color:#6042bf}h1{margin:8px 0;font-size:clamp(26px,7vw,32px);font-weight:650;letter-spacing:-.035em}p{color:#686177}
+a{display:block;min-height:44px;background:#6749d3;color:white;text-align:center;text-decoration:none;border-radius:8px;font-weight:600;padding:10px;margin-top:16px}
 a:hover{background:#5539b9}a:focus-visible{outline:2px solid #6749d3;outline-offset:3px}.status{border-radius:8px;background:#f4efff;padding:8px 10px}
-</style></head><body><main><small>ORBITLOS WORKSPACE</small><h1>Sign in to OrbitLOS</h1><p>Use your approved Google account to open your brokerage workspace. The Demo Guide walks through a fictional referral and mock lender conditions.</p>
+</style></head><body><main><small>Brokerage workspace</small><h1>Sign in to OrbitLOS</h1><p>Use your approved Google account.</p>
 ${message ? `<p class="status" role="alert">${message}</p>` : ""}
 ${ready ? `<a href="${startUrl}">Continue with Google</a>` : ""}</main></body></html>`, {
     status: ready ? 200 : 503,
     headers: {
       ...noStore, "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'",
     },
   });
 }
@@ -108,6 +114,7 @@ async function beginGoogle(settings: GoogleSettings, url: URL, store: StaffAuthS
     state: randomToken(), nonce: randomToken(), verifier: randomToken(),
     browserHash: await hash(browserToken), expiresAt: now + attemptSeconds * 1000,
     brokerageId: safeBrokerageId(url.searchParams.get("brokerage")),
+    guide: workspaceGuide(url.searchParams.get("guide")),
   };
   await store.startGoogle(attempt, now);
   const target = new URL("https://accounts.google.com/o/oauth2/v2/auth");
@@ -141,14 +148,16 @@ type Authorize = (staff: StaffIdentity) => Promise<Brokerage[]>;
 
 async function completeGoogle(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: Authorize) {
   const cleared = cookie(attemptCookie, "", 0);
-  const restart = (brokerageId: string | null = null) => redirect(staffLoginUrl(brokerageId, "restart"), [cleared]);
+  const restart = (brokerageId: string | null = null, guide?: ReturnType<typeof workspaceGuide>) =>
+    redirect(staffLoginUrl(brokerageId, "restart", guide), [cleared]);
   const browser = readCookie(request, attemptCookie);
   const state = url.searchParams.get("state");
   if (!browser || !state || !opaqueToken.test(state)) return restart();
   const attempt = await store.consumeGoogle(state, await hash(browser), Date.now());
   const brokerageId = safeBrokerageId(attempt?.brokerageId ?? null);
+  const guide = workspaceGuide(attempt?.guide);
   const code = url.searchParams.get("code");
-  if (!attempt || !code || code.length > 4096 || url.searchParams.has("error")) return restart(brokerageId);
+  if (!attempt || !code || code.length > 4096 || url.searchParams.has("error")) return restart(brokerageId, guide);
 
   try {
     // Workers rejects redirect: "error". Reject non-OK responses without following redirects.
@@ -159,29 +168,29 @@ async function completeGoogle(request: Request, url: URL, settings: GoogleSettin
         client_id: settings.clientId, client_secret: settings.clientSecret, code_verifier: attempt.verifier,
       }),
     });
-    if (!response.ok) return restart(brokerageId);
+    if (!response.ok) return restart(brokerageId, guide);
     const token: unknown = await response.json();
-    if (!token || typeof token !== "object" || !("id_token" in token) || typeof token.id_token !== "string") return restart(brokerageId);
+    if (!token || typeof token !== "object" || !("id_token" in token) || typeof token.id_token !== "string") return restart(brokerageId, guide);
     const identity = await googleIdentity(token.id_token, attempt.nonce, settings);
     const brokerages = identity ? await authorize(identity) : [];
     if (!identity || !brokerages.length || (brokerageId && !brokerages.some((item) => item.id === brokerageId))) {
-      return redirect(staffLoginUrl(brokerageId, "denied"), [cleared]);
+      return redirect(staffLoginUrl(brokerageId, "denied", guide), [cleared]);
     }
     const session = randomToken();
     const now = Date.now();
     const previous = readCookie(request, sessionCookie);
     if (previous) await store.removeStaffSession(await hash(previous));
     await store.createStaffSession(await hash(session), identity, now + sessionSeconds * 1000, now);
-    return redirect(brokerageId ? brokerageUrl(brokerageId) : "/workspace", [cleared, cookie(sessionCookie, session, sessionSeconds)]);
+    return redirect(brokerageUrl(brokerageId ?? demoBrokerageId, guide), [cleared, cookie(sessionCookie, session, sessionSeconds)]);
   } catch {
-    return restart(brokerageId);
+    return restart(brokerageId, guide);
   }
 }
 
-export async function signedInStaff(request: Request, settings: GoogleSettings, store: StaffAuthStore): Promise<StaffIdentity | null> {
+export async function staffSessionHash(request: Request, settings: GoogleSettings): Promise<string | null> {
   const token = readCookie(request, sessionCookie);
   if (!token || !configured(settings)) return null;
-  return store.getStaffSession(await hash(token), Date.now());
+  return hash(token);
 }
 
 export async function handleStaffAuth(request: Request, url: URL, settings: GoogleSettings, store: StaffAuthStore, authorize: Authorize) {

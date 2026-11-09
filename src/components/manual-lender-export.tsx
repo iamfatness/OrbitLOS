@@ -3,7 +3,9 @@
 import { useRef, useState } from "react";
 import { Download } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
+import { campaignManualSubmission } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import type { Submission } from "@/lib/model";
 import { exportName, mismoHandoffCoverage, suggestExportName, type ExportName } from "@/lib/lender-export-model";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
@@ -12,18 +14,22 @@ const nameFields = [
   ["first", "First name"], ["middle", "Middle name"], ["last", "Last name"], ["suffix", "Suffix"],
 ] as const;
 
-export function ManualLenderExport({ application, busy, save }: {
+export function ManualLenderExport({ application, busy, save, campaign }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
+  campaign?: { submission?: Submission; openConditions: (id: string) => void };
 }) {
   const originals = application.draft ? [application.draft.borrowerName,
     ...application.draft.urla.additional.map((person) => person.identity.fields.name)] : [];
   const [names, setNames] = useState(() => originals.map(suggestExportName));
   const [confirmed, setConfirmed] = useState(false);
   const attempt = useRef<{ key: string; id: string } | null>(null);
+  const acknowledgmentAttempt = useRef<string | null>(null);
   const ready = application.reviewedAt && application.submittedAt && !application.correctionNote && application.draft?.confirmedDemo;
   const valid = names.length > 0 && names.every((item) => exportName.safeParse(item).success);
+  const handoff = application.manualHandoff;
+  const existing = handoff?.outcome === "Acknowledged" ? campaign?.submission : undefined;
 
   return <details className="application-review" id="manual-lender-export">
     <summary>Manual lender export</summary>
@@ -63,5 +69,26 @@ export function ManualLenderExport({ application, busy, save }: {
           onChange={(event) => setConfirmed(event.target.checked)} /> I verified the borrower names for this fictional export.</label>
         <div><Button size="sm" type="submit" disabled={busy || !confirmed || !valid}><Download /> Download MISMO 3.4 XML</Button></div>
       </form>}
+    {ready && campaign && <section className="document-item" aria-label="Simulated lender acknowledgment">
+      <div className="document-item-head"><strong>Fictional lender acknowledgment</strong><span className="pill">Demo</span></div>
+      <p className="muted">{existing ? "The acknowledgment is recorded for this revision." :
+        handoff?.exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
+          "Prepare the MISMO download to enable acknowledgment for this revision."}</p>
+      <div><Button size="sm" disabled={busy || !handoff?.exportPrepared} onClick={() => {
+        if (existing) {
+          campaign.openConditions(existing.id);
+          return;
+        }
+        void save({
+          type: "acknowledgeCampaignLenderExport", loanId: application.loanId, revision: application.revision,
+          lenderRevision: application.lender?.revision ?? 0, eventId: acknowledgmentAttempt.current ??= crypto.randomUUID(),
+        }, ({ state }) => {
+          acknowledgmentAttempt.current = null;
+          const updated = state.applications.find((item) => item.loanId === application.loanId);
+          const submission = campaignManualSubmission(state.submissions, application.loanId);
+          if (updated?.manualHandoff?.outcome === "Acknowledged" && submission) campaign.openConditions(submission.id);
+        });
+      }}>{existing ? "Open fictional lender conditions" : "Record simulated acknowledgment"}</Button></div>
+    </section>}
   </details>;
 }

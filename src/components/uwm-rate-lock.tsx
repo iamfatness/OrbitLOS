@@ -29,9 +29,9 @@ function ActiveLockActions({ rate, busy, save }: { rate: MockUwmRate; busy: bool
   </div>;
 }
 
-export function UwmRateLock({ loanId, submissions, rate, saved, offer, busy, save }: {
+export function UwmRateLock({ loanId, submissions, rate, saved, offer, needsReprice, busy, save }: {
   loanId: string; submissions: Submission[]; rate?: MockUwmRate; saved?: PricingRun; offer?: PricingOffer;
-  busy: boolean; save: (input: unknown) => Promise<void>;
+  needsReprice: boolean; busy: boolean; save: (input: unknown) => Promise<void>;
 }) {
   const [fileChoice, setFileChoice] = useState("");
   const [days, setDays] = useState<MockLockPeriod>(30);
@@ -58,6 +58,7 @@ export function UwmRateLock({ loanId, submissions, rate, saved, offer, busy, sav
     {status === "Mock locked" && rate && <ActiveLockActions key={rate.lockReference} rate={rate} busy={busy} save={save} />}
     {status !== "Mock locked" && (!saved || !offer || saved.mode !== "mock"
       ? <p className="muted">Save a sample pricing option to start the mock float and lock flow.</p>
+      : needsReprice ? <p className="quote-disclaimer">Save a fresh quote from the current 1003 to float or request a mock lock.</p>
       : !files.length ? <p className="muted">Use Sync UWM for a sample UWM file, or send a reviewed 1003 to UWM (mock) from this loan first.</p>
       : <div className="rate-lock-actions">
         {files.length > 1 && <label className="field"><span>UWM loan file</span><select value={fileId} onChange={(event) => setFileChoice(event.target.value)} disabled={busy}>

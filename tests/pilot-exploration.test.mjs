@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+import { DatabaseSync } from 'node:sqlite';
+import test from 'node:test';
+registerHooks({resolve(specifier,context,next){try{return next(specifier,context);}catch(error){if(error.code!=='ERR_MODULE_NOT_FOUND'||!specifier.startsWith('./'))throw error;return next(`${specifier}.ts`,context);}}});
+const {initializeStore}=await import('../src/lib/store.ts');
+const {loadExplorationExamples}=await import('../src/lib/pilot-exploration.ts');
+const {readOfficerQueue,readWorkspaceCalendar}=await import('../src/lib/officer-queue.ts');
+const {readLeadInbox}=await import('../src/lib/lead-inbox-query.ts');
+const {readConversations}=await import('../src/lib/conversations.ts');
+const {readProcessorQueue}=await import('../src/lib/processor-queue.ts');
+const {brokerageFinanceWork}=await import('../src/lib/brokerage-finance.ts');
+const {loadPilotScenario}=await import('../src/lib/pilot.ts');
+const {loanReviewWork}=await import('../src/lib/loan-reviews.ts');
+const {readDraftQueue}=await import('../src/lib/communication-draft-query.ts');
+const {officerDashboardWork}=await import('../src/lib/officer-dashboard.ts');
+function fixture(t){
+ const sqlite=new DatabaseSync(':memory:');t.after(()=>sqlite.close());
+ const db={exec:s=>sqlite.exec(s),prepare:s=>sqlite.prepare(s),transaction:fn=>{sqlite.exec('BEGIN');try{const result=fn();sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
+ initializeStore(db,false);
+ const brokerage={id:crypto.randomUUID(),name:'Fictional Exploration',role:'Admin',pilot:true,financeAccess:true};
+ const admin={email:'owner@example.test',name:'Owner',brokerage};
+ const officer={email:'officer@example.test',name:'Alex Morgan',brokerage:{...brokerage,role:'LO'}};
+ const processor={email:'processor@example.test',name:'Jamie Chen',brokerage:{...brokerage,role:'Processor'}};
+ const members=[admin,officer,processor].map(m=>({email:m.email,name:m.name,role:m.brokerage.role,status:'Active'}));
+ const input={type:'loadPilotExploration',officerEmail:officer.email,processorEmail:processor.email};
+ const seed=(at='2026-11-09T15:00:00.000Z',actor=admin,roster=members)=>loadExplorationExamples(db,actor,input,roster,new Date(at));
+ return {db,admin,officer,processor,members,input,seed};
+}
+test('exploration examples populate real role-scoped pages and preserve presenter data',t=>{
+ const {db,admin,officer,processor,members,seed}=fixture(t);const now=new Date('2026-11-09T15:00:00.000Z');
+ loadPilotScenario(db,admin,{type:'loadPilotScenario',id:crypto.randomUUID(),previousId:null,officerEmail:officer.email,presenter:true},officer,now);
+ const scenario=db.prepare('SELECT * FROM pilot_scenario').get();
+ assert.ok(seed().message);
+ assert.deepEqual(db.prepare('SELECT * FROM pilot_scenario').get(),scenario);
+ const today=readOfficerQueue(db,{horizon:1},officer,officer.brokerage.id,now);assert.ok(today.items.length>=5);assert.ok(today.replies.items.length);
+ const calendar=readWorkspaceCalendar(db,{week:'2026-11-09',scope:'Mine',group:'Appointments'},officer,officer.brokerage.id,now);assert.equal(calendar.items.length,5);
+ const leads=readLeadInbox(db,{type:'list',view:'Mine'},officer,now);assert.ok(leads.leads.length>=4);
+ const shared=readLeadInbox(db,{type:'list',view:'Unassigned'},admin,now);assert.equal(shared.leads.length,2);
+ const conversations=readConversations(db,{type:'list',filter:'Active',mine:true},officer,officer.brokerage.id,now);assert.equal(conversations.rows.length,3);
+ const processing=readProcessorQueue(db,{readyOnly:false},processor,processor.brokerage.id,now);assert.equal(processing.files.length,3);
+ const drafts=readDraftQueue(db,{view:'Ready to copy'},officer);assert.ok(drafts.rows.length>=12);
+ const reviews=loanReviewWork(db,{type:'queue',view:'Assigned to me',filter:'Open'},officer,officer.brokerage.id,members,now);assert.equal(reviews.reviews.length,1);
+ const notices=loanReviewWork(db,{type:'inbox',unread:true},officer,officer.brokerage.id,members,now);assert.ok(notices.notices.length);
+ assert.ok(officerDashboardWork(db,{type:'opportunities'},officer,officer.brokerage.id,now).items.length);
+ assert.ok(officerDashboardWork(db,{type:'stalledLoans'},officer,officer.brokerage.id,now).items.length);
+ const refinance=db.prepare("SELECT app.draft FROM applications app JOIN loans loan ON loan.id=app.loanId WHERE loan.purpose='Refinance'").get();
+ assert.equal(JSON.parse(refinance.draft).purpose,'Refinance');
+ const finance=brokerageFinanceWork(db,{type:'list',from:'2026-11-01',through:'2026-11-30',view:'Funded',owner:''},admin,admin.brokerage.id,now);assert.equal(finance.totals.expectedCents,1440000);
+ const stranger={...officer,email:'other@example.test'};assert.equal(readOfficerQueue(db,{horizon:1},stranger,stranger.brokerage.id,now).items.length,0);
+ assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+test('the shared demo supports examples while a one-person workspace never fabricates a reviewer',t=>{
+ const {db,admin}=fixture(t);
+ const actor={...admin,brokerage:{...admin.brokerage,id:'orbit-demo',pilot:false}};
+ const member={email:actor.email,name:actor.name,role:'Admin',status:'Active'};
+ assert.ok(loadExplorationExamples(db,actor,{type:'loadPilotExploration',officerEmail:actor.email},[member]).message);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM loan_reviews').get().n,0);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM loans WHERE officerEmail=?').get(actor.email).n,8);
+});
+test('repeat loading refreshes dates without duplicating, reopening, or overwriting edited examples',t=>{
+ const {db,seed}=fixture(t);assert.ok(seed().message);
+ const tasks=db.prepare('SELECT * FROM tasks ORDER BY id').all();const appointments=db.prepare('SELECT * FROM loan_appointments ORDER BY id').all();
+ db.prepare('UPDATE tasks SET completedAt=? WHERE id=?').run('2026-11-09T16:00:00.000Z',tasks[0].id);
+ db.prepare('UPDATE loan_appointments SET startsAt=? WHERE id=?').run('2027-02-01T15:00:00.000Z',appointments[0].id);
+ assert.ok(seed('2026-12-01T15:00:00.000Z').message);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM loans').get().n,8);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM referral_leads').get().n,6);
+ assert.equal(db.prepare('SELECT dueAt FROM tasks WHERE id=?').get(tasks[0].id).dueAt,tasks[0].dueAt);
+ assert.equal(db.prepare('SELECT startsAt FROM loan_appointments WHERE id=?').get(appointments[0].id).startsAt,'2027-02-01T15:00:00.000Z');
+ assert.notEqual(db.prepare('SELECT startsAt FROM loan_appointments WHERE id=?').get(appointments[1].id).startsAt,appointments[1].startsAt);
+ assert.ok(seed('2026-12-01T15:00:00.000Z').message);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM loan_appointments').get().n,6);
+});
+test('exploration setup rejects non-pilot, restricted and revoked staff',t=>{
+ const {db,admin,officer,members,seed}=fixture(t);
+ assert.ok(seed(undefined,officer).error);
+ assert.ok(seed(undefined,{...admin,brokerage:{...admin.brokerage,pilot:false}}).error);
+ assert.ok(seed(undefined,admin,members.map(m=>m.email===officer.email?{...m,status:'Revoked'}:m)).error);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM loans').get().n,0);
+});

@@ -1,82 +1,26 @@
-import { ArrowRight, ClipboardList, Layers3, Orbit, Radio, UsersRound } from "lucide-react";
+/* eslint-disable @next/next/no-img-element -- Product captures served as static assets. */
+import { ArrowRight, UsersRound, ListChecks, ChartNoAxesCombined, Search, CalendarDays, MessagesSquare, ArrowUpRight } from "lucide-react";
 import { OrbitRings } from "@/components/orbit-brand";
+import { DemoCTA } from "./demo-cta";
+import type { Metadata } from "next";
 
-const tools = [
-  { icon: UsersRound, title: "Referrals and relationships", copy: "Give realtors a referral link, see which referrals turn into loans, and keep in touch with past clients after closing." },
-  { icon: ClipboardList, title: "Borrower applications and documents", copy: "Start a 1003 from a lead. Borrowers can save and resume, check their status, and respond to document requests." },
-  { icon: Layers3, title: "Pipeline, pricing, and closing", copy: "Assign work, compare sample pricing, and track what still needs to happen before closing." },
-  { icon: Radio, title: "Lender conditions", copy: "Try the mock UWM workflow from document request and review through delivery and lender clearance." },
+export const metadata: Metadata = { title: "OrbitLOS · Your brokerage, in Orbit", description: "Run your mortgage brokerage in one workspace. Bring leads, loans, team priorities, and client relationships together with OrbitLOS.", alternates: { canonical: "https://orbitlos.com/" } };
+const roles = [
+  { icon: ChartNoAxesCombined, role: "For the owner", title: "See the business behind the pipeline.", text: "Funding, conversion, workload, and financials. Open the records behind the numbers.", href: "/product#brokerage" },
+  { icon: UsersRound, role: "For the loan officer", title: "Know who needs you next.", text: "Leads, conversations, deadlines, and past clients in a connected daily workspace.", href: "/product#relationships" },
+  { icon: ListChecks, role: "For the processor", title: "Keep every handoff moving.", text: "Work assigned files, conditions, and closing checklists with a clear owner for each step.", href: "/product#loan-workflow" },
 ];
-
-export default function Home() {
-  return (
-    <>
-      <section className="marketing-hero">
-        <OrbitRings />
-        <div className="marketing-wrap marketing-hero-grid">
-          <div className="marketing-hero-copy">
-            <p className="marketing-kicker"><span /> Loan origination and CRM for mortgage brokers</p>
-            <h1>Take a lead to closing. <em>Keep the relationship.</em></h1>
-            <p>OrbitLOS brings referrals, applications, pricing, loan processing, and client follow-up into one workspace for independent wholesale mortgage brokers.</p>
-            <div className="marketing-actions">
-              <a className="marketing-button" href="/product">Explore the product <ArrowRight size={17} aria-hidden="true" /></a>
-              <a className="marketing-button marketing-button-quiet" href="/login">Log in to OrbitLOS</a>
-            </div>
-          </div>
-          <PipelinePreview />
-        </div>
-      </section>
-      <section className="marketing-section marketing-wrap">
-        <p className="marketing-kicker">The broker workflow</p>
-        <h2>Manage the loan and the relationship in one place.</h2>
-        <div className="marketing-features">
-          {tools.map(({ icon: Icon, title, copy }) => (
-            <article key={title}>
-              <span className="marketing-feature-icon"><Icon size={22} aria-hidden="true" /></span>
-              <h3>{title}</h3><p>{copy}</p>
-            </article>
-          ))}
-        </div>
-        <a className="marketing-text-link" href="/product">See how the workflow fits together <ArrowRight size={16} aria-hidden="true" /></a>
-      </section>
-      <section className="marketing-section marketing-wrap marketing-banner-wrap">
-        <div className="marketing-banner">
-          <div>
-            <p className="marketing-kicker">Lender integrations</p>
-            <h2>UWM is the first integration we’re building.</h2>
-            <p>The demo brings mock submissions, pipeline sync, and conditions into the loan record. See where Easy Qualifier pricing fits and what needs a live connection.</p>
-          </div>
-          <a className="marketing-button" href="/integrations">Explore integrations <ArrowRight size={17} aria-hidden="true" /></a>
-        </div>
-      </section>
-    </>
-  );
-}
-
-function PipelinePreview() {
-  return (
-    <figure className="marketing-preview">
-      <figcaption className="sr-only">Sample Orbit loan overview</figcaption>
-      <div className="marketing-preview-window">
-        <div className="marketing-preview-rail" aria-hidden="true">
-          <span className="brand-icon"><Orbit size={17} /></span>
-          <span className="marketing-preview-selected"><Layers3 size={13} /> <span>Pipeline</span></span>
-          <span><UsersRound size={13} /> <span>Contacts</span></span>
-          <span><ClipboardList size={13} /> <span>Tasks</span></span>
-        </div>
-        <div className="marketing-preview-content">
-          <div className="marketing-preview-heading"><strong>Loan overview</strong><span>Sample file</span></div>
-          <div className="marketing-preview-summary">
-            <p className="marketing-preview-label">Purchase · $425,000</p>
-            <strong>Olivia Parker</strong>
-            <div className="marketing-preview-progress">
-              <span>Application</span><span>Processing</span><span>Underwriting</span>
-            </div>
-          </div>
-          <div className="marketing-preview-next"><div><small>Next action</small><strong>Request a pay stub</strong></div><ArrowRight size={16} aria-hidden="true" /></div>
-          <p className="marketing-preview-conditions"><span /> 2 UWM conditions open · Mock</p>
-        </div>
-      </div>
-    </figure>
-  );
-}
+export default function Home() { return <>
+  <section className="marketing-hero orbit-home-hero"><OrbitRings /><div className="marketing-wrap">
+    <div className="orbit-hero-heading"><div><p className="marketing-kicker">Built for mortgage brokers</p><h1>Every loan.<br />Every relationship.<br /><em>In Orbit.</em></h1></div>
+    <div className="orbit-hero-aside"><p className="orbit-lead">Your brokerage.<br /> Working together.</p><p>From the first conversation to the next closing. One workspace for your clients, your files, and your team.</p><div className="marketing-actions"><a className="marketing-button" href="/demo">Request a demo <ArrowRight size={18} aria-hidden="true" /></a><a className="orbit-quiet-link" href="/product">Explore Orbit <ArrowUpRight size={18} aria-hidden="true" /></a></div></div></div>
+    <figure className="marketing-screen orbit-hero-capture"><div className="orbit-window-label"><span className="orbit-window-dot" /> Your workspace, connected <span>OrbitLOS / Pipeline</span></div><img src="/marketing/pipeline.png" width="1265" height="840" fetchPriority="high" alt="Current OrbitLOS pipeline with fictional loans, assigned owners, and next actions." /><figcaption>Orbit pipeline · Sample records <a href="/marketing/pipeline.png">View full size</a></figcaption></figure>
+  </div></section>
+  <section className="orbit-workflow-strip"><div className="marketing-wrap"><span>One relationship. Every stage.</span><ol>{["Lead", "Application", "Processing", "Closing", "Repeat business"].map((step, i) => <li key={step}><small>0{i+1}</small>{step}</li>)}</ol></div></section>
+  <section className="marketing-section marketing-wrap"><div className="orbit-section-heading"><p className="marketing-kicker">A shared view. A clear next step.</p><h2>Built around the people<br />who move a loan forward.</h2></div><div className="orbit-role-grid">{roles.map(({icon: Icon, role, title, text, href}) => <article key={role}><Icon size={26} strokeWidth={2} aria-hidden="true" /><p className="orbit-role-label">{role}</p><h3>{title}</h3><p>{text}</p><a href={href} className="marketing-text-link">Explore the workflow <ArrowRight size={17} aria-hidden="true" /></a></article>)}</div></section>
+  <section className="marketing-band"><div className="marketing-section marketing-wrap marketing-proof"><div><p className="marketing-kicker">From application to closing</p><h2>Less chasing.<br />More clarity.</h2><p>Know what’s missing, who owns it, and what happens next. Keep document requests, processing handoffs, and lender conditions connected to the file.</p><a className="marketing-text-link" href="/product#loan-workflow">Follow the loan <ArrowRight size={17} aria-hidden="true" /></a></div><figure className="marketing-screen"><img src="/marketing/conditions.png" width="1280" height="950" loading="lazy" alt="Orbit loan file with mock lender conditions and document review actions." /><figcaption>Condition review · Simulated lender activity <a href="/marketing/conditions.png">View full size</a></figcaption></figure></div></section>
+  <section className="marketing-section marketing-wrap orbit-daily"><div><p className="marketing-kicker">The work between milestones</p><h2>Keep the day<br />in one place.</h2><a className="marketing-text-link" href="/product#daily-work">See the daily workspace <ArrowRight size={17} aria-hidden="true" /></a></div><div className="orbit-daily-list">{[{icon:MessagesSquare,title:"Conversations with context",text:"Keep contact history, internal notes, and the next follow-up together."},{icon:CalendarDays,title:"Deadlines in view",text:"See appointments, callbacks, document dates, and closing work."},{icon:Search,title:"Find it. Act on it.",text:"Find a contact, loan, or task and pick up where you left off."}].map(({icon:Icon,title,text})=><article key={title}><Icon size={24} aria-hidden="true" /><div><h3>{title}</h3><p>{text}</p></div></article>)}</div></section>
+  <section className="orbit-relationship"><div className="marketing-wrap"><p className="marketing-kicker">Beyond the closing</p><h2>The loan closes.<br /><em>The relationship continues.</em></h2><p>Keep referral history, past-client follow-ups, and the next opportunity connected. Give returning borrowers a familiar start on their next loan.</p><a className="marketing-text-link" href="/product#relationships">Build the next relationship <ArrowRight size={17} aria-hidden="true" /></a></div></section>
+  <section className="marketing-section marketing-wrap orbit-status-row"><div><p className="marketing-kicker">From quote to closing</p><h3>Keep the lender work with the loan.</h3><p>Bring quote comparisons, conditions, document requests, and closing milestones into the same file.</p></div><a className="marketing-text-link" href="/integrations">Explore lender workflows <ArrowRight size={17} aria-hidden="true" /></a></section>
+  <DemoCTA />
+</>; }

@@ -1,14 +1,30 @@
 import { DurableObject } from "cloudflare:workers";
-import { timingSafeEqual } from "node:crypto";
+import { demoRequest } from "./lib/demo-request";
+import { createHash, timingSafeEqual } from "node:crypto";
 import app from "vinext/server/app-router-entry";
-import { executeCommand } from "./lib/commands";
+import { assignContactFollowUpInput, campaignRefillLeadId, executeCommand, reviewApplicationInput, staffCampaignOptOutTarget } from "./lib/commands";
+import { readPlaybook } from "./lib/playbooks";
 import { borrowerCommandResult } from "./lib/applications";
 import { borrowerHttp, borrowerJson, documentUploadMode } from "./lib/borrower-http";
-import { initializeStore, readWorkspace, type SqlValue, type Store } from "./lib/store";
-import { googleSettings, handleStaffAuth, runtimeSetting, signedInStaff, staffLoginUrl } from "./lib/staff-auth";
+import { initializeStore, readStaffWorkspaceEntry, readWorkspace, type SqlValue, type Store } from "./lib/store";
+import { readPipeline } from "./lib/pipeline";
+import { pipelineUnavailable } from "./lib/pipeline-model";
+import { readLoanContactPicker } from "./lib/loan-contact-picker";
+import { readContactDirectory } from "./lib/contact-directory";
+import { readDraftQueue } from "./lib/communication-draft-query";
+import { draftQueueUnavailable } from "./lib/communication-draft-model";
+import { readPastClientQueue } from "./lib/past-client-queue";
+import { pastClientsUnavailable } from "./lib/past-client-queue-model";
+import { readRealtorWork } from "./lib/realtor-work";
+import { realtorWorkUnavailable } from "./lib/realtor-work-model";
+import { readLeadInbox } from "./lib/lead-inbox-query";
+import { leadInboxUnavailable } from "./lib/lead-inbox-model";
+import { contactsUnavailable } from "./lib/contact-directory-model";
+import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
+import { googleSettings, handleStaffAuth, runtimeSetting, staffLoginUrl, staffSessionHash } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
-import { brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage } from "./lib/brokerage-model";
-import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, initializeBrokerages } from "./lib/brokerages";
+import { brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
+import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
 import { assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
 import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
@@ -17,12 +33,62 @@ import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDo
 import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
 import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
-import { loadPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback } from "./lib/pilot";
+import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback, type PilotPortalLink } from "./lib/pilot";
+import { explorationInput, loadExplorationExamples } from "./lib/pilot-exploration";
 import { migrationInput } from "./lib/pipeline-migration-model";
+import { addCampaignLeadInput, assignCampaignLeadsInput, campaignRoutingOfficerLimit, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput } from "./lib/call-campaign-model";
+import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./lib/campaign-routing";
+import { enrollCrmSegmentInput } from "./lib/crm-segment-model";
 import { assignInboxLeadInput, quoteLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
-import { leadRouting, receiveQuoteLead } from "./lib/lead-inbox";
+import { leadRouting, readLeadArchive, receiveQuoteLead } from "./lib/lead-inbox";
+import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
+import { readSharedRealtorQueue } from "./lib/realtor-claim-queue";
+import { assignWaitingRealtor, readRealtorQueueReport } from "./lib/realtor-queue-report";
+import { assignWaitingRealtorInput, realtorQueueReportUnavailable } from "./lib/realtor-queue-report-model";
 import { assignProcessor } from "./lib/loan-processing";
+import { loanAssignmentUnavailable, readLoanAssignments } from "./lib/loan-assignments";
 import { savePlaybookInput } from "./lib/playbook-model";
+import { readRecordHistory } from "./lib/record-history";
+import { exportPilotPipeline } from "./lib/pipeline-export";
+import { reviewMigrationRecovery } from "./lib/migration-recovery";
+import { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
+  saveCutoverFileInventory, saveMigrationCutover } from "./lib/migration-cutover";
+import type { CutoverApplicationComparison } from "./lib/cutover-application-model";
+import { cutoverCallbackItem, cutoverReviewInput, cutoverUnavailable, type CutoverFileInventory, type CutoverFileLookup, type CutoverHandoff,
+  type MigrationCutover } from "./lib/migration-cutover-model";
+import { fundingRecordAction, readFundingDashboard } from "./lib/funding-dashboard";
+import { readCampaignCallbacks, readOfficerQueue, readWorkspaceCalendar, readWorkspaceTasks } from "./lib/officer-queue";
+import type { WorkspaceMutationScope } from "./lib/commands";
+import { readCampaignCallbackPerformance } from "./lib/campaign-callback-performance";
+import { readCampaignCallbackExceptions } from "./lib/campaign-callback-exceptions";
+import { officerDashboardWork } from "./lib/officer-dashboard";
+import { workOnAppointment } from "./lib/appointments";
+import { changeProcessingView, readProcessorQueue } from "./lib/processor-queue";
+import { readEditableLoan, readLoanHandoff } from "./lib/editable-loan";
+import { readIncomingLoanWorkPage } from "./lib/incoming-loan-work";
+import { readEditableLead } from "./lib/editable-lead";
+import { changeSalesSettings, readSalesDashboard } from "./lib/sales-dashboard";
+import { changeConversation, readConversations } from "./lib/conversations";
+import { contactMergeWork } from "./lib/contact-merge";
+import { conversationInput } from "./lib/conversation-model";
+import { changeInboundReply, readInboundReplies } from "./lib/inbound-replies";
+import { coverageParticipants, coverageWork, coveredCampaignOptOutTarget } from "./lib/coverage";
+import { coverageInput, coverageUnavailable, type CoverageResult } from "./lib/coverage-model";
+import { readWorkspaceSearch } from "./lib/workspace-search";
+import { loanReviewWork, reviewParticipants } from "./lib/loan-reviews";
+import { playbookRunWork } from "./lib/playbook-runs";
+import { nextDocumentReminderCheck, runScheduledDocumentReminders } from "./lib/document-reminder-runs";
+import { brokerageFinanceWork } from "./lib/brokerage-finance";
+import { fileExceptionOwners, nameFileExceptions, readFileExceptions } from "./lib/file-exceptions";
+import { managerExceptionInput, managerExceptionsUnavailable, type ManagerExceptionResult } from "./lib/manager-exception-model";
+import { readManagerExceptionWork } from "./lib/manager-exceptions";
+import { readMigrationRecord } from "./lib/migration-record";
+import { migrationRecordUnavailable } from "./lib/migration-record-model";
+import { fileExceptionsUnavailable, type FileExceptionPage } from "./lib/file-exception-model";
+import { reportingReadinessWork } from "./lib/call-report-readiness";
+import { reviewInput, reviewsUnavailable, type ReviewResult } from "./lib/loan-review-model";
+import { departureWork, hasDepartureWork } from "./lib/offboarding";
+import { offboardingInput, offboardingUnavailable, type DeparturePage, type DepartureRoster, type OffboardingInput } from "./lib/offboarding-model";
 
 export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements StaffAuthStore {
   readonly #store: Store;
@@ -57,31 +123,379 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return staff ? staff.brokerage.id === this.#id : this.#id === demoBrokerageId;
   }
 
-  read(staff: WorkspaceStaff | null) {
+  read(staff: WorkspaceStaff | null, deferred = false) {
     if (!this.#accepts(staff)) throw new Error("Workspace access denied.");
+    if (deferred && staff) return readStaffWorkspaceEntry(this.#store, staff);
     return scopeWorkspace(readWorkspace(this.#store, staff?.brokerage.role === "Admin"), staff);
   }
 
-  async write(input: unknown, staff: WorkspaceStaff | null) {
+  pipeline(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: pipelineUnavailable };
+    return this.#store.transaction(() => readPipeline(this.#store, input, staff));
+  }
+
+  loanContactPicker(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: loanContactPickerUnavailable };
+    return this.#store.transaction(() => readLoanContactPicker(this.#store, input, staff));
+  }
+
+  contactDirectory(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: contactsUnavailable };
+    return this.#store.transaction(() => readContactDirectory(this.#store, input, staff));
+  }
+
+  leadInbox(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: leadInboxUnavailable };
+    return this.#store.transaction(() => readLeadInbox(this.#store, input, staff));
+  }
+
+  history(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: "This activity history is unavailable." };
+    return readRecordHistory(this.#store, staff, input);
+  }
+
+  leadArchive(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: "The lead archive is unavailable." };
+    return readLeadArchive(this.#store, staff, input);
+  }
+
+  sharedRealtorQueue(input: unknown, staff: WorkspaceStaff | null) {
+    return readSharedRealtorQueue(this.#store, staff, this.#id, input);
+  }
+
+  realtorQueueReport(input: unknown, staff: WorkspaceStaff) {
+    return readRealtorQueueReport(this.#store, staff, this.#id, input);
+  }
+
+  async realtorQueueAssignment(input: unknown, staff: WorkspaceStaff) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: realtorQueueReportUnavailable };
+    const parsed = assignWaitingRealtorInput.safeParse(input);
+    if (!parsed.success) return { error: "Choose a waiting referral and an active officer." };
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const recipient = await this.#resolveLeadOwner(parsed.data.officerEmail, emails, staff.email);
+    return assignWaitingRealtor(this.#store, staff, this.#id, parsed.data, recipient);
+  }
+
+  fundingDashboard(input: unknown, staff: WorkspaceStaff) {
+    return readFundingDashboard(this.#store, input, staff, this.#id);
+  }
+
+  officerQueue(input: unknown, staff: WorkspaceStaff) {
+    return readOfficerQueue(this.#store, input, staff, this.#id);
+  }
+
+  workspaceTasks(input: unknown, staff: WorkspaceStaff) {
+    return this.#store.transaction(() => readWorkspaceTasks(this.#store, input, staff, this.#id));
+  }
+
+  draftQueue(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: draftQueueUnavailable };
+    return this.#store.transaction(() => readDraftQueue(this.#store, input, staff));
+  }
+
+  pastClientQueue(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: pastClientsUnavailable };
+    return this.#store.transaction(() => readPastClientQueue(this.#store, input, staff));
+  }
+
+  realtorWork(input: unknown, staff: WorkspaceStaff | null) {
+    if (!this.#accepts(staff)) return { error: realtorWorkUnavailable };
+    return this.#store.transaction(() => readRealtorWork(this.#store, input, staff));
+  }
+
+  campaignCallbacks(input: unknown, staff: WorkspaceStaff) {
+    return readCampaignCallbacks(this.#store, input, staff, this.#id);
+  }
+
+  campaignCallbackPerformance(input: unknown, staff: WorkspaceStaff) {
+    return readCampaignCallbackPerformance(this.#store, input, staff, this.#id);
+  }
+
+  campaignCallbackExceptions(input: unknown, staff: WorkspaceStaff) {
+    return readCampaignCallbackExceptions(this.#store, input, staff, this.#id);
+  }
+
+  officerDashboard(input: unknown, staff: WorkspaceStaff) {
+    return officerDashboardWork(this.#store, input, staff, this.#id);
+  }
+
+  workspaceCalendar(input: unknown, staff: WorkspaceStaff) {
+    return readWorkspaceCalendar(this.#store, input, staff, this.#id);
+  }
+
+  workspaceSearch(input: unknown, staff: WorkspaceStaff) {
+    return readWorkspaceSearch(this.#store, input, staff, this.#id);
+  }
+
+  async staffPlaybookRun(input: unknown, staff: WorkspaceStaff) {
+    const result = playbookRunWork(this.#store, input, staff, this.#id, new Date(), true);
+    if ("kind" in result && result.kind === "document-schedule" && result.available) {
+      const changed = Boolean(input && typeof input === "object" && "type" in input && input.type === "setDocumentSchedule");
+      if (result.enabled || changed) await this.#armWorkspaceAlarm(changed);
+    }
+    return result;
+  }
+
+  staffBrokerageFinance(input: unknown, staff: WorkspaceStaff) {
+    return brokerageFinanceWork(this.#store, input, staff, this.#id);
+  }
+
+  staffReportingReadiness(input: unknown, staff: WorkspaceStaff) {
+    return reportingReadinessWork(this.#store, input, staff, this.#id);
+  }
+
+  staffDeparture(input: Exclude<OffboardingInput, { type: "offboardingRevoke" }>, roster: DepartureRoster, staff: WorkspaceStaff) {
+    return departureWork(this.#store, input, roster, staff, this.#id);
+  }
+
+  staffDepartureWorkRemaining(email: string, staff: WorkspaceStaff) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") throw new Error(offboardingUnavailable);
+    return hasDepartureWork(this.#store, email);
+  }
+
+  async staffFileExceptions(input: unknown, staff: WorkspaceStaff): Promise<FileExceptionPage | { error: string }> {
+    const page = readFileExceptions(this.#store, input, staff, this.#id);
+    if ("error" in page) return page;
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const roster = await directory.fileExceptionRoster(staff, emails, fileExceptionOwners(page));
+    return roster ? nameFileExceptions(page, roster) : { error: fileExceptionsUnavailable };
+  }
+
+  async staffManagerExceptions(input: unknown, staff: WorkspaceStaff): Promise<ManagerExceptionResult> {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: managerExceptionsUnavailable };
+    const query = managerExceptionInput.safeParse(input);
+    if (!query.success) return { error: managerExceptionsUnavailable };
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    const members = await directory.teamMembers(staff, [...(googleSettings(this.env)?.allowedEmails ?? [])]);
+    return members ? this.#store.transaction(() => readManagerExceptionWork(this.#store, query.data, staff, members)) :
+      { error: managerExceptionsUnavailable };
+  }
+
+  async staffLoanReview(input: unknown, staff: WorkspaceStaff): Promise<ReviewResult> {
+    if (!this.#accepts(staff)) return { error: reviewsUnavailable };
+    const parsed = reviewInput.safeParse(input);
+    if (!parsed.success) return { error: "Check the reviewer, dates, and note before continuing." };
+    const action = parsed.data;
+    if (action.type === "queue") return loanReviewWork(this.#store, action, staff, this.#id, []);
+    const selected = action.type === "inbox" || action.type === "readNotice" ? [staff.email] : reviewParticipants(this.#store, action, staff);
+    if (!selected) return { error: reviewsUnavailable };
+    if ((action.type === "comment" && !action.mentionEmail) || action.type === "escalate") {
+      return loanReviewWork(this.#store, action, staff, this.#id, []);
+    }
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const roster = await directory.loanReviewRoster(staff, emails, selected, action.type === "loan" || action.type === "detail");
+    return roster ? loanReviewWork(this.#store, action, staff, this.#id, roster) : { error: reviewsUnavailable };
+  }
+
+  appointmentWork(input: unknown, staff: WorkspaceStaff) {
+    return workOnAppointment(this.#store, input, staff, this.#id);
+  }
+
+  async staffCoverage(input: unknown, staff: WorkspaceStaff): Promise<CoverageResult> {
+    if (!this.#accepts(staff)) return { error: coverageUnavailable };
+    const parsed = coverageInput.safeParse(input);
+    if (!parsed.success) return { error: "Check the coverage dates or work details and try again." };
+    const lookup = coverageParticipants(this.#store, parsed.data, staff);
+    if (!lookup) return { error: coverageUnavailable };
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const selected = lookup === "team" ? null : lookup;
+    let roster = await directory.coverageRoster(staff, emails, selected);
+    if (!roster) return { error: coverageUnavailable };
+    const target = coveredCampaignOptOutTarget(this.#store, parsed.data, staff, roster);
+    const optOutPlans = target ? campaignOptOutPlans(this.#store, target) : [];
+    const optOutRoster = optOutPlans.length ? await this.#campaignOptOutRoster(staff, optOutPlans) : undefined;
+    if (optOutPlans.length) {
+      roster = await directory.coverageRoster(staff, emails, selected);
+      if (!roster) return { error: coverageUnavailable };
+    }
+    return coverageWork(this.#store, parsed.data, staff, this.#id, roster, undefined, optOutRoster);
+  }
+
+  processorQueue(input: unknown, staff: WorkspaceStaff) {
+    return readProcessorQueue(this.#store, input, staff, this.#id);
+  }
+
+  processingView(input: unknown, staff: WorkspaceStaff) {
+    return changeProcessingView(this.#store, input, staff, this.#id);
+  }
+
+  editableLoan(input: unknown, staff: WorkspaceStaff) {
+    return readEditableLoan(this.#store, input, staff, this.#id);
+  }
+
+  loanHandoff(loanId: string, knownVersion: string, staff: WorkspaceStaff) {
+    return readLoanHandoff(this.#store, loanId, knownVersion, staff, this.#id);
+  }
+
+  incomingLoanWork(input: unknown, staff: WorkspaceStaff) {
+    return readIncomingLoanWorkPage(this.#store, input, staff, this.#id);
+  }
+
+  editableLead(input: unknown, staff: WorkspaceStaff) {
+    return readEditableLead(this.#store, input, staff, this.#id);
+  }
+
+  salesDashboard(input: unknown, staff: WorkspaceStaff) {
+    return readSalesDashboard(this.#store, input, staff, this.#id);
+  }
+
+  salesSettings(input: unknown, staff: WorkspaceStaff) {
+    return changeSalesSettings(this.#store, input, staff, this.#id);
+  }
+
+  conversations(input: unknown, staff: WorkspaceStaff) {
+    return readConversations(this.#store, input, staff, this.#id);
+  }
+
+  contactMerge(input: unknown, staff: WorkspaceStaff) {
+    return contactMergeWork(this.#store, input, staff, this.#id);
+  }
+
+  async changeConversation(input: unknown, staff: WorkspaceStaff) {
+    const parsed = conversationInput.safeParse(input);
+    if (parsed.success && parsed.data.type === "assignContact" && staff.brokerage.id === this.#id && staff.brokerage.role === "Admin") {
+      const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+      const replacement = await this.#resolveLeadOwner(parsed.data.email, emails, staff.email);
+      return changeConversation(this.#store, input, staff, this.#id, new Date(), replacement);
+    }
+    return changeConversation(this.#store, input, staff, this.#id);
+  }
+
+  inboundReplies(input: unknown, staff: WorkspaceStaff) {
+    return readInboundReplies(this.#store, input, staff, this.#id);
+  }
+
+  changeInboundReply(input: unknown, staff: WorkspaceStaff) {
+    return changeInboundReply(this.#store, input, staff, this.#id);
+  }
+
+  fundingRecord(input: unknown, staff: WorkspaceStaff) {
+    return fundingRecordAction(this.#store, input, staff, this.#id);
+  }
+
+  pipelineExport(staff: WorkspaceStaff) {
+    if (!this.#accepts(staff)) return { error: "This pilot CRM export is unavailable." };
+    return exportPilotPipeline(this.#store, staff);
+  }
+
+  migrationRecovery(staff: WorkspaceStaff, importId: unknown) {
+    if (!this.#accepts(staff)) return { error: "This CRM import receipt is unavailable in this brokerage." };
+    return reviewMigrationRecovery(this.#store, staff, importId);
+  }
+
+  migrationRecord(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: migrationRecordUnavailable };
+    return this.#store.transaction(() => readMigrationRecord(this.#store, input, staff));
+  }
+
+  async #cutoverOwners(staff: WorkspaceStaff): Promise<ReadonlySet<string> | null> {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin" || !staff.brokerage.pilot) return null;
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    const members: BrokerageMember[] | null = await directory.teamMembers(staff, emails);
+    return members && new Set(members.filter(({ role, status }) => status === "Active" && role !== "Processor").map(({ email }) => email));
+  }
+
+  async migrationCutover(staff: WorkspaceStaff, origin: unknown): Promise<MigrationCutover | { error: string }> {
+    const owners = await this.#cutoverOwners(staff);
+    return owners ? readMigrationCutover(this.#store, staff, this.#id, origin, owners) : { error: cutoverUnavailable };
+  }
+
+  async cutoverHandoff(staff: WorkspaceStaff, query: unknown): Promise<CutoverHandoff | { error: string }> {
+    const owners = await this.#cutoverOwners(staff);
+    return owners ? exportCutoverHandoff(this.#store, staff, this.#id, query, owners) : { error: cutoverUnavailable };
+  }
+
+  cutoverFileLookup(staff: WorkspaceStaff, query: unknown): CutoverFileLookup {
+    return lookupCutoverFile(this.#store, staff, this.#id, query);
+  }
+
+  cutoverApplicationComparison(staff: WorkspaceStaff, query: unknown): CutoverApplicationComparison | { error: string } {
+    return readCutoverApplicationComparison(this.#store, staff, this.#id, query);
+  }
+
+  cutoverFileInventory(staff: WorkspaceStaff, query: unknown): CutoverFileInventory | { error: string } {
+    return readCutoverFileInventory(this.#store, staff, this.#id, query);
+  }
+
+  recordCutoverFileInventory(staff: WorkspaceStaff, input: unknown): { message: string } | { error: string } {
+    return saveCutoverFileInventory(this.#store, staff, this.#id, input);
+  }
+
+  async recordCutoverReview(staff: WorkspaceStaff, input: unknown): Promise<{ message: string } | { error: string }> {
+    const parsed = cutoverReviewInput.safeParse(input);
+    if (!parsed.success || parsed.data.item !== cutoverCallbackItem) {
+      return saveMigrationCutover(this.#store, staff, this.#id, input);
+    }
+    const owners = await this.#cutoverOwners(staff);
+    return owners ? saveMigrationCutover(this.#store, staff, this.#id, input, undefined, owners) : { error: cutoverUnavailable };
+  }
+
+  async write(input: unknown, staff: WorkspaceStaff | null, scope?: WorkspaceMutationScope) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     let referralOwner: StaffIdentity | undefined;
-    let leadMembers: StaffIdentity[] = [];
+    let leadMembers: BrokerageMember[] = [];
+    let campaignRefillRoster: CampaignRefillRoster | undefined;
+    let reviewRouting: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null } | undefined;
+    const firstReview = staff && input && typeof input === "object" && "type" in input && input.type === "reviewApplication" ?
+      reviewApplicationInput.safeParse(input) : null;
+    if (staff && firstReview?.success) {
+      const current = this.#store.prepare(`SELECT revision FROM applications
+        WHERE loanId = ? AND submittedAt IS NOT NULL AND reviewedAt IS NULL`).get(firstReview.data.loanId);
+      const rule = readPlaybook(this.#store).secondReview;
+      if (rule && current) {
+        input = { ...firstReview.data, revision: firstReview.data.revision ?? Number(current.revision) };
+        const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+        const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+        const roster = await directory.loanReviewRoster(staff, emails, [rule.reviewerEmail], false);
+        if (!roster) return { error: reviewsUnavailable };
+        reviewRouting = { reviewerEmail: rule.reviewerEmail, reviewer: roster.find((member) => member.email === rule.reviewerEmail) ?? null };
+      }
+    }
     if (staff?.brokerage.role === "Admin" && input && typeof input === "object" && "type" in input &&
-      input.type === "createRealtorPortal" && "officerEmail" in input && typeof input.officerEmail === "string" &&
+      (input.type === "createRealtorPortal" || input.type === "saveRealtorLinkOwner") && "officerEmail" in input && typeof input.officerEmail === "string" &&
       input.officerEmail !== staff.email) {
       const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
-      const team = this.#id === demoBrokerageId ? this.team(staff, emails)
-        : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);
-      referralOwner = team.members.find((member) => member.email === input.officerEmail && member.status === "Active" && member.role !== "Processor");
-      if (!referralOwner) return { error: "Select an active staff member in this brokerage." };
+      const member = await this.#resolveLeadOwner(input.officerEmail, emails, staff.email);
+      if (!member) return { error: "Select an active loan officer or admin in this brokerage." };
+      referralOwner = member;
     }
-    if (staff?.brokerage.role === "Admin" && (saveLeadRoutingInput.safeParse(input).success || assignInboxLeadInput.safeParse(input).success || savePlaybookInput.safeParse(input).success || (staff.brokerage.pilot && migrationInput.safeParse(input).success))) {
+    if (staff?.brokerage.role === "Admin" && (saveLeadRoutingInput.safeParse(input).success || saveRealtorClaimPolicyInput.safeParse(input).success ||
+      assignInboxLeadInput.safeParse(input).success ||
+      assignContactFollowUpInput.safeParse(input).success ||
+      savePlaybookInput.safeParse(input).success || (staff.brokerage.pilot && [migrationInput, assignCampaignLeadsInput, addCampaignLeadInput,
+        enrollCrmSegmentInput, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput].some((schema) => schema.safeParse(input).success)))) {
       const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
       const team = this.#id === demoBrokerageId ? this.team(staff, emails)
         : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);
       leadMembers = team.members.filter((member) => member.status === "Active" && member.role !== "Processor");
     }
-    const result = await executeCommand(this.#store, input, staff, referralOwner, leadMembers);
+    const releasingLeadId = staff?.brokerage.pilot ? campaignRefillLeadId(input) : undefined;
+    if (staff && releasingLeadId) {
+      const refill = campaignReleaseRouting(this.#store, staff, releasingLeadId);
+      if (refill) {
+        const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+        const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+        try {
+          const members = await directory.campaignRoutingRoster(staff, emails, refill.officers);
+          if (!members) return { error: "Workspace access denied." };
+          campaignRefillRoster = { campaignId: refill.campaignId, revision: refill.revision, members };
+        } catch {
+          // A directory lookup failure leaves the shared queue available for manual routing.
+        }
+      }
+    }
+    const optOutTarget = staff ? staffCampaignOptOutTarget(this.#store, staff, input) : undefined;
+    const optOutPlans = optOutTarget ? campaignOptOutPlans(this.#store, optOutTarget) : [];
+    const campaignOptOutRoster = staff && optOutPlans.length ? await this.#campaignOptOutRoster(staff, optOutPlans) : undefined;
+    const result = await executeCommand(this.#store, input, staff, referralOwner, leadMembers,
+      { scopedLeadUpdates: true, scopedLoanUpdates: true, scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks",
+        scopedTemplateUpdates: true, scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration",
+        reviewRouting, campaignRefillRoster, campaignOptOutRoster,
+        protectPilotLinks: staff?.brokerage.pilot ? this.#protectPilotLinks : undefined });
     if ("state" in result && input && typeof input === "object" && "type" in input && (input.type === "deleteLoan" || input.type === "loadGuidedDemo")) await this.#scheduleCleanup();
     return result;
   }
@@ -124,28 +538,42 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
   async #scheduleCleanup() {
     if (!this.#documents) return;
-    const next = nextDocumentCleanup(this.#store);
-    if (next === null) return;
-    try {
-      const current = await this.ctx.storage.getAlarm();
-      if (current === null || current > next) await this.ctx.storage.setAlarm(next);
-    } catch { console.warn("Orbit could not schedule document cleanup."); }
+    try { await this.#armWorkspaceAlarm(); } catch { console.warn("Orbit could not schedule document cleanup."); }
   }
+
+  async #armWorkspaceAlarm(cancelIfIdle = false) {
+    const storage = this.ctx.storage;
+    const current = await storage.getAlarm();
+    const cleanup = this.#documents ? nextDocumentCleanup(this.#store) : null;
+    const reminder = nextDocumentReminderCheck(this.#store);
+    const next = cleanup === null ? reminder : reminder === null ? cleanup : Math.min(cleanup, reminder);
+    if (next === null) {
+      if (cancelIfIdle && current !== null) await storage.deleteAlarm();
+    } else if (current === null || current > next) {
+      await storage.setAlarm(Math.max(Date.now(), next));
+    }
+  }
+
   async alarm() {
-    if (!this.#documents) return;
-    const objects = documentCleanupBatch(this.#store);
-    try {
-      if (objects.length) {
-        await this.#documents.delete(objects.map((id) => documentKey(this.#id, id)));
-        this.#store.transaction(() => {
-          for (const id of objects) this.#store.prepare("DELETE FROM document_file_cleanup WHERE objectId = ?").run(id);
-        });
-      }
-    } catch { console.warn("Orbit will retry private document cleanup."); }
-    await this.#scheduleCleanup();
+    runScheduledDocumentReminders(this.#store);
+    if (this.#documents) {
+      const objects = documentCleanupBatch(this.#store);
+      try {
+        if (objects.length) {
+          await this.#documents.delete(objects.map((id) => documentKey(this.#id, id)));
+          this.#store.transaction(() => {
+            for (const id of objects) this.#store.prepare("DELETE FROM document_file_cleanup WHERE objectId = ?").run(id);
+          });
+        }
+      } catch { console.warn("Orbit will retry private document cleanup."); }
+    }
+    await this.#armWorkspaceAlarm();
   }
 
   activateStaff(staff: StaffIdentity, emails: string[]) { return activateBrokerages(this.#store, staff, emails); }
+  staffSessionAccess(tokenHash: string, now: number, emails: string[]) {
+    return this.#id === demoBrokerageId ? readStaffAccess(this.#store, tokenHash, now, emails) : null;
+  }
   staffBrokerages(email: string, emails: string[]) {
     return this.#store.transaction(() => {
       bootstrapDemoMembers(this.#store, emails);
@@ -160,18 +588,106 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const row = this.#store.prepare("SELECT pilot FROM brokerages WHERE id = ?").get(id);
     return row ? { pilot: Boolean(row.pilot) } : null;
   }
-  hasBrokerage(id: string) { return !!this.brokerageDetails(id); }
-  leadOwner(id: string, email: string, emails: string[]): StaffIdentity | null {
+  brokerageForPortal(token: unknown) {
+    if (this.#id !== demoBrokerageId || typeof token !== "string") return null;
+    const id = portalBrokerage(token);
+    if (!id) return null;
+    const row = this.#store.prepare(`SELECT pilot FROM brokerages WHERE id = ? AND NOT EXISTS (
+      SELECT 1 FROM revoked_pilot_portals WHERE brokerageId = brokerages.id AND tokenHash = ? AND expiresAt > ?
+    )`).get(id, portalHash(token), new Date().toISOString());
+    return row ? { pilot: Boolean(row.pilot) } : null;
+  }
+  #protectPilotLinks = (links: PilotPortalLink[]) => {
+    if (this.#id === demoBrokerageId || links.some(({ token }) => portalBrokerage(token) !== this.#id)) return Promise.resolve(false);
+    return this.env.WORKSPACE.getByName(demoBrokerageId).retainPilotPortalRevocations(this.#id,
+      links.map(({ token, expiresAt }) => ({ tokenHash: portalHash(token), expiresAt })));
+  };
+  retainPilotPortalRevocations(id: string, links: { tokenHash: string; expiresAt: string }[]) {
+    if (!this.brokerageDetails(id)?.pilot || links.length > 100 ||
+      links.some(({ tokenHash, expiresAt }) => !/^[a-f0-9]{64}$/.test(tokenHash) || !Number.isFinite(Date.parse(expiresAt)))) return false;
+    const now = new Date().toISOString();
+    return this.#store.transaction(() => {
+      this.#store.prepare(`DELETE FROM revoked_pilot_portals WHERE rowid IN (
+        SELECT rowid FROM revoked_pilot_portals WHERE expiresAt <= ? ORDER BY expiresAt LIMIT 20)`).run(now);
+      const remember = this.#store.prepare(`INSERT INTO revoked_pilot_portals VALUES (?, ?, ?)
+        ON CONFLICT(brokerageId, tokenHash) DO UPDATE SET expiresAt = max(expiresAt, excluded.expiresAt)`);
+      for (const { tokenHash, expiresAt } of links) if (expiresAt > now) remember.run(id, tokenHash, expiresAt);
+      return true;
+    });
+  }
+  leadOwner(id: string, email: string, emails: string[], adminEmail?: string): StaffIdentity | null {
     if (this.#id !== demoBrokerageId) return null;
-    const member = brokerageMembers(this.#store, id, emails).find((item) => item.email === email && item.status === "Active" && item.role !== "Processor");
-    return member ? { email: member.email, name: member.name } : null;
+    if (adminEmail && !activeBrokerages(this.#store, adminEmail, emails).some((item) => item.id === id && item.role === "Admin")) return null;
+    const [member] = selectedActiveMembers(this.#store, id, [email], emails);
+    return member && member.role !== "Processor" ? { email: member.email, name: member.name } : null;
+  }
+  teamMembers(staff: WorkspaceStaff, emails: string[]) {
+    if (!activeBrokerages(this.#store, staff.email, emails).some((entry) => entry.id === staff.brokerage.id && entry.role === "Admin")) return null;
+    return brokerageMembers(this.#store, staff.brokerage.id, emails);
   }
   team(staff: WorkspaceStaff, emails: string[]) {
-    if (!activeBrokerages(this.#store, staff.email, emails).some((entry) => entry.id === staff.brokerage.id && entry.role === "Admin")) return { members: [], history: [] };
-    return { members: brokerageMembers(this.#store, staff.brokerage.id, emails), history: brokerageHistory(this.#store, staff.brokerage.id) };
+    const members = this.teamMembers(staff, emails);
+    return members ? { members, history: brokerageHistory(this.#store, staff.brokerage.id) } : { members: [], history: [] };
+  }
+  coverageRoster(staff: WorkspaceStaff, bootstrapEmails: string[], selected: string[] | null): VersionedBrokerageMember[] | null {
+    if (this.#id !== demoBrokerageId) return null;
+    const active = activeBrokerages(this.#store, staff.email, bootstrapEmails).find(({ id }) => id === staff.brokerage.id);
+    if (!active || active.role !== staff.brokerage.role) return null;
+    if (!selected) return active.role === "Admin" ? brokerageMembers(this.#store, active.id, bootstrapEmails) : null;
+    if (selected.length > 2 || (selected.length && active.role !== "Admin" && !selected.includes(staff.email))) return null;
+    return selected.length ? selectedActiveMembers(this.#store, active.id, selected, bootstrapEmails) : [];
+  }
+  loanReviewRoster(staff: WorkspaceStaff, bootstrapEmails: string[], selected: string[], includeAdmins: boolean): VersionedBrokerageMember[] | null {
+    if (this.#id !== demoBrokerageId || selected.length > 5) return null;
+    const membership = activeBrokerages(this.#store, staff.email, bootstrapEmails).find(({ id }) => id === staff.brokerage.id);
+    return membership?.role === staff.brokerage.role ? selectedActiveMembers(this.#store, membership.id, selected, bootstrapEmails, includeAdmins) : null;
+  }
+  campaignRoutingRoster(staff: WorkspaceStaff, bootstrapEmails: string[], selected: string[]): StaffIdentity[] | null {
+    if (this.#id !== demoBrokerageId || selected.length > campaignRoutingOfficerLimit) return null;
+    const membership = activeBrokerages(this.#store, staff.email, bootstrapEmails).find(({ id }) => id === staff.brokerage.id);
+    if (!membership?.pilot || membership.role !== staff.brokerage.role || membership.role === "Processor") return null;
+    return selectedActiveMembers(this.#store, membership.id, selected, bootstrapEmails)
+      .filter(({ role }) => role !== "Processor").map(({ email, name }) => ({ email, name }));
+  }
+  async #campaignOptOutRoster(staff: WorkspaceStaff, plans: CampaignOptOutRoster["plans"]): Promise<CampaignOptOutRoster | undefined> {
+    const selected = [...new Set(plans.flatMap(({ officers }) => officers))];
+    const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    try {
+      const members: StaffIdentity[] = [];
+      for (let start = 0; start < selected.length; start += campaignRoutingOfficerLimit) {
+        const batch = await directory.campaignRoutingRoster(staff, emails, selected.slice(start, start + campaignRoutingOfficerLimit));
+        if (!batch) return;
+        members.push(...batch);
+      }
+      return { plans, members };
+    } catch {
+      // Outreach preferences can still be saved if routing data is unavailable.
+    }
+  }
+  fileExceptionRoster(staff: WorkspaceStaff, bootstrapEmails: string[], selected: string[]): VersionedBrokerageMember[] | null {
+    if (this.#id !== demoBrokerageId || selected.length > 20) return null;
+    const membership = activeBrokerages(this.#store, staff.email, bootstrapEmails).find(({ id }) => id === staff.brokerage.id);
+    return membership?.role === "Admin" ? selectedActiveMembers(this.#store, membership.id, selected, bootstrapEmails) : null;
+  }
+  staffDepartureRoster(staff: WorkspaceStaff, emails: string[], subject: string, replacement?: string | null) {
+    return this.#id === demoBrokerageId ? departureRoster(this.#store, staff, staff.brokerage.id, emails, subject, replacement) : null;
   }
   manage(staff: WorkspaceStaff, emails: string[], input: unknown) { return changeBrokerage(this.#store, staff.brokerage.id, staff, emails, input); }
-  audit(staff: WorkspaceStaff) { return this.#accepts(staff) && staff.brokerage.role === "Admin" ? workspaceAccessHistory(this.#store) : []; }
+  audit(staff: WorkspaceStaff) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return [];
+    const history = workspaceAccessHistory(this.#store);
+    if (!staff.brokerage.pilot || !history.length) return history;
+    const names = new Map(this.#store.prepare(`SELECT loan.id, contact.name FROM loans loan JOIN contacts contact ON contact.id = loan.contactId
+      WHERE loan.id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(history.map(({ subject }) => subject)))
+      .map(({ id, name }) => [String(id), String(name)]));
+    return history.map((event) => ({ ...event, loanName: names.get(event.subject) }));
+  }
+
+  loanAssignments(input: unknown, staff: WorkspaceStaff) {
+    if (!this.#accepts(staff)) return { error: loanAssignmentUnavailable };
+    return this.#store.transaction(() => readLoanAssignments(this.#store, input, staff, this.#id));
+  }
   reassign(staff: WorkspaceStaff, target: Parameters<typeof assignLoan>[2]) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return assignLoan(this.#store, staff, target);
@@ -186,9 +702,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
   async loadPilot(staff: WorkspaceStaff, input: unknown, owner: StaffIdentity) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
-    const result = loadPilotScenario(this.#store, staff, input, owner);
+    const result = await loadProtectedPilotScenario(this.#store, staff, input, owner, this.#protectPilotLinks);
     if ("message" in result) await this.#scheduleCleanup();
     return result;
+  }
+  loadExploration(staff: WorkspaceStaff, input: unknown, members: Parameters<typeof loadExplorationExamples>[3]) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return loadExplorationExamples(this.#store, staff, input, members);
   }
   pilotFeedback(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
@@ -206,24 +726,26 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return borrowerCommandResult(this.#store, input,
       pilot || this.#id === demoBrokerageId || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot);
   }
-  async #resolveLeadOwner(email: string | null, emails: string[]) {
+  async #resolveLeadOwner(email: string | null, emails: string[], adminEmail?: string) {
     if (!email) return null;
-    return this.#id === demoBrokerageId ? this.leadOwner(this.#id, email, emails)
-      : await this.env.WORKSPACE.getByName(demoBrokerageId).leadOwner(this.#id, email, emails);
+    return this.#id === demoBrokerageId ? this.leadOwner(this.#id, email, emails, adminEmail)
+      : await this.env.WORKSPACE.getByName(demoBrokerageId).leadOwner(this.#id, email, emails, adminEmail);
   }
   async realtor(input: unknown, pilot = false, emails: string[] = []) {
     if (!input || typeof input !== "object" || !("type" in input) || input.type !== "submit") {
       return realtorReferrals(this.#store, input, undefined, pilot);
     }
     const routing = leadRouting(this.#store);
-    let target = routing.realtorOwner;
+    let target = routing.realtorRoute === "Assigned officer" ? routing.realtorOwner : null;
+    let linkRevision: number | undefined;
     if (routing.realtorRoute === "Link owner") {
       if (!googleSettings(this.env) || !("token" in input) || typeof input.token !== "string") return realtorReferrals(this.#store, input, undefined, pilot);
-      const portal = this.#store.prepare("SELECT officerEmail FROM realtor_portals WHERE token = ?").get(input.token);
+      const portal = this.#store.prepare("SELECT officerEmail, revision FROM realtor_portals WHERE token = ?").get(input.token);
       target = typeof portal?.officerEmail === "string" ? portal.officerEmail : null;
+      linkRevision = typeof portal?.revision === "number" ? portal.revision : undefined;
     }
     const owner = await this.#resolveLeadOwner(target, emails);
-    return realtorReferrals(this.#store, input, undefined, pilot, { revision: routing.revision, owner });
+    return realtorReferrals(this.#store, input, undefined, pilot, { revision: routing.revision, linkRevision, owner });
   }
   async quoteLead(input: unknown, emails: string[]) {
     const routing = leadRouting(this.#store);
@@ -242,6 +764,8 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   getStaffSession(...args: Parameters<StaffAuthStore["getStaffSession"]>) { return this.#auth.getStaffSession(...args); }
   removeStaffSession(...args: Parameters<StaffAuthStore["removeStaffSession"]>) { return this.#auth.removeStaffSession(...args); }
 }
+
+const portalHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 async function authorized(header: string | null, password: string) {
   if (!header || !header.startsWith("Basic ") || header.length > 200) return false;
@@ -262,7 +786,12 @@ export default {
       return Response.redirect(url, 308);
     }
     const reading = request.method === "GET" || request.method === "HEAD";
-    const marketingPage = /^\/(?:product\/?|integrations\/?|address-lookup\/?)?$/.test(url.pathname);
+    if (url.pathname === "/api/demo-request") return demoRequest(request, env);
+    const marketingPage = /^\/(?:product\/?|integrations\/?|demo\/?|address-lookup\/?)?$/.test(url.pathname);
+    if (reading && (/^\/marketing\/(?:pipeline|playbooks|borrower-application|quote-comparison|conditions|social-preview)\.png$/.test(url.pathname) ||
+      url.pathname === "/fonts/InterVariable.woff2" || url.pathname === "/fonts/OFL-Inter.txt")) {
+      return env.ASSETS.fetch(request);
+    }
     const publicIcon = url.pathname === "/icon.svg";
     // Public documents render independently of the workspace and sign-in.
     // Forward only the URL and method so routing and action headers cannot
@@ -282,9 +811,10 @@ export default {
     const directory = env.WORKSPACE.getByName(demoBrokerageId);
     const bootstrapEmails = [...(google?.allowedEmails ?? [])];
     async function linkedWorkspace(input: unknown) {
-      const id = portalBrokerage(input && typeof input === "object" && "token" in input ? input.token : input);
+      const token = input && typeof input === "object" && "token" in input ? input.token : input;
+      const id = portalBrokerage(token);
       if (!id) return null;
-      const details = id === demoBrokerageId ? { pilot: false } : await directory.brokerageDetails(id);
+      const details = id === demoBrokerageId ? { pilot: false } : await directory.brokerageForPortal(token);
       return details ? { id, pilot: details.pilot, store: env.WORKSPACE.getByName(id) } : null;
     }
     const filesEnv = env as Cloudflare.Env & DocumentEnvironment;
@@ -335,27 +865,31 @@ export default {
     if (!tokenPage) {
       if (google) {
         const requested = url.searchParams.get("brokerage");
-        const workspaceTarget = reading && url.pathname === "/workspace" && requested && brokerageIdPattern.test(requested) ? requested : null;
-        const login = () => new Response(null, { status: 303, headers: { Location: staffLoginUrl(workspaceTarget), "Cache-Control": "no-store" } });
+        const openingWorkspace = reading && url.pathname === "/workspace";
+        const workspaceTarget = openingWorkspace && requested && brokerageIdPattern.test(requested) ? requested : null;
+        const guide = openingWorkspace ? workspaceGuide(url.searchParams.get("guide")) : null;
+        const login = () => new Response(null, { status: 303, headers: { Location: staffLoginUrl(workspaceTarget, undefined, guide), "Cache-Control": "no-store" } });
         try {
-          const identity = await signedInStaff(request, google, directory);
-          if (identity) {
-            brokerages = await directory.staffBrokerages(identity.email, bootstrapEmails);
+          const tokenHash = await staffSessionHash(request, google);
+          const access = tokenHash && await directory.staffSessionAccess(tokenHash, Date.now(), bootstrapEmails);
+          if (access) {
+            const { identity } = access;
+            brokerages = access.brokerages;
             const brokerage = requested === null ? brokerages[0] : brokerages.find((entry) => entry.id === requested);
             if (requested !== null && !brokerage && brokerages.length) {
               if (workspaceTarget && await directory.staffInvitedTo(workspaceTarget, identity.email)) return login();
               return new Response("You don’t have access to this brokerage.", { status: 403, headers: { "Cache-Control": "no-store" } });
             }
             if (brokerage) staff = { ...identity, brokerage };
-            if (staff && requested === null && staff.brokerage.id !== demoBrokerageId && reading && url.pathname === "/workspace") {
-              return new Response(null, { status: 303, headers: { Location: brokerageUrl(staff.brokerage.id), "Cache-Control": "no-store" } });
+            if (staff && requested === null && staff.brokerage.id !== demoBrokerageId && openingWorkspace) {
+              return new Response(null, { status: 303, headers: { Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" } });
             }
           }
         }
         catch { return new Response("Orbit sign-in is temporarily unavailable.", { status: 503, headers: { "Cache-Control": "no-store" } }); }
         if (!staff) {
           if (reading) return login();
-          return new Response("Sign in to Orbit to continue.", { status: 401, headers: { "Cache-Control": "no-store" } });
+          return new Response(staffSignInRequired, { status: 401, headers: { "Cache-Control": "no-store" } });
         }
       } else if (!(await authorized(request.headers.get("Authorization"), demoPassword))) {
         return new Response("Enter the Orbit demo username and password.", {
@@ -391,11 +925,59 @@ export default {
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       if (request.method === "GET") {
+        const view = url.searchParams.get("view");
+        if (view === "assignment-loans" || view === "loan-assignment") {
+          if (staff.brokerage.role !== "Admin") return Response.json({ error: loanAssignmentUnavailable }, { status: 403, headers });
+          const after = url.searchParams.has("afterId") || url.searchParams.has("afterStageSince") ?
+            { id: url.searchParams.get("afterId"), stageSince: url.searchParams.get("afterStageSince") } : undefined;
+          const input = view === "assignment-loans" ? { type: "list", search: url.searchParams.get("search") ?? "", after } :
+            { type: "open", loanId: url.searchParams.get("loanId") };
+          const result = await workspace.loanAssignments(input, staff);
+          if ("error" in result) return Response.json(result, { status: 404, headers });
+          if (result.kind === "list") return Response.json(result, { headers });
+          const members = await directory.teamMembers(staff, bootstrapEmails);
+          return members ? Response.json({ ...result, members: members.filter(({ status }) => status === "Active") }, { headers }) :
+            Response.json({ error: loanAssignmentUnavailable }, { status: 403, headers });
+        }
+        if (view === "processors") {
+          const members = await directory.teamMembers(staff, bootstrapEmails);
+          return members ? Response.json({ members: members.filter((member) => member.role === "Processor" && member.status === "Active") }, { headers }) :
+            Response.json({ error: "Only a brokerage admin can view the processor roster." }, { status: 403, headers });
+        }
         const [team, localHistory, pilot] = await Promise.all([directory.team(staff, bootstrapEmails), workspace.audit(staff), workspace.pilotReview(staff)]);
         const history = [...team.history, ...localHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
         return Response.json({ brokerages, members: team.members, history, ...pilot }, { headers });
       }
-      if (request.method === "POST") return borrowerJson<{ message?: string; created?: string }>(request, async (input) => {
+      if (request.method === "POST") return borrowerJson<{ message?: string; created?: string } | DeparturePage>(request, async (input) => {
+        if (input && typeof input === "object" && "type" in input && typeof input.type === "string" && input.type.startsWith("offboarding")) {
+          if (staff.brokerage.role !== "Admin") return { status: 403, error: offboardingUnavailable };
+          const parsed = offboardingInput.safeParse(input);
+          if (!parsed.success) return { status: 400, error: "Refresh the offboarding preview and try again." };
+          const action = parsed.data;
+          const roster = await directory.staffDepartureRoster(staff, bootstrapEmails, action.email,
+            action.type === "offboardingTransfer" ? action.replacement : undefined);
+          if (!roster) return { status: 403, error: "This staff member is unavailable in your brokerage." };
+          if (action.type !== "offboardingRevoke") {
+            const result = await workspace.staffDeparture(action, roster, staff);
+            return "error" in result ? { status: 409, error: result.error } : { value: result };
+          }
+          const alreadyRevoked = roster.member.status === "Revoked" && roster.member.accessRevision === action.memberRevision + 1;
+          if (!alreadyRevoked) {
+            if (roster.member.accessRevision !== action.memberRevision) return { status: 409, error: "Staff access changed. Refresh the offboarding preview." };
+            if (!roster.canRevoke) return { status: 409, error: "Keep at least one active admin in this brokerage." };
+            if (!action.immediate && await workspace.staffDepartureWorkRemaining(action.email, staff)) {
+              return { status: 409, error: "Open work or intake routes still need a handoff. Refresh the offboarding preview." };
+            }
+            const result = await directory.manage(staff, bootstrapEmails, { type: "revoke", email: action.email, expectedAccessRevision: action.memberRevision });
+            if (result.error) return { status: 409, error: result.error };
+          }
+          try {
+            const remaining = await workspace.staffDepartureWorkRemaining(action.email, staff);
+            return { value: { message: remaining ? "Access revoked. Use the recovery list to hand off remaining work." : "Access revoked. No open work remains." } };
+          } catch {
+            return { value: { message: "Access revoked. Refresh the recovery list to check for remaining work." } };
+          }
+        }
         if (input && typeof input === "object" && "type" in input && input.type === "pilotFeedback") {
           if (!staff.brokerage.pilot || !pilotFeedbackInput.safeParse(input).success) return { status: 400, error: "Choose a pilot step and enter feedback up to 1,000 characters." };
           const result = await workspace.pilotFeedback(staff, input);
@@ -427,6 +1009,14 @@ export default {
           const owner = team.members.find((member) => member.status === "Active" && member.role !== "Processor" && member.email === parsed.data.officerEmail);
           if (!owner) return { status: 409, error: "Select an active staff member in this pilot workspace." };
           const result = await workspace.loadPilot(staff, parsed.data, owner);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }
+        if (input && typeof input === "object" && "type" in input && input.type === "loadPilotExploration") {
+          if ((!staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId) || staff.brokerage.role !== "Admin") return { status: 403, error: "Only an admin in a demo or pilot workspace can add demo examples." };
+          const parsed = explorationInput.safeParse(input);
+          if (!parsed.success) return { status: 400, error: "Choose an active loan officer and an optional processor." };
+          const team = await directory.team(staff, bootstrapEmails);
+          const result = await workspace.loadExploration(staff, parsed.data, team.members);
           return "error" in result ? { status: 409, error: result.error } : { value: result };
         }
         const result = await directory.manage(staff, bootstrapEmails, input);

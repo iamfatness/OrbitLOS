@@ -1,24 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { demoBrokerageId, type BrokerageMember, type BrokerageSettings } from "@/lib/brokerage-model";
-import { leadOutcomes, leadSequenceSteps, outreachChannels, type LeadRouting, type leadSequenceActions } from "@/lib/lead-inbox-model";
+import { readArchivePage, readInboxWork } from "@/app/actions";
+import { demoBrokerageId, type BrokerageMember } from "@/lib/brokerage-model";
+import { firstContactOverdue, leadInboxUnavailable, leadInboxViews, leadOutcomes, leadSequenceSteps, outreachChannels,
+  type ArchivedLead, type InboxLeadSummary, type LeadArchivePage, type LeadInboxPage, type LeadInboxView, type LeadRouting, type leadSequenceActions } from "@/lib/lead-inbox-model";
 import type { InboxLead } from "@/lib/model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { useLeadOwners } from "./use-lead-owners";
+import { LeadTasks, leadTaskTarget } from "./lead-tasks";
+import { SharedRealtorPolicyForm, SharedRealtorQueueView } from "./shared-realtor-queue";
+import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import { leadWorkUnavailable } from "@/lib/lead-work-model";
 
-type Save = (input: unknown, after?: () => void) => Promise<void>;
-type Convert = (id: string, contactId: string | null, allowDuplicate: boolean) => void;
-const views = ["All open", "Mine", "Unassigned", "First contact overdue", "Mock step due"] as const;
-type View = (typeof views)[number];
-
-export function firstContactOverdue(lead: InboxLead, now: number) {
-  return !lead.followUp.firstContactAt && Date.parse(lead.dueAt) <= now;
-}
+type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
+type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void) => void;
 
 function stepDue(lead: InboxLead, now: number) {
-  return lead.followUp.status === "Active" && !!lead.followUp.nextAt && Date.parse(lead.followUp.nextAt) <= now;
+  return !lead.heldAt && !lead.outreachSuppressed && !lead.campaignId && lead.followUp.status === "Active" &&
+    !!lead.followUp.nextAt && Date.parse(lead.followUp.nextAt) <= now;
 }
 
 function OwnerOptions({ members }: { members: BrokerageMember[] }) {
@@ -77,8 +79,25 @@ function RoutingForm({ routing, staff, members, busy, save }: {
   </details>;
 }
 
-function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
-  lead: InboxLead; staff: WorkspaceStaff | null; members: BrokerageMember[]; now: number; busy: boolean; focused: boolean; save: Save; convert: Convert;
+function LeadHeading({ lead, now, flagged }: { lead: InboxLeadSummary; now: number; flagged?: boolean }) {
+  const { followUp } = lead;
+  const overdue = firstContactOverdue(lead, now);
+  return <>
+    <div className="document-item-head"><strong>{lead.name}</strong><span className={overdue ? "open-chip" : "pill"}>
+      {lead.heldAt ? "On hold" : lead.outreachSuppressed ? "Outreach opted out" : followUp.replyReceivedAt ? "Reply received" :
+        overdue ? "First contact overdue" : followUp.firstContactAt ? "Outreach logged" : "First contact due"}</span></div>
+    <p>{lead.realtorName ? `Realtor referral · ${lead.realtorName}` : lead.source} · {lead.purpose}{lead.zip && ` · ZIP ${lead.zip}`}</p>
+    <p className="muted">{lead.officer || "Shared inbox"}{lead.heldAt
+      ? lead.revisitDate && ` · Revisit ${lead.revisitDate}`
+      : ` · ${dateTime(followUp.replyReceivedAt ?? followUp.firstContactAt ?? lead.dueAt)} ET`}{flagged && " · Possible duplicate"}</p>
+  </>;
+}
+
+function LeadCard({ lead, staff, members, now, busy, focusTaskId, save, convert, openCampaign, openConversation, close }: {
+  lead: InboxLead; staff: WorkspaceStaff | null; members: BrokerageMember[]; now: number; busy: boolean; focusTaskId?: string; save: Save; convert: Convert;
+  openCampaign: (campaignId: string, leadId: string) => void;
+  openConversation: (leadId: string) => void;
+  close: () => void;
 }) {
   const [match, setMatch] = useState("");
   const isAdmin = !staff || staff.brokerage.role === "Admin";
@@ -88,25 +107,24 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
   const chosen = lead.matches.find((item) => item.id === match);
   const canCreate = !flagged || (match === "new" && !lead.restrictedMatch);
   const step = leadSequenceSteps[followUp.nextStep];
-  const overdue = firstContactOverdue(lead, now);
   const sequence = (action: (typeof leadSequenceActions)[number]) => void save({
     type: "leadSequence", leadId: lead.id, revision: followUp.revision, action,
   });
   const assign = (email: string | null) => void save({ type: "assignInboxLead", leadId: lead.id, email, previousEmail: lead.officerEmail });
   useEffect(() => {
-    if (!focused) return;
-    const item = document.getElementById(`inbox-lead-${lead.id}`);
+    const task = focusTaskId ? document.getElementById(leadTaskTarget(focusTaskId)) : null;
+    const item = task ?? document.getElementById(`inbox-lead-${lead.id}`);
     item?.focus({ preventScroll: true });
-    item?.scrollIntoView({ block: "nearest" });
-  }, [focused, lead.id]);
+    item?.scrollIntoView({ block: task ? "center" : "nearest" });
+  }, [focusTaskId, lead.id, members.length]);
 
   return <li className="document-item" id={`inbox-lead-${lead.id}`} tabIndex={-1}>
-    <div className="document-item-head"><strong>{lead.name}</strong><span className={overdue ? "open-chip" : "pill"}>
-      {overdue ? "First contact overdue" : followUp.firstContactAt ? "Outreach logged" : "First contact due"}</span></div>
-    <p>{lead.realtorName ? `Realtor referral · ${lead.realtorName}` : lead.source} · {lead.purpose}{lead.zip && ` · ZIP ${lead.zip}`}</p>
-    <p className="muted">{lead.officer || "Shared inbox"} · {dateTime(followUp.firstContactAt ?? lead.dueAt)} ET{flagged && " · Possible duplicate"}</p>
+    <LeadHeading lead={lead} now={now} flagged={flagged} />
+    <div><Button size="sm" variant="ghost" disabled={busy} onClick={close}>Close lead details</Button></div>
     {!canWork && staff && <Button variant="outline" size="sm" disabled={busy} onClick={() => assign(staff.email)}>Claim lead</Button>}
-    {canWork && <details className="document-form" open={focused || undefined}>
+    {canWork && (staff || process.env.NODE_ENV === "development") && <div><Button variant="outline" size="sm" disabled={busy}
+      onClick={() => openConversation(lead.id)}>Open lead conversation</Button></div>}
+    {canWork && <details className="document-form" open>
       <summary>Work lead</summary>
       <div className="record-form">
         <p>{[lead.email, lead.phone].filter(Boolean).join(" · ")}</p>
@@ -120,7 +138,32 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
           </select></label>
           <Button size="sm" type="submit" disabled={busy}>Save owner</Button>
         </form>}
-        <div className="work-queue">
+        {lead.heldAt ? <div className="work-queue">
+          <p><strong>On hold</strong> · {lead.holdReason}</p>
+          <p className="muted">Original deadlines stay on the record. {lead.campaignId
+            ? "If the campaign owner is at capacity, reactivation returns the lead to the shared queue."
+            : "Outreach and lead tasks resume after reactivation."}</p>
+          {lead.outreachSuppressed && <p className="muted">This borrower’s outreach opt-out stays in effect.</p>}
+          <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
+            type: "leadHold", leadId: lead.id, revision: followUp.revision, action: "Reactivate",
+          })}>Reactivate lead</Button></div>
+        </div> : <details className="document-form">
+          <summary>Put lead on hold</summary>
+          <form className="record-form" onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            void save({ type: "leadHold", leadId: lead.id, revision: followUp.revision, action: "Hold",
+              reason: data.get("reason"), revisitDate: data.get("revisitDate") || null });
+          }}>
+            <label className="field">Hold reason<input name="reason" required maxLength={160} /></label>
+            <label className="field">Revisit date (optional)<input name="revisitDate" type="date" /></label>
+            <div><Button size="sm" type="submit" disabled={busy}>Hold lead</Button></div>
+          </form>
+        </details>}
+        {!lead.heldAt && (lead.outreachSuppressed || lead.campaignId ? <div className="work-queue">
+          <p className="muted">{lead.outreachSuppressed ? "This borrower opted out of brokerage outreach. You can still process a borrower-requested application." : "This lead’s outreach and follow-up are managed by its call campaign."}</p>
+          {lead.campaignId && <div><Button size="sm" variant="outline" onClick={() => openCampaign(lead.campaignId!, lead.id)}>Open call campaign</Button></div>}
+        </div> : <><div className="work-queue">
           <div className="section-heading"><h4>Mock follow-up sequence</h4><span className="pill">{followUp.status}</span></div>
           {step && (followUp.status === "Active" || followUp.status === "Paused") && <div>
             <p><strong>{step.title}</strong>{followUp.nextAt && followUp.status === "Active" && ` · Due ${dateTime(followUp.nextAt)} ET`}</p>
@@ -151,20 +194,17 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
           </div>
           <label className="field">Outreach note (optional)<textarea rows={2} maxLength={500} name="note" /></label>
           <div><Button size="sm" type="submit" disabled={busy}>Log outreach</Button></div>
-        </form>
+        </form></>)}
+        {!lead.outreachSuppressed && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => {
+          if (window.confirm(`Record ${lead.name}’s outreach opt-out across this brokerage? This stops mock sequences and campaign callbacks for matching records.`)) {
+            void save({ type: "leadOptOut", leadId: lead.id });
+          }
+        }}>Record outreach opt-out</Button></div>}
         {followUp.events.length > 0 && <div>
           <h4>Lead activity</h4>
           <ul>{followUp.events.map((item) => <li key={item.id}>{item.text} · {item.actor} · {dateTime(item.at)} ET</li>)}</ul>
         </div>}
-        {lead.importedTasks.length > 0 && <div className="work-queue">
-          <h4>Imported tasks</h4>
-          <ul className="loan-task-list">{lead.importedTasks.map((task) => <li className="loan-task" key={task.id}>
-            <div className="loan-task-copy"><strong>{task.title}</strong><span>{task.completedAt ? "Completed" : "Due"} {dateTime(task.completedAt ?? task.dueAt)} ET</span></div>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
-              type: "completeLeadTask", leadId: lead.id, taskId: task.id, completed: !task.completedAt,
-            })}>{task.completedAt ? "Reopen task" : "Complete task"}</Button>
-          </li>)}</ul>
-        </div>}
+        <LeadTasks lead={lead} busy={busy} save={save} />
         {lead.importedContactId && <p className="muted">The migration review linked this lead to its borrower contact.</p>}
         {flagged && lead.restrictedMatch && <p className="muted">A possible match needs brokerage admin review.</p>}
         {flagged && (lead.matches.length > 0 || !lead.restrictedMatch) && <label className="field">Contact to use
@@ -174,57 +214,204 @@ function LeadCard({ lead, staff, members, now, busy, focused, save, convert }: {
             {!lead.restrictedMatch && <option value="new">Create a separate contact</option>}
           </select>
         </label>}
+        {(chosen || lead.importedContactId) && <p className="muted">The loan keeps the linked contact’s history. The 1003 uses this lead’s email and phone when provided and fills blanks from the saved contact.</p>}
         <div className="loan-application-actions">
-          <Button size="sm" disabled={busy || (!lead.importedContactId && !chosen && !canCreate)}
-            onClick={() => convert(lead.id, chosen?.id ?? null, flagged && canCreate)}>Create loan and prefill 1003</Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
-            if (window.confirm(`Dismiss the lead for ${lead.name}?`)) void save({ type: "dismissReferral", referralId: lead.id });
-          }}>Dismiss lead</Button>
+          <Button size="sm" disabled={busy || !!lead.heldAt || (!lead.importedContactId && !chosen && !canCreate)}
+            onClick={() => convert(lead.id, chosen?.id ?? null, flagged && canCreate, close)}>Create loan and prefill 1003</Button>
         </div>
+        <details className="document-form">
+          <summary>Archive lead</summary>
+          <p className="muted">You can restore this lead from the Lead Inbox. {lead.campaignId && "Archiving closes open campaign callbacks and keeps them in history."}</p>
+          <div><Button size="sm" type="button" variant="danger" disabled={busy} onClick={() => void save({
+            type: "dismissReferral", referralId: lead.id, revision: followUp.revision,
+          }, close)}>Confirm archive</Button></div>
+        </details>
       </div>
     </details>}
   </li>;
 }
 
-export function LeadInbox({ leads, routing, staff, now, busy, focusLeadId, save, convert }: {
-  leads: InboxLead[]; routing: LeadRouting | null; staff: WorkspaceStaff | null;
-  now: number; busy: boolean; focusLeadId?: string; save: Save; convert: Convert;
+function ArchivedLeads({ brokerageId, busy, restore, focusId }: {
+  brokerageId: string; busy: boolean; restore: (lead: ArchivedLead) => void; focusId?: string;
 }) {
-  const [view, setView] = useState<View>("All open");
-  const [members, setMembers] = useState<BrokerageMember[]>();
-  const [memberError, setMemberError] = useState("");
-  const brokerage = staff?.brokerage.role === "Admin" ? staff.brokerage.id : null;
+  const [search, setSearch] = useState<{ query: string; leadId?: string }>({ query: "", leadId: focusId });
+  const [result, setResult] = useState<{ search: typeof search; page: LeadArchivePage | { error: string } }>();
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState("");
   useEffect(() => {
-    if (!brokerage) return;
-    const controller = new AbortController();
-    fetch(`/api/brokerages?brokerage=${encodeURIComponent(brokerage)}`, { signal: controller.signal }).then(async (response) => {
-      if (!response.ok) throw new Error("Could not load active loan officers. Refresh before assigning.");
-      const team = await response.json() as BrokerageSettings;
-      setMembers(team.members.filter((member) => member.status === "Active" && member.role !== "Processor"));
-    }).catch((error: Error) => { if (!controller.signal.aborted) setMemberError(error.message); });
-    return () => controller.abort();
-  }, [brokerage]);
+    let active = true;
+    const update = (page: LeadArchivePage | { error: string }) => { if (active) setResult({ search, page }); };
+    void readArchivePage(search, brokerageId).then(update, () => update({ error: "Could not load the lead archive." }));
+    return () => { active = false; };
+  }, [search, brokerageId]);
+  const page = result?.search === search ? result.page : undefined;
 
-  const visible = leads.filter((lead) => {
-    if (view === "Mine") return !!staff && lead.officerEmail === staff.email;
-    if (view === "Unassigned") return !lead.officerEmail;
-    if (view === "First contact overdue") return firstContactOverdue(lead, now);
-    if (view === "Mock step due") return stepDue(lead, now);
-    return true;
-  });
-  const overdue = leads.filter((lead) => firstContactOverdue(lead, now)).length;
+  async function loadMore(before: NonNullable<LeadArchivePage["next"]>) {
+    if (!page || "error" in page || loadingMore) return;
+    setLoadingMore(true);
+    setMoreError("");
+    try {
+      const next = await readArchivePage({ ...search, before }, brokerageId);
+      if ("error" in next) setMoreError(next.error);
+      else setResult((latest) => latest?.search === search
+        ? { search, page: { leads: [...page.leads, ...next.leads], next: next.next } } : latest);
+    } catch {
+      setMoreError("Could not load older archived leads.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  return <section className="record-form" aria-label="Archived leads">
+    <h3>Archived leads</h3>
+    <p className="muted">Restore a lead with its activity and original deadlines. If its previous campaign owner is at capacity, the lead returns to the shared queue. Closed campaign callbacks stay in the history.</p>
+    <form className="task-form" onSubmit={(event) => {
+      event.preventDefault();
+      setMoreError("");
+      setSearch({ query: String(new FormData(event.currentTarget).get("query") ?? "").trim() });
+    }}>
+      <label className="field">Search archived leads<input name="query" maxLength={160} placeholder="Name or email" /></label>
+      <Button size="sm" type="submit" variant="outline" disabled={loadingMore || busy}>Search archive</Button>
+      {search.leadId && <Button size="sm" variant="outline" disabled={busy} onClick={() => setSearch({ query: "" })}>View all archived leads</Button>}
+    </form>
+    {!page ? <p className="muted" role="status">Loading archived leads…</p> : "error" in page ? <div>
+      <p role="alert">{page.error}</p>
+      <Button size="sm" variant="outline" onClick={() => setSearch({ ...search })}>Retry archive</Button>
+    </div> : <>
+      {page.leads.length > 0 ? <ul className="document-list">{page.leads.map((lead) => <li className="document-item" key={lead.id}>
+        <div className="document-item-head"><strong>{lead.name}</strong><span className="pill">Archived</span></div>
+        <p>{lead.source}{lead.realtorName && ` · ${lead.realtorName}`}</p>
+        <p className="muted">{lead.officer || "Shared inbox"} · Archived {dateTime(lead.archivedAt)} ET</p>
+        <div><Button size="sm" variant="outline" disabled={busy} onClick={() => restore(lead)}>Restore lead</Button></div>
+      </li>)}</ul> : <p className="empty-inline">{search.leadId ? "This archived lead is no longer available." :
+        search.query ? "No archived leads match your search." : "No archived leads yet."}</p>}
+      {moreError && <p role="alert">{moreError}</p>}
+      {page.next && <div><Button size="sm" variant="outline" disabled={loadingMore || busy} onClick={() => void loadMore(page.next!)}>
+        {loadingMore ? "Loading…" : "Load older archived leads"}</Button></div>}
+    </>}
+  </section>;
+}
+
+export function LeadInbox({ version, staff, now, busy, focusLeadId, focusTaskId, focusArchivedLeadId, save, convert, openCampaign, openConversation }: {
+  version: object; staff: WorkspaceStaff | null;
+  now: number; busy: boolean; focusLeadId?: string; focusTaskId?: string; focusArchivedLeadId?: string; save: Save; convert: Convert;
+  openCampaign: (campaignId: string, leadId: string) => void;
+  openConversation: (leadId: string) => void;
+}) {
+  const [view, setView] = useState<LeadInboxView>(focusArchivedLeadId ? "Archived" : "All open");
+  const [selection, setSelection] = useState<{ from?: string; id?: string }>();
+  const [retry, setRetry] = useState(0);
+  const [result, setResult] = useState<{ view: LeadInboxView; version: object; retry: number; page?: LeadInboxPage; error?: string }>();
+  const [details, setDetails] = useState<{ id: string; version: object; retry: number; lead?: InboxLead; error?: string }>();
+  const [loadingMore, setLoadingMore] = useState(false);
+  const focused = selection?.from === focusLeadId ? selection?.id : focusLeadId;
+  const selectLead = (id?: string) => {
+    setDetails(undefined);
+    setSelection({ from: focusLeadId, id });
+  };
+  const brokerageId = staff?.brokerage.id ?? demoBrokerageId;
+  const brokerage = staff?.brokerage.role === "Admin" ? staff.brokerage.id : null;
+  const { members, error: memberError } = useLeadOwners(brokerage);
+  const { routing, claimPolicy, canClaimRealtor, overdue } = result?.page ?? {};
+  const currentView = view === "Shared realtor referrals" && !canClaimRealtor ? "All open" : view;
+  const archive = currentView === "Archived";
+  const shared = currentView === "Shared realtor referrals";
+  const current = result?.view === currentView ? result : undefined;
+  const page = current?.page;
+  const currentDetails = details?.id === focused ? details : undefined;
+  const selected = currentDetails?.lead;
+  const reading = current?.version !== version || current?.retry !== retry;
+  const readingDetails = !!focused && (currentDetails?.version !== version || currentDetails?.retry !== retry);
+
+  useEffect(() => {
+    let active = true;
+    void readInboxWork({ type: "list", view: currentView }, brokerageId)
+      .catch(() => ({ error: leadInboxUnavailable })).then((response) => {
+        if (!active) return;
+        setResult((previous) => ({ view: currentView, version, retry, ...("kind" in response && response.kind === "list" ?
+          { page: response } : { page: previous?.view === currentView ? previous.page : undefined,
+            error: "error" in response ? response.error : leadInboxUnavailable }) }));
+      });
+    return () => { active = false; };
+  }, [brokerageId, currentView, version, retry]);
+
+  useEffect(() => {
+    if (!focused || archive || shared) return;
+    let active = true;
+    void readInboxWork({ type: "open", id: focused }, brokerageId)
+      .catch(() => ({ error: leadWorkUnavailable })).then((response) => {
+        if (!active) return;
+        setDetails({ id: focused, version, retry, ...("kind" in response && response.kind === "open" ?
+          { lead: response.lead } : { error: "error" in response ? response.error : leadWorkUnavailable }) });
+      });
+    return () => { active = false; };
+  }, [brokerageId, focused, archive, shared, version, retry]);
+
+  async function loadMore() {
+    if (!current || !page?.next || loadingMore || reading) return;
+    setLoadingMore(true);
+    try {
+      const response = await readInboxWork({ type: "list", view: currentView, after: page.next }, brokerageId)
+        .catch(() => ({ error: leadInboxUnavailable }));
+      setResult((latest) => {
+        if (latest !== current) return latest;
+        if (!("kind" in response) || response.kind !== "list") {
+          return { ...current, error: "error" in response ? response.error : leadInboxUnavailable };
+        }
+        const leads = new Map(page.leads.map((lead) => [lead.id, lead]));
+        for (const lead of response.leads) leads.set(lead.id, lead);
+        return { ...current, error: undefined, page: { ...response, overdue: page.overdue, leads: [...leads.values()] } };
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const visible = page?.leads ?? [];
+  const rows = selected && !visible.some(({ id }) => id === selected.id) ? [selected, ...visible] : visible;
   return <section className="pipeline relationship-panel" aria-label="Lead inbox">
-    <div className="section-heading"><h2>Quote requests and referrals</h2><span className={overdue ? "open-chip" : "pill"}>{overdue} overdue first contacts</span></div>
+    <div className="section-heading"><h2>Quote requests and referrals</h2>
+      {overdue != null && <span className={overdue ? "open-chip" : "pill"}>{overdue} overdue first contacts</span>}
+    </div>
     <p className="muted">Work new prospects here before opening a loan. Overdue first contacts surface in Tasks.</p>
     {memberError && <p role="alert">{memberError}</p>}
-    {routing && (!staff || members) && <RoutingForm key={routing.revision} routing={routing} staff={staff} members={members ?? []} busy={busy} save={save} />}
+    {routing && (!staff || members) && <RoutingForm key={`routing:${routing.revision}`} routing={routing} staff={staff} members={members ?? []} busy={busy} save={save} />}
+    {brokerage && members && claimPolicy && <SharedRealtorPolicyForm key={`realtor-claim:${claimPolicy.revision}`}
+      policy={claimPolicy} members={members} busy={busy} save={save} />}
     <div className="filter-row">
-      <label className="field">Lead view<select value={view} onChange={(event) => setView(event.target.value as View)}>
-        {views.filter((item) => item !== "Mine" || staff).map((item) => <option key={item}>{item}</option>)}</select></label>
-      <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}>Refresh inbox</Button>
+      <label className="field">Lead view<select value={currentView} onChange={(event) => setView(event.target.value as LeadInboxView)}>
+        {leadInboxViews.filter((item) => (item !== "Mine" || staff) && (item !== "Shared realtor referrals" || canClaimRealtor))
+          .map((item) => <option key={item}>{item}</option>)}</select></label>
+      {!archive && !shared && <Button size="sm" variant="outline" disabled={busy || reading}
+        onClick={() => setRetry((value) => value + 1)}>Refresh inbox</Button>}
     </div>
-    {visible.length ? <ul className="document-list">{visible.map((lead) =>
-      <LeadCard key={lead.id} lead={lead} staff={staff} members={members ?? []} now={now} busy={busy} focused={lead.id === focusLeadId} save={save} convert={convert} />
-    )}</ul> : <p className="empty-inline">No leads in this view.</p>}
+    {shared && staff ? <SharedRealtorQueueView key={brokerageId} brokerageId={brokerageId} busy={busy} claim={(leadId) => {
+      void save({ type: "claimSharedRealtor", leadId }, () => { selectLead(leadId); setView("Mine"); });
+    }} /> : archive ? <ArchivedLeads brokerageId={brokerageId} busy={busy} focusId={focusArchivedLeadId} restore={(lead) => {
+      void save({ type: "restoreLead", leadId: lead.id, archiveToken: lead.archiveToken }, ({ restoredLeadId }) => {
+        selectLead(restoredLeadId);
+        setView("All open");
+      });
+    }} /> : <>
+      {reading && <p className="muted" role="status">Loading leads…</p>}
+      {current?.error && <p role="alert">{current.error}</p>}
+      {readingDetails && !selected && <p className="muted" role="status">Opening lead details…</p>}
+      {!readingDetails && currentDetails?.error && <p role="alert">{currentDetails.error}</p>}
+      {rows.length > 0 ? <ul className="document-list">{rows.map((lead) => selected?.id === lead.id ?
+        <LeadCard key={lead.id} lead={selected} staff={staff} members={members ?? []} now={now} busy={busy || readingDetails}
+          focusTaskId={lead.id === focusLeadId ? focusTaskId : undefined} save={save} convert={convert} openCampaign={openCampaign}
+          openConversation={openConversation} close={() => selectLead()} /> :
+        <li className="document-item" key={lead.id}>
+          <LeadHeading lead={lead} now={now} />
+          {staff?.brokerage.role === "LO" && !lead.officerEmail ?
+            <Button size="sm" variant="outline" disabled={busy || reading} onClick={() => void save({
+              type: "assignInboxLead", leadId: lead.id, email: staff.email, previousEmail: null,
+            }, () => selectLead(lead.id))}>Claim lead</Button> :
+            <Button size="sm" variant="outline" disabled={busy || reading} onClick={() => selectLead(lead.id)}>Work lead</Button>}
+        </li>)}</ul> : page && !reading && <p className="empty-inline">No leads in this view.</p>}
+      {page?.next && <div><Button size="sm" variant="outline" disabled={loadingMore || busy || reading} onClick={() => void loadMore()}>
+        {loadingMore ? "Loading…" : `Load more leads · ${visible.length} shown`}
+      </Button></div>}
+    </>}
   </section>;
 }

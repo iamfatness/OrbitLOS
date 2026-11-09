@@ -9,6 +9,8 @@
   "vars": { "ORBIT_DOCUMENT_UPLOADS": "mock", "ORBIT_PRICING_MODE": "mock" },
   "routes": [{ "pattern": "orbitlos.com", "custom_domain": true }],
   "assets": { "not_found_handling": "none", "run_worker_first": true, "binding": "ASSETS" },
+  "send_email": [{ "name": "DEMO_EMAIL", "destination_address": "demo-inbox@example.test" }],
+  "ratelimits": [{ "name": "DEMO_RATE_LIMIT", "namespace_id": "2026110801", "simple": { "limit": 3, "period": 60 } }],
   "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "OrbitWorkspace" }] },
   "r2_buckets": [{ "binding": "DOCUMENTS", "bucket_name": "orbitlos-private-documents" }],
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OrbitWorkspace"] }],

@@ -29,14 +29,14 @@ function ReferralItem({ lead, busy, now, convert, dismiss }: {
             {!lead.restrictedMatch && <option value="new">Create a separate contact</option>}
           </select>
         </label>}
-        {selected && <p className="muted">The 1003 will use the selected contact’s saved name, email and phone. The borrower can edit those fields.</p>}
+        {selected && <p className="muted">The loan keeps {selected.name}’s contact history. The 1003 uses the referral’s email and phone when provided and fills blanks from the saved contact.</p>}
         <div className="loan-application-actions">
           <Button size="sm" disabled={busy || (!selected && !createNew)} onClick={() => convert(lead, selected?.id ?? null, flagged && createNew)}>
             Create loan and prefill 1003
           </Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
-            if (window.confirm(`Dismiss the referral for ${lead.name}?`)) dismiss(lead);
-          }}>Dismiss referral</Button>
+            if (window.confirm(`Archive the referral for ${lead.name}? You can restore it from the Lead Inbox.`)) dismiss(lead);
+          }}>Archive referral</Button>
         </div>
       </div>
     </details>

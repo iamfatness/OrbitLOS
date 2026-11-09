@@ -1,46 +1,32 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { brokerageRoles, brokerageUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageMember, type BrokerageSettings } from "@/lib/brokerage-model";
-import type { LoanProcessing } from "@/lib/processing-model";
-import type { Workspace } from "@/lib/model";
+import { demoBrokerageId, brokerageRoles, brokerageUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { PilotBenchmarks } from "./pilot-benchmarks";
+import { StaffOffboarding } from "./staff-offboarding";
+import type { DepartureItem } from "@/lib/offboarding-model";
+import { TeamLoanAssignment } from "./loan-assignment";
 
-function SharedProcessorAssignment({ loanId, assignment, members, busy, save }: {
-  loanId: string; assignment?: LoanProcessing; members: BrokerageMember[]; busy: boolean; save: (email: string | null, revision: number) => void;
-}) {
-  const current = assignment?.processorEmail ?? "";
-  return <form className="brokerage-form" key={`${loanId}:${assignment?.revision ?? 0}`} onSubmit={(event) => {
-    event.preventDefault();
-    const email = String(new FormData(event.currentTarget).get("processor") ?? "");
-    save(email || null, assignment?.revision ?? 0);
-  }}>
-    <label className="field">Shared processor<select name="processor" defaultValue={current}>
-      <option value="">No shared processor</option>
-      {current && !members.some((member) => member.email === current) && <option value={current} disabled>{current} · Inactive or unavailable</option>}
-      {members.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
-    </select></label>
-    <Button type="submit" size="sm" disabled={busy || (!members.length && !current)}>Save processor access</Button>
-    <p className="muted">The loan owner keeps access and follow-up tasks. The processor gets access to this file.</p>
-  </form>;
-}
-
-export function BrokerageTeam({ staff, state, refresh, openLoan }: {
-  staff: WorkspaceStaff; state: Workspace; refresh: () => Promise<void>; openLoan: (id: string) => void;
+export function BrokerageTeam({ staff, version, refresh, openLoan, openDepartureWork }: {
+  staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string) => void;
+  openDepartureWork: (item: DepartureItem) => void;
 }) {
   const endpoint = `/api/brokerages?brokerage=${staff.brokerage.id}`;
   const [settings, setSettings] = useState<BrokerageSettings | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [loanId, setLoanId] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
+  const [offboardingEmail, setOffboardingEmail] = useState<string | null>(null);
   const creating = useRef<string | null>(null);
+  const scenarioAttempt = useRef<{ key: string; id: string } | null>(null);
+  const resetButton = useRef<HTMLButtonElement>(null);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const feedbackAttempt = useRef<{ id: string; fields: string } | null>(null);
   const measurementAttempt = useRef<{ id: string; fields: string } | null>(null);
-  const loan = state.loans.find((item) => item.id === loanId);
   const admin = staff.brokerage.role === "Admin";
   const pilot = staff.brokerage.pilot;
   const activeMembers = settings?.members.filter((member) => member.status === "Active") ?? [];
@@ -56,6 +42,12 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
     return () => controller.abort();
   }, [endpoint]);
 
+  async function reloadTeam() {
+    const current = await fetch(endpoint);
+    if (!current.ok) throw new Error("Reload Team to check current brokerage access.");
+    setSettings(await current.json());
+  }
+
   async function change(action: Record<string, unknown>, reset?: () => void) {
     setBusy(true);
     setError("");
@@ -69,10 +61,8 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
         window.location.assign(action.type === "revoke" ? "/workspace" : brokerageUrl(staff.brokerage.id));
         return;
       }
-      if (action.type === "assign" || action.type === "assignProcessor" || action.type === "loadPilotScenario") await refresh();
-      const current = await fetch(endpoint);
-      if (!current.ok) throw new Error("The change was saved. Reload to check your brokerage access.");
-      setSettings(await current.json());
+      if (action.type === "loadPilotScenario" || action.type === "loadPilotExploration" || action.type === "role" || action.type === "revoke") await refresh();
+      await reloadTeam();
       setMessage(result.message ?? "Saved.");
       reset?.();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Orbit could not save this change."); }
@@ -88,9 +78,17 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
 
   function loadScenario(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const officerEmail = new FormData(event.currentTarget).get("officerEmail");
-    if (scenario && !window.confirm("Reset the fictional scenario? This replaces its sample loans and referrals and closes their old links. Staff access, activity, and feedback stay available.")) return;
-    void change({ type: "loadPilotScenario", id: crypto.randomUUID(), previousId: scenario?.id ?? null, officerEmail });
+    if (scenario && !confirmingReset) { setConfirmingReset(true); return; }
+    const fields = new FormData(event.currentTarget);
+    const officerEmail = fields.get("officerEmail");
+    const presenter = fields.has("presenter");
+    const previousId = scenario?.id ?? null;
+    const key = JSON.stringify({ previousId, officerEmail, presenter });
+    if (scenarioAttempt.current?.key !== key) scenarioAttempt.current = { key, id: crypto.randomUUID() };
+    void change({ type: "loadPilotScenario", id: scenarioAttempt.current.id, previousId, officerEmail, presenter }, () => {
+      scenarioAttempt.current = null;
+      setConfirmingReset(false);
+    });
   }
 
   function sendFeedback(event: FormEvent<HTMLFormElement>) {
@@ -126,19 +124,49 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
     </section>
     {error && <p role="alert" className="application-message banner-error">{error}</p>}
     {message && <p role="status" className="application-message">{message}</p>}
+    {admin && settings && (pilot || staff.brokerage.id === demoBrokerageId) && <section className="pipeline relationship-panel" aria-label="Demo examples">
+        <details className="document-form"><summary>Self-guided demo examples</summary>
+          <p className="muted">Populate Today, Calendar, Lead Inbox, and the daily workspace with linked fictional records.</p>
+          <form className="brokerage-form" onSubmit={(event) => {
+            event.preventDefault();
+            const fields = new FormData(event.currentTarget);
+            void change({ type: "loadPilotExploration", officerEmail: fields.get("officerEmail"), processorEmail: fields.get("processorEmail") || null });
+          }}>
+            <label className="field">Loan officer for demo examples<select name="officerEmail" required defaultValue={staff.email}>
+              {scenarioOwners.map(member => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
+            </select></label>
+            <label className="field">Processor for demo examples<select name="processorEmail" defaultValue="">
+              <option value="">Assign processing later</option>
+              {activeMembers.filter(member => member.role === "Processor").map(member => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
+            </select></label>
+            <p className="muted">Adds examples once per loan officer. Run again to refresh unchanged sample dates.</p>
+            <Button size="sm" type="submit" disabled={busy}>Add or refresh demo examples</Button>
+          </form>
+        </details>
+    </section>}
     {pilot && <section className="pipeline relationship-panel" aria-label="Pilot scenario">
       <h2>Pilot scenario</h2>
       <p className="muted">Use fictional borrowers and built-in files. UWM, verification email, and scanning are simulated here.</p>
       {admin && settings && <>
-        {scenario && <p className="muted">Loaded {dateTime(scenario.loadedAt)} ET for {scenario.officerEmail}.</p>}
+        {scenario && <p className="muted">{scenario.presenter ? "Presenter scenario" : "Standard scenario"} loaded {dateTime(scenario.loadedAt)} ET for {scenario.officerEmail}.</p>}
         <form className="brokerage-form" onSubmit={loadScenario} key={scenario?.id ?? "new"}>
           <label className="field">Assign the scenario to<select name="officerEmail" required defaultValue={scenarioOwners.some((member) => member.email === scenario?.officerEmail) ? scenario?.officerEmail : staff.email}>
             {scenarioOwners.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
           </select></label>
-          <Button size="sm" type="submit" disabled={busy || !scenarioOwners.length}>{scenario ? "Reset fictional scenario" : "Load fictional scenario"}</Button>
+          <label className="demo-confirm"><input name="presenter" type="checkbox" defaultChecked={scenario?.presenter} /> Include dashboard examples for the presenter walkthrough</label>
+          {confirmingReset && <p className="muted" role="status" id="scenario-reset-summary">This replaces the sample loans and referrals and closes their old links. Staff access, activity, and feedback stay available.</p>}
+          <div className="loan-application-actions">
+            <Button ref={resetButton} size="sm" type="submit" disabled={busy || !scenarioOwners.length} aria-describedby={confirmingReset ? "scenario-reset-summary" : undefined}>
+              {confirmingReset ? "Confirm scenario reset" : scenario ? "Reset fictional scenario" : "Load fictional scenario"}</Button>
+            {confirmingReset && <Button size="sm" variant="outline" type="button" disabled={busy} onClick={() => {
+              setConfirmingReset(false);
+              resetButton.current?.focus();
+            }}>Cancel reset</Button>}
+          </div>
         </form>
         <div><Button variant="outline" size="sm" onClick={() => void copyWorkspace()}>Copy pilot workspace link</Button></div>
         {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
+
       </>}
       <ol className="pilot-walkthrough">
         <li>Open <strong>Tasks → My Tasks</strong> and convert Riley Pilot Referral. You can also start from <strong>New Lead</strong>.</li>
@@ -151,6 +179,7 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
       <h2>Pilot measurements</h2>
       <ul>{settings.pilotMetrics?.map((item) => <li key={item.label}>{item.label} · {item.minutes === null ? "No completed samples" :
         `${item.minutes.toFixed(1)} min average across ${item.count} completed samples`}</li>)}</ul>
+      <PilotBenchmarks benchmarks={settings.pilotBenchmarks ?? []} busy={busy} save={change} />
       <details className="loan-task-create"><summary>Record a timed walkthrough</summary>
         <form className="record-form" onSubmit={(event) => {
           event.preventDefault();
@@ -232,40 +261,29 @@ export function BrokerageTeam({ staff, state, refresh, openLoan }: {
           }}>
             <label className="field">Staff role<select name="role" defaultValue={member.role}>{brokerageRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
             <Button type="submit" size="sm" variant="outline" disabled={busy}>Save role</Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
-              if (window.confirm(`Revoke brokerage access for ${member.email}?`)) void change({ type: "revoke", email: member.email });
-            }}>Revoke access</Button>
+            {member.status === "Invited" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
+              if (window.confirm(`Cancel the invitation for ${member.email}?`)) void change({ type: "revoke", email: member.email });
+            }}>Cancel invitation</Button>}
           </form>}
+          {member.status !== "Invited" && offboardingEmail !== member.email && <Button size="sm" variant="outline" disabled={busy}
+            onClick={() => setOffboardingEmail(member.email)}>{member.status === "Revoked" ? "Recover open work" : "Review offboarding"}</Button>}
+          {member.status !== "Invited" && offboardingEmail === member.email && <StaffOffboarding key={member.email} email={member.email}
+            viewer={staff.email} endpoint={endpoint} members={settings.members} open={openDepartureWork} onRevoke={reloadTeam} onClose={() => {
+              setOffboardingEmail(null);
+              void Promise.all([reloadTeam(), refresh()]).catch((failure: Error) => setError(failure.message));
+            }} />}
         </li>)}</ul>
       </section>
-      <section className="pipeline relationship-panel" aria-label="Loan reassignment">
-        <h2>Loan reassignment</h2><p className="muted">Open tasks follow the loan’s new owner.</p>
-        <form className="brokerage-form" onSubmit={(event) => {
-          event.preventDefault();
-          if (loan) void change({ type: "assign", loanId: loan.id, previousEmail: loan.officerEmail, email: new FormData(event.currentTarget).get("email") });
-        }}>
-          <label className="field">Loan<select value={loanId} onChange={(event) => setLoanId(event.target.value)} required><option value="">Choose a loan</option>
-            {state.loans.map((item) => <option key={item.id} value={item.id}>{state.contacts.find((contact) => contact.id === item.contactId)?.name} · {item.address || item.stage}</option>)}</select></label>
-          <label className="field">New owner<select name="email" required defaultValue=""><option value="">Choose active staff</option>
-            {settings.members.filter((member) => member.status === "Active").map((member) => <option value={member.email} key={member.email}>{member.email}</option>)}</select></label>
-          <Button type="submit" size="sm" disabled={busy || !loan}>Reassign loan</Button>
-        </form>
-        {loan && <p className="muted">Current owner {loan.officerEmail ?? (loan.officer || "Unassigned")}</p>}
-        {loan && <SharedProcessorAssignment loanId={loan.id} assignment={state.loanProcessing.find((item) => item.loanId === loan.id)}
-          members={activeMembers.filter((member) => member.role === "Processor" && member.email !== loan.officerEmail)} busy={busy}
-          save={(email, revision) => void change({ type: "assignProcessor", loanId: loan.id, email, revision })} />}
-      </section>
+      <TeamLoanAssignment brokerageId={staff.brokerage.id} version={version} openLoan={openLoan} onChanged={() => {
+        void Promise.all([refresh(), reloadTeam()]).catch(() => setError("Assignment saved. Refresh Team to see the latest access history."));
+      }} />
       <section className="pipeline relationship-panel" aria-label={pilot ? "Pilot activity and access history" : "Access history"}>
         <h2>{pilot ? "Pilot activity and access history" : "Access history"}</h2>
-        <ul className="document-list">{settings.history.map((event) => {
-          const subjectLoan = pilot && state.loans.find((loan) => loan.id === event.subject);
-          const borrower = subjectLoan && state.contacts.find((contact) => contact.id === subjectLoan.contactId);
-          return <li className="document-item" key={event.id}>
+        <ul className="document-list">{settings.history.map((event) => <li className="document-item" key={event.id}>
             <strong>{event.action}</strong>
-            {subjectLoan && borrower ? <div><button className="name-link" onClick={() => openLoan(subjectLoan.id)}>{borrower.name}</button></div> : <p>{event.subject}</p>}
+            {event.loanName ? <div><button className="name-link" onClick={() => openLoan(event.subject)}>{event.loanName}</button></div> : <p>{event.subject}</p>}
             <small className="muted">{event.actor} · {dateTime(event.createdAt)} ET</small>
-          </li>;
-        })}</ul>
+          </li>)}</ul>
         {!settings.history.length && <p className="muted">Staff and link changes will appear here.</p>}
       </section>
     </>}

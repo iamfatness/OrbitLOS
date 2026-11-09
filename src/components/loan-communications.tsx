@@ -1,40 +1,37 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Copy, Mail } from "lucide-react";
-import { currentDraftMilestone, draftChannels, draftCopied, draftRecipient, renderDraft } from "@/lib/communication-templates";
-import { draftMilestones, type CommunicationDraft, type DraftAudience, type DraftChannel, type DraftMilestone, type Loan, type Workspace } from "@/lib/model";
+import { readDraftWork } from "@/app/actions";
+import { draftQueueUnavailable, draftQueueViews, type DraftQueuePage, type DraftQueueQuery, type DraftQueueRow } from "@/lib/communication-draft-model";
+import { currentDraftMilestone, draftChannels, draftRecipient, renderDraft } from "@/lib/communication-templates";
+import { draftMilestones, type BrokerageTemplate, type CommunicationDraft, type DraftAudience, type DraftChannel, type DraftMilestone, type Loan, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
+import type { ConversationSubject } from "@/lib/conversation-model";
 import { Button } from "./ui/button";
 
 type Preview = (loanId: string, audience: DraftAudience, draftId?: string) => void;
 type Save = (input: unknown) => Promise<void>;
-const queueViews = ["Ready to copy", "Copied", "All drafts"] as const;
 
 function stillLinked(draft: CommunicationDraft, loan: Loan) {
   return draft.contactId === draftRecipient(loan, draft.audience);
 }
 
-function DraftRows({ drafts, state, preview, showLoan }: {
-  drafts: CommunicationDraft[]; state: Workspace; preview: Preview; showLoan?: boolean;
+function DraftRows({ drafts, preview, showLoan, busy }: {
+  drafts: DraftQueueRow[]; preview: Preview; showLoan?: boolean; busy?: boolean;
 }) {
   return <ul className="communication-drafts">
     {drafts.map((draft) => {
-      const loan = state.loans.find((item) => item.id === draft.loanId);
-      if (!loan) return null;
-      const recipient = state.contacts.find((item) => item.id === draft.contactId);
-      const borrower = state.contacts.find((item) => item.id === loan.contactId);
       const copied = [draft.emailCopiedAt && "Email", draft.textCopiedAt && "Text"].filter(Boolean).join(" and ");
-      const earlier = !currentDraftMilestone(draft.milestone, loan.stage, hasClosingDate(state, loan.id));
-      const linked = stillLinked(draft, loan);
       return <li key={draft.id} className="communication-draft-row">
         <div>
           <strong>{draft.milestone} · {draft.audience}</strong>
-          <p className="muted">{recipient?.name ?? "Contact unavailable"}{showLoan && draft.audience === "Realtor" && borrower ? ` · Loan for ${borrower.name}` : ""}</p>
+          <p className="muted">{draft.recipient ?? "Contact unavailable"}{showLoan && draft.audience === "Realtor" && draft.borrower ? ` · Loan for ${draft.borrower}` : ""}</p>
           <small className="muted">{dateTime(draft.createdAt)} ET · {copied ? `${copied} copied` : "Draft"}
-            {!linked ? " · Recipient changed" : earlier ? " · Earlier milestone" : ""}</small>
+            {!draft.linked ? " · Recipient changed" : draft.supersededAt ? " · Superseded" : !draft.current ? " · Earlier milestone" : ""}</small>
         </div>
-        <Button variant="outline" size="sm" disabled={!linked || (earlier && draft.milestone === "Closing complete")} aria-label={`Preview ${draft.audience.toLowerCase()} draft for ${draft.milestone}`}
+        <Button variant="outline" size="sm" disabled={busy || !draft.linked || (!draft.current && draft.milestone === "Closing complete")}
+          aria-label={`Preview ${draft.audience.toLowerCase()} draft for ${draft.milestone}`}
           onClick={() => preview(draft.loanId, draft.audience, draft.id)}>Preview</Button>
       </li>;
     })}
@@ -45,42 +42,87 @@ function hasClosingDate(state: Workspace, loanId: string) {
   return state.pastClients.some((profile) => profile.loanId === loanId && Boolean(profile.closingDate));
 }
 
-export function CommunicationQueue({ state, preview }: { state: Workspace; preview: Preview }) {
-  const [view, setView] = useState<(typeof queueViews)[number]>("Ready to copy");
-  const drafts = state.communicationDrafts.filter((draft) => {
-    const loan = state.loans.find((item) => item.id === draft.loanId);
-    if (!loan || view === "All drafts") return Boolean(loan);
-    if (view === "Copied") return draftCopied(draft);
-    return stillLinked(draft, loan) && !draftCopied(draft) && currentDraftMilestone(draft.milestone, loan.stage, hasClosingDate(state, loan.id));
-  });
-  return <section className="pipeline" aria-label="Milestone draft queue">
-    <div className="pipeline-heading"><div><h2>Milestone drafts <span>{drafts.length} shown</span></h2>
+export function CommunicationQueue({ brokerageId, version, busy, preview, save }: {
+  brokerageId: string; version: object; busy: boolean; preview: Preview; save: Save;
+}) {
+  const [view, setView] = useState<DraftQueueQuery["view"]>("Ready to copy");
+  const [retry, setRetry] = useState(0);
+  const [data, setData] = useState<{ view: typeof view; version: object; retry: number; page?: DraftQueuePage; error?: string }>();
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void readDraftWork({ view }, brokerageId).catch(() => ({ error: draftQueueUnavailable })).then((result) => {
+      if (!active) return;
+      setData({ view, version, retry, ...("error" in result ? { error: result.error } : { page: result }) });
+    });
+    return () => { active = false; };
+  }, [brokerageId, view, version, retry]);
+  const current = data?.view === view && data.version === version && data.retry === retry ? data : undefined;
+  const page = current?.page;
+
+  async function loadMore() {
+    if (!current || !page?.next || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await readDraftWork({ view, after: page.next }, brokerageId).catch(() => ({ error: draftQueueUnavailable }));
+      setData((previous) => {
+        if (previous !== current) return previous;
+        if ("error" in result) return { ...current, error: result.error };
+        const rows = new Map(page.rows.map((row) => [row.id, row]));
+        for (const row of result.rows) rows.set(row.id, row);
+        return { ...current, page: { ...page, rows: [...rows.values()], next: result.next }, error: undefined };
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  return <><section className="pipeline" aria-label="Milestone draft queue">
+    <div className="pipeline-heading"><div><h2>Milestone drafts {page && <span>{page.rows.length} shown</span>}</h2>
       <p>Review borrower and realtor updates before copying them.</p></div></div>
     <div className="filter-row"><select aria-label="Draft status" value={view} onChange={(event) => setView(event.target.value as typeof view)}>
-      {queueViews.map((option) => <option key={option}>{option}</option>)}
-    </select></div>
-    {drafts.length ? <div className="communication-queue"><DraftRows drafts={drafts} state={state} preview={preview} showLoan /></div>
-      : <p className="empty-inline no-matches">{view === "Ready to copy" ? "No current drafts to copy. Drafts appear when an application is received or a loan changes stage." : "No drafts match this view."}</p>}
-  </section>;
+      {draftQueueViews.map((option) => <option key={option}>{option}</option>)}
+    </select><Button variant="outline" size="sm" disabled={busy} onClick={() => setRetry((value) => value + 1)}>Refresh drafts</Button></div>
+    {!current && <p className="empty-inline" role="status">Loading milestone drafts…</p>}
+    {current?.error && <p className="empty-inline" role="alert">{current.error}</p>}
+    {page && (page.rows.length ? <div className="communication-queue"><DraftRows drafts={page.rows} preview={preview} showLoan busy={busy} /></div>
+      : <p className="empty-inline no-matches">{view === "Ready to copy" ? "No current drafts to copy. Drafts appear as applications, loan stages, and lender milestones change." : "No drafts match this view."}</p>)}
+    {page?.next && <div className="filter-row"><Button size="sm" variant="outline" disabled={busy || loadingMore} onClick={() => void loadMore()}>
+      {loadingMore ? "Loading drafts…" : "Load more drafts"}
+    </Button></div>}
+  </section>
+  {data?.page?.templates && <BrokerageTemplates templates={data.page.templates} busy={busy || !current} save={save} />}
+  </>;
 }
 
-export function LoanCommunications({ loan, state, preview }: { loan: Loan; state: Workspace; preview: Preview }) {
-  const drafts = state.communicationDrafts.filter((draft) => draft.loanId === loan.id);
+export function LoanCommunications({ loan, state, preview, openConversation }: {
+  loan: Loan; state: Workspace; preview: Preview; openConversation: (subject: ConversationSubject) => void;
+}) {
+  const drafts = state.communicationDrafts.filter((draft) => draft.loanId === loan.id).map((draft) => ({
+    ...draft, recipient: state.contacts.find((contact) => contact.id === draft.contactId)?.name ?? null, borrower: null,
+    linked: stillLinked(draft, loan), current: currentDraftMilestone(draft.milestone, loan.stage, hasClosingDate(state, loan.id)),
+  }));
+  const partnerId = loan.partnerId;
   return <section className="details-section" aria-label="Loan communications" id="loan-communications" tabIndex={-1}>
     <div className="section-heading"><h3><Mail size={17} /> Communications</h3></div>
+    <div className="loan-application-actions">
+      <Button variant="outline" size="sm" onClick={() => openConversation({ loanId: loan.id, contactId: loan.contactId, audience: "Borrower" })}>Open borrower conversation</Button>
+      {partnerId && <Button variant="outline" size="sm" onClick={() => openConversation({ loanId: loan.id, contactId: partnerId, audience: "Realtor" })}>Open realtor conversation</Button>}
+    </div>
     <div className="loan-application-actions">
       <Button variant="outline" size="sm" onClick={() => preview(loan.id, "Borrower")}>Preview borrower update</Button>
       {loan.partnerId && <Button variant="outline" size="sm" onClick={() => preview(loan.id, "Realtor")}>Preview realtor update</Button>}
     </div>
     {!loan.partnerId && <p className="empty-inline">Link a realtor in Edit loan to preview their update.</p>}
-    {drafts.length > 0 && <DraftRows drafts={drafts} state={state} preview={preview} />}
+    {drafts.length > 0 && <DraftRows drafts={drafts} preview={preview} />}
   </section>;
 }
 
-export function BrokerageTemplates({ state, busy, save }: { state: Workspace; busy: boolean; save: Save }) {
+function BrokerageTemplates({ templates, busy, save }: { templates: BrokerageTemplate[]; busy: boolean; save: Save }) {
   const [audience, setAudience] = useState<DraftAudience>("Borrower");
   const [milestone, setMilestone] = useState<DraftMilestone>("Application received");
-  const current = state.brokerageTemplates.find((item) => item.audience === audience && item.milestone === milestone);
+  const current = templates.find((item) => item.audience === audience && item.milestone === milestone);
   const sample = renderDraft(audience, milestone, "Email", "Sample recipient", "Sample loan officer", current?.body);
   return <section className="pipeline relationship-panel" aria-label="Brokerage templates">
     <h2>Brokerage templates</h2>
@@ -122,10 +164,12 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
   const destination = channel === "Email" ? contact.email : contact.phone;
   const saved = draft ?? state.communicationDrafts.find((item) => item.loanId === loan.id && item.contactId === contact.id && item.audience === audience && item.milestone === milestone);
   const copiedAt = channel === "Email" ? saved?.emailCopiedAt : saved?.textCopiedAt;
+  const superseded = !!saved?.supersededAt;
   const earlier = !currentDraftMilestone(milestone, loan.stage, hasClosingDate(state, loan.id));
   if (earlier && milestone === "Closing complete") return <p className="empty-inline">Record the actual closing date to preview this draft.</p>;
 
   async function copy() {
+    if (superseded) return;
     try {
       await navigator.clipboard.writeText(edits[channel] ?? copyText);
     } catch {
@@ -135,7 +179,7 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
       return;
     }
     setStatus("Draft copied to clipboard.");
-    await save({ type: "copyDraft", loanId: loan.id, contactId: recipientId, audience, milestone, channel });
+    await save({ type: "copyDraft", loanId: loan.id, contactId: recipientId, audience, milestone, channel, draftId: saved?.id });
   }
 
   return <div className="communication-preview">
@@ -147,15 +191,16 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
       <div><dt>To</dt><dd>{contact.name} <span className="muted">{destination || (channel === "Email" ? "· No email on file" : "· No phone on file")}</span></dd></div>
       <div><dt>Milestone</dt><dd>{milestone}</dd></div>
     </dl>
-    {earlier && <p className="empty-inline">This draft is for an earlier milestone. The loan is now at {loan.stage}.</p>}
-    <p className="muted">Based on the {milestone} milestone recorded on this loan. Review and edit before sharing.</p>
+    {superseded ? <p className="empty-inline">This draft has been superseded and is available in history.</p>
+      : earlier && <p className="empty-inline">This draft is for an earlier milestone. The loan is now at {loan.stage}.</p>}
+    {!superseded && <p className="muted">Based on the {milestone} milestone recorded on this loan. Review and edit before sharing.</p>}
     <textarea ref={message} aria-label={`${channel} draft preview`} className="communication-message" value={edits[channel] ?? copyText}
-      onChange={(event) => setEdits({ ...edits, [channel]: event.target.value })} rows={channel === "Email" ? 8 : 4} />
+      onChange={(event) => setEdits({ ...edits, [channel]: event.target.value })} readOnly={superseded} rows={channel === "Email" ? 8 : 4} />
     <div className="loan-application-actions">
-      <Button variant="outline" size="sm" disabled={busy} onClick={() => void copy()}><Copy /> Copy {channel.toLowerCase()} draft</Button>
+      {!superseded && <Button variant="outline" size="sm" disabled={busy} onClick={() => void copy()}><Copy /> Copy {channel.toLowerCase()} draft</Button>}
       {copiedAt && <small className="muted">First copied {dateTime(copiedAt)} ET</small>}
     </div>
     {status && <p className="muted" role="status">{status}</p>}
-    <p className="muted">Copy the draft to use in your email or messaging app.</p>
+    {!superseded && <p className="muted">Copy the draft to use in your email or messaging app.</p>}
   </div>;
 }

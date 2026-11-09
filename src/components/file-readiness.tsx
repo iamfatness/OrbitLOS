@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { manualHandoffOutcomes } from "@/lib/application-model";
 import { checklistPresetNames } from "@/lib/document-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Loan, Workspace } from "@/lib/model";
@@ -52,20 +53,20 @@ export function FileReadiness({ loan, state, busy, save, open }: {
         <Button size="sm" type="submit" disabled={busy}>Add missing requests</Button>
       </form>
     </details>
-    <details className="loan-task-create"><summary>Preview file summary and record a handoff</summary>
+    <details className="loan-task-create" id="manual-lender-handoff"><summary>Preview file summary and record a handoff</summary>
       <label className="field">File summary<textarea rows={7} readOnly value={summary} /></label>
       {application?.reviewedAt && <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
         const fields = new FormData(form);
-        const input = { type: "recordManualHandoff", loanId: loan.id, revision: application.revision,
+        const input = { type: "recordManualHandoff", loanId: loan.id, revision: application.revision, lenderRevision: application.lender?.revision ?? 0,
           outcome: fields.get("outcome"), note: fields.get("note") };
         const key = JSON.stringify(input);
         if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
         void save({ ...input, eventId: attempt.current.id }, () => { attempt.current = null; form.reset(); });
       }}>
         <label className="field">Handoff outcome<select name="outcome">
-          {["Prepared", "Delivered manually", "Acknowledged", "Returned for changes"].map((outcome) => <option key={outcome}>{outcome}</option>)}
+          {manualHandoffOutcomes.map((outcome) => <option key={outcome}>{outcome}</option>)}
         </select></label>
         <label className="field">Handoff note<textarea name="note" rows={2} maxLength={500} /></label>
         <div><Button size="sm" disabled={busy} type="submit">Record manual handoff</Button></div>

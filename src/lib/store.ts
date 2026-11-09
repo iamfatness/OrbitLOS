@@ -1,22 +1,37 @@
-import type { Activity, BrokerageTemplate, ClosingItem, ClosingPlan, ClosingProgress, CommunicationDraft, Contact, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, UnlinkedReferral, Workspace } from "./model";
+import type { BrokerageTemplate, ClosingItem, ClosingPlan, ClosingProgress, CommunicationDraft, Contact, ContactActivity, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, UnlinkedReferral, Workspace } from "./model";
+import { carriedCallbacks } from "./carried-campaign-callback";
+import { contactCompletionSql } from "./record-history";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
-import { createApplicationFollowUps } from "./tasks";
+import { closeReviewedApplicationFollowUps, createApplicationFollowUps } from "./tasks";
 import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
 import type { LoanDocumentRequest } from "./document-model";
 import { pdfColumns } from "./document-files-model";
 import { synchronizeRetentionTasks } from "./client-retention";
-import { referralMatches } from "./referral-matches";
+import { referralMatches, referralPhone } from "./referral-matches";
 import { mockCreditAusRuns } from "./mock-credit-aus";
 import type { UwmAlert } from "./uwm-alert-model";
 import type { InboxLead } from "./model";
 import { callReportFiles } from "./call-report";
 import { demoGuideState } from "./pilot";
-import { managerReports } from "./manager-reports";
+import { readCampaignRehearsal } from "./campaign-rehearsal";
+import { managerReportRecords, managerReports } from "./manager-reports";
+import type { CampaignNavigation, CampaignQueueSnapshot, CampaignWorkPatch } from "./lead-work-model";
+import type { WorkspaceStaff } from "./staff-store";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
+import { readRealtorClaimPolicy } from "./realtor-claim-queue";
 import type { LoanProcessing } from "./processing-model";
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
 import { readPlaybook } from "./playbooks";
+import { assignableCampaignLead, defaultCampaignRules, type CallCampaign, type CallCampaignMember, type CampaignLeadOption, type CampaignQueueFile } from "./call-campaign-model";
+import { blockedOutreachKeys, indexPendingContactOutreach, initializeContactOutreachIndex, initializeLeadReplyIndex, initializeRealtorReplyIndex,
+  migrateCampaignOptOuts, outreachIdentityKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
+import { initializeContactDuplicateQueue } from "./contact-duplicate-queue";
+import type { CrmSegment } from "./crm-segment-model";
+import { readCampaignRouting } from "./campaign-routing";
+import { campaignResponses } from "./campaign-response";
+import { initializeProcessingConditions } from "./processing-conditions";
+import { initializeCallReportReadiness } from "./call-report-readiness";
 
 export type SqlValue = string | number | null;
 
@@ -30,20 +45,63 @@ export interface Store {
   transaction<T>(run: () => T): T;
 }
 
+const communicationDraftColumns = `
+  id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+  contactId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+  audience TEXT NOT NULL, milestone TEXT NOT NULL, createdAt TEXT NOT NULL,
+  emailCopiedAt TEXT, textCopiedAt TEXT, supersededAt TEXT, eventKey TEXT NOT NULL DEFAULT '',
+  UNIQUE (loanId, contactId, audience, milestone, eventKey)
+`;
+
 const documentRequestColumns = `
   id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
   kind TEXT NOT NULL, instructions TEXT NOT NULL, requestedAt TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested', 'Received', 'Accepted', 'Needs replacement')),
   replacementNote TEXT NOT NULL DEFAULT '', submittedAt TEXT, revision INTEGER NOT NULL DEFAULT 0,
+  dueOn TEXT, deadlineRevision INTEGER NOT NULL DEFAULT 0,
   submissionId TEXT REFERENCES submissions(id) ON DELETE CASCADE, conditionId TEXT,
   CHECK ((submissionId IS NULL) = (conditionId IS NULL)),
   UNIQUE (submissionId, conditionId)
+`;
+
+const salesTargetColumns = `
+  channel TEXT NOT NULL CHECK (channel IN ('Campaigns', 'Realtors', 'Lead sources')), windowDays INTEGER NOT NULL CHECK (windowDays IN (0, 7, 30, 90)),
+  submitted INTEGER NOT NULL CHECK (submitted BETWEEN 1 AND 100), funded INTEGER NOT NULL CHECK (funded BETWEEN 1 AND 100),
+  revision INTEGER NOT NULL CHECK (revision > 0), PRIMARY KEY(channel, windowDays)
 `;
 
 export function initializeStore(db: Store, seedDemo = true) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, role TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS contact_merges (
+      sourceId TEXT PRIMARY KEY, targetId TEXT NOT NULL, canonicalId TEXT NOT NULL,
+      operationId TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, snapshot TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS contact_merges_by_canonical ON contact_merges(canonicalId);
+    CREATE INDEX IF NOT EXISTS contact_merges_by_time ON contact_merges(at DESC, operationId DESC);
+    CREATE TABLE IF NOT EXISTS contact_merge_undos (
+      mergeId TEXT PRIMARY KEY, operationId TEXT NOT NULL UNIQUE, sourceId TEXT NOT NULL,
+      actor TEXT NOT NULL, at TEXT NOT NULL, fingerprint TEXT NOT NULL, undoneBy TEXT NOT NULL, undoneAt TEXT NOT NULL,
+      snapshot TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS contact_merge_undos_by_time ON contact_merge_undos(at DESC, mergeId DESC);
+    CREATE TABLE IF NOT EXISTS contact_activity (
+      id TEXT PRIMARY KEY, contactId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      officer TEXT NOT NULL, officerEmail TEXT, kind TEXT NOT NULL, outcome TEXT, text TEXT NOT NULL,
+      createdAt TEXT NOT NULL, dueAt TEXT, completedAt TEXT, revision INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS contact_activity_by_contact ON contact_activity(contactId, createdAt);
+    CREATE TABLE IF NOT EXISTS contact_follow_up_completions (
+      activityId TEXT NOT NULL REFERENCES contact_activity(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL, completedAt TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT,
+      outcome TEXT, note TEXT NOT NULL, PRIMARY KEY (activityId, revision)
+    );
+    CREATE TABLE IF NOT EXISTS contact_callback_reschedules (
+      activityId TEXT NOT NULL REFERENCES contact_activity(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL, changedAt TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT,
+      previousDueAt TEXT NOT NULL, dueAt TEXT NOT NULL, reason TEXT NOT NULL, PRIMARY KEY (activityId, revision)
     );
     CREATE TABLE IF NOT EXISTS loans (
       id TEXT PRIMARY KEY, contactId TEXT NOT NULL REFERENCES contacts(id),
@@ -61,6 +119,13 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       text TEXT NOT NULL, createdAt TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'Note'
     );
+    CREATE TABLE IF NOT EXISTS application_handoff_events (
+      activityId TEXT PRIMARY KEY REFERENCES activity(id) ON DELETE CASCADE,
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      applicationRevision INTEGER NOT NULL, lenderRevision INTEGER NOT NULL, outcome TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS application_handoff_by_revision
+      ON application_handoff_events(loanId, applicationRevision, lenderRevision);
     CREATE TABLE IF NOT EXISTS uwm_alerts (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       submissionId TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
@@ -73,6 +138,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS workspace_access_history (
       id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, subject TEXT NOT NULL, createdAt TEXT NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS workspace_access_by_subject ON workspace_access_history(subject, createdAt);
     CREATE TABLE IF NOT EXISTS loan_audit (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       actor TEXT NOT NULL, action TEXT NOT NULL, occurredAt TEXT NOT NULL, changes TEXT NOT NULL
@@ -101,13 +167,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
     );
-    CREATE TABLE IF NOT EXISTS communication_drafts (
-      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-      contactId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-      audience TEXT NOT NULL, milestone TEXT NOT NULL, createdAt TEXT NOT NULL,
-      emailCopiedAt TEXT, textCopiedAt TEXT,
-      UNIQUE (loanId, contactId, audience, milestone)
-    );
+    CREATE TABLE IF NOT EXISTS communication_drafts (${communicationDraftColumns});
     CREATE TABLE IF NOT EXISTS past_client_profiles (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
       closingDate TEXT, currentRate REAL, targetRate REAL, observedRate REAL, checkedAt TEXT,
@@ -128,7 +188,134 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS closing_progress (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
       fundingDate TEXT, disclosureStatus TEXT NOT NULL DEFAULT 'Not started', disclosureDate TEXT,
-      revision INTEGER NOT NULL DEFAULT 0
+      preFundingStage TEXT, preFundingStageSince TEXT,
+      revision INTEGER NOT NULL DEFAULT 0, fundingCycle INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS closing_plans_by_target ON closing_plans(targetDate, loanId);
+    CREATE TABLE IF NOT EXISTS loan_financials (
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, cycle INTEGER NOT NULL, fundingDate TEXT NOT NULL, reversedAt TEXT,
+      expectedCents INTEGER, commissionCents INTEGER, expenseReviewed INTEGER NOT NULL DEFAULT 0,
+      receiptsCents INTEGER NOT NULL DEFAULT 0, expensesCents INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (loanId, cycle)
+    );
+    CREATE INDEX IF NOT EXISTS reversed_financials_by_date ON loan_financials(fundingDate, loanId, cycle) WHERE reversedAt IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS loan_financial_entries (
+      sequence INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, loanId TEXT NOT NULL, cycle INTEGER NOT NULL,
+      kind TEXT NOT NULL, amountCents INTEGER, occurredOn TEXT NOT NULL, reference TEXT NOT NULL, note TEXT NOT NULL,
+      reversesId TEXT UNIQUE, at TEXT NOT NULL, actorName TEXT NOT NULL, actorEmail TEXT NOT NULL, request TEXT NOT NULL,
+      FOREIGN KEY (loanId, cycle) REFERENCES loan_financials(loanId, cycle) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS loan_financial_entries_by_cycle ON loan_financial_entries(loanId, cycle, sequence DESC);
+    CREATE TABLE IF NOT EXISTS playbook_runs (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, fundingDate TEXT NOT NULL,
+      fundingRevision INTEGER NOT NULL, ruleRevision INTEGER NOT NULL, delayDays INTEGER NOT NULL, dueAt TEXT NOT NULL,
+      rescheduleOpen INTEGER NOT NULL, status TEXT NOT NULL CHECK (status IN ('Failed', 'Completed', 'Superseded')),
+      reason TEXT NOT NULL, attemptCount INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL, UNIQUE (loanId, fundingRevision)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS active_playbook_run_by_loan ON playbook_runs(loanId) WHERE status <> 'Superseded';
+    CREATE INDEX IF NOT EXISTS playbook_runs_by_time ON playbook_runs(at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS playbook_runs_by_status ON playbook_runs(status, at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS playbook_run_attempts (
+      runId TEXT NOT NULL REFERENCES playbook_runs(id) ON DELETE CASCADE, attempt INTEGER NOT NULL, operationId TEXT NOT NULL,
+      mode TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, taskChanges INTEGER NOT NULL,
+      PRIMARY KEY (runId, attempt), UNIQUE (runId, operationId)
+    );
+    CREATE TABLE IF NOT EXISTS loan_appointments (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, startsAt TEXT NOT NULL, durationMinutes INTEGER NOT NULL CHECK (durationMinutes BETWEEN 5 AND 480),
+      ownerRole TEXT NOT NULL CHECK (ownerRole IN ('Loan officer', 'Processor')),
+      cancelledAt TEXT, revision INTEGER NOT NULL CHECK (revision > 0)
+    );
+    CREATE INDEX IF NOT EXISTS loan_appointments_by_loan ON loan_appointments(loanId, startsAt DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS active_appointments_by_start ON loan_appointments(startsAt, id) WHERE cancelledAt IS NULL;
+    CREATE TABLE IF NOT EXISTS staff_coverage (
+      id TEXT PRIMARY KEY, absentEmail TEXT NOT NULL, absentName TEXT NOT NULL, absentRole TEXT NOT NULL,
+      backupEmail TEXT NOT NULL, backupName TEXT NOT NULL, backupRole TEXT NOT NULL,
+      startsOn TEXT NOT NULL, endsOn TEXT NOT NULL, endedAt TEXT,
+      absentAccessRevision INTEGER NOT NULL DEFAULT 0, backupAccessRevision INTEGER NOT NULL DEFAULT 0,
+      CHECK (startsOn <= endsOn), CHECK (absentEmail <> backupEmail)
+    );
+    CREATE INDEX IF NOT EXISTS staff_coverage_by_backup ON staff_coverage(backupEmail, startsOn, id);
+    CREATE INDEX IF NOT EXISTS staff_coverage_by_absent ON staff_coverage(absentEmail, startsOn, id);
+    CREATE INDEX IF NOT EXISTS staff_coverage_by_start ON staff_coverage(startsOn, id);
+    CREATE TABLE IF NOT EXISTS coverage_operations (
+      id TEXT PRIMARY KEY, coverageId TEXT NOT NULL REFERENCES staff_coverage(id) ON DELETE CASCADE,
+      actor TEXT NOT NULL, request TEXT NOT NULL, message TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS loan_reviews (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, title TEXT NOT NULL, category TEXT NOT NULL,
+      requesterEmail TEXT NOT NULL, requesterName TEXT NOT NULL, reviewerEmail TEXT NOT NULL, reviewerName TEXT NOT NULL,
+      reviewerRole TEXT NOT NULL, reviewerAccessRevision INTEGER NOT NULL, dueOn TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('Requested', 'Changes requested', 'Approved', 'Canceled')),
+      applicationRevision INTEGER, escalatedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0), CHECK (requesterEmail <> reviewerEmail)
+    );
+    CREATE INDEX IF NOT EXISTS loan_reviews_by_loan ON loan_reviews(loanId, status, dueOn, id);
+    CREATE INDEX IF NOT EXISTS loan_reviews_by_reviewer ON loan_reviews(reviewerEmail, dueOn, id);
+    CREATE INDEX IF NOT EXISTS loan_reviews_by_requester ON loan_reviews(requesterEmail, dueOn, id);
+    CREATE INDEX IF NOT EXISTS approved_second_reviews_by_revision ON loan_reviews(loanId, applicationRevision)
+      WHERE category = '1003 second review' AND status = 'Approved';
+    CREATE TABLE IF NOT EXISTS application_review_routing_blocks (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, applicationRevision INTEGER NOT NULL,
+      dueOn TEXT NOT NULL, policyRevision INTEGER NOT NULL, reason TEXT NOT NULL, at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS application_review_routing_blocks_by_due ON application_review_routing_blocks(dueOn, loanId);
+    CREATE INDEX IF NOT EXISTS open_loan_reviews_by_due ON loan_reviews(dueOn, id) WHERE status IN ('Requested', 'Changes requested');
+    CREATE INDEX IF NOT EXISTS open_loan_reviews_by_current_owner ON loan_reviews(
+      (CASE status WHEN 'Changes requested' THEN requesterEmail ELSE reviewerEmail END), dueOn, id)
+      WHERE status IN ('Requested', 'Changes requested');
+    CREATE TABLE IF NOT EXISTS loan_review_events (
+      sequence INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, reviewId TEXT NOT NULL REFERENCES loan_reviews(id) ON DELETE CASCADE,
+      actorEmail TEXT NOT NULL, actorName TEXT NOT NULL, action TEXT NOT NULL, note TEXT NOT NULL, at TEXT NOT NULL, request TEXT NOT NULL,
+      context TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS loan_review_events_by_review ON loan_review_events(reviewId, sequence DESC);
+    CREATE INDEX IF NOT EXISTS loan_review_schedule_events ON loan_review_events(reviewId, sequence DESC)
+      WHERE action IN ('Requested', 'Changes requested', 'Resubmitted', 'Reassigned');
+    CREATE TABLE IF NOT EXISTS loan_review_notices (
+      eventId TEXT NOT NULL REFERENCES loan_review_events(id) ON DELETE CASCADE,
+      recipientEmail TEXT NOT NULL, recipientRole TEXT NOT NULL, recipientRevision INTEGER NOT NULL,
+      label TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (eventId, recipientEmail)
+    );
+    CREATE INDEX IF NOT EXISTS loan_review_notices_by_recipient ON loan_review_notices(recipientEmail, recipientRevision, recipientRole, at DESC, eventId DESC);
+    CREATE TABLE IF NOT EXISTS loan_review_notice_reads (
+      reviewId TEXT NOT NULL REFERENCES loan_reviews(id) ON DELETE CASCADE, noticeId TEXT NOT NULL,
+      recipientEmail TEXT NOT NULL, recipientRevision INTEGER NOT NULL, recipientRole TEXT NOT NULL,
+      PRIMARY KEY (reviewId, noticeId, recipientEmail, recipientRevision, recipientRole)
+    );
+    CREATE INDEX IF NOT EXISTS closing_progress_by_funding ON closing_progress(fundingDate, loanId) WHERE fundingDate IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS funding_dashboard_views (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, deletedAt TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS funding_dashboard_view_names ON funding_dashboard_views(name COLLATE NOCASE) WHERE deletedAt IS NULL;
+    CREATE TABLE IF NOT EXISTS funding_monthly_targets (
+      month TEXT PRIMARY KEY, loanCount INTEGER NOT NULL CHECK (loanCount > 0), volume INTEGER NOT NULL CHECK (volume > 0),
+      revision INTEGER NOT NULL CHECK (revision > 0)
+    );
+    CREATE TABLE IF NOT EXISTS officer_monthly_targets (
+      officerEmail TEXT NOT NULL, month TEXT NOT NULL, loanCount INTEGER NOT NULL CHECK (loanCount > 0),
+      volume INTEGER NOT NULL CHECK (volume > 0), revision INTEGER NOT NULL CHECK (revision > 0), PRIMARY KEY (officerEmail, month)
+    );
+    CREATE TABLE IF NOT EXISTS sales_dashboard_views (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, deletedAt TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS sales_dashboard_view_names ON sales_dashboard_views(name COLLATE NOCASE) WHERE deletedAt IS NULL;
+    CREATE TABLE IF NOT EXISTS processing_dashboard_views (
+      scope TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, filters TEXT NOT NULL, deletedAt TEXT,
+      PRIMARY KEY (scope, id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS processing_dashboard_view_names ON processing_dashboard_views(scope, name COLLATE NOCASE) WHERE deletedAt IS NULL;
+    CREATE TABLE IF NOT EXISTS sales_conversion_targets (${salesTargetColumns});
+    CREATE TABLE IF NOT EXISTS funding_check_ins (
+      activityId TEXT PRIMARY KEY REFERENCES contact_activity(id) ON DELETE CASCADE,
+      loanId TEXT REFERENCES loans(id) ON DELETE SET NULL,
+      fundingRevision INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS funding_check_ins_by_loan ON funding_check_ins(loanId);
+    CREATE TABLE IF NOT EXISTS returning_client_loans (
+      fundedLoanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
+      loanId TEXT NOT NULL UNIQUE REFERENCES loans(id) ON DELETE CASCADE,
+      CHECK (fundedLoanId <> loanId)
     );
     CREATE TABLE IF NOT EXISTS loan_processing (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
@@ -136,21 +323,94 @@ export function initializeStore(db: Store, seedDemo = true) {
       note TEXT NOT NULL, updatedAt TEXT NOT NULL, revision INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS processing_by_assignee ON loan_processing(processorEmail, loanId);
+    CREATE INDEX IF NOT EXISTS processing_by_updated ON loan_processing(updatedAt, loanId);
+    CREATE INDEX IF NOT EXISTS processing_by_assignee_updated ON loan_processing(processorEmail, updatedAt, loanId);
+    CREATE TABLE IF NOT EXISTS loan_conversations (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      contactId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      audience TEXT NOT NULL CHECK (audience IN ('Borrower','Realtor')),
+      ownerRole TEXT NOT NULL CHECK (ownerRole IN ('Loan officer','Processor')),
+      status TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','Needs reply','Waiting on contact','Closed')),
+      unread INTEGER NOT NULL DEFAULT 0 CHECK (unread IN (0,1)), dueOn TEXT,
+      updatedAt TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(loanId, audience, contactId)
+    );
+    CREATE INDEX IF NOT EXISTS conversations_by_update ON loan_conversations(updatedAt DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS conversations_by_status ON loan_conversations(status, updatedAt DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS conversations_by_unread ON loan_conversations(updatedAt DESC, id DESC) WHERE unread = 1;
+    CREATE INDEX IF NOT EXISTS conversations_by_due ON loan_conversations(dueOn, id) WHERE dueOn IS NOT NULL AND status <> 'Closed';
+    CREATE INDEX IF NOT EXISTS loan_conversations_by_contact ON loan_conversations(contactId, id);
+    CREATE TABLE IF NOT EXISTS conversation_events (
+      id TEXT PRIMARY KEY, conversationId TEXT NOT NULL REFERENCES loan_conversations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('Inbound','Outbound','Note','State')),
+      channel TEXT CHECK (channel IN ('Call','Email','Text')), origin TEXT NOT NULL CHECK (origin IN ('Manual log','Simulated','Internal')),
+      text TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL, at TEXT NOT NULL, request TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS conversation_events_by_thread ON conversation_events(conversationId, at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS lead_conversations (
+      id TEXT PRIMARY KEY, leadId TEXT NOT NULL UNIQUE REFERENCES referral_leads(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','Needs reply','Waiting on contact','Closed')),
+      unread INTEGER NOT NULL DEFAULT 0 CHECK (unread IN (0,1)), dueOn TEXT,
+      updatedAt TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS lead_conversations_by_update ON lead_conversations(updatedAt DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS lead_conversations_by_due ON lead_conversations(dueOn, id) WHERE dueOn IS NOT NULL AND status <> 'Closed';
+    CREATE INDEX IF NOT EXISTS lead_conversations_by_reply ON lead_conversations(updatedAt DESC, id DESC) WHERE status = 'Needs reply';
+    CREATE TABLE IF NOT EXISTS lead_conversation_events (
+      id TEXT PRIMARY KEY, conversationId TEXT NOT NULL REFERENCES lead_conversations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('Inbound','Outbound','Note','State')),
+      channel TEXT CHECK (channel IN ('Call','Email','Text')), origin TEXT NOT NULL CHECK (origin IN ('Manual log','Simulated','Internal')),
+      text TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL, at TEXT NOT NULL, request TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS lead_conversation_events_by_thread ON lead_conversation_events(conversationId, at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS contact_conversations (
+      id TEXT PRIMARY KEY, contactId TEXT NOT NULL UNIQUE REFERENCES contacts(id) ON DELETE CASCADE,
+      ownerEmail TEXT NOT NULL, ownerName TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open','Needs reply','Waiting on contact','Closed')),
+      unread INTEGER NOT NULL DEFAULT 0 CHECK (unread IN (0,1)), dueOn TEXT,
+      updatedAt TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS contact_conversations_by_update ON contact_conversations(updatedAt DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS contact_conversations_by_owner ON contact_conversations(ownerEmail, updatedAt DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS contact_conversations_open_by_owner ON contact_conversations(ownerEmail, id) WHERE status <> 'Closed';
+    CREATE INDEX IF NOT EXISTS contact_conversations_by_due ON contact_conversations(dueOn, id) WHERE dueOn IS NOT NULL AND status <> 'Closed';
+    CREATE INDEX IF NOT EXISTS contact_conversations_by_reply ON contact_conversations(ownerEmail, updatedAt DESC, id DESC) WHERE status = 'Needs reply';
+    CREATE TABLE IF NOT EXISTS contact_conversation_events (
+      id TEXT PRIMARY KEY, conversationId TEXT NOT NULL REFERENCES contact_conversations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('Inbound','Outbound','Note','State')),
+      channel TEXT CHECK (channel IN ('Call','Email','Text')), origin TEXT NOT NULL CHECK (origin IN ('Manual log','Simulated','Internal')),
+      text TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL, at TEXT NOT NULL, request TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS contact_conversation_events_by_thread ON contact_conversation_events(conversationId, at DESC, id DESC);
+    CREATE TABLE IF NOT EXISTS inbound_replies (
+      id TEXT PRIMARY KEY, channel TEXT NOT NULL CHECK (channel IN ('Email','Text')), sourceId TEXT NOT NULL,
+      senderKey TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Linked','Dismissed')),
+      replayCount INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1,
+      conversationId TEXT REFERENCES loan_conversations(id) ON DELETE SET NULL,
+      resolvedAt TEXT, resolvedBy TEXT, UNIQUE(channel, sourceId)
+    );
+    CREATE INDEX IF NOT EXISTS inbound_replies_by_status ON inbound_replies(status, at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS submissions_by_loan ON submissions(loanId);
+    CREATE INDEX IF NOT EXISTS contacts_by_name ON contacts(name COLLATE NOCASE, id);
+    CREATE INDEX IF NOT EXISTS contacts_realtors_by_name ON contacts(name COLLATE NOCASE, id) WHERE role = 'Realtor';
     CREATE INDEX IF NOT EXISTS closing_items_by_loan ON closing_items(loanId, dueDate);
     CREATE TABLE IF NOT EXISTS realtor_portals (
       realtorId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
-      token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL, officerEmail TEXT, officer TEXT NOT NULL DEFAULT ''
+      token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL, officerEmail TEXT, officer TEXT NOT NULL DEFAULT '',
+      revision INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS referral_leads (
       id TEXT PRIMARY KEY, requestId TEXT NOT NULL, realtorId TEXT REFERENCES contacts(id) ON DELETE CASCADE,
       name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, purpose TEXT NOT NULL,
       officer TEXT NOT NULL, officerEmail TEXT, createdAt TEXT NOT NULL, dueAt TEXT NOT NULL,
-      resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, zip TEXT NOT NULL DEFAULT '', UNIQUE (realtorId, requestId)
+      resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, zip TEXT NOT NULL DEFAULT '',
+      realtorSharedSince TEXT, UNIQUE (realtorId, requestId)
     );
     CREATE INDEX IF NOT EXISTS referral_leads_by_realtor ON referral_leads(realtorId, createdAt);
     CREATE TABLE IF NOT EXISTS pilot_scenario (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1), id TEXT NOT NULL, realtorId TEXT NOT NULL,
-      loanId TEXT NOT NULL, loadedAt TEXT NOT NULL, officerEmail TEXT NOT NULL
+      loanId TEXT NOT NULL, loadedAt TEXT NOT NULL, officerEmail TEXT NOT NULL, presenter INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS pilot_sample_contacts (
       contactId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE
@@ -161,6 +421,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS pilot_measurements (
       id TEXT PRIMARY KEY, walkthrough TEXT NOT NULL, workflow TEXT NOT NULL, seconds INTEGER NOT NULL,
       repeatEntries INTEGER NOT NULL, systemSwitches INTEGER NOT NULL, createdAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pilot_benchmarks (
+      id TEXT PRIMARY KEY, walkthrough TEXT NOT NULL, caseLabel TEXT NOT NULL,
+      orbit TEXT NOT NULL, baseline TEXT NOT NULL, createdAt TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS mock_credit_aus_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
@@ -201,13 +465,37 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
     CREATE TABLE IF NOT EXISTS staff_google_attempts (
       state TEXT PRIMARY KEY, browserHash TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL,
-      expiresAt INTEGER NOT NULL, brokerageId TEXT
+      expiresAt INTEGER NOT NULL, brokerageId TEXT, guide TEXT
     );
     CREATE TABLE IF NOT EXISTS staff_sessions (
       tokenHash TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT NOT NULL, expiresAt INTEGER NOT NULL
     );
   `);
   db.transaction(() => {
+    if (!db.prepare("PRAGMA table_info(pilot_scenario)").all().some((column) => column.name === "presenter")) {
+      db.exec("ALTER TABLE pilot_scenario ADD COLUMN presenter INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!db.prepare("PRAGMA table_info(closing_progress)").all().some((column) => column.name === "preFundingStage")) {
+      db.exec(`ALTER TABLE closing_progress ADD COLUMN preFundingStage TEXT;
+        ALTER TABLE closing_progress ADD COLUMN preFundingStageSince TEXT;`);
+    }
+    if (!db.prepare("PRAGMA table_info(closing_progress)").all().some((column) => column.name === "fundingCycle")) {
+      db.exec("ALTER TABLE closing_progress ADD COLUMN fundingCycle INTEGER NOT NULL DEFAULT 1");
+    }
+    if (!db.prepare("PRAGMA table_info(communication_drafts)").all().some((column) => column.name === "eventKey")) {
+      const columns = "id, loanId, contactId, audience, milestone, createdAt, emailCopiedAt, textCopiedAt";
+      db.exec(`CREATE TABLE communication_drafts_next (${communicationDraftColumns});
+        INSERT INTO communication_drafts_next (${columns}) SELECT ${columns} FROM communication_drafts ORDER BY rowid;
+        DROP TABLE communication_drafts;
+        ALTER TABLE communication_drafts_next RENAME TO communication_drafts;
+        UPDATE communication_drafts AS earlier SET supersededAt = (
+          SELECT later.createdAt FROM communication_drafts later WHERE later.loanId = earlier.loanId
+            AND later.contactId = earlier.contactId AND later.audience = 'Realtor'
+            AND later.milestone IN ('Lender review started', 'Lender review complete')
+            AND (later.createdAt, later.rowid) > (earlier.createdAt, earlier.rowid)
+          ORDER BY later.createdAt, later.rowid LIMIT 1
+        ) WHERE earlier.audience = 'Realtor' AND earlier.milestone IN ('Lender review started', 'Lender review complete');`);
+    }
     if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "zip")) {
       db.exec(`CREATE TABLE referral_leads_next (
         id TEXT PRIMARY KEY, requestId TEXT NOT NULL, realtorId TEXT REFERENCES contacts(id) ON DELETE CASCADE,
@@ -226,21 +514,181 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.exec(`ALTER TABLE referral_leads ADD COLUMN importSource TEXT;
         ALTER TABLE referral_leads ADD COLUMN importedContactId TEXT REFERENCES contacts(id) ON DELETE SET NULL;`);
     }
+    if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "heldAt")) {
+      db.exec(`ALTER TABLE referral_leads ADD COLUMN heldAt TEXT;
+        ALTER TABLE referral_leads ADD COLUMN holdReason TEXT;
+        ALTER TABLE referral_leads ADD COLUMN revisitDate TEXT;`);
+    }
+    if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "archiveToken")) {
+      db.exec(`ALTER TABLE referral_leads ADD COLUMN archiveToken TEXT;
+        UPDATE referral_leads SET archiveToken = audit.id
+        FROM workspace_access_history audit
+        WHERE audit.subject = referral_leads.id AND audit.createdAt = referral_leads.resolvedAt
+          AND referral_leads.loanId IS NULL AND audit.action IN ('Dismissed imported lead', 'Dismissed referral', 'Dismissed quote request');
+        CREATE INDEX leads_by_archive_time ON referral_leads(resolvedAt DESC, id DESC) WHERE archiveToken IS NOT NULL;`);
+    }
+    if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "realtorSharedSince")) {
+      db.exec("ALTER TABLE referral_leads ADD COLUMN realtorSharedSince TEXT");
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS realtor_referral_claims (
+        id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
+        officerEmail TEXT NOT NULL, officerName TEXT NOT NULL, sharedSince TEXT NOT NULL, claimedAt TEXT NOT NULL,
+        estimated INTEGER NOT NULL CHECK (estimated IN (0, 1))
+      );
+      CREATE INDEX IF NOT EXISTS realtor_claims_by_date ON realtor_referral_claims(claimedAt, id);
+      CREATE INDEX IF NOT EXISTS realtor_claims_by_lead ON realtor_referral_claims(leadId);`);
     db.exec(`CREATE TABLE IF NOT EXISTS migration_records (
         origin TEXT NOT NULL, recordKey TEXT NOT NULL, targetId TEXT NOT NULL, PRIMARY KEY (origin, recordKey)
+      );
+      CREATE INDEX IF NOT EXISTS migration_records_by_target ON migration_records(targetId);
+      CREATE TABLE IF NOT EXISTS migration_batches (
+        origin TEXT NOT NULL, snapshot TEXT NOT NULL, part INTEGER NOT NULL, partCount INTEGER NOT NULL,
+        contentHash TEXT NOT NULL, excluded TEXT NOT NULL, PRIMARY KEY (origin, snapshot, part)
+      );
+      CREATE TABLE IF NOT EXISTS migration_owner_mappings (
+        origin TEXT NOT NULL, snapshot TEXT NOT NULL, sourceEmail TEXT NOT NULL, target TEXT NOT NULL,
+        PRIMARY KEY (origin, snapshot, sourceEmail)
+      );
+      CREATE TABLE IF NOT EXISTS migration_imports (
+        id TEXT PRIMARY KEY, origin TEXT NOT NULL, importedAt TEXT NOT NULL, importedBy TEXT NOT NULL,
+        part INTEGER, partCount INTEGER, recordCount INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS migration_imports_recent ON migration_imports(importedAt DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS migration_imports_by_origin ON migration_imports(origin, importedAt DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS migration_cutover_reviews (
+        origin TEXT NOT NULL, basis TEXT NOT NULL, item TEXT NOT NULL, decision TEXT NOT NULL, note TEXT NOT NULL,
+        updatedBy TEXT NOT NULL, updatedAt TEXT NOT NULL, revision INTEGER NOT NULL, callbackFingerprint TEXT,
+        PRIMARY KEY (origin, basis, item)
+      );
+      CREATE TABLE IF NOT EXISTS migration_import_rows (
+        importId TEXT NOT NULL REFERENCES migration_imports(id) ON DELETE CASCADE, recordKey TEXT NOT NULL,
+        label TEXT NOT NULL, outcome TEXT NOT NULL, targetId TEXT, storage TEXT, baseline TEXT,
+        PRIMARY KEY (importId, recordKey)
+      );
+      CREATE INDEX IF NOT EXISTS migration_import_rows_by_target ON migration_import_rows(targetId);
+      CREATE TABLE IF NOT EXISTS migration_import_undos (
+        id TEXT PRIMARY KEY, importId TEXT NOT NULL REFERENCES migration_imports(id), fingerprint TEXT NOT NULL,
+        undoneAt TEXT NOT NULL, undoneBy TEXT NOT NULL, rowCount INTEGER NOT NULL, UNIQUE (importId, fingerprint)
+      );
+      CREATE TABLE IF NOT EXISTS migration_undone_records (
+        origin TEXT NOT NULL, recordKey TEXT NOT NULL, undoId TEXT NOT NULL REFERENCES migration_import_undos(id),
+        PRIMARY KEY (undoId, recordKey)
       );
       CREATE TABLE IF NOT EXISTS lead_import_tasks (
         id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
         title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
       );
       CREATE INDEX IF NOT EXISTS lead_import_tasks_by_lead ON lead_import_tasks(leadId);
+      CREATE TABLE IF NOT EXISTS call_campaigns (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, createdAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS crm_segments (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, kind TEXT NOT NULL,
+        quietDays INTEGER NOT NULL, revision INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS call_campaign_rules (
+        campaignId TEXT PRIMARY KEY REFERENCES call_campaigns(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL, voicemailDays INTEGER NOT NULL, noResponseDays INTEGER NOT NULL, maxAttempts INTEGER NOT NULL,
+        automaticPaused INTEGER NOT NULL DEFAULT 0, retryTime TEXT NOT NULL DEFAULT '10:00'
+      );
+      CREATE TABLE IF NOT EXISTS campaign_routing (
+        campaignId TEXT PRIMARY KEY REFERENCES call_campaigns(id) ON DELETE CASCADE,
+        enabled INTEGER NOT NULL, officers TEXT NOT NULL, revision INTEGER NOT NULL, cursor TEXT
+      );
+      CREATE TABLE IF NOT EXISTS call_campaign_members (
+        leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
+        campaignId TEXT NOT NULL REFERENCES call_campaigns(id) ON DELETE CASCADE,
+        joinedAt TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, lastOutcome TEXT, reachedAt TEXT,
+        callbackTaskId TEXT REFERENCES lead_import_tasks(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS campaign_members_by_campaign ON call_campaign_members(campaignId, joinedAt);
+      CREATE TABLE IF NOT EXISTS campaign_follow_up_runs (
+        id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES call_campaign_members(leadId) ON DELETE CASCADE,
+        campaignId TEXT NOT NULL REFERENCES call_campaigns(id) ON DELETE CASCADE, callNumber INTEGER NOT NULL,
+        outcome TEXT NOT NULL, ruleRevision INTEGER NOT NULL, delayDays INTEGER, taskId TEXT NOT NULL, taskTitle TEXT NOT NULL,
+        dueAt TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('Failed', 'Paused', 'Completed', 'Superseded')),
+        reason TEXT NOT NULL, attemptCount INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL,
+        promiseRequestEventId TEXT, promiseDueAt TEXT, promiseAttemptEventId TEXT, promiseClosedAt TEXT, promiseCloseReason TEXT,
+        UNIQUE (leadId, callNumber)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS pending_campaign_follow_up_by_lead ON campaign_follow_up_runs(leadId) WHERE status IN ('Failed', 'Paused');
+      CREATE INDEX IF NOT EXISTS campaign_follow_up_runs_by_time ON campaign_follow_up_runs(at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS campaign_follow_up_runs_by_status ON campaign_follow_up_runs(status, at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS pending_campaign_follow_up_by_deadline ON campaign_follow_up_runs(dueAt, at, id) WHERE status IN ('Failed', 'Paused');
+      CREATE TABLE IF NOT EXISTS campaign_follow_up_attempts (
+        runId TEXT NOT NULL REFERENCES campaign_follow_up_runs(id) ON DELETE CASCADE, attempt INTEGER NOT NULL, operationId TEXT NOT NULL,
+        mode TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, taskChanges INTEGER NOT NULL,
+        PRIMARY KEY (runId, attempt), UNIQUE (runId, operationId)
+      );
+      CREATE TABLE IF NOT EXISTS campaign_follow_up_recoveries (
+        operationId TEXT PRIMARY KEY, actorEmail TEXT NOT NULL, selection TEXT NOT NULL, result TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS campaign_assignment_history (
+        id INTEGER PRIMARY KEY, leadId TEXT NOT NULL REFERENCES call_campaign_members(leadId) ON DELETE CASCADE,
+        officerEmail TEXT, officer TEXT NOT NULL, assignedAt TEXT NOT NULL, endedAt TEXT, firstOutreachAt TEXT
+      );
+      CREATE INDEX IF NOT EXISTS campaign_assignments_by_lead ON campaign_assignment_history(leadId, id);
+      CREATE UNIQUE INDEX IF NOT EXISTS active_campaign_assignment ON campaign_assignment_history(leadId) WHERE endedAt IS NULL;
+      CREATE TABLE IF NOT EXISTS outreach_opt_outs (
+        source TEXT NOT NULL, identityKey TEXT NOT NULL, scenarioId TEXT, recordedAt TEXT NOT NULL,
+        PRIMARY KEY(source, identityKey)
+      );
+      CREATE INDEX IF NOT EXISTS outreach_opt_out_by_identity ON outreach_opt_outs(identityKey);
       CREATE TABLE IF NOT EXISTS manager_report_views (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS mismo_rehearsals (
-        loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, requestId TEXT NOT NULL UNIQUE, fields TEXT NOT NULL
+        loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, requestId TEXT NOT NULL UNIQUE, fields TEXT NOT NULL,
+        existingContactId TEXT, sourceExtraBorrowers INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS migration_cutover_loan_reviews (
+        loanId TEXT NOT NULL REFERENCES mismo_rehearsals(loanId) ON DELETE CASCADE,
+        origin TEXT NOT NULL, basis TEXT NOT NULL, item TEXT NOT NULL, decision TEXT NOT NULL, note TEXT NOT NULL,
+        updatedBy TEXT NOT NULL, updatedAt TEXT NOT NULL, revision INTEGER NOT NULL, applicationFingerprint TEXT, applicationRevision INTEGER,
+        fileFingerprint TEXT,
+        PRIMARY KEY (loanId, origin, basis, item)
+      );
+      CREATE TABLE IF NOT EXISTS migration_cutover_file_sources (
+        loanId TEXT NOT NULL REFERENCES mismo_rehearsals(loanId) ON DELETE CASCADE,
+        origin TEXT NOT NULL, basis TEXT NOT NULL, source TEXT NOT NULL, revision INTEGER NOT NULL,
+        PRIMARY KEY (loanId, origin, basis)
       );`);
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS website_request_id ON referral_leads(requestId) WHERE realtorId IS NULL;
+    if (!db.prepare("PRAGMA table_info(migration_cutover_reviews)").all().some(({ name }) => name === "callbackFingerprint")) {
+      db.exec("ALTER TABLE migration_cutover_reviews ADD COLUMN callbackFingerprint TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(loan_conversations)").all().some((column) => column.name === "sourceLeadId")) {
+      db.exec("ALTER TABLE loan_conversations ADD COLUMN sourceLeadId TEXT REFERENCES referral_leads(id) ON DELETE SET NULL");
+    }
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS conversations_by_source_lead ON loan_conversations(sourceLeadId) WHERE sourceLeadId IS NOT NULL");
+    if (!db.prepare("PRAGMA table_info(inbound_replies)").all().some((column) => column.name === "leadConversationId")) {
+      db.exec("ALTER TABLE inbound_replies ADD COLUMN leadConversationId TEXT REFERENCES lead_conversations(id) ON DELETE SET NULL");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS inbound_replies_by_lead_conversation ON inbound_replies(leadConversationId) WHERE leadConversationId IS NOT NULL");
+    if (!db.prepare("PRAGMA table_info(inbound_replies)").all().some((column) => column.name === "contactConversationId")) {
+      db.exec("ALTER TABLE inbound_replies ADD COLUMN contactConversationId TEXT REFERENCES contact_conversations(id) ON DELETE SET NULL");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS inbound_replies_by_contact_conversation ON inbound_replies(contactConversationId) WHERE contactConversationId IS NOT NULL");
+    const mismoColumns = new Set(db.prepare("PRAGMA table_info(mismo_rehearsals)").all().map(({ name }) => name));
+    if (!mismoColumns.has("existingContactId")) {
+      db.exec("ALTER TABLE mismo_rehearsals ADD COLUMN existingContactId TEXT");
+    }
+    if (!mismoColumns.has("sourceExtraBorrowers")) db.exec("ALTER TABLE mismo_rehearsals ADD COLUMN sourceExtraBorrowers INTEGER");
+    const cutoverLoanReviewColumns = new Set(db.prepare("PRAGMA table_info(migration_cutover_loan_reviews)").all().map(({ name }) => name));
+    if (!cutoverLoanReviewColumns.has("applicationFingerprint")) db.exec("ALTER TABLE migration_cutover_loan_reviews ADD COLUMN applicationFingerprint TEXT");
+    if (!cutoverLoanReviewColumns.has("applicationRevision")) db.exec("ALTER TABLE migration_cutover_loan_reviews ADD COLUMN applicationRevision INTEGER");
+    if (!cutoverLoanReviewColumns.has("fileFingerprint")) db.exec("ALTER TABLE migration_cutover_loan_reviews ADD COLUMN fileFingerprint TEXT");
+    if (db.prepare("PRAGMA table_info(migration_undone_records)").all().some((column) => column.name === "origin" && column.pk)) {
+      db.exec(`CREATE TABLE migration_undone_records_next (
+          origin TEXT NOT NULL, recordKey TEXT NOT NULL, undoId TEXT NOT NULL REFERENCES migration_import_undos(id),
+          PRIMARY KEY (undoId, recordKey)
+        );
+        INSERT INTO migration_undone_records_next (origin, recordKey, undoId)
+          SELECT origin, recordKey, undoId FROM migration_undone_records ORDER BY rowid;
+        DROP TABLE migration_undone_records;
+        ALTER TABLE migration_undone_records_next RENAME TO migration_undone_records;`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS migration_undo_by_source ON migration_undone_records(origin, recordKey);
+      CREATE UNIQUE INDEX IF NOT EXISTS website_request_id ON referral_leads(requestId) WHERE realtorId IS NULL;
       CREATE TABLE IF NOT EXISTS lead_follow_up (
         leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
         status TEXT NOT NULL DEFAULT 'Not started', revision INTEGER NOT NULL DEFAULT 0,
@@ -251,14 +699,98 @@ export function initializeStore(db: Store, seedDemo = true) {
         at TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT, text TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS lead_events_by_lead ON lead_events(leadId, at);`);
-    if (!db.prepare("PRAGMA table_info(staff_google_attempts)").all().some((column) => column.name === "brokerageId")) {
+    if (!db.prepare("PRAGMA table_info(lead_follow_up)").all().some((column) => column.name === "replyReceivedAt")) {
+      db.exec(`ALTER TABLE lead_follow_up ADD COLUMN replyReceivedAt TEXT;
+        INSERT INTO lead_follow_up (leadId, status, revision, replyReceivedAt)
+        SELECT thread.leadId, 'Stopped', 1, min(event.at) FROM lead_conversations thread
+        JOIN lead_conversation_events event ON event.conversationId = thread.id
+        WHERE event.kind = 'Inbound' AND event.origin = 'Manual log' GROUP BY thread.leadId
+        ON CONFLICT(leadId) DO UPDATE SET replyReceivedAt = excluded.replyReceivedAt,
+        status = CASE WHEN status = 'Completed' THEN status ELSE 'Stopped' END, nextAt = NULL, pausedAt = NULL, revision = revision + 1;
+        UPDATE lead_import_tasks SET completedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE completedAt IS NULL AND id IN (
+          SELECT member.callbackTaskId FROM call_campaign_members member JOIN lead_follow_up follow ON follow.leadId = member.leadId
+          WHERE follow.replyReceivedAt IS NOT NULL AND member.lastOutcome IN ('Left message', 'No response'));
+        UPDATE campaign_follow_up_runs SET status = 'Superseded', reason = 'Borrower reply logged.'
+        WHERE delayDays IS NOT NULL AND status IN ('Failed', 'Paused') AND leadId IN (
+          SELECT leadId FROM lead_follow_up WHERE replyReceivedAt IS NOT NULL);`);
+    }
+    if (!db.prepare("PRAGMA table_info(call_campaign_members)").all().some((column) => column.name === "segmentId")) {
+      db.exec("ALTER TABLE call_campaign_members ADD COLUMN segmentId TEXT REFERENCES crm_segments(id) ON DELETE SET NULL");
+      // Older enrollments recorded a lead event and an audit entry together. Match them only when the segment is unambiguous.
+      db.exec(`WITH attribution AS (
+        SELECT member.leadId, min(segment.id) AS segmentId
+        FROM call_campaign_members member JOIN lead_events event ON event.leadId = member.leadId
+        JOIN workspace_access_history audit ON audit.createdAt = event.at AND audit.action = 'Enrolled CRM segment in call campaign'
+          AND substr(audit.subject, 40, 36) = member.campaignId
+        JOIN crm_segments segment ON segment.id = substr(audit.subject, 1, 36)
+        WHERE event.kind = 'Campaign' AND event.text LIKE 'Enrolled from %'
+        GROUP BY member.leadId HAVING count(DISTINCT segment.id) = 1
+      )
+      UPDATE call_campaign_members SET segmentId = attribution.segmentId FROM attribution
+      WHERE call_campaign_members.leadId = attribution.leadId;`);
+    }
+    const campaignRuleColumns = new Set(db.prepare("PRAGMA table_info(call_campaign_rules)").all().map(({ name }) => name));
+    if (!campaignRuleColumns.has("automaticPaused")) {
+      db.exec("ALTER TABLE call_campaign_rules ADD COLUMN automaticPaused INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!campaignRuleColumns.has("retryTime")) db.exec("ALTER TABLE call_campaign_rules ADD COLUMN retryTime TEXT NOT NULL DEFAULT '10:00'");
+    const campaignRunColumns = new Set(db.prepare("PRAGMA table_info(campaign_follow_up_runs)").all().map(({ name }) => name));
+    for (const column of ["promiseRequestEventId", "promiseDueAt", "promiseAttemptEventId", "promiseClosedAt", "promiseCloseReason"]) {
+      if (!campaignRunColumns.has(column)) db.exec(`ALTER TABLE campaign_follow_up_runs ADD COLUMN ${column} TEXT`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS campaign_callback_promises_by_campaign ON campaign_follow_up_runs(campaignId, at DESC, id DESC)
+      WHERE promiseRequestEventId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS open_campaign_callback_promises_by_due ON campaign_follow_up_runs(promiseDueAt, id)
+      WHERE promiseRequestEventId IS NOT NULL AND promiseAttemptEventId IS NULL AND promiseClosedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS carried_campaign_callback_promises_by_due ON campaign_follow_up_runs(promiseDueAt, id)
+      WHERE promiseRequestEventId IS NOT NULL AND promiseAttemptEventId IS NULL AND promiseCloseReason = '1003 started'`);
+    if (!db.prepare("PRAGMA table_info(call_campaign_members)").all().some((column) => column.name === "firstCallAt")) {
+      db.exec(`ALTER TABLE call_campaign_members ADD COLUMN firstCallAt TEXT;
+        UPDATE call_campaign_members AS member SET firstCallAt = (SELECT min(at) FROM (
+          SELECT event.at FROM lead_events event WHERE event.leadId = member.leadId AND event.at >= member.joinedAt
+            AND event.kind = 'Call' AND event.outcome IS NOT NULL AND instr(event.text, event.outcome || ' · Call campaign · ') = 1
+          UNION ALL SELECT history.firstOutreachAt FROM campaign_assignment_history history
+            WHERE history.leadId = member.leadId AND history.firstOutreachAt >= member.joinedAt))
+        WHERE attempts > 0;`);
+    }
+    const googleAttemptColumns = db.prepare("PRAGMA table_info(staff_google_attempts)").all();
+    if (!googleAttemptColumns.some((column) => column.name === "brokerageId")) {
       db.exec("ALTER TABLE staff_google_attempts ADD COLUMN brokerageId TEXT");
+    }
+    if (!googleAttemptColumns.some((column) => column.name === "guide")) {
+      db.exec("ALTER TABLE staff_google_attempts ADD COLUMN guide TEXT");
     }
     if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "kind")) {
       db.exec("ALTER TABLE activity ADD COLUMN kind TEXT NOT NULL DEFAULT 'Note'");
     }
     if (!db.prepare("PRAGMA table_info(activity)").all().some((column) => column.name === "outcome")) {
       db.exec("ALTER TABLE activity ADD COLUMN outcome TEXT");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS activity_first_outreach_by_loan ON activity(loanId, createdAt) WHERE outcome IS NOT NULL");
+    db.exec("CREATE INDEX IF NOT EXISTS communication_drafts_by_contact ON communication_drafts(contactId, id)");
+    db.exec(`CREATE INDEX IF NOT EXISTS activity_by_loan_and_time ON activity(loanId, createdAt DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS loans_by_contact ON loans(contactId);
+      CREATE INDEX IF NOT EXISTS loans_by_partner ON loans(partnerId) WHERE partnerId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS realtor_portal_loans_by_update ON loans(partnerId, stageSince DESC, id DESC) WHERE partnerId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS realtor_portal_referrals_by_update ON referral_leads(realtorId, createdAt DESC, id DESC) WHERE resolvedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS leads_by_imported_contact ON referral_leads(importedContactId) WHERE importedContactId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS contact_follow_ups_by_time ON contact_activity(createdAt DESC, id) WHERE dueAt IS NOT NULL;`);
+    if (!db.prepare("PRAGMA table_info(tasks)").all().some((column) => column.name === "purpose")) {
+      db.exec(`ALTER TABLE tasks ADD COLUMN purpose TEXT NOT NULL DEFAULT 'Loan service' CHECK (purpose IN ('Loan service', 'Prospecting'));
+        UPDATE tasks SET purpose = 'Prospecting' WHERE id LIKE 'first-contact:%' OR id LIKE 'rate-watch:%' OR id LIKE 'closing-anniversary:%';`);
+    }
+    if (!db.prepare("PRAGMA table_info(contact_activity)").all().some((column) => column.name === "purpose")) {
+      db.exec("ALTER TABLE contact_activity ADD COLUMN purpose TEXT NOT NULL DEFAULT 'Prospecting' CHECK (purpose IN ('Loan service', 'Prospecting'))");
+    }
+    if (!db.prepare("PRAGMA table_info(contact_activity)").all().some((column) => column.name === "followUpOwnerEmail")) {
+      db.exec(`ALTER TABLE contact_activity ADD COLUMN followUpOwner TEXT;
+        ALTER TABLE contact_activity ADD COLUMN followUpOwnerEmail TEXT;
+        UPDATE contact_activity SET followUpOwner = officer, followUpOwnerEmail = officerEmail WHERE dueAt IS NOT NULL;`);
+    }
+    if (!db.prepare("PRAGMA table_info(lead_import_tasks)").all().some((column) => column.name === "purpose")) {
+      db.exec(`ALTER TABLE lead_import_tasks ADD COLUMN purpose TEXT NOT NULL DEFAULT 'Loan service' CHECK (purpose IN ('Loan service', 'Prospecting'));
+        UPDATE lead_import_tasks SET purpose = 'Prospecting' WHERE id IN (SELECT callbackTaskId FROM call_campaign_members);`);
     }
     if (!db.prepare("PRAGMA table_info(loans)").all().some((column) => column.name === "officerEmail")) {
       db.exec("ALTER TABLE loans ADD COLUMN officerEmail TEXT");
@@ -288,6 +820,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!portalColumns.some((column) => column.name === "officerEmail")) {
       db.exec("ALTER TABLE realtor_portals ADD COLUMN officerEmail TEXT; ALTER TABLE realtor_portals ADD COLUMN officer TEXT NOT NULL DEFAULT '';");
     }
+    if (!portalColumns.some((column) => column.name === "revision")) {
+      db.exec("ALTER TABLE realtor_portals ADD COLUMN revision INTEGER NOT NULL DEFAULT 0");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS realtor_portals_by_officer ON realtor_portals(officerEmail, realtorId)");
     if (!db.prepare("PRAGMA table_info(applications)").all().some((column) => column.name === "revokedAt")) {
       db.exec("ALTER TABLE applications ADD COLUMN revokedAt TEXT");
     }
@@ -303,8 +839,13 @@ export function initializeStore(db: Store, seedDemo = true) {
     db.exec(`CREATE TABLE IF NOT EXISTS application_versions (
       loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
       revision INTEGER NOT NULL, draft TEXT NOT NULL, submittedAt TEXT NOT NULL, reviewedAt TEXT,
+      uwmReceipt TEXT, uwmSentAt TEXT,
       PRIMARY KEY (loanId, revision)
     )`);
+    if (!db.prepare("PRAGMA table_info(application_versions)").all().some((column) => column.name === "uwmReceipt")) {
+      db.exec(`ALTER TABLE application_versions ADD COLUMN uwmReceipt TEXT;
+        ALTER TABLE application_versions ADD COLUMN uwmSentAt TEXT;`);
+    }
     if (!db.prepare("PRAGMA table_info(document_requests)").all().some((column) => column.name === "conditionId")) {
       // Preserve the original checklist while allowing each condition its own request.
       const columns = "id, loanId, kind, instructions, requestedAt, status, replacementNote, submittedAt, revision";
@@ -315,8 +856,49 @@ export function initializeStore(db: Store, seedDemo = true) {
         ALTER TABLE document_requests_next RENAME TO document_requests;
       `);
     }
+    const requestColumns = new Set(db.prepare("PRAGMA table_info(document_requests)").all().map((column) => column.name));
+    if (!requestColumns.has("dueOn")) db.exec("ALTER TABLE document_requests ADD COLUMN dueOn TEXT");
+    if (!requestColumns.has("deadlineRevision")) db.exec("ALTER TABLE document_requests ADD COLUMN deadlineRevision INTEGER NOT NULL DEFAULT 0");
+    const coverageColumns = new Set(db.prepare("PRAGMA table_info(staff_coverage)").all().map((column) => column.name));
+    if (!coverageColumns.has("absentAccessRevision")) db.exec("ALTER TABLE staff_coverage ADD COLUMN absentAccessRevision INTEGER NOT NULL DEFAULT 0");
+    if (!coverageColumns.has("backupAccessRevision")) db.exec("ALTER TABLE staff_coverage ADD COLUMN backupAccessRevision INTEGER NOT NULL DEFAULT 0");
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS manual_document_by_loan_kind ON document_requests(loanId, kind) WHERE conditionId IS NULL");
     db.exec("CREATE INDEX IF NOT EXISTS document_requests_by_loan ON document_requests(loanId, requestedAt, id)");
+    db.exec("CREATE INDEX IF NOT EXISTS received_documents_by_loan ON document_requests(loanId) WHERE status = 'Received'");
+    db.exec(`CREATE INDEX IF NOT EXISTS borrower_documents_by_due ON document_requests(dueOn, id)
+      WHERE dueOn IS NOT NULL AND status IN ('Requested', 'Needs replacement');
+      CREATE INDEX IF NOT EXISTS missing_evidence_by_date ON document_requests(coalesce(dueOn, substr(requestedAt, 1, 10)), id)
+      WHERE status IN ('Requested', 'Needs replacement');`);
+    db.exec(`CREATE TABLE IF NOT EXISTS document_reminder_runs (
+      id TEXT PRIMARY KEY, requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE,
+      documentRevision INTEGER NOT NULL, deadlineRevision INTEGER NOT NULL, dueOn TEXT NOT NULL,
+      eligibleOn TEXT, timingOffsetDays INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK (status IN ('Failed', 'Completed', 'Superseded')), reason TEXT NOT NULL,
+      receipt TEXT UNIQUE, attemptCount INTEGER NOT NULL, at TEXT NOT NULL,
+      UNIQUE (requestId, documentRevision, deadlineRevision)
+    );
+    CREATE INDEX IF NOT EXISTS document_reminder_runs_by_time ON document_reminder_runs(at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS document_reminder_runs_by_status ON document_reminder_runs(status, at DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS failed_document_reminders_by_deadline ON document_reminder_runs(dueOn, at, id) WHERE status = 'Failed';
+    CREATE TABLE IF NOT EXISTS document_reminder_attempts (
+      runId TEXT NOT NULL REFERENCES document_reminder_runs(id) ON DELETE CASCADE, attempt INTEGER NOT NULL, operationId TEXT NOT NULL,
+      mode TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, taskChanges INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (runId, attempt), UNIQUE (runId, operationId)
+    );
+    CREATE TABLE IF NOT EXISTS document_reminder_checks (
+      operationId TEXT PRIMARY KEY, actorEmail TEXT NOT NULL, simulated INTEGER NOT NULL,
+      processed INTEGER NOT NULL, interrupted INTEGER NOT NULL, more INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS document_reminder_recoveries (
+      operationId TEXT PRIMARY KEY, actorEmail TEXT NOT NULL, selection TEXT NOT NULL, result TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS document_reminder_schedule (
+      id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, nextAt INTEGER,
+      lastCheckedAt TEXT, lastProcessed INTEGER
+    );`);
+    const reminderColumns = new Set(db.prepare("PRAGMA table_info(document_reminder_runs)").all().map((column) => column.name));
+    if (!reminderColumns.has("eligibleOn")) db.exec("ALTER TABLE document_reminder_runs ADD COLUMN eligibleOn TEXT");
+    if (!reminderColumns.has("timingOffsetDays")) db.exec("ALTER TABLE document_reminder_runs ADD COLUMN timingOffsetDays INTEGER NOT NULL DEFAULT 0");
     db.exec(`CREATE TABLE IF NOT EXISTS uwm_document_deliveries (
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
       receipt TEXT NOT NULL UNIQUE, sentAt TEXT NOT NULL, mockClearedAt TEXT
@@ -352,13 +934,97 @@ export function initializeStore(db: Store, seedDemo = true) {
       INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL
         AND OLD.pendingId IS NOT NEW.pendingId AND OLD.pendingId IS NOT NEW.objectId;
     END;`);
+    // Earlier presenter scenarios seeded a request ID that staff actions reject.
+    const legacyInsurance = db.prepare(`SELECT request.id FROM pilot_scenario scenario
+      JOIN document_requests request ON request.loanId = 'demo-presenter:' || scenario.id || ':closing'
+      WHERE scenario.presenter = 1 AND request.id = request.loanId || ':insurance'
+        AND request.kind = 'Homeowners insurance' AND request.submissionId IS NULL AND request.conditionId IS NULL`).get();
+    if (typeof legacyInsurance?.id === "string") {
+      const oldId = legacyInsurance.id;
+      const newId = crypto.randomUUID();
+      // Use a temporary kind while both rows exist under the per-loan unique index.
+      db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, status, replacementNote, submittedAt,
+        revision, dueOn, deadlineRevision, submissionId, conditionId)
+        SELECT ?, loanId, ?, instructions, requestedAt, status, replacementNote, submittedAt,
+          revision, dueOn, deadlineRevision, submissionId, conditionId FROM document_requests WHERE id = ?`).run(newId, newId, oldId);
+      for (const table of ["uwm_document_deliveries", "uwm_document_delivery_history", "mock_delivery_failures", "document_files"]) {
+        db.prepare(`UPDATE ${table} SET requestId = ? WHERE requestId = ?`).run(newId, oldId);
+      }
+      db.prepare("DELETE FROM document_requests WHERE id = ?").run(oldId);
+      db.prepare("UPDATE document_requests SET kind = 'Homeowners insurance' WHERE id = ?").run(newId);
+    }
     const rateColumns = new Set(db.prepare("PRAGMA table_info(mock_uwm_rates)").all().map((column) => column.name));
     for (const [column, type] of Object.entries({
       lockExtensionReference: "TEXT", lockExtensionDays: "INTEGER", lockCancellationReference: "TEXT", lockCancelledAt: "TEXT",
     })) {
       if (!rateColumns.has(column)) db.exec(`ALTER TABLE mock_uwm_rates ADD COLUMN ${column} ${type}`);
     }
+    db.exec(`CREATE INDEX IF NOT EXISTS open_leads_by_due ON referral_leads(dueAt, id) WHERE resolvedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS active_leads_by_officer_due ON referral_leads(officerEmail, dueAt, id)
+      WHERE resolvedAt IS NULL AND heldAt IS NULL;
+      CREATE INDEX IF NOT EXISTS shared_realtor_claim_queue ON referral_leads(dueAt, id)
+        WHERE resolvedAt IS NULL AND heldAt IS NULL AND officerEmail IS NULL AND realtorId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS shared_realtor_wait ON referral_leads(coalesce(realtorSharedSince, createdAt), id)
+        WHERE resolvedAt IS NULL AND heldAt IS NULL AND officerEmail IS NULL AND realtorId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS open_contact_followups_by_officer_due ON contact_activity(followUpOwnerEmail, dueAt, id)
+      WHERE completedAt IS NULL AND dueAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS departure_leads_by_owner ON referral_leads(officerEmail, id) WHERE resolvedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS departure_contact_work_by_owner ON contact_activity(followUpOwnerEmail, id)
+        WHERE completedAt IS NULL AND dueAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS departure_reviews_by_requester ON loan_reviews(requesterEmail, id) WHERE status IN ('Requested', 'Changes requested');
+      CREATE INDEX IF NOT EXISTS departure_reviews_by_reviewer ON loan_reviews(reviewerEmail, id) WHERE status IN ('Requested', 'Changes requested');
+      CREATE INDEX IF NOT EXISTS loans_by_officer ON loans(officerEmail, id);
+      CREATE INDEX IF NOT EXISTS loans_by_assignment_date ON loans(stageSince DESC, id);
+      CREATE INDEX IF NOT EXISTS past_client_loans_by_officer ON loans(officerEmail, stageSince DESC, id)
+        WHERE stage IN ('Funded', 'Closed');
+      CREATE INDEX IF NOT EXISTS past_client_loans_by_stage_date ON loans(stageSince DESC, id)
+        WHERE stage IN ('Funded', 'Closed');
+      CREATE INDEX IF NOT EXISTS stalled_loans_by_officer_stage ON loans(officerEmail, julianday(stageSince), id)
+        WHERE disposition = 'Active' AND stage NOT IN ('Funded', 'Closed');
+      CREATE INDEX IF NOT EXISTS stalled_loans_by_stage_age ON loans(julianday(stageSince), id)
+        WHERE disposition = 'Active' AND stage NOT IN ('Funded', 'Closed');
+      CREATE INDEX IF NOT EXISTS referrals_by_loan ON referral_leads(loanId, createdAt, id) WHERE loanId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS referrals_by_cohort ON referral_leads(createdAt, id) WHERE realtorId IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS leads_by_sales_intake ON referral_leads(createdAt, id);
+      CREATE INDEX IF NOT EXISTS loans_by_sales_intake ON loans(strftime('%Y-%m-%dT%H:%M:%fZ', coalesce(createdAt, stageSince)), id);
+      CREATE INDEX IF NOT EXISTS campaign_members_by_cohort ON call_campaign_members(joinedAt, leadId);
+      CREATE INDEX IF NOT EXISTS tasks_by_loan ON tasks(loanId);
+      CREATE INDEX IF NOT EXISTS drafts_by_loan ON communication_drafts(loanId, createdAt);
+      CREATE INDEX IF NOT EXISTS drafts_by_time ON communication_drafts(createdAt DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS shared_quotes_by_loan ON shared_quote_history(loanId, endedAt);
+      CREATE INDEX IF NOT EXISTS open_tasks_by_loan_due ON tasks(loanId, dueAt, id) WHERE completedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS open_retention_tasks_by_loan_due ON tasks(loanId, dueAt, id)
+        WHERE completedAt IS NULL AND (id GLOB 'rate-watch:*' OR id GLOB 'closing-anniversary:*');
+      CREATE INDEX IF NOT EXISTS calendar_leads_by_due ON referral_leads(dueAt, id) WHERE resolvedAt IS NULL AND heldAt IS NULL;
+      CREATE INDEX IF NOT EXISTS calendar_campaign_tasks_by_due ON lead_import_tasks(dueAt, id) WHERE completedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS calendar_contact_followups_by_due ON contact_activity(dueAt, id) WHERE completedAt IS NULL AND dueAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS calendar_loan_tasks_by_due ON tasks(dueAt, id) WHERE completedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS calendar_closing_items_by_due ON closing_items(dueDate, id) WHERE completedAt IS NULL;
+      CREATE INDEX IF NOT EXISTS completed_loan_tasks_by_time ON tasks(completedAt, id) WHERE completedAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS completed_loan_tasks_by_loan ON tasks(loanId, completedAt, id) WHERE completedAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS completed_lead_tasks_by_time ON lead_import_tasks(completedAt, id) WHERE completedAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS completed_contact_tasks_by_time ON contact_activity(completedAt, id) WHERE completedAt IS NOT NULL AND dueAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS completed_contact_tasks_by_owner ON contact_activity(followUpOwnerEmail, completedAt, id)
+        WHERE completedAt IS NOT NULL AND dueAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS completed_closing_items_by_time ON closing_items(completedAt, id) WHERE completedAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS reviewed_uwm_alerts_by_time ON uwm_alerts(reviewedAt, id) WHERE reviewedAt IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS active_locks_by_expiry ON mock_uwm_rates(lockExpiresAt, loanId) WHERE lockCancelledAt IS NULL;`);
+    const targetSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sales_conversion_targets'").get()?.sql;
+    if (typeof targetSchema === "string" && !targetSchema.includes("'Lead sources'")) {
+      db.exec(`CREATE TABLE sales_conversion_targets_next (${salesTargetColumns});
+        INSERT INTO sales_conversion_targets_next SELECT channel, windowDays, submitted, funded, revision FROM sales_conversion_targets;
+        DROP TABLE sales_conversion_targets;
+        ALTER TABLE sales_conversion_targets_next RENAME TO sales_conversion_targets;`);
+    }
+    closeReviewedApplicationFollowUps(db);
     createApplicationFollowUps(db);
+    initializeRealtorReplyIndex(db);
+    initializeContactOutreachIndex(db);
+    initializeContactDuplicateQueue(db);
+    initializeLeadReplyIndex(db);
+    initializeProcessingConditions(db);
+    initializeCallReportReadiness(db);
+    migrateCampaignOptOuts(db);
     if (!seedDemo || db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();
     for (const contact of demo.contacts) insertContact(db, contact);
@@ -386,86 +1052,315 @@ export function insertSubmission(db: Store, submission: Submission) {
 }
 
 export function savedPricingRun(db: Store, loanId: string) {
-  return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt FROM pricing_runs
+  return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt, applicationRevision FROM pricing_runs
     WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1`).get(loanId);
 }
 
-function rows<T>(db: Store, query: string) {
+function rows<T>(db: Store, query: string, ...params: SqlValue[]) {
   // Both stores are owned by the schema above. Copy rows into plain objects for React and Workers RPC.
-  return db.prepare(query).all().map((row) => ({ ...row }) as T);
+  return db.prepare(query).all(...params).map((row) => ({ ...row }) as T);
 }
 
-function quoteRows<T extends PublishedQuote>(db: Store, query: string) {
-  return rows<Omit<T, "presentation"> & { presentation: string | null }>(db, query)
+export function readBrokerageTemplates(db: Store) {
+  return rows<BrokerageTemplate>(db, "SELECT audience, milestone, body, revision FROM brokerage_templates");
+}
+
+function quoteRows<T extends PublishedQuote>(db: Store, query: string, ...args: SqlValue[]) {
+  return rows<Omit<T, "presentation"> & { presentation: string | null }>(db, query, ...args)
     .map((row) => ({ ...row, presentation: row.presentation ? JSON.parse(row.presentation) as QuotePresentation : null }));
 }
 
-export function workspace(db: Store, includeReports = false): Workspace {
-  const contacts = rows<Contact>(db, "SELECT * FROM contacts ORDER BY name COLLATE NOCASE");
-  const referralLeads = rows<ReferralLead>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
-      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt
-    FROM referral_leads lead JOIN contacts ON contacts.id = lead.realtorId
-    WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
-    .map((lead) => ({ ...lead, matches: referralMatches(lead, contacts), restrictedMatch: false }));
-  const inboxLeads = rows<Omit<InboxLead, "followUp" | "matches" | "restrictedMatch" | "importedTasks">>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
-      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.importedContactId,
-      coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source
-    FROM referral_leads lead LEFT JOIN contacts ON contacts.id = lead.realtorId
-    WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
-    .map((lead) => ({ ...lead, followUp: leadFollowUp(db, lead.id),
-      importedTasks: db.prepare("SELECT id, title, dueAt, completedAt FROM lead_import_tasks WHERE leadId = ? ORDER BY dueAt, id")
-        .all(lead.id) as unknown as InboxLead["importedTasks"],
-      matches: referralMatches(lead, contacts), restrictedMatch: false }));
+export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: string) {
+  const args = loanId ? [loanId] : [];
+  const where = (column = "loanId") => loanId ? `WHERE ${column} = ?` : "";
+  const callbacks = new Map(carriedCallbacks(db, loanId).map((callback) => [callback.taskId, callback]));
   return {
-    contacts,
     loans: rows<Loan>(db, `SELECT loans.*,
-      (SELECT realtorId FROM referral_leads WHERE loanId = loans.id ORDER BY createdAt, id LIMIT 1) AS referralSourcePartnerId
-      FROM loans ORDER BY stageSince DESC, id`),
-    submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, "SELECT * FROM submissions ORDER BY lender, id")
+      (SELECT createdAt FROM activity WHERE loanId = loans.id ORDER BY createdAt DESC LIMIT 1) AS lastActivityAt,
+      (SELECT createdAt FROM activity WHERE loanId = loans.id AND kind <> 'Note' ORDER BY createdAt DESC LIMIT 1) AS lastOutreachAt,
+      (SELECT realtorId FROM referral_leads WHERE loanId = loans.id ORDER BY createdAt, id LIMIT 1) AS referralSourcePartnerId,
+      (SELECT campaign.name FROM referral_leads lead JOIN call_campaign_members member ON member.leadId = lead.id
+        JOIN call_campaigns campaign ON campaign.id = member.campaignId WHERE lead.loanId = loans.id) AS callCampaignName
+      FROM loans ${where("id")} ORDER BY stageSince DESC, id`, ...args),
+    submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, `SELECT * FROM submissions ${where()} ORDER BY lender, id`, ...args)
       .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) })),
-    activity: rows<Activity>(db, "SELECT * FROM activity ORDER BY createdAt DESC, id"),
-    tasks: rows<LoanTask>(db, "SELECT * FROM tasks ORDER BY completedAt IS NOT NULL, dueAt, id"),
-    communicationDrafts: rows<CommunicationDraft>(db, "SELECT * FROM communication_drafts ORDER BY createdAt DESC, rowid DESC"),
-    brokerageTemplates: rows<BrokerageTemplate>(db, "SELECT * FROM brokerage_templates"),
-    pastClients: rows<Omit<PastClientProfile, "watchEnabled"> & { watchEnabled: number }>(db, "SELECT loanId, closingDate, currentRate, targetRate, observedRate, checkedAt, watchEnabled, note, revision FROM past_client_profiles")
+    tasks: rows<LoanTask>(db, `SELECT * FROM tasks ${where()} ORDER BY completedAt IS NOT NULL, dueAt, id`, ...args)
+      .map((task): LoanTask => {
+        const callback = callbacks.get(task.id);
+        if (!callback || (task.completedAt && !callback.attemptEventId)) return task;
+        return callback.attemptEventId ? { ...task, campaignCallback: "Recorded" } :
+          { ...task, campaignCallback: "Pending", campaignCallbackRevision: callback.revision };
+      }),
+    communicationDrafts: rows<CommunicationDraft>(db, `SELECT id, loanId, contactId, audience, milestone,
+      createdAt, emailCopiedAt, textCopiedAt, supersededAt FROM communication_drafts ${where()} ORDER BY createdAt DESC, rowid DESC`, ...args),
+    pastClients: rows<Omit<PastClientProfile, "watchEnabled"> & { watchEnabled: number }>(db, `SELECT loanId, closingDate, currentRate, targetRate, observedRate, checkedAt, watchEnabled, note, revision FROM past_client_profiles ${where()}`, ...args)
       .map((profile) => ({ ...profile, watchEnabled: Boolean(profile.watchEnabled) })),
-    closingPlans: rows<ClosingPlan>(db, "SELECT loanId, targetDate FROM closing_plans"),
-    closingItems: rows<ClosingItem>(db, "SELECT * FROM closing_items ORDER BY completedAt IS NOT NULL, dueDate, id"),
-    closingProgress: rows<ClosingProgress>(db, "SELECT * FROM closing_progress"),
-    loanProcessing: rows<LoanProcessing>(db, "SELECT * FROM loan_processing"),
-    realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt, officerEmail FROM realtor_portals"),
-    referralLeads,
-    inboxLeads,
-    leadRouting: leadRouting(db),
-    playbook: readPlaybook(db),
-    demoGuide: demoGuideState(db),
-    managerReports: includeReports ? managerReports(db) : null,
-    callReportFiles: includeReports ? callReportFiles(db) : null,
-    mismoLoans: rows<{ loanId: string }>(db, "SELECT loanId FROM mismo_rehearsals").map((row) => row.loanId),
-    unlinkedReferrals: rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt, officer, officerEmail
-      FROM referral_leads WHERE loanId IS NULL AND realtorId IS NOT NULL ORDER BY createdAt DESC, id`),
-    applications: staffApplications(db),
+    closingPlans: rows<ClosingPlan>(db, `SELECT loanId, targetDate FROM closing_plans ${where()}`, ...args),
+    closingItems: rows<ClosingItem>(db, `SELECT * FROM closing_items ${where()} ORDER BY completedAt IS NOT NULL, dueDate, id`, ...args),
+    closingProgress: rows<ClosingProgress>(db, `SELECT * FROM closing_progress ${where()}`, ...args),
+    loanProcessing: rows<LoanProcessing>(db, `SELECT * FROM loan_processing ${where()}`, ...args),
+    callReportFiles: includeReports ? callReportFiles(db, loanId) : null,
+    mismoLoans: rows<{ loanId: string }>(db, `SELECT loanId FROM mismo_rehearsals ${where()}`, ...args).map((row) => row.loanId),
+    applications: staffApplications(db, loanId),
     documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries">>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
       failures.failedAt AS uwmDeliveryFailedAt, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
       LEFT JOIN document_files files ON files.requestId = requests.id
       LEFT JOIN mock_delivery_failures failures ON failures.requestId = requests.id AND failures.revision = requests.revision
-      ORDER BY requests.requestedAt, requests.id`).map((request) => ({ ...request, previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
+      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map((request) => ({ ...request, previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
         FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run
-      WHERE run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
-         OR run.selectedId IS NOT NULL
+      WHERE ${loanId ? "run.loanId = ? AND " : ""}(run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
+         OR run.selectedId IS NOT NULL)
       ORDER BY run.quotedAt DESC, run.rowid DESC
-    `).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
+    `, ...args).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
     feeWorksheets: rows<Omit<FeeWorksheet, "inputs"> & { inputs: string }>(db, `SELECT pricing_runs.loanId, worksheet.*
-      FROM fee_worksheets worksheet JOIN pricing_runs ON pricing_runs.id = worksheet.runId`)
+      FROM fee_worksheets worksheet JOIN pricing_runs ON pricing_runs.id = worksheet.runId ${where("pricing_runs.loanId")}`, ...args)
       .map((row) => ({ ...row, inputs: JSON.parse(row.inputs) })),
-    publishedQuotes: quoteRows<PublishedQuote>(db, "SELECT * FROM published_quotes"),
-    sharedQuoteHistory: quoteRows<SharedQuoteEvent>(db, "SELECT * FROM shared_quote_history ORDER BY endedAt DESC, rowid DESC"),
-    mockUwmRates: rows<MockUwmRate>(db, "SELECT * FROM mock_uwm_rates"),
-    mockCreditAusRuns: mockCreditAusRuns(db),
-    uwmAlerts: rows<UwmAlert>(db, "SELECT * FROM uwm_alerts ORDER BY detectedAt DESC, rowid DESC"),
+    publishedQuotes: quoteRows<PublishedQuote>(db, `SELECT * FROM published_quotes ${where()}`, ...args),
+    sharedQuoteHistory: quoteRows<SharedQuoteEvent>(db, `SELECT * FROM shared_quote_history ${where()} ORDER BY endedAt DESC, rowid DESC`, ...args),
+    mockUwmRates: rows<MockUwmRate>(db, `SELECT * FROM mock_uwm_rates ${where()}`, ...args),
+    mockCreditAusRuns: mockCreditAusRuns(db, loanId),
+    uwmAlerts: rows<UwmAlert>(db, `SELECT * FROM uwm_alerts ${where()} ORDER BY detectedAt DESC, rowid DESC`, ...args),
+  };
+}
+
+type InboxLeadRow = Omit<InboxLead, "followUp" | "matches" | "restrictedMatch" | "importedTasks" | "outreachSuppressed">;
+
+function inboxLeadRows(db: Store, leadIds?: string | string[]) {
+  const scope = typeof leadIds === "string" ? "AND lead.id = ?" : leadIds ? "AND lead.id IN (SELECT value FROM json_each(?))" : "";
+  return rows<InboxLeadRow>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
+      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.importedContactId,
+      lead.heldAt, lead.holdReason, lead.revisitDate,
+      coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
+      member.campaignId, member.callbackTaskId AS campaignTaskId, coalesce(member.lastOutcome = 'Opted out', 0) AS campaignOptedOut
+    FROM referral_leads lead LEFT JOIN contacts ON contacts.id = lead.realtorId
+    LEFT JOIN call_campaign_members member ON member.leadId = lead.id
+    WHERE lead.resolvedAt IS NULL ${scope}
+    ORDER BY lead.dueAt, lead.id`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []));
+}
+
+function inboxLeadDetails(db: Store, lead: InboxLeadRow, suppression: Set<string>, contacts: Contact[]): InboxLead {
+  return { ...lead, campaignOptedOut: Boolean(lead.campaignOptedOut),
+    outreachSuppressed: Boolean(lead.campaignOptedOut) || outreachSuppressed(suppression, { ...lead, leadId: lead.id, contactId: lead.importedContactId }),
+    followUp: leadFollowUp(db, lead.id),
+    importedTasks: rows<InboxLead["importedTasks"][number]>(db, "SELECT id, title, dueAt, completedAt, purpose FROM lead_import_tasks WHERE leadId = ? ORDER BY dueAt, id", lead.id),
+    matches: referralMatches(lead, contacts), restrictedMatch: false };
+}
+
+const officerCampaignLead = "(lead.officerEmail = ? OR (lead.officerEmail IS NULL AND lead.realtorId IS NULL))";
+const officerCampaignFile = "loan.officerEmail = ?";
+
+function campaignRows(db: Store, campaignId?: string, includeRouting = true, officerEmail?: string) {
+  const filter = campaignId ? "WHERE campaign.id = ?" : officerEmail ? `WHERE EXISTS (
+    SELECT 1 FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
+    LEFT JOIN loans loan ON loan.id = lead.loanId WHERE member.campaignId = campaign.id
+      AND ((lead.resolvedAt IS NULL AND ${officerCampaignLead}) OR ${officerCampaignFile})
+  )` : "";
+  return rows<CallCampaign>(db, `SELECT campaign.id, campaign.name, campaign.createdAt,
+      coalesce(rules.revision, 0) AS revision, coalesce(rules.voicemailDays, ?) AS voicemailDays,
+      coalesce(rules.noResponseDays, ?) AS noResponseDays, coalesce(rules.maxAttempts, ?) AS maxAttempts,
+      coalesce(rules.retryTime, ?) AS retryTime, coalesce(rules.automaticPaused, 0) AS automaticPaused
+    FROM call_campaigns campaign LEFT JOIN call_campaign_rules rules ON rules.campaignId = campaign.id
+    ${filter} ORDER BY campaign.createdAt DESC, campaign.id`,
+    defaultCampaignRules.voicemailDays, defaultCampaignRules.noResponseDays, defaultCampaignRules.maxAttempts, defaultCampaignRules.retryTime,
+    ...(campaignId ? [campaignId] : officerEmail ? [officerEmail, officerEmail] : []))
+    .map((campaign) => {
+      const routing = includeRouting && readCampaignRouting(db, campaign.id);
+      return { ...campaign, automaticPaused: Boolean(campaign.automaticPaused),
+        ...(routing ? { routing: { enabled: routing.enabled, revision: routing.revision, officers: routing.officers } } : {}) };
+    });
+}
+
+function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: string | string[]) {
+  const scope = typeof leadIds === "string" ? "WHERE member.leadId = ?" : leadIds ? "WHERE member.leadId IN (SELECT value FROM json_each(?))" : "";
+  return rows<Omit<CallCampaignMember, "outreachSuppressed"> & { email: string; phone: string; contactId: string | null;
+    runId: string | null; runDueAt: string | null }>(db,
+    `SELECT member.campaignId, member.leadId, member.segmentId, segment.name AS segmentName,
+      lead.name, lead.resolvedAt, lead.loanId, lead.email, lead.phone, coalesce(loan.contactId, lead.importedContactId) AS contactId,
+      member.attempts, member.lastOutcome, member.reachedAt, member.callbackTaskId,
+      CASE WHEN task.completedAt IS NULL THEN task.dueAt END AS callbackDueAt, run.status AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt
+    FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
+    LEFT JOIN loans loan ON loan.id = lead.loanId
+    LEFT JOIN crm_segments segment ON segment.id = member.segmentId
+    LEFT JOIN lead_import_tasks task ON task.id = member.callbackTaskId
+    LEFT JOIN campaign_follow_up_runs run ON run.leadId = lead.id AND run.campaignId = member.campaignId AND run.callNumber = member.attempts
+      AND run.outcome = member.lastOutcome AND run.status IN ('Failed', 'Paused')
+    ${scope} ORDER BY member.joinedAt, member.leadId`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []))
+    .map(({ email, phone, contactId, runId, runDueAt, ...member }) => ({ ...member,
+      ...(runId && runDueAt ? { followUpRun: { id: runId, dueAt: runDueAt } } : {}), outreachSuppressed: member.lastOutcome === "Opted out" ||
+      outreachSuppressed(suppression, { email, phone, contactId, leadId: member.leadId }) }));
+}
+
+export function leadContactCandidates(db: Store, lead: Pick<InboxLeadRow, "email" | "phone">) {
+  const phone = referralPhone(lead.phone);
+  const fields = "contact.id, contact.name, contact.role, contact.email, contact.phone";
+  // Older imports may contain a nonstandard phone that the outreach index intentionally omits.
+  if (phone && !/^\d{10,15}$/.test(phone)) {
+    return rows<Contact>(db, `SELECT ${fields} FROM contacts contact WHERE contact.role <> 'Realtor' ORDER BY contact.name COLLATE NOCASE`);
+  }
+  const keys = outreachIdentityKeys(lead);
+  if (!keys.length) return [];
+  indexPendingContactOutreach(db);
+  return rows<Contact>(db, `SELECT ${fields} FROM contacts contact WHERE contact.id IN (
+    SELECT contactId FROM contact_outreach_keys WHERE identityKey IN (SELECT value FROM json_each(?))
+    UNION SELECT contactId FROM contact_outreach_pending
+  ) ORDER BY contact.name COLLATE NOCASE`, JSON.stringify(keys));
+}
+
+function leadDetailsForWork(db: Store, lead: InboxLeadRow, suppression: Set<string>, officerEmail?: string) {
+  const details = inboxLeadDetails(db, lead, suppression, leadContactCandidates(db, lead));
+  if (officerEmail && details.matches.length) {
+    const visible = new Set(db.prepare(`SELECT contact.id FROM contacts contact
+      WHERE contact.id IN (SELECT value FROM json_each(?))
+      AND (contact.addedBy = ? OR EXISTS (SELECT 1 FROM loans WHERE contactId = contact.id AND officerEmail = ?)
+        OR EXISTS (SELECT 1 FROM loans WHERE partnerId = contact.id AND officerEmail = ?))`)
+      .all(JSON.stringify(details.matches.map(({ id }) => id)), officerEmail, officerEmail, officerEmail).map(({ id }) => id));
+    details.restrictedMatch = visible.size < details.matches.length;
+    details.matches = details.matches.filter(({ id }) => visible.has(id));
+  }
+  return details;
+}
+
+export function leadWorkRecord(db: Store, leadId: string, officerEmail?: string) {
+  const lead = inboxLeadRows(db, leadId)[0];
+  if (!lead) return null;
+  const identity = { ...lead, leadId: lead.id, contactId: lead.importedContactId };
+  const suppression = blockedOutreachKeys(db, [identity]);
+  return {
+    lead: leadDetailsForWork(db, lead, suppression, officerEmail),
+    campaign: lead.campaignId ? campaignRows(db, lead.campaignId, !officerEmail)[0] ?? null : null,
+    member: lead.campaignId ? campaignMemberRows(db, suppression, lead.id)[0] ?? null : null,
+  };
+}
+
+function unlinkedReferralRows(db: Store, leadIds?: string[]) {
+  return rows<UnlinkedReferral>(db, `SELECT id, realtorId, name, createdAt, resolvedAt, officer, officerEmail
+    FROM referral_leads WHERE loanId IS NULL AND realtorId IS NOT NULL
+    ${leadIds ? "AND id IN (SELECT value FROM json_each(?))" : ""} ORDER BY createdAt DESC, id`,
+    ...(leadIds ? [JSON.stringify(leadIds)] : []));
+}
+
+export function campaignWorkPatch(db: Store, campaignId: string, leadIds: string[], includeReports: boolean): CampaignWorkPatch {
+  const leads = leadIds.length ? inboxLeadRows(db, leadIds).filter((lead) => lead.campaignId === campaignId) : [];
+  const ids = leads.map(({ id }) => id);
+  const suppression = blockedOutreachKeys(db, leads.map((lead) => ({ ...lead, leadId: lead.id, contactId: lead.importedContactId })));
+  return {
+    inboxLeads: leads.map((lead) => inboxLeadDetails(db, lead, suppression, leadContactCandidates(db, lead))),
+    callCampaignMembers: campaignMemberRows(db, suppression, ids),
+    campaignResponses: campaignResponses(db, ids),
+    unlinkedReferrals: unlinkedReferralRows(db, ids),
+    managerRecords: includeReports ? managerReportRecords(db, suppression, ids) : [],
+    campaignRehearsal: readCampaignRehearsal(db),
+  };
+}
+
+export function readCampaignQueue(db: Store, campaignId: string, staff: WorkspaceStaff | null): CampaignQueueSnapshot {
+  const empty: CampaignQueueSnapshot = { campaignId, campaign: null, inboxLeads: [], members: [], responses: [], files: [], rehearsal: null };
+  if (staff?.brokerage.role === "Processor") return empty;
+  const officerEmail = staff?.brokerage.role === "LO" ? staff.email : undefined;
+  const campaign = campaignRows(db, campaignId, !officerEmail)[0];
+  if (!campaign) return empty;
+  const visible = rows<{ leadId: string; loanId: string | null; email: string; phone: string; contactId: string | null;
+    importedContactId: string | null; canReadLead: number; canReadFile: number }>(db, `
+    SELECT member.leadId, loan.id AS loanId, lead.email, lead.phone, coalesce(loan.contactId, lead.importedContactId) AS contactId,
+      lead.importedContactId,
+      lead.resolvedAt IS NULL ${officerEmail ? `AND ${officerCampaignLead}` : ""} AS canReadLead,
+      loan.id IS NOT NULL ${officerEmail ? `AND ${officerCampaignFile}` : ""} AS canReadFile
+    FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
+    LEFT JOIN loans loan ON loan.id = lead.loanId
+    WHERE member.campaignId = ? ${officerEmail ? "AND (canReadLead OR canReadFile)" : ""}
+  `, ...(officerEmail ? [officerEmail, officerEmail] : []), campaignId);
+  if (officerEmail && !visible.length) return empty;
+  const leadIds = visible.map(({ leadId }) => leadId);
+  const openIds = visible.filter(({ canReadLead }) => canReadLead).map(({ leadId }) => leadId);
+  const fileIds = new Set(visible.flatMap(({ loanId, canReadFile }) => loanId && canReadFile ? [loanId] : []));
+  const suppression = blockedOutreachKeys(db, visible.flatMap((identity) => [
+    identity, ...(identity.canReadLead && identity.contactId !== identity.importedContactId ? [{ ...identity, contactId: identity.importedContactId }] : []),
+  ]));
+  const members = campaignMemberRows(db, suppression, leadIds).map((member) =>
+    member.loanId && !fileIds.has(member.loanId) ? { ...member, loanId: null } : member);
+  const rehearsal = readCampaignRehearsal(db);
+  const buyer = members.find(({ leadId }) => leadId === rehearsal?.leadId);
+  return { campaignId, campaign, members,
+    inboxLeads: inboxLeadRows(db, openIds).map((lead) => leadDetailsForWork(db, lead, suppression, officerEmail)),
+    responses: officerEmail ? [] : campaignResponses(db, leadIds),
+    files: fileIds.size ? rows<CampaignQueueFile>(db, `
+      SELECT loan.id, loan.officer, loan.stage, loan.amount, progress.fundingDate,
+        coalesce((SELECT version.submittedAt FROM application_versions version WHERE version.loanId = loan.id
+          ORDER BY version.revision LIMIT 1), app.submittedAt) AS submittedAt
+      FROM loans loan LEFT JOIN closing_progress progress ON progress.loanId = loan.id
+      LEFT JOIN applications app ON app.loanId = loan.id
+      WHERE loan.id IN (SELECT value FROM json_each(?)) ORDER BY loan.id`, JSON.stringify([...fileIds])) : [],
+    rehearsal: rehearsal?.campaignId === campaignId ? !officerEmail ? rehearsal : buyer ?
+      { campaignId, leadId: rehearsal.leadId, importedCount: rehearsal.importedCount,
+        ...(rehearsal.checkInActivityId && buyer.loanId && fileIds.has(buyer.loanId) ? { checkInActivityId: rehearsal.checkInActivityId } : {}) } : null : null,
+  };
+}
+
+function crmSegmentRows(db: Store) {
+  return rows<CrmSegment>(db, "SELECT id, name, kind, quietDays, revision FROM crm_segments ORDER BY name, id");
+}
+
+function campaignLeadOptions(db: Store): CampaignLeadOption[] {
+  const leads = rows<CampaignLeadOption & { email: string; contactId: string | null }>(db, `
+    SELECT lead.id, lead.name, lead.phone, lead.email, lead.importedContactId AS contactId
+    FROM referral_leads lead WHERE lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND lead.phone <> ''
+      AND NOT EXISTS (SELECT 1 FROM call_campaign_members WHERE leadId = lead.id)
+    ORDER BY lead.dueAt, lead.id`);
+  const suppression = blockedOutreachKeys(db, leads.map((lead) => ({ ...lead, leadId: lead.id })));
+  return leads.flatMap((lead) => assignableCampaignLead({ phone: lead.phone,
+    outreachSuppressed: outreachSuppressed(suppression, { ...lead, leadId: lead.id }) }) ?
+    [{ id: lead.id, name: lead.name, phone: lead.phone }] : []);
+}
+
+export function readCampaignNavigation(db: Store, preferredId: string | undefined, staff: WorkspaceStaff | null, loadIntake: boolean): CampaignNavigation {
+  if (staff?.brokerage.role === "Processor") return { campaigns: [], queue: null };
+  const campaigns = campaignRows(db, undefined, false, staff?.brokerage.role === "LO" ? staff.email : undefined);
+  const selected = campaigns.find(({ id }) => id === preferredId) ?? campaigns[0];
+  return { campaigns, queue: selected ? readCampaignQueue(db, selected.id, staff) : null,
+    ...(loadIntake && (!staff || (staff.brokerage.role === "Admin" && staff.brokerage.pilot)) ?
+      { intake: { segments: crmSegmentRows(db), availableLeads: campaignLeadOptions(db) } } : {}),
+  };
+}
+
+export function workspace(db: Store, includeReports = false): Workspace {
+  const suppression = outreachSuppressionKeys(db);
+  const contacts = rows<Contact>(db, "SELECT * FROM contacts ORDER BY name COLLATE NOCASE").map((contact) => ({
+    ...contact, outreachSuppressed: contact.role !== "Realtor" && outreachSuppressed(suppression, { ...contact, contactId: contact.id }),
+  }));
+  const referralLeads = rows<ReferralLead>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
+      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt
+    FROM referral_leads lead JOIN contacts ON contacts.id = lead.realtorId
+    WHERE lead.resolvedAt IS NULL ORDER BY lead.dueAt, lead.id`)
+    .map((lead) => ({ ...lead, matches: referralMatches(lead, contacts), restrictedMatch: false }));
+  return {
+    ...loanWorkRecords(db, includeReports),
+    contacts,
+    followUpContacts: [],
+    contactActivity: rows<Omit<ContactActivity, "latestCompletion" | "postFundingCheckIn"> & { completion: string | null; postFundingCheckIn: number }>(db, `SELECT activity.*,
+      EXISTS (SELECT 1 FROM funding_check_ins checkIn WHERE checkIn.activityId = activity.id) AS postFundingCheckIn,
+      ${contactCompletionSql} AS completion FROM contact_activity activity WHERE activity.dueAt IS NOT NULL ORDER BY activity.createdAt DESC, activity.id`)
+      .map(({ completion, postFundingCheckIn, ...item }) => ({
+        ...item, postFundingCheckIn: Boolean(postFundingCheckIn), latestCompletion: completion ? JSON.parse(completion) : null,
+      })),
+    brokerageTemplates: readBrokerageTemplates(db),
+    returningClientLoans: rows<Workspace["returningClientLoans"][number]>(db, "SELECT fundedLoanId, loanId FROM returning_client_loans"),
+    realtorPortals: rows<RealtorPortal>(db, "SELECT realtorId, token, expiresAt, officerEmail, revision FROM realtor_portals"),
+    referralLeads,
+    inboxLeads: inboxLeadRows(db).map((lead) => inboxLeadDetails(db, lead, suppression, contacts)),
+    leadRouting: leadRouting(db),
+    realtorClaimPolicy: readRealtorClaimPolicy(db),
+    crmSegments: crmSegmentRows(db),
+    callCampaigns: campaignRows(db),
+    callCampaignMembers: campaignMemberRows(db, suppression),
+    playbook: readPlaybook(db),
+    demoGuide: demoGuideState(db),
+    campaignRehearsal: readCampaignRehearsal(db),
+    managerReports: includeReports ? managerReports(db, suppression) : null,
+    campaignResponses: campaignResponses(db),
+    unlinkedReferrals: unlinkedReferralRows(db),
     mockUwmChangesApplied: !!db.prepare("SELECT 1 FROM settings WHERE key = 'mockUwmChangesApplied'").get(),
     uwmSyncedAt: (db.prepare("SELECT value FROM settings WHERE key = 'uwmSyncedAt'").get()?.value as string | undefined) ?? null,
   };
@@ -475,5 +1370,24 @@ export function readWorkspace(db: Store, includeReports = false) {
   return db.transaction(() => {
     synchronizeRetentionTasks(db);
     return workspace(db, includeReports);
+  });
+}
+
+export function readStaffWorkspaceEntry(db: Store, staff: WorkspaceStaff): Workspace {
+  return db.transaction(() => {
+    const { role } = staff.brokerage;
+    if (role !== "Processor") synchronizeRetentionTasks(db, new Date(), role === "LO" ? { officerEmail: staff.email } : undefined);
+    const settings = readPlaybook(db);
+    return {
+      contacts: [], followUpContacts: [], loans: [], submissions: [], contactActivity: [], tasks: [],
+      communicationDrafts: [], brokerageTemplates: readBrokerageTemplates(db),
+      pastClients: [], closingPlans: [], closingItems: [], closingProgress: [], returningClientLoans: [], loanProcessing: [],
+      realtorPortals: [], referralLeads: [], inboxLeads: [], leadRouting: null, callCampaigns: [], crmSegments: [],
+      campaignResponses: [], callCampaignMembers: [],
+      playbook: role === "Admin" ? settings : { ...settings, backupEmail: null, secondReview: null },
+      demoGuide: null, campaignRehearsal: null, managerReports: null, callReportFiles: null, mismoLoans: [], unlinkedReferrals: [],
+      applications: [], documentRequests: [], pricingRuns: [], feeWorksheets: [], publishedQuotes: [], sharedQuoteHistory: [],
+      mockUwmRates: [], mockCreditAusRuns: [], uwmAlerts: [], mockUwmChangesApplied: false, uwmSyncedAt: null,
+    };
   });
 }

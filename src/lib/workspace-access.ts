@@ -3,10 +3,13 @@ import type { Workspace } from "./model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
+import { canClaimSharedRealtor } from "./realtor-claim-model";
 
 export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): Workspace {
-  if (!staff || staff.brokerage.role === "Admin") return state;
-  const owned = new Set(state.loans.filter((loan) => loan.officerEmail === staff.email).map((loan) => loan.id));
+  if (!staff) return state.playbook.secondReview ? { ...state, playbook: { ...state.playbook, secondReview: null } } : state;
+  if (staff.brokerage.role === "Admin") return state;
+  const owned = new Set(staff.brokerage.role === "LO"
+    ? state.loans.filter((loan) => loan.officerEmail === staff.email).map((loan) => loan.id) : []);
   const processing = new Set(staff.brokerage.role === "Processor"
     ? state.loanProcessing.filter((item) => item.processorEmail === staff.email).map((item) => item.loanId) : []);
   const loans = state.loans.filter((loan) => owned.has(loan.id) || processing.has(loan.id));
@@ -15,6 +18,14 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
   if (staff.brokerage.role === "LO") {
     for (const contact of state.contacts) if (contact.addedBy === staff.email) contacts.add(contact.id);
   }
+  const assignedFollowUpContacts = new Set<string>();
+  const contactActivity = staff.brokerage.role === "LO" ? state.contactActivity.filter((item) => {
+    if (item.dueAt && item.followUpOwnerEmail === staff.email) {
+      assignedFollowUpContacts.add(item.contactId);
+      return true;
+    }
+    return item.officerEmail === staff.email && contacts.has(item.contactId);
+  }) : [];
   const scoped = <T extends { loanId: string }>(items: T[]) => items.filter((item) => loanIds.has(item.loanId));
   const referralLeads = state.referralLeads.filter((lead) => staff.brokerage.role === "LO" && lead.officerEmail === staff.email).map((lead) => {
     const matches = lead.matches.filter((match) => contacts.has(match.id));
@@ -25,14 +36,30 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
     const matches = lead.matches.filter((match) => contacts.has(match.id));
     return { ...lead, matches, restrictedMatch: matches.length !== lead.matches.length };
   });
+  const inboxIds = new Set(inboxLeads.map((lead) => lead.id));
+  const callCampaignMembers = staff.brokerage.role === "LO" ? state.callCampaignMembers.filter((member) =>
+    inboxIds.has(member.leadId) || (member.loanId && owned.has(member.loanId))) : [];
+  const campaignIds = new Set(callCampaignMembers.map((member) => member.campaignId));
+  const rehearsal = state.campaignRehearsal;
+  const rehearsalMember = callCampaignMembers.find((member) => member.campaignId === rehearsal?.campaignId && member.leadId === rehearsal?.leadId);
   return { ...state, loans, contacts: state.contacts.filter((contact) => contacts.has(contact.id)), realtorPortals: [],
-    referralLeads, inboxLeads, leadRouting: null, playbook: { ...state.playbook, backupEmail: null }, unlinkedReferrals: [], managerReports: null, callReportFiles: null,
+    followUpContacts: state.contacts.filter((contact) => assignedFollowUpContacts.has(contact.id) && !contacts.has(contact.id)),
+    contactActivity,
+    referralLeads, inboxLeads, leadRouting: null, realtorClaimPolicy: undefined,
+    sharedRealtorClaimEnabled: canClaimSharedRealtor(staff, state.realtorClaimPolicy),
+    playbook: { ...state.playbook, backupEmail: null, secondReview: null }, unlinkedReferrals: [], managerReports: null, callReportFiles: null,
+    crmSegments: [], campaignResponses: [], callCampaignMembers, callCampaigns: state.callCampaigns.filter((campaign) => campaignIds.has(campaign.id))
+      .map((campaign) => ({ ...campaign, routing: undefined })),
     demoGuide: staff.brokerage.role === "LO" && state.demoGuide?.officerEmail === staff.email ? state.demoGuide : null,
+    campaignRehearsal: rehearsal && rehearsalMember ?
+      { campaignId: rehearsal.campaignId, leadId: rehearsal.leadId, importedCount: rehearsal.importedCount,
+        ...(rehearsal.checkInActivityId && owned.has(rehearsalMember.loanId ?? "") ? { checkInActivityId: rehearsal.checkInActivityId } : {}) } : null,
     mismoLoans: state.mismoLoans.filter((id) => owned.has(id)),
-    submissions: scoped(state.submissions), activity: scoped(state.activity), tasks: state.tasks.filter((item) => owned.has(item.loanId)),
+    submissions: scoped(state.submissions), tasks: state.tasks.filter((item) => owned.has(item.loanId)),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),
     closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scoped(state.applications),
     closingProgress: scoped(state.closingProgress),
+    returningClientLoans: state.returningClientLoans.filter((item) => owned.has(item.fundedLoanId) && owned.has(item.loanId)),
     loanProcessing: scoped(state.loanProcessing),
     documentRequests: scoped(state.documentRequests), pricingRuns: scoped(state.pricingRuns), publishedQuotes: scoped(state.publishedQuotes),
     sharedQuoteHistory: scoped(state.sharedQuoteHistory),
@@ -46,7 +73,7 @@ export function loanAccess(db: Store, staff: WorkspaceStaff, loanId: string) {
   const loan = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(loanId);
   if (!loan) return null;
   if (staff.brokerage.role === "Admin") return "admin";
-  if (loan.officerEmail === staff.email) return "owner";
+  if (staff.brokerage.role === "LO" && loan.officerEmail === staff.email) return "owner";
   if (staff.brokerage.role === "Processor" && db.prepare("SELECT 1 FROM loan_processing WHERE loanId = ? AND processorEmail = ?").get(loanId, staff.email)) {
     return "processor";
   }
@@ -64,7 +91,9 @@ export function workspaceAccessHistory(db: Store): AccessEvent[] {
 }
 
 export function assignLoan(db: Store, staff: WorkspaceStaff, target: { loanId: string; previousEmail: string | null; member: BrokerageMember }) {
-  if (staff.brokerage.role !== "Admin" || target.member.status !== "Active") return { error: "Select an active staff member in this brokerage." };
+  if (staff.brokerage.role !== "Admin" || target.member.status !== "Active" || target.member.role === "Processor") {
+    return { error: "Select an active loan officer or admin in this brokerage." };
+  }
   return db.transaction(() => {
     const { loanId, previousEmail, member } = target;
     const loan = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(loanId);

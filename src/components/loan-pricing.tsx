@@ -3,8 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
 import type { ApplicationDraft } from "@/lib/application-model";
+import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Loan, Workspace } from "@/lib/model";
-import { pricingPrograms, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario } from "@/lib/pricing-model";
+import { pricingPrograms, quoteMatchesApplication, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { UwmRateLock } from "./uwm-rate-lock";
@@ -50,6 +51,28 @@ function defaults(loan: Loan, draft: ApplicationDraft | null | undefined, run?: 
   };
 }
 
+function scenarioFromForm(form: ReturnType<typeof defaults>): PricingScenario {
+  const dscr = form.program === "DSCR";
+  const propertyExpenses = {
+    monthlyTaxes: Number(form.monthlyTaxes), monthlyInsurance: Number(form.monthlyInsurance), monthlyHoa: Number(form.monthlyHoa),
+    reservesMonths: Number(form.reservesMonths), refinanceType: form.purpose === "Refinance" ? form.refinanceType : null,
+  };
+  return {
+    purpose: form.purpose, loanAmount: Number(form.loanAmount), propertyValue: Number(form.propertyValue),
+    purchasePrice: form.purpose === "Purchase" && form.purchasePrice ? Number(form.purchasePrice) : null,
+    zip: form.zip, creditScore: Number(form.creditScore), propertyType: form.propertyType,
+    occupancy: dscr ? "Investment property" : form.occupancy,
+    firstTimeBuyer: !dscr && form.purpose === "Purchase" && form.firstTimeBuyer,
+    monthlyIncome: form.program === "Conventional" ? Number(form.monthlyIncome) : undefined,
+    nonAgency: dscr ? { ...propertyExpenses, program: "DSCR", monthlyRent: Number(form.monthlyRent) } : form.program === "Bank statement" ? {
+      ...propertyExpenses, program: "Bank statement", selfEmployed: true, statementMonths: form.statementMonths === "24" ? 24 : 12,
+      averageMonthlyDeposits: Number(form.averageMonthlyDeposits), monthlyDebts: Number(form.monthlyDebts),
+      source: form.statementType === "Business" ? { type: "Business", expensePercent: Number(form.expensePercent),
+        ownershipPercent: Number(form.ownershipPercent) } : { type: "Personal" },
+    } : undefined,
+  };
+}
+
 function SampleMetrics({ scenario, offer }: { scenario: PricingScenario; offer: PricingOffer }) {
   if (!scenario.nonAgency) return null;
   const metrics = sampleNonAgencyMetrics(scenario.nonAgency, offer.principalAndInterest);
@@ -81,8 +104,10 @@ function Terms({ offer }: { offer: PricingOffer }) {
   </dl>;
 }
 
-export function LoanPricing({ loan, state, busy, save }: {
-  loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: () => void) => Promise<void>;
+export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHandoff }: {
+  loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
+  useMockScore?: boolean;
+  lenderHandoff?: { label: string; blocker: string | null; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
   const runs = state.pricingRuns.filter((item) => item.loanId === loan.id);
   const current = runs[0];
@@ -90,10 +115,16 @@ export function LoanPricing({ loan, state, busy, save }: {
   const selected = saved?.offers.find((offer) => offer.id === saved.selectedId);
   const application = state.applications.find((item) => item.loanId === loan.id);
   const draft = application?.draft;
+  const credit = state.mockCreditAusRuns.find((run) => run.loanId === loan.id && run.service === "Credit");
+  const mockScore = credit?.result.status === "Report ready" ? String(credit.result.score) : "";
   const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
   const publishedRun = runs.find((run) => run.id === published?.runId);
   const sharedHistory = state.sharedQuoteHistory.filter((quote) => quote.loanId === loan.id);
-  const [form, setForm] = useState(() => defaults(loan, draft, current));
+  const [form, setForm] = useState(() => {
+    const initial = defaults(loan, draft, current);
+    return { ...initial, creditScore: useMockScore && mockScore ? mockScore : initial.creditScore || mockScore };
+  });
+  const [formRevision, setFormRevision] = useState(current ? current.applicationRevision : application?.revision ?? null);
   const [preview, setPreview] = useState(false);
   const [pricing, setPricing] = useState(false);
   const [alternativeKeys, setAlternativeKeys] = useState(() =>
@@ -101,9 +132,21 @@ export function LoanPricing({ loan, state, busy, save }: {
   const change = (name: keyof typeof form, value: string | boolean) => setForm((last) => ({ ...last, [name]: value }));
   const dscr = form.program === "DSCR";
   const bank = form.program === "Bank statement";
-  const applicationChanged = (run: PricingRun | undefined) => run?.applicationRevision != null &&
-    (run.applicationRevision !== application?.revision || !!application.correctionNote);
-  const savedAssumptionsChanged = !!saved && JSON.stringify(form) !== JSON.stringify(defaults(loan, draft, saved));
+  const isCurrent = (run: PricingRun | undefined) => !!run && quoteMatchesApplication(run.applicationRevision, application);
+  const savedNeedsReprice = !!saved && !isCurrent(saved);
+  const handoffAction = lenderHandoff && saved?.mode === "mock" && selected && !savedNeedsReprice &&
+    (lenderHandoff.blocker || (application?.submittedAt && application.reviewedAt)) && <>
+      {lenderHandoff.blocker && <p className="quote-disclaimer">{lenderHandoff.blocker}</p>}
+      <Button size="sm" variant={lenderHandoff.blocker ? "outline" : "default"} disabled={busy}
+        onClick={() => lenderHandoff.proceed({ runId: saved.id, offerId: selected.id })}>{lenderHandoff.label}</Button>
+    </>;
+  const publishedNeedsReprice = !!published && (!application?.submittedAt || !isCurrent(publishedRun) ||
+    !!published.presentation?.alternatives.some((item) => !isCurrent(runs.find((run) => run.id === item.runId))));
+  const formOutdated = formRevision !== (application?.revision ?? null);
+  const scenario = scenarioFromForm(form);
+  const savedAssumptionsChanged = !!saved && (
+    JSON.stringify(scenario) !== JSON.stringify(scenarioFromForm(defaults(loan, draft, saved))) || (bank && !form.selfEmployed)
+  );
   const publishedAssumptionsChanged = !!publishedRun && !!current && current.quotedAt > publishedRun.quotedAt &&
     JSON.stringify(current.scenario) !== JSON.stringify(publishedRun.scenario);
   const comparison = runs.filter((run) => run.selectedId);
@@ -112,7 +155,7 @@ export function LoanPricing({ loan, state, busy, save }: {
     return { key: `${run.id}/${offer.id}`, run, offer, worksheet, view: quoteOption(run, offer, worksheet) };
   }
   const primary = saved?.mode === "mock" && selected ? option(saved, selected) : undefined;
-  const comparable = primary ? runs.flatMap((run) => run.mode === "mock" && run.scenario.purpose === primary.run.scenario.purpose
+  const comparable = primary ? runs.flatMap((run) => run.mode === "mock" && isCurrent(run) && run.scenario.purpose === primary.run.scenario.purpose
     ? run.offers.filter((offer) => (run.id === primary.run.id && offer.id !== primary.offer.id) ||
       (run.id !== primary.run.id && offer.id === run.selectedId)).map((offer) => option(run, offer)) : []) : [];
   const alternatives = comparable.filter((item) => alternativeKeys.includes(item.key)).slice(0, 2);
@@ -122,32 +165,15 @@ export function LoanPricing({ loan, state, busy, save }: {
 
   async function price(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (bank && !form.selfEmployed) return;
-    const propertyExpenses = {
-      monthlyTaxes: Number(form.monthlyTaxes), monthlyInsurance: Number(form.monthlyInsurance), monthlyHoa: Number(form.monthlyHoa),
-      reservesMonths: Number(form.reservesMonths), refinanceType: form.purpose === "Refinance" ? form.refinanceType : null,
-    };
-    const scenario: PricingScenario = {
-      purpose: form.purpose, loanAmount: Number(form.loanAmount), propertyValue: Number(form.propertyValue),
-      purchasePrice: form.purpose === "Purchase" && form.purchasePrice ? Number(form.purchasePrice) : null,
-      zip: form.zip, creditScore: Number(form.creditScore), propertyType: form.propertyType,
-      occupancy: dscr ? "Investment property" : form.occupancy,
-      firstTimeBuyer: !dscr && form.purpose === "Purchase" && form.firstTimeBuyer,
-      monthlyIncome: form.program === "Conventional" ? Number(form.monthlyIncome) : undefined,
-      nonAgency: dscr ? { ...propertyExpenses, program: "DSCR", monthlyRent: Number(form.monthlyRent) } : bank ? {
-        ...propertyExpenses, program: "Bank statement", selfEmployed: true, statementMonths: form.statementMonths === "24" ? 24 : 12,
-        averageMonthlyDeposits: Number(form.averageMonthlyDeposits), monthlyDebts: Number(form.monthlyDebts),
-        source: form.statementType === "Business" ? { type: "Business", expensePercent: Number(form.expensePercent),
-          ownershipPercent: Number(form.ownershipPercent) } : { type: "Personal" },
-      } : undefined,
-    };
+    if (formOutdated || (bank && !form.selfEmployed)) return;
     setPricing(true);
     setPreview(false);
-    try { await save({ type: "runPricing", loanId: loan.id, scenario }); }
+    try { await save({ type: "runPricing", loanId: loan.id, scenario, applicationRevision: formRevision }); }
     finally { setPricing(false); }
   }
 
   function loadSample() {
+    setFormRevision(application?.revision ?? null);
     setForm({
       ...defaults(loan, draft), loanAmount: "360000", propertyValue: "450000", purchasePrice: form.purpose === "Purchase" ? "450000" : "",
       program: form.program, purpose: form.purpose, zip: "48009", creditScore: "760", monthlyIncome: "9500",
@@ -156,7 +182,17 @@ export function LoanPricing({ loan, state, busy, save }: {
     });
   }
 
-  return <div className="pricing-panel">
+  function loadCurrentApplication() {
+    void save({ type: "refreshWorkspace" }, ({ state: refreshed }) => {
+      const latest = refreshed.applications.find((item) => item.loanId === loan.id);
+      const inputs = defaults(refreshed.loans.find((item) => item.id === loan.id) ?? loan, latest?.draft);
+      const { purpose, loanAmount, propertyValue, purchasePrice, zip, monthlyIncome, occupancy } = inputs;
+      setForm((previous) => ({ ...previous, purpose, loanAmount, propertyValue, purchasePrice, zip, monthlyIncome, occupancy }));
+      setFormRevision(latest?.revision ?? null);
+    });
+  }
+
+  return <div className="pricing-panel" id="pricing-workbench" tabIndex={-1}>
     <header className="pricing-heading">
       <div><h3><Calculator size={18} /> UWM Easy Qualifier</h3><p>Conventional, DSCR, and bank statement scenarios.</p></div>
       <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : "Mock pricing"}</span>
@@ -180,6 +216,10 @@ export function LoanPricing({ loan, state, busy, save }: {
           onChange={(event) => change("occupancy", event.target.value)}>{occupancies.map((value) => <option key={value}>{value}</option>)}</select></label>
         <label className="field"><span>Property type</span><select value={form.propertyType} onChange={(event) => change("propertyType", event.target.value)}>{propertyTypes.map((value) => <option key={value}>{value}</option>)}</select></label>
       </div>
+      {mockScore && <div className="pricing-actions">
+        {form.creditScore === mockScore ? <span className="muted">Matches current mock credit report · {mockScore}</span> :
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => change("creditScore", mockScore)}>Use mock credit score {mockScore}</Button>}
+      </div>}
       {form.purpose === "Purchase" && !dscr && <label className="demo-confirm"><input type="checkbox" checked={form.firstTimeBuyer} onChange={(event) => change("firstTimeBuyer", event.target.checked)} /> First-time homebuyer</label>}
       {(dscr || bank) && <fieldset className="pricing-program-fields">
         <legend>{dscr ? "Rental income and expenses" : "Bank statement income and expenses"}</legend>
@@ -208,8 +248,11 @@ export function LoanPricing({ loan, state, busy, save }: {
           <NumberField label="Months of reserves" max={120} step={1} value={form.reservesMonths} change={(value) => change("reservesMonths", value)} />
         </div>
       </fieldset>}
-      <div className="pricing-actions"><Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>
-        <Button type="submit" disabled={busy}><Calculator /> {pricing ? "Pricing…" : "Run pricing"}</Button></div>
+      {formOutdated && <p className="quote-disclaimer">Load the current 1003 inputs before running pricing again.</p>}
+      <div className="pricing-actions">
+        <Button size="sm" variant="outline" disabled={busy} onClick={loadCurrentApplication}>{application ? "Load current 1003 inputs" : "Reload loan inputs"}</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>
+        <Button type="submit" disabled={busy || formOutdated}><Calculator /> {pricing ? "Pricing…" : "Run pricing"}</Button></div>
     </form>
     {saved && selected && <section className="quote-saved">
       <div className="section-heading"><h3><BadgeCheck size={17} /> Saved quote</h3>
@@ -217,7 +260,11 @@ export function LoanPricing({ loan, state, busy, save }: {
       </div>
       <p>{selected.product} · {percentage(selected.rate)} · {cash(selected.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">{saved.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced {dateTime(saved.quotedAt)} ET</p>
-      {(savedAssumptionsChanged || applicationChanged(saved)) && <p className="quote-disclaimer">The application or pricing inputs have changed since this quote. Review the assumptions and reprice as needed.</p>}
+      {saved.id !== current?.id && handoffAction}
+      {savedNeedsReprice ? <p className="quote-disclaimer">{application?.correctionNote
+        ? "Wait for the borrower to submit the corrected 1003 before sharing or locking a quote."
+        : "This quote needs to be repriced from the current 1003 before sharing or locking."}</p>
+        : savedAssumptionsChanged && <p className="quote-disclaimer">The current pricing form differs from this saved quote. Review the assumptions before sharing.</p>}
       {preview && <div className="quote-preview">
         <p className="eyebrow">{saved.mode === "mock" ? "SAMPLE BORROWER QUOTE" : "UWM STAGE QUOTE"}</p>
         <strong>{selected.product}</strong>
@@ -247,7 +294,7 @@ export function LoanPricing({ loan, state, busy, save }: {
         </> : <><Terms offer={selected} /><SampleMetrics scenario={saved.scenario} offer={selected} /></>}
         {saved.notices.map((notice, index) => <p key={index} className="quote-disclaimer">{notice}</p>)}
         {saved.mode === "mock" && (application?.submittedAt ? <div className="pricing-actions">
-          <Button size="sm" disabled={busy || alreadyShared} onClick={() => void save({
+          <Button size="sm" disabled={busy || alreadyShared || savedNeedsReprice} onClick={() => void save({
             type: "publishQuote", loanId: loan.id, runId: saved.id, offerId: selected.id, feeRevision: primary?.worksheet?.revision ?? 0,
             alternatives: alternatives.map((item) => ({ runId: item.run.id, offerId: item.offer.id, feeRevision: item.worksheet?.revision ?? 0 })),
           })}>
@@ -257,14 +304,15 @@ export function LoanPricing({ loan, state, busy, save }: {
       </div>}
     </section>}
     <UwmRateLock loanId={loan.id} submissions={state.submissions.filter((item) => item.loanId === loan.id)}
-      rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} busy={busy} save={save} />
+      rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} needsReprice={savedNeedsReprice} busy={busy} save={save} />
     {published && <section className="quote-saved" aria-label="Shared borrower quote">
       <div className="section-heading"><h3>Shared with borrower</h3>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>
       <p>{published.product} · {percentage(published.rate)} · {cash(published.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">Sample quote · Shared {dateTime(published.publishedAt)} ET</p>
       {published.presentation && <details className="document-form"><summary>View exact shared quote</summary><SampleQuotePresentation quote={published.presentation} /></details>}
-      {(publishedAssumptionsChanged || applicationChanged(publishedRun)) && <p className="quote-disclaimer">The borrower still sees these terms. Pricing assumptions or the application have changed.</p>}
+      {publishedNeedsReprice ? <p className="quote-disclaimer">Hidden from the borrower until you share a quote from the current 1003.</p>
+        : publishedAssumptionsChanged && <p className="quote-disclaimer">The borrower still sees these terms. Review them against your latest pricing assumptions.</p>}
     </section>}
     {sharedHistory.length > 0 && <details className="quote-saved"><summary>Previously shared quotes</summary>
       <ul className="loan-task-list">{sharedHistory.map((quote, index) => <li key={`${quote.runId}:${quote.offerId}:${quote.publishedAt}:${index}`}>
@@ -288,7 +336,7 @@ export function LoanPricing({ loan, state, busy, save }: {
                 `${scenario.nonAgency.statementMonths} months · ${scenario.nonAgency.source.type.toLowerCase()} · ${cash(scenario.nonAgency.averageMonthlyDeposits)} monthly deposits`}</small>}
             </td>
             <td>{offer.product}<Terms offer={offer} /><SampleMetrics scenario={scenario} offer={offer} /></td>
-            <td>{saved?.id === run.id ? "Chosen quote" : <Button size="sm" variant="outline" disabled={busy}
+            <td>{!isCurrent(run) ? "Needs repricing" : saved?.id === run.id ? "Chosen quote" : <Button size="sm" variant="outline" disabled={busy}
               onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: run.id, offerId: offer.id })}>Choose quote</Button>}</td>
           </tr>;
         })}</tbody>
@@ -302,10 +350,11 @@ export function LoanPricing({ loan, state, busy, save }: {
       {current.offers.map((offer) => {
         const isSaved = saved?.id === current.id && saved.selectedId === offer.id;
         return <article className="pricing-option" key={offer.id}>
-          <div className="section-heading"><h3>{offer.product}</h3><Button size="sm" variant="outline" disabled={busy || isSaved}
+          <div className="section-heading"><h3>{offer.product}</h3><Button size="sm" variant="outline" disabled={busy || isSaved || !isCurrent(current)}
             onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: current.id, offerId: offer.id })}>{isSaved ? "Saved" : "Save quote"}</Button></div>
           <Terms offer={offer} />
           <SampleMetrics scenario={current.scenario} offer={offer} />
+          {isSaved && handoffAction}
         </article>;
       })}
       <details className="pricing-disclosures"><summary>Pricing disclosures</summary>

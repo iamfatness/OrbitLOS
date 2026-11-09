@@ -4,52 +4,81 @@ import { availableProcessingActions, type LoanProcessing, type ProcessingAction,
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
+import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
+import { approvedSecondReview, handoffCheckpointError } from "./application-review-checkpoint";
+
+export const activeProcessingLoan = "loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')";
+export const processingReviewReady = "coalesce(app.correctionNote, '') = '' AND (app.submittedAt IS NULL OR app.reviewedAt IS NOT NULL)";
+export function processingAcceptanceReady(requireSecondReview: boolean) {
+  return requireSecondReview ? `${processingReviewReady} AND nullif(app.submittedAt, '') IS NOT NULL
+    AND nullif(app.reviewedAt, '') IS NOT NULL AND ${approvedSecondReview}` : processingReviewReady;
+}
+export const unassignedProcessingLoan = `processing.processorEmail IS NULL AND coalesce(processing.status, 'Unassigned') = 'Unassigned'
+  AND (app.reviewedAt IS NOT NULL OR loan.stage IN ('Processing', 'Underwriting', 'Clear to Close'))`;
 
 type Result = { message: string } | { error: string };
+type AssignmentResult = { message: string; processing?: LoanProcessing } | { error: string };
 const nextStatus: Record<ProcessingAction, ProcessingStatus> = {
   "Send to processing": "Ready for processing", "Accept handoff": "In processing", "Return to LO": "Returned to LO", "Complete handoff": "Complete",
 };
 
-import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
-
-export function assignProcessor(db: Store, staff: WorkspaceStaff, input: { loanId: string; revision: number; member: BrokerageMember | null }): Result {
-  if (staff.brokerage.role !== "Admin" || (input.member && (input.member.role !== "Processor" || input.member.status !== "Active"))) {
+export function assignProcessor(db: Store, staff: WorkspaceStaff,
+  input: { loanId: string; revision: number; member: BrokerageMember | null; preserveHandoff?: boolean; requireUnassigned?: boolean }): AssignmentResult {
+  if (staff.brokerage.role !== "Admin" || (input.requireUnassigned && !input.member) ||
+    (input.member && (input.member.role !== "Processor" || input.member.status !== "Active"))) {
     return { error: "Select an active processor in this brokerage." };
   }
-  const { loanId, member, revision } = input;
+  const { loanId, member, revision, requireUnassigned } = input;
   return db.transaction(() => {
     const loan = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(loanId);
     if (!loan) return { error: "This loan no longer exists." };
     if (member?.email === loan.officerEmail) return { error: "Assign a different staff member as the shared processor." };
-    const current = db.prepare("SELECT processorEmail, status, note, updatedAt, revision FROM loan_processing WHERE loanId = ?").get(loanId);
-    if ((current?.processorEmail ?? null) === (member?.email ?? null)) return { message: "Processor assignment is up to date." };
+    const current = db.prepare("SELECT * FROM loan_processing WHERE loanId = ?").get(loanId) as unknown as LoanProcessing | undefined;
+    if ((current?.processorEmail ?? null) === (member?.email ?? null)) {
+      return { message: "Processor assignment is up to date.", ...(requireUnassigned && current ? { processing: { ...current } } : {}) };
+    }
+    if (requireUnassigned && ((current?.revision ?? 0) !== revision || !db.prepare(`SELECT 1 FROM loans loan
+      LEFT JOIN loan_processing processing ON processing.loanId = loan.id LEFT JOIN applications app ON app.loanId = loan.id
+      WHERE loan.id = ? AND ${activeProcessingLoan} AND ${unassignedProcessingLoan} AND ${processingReviewReady}`).get(loanId))) {
+      return { error: "This file has changed or left the unassigned queue. Review the refreshed list." };
+    }
     if ((current?.revision ?? 0) !== revision) return { error: "This processor assignment changed. Refresh before saving." };
     const now = new Date().toISOString();
     const before = loanAuditSnapshot(db, loanId);
-    const pending = member && current?.status === "Ready for processing";
+    const continuing = !!member && current && (input.preserveHandoff || current.status === "Ready for processing" ||
+      current.status === "In processing" || current.status === "Returned to LO");
+    const processing: LoanProcessing = { loanId, processorEmail: member?.email ?? null, processorName: member?.name.slice(0, 160) ?? "",
+      status: continuing ? current.status : member ? "Assigned" : "Unassigned", note: continuing ? current.note : "",
+      updatedAt: continuing ? current.updatedAt : now, revision: revision + 1 };
     db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
       VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (loanId) DO UPDATE SET processorEmail = excluded.processorEmail,
       processorName = excluded.processorName, status = excluded.status, note = excluded.note, updatedAt = excluded.updatedAt, revision = revision + 1`)
-      .run(loanId, member?.email ?? null, member?.name.slice(0, 160) ?? "", pending ? "Ready for processing" : member ? "Assigned" : "Unassigned",
-        pending ? current.note ?? "" : "", pending ? current.updatedAt ?? now : now);
+      .run(loanId, processing.processorEmail, processing.processorName, processing.status, processing.note, processing.updatedAt);
     const message = member ? `Processing access granted to ${member.name}.` : "Shared processor access removed.";
     db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), loanId, message, now);
     const action = member ? "Assigned shared processor" : "Removed shared processor";
     accessEvent(db, staff, action, loanId, now);
     recordLoanAudit(db, loanId, staff, action, now, before);
-    return { message };
+    return { message, ...(requireUnassigned ? { processing } : {}) };
   });
 }
 
 export function updateProcessing(db: Store, staff: WorkspaceStaff | null, data: z.infer<typeof updateProcessingInput>, now: string): Result {
-  const row = db.prepare("SELECT * FROM loan_processing WHERE loanId = ? AND processorEmail IS NOT NULL").get(data.loanId) as unknown as LoanProcessing | undefined;
+  const row = db.prepare(`SELECT processing.*, loan.disposition FROM loan_processing processing JOIN loans loan ON loan.id = processing.loanId
+    WHERE processing.loanId = ? AND processing.processorEmail IS NOT NULL`).get(data.loanId) as unknown as
+    (LoanProcessing & { disposition: string }) | undefined;
   if (!row || row.revision !== data.revision) return { error: "The processing handoff changed. Refresh the loan before continuing." };
   const role = staff?.brokerage.role ?? "Admin";
   if (role === "Processor" && row.processorEmail !== staff?.email) return { error: "This handoff belongs to another processor." };
+  if (row.disposition !== "Active") return { error: "Reopen the loan before changing its processing handoff." };
   if (!availableProcessingActions(row.status, role).includes(data.action)) return { error: "This handoff action is unavailable at the current step." };
-  if ((data.action === "Send to processing" || data.action === "Accept handoff") && db.prepare(`SELECT 1 FROM applications WHERE loanId = ?
-    AND ((submittedAt IS NOT NULL AND reviewedAt IS NULL) OR correctionNote <> '')`).get(data.loanId)) {
-    return { error: "Review the current 1003 before handing off this file." };
+  if (data.action === "Send to processing" || data.action === "Accept handoff") {
+    const checkpoint = handoffCheckpointError(db, data.loanId);
+    if (checkpoint) return { error: checkpoint };
+    if (db.prepare(`SELECT 1 FROM applications WHERE loanId = ?
+      AND ((submittedAt IS NOT NULL AND reviewedAt IS NULL) OR correctionNote <> '')`).get(data.loanId)) {
+      return { error: "Review the current 1003 before handing off this file." };
+    }
   }
   const status = nextStatus[data.action];
   db.prepare("UPDATE loan_processing SET status = ?, note = ?, updatedAt = ?, revision = revision + 1 WHERE loanId = ?")

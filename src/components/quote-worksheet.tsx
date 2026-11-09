@@ -111,13 +111,16 @@ export function SampleQuotePresentation({ quote }: { quote: QuotePresentation })
     <p className="eyebrow">Fictional sample pricing · For discussion</p>
     {options.length === 1 ? <dl className="quote-terms">{comparisons.slice(0, 4).map((item) =>
       <div key={item.label}><dt>{item.label}</dt><dd>{item.display(quote.primary)}</dd></div>)}</dl> :
-      <div className="table-scroll"><table className="data-table">
+      <>
+        <p className="quote-comparison-hint muted">Scroll across to compare all options.</p>
+        <div className="table-scroll quote-comparison-scroll" role="region" aria-label="Sample quote options" tabIndex={0}><table className="data-table">
         <caption className="sr-only">Side-by-side sample quote comparison</caption>
         <thead><tr><th scope="col">Terms</th>{options.map((option, index) =>
           <th scope="col" key={index}>{index === 0 ? "Selected" : `Alternative ${index}`}<small>{option.product}</small></th>)}</tr></thead>
         <tbody>{comparisons.map((item) => <tr key={item.label}><th scope="row">{item.label}</th>
           {options.map((option, index) => <td key={index}>{item.display(option)}</td>)}</tr>)}</tbody>
-      </table></div>}
+        </table></div>
+      </>}
     {options.map((option, index) => <details className="document-form" key={index} open={options.length === 1}>
       <summary>Itemized fees · {option.product} at {option.rate.toFixed(3)}%</summary>
       <ItemizedFees option={option} />

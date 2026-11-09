@@ -1,65 +1,24 @@
+/* eslint-disable @next/next/no-img-element -- Static fictional-data product captures. */
 import type { Metadata } from "next";
-import { ArrowRight } from "lucide-react";
-
-export const metadata: Metadata = {
-  title: "Product · OrbitLOS",
-  description: "See the OrbitLOS workflow from realtor referral and borrower 1003 through processing, closing, and past-client follow-up.",
-};
-
-const workflow = [
-  { title: "Bring in the lead", copy: "Route website quote requests and realtor referrals into a shared inbox. Log outreach and work follow-ups before converting a lead into a prefilled 1003 with its history attached." },
-  { title: "Collect and review the 1003", copy: "Share an application the borrower can save and resume. Request corrections, compare versions, and see the application and document checklist together before handing off the file." },
-  { title: "Price and compare sample quotes", copy: "Compare sample conventional, DSCR, and bank statement options. Prepare itemized fees and estimated cash to close, then share a side-by-side view with the borrower." },
-  { title: "Work conditions and prepare for closing", copy: "The loan officer and processor can work the same file and see who has the next step. Track document delivery and lender clearance separately, and record signing, closing, and funding." },
-  { title: "Keep the relationship after closing", copy: "Use a shared contact history to start a repeat loan. See which referrals reached funding, log outreach, and plan follow-ups using closing anniversaries and rate-watch targets." },
+import { ArrowRight, ChartNoAxesCombined, ListChecks, MessagesSquare, CalendarDays, Search, ShieldCheck, Wallet, Workflow, ArrowDownUp } from "lucide-react";
+import { DemoCTA } from "../demo-cta";
+import { BuyerFAQ } from "../buyer-faq";
+export const metadata: Metadata = { title: "Product · OrbitLOS", alternates: { canonical: "https://orbitlos.com/product" }, description: "Explore mortgage CRM, borrower applications, processing, dashboards, financials, and daily team workflows in OrbitLOS." };
+const tools = [
+  {icon:MessagesSquare,title:"Shared conversations",text:"Open shared conversations and keep team notes with the relationship. Page through borrower and realtor milestone drafts, preview the current recipient, and track which messages were copied."},
+  {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
+  {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},
+  {icon:ShieldCheck,title:"Reviews and exceptions",text:"Page through callbacks, document deadlines, mock lender alerts, and completed work. Managers can open overdue or unassigned work directly, then reassign it without losing the original deadline."},
+  {icon:Workflow,title:"Consistent follow-up",text:"See who received each imported lead and move from a connected call into a prefilled 1003. Recover interrupted callbacks and schedule mock document reminders."},
+  {icon:ArrowDownUp,title:"Pipeline migration",text:"Map owners and carry callback history. Open the current lead, loan, or task evidence from an import receipt. Download a cutover handoff with open checks and reviewer attribution."},
 ];
-
-export default function Product() {
-  return (
-    <>
-      <section className="marketing-interior">
-        <div className="marketing-wrap">
-          <p className="marketing-kicker"><span /> Product</p>
-          <h1>One workspace from <em>referral to repeat business.</em></h1>
-          <p>Work a loan from the first conversation through closing. Keep the borrower, realtor, team, and lender activity connected to the same file.</p>
-        </div>
-      </section>
-      <section className="marketing-section marketing-wrap marketing-story">
-        <div>
-          <p className="marketing-kicker">Review before sharing</p>
-          <h2>Start with the facts already in the file.</h2>
-        </div>
-        <p>Prepare a condition response from the lender request and document review, or draft a realtor update from the current milestone. Edit the message before copying it. Orbit also shows the observed rate and target behind a past-client follow-up.</p>
-      </section>
-      <section className="marketing-section marketing-wrap marketing-story">
-        <div>
-          <p className="marketing-kicker">From lead to closing</p>
-          <h2>How a loan moves through Orbit</h2>
-          <p>Use the board to see where loans stand, switch to the list to filter your pipeline, or work directly from your task queue.</p>
-        </div>
-        <ol className="marketing-steps">
-          {workflow.map(({ title, copy }, index) => (
-            <li key={title}><span aria-hidden="true">0{index + 1}</span><div><h3>{title}</h3><p>{copy}</p></div></li>
-          ))}
-        </ol>
-      </section>
-      <section className="marketing-section marketing-wrap marketing-story">
-        <div>
-          <p className="marketing-kicker">Brokerage management</p>
-          <h2>Bring over your pipeline and see where it stands.</h2>
-        </div>
-        <p>In the fictional pilot, admins can map a CRM export, review matching contacts, and bring open leads, owners, notes, and tasks into Orbit. Managers can save reports on lead response, 1003 conversion, and projected and recorded funding, with links to the files behind the numbers.</p>
-      </section>
-      <section className="marketing-section marketing-wrap marketing-banner-wrap">
-        <div className="marketing-banner">
-          <div>
-            <p className="marketing-kicker">Demo workspace</p>
-            <h2>Walk through a sample loan.</h2>
-            <p>Invited staff can walk through a fictional loan, from referral and 1003 through sample pricing, mock UWM conditions, and borrower and realtor follow-up.</p>
-          </div>
-          <a className="marketing-button" href="/login">Staff login <ArrowRight size={17} aria-hidden="true" /></a>
-        </div>
-      </section>
-    </>
-  );
-}
+export default function Product(){return <>
+  <section className="marketing-interior"><div className="marketing-wrap"><p className="marketing-kicker">The Orbit workspace</p><h1>Run the loan.<br /><em>Keep the relationship.</em></h1><p>A connected working day for owners, loan officers, and processors.</p><div className="marketing-actions"><a href="/demo" className="marketing-button">See it in action <ArrowRight size={18} aria-hidden="true" /></a></div></div></section>
+  <nav className="marketing-section-nav marketing-wrap" aria-label="Product sections"><a href="#relationships">Relationships</a><a href="#borrowers">Borrowers</a><a href="#loan-workflow">Loan workflow</a><a href="#brokerage">Dashboards</a><a href="#daily-work">Daily work</a><a href="#faq">FAQ</a></nav>
+  <section className="marketing-section marketing-wrap marketing-story" id="relationships"><div><p className="marketing-kicker">01 / Build the relationship</p><h2>Every conversation<br />has a next step.</h2></div><div><p>Capture inquiries and realtor referrals, assign follow-ups, and carry the borrower’s details into the loan application.</p><ul className="orbit-check-list"><li>Round-robin routing refills open slots when leads convert, go on hold, are archived, or opt out. Matching opt-outs trigger routing checks only in affected campaigns.</li><li>Page through open, assigned, overdue, and held leads. Claim a shared lead and open its work history from Lead Inbox.</li><li>Due and upcoming callbacks across campaigns, with configurable retry times</li><li>Open, switch, or refresh campaigns to see current owners, callbacks, and loan milestones</li><li>Manager reporting and an overdue queue for promised callbacks</li><li>Review campaign CSV duplicates before import, then assign leads in bulk and see the affected queue update in place</li><li>Search existing borrowers and realtors directly from New Lead and Edit Loan</li><li>Browse contact history and linked loans, preview duplicate contacts before CSV import, and export the contacts your role can access</li><li>Search realtor partners and open the referrals, submitted 1003s, and funded loans behind each conversion count.</li><li>Search and page through past clients, review anniversary and rate-watch follow-ups, and open a linked repeat 1003.</li></ul></div></section>
+  <section className="marketing-band" id="borrowers"><div className="marketing-section marketing-wrap marketing-proof"><div><p className="marketing-kicker">02 / Welcome the borrower</p><h2>A clear path<br />through the paperwork.</h2><p>Borrowers can save their application, then check milestones, document requests, and shared quotes after submitting. If the loan team requests a correction, the same link opens the saved answers.</p><p>Realtors see their latest milestones and can browse earlier referrals. Private notes stay with the loan team.</p></div><figure className="marketing-screen"><img src="/marketing/borrower-application.png" width="1265" height="712" loading="lazy" alt="Fictional borrower application showing the current Orbit form design."/><figcaption>Borrower application · Sample records <a href="/marketing/borrower-application.png">View full size</a></figcaption></figure></div></section>
+  <section className="marketing-section marketing-wrap" id="loan-workflow"><p className="marketing-kicker">03 / Move the file forward</p><h2>The details behind<br />a confident handoff.</h2><div className="marketing-workflow-gallery"><article><h3>Compare the options.</h3><p>Review sample quotes, itemized fees, and estimated cash to close. Keep the loan details behind each saved quote.</p><figure className="marketing-screen"><img src="/marketing/quote-comparison.png" width="1085" height="651" loading="lazy" alt="Side-by-side fictional mortgage quote options with fees and estimated cash to close."/><figcaption>Illustrative quote comparison · Sample pricing <a href="/marketing/quote-comparison.png">View full size</a></figcaption></figure></article><article><h3>Give every condition an owner.</h3><p>Manage the loan officer and processor from the selected file. Replacing a processor on an active handoff keeps its notes and deadline. Follow the file through mock condition clearance.</p><figure className="marketing-screen"><img src="/marketing/conditions.png" width="1280" height="950" loading="lazy" alt="Loan condition review and borrower document requests in the Orbit fictional pilot."/><figcaption>Conditions · Simulated lender activity <a href="/marketing/conditions.png">View full size</a></figcaption></figure></article></div></section>
+  <section className="orbit-management" id="brokerage"><div className="marketing-section marketing-wrap"><p className="marketing-kicker">04 / Run the brokerage</p><h2>See the number.<br /><em>Open the story behind it.</em></h2><p>Loan officers and admins start in Today. Processors open their assigned queue.</p><div className="orbit-role-grid">{[{icon:ChartNoAxesCombined,title:"Owner dashboards",text:"Track funding, lead conversion, and team workload. Browse paged pipeline boards and lists with totals across matching loans."},{icon:ListChecks,title:"Team priorities",text:"Require second 1003 approval before processing or mock UWM submission. See which files need a reviewer, a decision, or resubmission in the manager queue."},{icon:Wallet,title:"Financial visibility",text:"Track compensation, receipts, expenses, and estimated margin alongside your loans."}].map(({icon:Icon,title,text})=><article key={title}><Icon size={26} aria-hidden="true"/><h3>{title}</h3><p>{text}</p></article>)}</div></div></section>
+  <section className="marketing-section marketing-wrap" id="daily-work"><p className="marketing-kicker">The rest of the working day</p><h2>Context travels<br />with the work.</h2><div className="orbit-tool-grid">{tools.map(({icon:Icon,title,text})=><article key={title}><Icon size={24} aria-hidden="true"/><h3>{title}</h3><p>{text}</p></article>)}</div></section>
+  <BuyerFAQ/><DemoCTA/>
+</>;}

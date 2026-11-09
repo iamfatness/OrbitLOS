@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Loan, PastClientProfile } from "./model";
 import type { Store } from "./store";
+import { blockedOutreachKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 
 const rateInput = z.string().trim().refine((value) => value === "" || /^(?:\d{1,2}(?:\.\d{1,3})?|\.\d{1,3})$/.test(value),
   "Enter a rate with up to three decimal places.");
@@ -14,10 +15,23 @@ export const retentionInput = z.object({
   }
 });
 
+const easternDateParts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+
 export function easternDate(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const parts = easternDateParts.formatToParts(now);
   const part = (type: string) => parts.find((item) => item.type === type)?.value;
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+export function easternDayStart(day: string) {
+  const start = new Date(`${day}T04:00:00.000Z`);
+  if (easternDate(start) !== day) start.setUTCHours(5);
+  return start.toISOString();
+}
+
+export function earliestCallbackDate(now = new Date()) {
+  const today = easternDate(now);
+  return now.toISOString() < `${today}T17:00:00.000Z` ? today : easternDate(new Date(now.getTime() + 86_400_000));
 }
 
 export function pastClientLoan(loan: Pick<Loan, "stage">) {
@@ -47,22 +61,29 @@ export function rateTargetReached(profile: Pick<PastClientProfile, "watchEnabled
   return profile.watchEnabled && profile.targetRate !== null && profile.observedRate !== null && profile.observedRate <= profile.targetRate;
 }
 
-export function rateFollowUpContext(profile: PastClientProfile | undefined) {
+export function rateFollowUpContext(profile: Pick<PastClientProfile, "watchEnabled" | "targetRate" | "observedRate" | "currentRate"> | undefined) {
   if (!profile || !rateTargetReached(profile)) return undefined;
   return `Observed ${profile.observedRate!.toFixed(3)}% · Target ${profile.targetRate!.toFixed(3)}%${profile.currentRate === null ? "" : ` · Current ${profile.currentRate.toFixed(3)}%`}`;
 }
 
-export function synchronizeRetentionTasks(db: Store, now = new Date()) {
+export function synchronizeRetentionTasks(db: Store, now = new Date(), scope: { officerEmail?: string; loanId?: string } = {}) {
   const today = easternDate(now);
-  const profiles = db.prepare(`SELECT profile.*, loans.stage FROM past_client_profiles profile JOIN loans ON loans.id = profile.loanId`).all();
+  const scopedId = scope.loanId ?? scope.officerEmail;
+  const profiles = db.prepare(`SELECT profile.*, loans.stage, loans.contactId, contact.email, contact.phone
+    FROM past_client_profiles profile JOIN loans ON loans.id = profile.loanId JOIN contacts contact ON contact.id = loans.contactId
+    ${scope.loanId ? "WHERE loans.id = ?" : scope.officerEmail ? "WHERE loans.officerEmail = ?" : ""}`)
+    .all(...(scopedId ? [scopedId] : []));
+  if (!profiles.length) return;
+  const suppression = scopedId ? blockedOutreachKeys(db, profiles.map(({ contactId, email, phone }) => ({ contactId, email, phone }))) :
+    outreachSuppressionKeys(db);
   for (const row of profiles) {
     const profile = row as Omit<PastClientProfile, "watchEnabled"> & { watchEnabled: number; stage: Loan["stage"]; rateTriggered: number };
-    const active = pastClientLoan(profile);
+    const active = pastClientLoan(profile) && !outreachSuppressed(suppression, row);
     const rateReady = active && rateTargetReached({ ...profile, watchEnabled: Boolean(profile.watchEnabled) });
     const rateId = "rate-watch:" + profile.loanId;
     const rateTask = db.prepare("SELECT completedAt FROM tasks WHERE id = ?").get(rateId);
     if (rateReady && (!profile.rateTriggered || !rateTask)) {
-      db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Review past-client rate target', ?)
+      db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt, purpose) VALUES (?, ?, 'Review past-client rate target', ?, 'Prospecting')
         ON CONFLICT (id) DO UPDATE SET dueAt = excluded.dueAt, completedAt = NULL`).run(rateId, profile.loanId, now.toISOString());
     }
     if (!rateReady && rateTask?.completedAt === null) db.prepare("DELETE FROM tasks WHERE id = ?").run(rateId);
@@ -75,7 +96,7 @@ export function synchronizeRetentionTasks(db: Store, now = new Date()) {
     }
     const date = nextAnniversary(profile.closingDate, today);
     // Future tasks remain available even if the workspace is opened after the anniversary.
-    db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Closing anniversary follow-up', ?)
+    db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt, purpose) VALUES (?, ?, 'Closing anniversary follow-up', ?, 'Prospecting')
       ON CONFLICT (id) DO NOTHING`).run("closing-anniversary:" + profile.loanId + ":" + date, profile.loanId, date + "T17:00:00.000Z");
   }
 }

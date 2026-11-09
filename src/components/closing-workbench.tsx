@@ -3,7 +3,9 @@
 import { useRef, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
-import { disclosureStatuses, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
+import { closingChecklistTarget, closingWorkbenchTarget } from "@/lib/loan-workflow";
+import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
+import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
@@ -37,9 +39,15 @@ function ClosingItemForm({ loan, item, targetDate, busy, save }: {
   </details>;
 }
 
-export function ClosingWorkbench({ loan, state, busy, save, preview }: {
+export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, borrowerCheckIn,
+  advanceDemoToFunding }: {
   loan: Loan; state: Workspace; busy: boolean; save: Save; preview: (audience: DraftAudience, draftId: string) => void;
+  canReverseFunding: boolean; canRehearseFailure: boolean; canMarkClearToClose: boolean;
+  borrowerCheckIn?: { dueAt: string; open: () => void };
+  advanceDemoToFunding?: () => void;
 }) {
+  const actualInput = useRef<HTMLInputElement>(null);
+  const fundingInput = useRef<HTMLInputElement>(null);
   const target = state.closingPlans.find((plan) => plan.loanId === loan.id)?.targetDate;
   const profile = state.pastClients.find((item) => item.loanId === loan.id);
   const actual = profile?.closingDate;
@@ -51,8 +59,19 @@ export function ClosingWorkbench({ loan, state, busy, save, preview }: {
   const today = easternDate();
   const outstanding = items.filter((item) => !item.completedAt).length;
 
-  return <section className="details-section document-section" aria-label="Closing workbench" id="closing-workbench" tabIndex={-1}>
+  function fillToday(input: HTMLInputElement | null) {
+    if (!input) return;
+    input.value = today;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+  }
+
+  return <section className="details-section document-section" aria-label="Closing workbench" id={closingWorkbenchTarget} tabIndex={-1}>
     <div className="section-heading"><h3><CalendarCheck size={17} /> Closing workbench</h3>{actual && <span className="pill">Closing recorded</span>}</div>
+    {canMarkClearToClose && <div className="work-queue">
+      <p className="muted">Mock UWM conditions cleared.{loan.partnerId && " Confirming updates the realtor milestone."}</p>
+      <div><Button size="sm" disabled={busy} onClick={() => void save({ type: "markClearToClose", loanId: loan.id })}>Mark Clear to Close</Button></div>
+    </div>}
     <div className="closing-dates">
       <form key={target ?? "no-target"} onSubmit={(event) => {
         event.preventDefault();
@@ -62,23 +81,55 @@ export function ClosingWorkbench({ loan, state, busy, save, preview }: {
         <label className="field">Target closing date<input type="date" name="targetDate" defaultValue={target} /></label>
         <Button size="sm" type="submit" variant="outline" disabled={busy}>Save target date</Button>
       </form>
-      <form key={actual ?? "no-actual"} onSubmit={(event) => {
+      <form id="loan-closing-date" tabIndex={-1} key={actual ?? "no-actual"} onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
-        void save({ type: "recordClosing", loanId: loan.id, closingDate: data.get("closingDate"), revision: profile?.revision ?? 0 });
+        void save({ type: "recordClosing", loanId: loan.id, closingDate: data.get("closingDate"), revision: profile?.revision ?? 0 },
+          actual ? undefined : advanceDemoToFunding);
       }}>
-        <label className="field">Actual closing date<input type="date" name="closingDate" required max={today} defaultValue={actual ?? undefined} /></label>
-        <Button size="sm" type="submit" variant="outline" disabled={busy}>{actual ? "Save closing date" : "Record closing"}</Button>
+        <label className="field">Actual closing date<input ref={actualInput} type="date" name="closingDate" required max={today} defaultValue={actual ?? undefined} /></label>
+        <div className="loan-application-actions">
+          {advanceDemoToFunding && !actual && <Button size="sm" type="button" variant="ghost" disabled={busy}
+            onClick={() => fillToday(actualInput.current)}>Use today for closing</Button>}
+          <Button size="sm" type="submit" variant="outline" disabled={busy}>{actual ? "Save closing date" : "Record closing"}</Button>
+        </div>
       </form>
-      {actual && <form key={progress?.revision ?? 0} onSubmit={(event) => {
+      {actual && <form id="loan-funding" tabIndex={-1} key={progress?.revision ?? 0} onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
-        void save({ type: "recordFunding", loanId: loan.id, fundingDate: data.get("fundingDate"), revision: progress?.revision ?? 0 });
+        void save({ type: "recordFunding", loanId: loan.id, fundingDate: data.get("fundingDate"), revision: progress?.revision ?? 0,
+          simulateFollowUpFailure: data.has("simulateFollowUpFailure") });
       }}>
-        <label className="field">Funding date<input name="fundingDate" type="date" required min={actual} max={today} defaultValue={progress?.fundingDate ?? ""} /></label>
-        <Button size="sm" type="submit" variant="outline" disabled={busy}>{progress?.fundingDate ? "Save funding date" : "Record funding"}</Button>
+        <label className="field">Funding date<input ref={fundingInput} name="fundingDate" type="date" required min={actual} max={today} defaultValue={progress?.fundingDate ?? ""} /></label>
+        <div className="loan-application-actions">
+          {advanceDemoToFunding && !progress?.fundingDate && <Button size="sm" type="button" variant="ghost" disabled={busy}
+            onClick={() => fillToday(fundingInput.current)}>Use today for funding</Button>}
+          <Button size="sm" type="submit" variant="outline" disabled={busy}>{progress?.fundingDate ? "Save funding date" : "Record funding"}</Button>
+        </div>
+        {canRehearseFailure && <details className="document-form"><summary>Rehearse follow-up recovery</summary>
+          <label><input type="checkbox" name="simulateFollowUpFailure" /> Simulate a follow-up failure for this funding change</label>
+        </details>}
       </form>}
     </div>
+    {borrowerCheckIn && <div className="document-item" role="group" aria-label="Post-funding borrower check-in">
+      <div className="document-item-head"><strong>Borrower check-in</strong><span className="pill">Post-funding follow-up</span></div>
+      <p className="muted">{loan.officer || "Unassigned"} · Due {dateTime(borrowerCheckIn.dueAt)} ET</p>
+      <p className="muted">The loan owner can also find this in Tasks under Playbook tasks.</p>
+      <div><Button size="sm" disabled={busy} onClick={borrowerCheckIn.open}>Record borrower check-in</Button></div>
+    </div>}
+    {canReverseFunding && progress?.fundingDate && <details className="document-form" key={progress.revision}>
+      <summary>Reverse funding recorded in error</summary>
+      <p className="muted">Remove the funding entry dated {dateLabel(progress.fundingDate)} and return the file to {fundingReversalStage(loan.stage, progress.preFundingStage)}.
+        Closing and disclosure records remain available. Pending post-funding follow-ups are removed.</p>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        void save({ type: "reverseFunding", loanId: loan.id, fundingDate: progress.fundingDate, revision: progress.revision,
+          reason: new FormData(event.currentTarget).get("reason") });
+      }}>
+        <label className="field">Reason for reversing funding<textarea name="reason" rows={2} maxLength={500} required /></label>
+        <Button size="sm" type="submit" variant="outline" disabled={busy}>Reverse funding</Button>
+      </form>
+    </details>}
     <details className="document-form"><summary>Track disclosure and signature status</summary>
       <form key={progress?.revision ?? 0} onSubmit={(event) => {
         event.preventDefault();
@@ -109,7 +160,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview }: {
       </form>
     </details>
     <ClosingItemForm loan={loan} targetDate={target} busy={busy} save={save} />
-    {items.length ? <ul className="document-list">{items.map((item) => <li className="document-item" key={`${item.id}:${item.revision}`}>
+    {items.length ? <ul className="document-list">{items.map((item) => <li className="document-item" id={closingChecklistTarget(item.id)} tabIndex={-1} key={`${item.id}:${item.revision}`}>
       <div className="document-item-head"><strong>{item.title}</strong><span className="pill">{item.completedAt ? "Complete" : item.dueDate < today ? "Overdue" : "Open"}</span></div>
       <p className="muted">{item.owner} · Due {dateLabel(item.dueDate)}</p>
       <div className="loan-application-actions">

@@ -1,7 +1,8 @@
 import type { Store } from "./store";
 import { applicationDay, emptyCallReportFacts, type CallReportFacts, type CallReportFile } from "./call-report-model";
 
-export function callReportFiles(db: Store): CallReportFile[] {
+export function callReportFiles(db: Store, loans?: string | string[]): CallReportFile[] {
+  const filter = Array.isArray(loans) ? "WHERE loan.id IN (SELECT value FROM json_each(?))" : loans ? "WHERE loan.id = ?" : "";
   return db.prepare(`SELECT loan.id, loan.stage, loan.disposition, loan.amount, prep.facts, prep.revision, progress.fundingDate,
     coalesce(first.submittedAt, app.submittedAt) AS submittedAt,
     json_extract(coalesce(first.draft, CASE WHEN app.submittedAt IS NOT NULL THEN app.draft END), '$.propertyLocation.state') AS propertyState,
@@ -11,7 +12,7 @@ export function callReportFiles(db: Store): CallReportFile[] {
     LEFT JOIN applications app ON app.loanId = loan.id
     LEFT JOIN application_versions first ON first.loanId = loan.id AND first.revision =
       (SELECT min(revision) FROM application_versions WHERE loanId = loan.id)
-    ORDER BY loan.id`).all().map((row) => {
+    ${filter} ORDER BY loan.id`).all(...(filter ? [Array.isArray(loans) ? JSON.stringify(loans) : loans ?? ""] : [])).map((row) => {
     const amount = Number(row.applicationAmount);
     return {
       loanId: String(row.id), stage: String(row.stage), disposition: String(row.disposition),

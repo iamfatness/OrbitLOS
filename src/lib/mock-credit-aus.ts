@@ -28,8 +28,9 @@ function readRun(row: RunRow): MockCreditAusRun {
   };
 }
 
-export function mockCreditAusRuns(db: Store) {
-  return db.prepare("SELECT * FROM mock_credit_aus_runs ORDER BY rowid DESC").all().map(readRun);
+export function mockCreditAusRuns(db: Store, loanId?: string) {
+  return db.prepare(`SELECT * FROM mock_credit_aus_runs ${loanId ? "WHERE loanId = ?" : ""} ORDER BY rowid DESC`)
+    .all(...(loanId ? [loanId] : [])).map(readRun);
 }
 
 function latestRun(db: Store, loanId: string, service: MockCreditAusRun["service"]) {

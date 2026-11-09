@@ -5,7 +5,7 @@ import type { Condition, Submission } from "@/lib/model";
 import type { LoanDocumentRequest } from "@/lib/document-model";
 import { dateTime } from "@/lib/utils";
 import { conditionTarget } from "@/lib/uwm-alert-model";
-import { DocumentRequestForm } from "./loan-documents";
+import { DocumentRequestForm, LoanDocumentCard } from "./loan-documents";
 import { Button } from "./ui/button";
 import { ConditionResponse } from "./condition-response";
 
@@ -31,7 +31,9 @@ function ConditionEditor({ submission, item, busy, save }: { submission: Submiss
   </details>;
 }
 
-export function ManualConditions({ submission, requests, busy, save }: { submission: Submission; requests: LoanDocumentRequest[]; busy: boolean; save: Save }) {
+export function ManualConditions({ submission, requests, borrowerUrl, brokerageId, pilot, busy, save }: {
+  submission: Submission; requests: LoanDocumentRequest[]; borrowerUrl?: string; brokerageId: string; pilot?: boolean; busy: boolean; save: Save;
+}) {
   return <div className="document-section">
     <ConditionEditor submission={submission} busy={busy} save={save} />
     {submission.conditions.map((item) => {
@@ -42,8 +44,15 @@ export function ManualConditions({ submission, requests, busy, save }: { submiss
       return <section className="document-item" key={item.id} id={conditionTarget(submission.id, item.id)} tabIndex={-1}>
         <div className="document-item-head"><strong>{item.category}</strong><span className="pill">{item.satisfiedAt ? "Cleared" : "Outstanding"}</span></div>
         <p>{item.description}</p><small>Next owner · {manual.owner}</small>
-        {request ? <p><a href={`#document-${request.id}`}>Checklist request</a> · {request.status} · Revision {request.revision}</p> :
-          !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} />}
+        {request ? <>
+          {!item.satisfiedAt && (request.status === "Requested" || request.status === "Needs replacement") && <div className="loan-application-actions">
+            {borrowerUrl && <Button size="sm" variant="outline" asChild><a href={borrowerUrl} target="_blank" rel="noopener noreferrer">Open borrower checklist</a></Button>}
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ type: "refreshApplication", loanId: submission.loanId })}>Refresh condition</Button>
+          </div>}
+          <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot}
+            openCondition={false} replaceable={!item.satisfiedAt} busy={busy} save={save} compact />
+        </> :
+          !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} quick />}
         {manual.deliveries.length > 0 && <ul>{manual.deliveries.map((delivery) => <li key={delivery.at + delivery.reference}>
           Delivered revision {delivery.documentRevision} · {delivery.reference} · {dateTime(delivery.at)} ET
         </li>)}</ul>}

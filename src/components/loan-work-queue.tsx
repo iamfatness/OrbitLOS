@@ -11,12 +11,6 @@ export function LoanWorkQueue({ loans, state, borrower, open }: {
 }) {
   const assigned = new Map(loans.map((loan) => [loan.id, loan]));
   const submitted = new Set(state.applications.filter((application) => application.submittedAt).map((application) => application.loanId));
-  const applications = state.applications.flatMap((application) => {
-    const loan = assigned.get(application.loanId);
-    return loan && !pausedLoan(loan) && application.submittedAt && !application.reviewedAt ? [{
-      loan, target: "loan-application", title: "Review submitted 1003", status: "Ready for review", since: application.submittedAt,
-    }] : [];
-  });
   const documents = state.documentRequests.flatMap((request) => {
     const loan = assigned.get(request.loanId);
     return loan && !pausedLoan(loan) && request.status !== "Accepted" ? [{
@@ -48,16 +42,15 @@ export function LoanWorkQueue({ loans, state, borrower, open }: {
       loan, target: "uwm-rate-lock", title: "UWM lock expiring", status: "Expires", since: rate.lockExpiresAt,
     }] : [];
   }).sort((a, b) => a.since.localeCompare(b.since));
-  const followUps = [...applications, ...documents].sort((a, b) => a.status.localeCompare(b.status) || a.since.localeCompare(b.since));
+  documents.sort((a, b) => a.status.localeCompare(b.status) || a.since.localeCompare(b.since));
   const inactiveLeads = loans.flatMap((loan) => {
     if (pausedLoan(loan) || (loan.stage !== "Lead" && loan.stage !== "Pre-qual")) return [];
-    const lastContact = state.activity.find((event) => event.loanId === loan.id && event.kind !== "Note");
-    const since = lastContact?.createdAt ?? loan.createdAt ?? loan.stageSince;
+    const since = loan.lastOutreachAt ?? loan.createdAt ?? loan.stageSince;
     return Date.parse(now) - Date.parse(since) >= 7 * 86_400_000 ? [{
-      loan, target: "loan-activity", title: "Inactive lead", status: lastContact ? "Last outreach" : "No outreach recorded since lead creation", since,
+      loan, target: "loan-activity", title: "Inactive lead", status: loan.lastOutreachAt ? "Last outreach" : "No outreach recorded since lead creation", since,
     }] : [];
   });
-  const items = [...closings, ...locks, ...followUps, ...inactiveLeads];
+  const items = [...closings, ...locks, ...documents, ...inactiveLeads];
 
   return <div className="work-queue">
     <div className="section-heading"><h3>Loan work queue</h3><span className="pill">{items.length} open</span></div>

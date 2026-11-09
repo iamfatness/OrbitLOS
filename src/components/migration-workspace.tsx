@@ -1,34 +1,90 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { readMigrationRecovery, readPipelineExport } from "@/app/actions";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
+import { MigrationCutoverChecklist } from "./migration-cutover";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { mappedMigrationRows, migrationColumns, migrationExample, migrationFile, requiredMigrationColumns,
-  type MigrationInput, type MigrationReport } from "@/lib/pipeline-migration-model";
-import { mismoExample, mismoMapping, readMismo } from "@/lib/mismo-rehearsal-model";
+import type { MigrationDestination } from "@/lib/migration-record-model";
+import { mappedMigrationRows, migrationColumns, migrationExample, migrationFile, migrationFileByteLimit, requiredMigrationColumns,
+  type MigrationInput, type MigrationRecoveryReview, type MigrationReport } from "@/lib/pipeline-migration-model";
+import { mismoBorrowerName, mismoExample, mismoMapping, readMismo } from "@/lib/mismo-rehearsal-model";
+import { LoanContactPicker } from "./loan-contact-picker";
+import { MigrationRecordLink } from "./migration-record-link";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
 
-function PipelineMigration({ busy, save }: { busy: boolean; save: Save }) {
+function PipelineMigration({ busy, save, brokerageId, openRecord }: {
+  busy: boolean; save: Save; brokerageId: string; openRecord: (destination: MigrationDestination) => void;
+}) {
   const [file, setFile] = useState<ReturnType<typeof migrationFile>>();
   const [mapping, setMapping] = useState<ReturnType<typeof migrationFile>["mapping"]>({});
   const [decisions, setDecisions] = useState<MigrationInput["decisions"]>({});
+  const [ownerMappings, setOwnerMappings] = useState<NonNullable<MigrationInput["ownerMappings"]>>({});
+  const [correctionKeys, setCorrectionKeys] = useState<string[]>();
   const [report, setReport] = useState<MigrationReport>();
+  const [reportOrigin, setReportOrigin] = useState("");
   const [applied, setApplied] = useState(false);
   const [stale, setStale] = useState(false);
   const [origin, setOrigin] = useState("crm-demo");
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const [prepared, setPrepared] = useState<{ origin: string; snapshot: string; batches: { part: number; csv: string }[] }>();
+  const [exportMessage, setExportMessage] = useState("");
+  const [exportError, setExportError] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
+  const ownership = report?.ownership;
+  const undoRows = report?.rows.filter((row) => row.status === "Undone" || row.correction) ?? [];
+
+  async function downloadExport() {
+    setExporting(true);
+    setExportMessage("");
+    setExportError("");
+    setCopyMessage("");
+    setPrepared(undefined);
+    try {
+      const result = await readPipelineExport(brokerageId);
+      if (typeof result.error === "string") setExportError(result.error);
+      else if (result.batches) {
+        setPrepared(result);
+        if (result.batches.length === 1) {
+          downloadSampleFile(result.batches[0].csv, `${result.origin}-crm.csv`, "text/csv;charset=utf-8");
+          setExportMessage(`Downloaded ${result.total} CRM records.`);
+        } else {
+          setExportMessage(`Prepared ${result.batches.length} batches for ${result.total} CRM records.`);
+        }
+      }
+    } catch {
+      setExportError("Could not prepare the CRM export. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function copyBatch(csv: string, part: number) {
+    setCopyMessage("");
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopyMessage(`Batch ${part} copied. Paste it into Migration in the destination workspace.`);
+    } catch {
+      setCopyMessage("Could not copy the CSV. Use the downloaded file instead.");
+    }
+  }
 
   function load(csv: string) {
     setError("");
     setReport(undefined);
     setDecisions({});
+    setOwnerMappings({});
+    setCorrectionKeys(undefined);
     setFile(undefined);
     try {
+      if (new TextEncoder().encode(csv).byteLength > migrationFileByteLimit) throw new Error("Choose a smaller CSV file.");
       const parsed = migrationFile(csv);
       setFile(parsed);
       setMapping(parsed.mapping);
+      if (parsed.orbitSource || file?.orbitSource) setOrigin(parsed.orbitSource ?? "crm-demo");
     } catch (error) { setError((error as Error).message); }
   }
 
@@ -37,30 +93,74 @@ function PipelineMigration({ busy, save }: { busy: boolean; save: Save }) {
     setError("");
     try {
       const rows = mappedMigrationRows(file, mapping);
-      void save({ type: "migratePipeline", origin, rows, decisions, preview: commit ? report?.fingerprint : undefined }, (result) => {
+      void save({ type: "migratePipeline", origin, rows, decisions, ownerMappings, correctionKeys, batch: file.batch, preview: commit ? report?.fingerprint : undefined }, (result) => {
         setReport(result.migration);
-        setApplied(commit);
+        setReportOrigin(origin.trim().toLowerCase());
+        setApplied(commit || result.migration?.batch?.completed === true);
         setStale(false);
       }, commit);
     } catch (error) { setError((error as Error).message); }
   }
 
   return <section className="integration record-form manager-panel" aria-label="CRM migration">
-    <div><h2>CRM pipeline migration</h2><p>Load a fictional CRM export, map columns, and reconcile the results before importing.</p></div>
-    <p className="muted">Use one CSV with Contact, Lead, Note, and Task records. A lead can reference its contact ID. Notes and tasks reference a lead ID. Use the same source key on later batches from that CRM. Blank owner emails go to the shared inbox.</p>
+    <h2>CRM import and export</h2>
+    <div className="record-form">
+      <h3>Export CRM records</h3>
+      <p className="muted">Contacts, open leads, activity, follow-ups and tracked callback promises. Up to 1,000 records and 2 MB.</p>
+      <div><Button variant="outline" size="sm" disabled={busy || exporting} onClick={() => void downloadExport()}>
+        {exporting ? "Preparing export…" : "Download CRM export"}</Button></div>
+      {exportMessage && <p role="status" className="muted">{exportMessage}</p>}
+      {prepared && <>
+        {prepared.batches.length > 1 && <p className="muted">Import every batch in order. The destination saves your progress.</p>}
+        <div className="loan-application-actions">{prepared.batches.map(({ part, csv }) =>
+          <div className="loan-application-actions" key={part}>
+            {prepared.batches.length > 1 && <Button variant="outline" size="sm" onClick={() => {
+              const number = String(part).padStart(3, "0");
+              downloadSampleFile(csv, `${prepared.origin}-${prepared.snapshot.slice(0, 8)}-part-${number}.csv`, "text/csv;charset=utf-8");
+            }}>Download batch {part}</Button>}
+            <Button variant="outline" size="sm" onClick={() => void copyBatch(csv, part)}>
+              {prepared.batches.length > 1 ? `Copy batch ${part}` : "Copy CRM CSV"}
+            </Button>
+          </div>)}</div>
+      </>}
+      {copyMessage && <p role="status" className="muted">{copyMessage}</p>}
+      {exportError && <p role="alert" className="application-error">{exportError}</p>}
+    </div>
+    <h3>Import CRM records</h3>
     <div className="loan-application-actions">
       <Button variant="outline" size="sm" disabled={busy} onClick={() => load(migrationExample)}>Load sample CSV</Button>
       <Button variant="outline" size="sm" onClick={() => downloadSampleFile(migrationExample, "orbit-fictional-crm.csv", "text/csv")}>Download template</Button>
     </div>
     <div className="form-grid">
-      <label className="field">Fictional CRM CSV<input type="file" accept=".csv,text/csv" disabled={busy} onChange={async (event) => {
-        const selected = event.currentTarget.files?.[0];
-        if (selected) load(selected.size <= 200_000 ? await selected.text() : " ".repeat(200_001));
+      <label className="field">Fictional CRM CSV<input type="file" accept=".csv,text/csv" aria-describedby="crm-import-limits" disabled={busy} onChange={async (event) => {
+        const input = event.currentTarget;
+        const selected = input.files?.[0];
+        if (selected) load(selected.size <= migrationFileByteLimit ? await selected.text() : " ".repeat(migrationFileByteLimit + 1));
+        input.value = "";
       }} /></label>
-      <label className="field">Source key<input maxLength={60} value={origin} disabled={busy} onChange={(event) => {
-        setOrigin(event.target.value); setReport(undefined); setDecisions({});
+      <label className="field">Source key<input maxLength={60} value={origin} disabled={busy} readOnly={Boolean(file?.batch)} onChange={(event) => {
+        setOrigin(event.target.value); setReport(undefined); setDecisions({}); setOwnerMappings({});
+        setCorrectionKeys((current) => current && []);
       }} /></label>
     </div>
+    <p className="muted" id="crm-import-limits">Up to 100 records per CSV, with a 200 kB file limit. Orbit exports can include tracked callback promises and their call evidence.</p>
+    <details className="document-form"><summary>Source keys and staff ownership</summary>
+      <p className="muted">Orbit exports include the source key. Active staff keep their records. Reassign missing owners in the preview or leave their work unassigned.</p>
+    </details>
+    <details className="document-form">
+      <summary>Paste CRM CSV</summary>
+      <form className="record-form" onSubmit={(event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const csv = new FormData(form).get("csv");
+        if (typeof csv === "string") load(csv);
+        form.closest("details")?.removeAttribute("open");
+      }}>
+        <label className="field">CRM CSV text<textarea name="csv" rows={4} required disabled={busy} spellCheck={false} /></label>
+        <div><Button size="sm" type="submit" disabled={busy}>Load pasted CSV</Button></div>
+      </form>
+    </details>
+    {file?.batch && <p className="muted">Batch {file.batch.part} of {file.batch.partCount}</p>}
     {file && <details open={!report || undefined} className="document-form">
       <summary>Column mapping · {file.rows.length} records</summary>
       <div className="form-grid">
@@ -70,6 +170,8 @@ function PipelineMigration({ busy, save }: { busy: boolean; save: Save }) {
             setMapping((previous) => ({ ...previous, [column]: index === "" ? undefined : Number(index) }));
             setReport(undefined);
             setDecisions({});
+            setOwnerMappings({});
+            setCorrectionKeys((current) => current && []);
           }}>
             <option value="">Unmapped</option>
             {file.header.map((value, index) => <option key={index} value={index}>{value || `Column ${index + 1}`}</option>)}
@@ -77,16 +179,69 @@ function PipelineMigration({ busy, save }: { busy: boolean; save: Save }) {
         </label>)}
       </div>
     </details>}
+    {file && <div className="record-form">
+      <label><input type="checkbox" disabled={busy} checked={Boolean(correctionKeys)} onChange={(event) => {
+        setCorrectionKeys(event.target.checked ? [] : undefined);
+        setReport(undefined); setDecisions({}); setOwnerMappings({});
+      }} /> Reimport selected undone rows</label>
+      {correctionKeys && <p className="muted">Use the same source key and external IDs. Select the undone rows you want to reimport after previewing the corrected file.</p>}
+    </div>}
     {error && <p role="alert" className="application-error">{error}</p>}
-    {file && <div><Button disabled={busy} variant="outline" onClick={() => run(false)}>Preview migration</Button></div>}
+    {file && <div><Button disabled={busy} variant="outline" onClick={() => run(false)}>{correctionKeys ? "Preview corrections" : "Preview migration"}</Button></div>}
     {report && <div className="record-form">
-      <h3>{applied ? "Import reconciliation" : "Preview reconciliation"}</h3>
-      <p className="muted">{(["Create", "Reuse contact", "Previously imported", "Skipped", "Review"] as const)
+      <h3>{correctionKeys ? applied ? "Correction reconciliation" : "Correction preview" : applied ? "Import reconciliation" : "Preview reconciliation"}</h3>
+      {report.batch?.completed && <p role="status" className="muted">{report.batch.nextPart === null
+        ? "All numbered batches received. Check source links and undone rows in the cutover checklist."
+        : `Next, load batch ${report.batch.nextPart}.`}</p>}
+      <p className="muted">{(["Create", "Reuse contact", "Previously imported", "Skipped", "Suppressed", "Undone", "Review"] as const)
         .map((status) => `${report.rows.filter((row) => row.status === status).length} ${status === "Create" && applied ? "created" : status.toLowerCase()}`).join(" · ")}</p>
+      {!applied && ownership && <fieldset className="record-form">
+        <legend>Owner mapping</legend>
+        <p className="muted">Choose one destination for each missing staff email. Unassigned leads go to the shared inbox. Admins can assign unassigned contact follow-ups later.{file?.batch && " Orbit remembers these choices for later batches in this export."}</p>
+        <div className="form-grid">{ownership.missing.map(({ email, count, target }) => {
+          const eligible = ownership.eligible;
+          const selection = ownerMappings[email] ?? target;
+          const valid = selection === "unassigned" || eligible.some((owner) => owner.email === selection);
+          return <label className="field" key={email}>
+            {email} · {count} {count === 1 ? "record" : "records"}
+            <select disabled={busy} value={valid ? selection : ""} onChange={(event) => {
+              const choice = event.target.value;
+              setOwnerMappings((previous) => ({ ...previous, [email]: choice }));
+              setStale(true);
+            }}>
+              <option value="" disabled>Choose a destination</option>
+              <option value="unassigned">Leave unassigned</option>
+              {eligible.map((owner) => <option key={owner.email} value={owner.email}>{owner.name} · {owner.email}</option>)}
+            </select>
+          </label>;
+        })}</div>
+      </fieldset>}
+      {correctionKeys && !applied && undoRows.length > 0 && <div className="loan-application-actions" aria-label="Undo row selection" role="group">
+        <span className="muted">{correctionKeys.length} of {undoRows.length} undo rows selected</span>
+        <Button variant="outline" size="sm" disabled={busy || correctionKeys.length === undoRows.length} onClick={() => {
+          setCorrectionKeys(undoRows.map(({ key }) => key));
+          setStale(true);
+        }}>Select all undo rows</Button>
+        <Button variant="ghost" size="sm" disabled={busy || correctionKeys.length === 0} onClick={() => {
+          setCorrectionKeys([]);
+          setStale(true);
+        }}>Clear selection</Button>
+      </div>}
       <div className="table-scroll"><table className="data-table"><thead><tr><th>Source record</th><th>Result</th><th>{applied ? "Orbit record" : "Resolution"}</th></tr></thead>
         <tbody>{report.rows.map((row) => <tr key={row.key}>
-          <td>{row.label}<small>{row.key}</small></td><td>{applied && row.status === "Create" ? "Created" : row.status}<small>{row.detail}</small></td>
-          <td>{applied ? row.targetId ?? "—" : (row.status === "Review" || row.status === "Skipped" || row.status === "Reuse contact") &&
+          <td>{row.label}<small>{row.key}</small></td><td>{applied && row.correction && (row.status === "Create" || row.status === "Reuse contact")
+            ? "Reimported" : applied && row.status === "Create" ? "Created" : row.status}<small>{row.detail}</small></td>
+          <td>{applied ? row.targetId && reportOrigin ? <MigrationRecordLink key={`${reportOrigin}:${row.targetId}`} brokerageId={brokerageId}
+            query={{ type: "result", origin: reportOrigin, key: row.key, targetId: row.targetId }} busy={busy} open={openRecord}
+            label={row.key.startsWith("Note:") || row.key.startsWith("Task:") ? "Open evidence" : "Open record"} /> : "—" : <div className="record-form">
+            {correctionKeys && (row.status === "Undone" || row.correction) && <label>
+              <input type="checkbox" aria-label={`Reimport ${row.key}`} disabled={busy} checked={correctionKeys.includes(row.key)} onChange={(event) => {
+                const selected = event.target.checked;
+                setCorrectionKeys((current) => selected ? [...current ?? [], row.key] : current?.filter((key) => key !== row.key));
+                setStale(true);
+              }} /> Reimport this row
+            </label>}
+            {(!correctionKeys || row.correction) && (row.status === "Review" || row.status === "Skipped" || row.status === "Reuse contact") &&
             <select aria-label={`Resolve ${row.key}`} disabled={busy} value={decisions[row.key] ?? ""} onChange={(event) => {
               const choice = event.target.value;
               setDecisions((previous) => ({ ...previous, [row.key]: choice }));
@@ -95,57 +250,174 @@ function PipelineMigration({ busy, save }: { busy: boolean; save: Save }) {
               <option value="">Review again</option><option value="skip">Skip record</option>
               {(row.matches ?? (row.status === "Reuse contact" && row.targetId ? [{ id: row.targetId, label: row.detail }] : []))
                 .map((match) => <option key={match.id} value={match.id}>Reuse {match.label}</option>)}
-            </select>}</td>
+            </select>}
+          </div>}</td>
         </tr>)}</tbody></table></div>
       {!applied && <div>
         {stale && <p className="muted">Preview again to apply your choices and check related records.</p>}
-        <Button disabled={busy || stale || report.rows.some((row) => row.status === "Review")} onClick={() => run(true)}>Import reviewed records</Button>
+        <Button disabled={busy || stale || report.rows.some((row) => row.status === "Review") ||
+          Boolean(correctionKeys && !report.rows.some((row) => row.correction && (row.status === "Create" || row.status === "Reuse contact")))}
+          onClick={() => run(true)}>{correctionKeys ? "Import reviewed corrections" : "Import reviewed records"}</Button>
       </div>}
     </div>}
   </section>;
 }
 
-function LoanFileRehearsal({ busy, save, openLoan }: { busy: boolean; save: Save; openLoan: (id: string) => void }) {
+function MigrationRecovery({ brokerageId, busy, save, openRecord }: {
+  brokerageId: string; busy: boolean; save: Save; openRecord: (destination: MigrationDestination) => void;
+}) {
+  const [review, setReview] = useState<MigrationRecoveryReview>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const preview = review?.preview;
+  const candidates = preview?.rows.filter((row) => row.result === "Candidate").length ?? 0;
+
+  async function load(importId?: string) {
+    setLoading(true);
+    setError("");
+    setConfirmed(false);
+    try {
+      const result = await readMigrationRecovery(brokerageId, importId);
+      if ("error" in result) setError(result.error);
+      else setReview(result);
+    } catch {
+      setError("Could not load CRM import recovery. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function undo() {
+    if (!preview || !candidates || !confirmed) return;
+    setConfirmed(false);
+    void save({ type: "undoMigration", importId: preview.receipt.id, fingerprint: preview.fingerprint, confirmed: true },
+      () => { void load(preview.receipt.id); });
+  }
+
+  return <section className="integration record-form manager-panel" aria-label="CRM import recovery">
+    <div><h2>CRM import recovery</h2><p>Preview changes and undo eligible records from a fictional CRM import. For numbered exports, review later batches first.</p></div>
+    <div><Button size="sm" variant="outline" disabled={busy || loading} onClick={() => void load()}>Load recent CRM imports</Button></div>
+    {loading && <p role="status" className="muted">Checking import history…</p>}
+    {error && <p role="alert" className="application-error">{error}</p>}
+    {review && (review.imports.length ? <label className="field">Import receipt
+      <select value={preview?.receipt.id ?? ""} disabled={busy || loading} onChange={(event) => void load(event.target.value)}>
+        <option value="" disabled>Choose an import to review</option>
+        {review.imports.map((receipt) => <option key={receipt.id} value={receipt.id}>
+          {receipt.origin}{receipt.part ? ` · Batch ${receipt.part} of ${receipt.partCount}` : ""}{receipt.correctedCount ? ` · ${receipt.correctedCount} corrected` : ""} · {receipt.recordCount} rows · {new Date(receipt.importedAt).toLocaleString()}
+        </option>)}
+      </select>
+    </label> : <p className="muted">Recovery receipts appear here after a CRM import creates or reuses records.</p>)}
+    {preview && <div className="record-form">
+      <h3>Recovery preview</h3>
+      <p className="muted">Imported by {preview.receipt.importedBy}. Check the current record state before any correction.</p>
+      <p role="status" className="muted">{candidates} undo candidates · {preview.rows.filter((row) => row.result === "Keep").length} to keep · {preview.rows.filter((row) => row.result === "No change").length} with no change · {preview.rows.filter((row) => row.result === "Removed").length} removed</p>
+      <div><Button size="sm" variant="outline" disabled={busy || loading} onClick={() => void load(preview.receipt.id)}>Refresh recovery preview</Button></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>Source record</th><th>Recovery status</th><th>Reason</th><th>Orbit record</th></tr></thead>
+        <tbody>{preview.rows.map((row) => <tr key={row.key}>
+          <td>{row.label}<small>{row.key}{row.correction && " · Corrected reimport"}</small></td><td>{row.result === "Candidate" ? "Undo candidate" : row.result}</td><td>{row.reason}
+            {row.removal && <small>{row.removal.by} · {new Date(row.removal.at).toLocaleString()}</small>}</td>
+          {row.canOpen ? <td><MigrationRecordLink key={preview.receipt.id} brokerageId={brokerageId}
+            query={{ type: "receipt", origin: preview.receipt.origin, key: row.key, receiptId: preview.receipt.id }} busy={busy || loading}
+            open={openRecord} label={row.key.startsWith("Note:") || row.key.startsWith("Task:") ? "Open evidence" : "Open record"} /></td> : <td>—</td>}
+        </tr>)}</tbody></table></div>
+      {candidates > 0 && <div className="record-form">
+        <label><input type="checkbox" disabled={busy || loading} checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I reviewed the undo candidates and want to remove them.</label>
+        <div><Button variant="danger" disabled={busy || loading || !confirmed} onClick={undo}>Undo {candidates} {candidates === 1 ? "record" : "records"}</Button></div>
+      </div>}
+    </div>}
+  </section>;
+}
+
+function LoanFileRehearsal({ busy, save, openLoan, brokerageId }: { busy: boolean; save: Save; openLoan: (id: string) => void; brokerageId: string }) {
   const [preview, setPreview] = useState<ReturnType<typeof readMismo>>();
   const [requestId, setRequestId] = useState("");
   const [fictional, setFictional] = useState(false);
   const [error, setError] = useState("");
+  const [contactChoice, setContactChoice] = useState("");
+  const [importedLoanId, setImportedLoanId] = useState<string>();
+  const [duplicateLoanId, setDuplicateLoanId] = useState<string>();
+  const active = useRef(false);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; };
+  }, []);
+  const chosen = contactChoice === "new" ? undefined : contactChoice || undefined;
   function load(xml: string) {
     setError("");
     setPreview(undefined);
     setFictional(false);
+    setContactChoice("");
+    setImportedLoanId(undefined);
+    setDuplicateLoanId(undefined);
     try {
       setPreview(readMismo(xml));
       setRequestId(crypto.randomUUID());
     } catch (error) { setError((error as Error).message); }
   }
-  return <section className="integration record-form manager-panel" aria-label="Synthetic loan file rehearsal">
-    <div><h2>Synthetic MISMO 3.4 rehearsal</h2><p>Review selected XML fields, create a fictional 1003 draft, and export the original mapped values from the loan.</p></div>
-    <p className="muted">This rehearsal covers a limited field set for one loan. Employment, finances, additional borrowers, identifiers, and lender extensions stay out of the draft and export. Use the 1003 to review and fill gaps. The rehearsal XML is for pilot review only.</p>
+  async function createDraft(confirmedDuplicateLoanId?: string) {
+    if (!preview) return;
+    let imported: string | undefined;
+    await save({ type: "importMismo", requestId, fields: preview.fields, extraBorrowers: preview.extraBorrowers, existingContactId: chosen, fictional, confirmedDuplicateLoanId },
+      ({ applicationLoanId, mismoDuplicateLoanId }) => {
+        if (!active.current) return;
+        setDuplicateLoanId(mismoDuplicateLoanId);
+        if (applicationLoanId) {
+          setImportedLoanId(applicationLoanId);
+          imported = applicationLoanId;
+        }
+      });
+    if (imported && active.current) openLoan(imported);
+  }
+  return <section className="integration record-form manager-panel" aria-label="MISMO 3.4 import">
+    <h2>Import MISMO 3.4</h2>
+    <details className="document-form"><summary>What the pilot imports and exports</summary>
+      <p className="muted">Review mapped values for one fictional loan. Enter employment, finances, additional borrowers, and identifiers in the 1003. The pilot export contains the reviewed XML fields. Lender extensions require separate review.</p>
+    </details>
     <div className="loan-application-actions">
       <Button size="sm" variant="outline" disabled={busy} onClick={() => load(mismoExample)}>Load sample XML</Button>
       <Button size="sm" variant="outline" onClick={() => downloadSampleFile(mismoExample, "orbit-fictional-input.xml", "application/xml")}>Download sample XML</Button>
     </div>
-    <label className="field">Fictional MISMO XML<input type="file" accept=".xml,text/xml,application/xml" disabled={busy} onChange={async (event) => {
-      const selected = event.currentTarget.files?.[0];
+    <label className="field">Fictional MISMO XML<input type="file" accept=".xml,text/xml,application/xml" aria-describedby="mismo-import-limit" disabled={busy} onChange={async (event) => {
+      const input = event.currentTarget;
+      const selected = input.files?.[0];
+      input.value = "";
       if (selected) load(selected.size <= 600_000 ? await selected.text() : " ".repeat(600_001));
     }} /></label>
+    <p className="muted" id="mismo-import-limit">One fictional loan per XML file, up to 600 kB.</p>
     {error && <p role="alert" className="application-error">{error}</p>}
     {preview && <>
       {preview.extraBorrowers > 0 && <p className="application-message">{preview.extraBorrowers} additional borrower records will need manual entry.</p>}
       <div className="table-scroll"><table className="data-table"><thead><tr><th>1003 field</th><th>XML location</th><th>Draft value</th></tr></thead>
-        <tbody>{mismoMapping.map(([key, label, path]) => <tr key={key}><td>{label}</td><td>{path}</td><td>{preview.fields[key] || "Review in 1003"}</td></tr>)}</tbody>
+        <tbody>{mismoMapping.map(([key, label, path]) => <tr key={key}><td>{label}</td><td>{path}</td>
+          <td>{preview.fields[key] || (key === "middleName" || key === "suffix" ? "—" : "Review in 1003")}</td></tr>)}</tbody>
       </table></div>
-      <label><input type="checkbox" checked={fictional} onChange={(event) => setFictional(event.target.checked)} /> I confirmed the reviewed values are fictional.</label>
-      <div><Button disabled={busy || !fictional} onClick={() => void save({
-        type: "importMismo", requestId, fields: preview.fields, fictional,
-      }, ({ applicationLoanId }) => {
-        if (applicationLoanId) openLoan(applicationLoanId);
-      })}>Create fictional 1003 draft</Button></div>
+      <LoanContactPicker key={requestId} kind="borrower" brokerageId={brokerageId} value={contactChoice} initialId=""
+        initialSearch={mismoBorrowerName(preview.fields)} requireBorrowerChoice disabled={busy || !!importedLoanId}
+        onChange={(id) => { setContactChoice(id); setDuplicateLoanId(undefined); }} />
+      {chosen && <p className="muted">The draft keeps the XML name and property fields and prefills the selected contact’s email and phone.</p>}
+      <label><input type="checkbox" checked={fictional} disabled={busy || !!importedLoanId} onChange={(event) => setFictional(event.target.checked)} /> I confirmed the reviewed values are fictional.</label>
+      {duplicateLoanId ? <section className="work-queue" aria-label="Matching MISMO import">
+        <h3>Matching MISMO import</h3>
+        <p className="muted">This borrower already has a 1003 imported with the same reviewed XML values.</p>
+        <div className="loan-application-actions">
+          <Button disabled={busy} onClick={() => openLoan(duplicateLoanId)}>Open matching 1003</Button>
+          <Button variant="outline" disabled={busy || !fictional || !chosen} onClick={() => void createDraft(duplicateLoanId)}>Create separate draft</Button>
+        </div>
+      </section> : <div>{importedLoanId ? <Button onClick={() => openLoan(importedLoanId)}>Open imported 1003</Button> :
+        <Button disabled={busy || !fictional || !contactChoice} onClick={() => void createDraft()}>Create fictional 1003 draft</Button>}</div>}
     </>}
   </section>;
 }
 
-export function MigrationWorkspace({ busy, save, openLoan }: { busy: boolean; save: Save; openLoan: (id: string) => void }) {
-  return <div className="record-form"><PipelineMigration busy={busy} save={save} /><LoanFileRehearsal busy={busy} save={save} openLoan={openLoan} /></div>;
+export function MigrationWorkspace({ busy, save, openLinkedLoan, openRecord, brokerageId, version }: {
+  busy: boolean; save: Save; openLinkedLoan: (id: string, target: string) => void; openRecord: (destination: MigrationDestination) => void;
+  brokerageId: string; version: object;
+}) {
+  return <div className="record-form">
+    <MigrationCutoverChecklist key={brokerageId} brokerageId={brokerageId} version={version} busy={busy} openLoan={openLinkedLoan} openRecord={openRecord} />
+    <PipelineMigration busy={busy} save={save} brokerageId={brokerageId} openRecord={openRecord} />
+    <MigrationRecovery key={brokerageId} brokerageId={brokerageId} busy={busy} save={save} openRecord={openRecord} />
+    <LoanFileRehearsal key={brokerageId} busy={busy} save={save} openLoan={(id) => openLinkedLoan(id, "loan-application")} brokerageId={brokerageId} />
+  </div>;
 }

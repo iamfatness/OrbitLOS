@@ -1,0 +1,217 @@
+# Hosted presenter rehearsal log
+
+## Run A on November 8, 2026
+
+Codex operated and narrated the walkthrough in Windows Chrome on hosted deployment `470d21d8-56a8-48be-8be3-ddb30645ab0d`. The clean starting fixture was Presenter Rehearsal A, with desktop viewport 1419 × 1243 and borrower and realtor viewport 390 × 844. The owner signed in as the owner. A second account signed in first as the LO and then as the assigned processor after the documented reassignment and role change. The browser account switches, observations, and control retries are included in elapsed time.
+
+| Milestone | Elapsed | Observed result |
+| --- | ---: | --- |
+| Owner dashboards | 0:13 | Quinn opened from the $340,000 projection. The current and previous funding figures were $310,000 and $290,000. Taylor's funded referral opened Avery. |
+| LO intake through mock submission | 2:24 | Riley's overdue campaign referral retained the Connected outcome and realtor. The prefilled borrower draft saved and resumed at phone width. The LO reviewed revision 2, priced with a fictional score of 742 and ZIP 48067, published a 6.125% sample quote, and sent the file to mock UWM. The Income alert focused the exact condition. |
+| Processor accepted and returned | 5:41 | Processor saw Riley in their assigned queue and accepted the handoff. The scan rejected a blocked sample. The processor requested a replacement after a clean receipt, and the borrower submitted the replacement. Both accepted documents showed mock receipts while their conditions were still open. The batch clearance moved the count from two outstanding to zero. Processor returned the loan with a private note. |
+| Closing and funding | 7:05 | The owner opened the return note from Today, completed the handoff and signing item, then recorded closing and funding separately. Funding moved from one loan at $310,000 to two at $670,000. Quinn's $340,000 projection stayed in place. |
+| Realtor and repeat business | 8:15 | Realtor portal showed Riley Funded and omitted the private note and quote. Borrower portal omitted the private note. The failed follow-up run retried successfully. The owner recorded a requested callback and opened the separate refinance. Casey's sample rate moved the watchlist to Target met. |
+| Calendar, Search, finance, exceptions, and migration | 10:54 | Calendar opened Riley's callback and Search listed the funded purchase and separate refinance. The owner ledger showed $7,200 expected, $6,000 received, and $1,200 outstanding, with commission and margin unknown. A new homeowners insurance request opened from Quinn's exception row. CRM preview reconciled four fictional rows and the reviewed MISMO mapping created a Riley Example draft. |
+
+The full rehearsal exceeded the 5–7 minute demo target. The two-account role switch and verification steps added time. The starting fixture had no evidence exception. Codex created the request through the loan checklist during the run, then added it to the next seed and corrected the script so recovery happens before the funding check-in. This is a measured rehearsal on the earlier release. The two sign-off rehearsals still need to run on a single release with the corrected fixture.
+
+## Migration acceptance on November 8, 2026
+
+On `470d21d8-56a8-48be-8be3-ddb30645ab0d`, Chrome uploaded a four-row CRM file matching the existing Casey contact. The initial preview blocked the four linked rows for review. Selecting the existing contact and previewing again created one lead, one note, and one task and reused one contact. The downloaded CSV contained 12 records, including one Casey contact and one Casey lead.
+
+The sample MISMO purchase at 102 Fictional Avenue and the uploaded refinance at 202 Fictional Avenue both linked to Riley Example. Re-uploading the same refinance opened the matching 1003 instead of creating a third draft. A second CRM receipt linked the existing Riley contact to the source. The refinance recorded one lender reconciliation decision and the purchase remained at zero. The cutover view explicitly assigns manual checks for borrower documents, lender status and conditions, and closing and funding history. On `5b8c8ba4-36d6-4576-89d0-4459c0202524`, the two linked drafts and separate review counts persisted.
+
+## Revised fixture on November 8, 2026
+
+On `5b8c8ba4-36d6-4576-89d0-4459c0202524`, Presenter Rehearsal B reset with the new seed. The owner opened the automatically created homeowners insurance exception from Playbooks, and the loan focused the correct request. The public product page describes the seeded exception. Presenter Rehearsal A retains the first run and migration evidence.
+
+## Same-release sign-off rehearsals on November 8, 2026
+
+Codex ran and narrated both rehearsals in Windows Chrome on `5b8c8ba4-36d6-4576-89d0-4459c0202524`. B started from the reset fixture and C started from a newly created fictional brokerage. The owner signed in as the owner. A second account signed in as the invited LO and then as the assigned processor. Both used the documented role switch. The desktop viewport was 1419 × 1243, and both borrower and realtor flows fit at 390 × 844. Timings include role changes and interaction checks.
+
+| Milestone | B elapsed | C elapsed | Result in both |
+| --- | ---: | ---: | --- |
+| Owner reports | 0:18 | 0:08 | $340,000 projected, $310,000 funded this month, and $290,000 prior. Quinn and Avery opened from contributing report rows. |
+| Lead, 1003, pricing, alert | 1:54 | 0:44 | The LO logged first contact, borrower saved and resumed the draft, and LO published the 6.125% sample quote. The mock Income alert focused its condition. |
+| Processing and return | 3:44 | 1:34 | The assigned processor accepted. A blocked scan was visible, replacement was requested and received, two mock deliveries showed receipts before clearance, and the private return note reached the owner. |
+| Closing and funding | 4:17 | 1:54 | Owner completed one closing item and recorded closing and funding separately. Two loans funded for $670,000, with Quinn's $340,000 projection intact. |
+| Partner and retention | 4:58 | 2:17 | Partner saw Funded. Both portals omitted the internal note, and partner view omitted pricing. Owner recovered a simulated failed follow-up, recorded a callback, showed Casey's rate watch, and opened a separate refinance. |
+| Owner operations and migration | 5:34 | 2:38 | Calendar opened the callback, Search showed both loans, Quinn's seeded exception opened the request, and the ledger reconciled $7,200 expected, $6,000 received and $1,200 outstanding with unknown costs. CRM preview and the sample MISMO draft completed. |
+
+B's browser reload discarded the temporary document verification. The demo resend interval applied and was included in the elapsed time. In C, using the portal's Refresh status control kept verification active and picked up the replacement. The script records that path. Browser error logs for both staff tabs and borrower tabs and the C realtor tab contained no errors. The portrait pipeline exposed its stage selector above the fold at 900 × 1400. Local screenshots include `orbit-rehearsal-c-funding.png`, `orbit-held-file-audit.png`, and `orbit-portrait-pipeline-funded.png`.
+
+## Additional acceptance on the sign-off release
+
+- **Access and ownership.** In B, holding Quinn removed its projection. The owner reassigned and reopened the file and got exactly one title task in their queue on the original date. The audit preserved hold, reassignment, and reopening. The signed-in processor returned the handoff, accepted it again after resend, and approved an assigned internal review. Their search for Morgan returned no records. The owner transferred four loan assignments, unassigned both processor files, and redirected future realtor leads. Revocation denied a direct request for B while C remained accessible to the tester. The local authenticated Worker action test covered wrong brokerage, mismatched action scope, wrong owner, anonymous access and revocation.
+- **Intake.** In C, Chrome uploaded a three-row campaign CSV. The first two leads went to Opus and John, and the third stayed shared at their configured caps. Replaying the CSV produced zero importable records. A new submission from the actual realtor portal appeared in the invited LO's queue with its partner and deadline. Jordan's campaign conversion kept the logged call and source and opened a prefilled 1003. New Lead also opened a separate direct 1003 with its own borrower. The regression suite covers the original routing deadline and duplicate checks.
+- **Concurrent saves.** Two hosted owner tabs submitted competing changes on Quinn. The stale tab displayed its alert 61 px from the top while the dialog was scrolled 577 px. Refresh loan loaded the winning version and the original title was restored. In the current-build Workerd run, distinct LO and processor sessions had one winning conflicting write and one rejection. The retry retained the revision and independent closing and document edits both persisted. The heavy LO response was 2,364 bytes, and the conflict response was 108 bytes. The local evidence folder contains the authenticated read and write logs.
+- **Dashboards.** C restored named owner funding, realtor sales, and processing workload views after reload. The team funding and realtor targets persisted. The invited LO's report retained its $900,000 target, showed $310,000 current and $290,000 previous, and opened Avery. The team processing view restored Unassigned and Next 7 days and opened Quinn's title item. A separate LO sign-in added a $285,000 projection. The already-open owner report refreshed from $615,000 to $900,000 and opened the new loan's closing workbench.
+- **Collaboration and boundaries.** C simulated a reply with two Riley loans as matches. A source replay kept one receipt and only one simulated email appeared in the chosen refinance conversation. Manual outreach used the Manual log label. Its dated follow-up appeared in Today and Calendar, and opening it preserved the week and filter on return. B's processor approved the separate internal review. Current-release mock DU and LPA returned findings, including a failed LPA attempt and retry. Staff, borrower, and partner labels distinguished the sample pricing, mock lender, verification and scans, and simulated reply from staff-entered records.
+
+## Design rehearsal D on November 8, 2026
+
+The fresh Presenter Design Rehearsal D brokerage `e7ee6848-6bff-4083-ab1d-3435e2d45d9a` used separate owner and invited LO accounts, then assigned processor. The tool-driven rehearsal began at 9:41:01 p.m. ET on `8e1854ba-20c8-4cf1-beaf-8fa887b11812` and ended at 9:50:01 p.m. ET. The total of 9:00 includes account switches, a scan retry, control discovery, and one page reset. Borrower and realtor views used a 390 × 844 viewport.
+
+| Milestone | Elapsed | Observed result |
+| --- | ---: | --- |
+| Owner dashboards | 0:48 | $340,000 projected, $310,000 funded, and $290,000 prior. Open loan revealed Quinn's inline record, which linked to the closing workbench. Taylor had one funded referral in each period. |
+| LO intake, 1003, quote and alert | 2:16 | Riley's overdue campaign task opened the call. Connected was saved. The borrower resumed the saved draft and submitted revision 2. The LO reviewed it, priced with ZIP 48067 and a mock score of 742, published the 6.125% quote, and opened the exact Income condition from My Tasks. |
+| Processing and return | 4:59 | After Riley was reassigned to the owner and the invited account switched to Processor, it accepted the handoff. The borrower saw a blocked scan, sent clean samples, and retained verification when the processor requested a pay-stub replacement. The processor sent both accepted samples to mock UWM, cleared both together, and returned the file with a private note. |
+| Closing and funding | 6:22 | Today opened the returned handoff. Completing it surfaced Review closing readiness and the guarded Clear to Close action. The owner completed the signing item and recorded closing and funding separately. Funding rose to two loans and $670,000. Quinn's projection remained $340,000. |
+| Recovery, realtor, and repeat business | 8:08 | Retrying the simulated funding failure created the check-in. The realtor showed Riley Funded without the internal note or pricing. The borrower view also omitted the note. The owner saved a dated callback, opened a separate prefilled refinance 1003 from Past Clients, and triggered the seeded rate-watch follow-up. Search returned both loans and the existing contact. |
+| Owner operations and migration | 9:00 | Calendar showed Riley's November 9 callback. Quinn's exception opened the exact insurance request. CRM preview reconciled four fictional records and the reviewed sample MISMO mapping created a Riley Example draft. Financials showed Riley and preserved unknown compensation and margin as Unknown. |
+
+At 9:48:04 p.m. ET the website publication switched the hosted release to `8eabfb39-2c13-4e57-a944-4c358f94ffc2`. The app source came from the archived `8e1854ba` candidate and only marketing files changed. The workspace returned to the pipeline during the contact-history step. The owner reopened the contact and continued. This run provides functional evidence across the release boundary. The 9:00 elapsed time exceeded the 5–7 minute target and the run does not count toward the two same-candidate sign-off rehearsals. The `design-pass/roles` evidence directory holds the mock scan error and funding captures.
+
+On `8eabfb39`, two owner tabs edited Riley's completed signing item from the same revision. The winning edit persisted. The stale tab retained its unsaved input and showed “This closing item changed. Refresh the loan before saving.” The alert sat 61 px from the top beside the loan refresh control. Refresh loaded the winning title, and the owner restored the original fictional title. The evidence directory includes `rehearsal-d-stale-edit.png`.
+
+## Final same-release rehearsals E and F on November 8, 2026
+
+Both fresh hosted brokerages ran on `2d3265d0-ec1e-486b-b0eb-8f5661b38e23`. Presenter Final E is `00de6e14-b802-4b8e-a0c9-6d0bc73d5614`; Presenter Final F is `493b3305-536e-463e-9870-c58cdf5cc4bd`. The owner operated the staff workspace. A second account signed in as the invited LO, then as the assigned processor after the documented role switch and Riley's reassignment. Setup took 20 and 16 seconds respectively once the Create brokerage form was ready. E started at 10:05:29 p.m. ET and F at 10:09:58 p.m. ET. These are elapsed browser rehearsal times including tool pauses and retries. A speaker's narration time was not measured.
+
+| Milestone | E elapsed | F elapsed | Observed result in both |
+| --- | ---: | ---: | --- |
+| Owner reports | 0:09 | about 0:10 | $340,000 projected, $310,000 funded, $290,000 prior. Quinn's closing workbench and Taylor's funded referral opened from the contributing records. |
+| Outreach, 1003, quote, and alert | 0:46 | 0:49 | Riley's overdue task opened the campaign. Connected was recorded. The prefilled 1003 saved, reopened, and submitted. The LO reviewed it, priced at ZIP 48067 with a mock score of 742, published the 6.125% quote, and opened the exact Income condition. |
+| Processor and clearance | 1:45 | 2:52 | The processor accepted the handoff. The blocked mock scan surfaced before the clean files. Borrower verification persisted through the replacement request. The lender refresh worked with one request outstanding. Both received samples showed accepted mock deliveries before one batch clearance cleared the two conditions. A private note accompanied the return. |
+| Guarded closing and funding | 2:14 | 3:17 | Today opened the return and the owner completed it. Review closing readiness led to Mark Clear to Close. The signing item was completed. Separate closing and funding dates produced two funded loans totaling $670,000 and left Quinn's $340,000 projection intact. |
+| Recovery, partner, and retention | 2:43 | 5:30 | The original failed follow-up retried. Realtor and borrower views omitted the staff note. The realtor saw Funded and no pricing. Save & start repeat 1003 kept the callback and opened the prefilled refinance. Casey's 6.000% sample observation opened the rate-watch follow-up. |
+| Owner operations and migration | 4:04 | 5:55 | Search distinguished both loans and Calendar showed the dated callback. Quinn's exact insurance request opened. The owner ledger showed $7,200 expected, $6,000 received, and $1,200 outstanding with unknown margin. CRM preview reconciled four fictional rows. The reviewed MISMO mapping opened a separate Riley Example draft. |
+
+E's first attempt to open Search left the rate-watch drawer active. Closing the drawer restored Search. F's browser driver initially targeted the previous borrower tab to refresh status. It then selected F's actual tab and continued through the visible demo code flow. These interruptions are included in the elapsed time. All changes were made using the hosted UI. Deployment history confirmed no release change during either run. Post-run browser logs contained no app errors in the sampled owner, processor, borrower, or realtor tabs.
+
+The `design-pass/roles` evidence directory contains `rehearsal-f-funded.png`, `rehearsal-f-borrower-390.png`, `rehearsal-f-realtor-390.png`, and `owner-closing-200-percent.png`. The presenter should load a fresh fictional brokerage before presenting and use the [presenter script](demo-presenter-script.md) to keep the sample boundaries and two-account role switch explicit.
+
+## Timed CSV-to-repeat browser run on November 9, 2026
+
+The fresh Timed CSV to Repeat Pilot brokerage `b8fb1174-43d2-42df-a5c1-edb0f1b6bf39` ran on `dd019ed3-abeb-4568-bd7a-fa1b8367194a`. Preparing the fictional pilot and campaign took 15 seconds. The timed run started when the owner opened the campaign import and ended when the separate refinance borrower view showed the original borrower’s name. One signed-in owner ran the seven-step campaign guide with built-in text samples. The timer included browser actions and tool pauses. Narration, role switches, and PDF scanning were outside this run.
+
+| Checkpoint | Elapsed | Evidence |
+| --- | ---: | --- |
+| CSV imported | 0:04 | Jordan assigned to the owner with the first-contact deadline. Casey stayed shared. |
+| Connected and initial 1003 opened | 0:18 | Start 1003 stayed in Ready to call after logging Connected. |
+| Borrower submitted | 0:21 | The prefilled fictional borrower submitted from the separate borrower view. |
+| Staff review | 0:29 | Refresh loan loaded the submission and the owner marked its revision reviewed. |
+| Mock credit and saved quote | 0:49 | The mock score fed pricing and the owner saved a quote. |
+| Mock lender receipt and borrower samples | 1:10 | The saved quote opened the mock lender checklist at 1:05. The borrower refreshed status and attached two text samples. |
+| Both conditions cleared | 1:24 | Refresh checklist loaded both samples. The owner accepted both and cleared them with one mock check. |
+| Closing and funding | 1:44 | The owner marked Clear to Close and recorded closing and funding separately. |
+| Separate refinance 1003 | 1:48 | Closing opened the check-in, the owner scheduled the callback, and the staff record opened the distinct repeat borrower link. |
+
+The presenter switched between staff and borrower views for submission and documents, then opened the repeat borrower view at the end. The manual refresh points were Refresh loan after submission, Refresh status after document requests, and Refresh checklist after sample attachment. The guide marked all seven steps complete. After timing stopped, the companion rate-watch example produced a follow-up at the sample 6.000% observation, and the borrower callback opened at November 10 at noon Eastern.
+
+The public demo copy shipped on `8402d730-a8cf-4f63-a578-378f2d99720c`. The finished guide still showed 7 / 7 at 375 px on that release. Build, lint, typecheck, all 223 tests, the local working-day rehearsal, and the recovery rehearsal passed. The `design-pass/roles` evidence directory contains `hosted-timed-csv-to-repeat-mobile.png`.
+
+## Automatic staff refresh on November 9, 2026
+
+On `3fcc66aa-83a1-4600-b785-d39fbe286b58`, the fictional Cameron Return Example loan updated from Draft to Needs review in its open staff 1003 section after the borrower submitted in another Chrome tab. The staff Conditions section picked up the sample pay stub without a manual refresh. After an unsaved request draft was typed, a second attachment paused automatic refresh and kept the draft text. After discarding the draft, the owner refreshed the checklist, accepted both samples, and cleared both conditions in one mock check. The public demo page describes the handoff. The `design-pass/roles` evidence directory contains `hosted-tab-return-draft.png`.
+
+The hosted run verified the same-browser signal. Automated tests cover visibility and focus return, duplicate events, and stale responses after leaving again. The browser run still used Refresh status to fetch the staff requests on the borrower side. Lint, typecheck, build, all 226 automated tests, and both local rehearsals passed.
+
+## CSV-to-repeat rerun without refreshes on November 9, 2026
+
+The fresh fictional brokerage `97d9f314-7c54-43e1-92ae-25d3a0760f36` ran the seven-step guide on `83c9f080-8409-40ca-8559-0b0b6f44fa03`. One signed-in owner used separate staff and borrower tabs. The browser run took 2:08 from opening the CSV import to verifying the original borrower’s name on a distinct refinance link. It used zero manual refreshes, compared with three in the earlier 1:48 run. Elapsed time includes selector retries and tool pauses. Narration and role changes were outside the timed run.
+
+| Checkpoint | Elapsed | Observed result |
+| --- | --- | --- |
+| Assigned lead and original 1003 | 0:37 | Two fictional rows imported, with Jordan assigned and Casey held in the shared inbox. Jordan’s Connected call opened the prefilled draft. |
+| Borrower submission and review | 0:48 | The submitted revision reached the staff loan automatically and the owner selected Mark reviewed. |
+| Mock pricing and lender receipt | 1:14 | ZIP 48304 and mock score 742 carried into the saved quote. The lender receipt opened both conditions. |
+| Requests and evidence | 1:17 | A single staff action produced both requests in the open borrower tab. Both text attachments appeared in the open staff checklist. |
+| Condition clearance and funding | 1:36 | Two mock deliveries cleared in one check at 1:26. The owner marked Clear to Close and recorded closing and funding separately. |
+| Separate repeat application | 2:08 | The owner saved the callback and opened a distinct, prefilled refinance. The guide showed 7 / 7. |
+
+On a separate fictional file, a built-in PDF appeared in the staff checklist after the mock scan. The borrower saw a staff replacement request automatically, used the same verification session, and submitted the replacement. A subsequent unrelated request appeared without resetting the selected PDF fixture on an existing request. No application errors appeared in the five sampled tabs. Public demo copy, all 227 tests, lint, typecheck, the production build, and both local rehearsals passed. The `design-pass/roles` evidence directory contains `hosted-no-refresh-guide.png`.
+
+## Chrome file selection and mock clearance on November 9, 2026
+
+On `bbeed7ac-0c1b-40e9-a432-2baac8097a8f`, the Chrome file chooser selected a local fictional MISMO XML. Migration displayed the mapped borrower and the $360,000 loan amount. The hosted check stopped at preview. The signed-in local rehearsal created and reopened the draft.
+
+In the separate fictional referral guide, the borrower checklist showed that the demo pay stub and bank statement had passed the mock scan. The staff condition alert opened the same loan with two documents ready for review. Accepting and mock-sending each document produced a delivery receipt. Checking clearance left two accepted documents, three cleared conditions, and zero outstanding. The guide then offered the move to Clear to Close and the realtor milestone step.
+
+## Timed uploaded CSV and PDF rehearsal on November 9, 2026
+
+The fresh fictional brokerage `67623162-0af4-4138-a87c-e6c25f682680` ran on `bbeed7ac-0c1b-40e9-a432-2baac8097a8f`. One signed-in staff account opened the campaign importer, selected the local rehearsal CSV through Chrome’s file picker, and ran the guide with separate original and repeat borrower tabs. The timer stopped when the distinct repeat link displayed the original borrower’s prefilled name.
+
+| Checkpoint | Elapsed | Observed result |
+| --- | --- | --- |
+| Uploaded CSV committed | 0:12 | Jordan received the LO assignment. Casey stayed in the shared inbox at capacity. Both received a November 10, 7:15 a.m. Eastern first-contact deadline. |
+| Original application reviewed | 0:43 | The Connected call opened a prefilled 1003. The staff tab picked up the borrower’s submission automatically. |
+| Quote and lender handoff | 1:14 | Mock credit score 742 and ZIP 48304 carried into pricing. The saved quote opened the mock UWM checklist with two conditions. |
+| PDFs and clearance | 1:49 | Both staff requests appeared in the open borrower checklist. Demo verification enabled the two clean PDFs. Staff received both automatically, recorded two mock delivery receipts, and cleared both conditions together. |
+| Closing and funding | 2:09 | Clear to Close opened the closing and funding actions. The funded file showed a post-funding check-in, and the campaign promoted Casey into the freed call slot. |
+| Separate repeat 1003 | 2:51 | The check-in scheduled a callback. Choosing Refinance opened a distinct borrower link with the original identity. The guide showed 7 / 7. |
+
+The timed run used zero manual refreshes and included the browser driver’s selector retries and pauses. It excluded workspace setup, narration, and staff role changes. No browser errors appeared in the three sampled tabs.
+
+The public demo page published the result on `6ef0e44b-6dbb-48be-9c4d-3def3bd3385d`. The marketing-only change passed lint, typecheck, all 262 tests, and the Cloudflare build. The deployed Demo and Product pages returned HTTP 200 with the expected copy. A fresh signed-in browser tab still showed 7 / 7 and the repeat application action after deployment.
+
+## Separate browser handoffs on November 9, 2026
+
+On `41d51f26-eb70-4a0a-9587-46ba0e56f75b`, a signed-in Chrome admin opened Avery Cross-Session Example’s 1003. The fictional borrower used the independent ChatGPT in-app browser on the same computer. Both browser documents reported visible. The open staff 1003 showed **Mark reviewed** 6.5 seconds after the borrower submitted. The open borrower checklist showed the new pay-stub request in 13.6 seconds. Staff saw the mock-scanned PDF ready for review in 15.3 seconds. Timings include browser actions and observation. Neither side used a manual refresh.
+
+The replacement request reached the borrower with the demo verification still active and the replacement fixture selected. Staff entered an unsaved request for a different document. The view kept that text through a check interval. Leaving the draft allowed the updated pay stub to reach the open checklist and be accepted. A subsequent correction request opened the saved borrower application and showed the correction note automatically. Neither browser logged an app error.
+
+The signed-in local Worker run verified that an unchanged check returns `{ "unchanged": true }`, a submission and attachment refresh the exact loan, and another officer or brokerage is denied. The attached processor could read the received document. The public demo copy was verified after deployment. All 264 tests, lint, typecheck, the production build, and both local rehearsals passed.
+
+## Incoming borrower work with the loan drawer closed
+
+On `9f31d336-7ab2-4f9f-b7cc-4d5fd82d5929`, an owner in the fictional Presenter Final F brokerage kept **Today → My Tasks → Due today** open in Chrome. The separate in-app borrower browser submitted Morgan Incoming Queue Example’s fictional application. The review card appeared in 10.4 seconds without a manual refresh. It focused `loan-application`, and marking the application reviewed removed the item on return to Today.
+
+The owner requested a standalone pay stub, assigned the loan to the existing fictional processor, and left **Processing → Assigned files** open. The sample PDF passed the mock scan in the borrower browser. The team Processing card appeared in 1.0 seconds with the loan drawer closed. It focused the exact pay-stub request. Accepting the PDF and closing the drawer removed the card. Timings include the browser driver and depend on when the foreground check runs. Neither browser logged an app error.
+
+The hosted run used the admin’s Today and team Processing views. The signed-in local Worker verified the owner’s 1003 and document, the assigned processor’s linked document, and denial for an unrelated officer. SQLite checks also cover tenant scope, page ties, closed review items, and held files. Lint, typecheck, all 265 tests, the Cloudflare build, and the working-day and recovery rehearsals passed.
+
+## Live processing handoff and return
+
+On `c15223ba-9334-4579-957a-6f40eed1905c`, two open staff tabs in the same hosted admin session rehearsed Morgan Incoming Queue Example in Presenter Final F. The Ready to accept queue showed the new handoff in 2.6 seconds. **Processing → Assigned files → Incoming loan work** showed the staff send note. Its action focused `processing-handoff` and the staff tab accepted the file.
+
+With the first tab on **Today → My Tasks** and the loan drawer closed, the other tab returned the file. Today displayed the return note in 15.1 seconds. Its action focused the exact handoff and showed the same note. Completing the handoff cleared the item. Neither staff tab used a manual refresh. The separate borrower browser showed neither staff note. The three tabs reported no app errors.
+
+The signed-in local Worker used distinct LO and assigned processor sessions on the same implementation. It verified the approved handoff, the two condition clearances, the exact return note and revision, and removal after completion. An unrelated officer could not read the item. Neither the borrower nor the realtor response included the note. All 265 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed.
+
+## Live reply arrival and promised callback
+
+On `706d9314-a27f-44a3-ad23-da616239b438`, the fictional Casey Campaign Reserve lead had a requested callback for November 10, 2026 at noon Eastern. One Chrome tab queued a simulated inbound email in Reply review while another tab in the same admin session stayed on **Today → Due today**. The pending receipt did not appear in Today. Attaching it to the matching lead produced the reply card in 3.4 seconds without a manual refresh. The card and the opened conversation showed the same time, and **Open promised callback** focused Casey’s campaign card with the deadline intact. Neither tab logged an app error.
+
+The signed-in local Worker verified separate admin and assigned LO sessions, denial for an unrelated LO and processor, and refusal to open a callback with an outdated timestamp. The public Demo page showed the updated reply walkthrough. All 265 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed.
+
+## Live conversation and callback after conversion
+
+On `c0473a1b-403e-4846-a7f2-db0ad2aa6894`, the fictional Casey Campaign Reserve reply opened its linked lead. **Create loan and prefill 1003** opened the new draft. The separate borrower browser showed Casey’s prefilled name. Today in another staff tab in the same admin session switched from the lead thread to the loan thread in 9.5 seconds without manual refresh. The original simulated message and November 10 noon Eastern callback remained visible.
+
+**Open promised callback** focused the exact loan task and showed that it was still due at the original time. All three browser tabs reported zero app errors. The SQLite regression verified the same conversation and task IDs, a repeated conversion with one task, and disappearance of the callback context after task completion. All 265 tests, lint, typecheck, the production build, and the local working-day and recovery rehearsals passed. The public Demo page carried the updated conversion copy.
+
+## Live callback outcome after conversion
+
+On `f6938400-5392-4057-9ea8-addafa8a5b0d`, the signed-in pilot admin opened the originating campaign and saw Casey Campaign Reserve's callback as **Upcoming** with the November 10 noon Eastern deadline. From **Today → Replies needing attention**, the admin opened the loan conversation and used **Open promised callback** to focus the exact loan task. Saving **Connected** completed the task and recorded the same fictional note in loan activity and the campaign report. The report showed **On time** against the original deadline and showed the original request and new attempt under **View call history**.
+
+Chrome's file chooser also accepted a one-row fictional CSV and Orbit displayed its parsed lead in the import preview. The public Demo page showed the callback workflow and fictional brokerage examples. The SQLite regression covered the assigned LO, rejected other officers and processors, preserved a missed deadline across a late reschedule, and recorded only one attempt on retry. All 269 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed.
+
+## Live manager and invited LO callback handoff
+
+On `0a07d5c0-adde-4462-9d68-3a2fc608496d`, the manager uploaded a one-row fictional CSV into a dedicated campaign in Presenter Rehearsal C and assigned it to the invited LO. The LO signed in with their own account, logged a promised 8:19 a.m. Eastern callback and created the prefilled 1003. After the deadline the manager's **Overdue callbacks** showed the same owner and time on the converted loan. **Open loan callback** focused the exact task. The manager reassigned the fictional file and restored it to the original LO. The owner in the queue changed each time and the deadline stayed fixed.
+
+The invited LO signed in again, opened the exact task from Today and logged Connected. Today and the manager exception queue cleared the task. The manager's campaign report recorded **Late** against 8:19 a.m. and showed the LO's timestamp and note. The original manager session was restored. The hosted run used sequential sign-ins in Chrome. The built Worker verified independent local manager, LO and processor sessions, denied the former owner and processor, and recorded one attempt across a retry. All 270 tests, lint, typecheck, production build and both local rehearsals passed. The public Demo page described the workflow.
+
+## Live longer-dated callback after conversion
+
+The manager uploaded a fictional Riley Long Callback QA row in Presenter Rehearsal C and assigned it to the invited LO. The LO scheduled November 24, 2026 at noon Eastern and opened the prefilled 1003. The previous release kept the task on the loan but omitted it from **My campaign callbacks → Upcoming**. On `2d0f7c34-ee38-4669-b827-cb4aac8ab66b`, Upcoming showed the same loan, campaign and time. **Open loan callback** focused the exact loan task with the outcome control. The callback lay outside Today's seven-day window and was left open for a future rescheduling rehearsal. The original admin session was restored, and the public Demo page described the updated queue.
+
+SQLite tests cover tied dates across lead and loan tasks, paging, reassignment, exact due boundaries, holds and opt-outs. The built Worker verified separate signed-in roles, the long-dated callback moving to the new owner and removal after a recorded attempt. SQLite query plans used the existing lead and loan owner indexes. All 271 tests, lint, typecheck, the Cloudflare build and both local rehearsals passed.
+
+## Live rescheduling of a callback on the loan
+
+On `fb2da7bc-6841-4d63-9c50-036275387f3a`, the invited LO opened Riley's original loan task from **My campaign callbacks → Upcoming**. They moved it from November 24 at noon Eastern to November 9 at 8:32 a.m. The same task appeared in Today and the loan activity showed the reason. After 8:32 a.m. the LO rescheduled the callback to November 25 at noon. Today cleared the task and Upcoming displayed the new time. The manager's overdue queue and campaign report both retained 8:32 a.m. as the missed deadline and displayed November 25 as the scheduled time. The campaign report also retained November 24 as the original promise. The original admin session was restored and the public Demo page showed the new workflow.
+
+The built Worker exercised a reschedule after reassignment, denied the former LO and processor, replayed one update without a duplicate activity entry, and reported the eventual call against the missed deadline. The SQLite regression exercised a second change back to the original scheduled time and rejected a stale save. All 271 tests, lint, typecheck, Cloudflare build, and both local rehearsals passed.
+
+## Current-release timed executive demo
+
+The [fresh hosted run](executive-rehearsal.md#current-release-executive-rehearsal) took 3:27 from opening the CSV importer to the rate-watch task and completed all seven guide steps with a separate prefilled refinance. The timed run used the mock verification and PDF route. A follow-up release clarified the credit authorization and PDF instructions and verified the new closing and funding date shortcuts on a second fictional loan. The public Demo page reflects the current measurement.
+
+## Live checklist entry after attachments
+
+In fictional brokerage `76178791-746f-4d26-927a-f8a2eacc838f`, the borrower submitted two sample PDFs while the staff checklist was closed. On `650fe6f6-1477-4411-a861-95fcfdd3953d`, the first staff render showed both requests as waiting. The scheduled foreground check later updated the checklist. On `1995bf42-7012-42d3-9e04-0871aaa2ea0a`, the staff guide was open before the two replacement PDFs arrived and still showed the borrower instructions. Clicking its checklist opened both documents as ready for review on the first render in about 0.3 seconds in this browser run. No manual refresh was used.
+
+After one clearance, the guide focused the exact remaining condition, which was ready for review. Mock UWM cleared the second condition. No app errors appeared in the sampled staff tab, and the public Demo page reflected the change. The built Worker verified matching current document revisions for the assigned LO and processor and denied the unrelated officer. All 271 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed.
