@@ -65,6 +65,7 @@ try {
   const dueAt = new Date(now - 60 * 60_000).toISOString();
   const requests = {};
   const stages = [];
+  const handoffs = [];
   const countRequest = (role) => { requests[role] = (requests[role] ?? 0) + 1; };
   async function stage(name, run) {
     const start = performance.now();
@@ -119,6 +120,17 @@ try {
   const workspace = async (staff) => (await write(staff, { type: "refreshWorkspace" })).state;
   const queue = (staff) => action(staff, "readMyTasksToday", { horizon: 7 });
   const incoming = (staff, view) => action(staff, "readIncomingLoanWork", { view });
+  async function measureHandoff(direction, send, receiver, view, loanId) {
+    assert.ok(!(await incoming(receiver, view)).items.some(({ kind, id }) => kind === "handoff" && id === loanId));
+    const started = performance.now();
+    await send();
+    const acknowledged = performance.now();
+    const offered = (await incoming(receiver, view)).items.find(({ kind, id }) => kind === "handoff" && id === loanId);
+    handoffs.push({ direction, writeMs: Math.round(acknowledged - started),
+      firstQueueReadMs: Math.round(performance.now() - acknowledged) });
+    assert.ok(offered, "The first read after acknowledgment must show the exact loan");
+    return offered;
+  }
   const upcomingCallbacks = (staff) => action(staff, "readMyCampaignCallbacks", { view: "Upcoming" });
   const borrower = (token, input) => post("/api/demo-application", { token, ...input });
   const realtor = (token) => post("/api/realtor-referrals", { type: "read", token });
@@ -642,11 +654,12 @@ try {
   await stage("LO sends the approved file to the assigned processor", async () => {
     const submitted = await file(officer, loanId);
     assert.ok(submitted.uwmAlerts.some(({ loanId: id }) => id === loanId));
-    await processing(officer, "Send to processing", "Review the mock lender evidence.");
+    const offered = await measureHandoff("LO to processor", () => loanAction(officer, loanId, "updateProcessing", {
+      action: "Send to processing", revision: submitted.loanProcessing[0].revision, note: "Review the mock lender evidence.",
+    }), processor, "processing", loanId);
     const ready = await action(processor, "readProcessingWork", { readyOnly: true });
     assert.ok(ready.files.some(({ id, status }) => id === loanId && status === "Ready for processing"));
     const active = await file(officer, loanId);
-    const offered = (await incoming(processor, "processing")).items.find(({ kind, id }) => kind === "handoff" && id === loanId);
     assert.equal(offered?.note, "Review the mock lender evidence.");
     assert.equal(offered?.revision, active.loanProcessing[0].revision);
     assert.equal(active.loans[0].officerEmail, officer.email, "The original LO stays on the file");
@@ -765,10 +778,11 @@ try {
     assert.ok(cleared.submissions[0].conditions.every(({ satisfiedAt }) => satisfiedAt));
     assert.ok(cleared.documentRequests.every(({ status, uwmReceipt }) => status === "Accepted" && uwmReceipt));
     assert.ok(cleared.communicationDrafts.some(({ audience, milestone }) => audience === "Realtor" && milestone === "Lender review complete"));
-    await processing(processor, "Return to LO", "Internal note: mock lender evidence cleared.");
+    const returnedWork = await measureHandoff("Processor to LO", () => loanAction(processor, loanId, "updateProcessing", {
+      action: "Return to LO", revision: cleared.loanProcessing[0].revision, note: "Internal note: mock lender evidence cleared.",
+    }), officer, "today", loanId);
     const returned = (await queue(officer)).items.find(({ kind, recordId }) => kind === "handoff" && recordId === loanId);
     assert.equal(returned?.target, "processing-handoff");
-    const returnedWork = (await incoming(officer, "today")).items.find(({ kind, id }) => kind === "handoff" && id === loanId);
     assert.equal(returnedWork?.note, "Internal note: mock lender evidence cleared.");
     assert.equal(returnedWork?.revision, (await file(officer, loanId)).loanProcessing[0].revision);
     assert.ok(!(await incoming(competingOfficer, "today")).items.some(({ id }) => id === loanId));
@@ -982,7 +996,7 @@ try {
     assert.equal(existing.migrationChanged, false);
     assert.equal(existing.state, undefined);
   });
-  console.log(JSON.stringify({ setupMs, stages, requests, staffRoleChanges: 0, staffHandoffs: 2,
+  console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
 } finally {

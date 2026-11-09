@@ -2,6 +2,8 @@
 
 Run `npm run build:cloudflare` and then `node scripts/workspace-working-day.mjs`. The built Worker runs on loopback with ephemeral storage. A fictional owner creates the pilot and invites two LOs and a processor. The script activates the invited identities and establishes separate local sessions in place of Google sign-in. The second LO participates in the shared campaign claim check. The primary LO, processor, and owner work the loan.
 
+The JSON output records the write acknowledgment and first independent recipient queue read for each staff handoff. It checks that the item is absent before the write and visible with its exact note and revision on the first read afterward. These measurements cover the local Worker and exclude browser polling. [Paired hosted and local measurements](demo-rehearsal-log.md#paired-processor-rehearsal-from-the-tagged-demo).
+
 ## Observed workflow
 
 | Actor | Action and verification |

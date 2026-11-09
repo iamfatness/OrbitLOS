@@ -215,3 +215,19 @@ The [fresh hosted run](executive-rehearsal.md#current-release-executive-rehearsa
 In fictional brokerage `76178791-746f-4d26-927a-f8a2eacc838f`, the borrower submitted two sample PDFs while the staff checklist was closed. On `650fe6f6-1477-4411-a861-95fcfdd3953d`, the first staff render showed both requests as waiting. The scheduled foreground check later updated the checklist. On `1995bf42-7012-42d3-9e04-0871aaa2ea0a`, the staff guide was open before the two replacement PDFs arrived and still showed the borrower instructions. Clicking its checklist opened both documents as ready for review on the first render in about 0.3 seconds in this browser run. No manual refresh was used.
 
 After one clearance, the guide focused the exact remaining condition, which was ready for review. Mock UWM cleared the second condition. No app errors appeared in the sampled staff tab, and the public Demo page reflected the change. The built Worker verified matching current document revisions for the assigned LO and processor and denied the unrelated officer. All 271 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed.
+
+## Paired processor rehearsal from the tagged demo
+
+On Worker `12943747-dea9-412d-8596-36583e6aceef` from source `85b539d7bb374b80d62cbc8fbb511f8abc67c702`, a fresh campaign lead in Presenter Final F moved through a reviewed 1003, mock pricing, and a mock UWM receipt. The brokerage admin owned and originated the file. The assigned Processor signed in separately, opened the exact file and private send note in **Processing**, accepted it, and requested the two lender documents. The processor reviewed the two mock-scanned PDFs, cleared the mock conditions, and returned the file with a note. The owner opened that exact return from **Today**, completed the handoff, recorded closing and funding, and opened a separate prefilled refinance. The guide reached **7 / 7**. The borrower did not see either internal note. No app errors appeared in the sampled tabs.
+
+| Hosted action | Elapsed |
+| --- | ---: |
+| Owner sends to processing and sees the acknowledged state | 1.22 s |
+| Processor opens the exact handoff from the queue | 0.29 s |
+| Processor accepts and sees the updated state | 0.99 s |
+| Processor returns and sees the acknowledged state | 1.26 s |
+| Owner opens the exact return from Today | 1.14 s |
+
+Chrome used separate accounts in sequence within one browser profile. These single observations measure browser actions and acknowledgment or open times. They exclude account switching and do not measure the delay between simultaneously open hosted queues.
+
+The local timing harness ran against the tagged build in three isolated fixtures with independent LO and processor sessions and zero role changes. LO sends took 6 ms in each run. Processor returns took 7, 7, and 6 ms. The recipient's first queue read after acknowledgment returned the exact loan and note in 3 ms in each direction and run. These are local Worker timings with an immediate request. Browser polling and network latency are separate.
