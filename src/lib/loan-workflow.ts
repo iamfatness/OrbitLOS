@@ -14,7 +14,7 @@ export const stalledLoanCutoff = (now: number) => now - stalledLoanDays * day;
 
 type LoanActionRecord = Pick<Loan, "id" | "stage" | "contactId" | "officer" | "disposition" | "dispositionReason" | "revisitDate">;
 export type LoanNextActionState = {
-  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "correctionNote" | "manualHandoff"> & {
+  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "correctionNote" | "manualHandoff" | "lastManualSubmissionId"> & {
     versions: Pick<Workspace["applications"][number]["versions"][number], "revision" | "uwmReceipt">[];
   })[];
   contacts: Pick<Workspace["contacts"][number], "id" | "outreachSuppressed">[];
@@ -132,6 +132,10 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     };
   }
   if (received) return { title: `Review ${received.kind}`, target: `document-${received.id}`, dueAt: null, blocker: null };
+  if (!pastClient && !actualClosing && application?.reviewedAt && !application.uwmReference &&
+    application.lastManualSubmissionId && !application.manualHandoff?.submissionId) {
+    return { title: "Prepare revised manual handoff", target: "manual-lender-export", dueAt: null, blocker: null };
+  }
   const outstandingCondition = state.submissions.filter((item) => item.loanId === loan.id &&
     (item.lender === "UWM" && item.syncedAt || item.id === application?.manualHandoff?.submissionId && item.syncedAt === null))
     .flatMap((item) => item.conditions.filter((condition) => !condition.satisfiedAt).map((condition) => ({

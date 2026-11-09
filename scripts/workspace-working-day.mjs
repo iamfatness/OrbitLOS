@@ -925,11 +925,14 @@ try {
     assert.match((await action(officer, "mutate", { ...handoff, lenderFile: { ...handoff.lenderFile, externalId: "OTHER" } })).error, /new handoff entry/);
     assert.equal((await file(officer, repeatId)).submissions.length, 1);
     const review = (input) => action(owner, "workOnLoanReview", { loanId: repeatId, ...input });
-    const [pending] = (await review({ type: "loan" })).reviews;
-    const { review: currentReview } = await review({ type: "detail", id: pending.id });
-    const approved = await review({ type: "decide", id: pending.id, revision: currentReview.revision, eventId: randomUUID(),
-      decision: "Approved", note: "Reviewed the fictional refinance." });
-    assert.equal(approved.kind, "saved", approved.error);
+    async function approveCurrent() {
+      const [pending] = (await review({ type: "loan" })).reviews;
+      const { review: currentReview } = await review({ type: "detail", id: pending.id });
+      const approved = await review({ type: "decide", id: pending.id, revision: currentReview.revision, eventId: randomUUID(),
+        decision: "Approved", note: "Reviewed the fictional refinance." });
+      assert.equal(approved.kind, "saved", approved.error);
+    }
+    await approveCurrent();
     const conditionId = randomUUID();
     const condition = { loanId: repeatId, submissionId, conditionId };
     await write(officer, { type: "saveManualCondition", ...condition, revision: 0,
@@ -954,12 +957,54 @@ try {
     assert.equal(cleared.submissions[0].conditions[0].manual.deliveries[0].reference, "FICT-DOC-01");
     assert.equal(loanNextAction(cleared.loans[0], cleared, "LO").title, "Review closing readiness");
     await write(officer, markClear);
+    const lenderReturn = { type: "requestApplicationCorrection", loanId: repeatId, revision,
+      note: "Confirm the requested refinance amount.",
+      lenderReturn: { eventId: randomUUID(), submissionId, lenderRevision: 0 } };
+    assert.ok((await action(competingOfficer, "mutate", lenderReturn)).error);
+    assert.match((await action(officer, "mutate", { ...lenderReturn, lenderReturn: { ...lenderReturn.lenderReturn, submissionId: randomUUID() } })).error,
+      /acknowledgment changed/);
+    const returned = (await write(officer, lenderReturn)).loanWork;
+    assert.equal(returned.loans[0].stage, "Underwriting");
+    assert.equal(returned.applications[0].lastManualSubmissionId, submissionId);
+    assert.equal(returned.applications[0].manualHandoff?.submissionId, undefined);
+    assert.equal(returned.submissions[0].status, "Returned for changes");
+    assert.equal((await write(officer, lenderReturn)).loanWork.applications[0].revision, returned.applications[0].revision);
+    assert.match((await action(officer, "mutate", { ...lenderReturn, note: "A different instruction." })).error, /new lender return entry/);
+    assert.match((await action(officer, "mutate", markClear)).error, /no longer ready/);
+    assert.match((await action(officer, "mutate", handoff)).error, /current submitted application/);
+    const draft = await borrower(repeatToken, { type: "read" });
+    assert.equal(draft.correctionNote, lenderReturn.note);
+    const correctedAmount = String(Number(draft.draft.loanAmount) - 500);
+    const corrected = await borrower(repeatToken, { type: "submit", revision: draft.revision, step: applicationSteps.length - 1,
+      draft: { ...draft.draft, loanAmount: correctedAmount } });
+    await loanAction(officer, repeatId, "reviewApplication", { revision: corrected.revision });
+    await approveCurrent();
+    const reacknowledgment = { ...handoff, revision: corrected.revision, eventId: randomUUID() };
+    assert.match((await action(officer, "mutate", reacknowledgment)).error, /Prepare the MISMO export/);
+    const revisedExport = await loanAction(officer, repeatId, "exportReviewedApplication", {
+      revision: corrected.revision, lenderRevision: 0, eventId: randomUUID(), names,
+    });
+    assert.ok(revisedExport.mismoXml.includes(`<NoteAmount>${correctedAmount}</NoteAmount>`));
+    const pendingRevision = await file(owner, repeatId);
+    assert.equal(loanNextAction(pendingRevision.loans[0], pendingRevision, "LO").title, "Prepare revised manual handoff");
+    await write(officer, reacknowledgment);
+    const relinked = await action(owner, "checkLoanHandoff", repeatId, pendingRevision.handoffVersion);
+    assert.equal(relinked.applications[0].manualHandoff.submissionId, submissionId);
+    assert.equal(relinked.submissions.length, 1);
+    assert.equal(relinked.submissions[0].status, "Acknowledged");
+    assert.deepEqual(relinked.submissions[0].conditions, cleared.submissions[0].conditions);
+    assert.equal(relinked.documentRequests[0].id, accepted.id);
+    assert.equal(relinked.documentRequests[0].revision, accepted.revision);
+    assert.equal(loanNextAction(relinked.loans[0], relinked, "LO").title, "Review closing readiness");
+    await write(officer, markClear);
     await loanAction(officer, repeatId, "recordClosing", { closingDate: today, revision: 0 });
     await loanAction(officer, repeatId, "recordFunding", { fundingDate: today, revision: 0 });
     const fundedRepeat = await file(officer, repeatId);
     assert.equal(fundedRepeat.closingProgress[0].fundingDate, today);
     assert.equal(fundedRepeat.submissions[0].syncedAt, null);
     assert.equal(fundedRepeat.applications[0].uwmReference, null);
+    assert.match((await action(officer, "mutate", { ...lenderReturn, revision: corrected.revision,
+      lenderReturn: { ...lenderReturn.lenderReturn, eventId: randomUUID() } })).error, /loan has closed/);
     const finalReport = (await workspace(owner)).managerReports.returningClients.find((row) => row.loanId === repeatId && row.metric === "applications");
     assert.equal(finalReport.detail, "Funded");
     assert.equal(finalReport.sourceLoanId, loanId);

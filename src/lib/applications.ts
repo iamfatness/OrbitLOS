@@ -14,7 +14,7 @@ import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 import { zipCityState } from "./zip-city-state";
 import { approvedSecondReview } from "./application-review-checkpoint";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "lender" | "manualHandoff" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
+type ApplicationRow = Omit<StaffApplication, "draft" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
 export function getApplication(db: Store, loanId: string) {
@@ -42,9 +42,13 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     }
     handoffs.set(loanId, handoff);
   }
-  return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved
+  return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved,
+    (SELECT event.submissionId FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
+      JOIN submissions file ON file.id = event.submissionId AND file.loanId = event.loanId AND file.syncedAt IS NULL
+      WHERE event.loanId = app.loanId AND event.outcome = 'Acknowledged'
+      ORDER BY event.applicationRevision DESC, event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS lastManualSubmissionId
     FROM applications app${filter}`).all(...args).map((value) => {
-    const row = value as ApplicationRow & { secondReviewApproved: number };
+    const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null };
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
       ORDER BY reviewedAt IS NOT NULL DESC, revision DESC LIMIT 1`).get(row.loanId, row.revision);
     const versions = db.prepare("SELECT revision, submittedAt, reviewedAt, uwmReceipt, uwmSentAt FROM application_versions WHERE loanId = ? ORDER BY revision DESC")
@@ -53,12 +57,15 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
         uwmReceipt: typeof item.uwmReceipt === "string" && typeof item.uwmSentAt === "string"
           ? { reference: item.uwmReceipt, sentAt: item.uwmSentAt } : null,
       }));
+    const manualHandoff = handoffs.get(row.loanId);
+    const lastManualSubmissionId = manualHandoff?.submissionId ?? row.lastManualSubmissionId;
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, secondReviewApproved: Boolean(row.secondReviewApproved), uwmReference: row.uwmReference,
       draft: row.submittedAt ? applicationDraft.parse(JSON.parse(row.draft)) : null,
       lender: lender.get(row.loanId) ?? null,
-      manualHandoff: handoffs.get(row.loanId),
+      manualHandoff,
+      ...(typeof lastManualSubmissionId === "string" ? { lastManualSubmissionId } : {}),
       revision: row.revision, correctionNote: row.correctionNote, versions,
       previousAnswers: prior ? applicationDraft.parse(JSON.parse(String(prior.draft))) : null,
     };

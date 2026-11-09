@@ -16,8 +16,11 @@ import { searchTaskTarget } from "./workspace-search-model";
 export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 
 function loanHandoffVersion(db: Store, loanId: string) {
-  const application = db.prepare(`SELECT revision, updatedAt, submittedAt, reviewedAt, revokedAt, expiresAt, uwmReference
-    FROM applications WHERE loanId = ?`).get(loanId);
+  const application = db.prepare(`SELECT revision, updatedAt, submittedAt, reviewedAt, revokedAt, expiresAt, uwmReference,
+    (SELECT event.activityId FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
+      WHERE event.loanId = app.loanId AND event.applicationRevision = app.revision AND event.submissionId IS NOT NULL
+      ORDER BY event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS linkedHandoff
+    FROM applications app WHERE loanId = ?`).get(loanId);
   const documents = db.prepare(`SELECT requests.id, requests.status, requests.revision, requests.deadlineRevision, ${pdfColumns()}
     FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
     WHERE requests.loanId = ? ORDER BY requests.requestedAt, requests.id`).all(loanId);

@@ -16,6 +16,42 @@ export function hasPreparedLenderExport(db: Store, input: { loanId: string; revi
     .get(input.loanId, input.revision, input.lenderRevision));
 }
 
+export function recordManualLenderReturn(db: Store, input: { loanId: string; revision: number; note: string;
+  lenderReturn: { eventId: string; submissionId: string; lenderRevision: number } }, now: string) {
+  const { loanId, revision, lenderReturn: { eventId, submissionId, lenderRevision } } = input;
+  const outcome = "Returned for changes";
+  const detail = `Manual handoff · ${outcome} · Application revision ${revision} · ${input.note}`;
+  const previous = db.prepare(`SELECT activity.loanId, activity.text, event.applicationRevision, event.lenderRevision, event.outcome, event.submissionId
+    FROM activity LEFT JOIN application_handoff_events event ON event.activityId = activity.id WHERE activity.id = ?`).get(eventId);
+  if (previous) {
+    return previous.loanId === loanId && previous.text === detail && previous.applicationRevision === revision &&
+      previous.lenderRevision === lenderRevision && previous.outcome === outcome && previous.submissionId === submissionId ?
+      { alreadyRecorded: true as const } : { error: "Start a new lender return entry." };
+  }
+  const eligible = db.prepare(`SELECT loan.stage FROM loans loan JOIN applications app ON app.loanId = loan.id
+    JOIN submissions file ON file.loanId = loan.id AND file.id = ? AND file.syncedAt IS NULL
+    LEFT JOIN application_lender_details details ON details.loanId = loan.id
+    LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id
+    LEFT JOIN closing_progress closing ON closing.loanId = loan.id
+    WHERE loan.id = ? AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')
+    AND app.revision = ? AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL
+    AND coalesce(details.revision, 0) = ? AND profile.closingDate IS NULL AND closing.fundingDate IS NULL`)
+    .get(submissionId, loanId, revision, lenderRevision);
+  const last = db.prepare(`SELECT event.outcome, event.submissionId FROM application_handoff_events event
+    JOIN activity ON activity.id = event.activityId
+    WHERE event.loanId = ? AND event.applicationRevision = ? AND event.lenderRevision = ? AND event.outcome <> 'Export prepared'
+    ORDER BY activity.rowid DESC LIMIT 1`).get(loanId, revision, lenderRevision);
+  if (!eligible || last?.outcome !== "Acknowledged" || last.submissionId !== submissionId) {
+    return { error: "This lender acknowledgment changed or the loan has closed. Refresh before recording a return." };
+  }
+  db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(eventId, loanId, detail, now);
+  db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(eventId, loanId, revision, lenderRevision, outcome, submissionId);
+  db.prepare("UPDATE submissions SET status = ? WHERE id = ?").run(outcome, submissionId);
+  if (eligible.stage === "Clear to Close") db.prepare("UPDATE loans SET stage = 'Underwriting', stageSince = ? WHERE id = ?").run(now, loanId);
+  return { alreadyRecorded: false as const };
+}
+
 function originatorParties(details: LenderDetails) {
   const org = details.originator.fields;
   const contact = container("CONTACT_POINTS", [contactPoint("email", org.email), contactPoint("phone", org.phone, "Work")]);

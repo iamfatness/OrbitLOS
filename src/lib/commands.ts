@@ -72,7 +72,7 @@ import { saveCallReport } from "./call-report-model";
 import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEvent } from "./loan-audit";
 
 import { exportReviewedApplication } from "./lender-export-model";
-import { hasPreparedLenderExport, prepareLenderExport } from "./lender-export";
+import { hasPreparedLenderExport, prepareLenderExport, recordManualLenderReturn } from "./lender-export";
 import { fundingTaskId, reversedFundingTaskPrefix, savePlaybookInput } from "./playbook-model";
 import { readPlaybook, recordedFundingCheckIn, retireFundingFollowUps, writePlaybook } from "./playbooks";
 import { startFundingPlaybook, supersedeFundingPlaybook } from "./playbook-runs";
@@ -264,7 +264,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
   reviewApplicationInput,
   z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
-    note: z.string().trim().min(1).max(500) }),
+    note: z.string().trim().min(1).max(500),
+    lenderReturn: z.object({ eventId: z.uuid(), submissionId: id, lenderRevision: z.number().int().nonnegative() }).optional() }),
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
   z.object({ type: z.literal("sendApplication"), loanId: id, revision: z.number().int().nonnegative(),
     quote: z.object({ runId: id, offerId: id }).optional() }),
@@ -407,6 +408,8 @@ function scopedLoanId(data: z.infer<typeof command>) {
       return data.id;
     case "recordManualHandoff":
       return data.lenderFile ? data.loanId : undefined;
+    case "requestApplicationCorrection":
+      return data.lenderReturn ? data.loanId : undefined;
     case "markClearToClose":
     case "saveClosingTarget":
     case "saveClosingItem":
@@ -1249,6 +1252,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
               }
               submissionId = existing ? String(existing.id) : crypto.randomUUID();
               if (!existing) insertSubmission(db, { ...file, id: submissionId, loanId: data.loanId, status: "Acknowledged", conditions: [], syncedAt: null });
+              else db.prepare("UPDATE submissions SET status = 'Acknowledged' WHERE id = ? AND status = 'Returned for changes'").run(submissionId);
             }
             db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(data.eventId, data.loanId, detail, now);
             if (data.lenderRevision !== undefined) db.prepare(`INSERT INTO application_handoff_events
@@ -1446,6 +1450,15 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "requestApplicationCorrection": {
+          if (data.lenderReturn) {
+            const result = recordManualLenderReturn(db, { ...data, lenderReturn: data.lenderReturn }, now);
+            if ("error" in result) throw new WorkspaceError(result.error);
+            if (result.alreadyRecorded) {
+              message = "Lender return already recorded.";
+              break;
+            }
+            accessEvent(db, staff, "Recorded manual lender return", data.loanId, now);
+          }
           const application = getApplication(db, data.loanId);
           if (!application?.submittedAt || application.revision !== data.revision) throw new WorkspaceError("Refresh the submitted application before requesting corrections.");
           saveApplicationVersion(db, application);
@@ -1454,7 +1467,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare(`UPDATE tasks SET completedAt = ? WHERE loanId = ? AND completedAt IS NULL
             AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
           addApplicationActivity(db, data.loanId, "Loan officer requested 1003 corrections.", now);
-          message = "The borrower can reopen the same link to correct and resubmit the 1003.";
+          message = data.lenderReturn ? "Lender return recorded. The borrower can reopen the same link to correct the 1003." :
+            "The borrower can reopen the same link to correct and resubmit the 1003.";
           break;
         }
         case "saveLenderDetails": {

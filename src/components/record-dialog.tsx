@@ -256,6 +256,10 @@ function LoanApplication({ loanId, state, busy, save, processor, openConditions,
   const [copyStatus, setCopyStatus] = useState("");
   const [confirmingRevocation, setConfirmingRevocation] = useState<string | null>(null);
   const application = state.applications.find((item) => item.loanId === loanId);
+  const loan = state.loans.find((item) => item.id === loanId);
+  const canRecordReturn = Boolean(loan && !pausedLoan(loan) && !pastClientLoan(loan) &&
+    !state.pastClients.some((item) => item.loanId === loanId && item.closingDate) &&
+    !state.closingProgress.some((item) => item.loanId === loanId && item.fundingDate));
   const requireSecondReview = state.playbook.requireSecondReview;
   const blocker = secondReviewBlocker(requireSecondReview, application);
   const linkStatus = application?.revokedAt ? "Revoked" : application && application.expiresAt <= new Date().toISOString() ? "Expired" : "Active";
@@ -349,7 +353,9 @@ function LoanApplication({ loanId, state, busy, save, processor, openConditions,
       </details>}
       <ManualLenderExport key={`${loanId}:${application.revision}:${application.lender?.revision ?? 0}`}
         application={application} busy={busy} save={save} openConditions={openConditions}
+        canRecordReturn={canRecordReturn}
         linkedFile={state.submissions.find((submission) => submission.id === application.manualHandoff?.submissionId && submission.loanId === loanId)}
+        previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
         campaign={campaignManual ? { submission: campaignManualSubmission(state.submissions, loanId), openConditions } : undefined} />
       <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy} save={save} markDraftChanged={markDraftChanged} />
@@ -501,7 +507,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const action = loanNextAction(loan, state, staff?.brokerage.role);
   const uwm = submissions.filter((item) => item.lender === "UWM");
   const linkedManual = submissions.find((item) => item.id === application?.manualHandoff?.submissionId && item.syncedAt === null);
-  const displayManual = uwm.length === 0 ? linkedManual : undefined;
+  const displayManual = uwm.length === 0 ? linkedManual ?? submissions.find((item) => item.id === application?.lastManualSubmissionId && item.syncedAt === null) : undefined;
   const lenderStatus = displayManual?.status ?? uwm[0]?.status ?? "Awaiting submission";
   const openCount = (displayManual ? displayManual.conditions : uwm.flatMap((item) => item.conditions)).filter((item) => !item.satisfiedAt).length;
   const realtorDraft = state.communicationDrafts.find((draft) => draft.loanId === loan.id && draft.audience === "Realtor" && draft.contactId === loan.partnerId);

@@ -14,12 +14,14 @@ const nameFields = [
   ["first", "First name"], ["middle", "Middle name"], ["last", "Last name"], ["suffix", "Suffix"],
 ] as const;
 
-export function ManualLenderExport({ application, busy, save, campaign, linkedFile, openConditions }: {
+export function ManualLenderExport({ application, busy, save, campaign, linkedFile, previousFile, canRecordReturn, openConditions }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   campaign?: { submission?: Submission; openConditions: (id: string) => void };
   linkedFile?: Submission;
+  previousFile?: Submission;
+  canRecordReturn: boolean;
   openConditions: (id: string) => void;
 }) {
   const originals = application.draft ? [application.draft.borrowerName,
@@ -29,6 +31,7 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const acknowledgmentAttempt = useRef<string | null>(null);
   const linkedAttempt = useRef<{ key: string; id: string } | null>(null);
+  const returnAttempt = useRef<{ note: string; id: string } | null>(null);
   const ready = application.reviewedAt && application.submittedAt && !application.correctionNote && application.draft?.confirmedDemo;
   const valid = names.length > 0 && names.every((item) => exportName.safeParse(item).success);
   const handoff = application.manualHandoff;
@@ -37,6 +40,10 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
   return <details className="application-review" id="manual-lender-export">
     <summary>Manual lender export</summary>
     <p className="muted">Use MISMO 3.4 XML for a manual upload rehearsal. Check the lender’s import profile and required fields before a live handoff.</p>
+    {!linkedFile && previousFile && <div className="document-item">
+      <p className="muted">Previous lender file · {previousFile.lender} · {previousFile.externalId}. Its checklist is available while you prepare the revised export.</p>
+      <div><Button size="sm" variant="outline" onClick={() => openConditions(previousFile.id)}>Open previous lender checklist</Button></div>
+    </div>}
     {!ready ? <p className="muted">Review the current submitted pilot 1003 to unlock the download.</p> :
       <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
@@ -98,6 +105,21 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
       {linkedFile ? <>
         <p className="muted">Acknowledged by {linkedFile.lender} · {linkedFile.externalId}</p>
         <Button size="sm" onClick={() => openConditions(linkedFile.id)}>Open lender conditions</Button>
+        {canRecordReturn && <details className="document-form">
+          <summary>Record lender return for corrections</summary>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const note = String(new FormData(event.currentTarget).get("borrowerInstructions") ?? "").trim();
+            if (!note) return;
+            if (returnAttempt.current?.note !== note) returnAttempt.current = { note, id: crypto.randomUUID() };
+            void save({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note,
+              lenderReturn: { eventId: returnAttempt.current.id, submissionId: linkedFile.id, lenderRevision: application.lender?.revision ?? 0 } });
+          }}>
+            <label className="field">Instructions for the borrower<textarea name="borrowerInstructions" required rows={3} maxLength={500} /></label>
+            <p className="muted">The borrower can reopen their existing link. The lender checklist and its history stay on this loan.</p>
+            <div><Button size="sm" type="submit" disabled={busy}>Record return and reopen 1003</Button></div>
+          </form>
+        </details>}
       </> : <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
@@ -110,8 +132,8 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
       }}>
         <p className="muted">After the lender confirms receipt, record its reference to open or reuse a condition checklist on this loan.</p>
         <div className="form-grid">
-          <label className="field">Lender name<input name="lender" required maxLength={160} /></label>
-          <label className="field">Lender file reference<input name="externalId" required maxLength={160} /></label>
+          <label className="field">Lender name<input name="lender" required maxLength={160} defaultValue={previousFile?.lender} /></label>
+          <label className="field">Lender file reference<input name="externalId" required maxLength={160} defaultValue={previousFile?.externalId} /></label>
         </div>
         <div><Button size="sm" type="submit" disabled={busy}>Record lender acknowledgment</Button></div>
       </form>}
