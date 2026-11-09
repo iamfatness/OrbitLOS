@@ -1,4 +1,4 @@
-import type { Condition, Stage } from "./model";
+import type { ClosingPause, Condition, Stage } from "./model";
 import type { BorrowerQuote } from "./pricing-model";
 import type { SharedPreapprovalLetter } from "./preapproval-model";
 import type { StaffApplication } from "./application-model";
@@ -78,6 +78,7 @@ export interface LoanDocumentRequest extends DocumentRequest {
 export interface BorrowerLoanStatus {
   stage: Stage;
   stageSince: string;
+  closingPause?: ClosingPause;
   reviewed: boolean;
   documents: DocumentRequest[];
   quote: BorrowerQuote | null;

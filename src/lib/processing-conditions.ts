@@ -1,4 +1,24 @@
+import type { ClosingPause } from "./model";
 import type { Store } from "./store";
+
+export const reopenedMockUwmAtSql = (loanId: string) => `(SELECT max(json_extract(condition.value, '$.mockReopenedAt'))
+  FROM submissions file JOIN json_each(CASE WHEN json_valid(file.conditions) THEN file.conditions ELSE '[]' END) condition
+  WHERE file.loanId = ${loanId} AND file.lender = 'UWM' AND file.syncedAt IS NOT NULL
+    AND json_extract(condition.value, '$.satisfiedAt') IS NULL)`;
+
+export function readClosingPauses(db: Store, loanIds: string[]) {
+  const holds = new Map<string, ClosingPause>();
+  if (!loanIds.length) return holds;
+  const rows = db.prepare(`SELECT loan.id, profile.closingDate, ${reopenedMockUwmAtSql("loan.id")} AS since
+    FROM json_each(?) selected JOIN loans loan ON loan.id = selected.value
+    LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id
+    LEFT JOIN closing_progress progress ON progress.loanId = loan.id
+    WHERE loan.stage = 'Clear to Close' AND progress.fundingDate IS NULL`).all(JSON.stringify(loanIds));
+  for (const { id, closingDate, since } of rows) {
+    if (typeof since === "string" && since) holds.set(String(id), { label: closingDate ? "Funding on hold" : "Closing on hold", since });
+  }
+  return holds;
+}
 
 export function initializeProcessingConditions(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS processing_open_conditions (

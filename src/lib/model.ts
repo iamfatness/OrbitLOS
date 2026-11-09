@@ -210,9 +210,11 @@ export interface RealtorPortal {
   officerEmail: string | null;
 }
 
+export type ClosingPause = { label: "Closing on hold" | "Funding on hold"; since: string };
+
 export interface RealtorReferrals {
   realtorName: string;
-  referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string; preapproval?: SharedPreapprovalLetter }[];
+  referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string; closingPause?: ClosingPause; preapproval?: SharedPreapprovalLetter }[];
   next: RealtorReferralCursor | null;
 }
 

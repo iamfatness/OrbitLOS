@@ -923,7 +923,8 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
           manualReturn={modal.manualReturn}
           openLoan={(id) => openContactLoan(id, modal.manualReturn ? undefined : modal.returnTo ?? "processing-handoff", modal.manualReturn)} />}
-        {modal.kind === "communication" && loan && <CommunicationPreview loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} busy={busy} save={save} />}
+        {modal.kind === "communication" && loan && <CommunicationPreview key={`${loan.id}:${modal.audience}:${modal.draftId ?? ""}`}
+          loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} />}
         {modal.kind === "documentFollowUp" && loan && <DocumentFollowUp loan={loan} state={state} />}
         {modal.kind === "fundingCheckIn" && (loan && checkIn && canRecordFundingCheckIn(loan, state, staff?.brokerage.role) ?
           <FundingCheckInForm key={checkIn.revision} loanId={loan.id} fundingRevision={checkIn.revision}

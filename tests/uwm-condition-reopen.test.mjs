@@ -16,8 +16,9 @@ registerHooks({
 
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { initializeStore, insertContact } = await import("../src/lib/store.ts");
-const { createRealtorLenderDraft } = await import("../src/lib/communications.ts");
+const { createMilestoneDrafts, createRealtorLenderDraft } = await import("../src/lib/communications.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
+const { realtorReferrals } = await import("../src/lib/realtor-portal.ts");
 const { readWorkspaceCalendar } = await import("../src/lib/officer-queue.ts");
 const { easternDate } = await import("../src/lib/client-retention.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
@@ -153,8 +154,24 @@ test("reopened conditions survive sync and only an accepted replacement revision
   const now = new Date().toISOString();
   insertContact(db, { id: partnerId, name: "Fictional realtor", email: "partner@example.test", phone: "", role: "Realtor" });
   db.prepare("UPDATE loans SET partnerId = ? WHERE id = ?").run(partnerId, file.loanId);
+  await apply({ type: "startApplication", loanId: file.loanId });
+  db.prepare("UPDATE applications SET submittedAt = ? WHERE loanId = ?").run(now, file.loanId);
+  const borrowerToken = db.prepare("SELECT token FROM applications WHERE loanId = ?").get(file.loanId).token;
+  const portal = (await apply({ type: "createRealtorPortal", realtorId: partnerId })).realtorPortals[0];
+  const borrowerStatus = () => borrowerCommandResult(db, { type: "read", token: borrowerToken }).application.loanStatus;
+  const realtorStatus = () => realtorReferrals(db, { type: "read", token: portal.token }).value.referrals[0];
+  createMilestoneDrafts(db, file.loanId, "Clear to Close", now);
   createRealtorLenderDraft(db, file.loanId, "Lender review complete", "initial-clearance", now);
-  const firstDraft = (await apply({ type: "refreshWorkspace" })).communicationDrafts[0];
+  const starting = (await apply({ type: "refreshWorkspace" })).communicationDrafts;
+  const firstDraft = starting.find(({ milestone }) => milestone === "Lender review complete");
+  const closingDrafts = starting.filter(({ milestone }) => milestone === "Clear to Close");
+  const closingDraft = closingDrafts.find(({ audience }) => audience === "Realtor");
+  const closingCopy = { type: "copyDraft", loanId: file.loanId, contactId: partnerId, audience: "Realtor",
+    milestone: "Clear to Close", channel: "Email" };
+  const copiedClosingAt = (await apply({ ...closingCopy, draftId: closingDraft.id })).communicationDrafts.find(({ id }) => id === closingDraft.id).emailCopiedAt;
+  assert.ok(copiedClosingAt);
+  assert.equal(borrowerStatus().closingPause, undefined);
+  assert.equal(realtorStatus().closingPause, undefined);
   const copy = { type: "copyDraft", loanId: file.loanId, contactId: partnerId, audience: "Realtor", milestone: firstDraft.milestone, channel: "Email" };
   const firstCopy = (await apply({ ...copy, draftId: firstDraft.id })).communicationDrafts[0].emailCopiedAt;
   assert.ok(firstCopy);
@@ -173,13 +190,25 @@ test("reopened conditions survive sync and only an accepted replacement revision
   assert.equal(request.uwmReceipt, null);
   assert.equal(request.previousUwmDeliveries[0].receipt, "original-receipt");
   assert.equal(reopened.uwmAlerts.filter((alert) => alert.kind === "Reopened condition" && alert.conditionId === condition.id).length, 1);
-  const [resumed, previous] = reopened.communicationDrafts;
+  const resumed = reopened.communicationDrafts.find(({ milestone }) => milestone === "Lender review resumed");
+  const previous = reopened.communicationDrafts.find(({ id }) => id === firstDraft.id);
   assert.equal(resumed.milestone, "Lender review resumed");
   assert.equal(previous.id, firstDraft.id);
   assert.equal(previous.emailCopiedAt, firstCopy);
   assert.ok(previous.supersededAt);
   assert.ok((await command({ ...copy, draftId: previous.id })).error);
   assert.ok((await command(reopen)).error);
+  assert.equal(borrowerStatus().closingPause.label, "Closing on hold");
+  assert.deepEqual(realtorStatus().closingPause, borrowerStatus().closingPause);
+  assert.doesNotMatch(JSON.stringify(realtorStatus()), /Provide title evidence|original-receipt|documents/);
+  assert.equal(reopened.communicationDrafts.find(({ id }) => id === closingDraft.id).emailCopiedAt, copiedClosingAt);
+  assert.ok(reopened.communicationDrafts.filter(({ milestone }) => milestone === "Clear to Close").every(({ supersededAt }) => supersededAt));
+  assert.ok((await command({ ...closingCopy, draftId: closingDraft.id })).error);
+  // Emulate a workspace upgraded with a condition already open and an unretired draft.
+  db.prepare("UPDATE communication_drafts SET supersededAt = NULL WHERE id = ?").run(closingDraft.id);
+  db.prepare("DELETE FROM settings WHERE key = 'retiredClosingHoldDrafts'").run();
+  initializeStore(db, false);
+  assert.ok(db.prepare("SELECT supersededAt FROM communication_drafts WHERE id = ?").get(closingDraft.id).supersededAt);
 
   const clearance = { type: "refreshMockUwmClearance", loanId: file.loanId, submissionId: file.id };
   const send = { type: "sendConditionDocument", loanId: file.loanId, requestId };
@@ -203,7 +232,9 @@ test("reopened conditions survive sync and only an accepted replacement revision
   assert.ok(cleared.conditions[0].satisfiedAt);
   assert.equal(cleared.status, "Conditions cleared");
   assert.ok((await command(reopen)).error);
-  const [currentDraft, earlierResumed, earlierComplete] = final.communicationDrafts;
+  const currentDraft = final.communicationDrafts.find(({ milestone, supersededAt }) => milestone === firstDraft.milestone && !supersededAt);
+  const earlierResumed = final.communicationDrafts.find(({ id }) => id === resumed.id);
+  const earlierComplete = final.communicationDrafts.find(({ id }) => id === firstDraft.id);
   assert.equal(currentDraft.milestone, firstDraft.milestone);
   assert.notEqual(currentDraft.id, firstDraft.id);
   assert.equal(currentDraft.supersededAt, null);
@@ -212,7 +243,15 @@ test("reopened conditions survive sync and only an accepted replacement revision
   assert.ok(earlierResumed.supersededAt);
   assert.equal(earlierComplete.emailCopiedAt, firstCopy);
   const copied = await apply({ ...copy, draftId: currentDraft.id, channel: "Text" });
-  assert.ok(copied.communicationDrafts[0].textCopiedAt);
-  assert.equal(copied.communicationDrafts[2].textCopiedAt, null);
-  assert.deepEqual((await apply({ type: "sync" })).communicationDrafts, copied.communicationDrafts);
+  assert.ok(copied.communicationDrafts.find(({ id }) => id === currentDraft.id).textCopiedAt);
+  assert.equal(copied.communicationDrafts.find(({ id }) => id === firstDraft.id).textCopiedAt, null);
+  assert.equal(borrowerStatus().closingPause, undefined);
+  assert.equal(realtorStatus().closingPause, undefined);
+  const currentClosing = copied.communicationDrafts.filter(({ milestone, supersededAt }) => milestone === "Clear to Close" && !supersededAt);
+  assert.equal(currentClosing.length, 2);
+  assert.ok(currentClosing.every(({ id, emailCopiedAt }) => !closingDrafts.some((item) => item.id === id) && !emailCopiedAt));
+  assert.ok((await command({ ...closingCopy, draftId: closingDraft.id })).error);
+  const latestClosing = await apply(closingCopy);
+  assert.ok(latestClosing.communicationDrafts.find(({ id }) => id === currentClosing.find(({ audience }) => audience === "Realtor").id).emailCopiedAt);
+  assert.deepEqual((await apply({ type: "sync" })).communicationDrafts, latestClosing.communicationDrafts);
 });

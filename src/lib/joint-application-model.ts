@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ApplicationDraft } from "./application-model";
 import { portalTokenPattern } from "./brokerage-model";
 import type { DocumentRequest } from "./document-model";
+import type { ClosingPause } from "./model";
 import { borrowerDetailsSchema, normalizeBorrowerDetails, sampleUrla, type BorrowerDetails, type BorrowerSection } from "./urla";
 
 const loanId = z.string().min(1).max(100);
@@ -46,6 +47,7 @@ export interface CoBorrowerApplication {
   complete: boolean;
   confirmedDemo: boolean;
   documents?: DocumentRequest[];
+  closingPause?: ClosingPause;
   documentUploadsMode?: "mock";
   correctionNote?: string;
 }

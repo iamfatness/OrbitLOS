@@ -31,7 +31,7 @@ import { initializeContactDuplicateQueue } from "./contact-duplicate-queue";
 import type { CrmSegment } from "./crm-segment-model";
 import { readCampaignRouting } from "./campaign-routing";
 import { campaignResponses } from "./campaign-response";
-import { initializeProcessingConditions } from "./processing-conditions";
+import { initializeProcessingConditions, reopenedMockUwmAtSql } from "./processing-conditions";
 import { initializeCallReportReadiness } from "./call-report-readiness";
 
 export type SqlValue = string | number | null;
@@ -1172,6 +1172,13 @@ export function initializeStore(db: Store, seedDemo = true) {
     initializeContactDuplicateQueue(db);
     initializeLeadReplyIndex(db);
     initializeProcessingConditions(db);
+    if (db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('retiredClosingHoldDrafts', '1') RETURNING key").get()) {
+      db.exec(`WITH pending AS MATERIALIZED (
+        SELECT draft.id, ${reopenedMockUwmAtSql("draft.loanId")} AS since FROM communication_drafts draft
+        WHERE draft.milestone = 'Clear to Close' AND draft.supersededAt IS NULL
+      ) UPDATE communication_drafts AS draft SET supersededAt = pending.since
+        FROM pending WHERE draft.id = pending.id AND pending.since IS NOT NULL`);
+    }
     initializeCallReportReadiness(db);
     migrateCampaignOptOuts(db);
     if (!seedDemo || db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;

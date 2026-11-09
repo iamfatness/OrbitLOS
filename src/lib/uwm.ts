@@ -1,9 +1,10 @@
 import { insertContact, insertLoan, insertSubmission, type Store } from "./store";
 import type { Condition, Stage, Submission } from "./model";
 import { addApplicationActivity, getApplication, saveApplicationVersion } from "./applications";
-import { createRealtorLenderDraft } from "./communications";
+import { createRealtorLenderDraft, restoreClearToCloseDrafts, supersedeClearToCloseDrafts } from "./communications";
 import { recordUwmAlerts } from "./uwm-alerts";
 import { handoffCheckpointError } from "./application-review-checkpoint";
+import { reopenedMockUwmAtSql } from "./processing-conditions";
 
 // The shapes used by the Insights Loans query and the single-loan conditions endpoint.
 interface InsightsLoan {
@@ -97,6 +98,9 @@ function recordUwmProgress(db: Store, next: Pick<Submission, "id" | "loanId" | "
   const { count, statusChangeId, reopenedId } = recordUwmAlerts(db, next, previous, now);
   if (!mock) return count;
   if (reopenedId) {
+    if (next.conditions.some(({ mockReopenedAt, satisfiedAt }) => mockReopenedAt && !satisfiedAt)) {
+      supersedeClearToCloseDrafts(db, next.loanId, now);
+    }
     createRealtorLenderDraft(db, next.loanId, "Lender review resumed", reopenedId, now);
   } else if (statusChangeId) {
     const complete = (status: string) => status === "Conditions cleared" || status === "Wholesale - Clear To Close";
@@ -104,6 +108,9 @@ function recordUwmProgress(db: Store, next: Pick<Submission, "id" | "loanId" | "
     if (complete(next.status) && next.conditions.every((item) => item.satisfiedAt) &&
       (!complete(previous.status) || previous.conditions.some((item) => !item.satisfiedAt))) {
       createRealtorLenderDraft(db, next.loanId, "Lender review complete", statusChangeId, now);
+      if (previous.conditions.some(({ mockReopenedAt, satisfiedAt }) => mockReopenedAt && !satisfiedAt)) {
+        restoreClearToCloseDrafts(db, next.loanId, now, statusChangeId);
+      }
     } else if (reviewing(next.status) && !reviewing(previous.status)) {
       createRealtorLenderDraft(db, next.loanId, "Lender review started", statusChangeId, now);
     }
@@ -118,10 +125,7 @@ export function uwmSubmissionConditions(db: Store, loanId: string, submissionId:
 }
 
 export function hasReopenedMockUwmCondition(db: Store, loanId: string) {
-  return Boolean(db.prepare(`SELECT 1 FROM submissions file JOIN json_each(CASE WHEN json_valid(file.conditions) THEN file.conditions ELSE '[]' END) condition
-    WHERE file.loanId = ? AND file.lender = 'UWM' AND file.syncedAt IS NOT NULL
-      AND json_extract(condition.value, '$.mockReopenedAt') IS NOT NULL
-      AND json_extract(condition.value, '$.satisfiedAt') IS NULL LIMIT 1`).get(loanId));
+  return Boolean(db.prepare(`SELECT ${reopenedMockUwmAtSql("?")} AS since`).get(loanId)?.since);
 }
 
 export function archiveMockDocumentDelivery(db: Store, requestId: string) {
@@ -278,9 +282,9 @@ export function refreshMockUwmClearance(db: Store, loanId: string, submissionId:
   const clearedAll = count > 0 && conditions.every((condition) => condition.satisfiedAt);
   if (clearedAll) {
     const status = db.prepare("SELECT status FROM submissions WHERE id = ?").get(submissionId)?.status;
-    if (typeof status === "string") recordUwmProgress(db, { id: submissionId, loanId, status: "Conditions cleared", conditions }, { status, conditions: saved }, now);
     db.prepare("UPDATE submissions SET status = ?, conditions = ?, syncedAt = ? WHERE id = ?")
       .run("Conditions cleared", JSON.stringify(conditions), now, submissionId);
+    if (typeof status === "string") recordUwmProgress(db, { id: submissionId, loanId, status: "Conditions cleared", conditions }, { status, conditions: saved }, now);
   } else {
     db.prepare("UPDATE submissions SET conditions = ?, syncedAt = ? WHERE id = ?").run(JSON.stringify(conditions), now, submissionId);
   }
@@ -307,9 +311,9 @@ function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
       previousConditions.some((item) => !item.satisfiedAt))) {
       status = "Conditions cleared";
     }
+    update.run(status, JSON.stringify(conditions), now, existing.id);
     alerts += recordUwmProgress(db, { id: existing.id, loanId: existing.loanId, status, conditions },
       { status: existing.status, conditions: previousConditions }, now, mock);
-    update.run(status, JSON.stringify(conditions), now, existing.id);
     conditionCount += conditions.length;
     updated++;
   }

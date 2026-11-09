@@ -143,7 +143,8 @@ export function RealtorReferralPortal() {
         <thead><tr><th>Borrower</th><th>Milestone</th><th>Milestone updated</th></tr></thead>
         <tbody>{portal.view.referrals.map((loan, index) => <tr key={index}><td>{loan.borrowerName}
           {loan.preapproval && <SharedPreapprovalDownload key={loan.preapproval.grantId} letter={loan.preapproval} token={portal.token}
-            audience="Realtor" name={loan.borrowerName} />}</td><td>{loan.stage}</td><td>{dateTime(loan.updatedAt)} ET</td></tr>)}</tbody>
+            audience="Realtor" name={loan.borrowerName} />}</td><td>{loan.closingPause?.label ?? loan.stage}</td>
+          <td>{dateTime(loan.closingPause?.since ?? loan.updatedAt)} ET</td></tr>)}</tbody>
       </table></div> : <p className="empty-inline no-matches">No referrals yet.</p>}
       {(portal.previous.length > 0 || portal.view.next) && <div className="toolbar" aria-label="Referral pages">
         <Button variant="outline" disabled={busy || !portal.previous.length}

@@ -27,6 +27,7 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
   uploadsMode?: DocumentUploadMode;
 }) {
   const stage = stageUpdates[status.stage];
+  const pause = status.closingPause;
   const waiting = status.documents.filter((item) => needsBorrowerDocument(item.status)).length;
   const received = status.documents.filter((item) => item.status === "Received").length;
   const next = waiting > 0 ? (uploadsMode === "live" ? "Upload the requested PDFs." : "Attach the requested samples.") : received > 0
@@ -42,9 +43,10 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
       <h2>Application received</h2>
       <p className="muted">Submitted {dateTime(submittedAt)} ET</p>
       <div className="borrower-next">
-        <div className="document-item-head"><strong>What’s next</strong><span className="pill">{stage.label}</span></div>
-        <p>{next}</p>
-        <small className="muted">Loan stage updated {dateTime(status.stageSince)} ET</small>
+        <div className="document-item-head"><strong>What’s next</strong><span className="pill">{pause?.label ?? stage.label}</span></div>
+        {pause && <p>Lender review is still open. Your loan team will confirm the timing once it clears.</p>}
+        {(!pause || waiting > 0 || received > 0) && <p>{next}</p>}
+        <small className="muted">{pause ? "Status updated" : "Loan stage updated"} {dateTime(pause?.since ?? status.stageSince)} ET</small>
       </div>
     </section>
     {status.quote && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-quote-heading">

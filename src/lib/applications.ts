@@ -18,6 +18,7 @@ import { zipCityState } from "./zip-city-state";
 import { approvedSecondReview } from "./application-review-checkpoint";
 import { activeCoBorrowerLink, jointApplication, staffJointApplications } from "./joint-application";
 import { coBorrowerCommand, coBorrowerSubmissionIssues, jointLinkUnavailable, primaryJointDraft, type CoBorrowerApplication } from "./joint-application-model";
+import { readClosingPauses } from "./processing-conditions";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
@@ -159,11 +160,13 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
   }) ?? true;
   const preapproval = loan && row.reviewedAt && !row.correctionNote &&
     readSharedPreapprovalLetters(db, [row.loanId], "Borrower", token, now).get(row.loanId);
+  const closingPause = loan?.stage === "Clear to Close" ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: borrowerDocuments(db, row.loanId, primaryDocumentRecipient),
     quote: published && currentAlternatives ? { ...published, presentation: borrowerQuotePresentation(presentation) } as unknown as BorrowerQuote : null,
     ...(preapproval ? { preapproval } : {}),
+    ...(closingPause ? { closingPause } : {}),
   } : null;
 }
 
@@ -328,10 +331,13 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
     if (!row || !application) return { status: 404, error: jointLinkUnavailable };
     const current = borrowerDetailsSchema.parse(JSON.parse(row.draft));
     const view = (draft = current, revision = row.revision, step = row.step, updatedAt = row.updatedAt,
-      submittedAt = row.submittedAt, complete = Boolean(application.submittedAt), confirmedDemo = Boolean(row.confirmedDemo)): { value: CoBorrowerApplication } =>
-      ({ value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
+      submittedAt = row.submittedAt, complete = Boolean(application.submittedAt), confirmedDemo = Boolean(row.confirmedDemo)): { value: CoBorrowerApplication } => {
+      const closingPause = complete && submittedAt ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
+      return { value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
         ...(complete && submittedAt ? { documents: borrowerDocuments(db, row.loanId, coBorrowerDocumentRecipient) } : {}),
-        ...(row.correctionNote && !submittedAt ? { correctionNote: row.correctionNote } : {}) } });
+        ...(closingPause ? { closingPause } : {}),
+        ...(row.correctionNote && !submittedAt ? { correctionNote: row.correctionNote } : {}) } };
+    };
     if (data.type === "read") return view();
     if (data.type === "attachSample") {
       const ready = row.submittedAt && application.submittedAt;

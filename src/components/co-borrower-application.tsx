@@ -141,8 +141,9 @@ function CoBorrowerForm({ token }: { token?: string }) {
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status">Opening your portion…</p>}
     {submitted ? <div className="borrower-status"><section className="pipeline relationship-panel" aria-label="Joint application progress">
-      <h2>{awaitingOtherPortion ? "Waiting for the primary borrower" : "Joint application ready for review"}</h2>
-      <p>{awaitingOtherPortion ? "Your loan officer receives the joint 1003 once both portions are submitted." : "Your loan officer can review both portions on the loan."}</p>
+      <h2>{view?.closingPause?.label ?? (awaitingOtherPortion ? "Waiting for the primary borrower" : "Joint application ready for review")}</h2>
+      <p>{view?.closingPause ? "Lender review is still open. Your loan team will confirm the timing once it clears." :
+        awaitingOtherPortion ? "Your loan officer receives the joint 1003 once both portions are submitted." : "Your loan officer can review both portions on the loan."}</p>
       <div><Button variant="outline" size="sm" disabled={busy} onClick={refresh}>Refresh joint status</Button></div>
     </section>
       {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}

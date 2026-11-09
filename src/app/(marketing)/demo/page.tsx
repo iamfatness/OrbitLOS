@@ -35,7 +35,7 @@ export default function DemoPage() {
           <li>Give a fictional lender an expiring link and separate code for the reviewed MISMO export and selected sample PDFs. See downloads on the loan and revoke the link.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Keep the original instructions visible after acceptance, work through mock lender clearance, and pick the file back up in Today with the processor’s internal note.</li>
-          <li>Reopen a mock UWM condition and see why closing is blocked. Open the exact condition, replace its evidence, and continue when it clears.</li>
+          <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. Work the exact condition, replace its evidence, and continue when it clears.</li>
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>
           <li>Record a post-funding check-in and see the original note on the scheduled callback in Tasks.</li>

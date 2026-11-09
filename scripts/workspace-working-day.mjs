@@ -986,12 +986,19 @@ try {
     const fundingBlocked = await file(officer, loanId);
     assert.equal(fundingBlocked.pastClients[0].closingDate, today);
     assert.ok(!fundingBlocked.closingProgress[0]?.fundingDate);
+    assert.equal((await borrower(token, { type: "status" })).loanStatus.closingPause.label, "Funding on hold");
+    const partnerHold = (await realtor(realtorToken)).referrals.find(({ borrowerName }) => borrowerName === imported.name);
+    assert.equal(partnerHold.closingPause.label, "Funding on hold");
+    assert.ok(fundingBlocked.communicationDrafts.filter(({ milestone }) => milestone === "Clear to Close").every(({ supersededAt }) => supersededAt));
+    assert.ok(fundingBlocked.communicationDrafts.some(({ milestone, supersededAt }) => milestone === "Closing complete" && !supersededAt));
     const bank = fundingBlocked.documentRequests.find(({ conditionId }) => conditionId === assets.id);
     await borrower(token, { type: "attachSample", requestId: bank.id, revision: bank.revision });
     const replacementBank = (await file(officer, loanId)).documentRequests.find(({ id }) => id === bank.id);
     await loanAction(officer, loanId, "reviewDocument", { requestId: bank.id, revision: replacementBank.revision,
       decision: "Accepted", replacementNote: "", sendToMockUwm: true });
     await loanAction(officer, loanId, "refreshMockUwmClearance", { submissionId: submission.id });
+    assert.ok((await file(officer, loanId)).communicationDrafts.filter(({ milestone }) => milestone === "Clear to Close")
+      .every(({ supersededAt }) => supersededAt));
     await loanAction(officer, loanId, "recordFunding", { revision: 0, fundingDate: today });
     const funded = await file(officer, loanId);
     assert.equal(funded.loans[0].officerEmail, officer.email);

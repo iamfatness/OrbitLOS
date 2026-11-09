@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Copy, Mail } from "lucide-react";
-import { readDraftWork } from "@/app/actions";
+import { readDraftWork, readLoanForWork } from "@/app/actions";
 import { draftQueueUnavailable, draftQueueViews, type DraftQueuePage, type DraftQueueQuery, type DraftQueueRow } from "@/lib/communication-draft-model";
 import { currentDraftMilestone, draftChannels, draftRecipient, renderDraft } from "@/lib/communication-templates";
 import { draftMilestones, type BrokerageTemplate, type CommunicationDraft, type DraftAudience, type DraftChannel, type DraftMilestone, type Loan, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import type { ConversationSubject } from "@/lib/conversation-model";
+import { reopenedMockClosingCondition } from "@/lib/loan-workflow";
 import { Button } from "./ui/button";
 
 type Preview = (loanId: string, audience: DraftAudience, draftId?: string) => void;
@@ -143,12 +144,14 @@ function BrokerageTemplates({ templates, busy, save }: { templates: BrokerageTem
   </section>;
 }
 
-export function CommunicationPreview({ loan, state, audience, draftId, busy, save }: {
-  loan: Loan; state: Workspace; audience: DraftAudience; draftId?: string; busy: boolean; save: Save;
+export function CommunicationPreview({ loan, state, audience, draftId, brokerageId, busy, save }: {
+  loan: Loan; state: Workspace; audience: DraftAudience; draftId?: string; brokerageId: string; busy: boolean; save: Save;
 }) {
   const [channel, setChannel] = useState<DraftChannel>("Email");
   const [status, setStatus] = useState("");
   const [edits, setEdits] = useState<Partial<Record<DraftChannel, string>>>({});
+  const [copying, setCopying] = useState(false);
+  const [retired, setRetired] = useState(false);
   const message = useRef<HTMLTextAreaElement>(null);
   const draft = draftId ? state.communicationDrafts.find((item) => item.id === draftId && item.loanId === loan.id && item.audience === audience) : undefined;
   const contactId = draftRecipient(loan, audience);
@@ -164,12 +167,31 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
   const destination = channel === "Email" ? contact.email : contact.phone;
   const saved = draft ?? state.communicationDrafts.find((item) => item.loanId === loan.id && item.contactId === contact.id && item.audience === audience && item.milestone === milestone);
   const copiedAt = channel === "Email" ? saved?.emailCopiedAt : saved?.textCopiedAt;
-  const superseded = !!saved?.supersededAt;
+  const superseded = retired || !!saved?.supersededAt || (milestone === "Clear to Close" && !!reopenedMockClosingCondition(loan.id, state.submissions));
   const earlier = !currentDraftMilestone(milestone, loan.stage, hasClosingDate(state, loan.id));
   if (earlier && milestone === "Closing complete") return <p className="empty-inline">Record the actual closing date to preview this draft.</p>;
 
   async function copy() {
-    if (superseded) return;
+    if (superseded || copying) return;
+    if (milestone === "Clear to Close") {
+      setCopying(true);
+      try {
+        const latest = await readLoanForWork(loan.id, brokerageId);
+        if (!message.current) return;
+        if ("error" in latest || draftRecipient(latest.loans[0], audience) !== recipientId ||
+          reopenedMockClosingCondition(loan.id, latest.submissions) ||
+          (saved ? !latest.communicationDrafts.some((item) => item.id === saved.id && !item.supersededAt) : latest.loans[0].stage !== milestone)) {
+          setRetired(true);
+          setStatus("This closing draft is no longer current. Reopen the loan for the latest update.");
+          return;
+        }
+      } catch {
+        setStatus("Could not verify the closing draft. Try again.");
+        return;
+      } finally {
+        setCopying(false);
+      }
+    }
     try {
       await navigator.clipboard.writeText(edits[channel] ?? copyText);
     } catch {
@@ -197,7 +219,7 @@ export function CommunicationPreview({ loan, state, audience, draftId, busy, sav
     <textarea ref={message} aria-label={`${channel} draft preview`} className="communication-message" value={edits[channel] ?? copyText}
       onChange={(event) => setEdits({ ...edits, [channel]: event.target.value })} readOnly={superseded} rows={channel === "Email" ? 8 : 4} />
     <div className="loan-application-actions">
-      {!superseded && <Button variant="outline" size="sm" disabled={busy} onClick={() => void copy()}><Copy /> Copy {channel.toLowerCase()} draft</Button>}
+      {!superseded && <Button variant="outline" size="sm" disabled={busy || copying} onClick={() => void copy()}><Copy /> Copy {channel.toLowerCase()} draft</Button>}
       {copiedAt && <small className="muted">First copied {dateTime(copiedAt)} ET</small>}
     </div>
     {status && <p className="muted" role="status">{status}</p>}
