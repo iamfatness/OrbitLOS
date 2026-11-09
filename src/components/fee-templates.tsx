@@ -46,10 +46,8 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
   return <section className="pipeline relationship-panel" aria-label="Brokerage fee templates">
     <h2>Brokerage fee templates</h2>
     <p className="muted">Reuse sample fee estimates in pricing. Saved worksheets keep the template version and source used.</p>
-    <details className="loan-task-create" onToggle={(event) => {
-      if (event.currentTarget.open && !page && !busy) void request({ type: "manage" });
-    }}>
-      <summary>Manage fee templates</summary>
+    <details className="loan-task-create">
+      <summary onClick={() => { if (!page && !busy) void request({ type: "manage" }); }}>Manage fee templates</summary>
       <div className="record-form">
         {notice}
         <form className="loan-application-actions" onSubmit={(event) => { event.preventDefault(); void request({ type: "manage", search }); }}>
