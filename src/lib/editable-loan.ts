@@ -28,7 +28,8 @@ function loanHandoffVersion(db: Store, loanId: string) {
     FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
     WHERE requests.loanId = ? ORDER BY requests.requestedAt, requests.id`).all(loanId);
   const joint = db.prepare("SELECT submittedAt, primarySubmittedAt, revokedAt, expiresAt FROM joint_applications WHERE loanId = ?").get(loanId);
-  return createHash("sha256").update(JSON.stringify([application, documents, joint])).digest("hex");
+  const processing = db.prepare("SELECT revision FROM loan_processing WHERE loanId = ?").get(loanId);
+  return createHash("sha256").update(JSON.stringify([application, documents, joint, processing])).digest("hex");
 }
 
 export function readLoanHandoff(db: Store, loanId: unknown, knownVersion: unknown, staff: WorkspaceStaff | null, brokerageId: string) {

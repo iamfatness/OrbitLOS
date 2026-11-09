@@ -826,10 +826,15 @@ try {
   });
 
   await stage("Processor clears two mock conditions and returns the file", async () => {
+    const beforeAcceptance = await file(officer, loanId);
     const accepted = await processing(processor, "Accept handoff");
     assert.equal(accepted.state, undefined);
     assert.match(accepted.loanWork.processingActivity[0].text, /In processing/);
     assert.match(accepted.loanWork.processingActivity[1].text, /Review the mock lender evidence/);
+    const observedAcceptance = await action(officer, "checkLoanHandoff", loanId, beforeAcceptance.handoffVersion);
+    assert.equal(observedAcceptance.loanProcessing[0].status, "In processing");
+    assert.match(observedAcceptance.processingActivity[1].text, /Review the mock lender evidence/);
+    assert.deepEqual(await action(officer, "checkLoanHandoff", loanId, observedAcceptance.handoffVersion), { unchanged: true });
     assert.ok(!(await incoming(processor, "processing")).items.some(({ kind, id }) => kind === "handoff" && id === loanId));
     const current = await file(processor, loanId);
     const submission = current.submissions.find(({ lender }) => lender === "UWM");
@@ -941,13 +946,18 @@ try {
     assert.ok(cleared.submissions[0].conditions.every(({ satisfiedAt }) => satisfiedAt));
     assert.ok(cleared.documentRequests.every(({ status, uwmReceipt }) => status === "Accepted" && uwmReceipt));
     assert.ok(cleared.communicationDrafts.some(({ audience, milestone }) => audience === "Realtor" && milestone === "Lender review complete"));
+    const beforeReturn = await file(officer, loanId);
     const returnedWork = await measureHandoff("Processor to LO", () => loanAction(processor, loanId, "updateProcessing", {
       action: "Return to LO", revision: cleared.loanProcessing[0].revision, note: "Internal note: mock lender evidence cleared.",
     }), officer, "today", loanId);
     const returned = (await queue(officer)).items.find(({ kind, recordId }) => kind === "handoff" && recordId === loanId);
     assert.equal(returned?.target, "processing-handoff");
     assert.equal(returnedWork?.note, "Internal note: mock lender evidence cleared.");
-    assert.equal(returnedWork?.revision, (await file(officer, loanId)).loanProcessing[0].revision);
+    const observedReturn = await action(officer, "checkLoanHandoff", loanId, beforeReturn.handoffVersion);
+    assert.equal(observedReturn.loanProcessing[0].status, "Returned to LO");
+    assert.equal(observedReturn.loanProcessing[0].note, returnedWork.note);
+    assert.equal(observedReturn.loanProcessing[0].revision, returnedWork.revision);
+    assert.ok((await action(competingOfficer, "checkLoanHandoff", loanId, beforeReturn.handoffVersion)).error);
     assert.ok(!(await incoming(competingOfficer, "today")).items.some(({ id }) => id === loanId));
     assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /Internal note/);
     const partner = await realtor(realtorToken);

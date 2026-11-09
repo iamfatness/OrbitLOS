@@ -837,7 +837,8 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   }, [modal, target]);
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
   const returnSection = modal.kind === "details" ? loanSection(target) : undefined;
-  const returnLoanId = refreshLoanOnReturn && (returnSection === "1003" || returnSection === "Conditions") ? loan?.id : undefined;
+  const processingHandoff = modal.kind === "details" && target === "processing-handoff";
+  const returnLoanId = refreshLoanOnReturn && (processingHandoff || returnSection === "1003" || returnSection === "Conditions") ? loan?.id : undefined;
   const returnApplication = returnLoanId ? state.applications.find((application) => application.loanId === returnLoanId) : undefined;
   const returnToken = returnApplication?.token;
   const returnJointToken = returnApplication?.joint?.token;
@@ -860,18 +861,18 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     await refreshLoanOnReturn?.(loanId, canApply, periodic);
   });
   useEffect(() => {
-    if (!returnLoanId || !returnToken) return;
+    if (!returnLoanId || (!returnToken && !processingHandoff)) return;
     let active = true;
-    const stopChanges = observeBorrowerChange(returnToken, "changed", () => void refreshReturnedLoan(returnLoanId, () => active));
+    const stopChanges = returnToken && observeBorrowerChange(returnToken, "changed", () => void refreshReturnedLoan(returnLoanId, () => active));
     const stopJointChanges = returnJointToken && observeBorrowerChange(returnJointToken, "changed", () => void refreshReturnedLoan(returnLoanId, () => active));
     const stopChecks = observeHandoffChecks(document, window, (isCurrent, periodic) => refreshReturnedLoan(returnLoanId, isCurrent, periodic), mockHandoff);
     return () => {
       active = false;
-      stopChanges();
+      if (stopChanges) stopChanges();
       if (stopJointChanges) stopJointChanges();
       stopChecks();
     };
-  }, [mockHandoff, modal, returnLoanId, returnToken, returnJointToken, returnBrokerageId, returnEmail, returnRole]);
+  }, [mockHandoff, modal, processingHandoff, returnLoanId, returnToken, returnJointToken, returnBrokerageId, returnEmail, returnRole]);
   function markDraftChanged(editor: Node) {
     if (returnLoanId) dirtyEditors.current.add(editor);
   }

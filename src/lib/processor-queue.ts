@@ -72,7 +72,7 @@ function closingWorkload(db: Store, query: NonNullable<ProcessorQueueQuery["work
   return { workload, files };
 }
 
-function handoffExceptions(db: Store, query: ProcessorQueueQuery, checkedAt: string, handoffHours: number) {
+function handoffExceptions(db: Store, query: ProcessorQueueQuery, checkedAt: string, handoffHours: number, requireApproval: boolean) {
   const unassigned = query.exception === "Unassigned";
   const since = unassigned ? "coalesce(app.reviewedAt, loan.stageSince)" :
     "CASE WHEN processing.status = 'Assigned' THEN app.reviewedAt ELSE processing.updatedAt END";
@@ -88,6 +88,7 @@ function handoffExceptions(db: Store, query: ProcessorQueueQuery, checkedAt: str
     FROM loans loan LEFT JOIN loan_processing processing ON processing.loanId = loan.id
     LEFT JOIN applications app ON app.loanId = loan.id ${closingJoins}
     WHERE ${activeProcessingLoan} AND ${filter} AND ${processingReviewReady}
+    ${!unassigned && requireApproval ? `AND (processing.status = 'Returned to LO' OR (${processingAcceptanceReady(true)}))` : ""}
     ${after ? `AND ((${since}), loan.id) > (?, ?)` : ""} ORDER BY updatedAt, loan.id LIMIT ?`)
     .all(...(unassigned ? [] : [afterHours(checkedAt, -handoffHours)]), ...(after ? [after.updatedAt, after.id] : []), pageSize + 1)
     .map((row) => ({ ...row, ...(unassigned ? {} : { handoffDueAt: afterHours(String(row.updatedAt), handoffHours) }) })) as unknown as BaseFile[];
@@ -154,11 +155,12 @@ export function readProcessorQueue(db: Store, input: unknown, staff: WorkspaceSt
   const checkedAt = now.toISOString();
   const replies = !readyOnly && !exception && !workload ? readProcessingConversationReplies(db, staff, replyAfter, now) : undefined;
   const closingPage = workload ? closingWorkload(db, workload, staff, now) : undefined;
-  const handoffHours = exception === "Stalled handoffs" ? readPlaybook(db).handoffHours : undefined;
-  const requireApproval = readyOnly && readPlaybook(db).requireSecondReview;
+  const handoffPolicy = exception === "Stalled handoffs" || readyOnly ? readPlaybook(db) : undefined;
+  const handoffHours = exception === "Stalled handoffs" ? handoffPolicy?.handoffHours : undefined;
+  const requireApproval = handoffPolicy?.requireSecondReview ?? false;
   const aged = exception === "Aging conditions" ? agingConditions(db, after) : null;
   const params: SqlValue[] = [...(processor ? [staff.email] : []), ...(after ? [after.updatedAt, after.id] : []), pageSize + 1];
-  const rows = closingPage ? closingPage.files : aged ? aged.map(({ file }) => file) : exception ? handoffExceptions(db, parsed.data, checkedAt, handoffHours ?? 0) :
+  const rows = closingPage ? closingPage.files : aged ? aged.map(({ file }) => file) : exception ? handoffExceptions(db, parsed.data, checkedAt, handoffHours ?? 0, requireApproval) :
     db.prepare(`SELECT ${fields}, processing.processorName, processing.status, processing.updatedAt
     FROM loan_processing processing JOIN loans loan ON loan.id = processing.loanId
     ${readyOnly ? "LEFT JOIN applications app ON app.loanId = loan.id" : ""} ${closingJoins}

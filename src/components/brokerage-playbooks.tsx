@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { readManagerExceptions } from "@/app/actions";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { dateLabel } from "@/lib/client-retention";
@@ -9,6 +9,7 @@ import { documentReminderTimingLabel, documentReminderTimingLimit, manualReturnH
 import { defaultManagerExceptionFilters, managerExceptionsUnavailable, managerExceptionTypes, type ManagerExceptionFilters,
   type ManagerExceptionPage, type ManagerExceptionResult, type ManagerExceptionRow } from "@/lib/manager-exception-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
+import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { dateTime } from "@/lib/utils";
 import { BorrowerCallbackReschedule, ContactFollowUpCompletion } from "./contact-crm";
 import { Button } from "./ui/button";
@@ -42,10 +43,11 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
   reporting: { period: ReportingPeriod; setPeriod: (period: ReportingPeriod) => void; openLoan: (id: string) => void; openReport: () => void };
 }) {
   const brokerageId = staff?.brokerage.id ?? demoBrokerageId;
+  const signedIn = !!staff;
   const [changing, setChanging] = useState(false);
   const [metadata, setMetadata] = useState<{ brokerageId: string; result: ManagerExceptionResult }>();
   const [ownership, setOwnership] = useState<{ brokerageId: string; version: object; filters: ManagerExceptionFilters;
-    page?: ManagerExceptionPage; error?: string }>();
+    page?: ManagerExceptionPage; error?: string; appended?: boolean }>();
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -58,15 +60,29 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
     });
     return () => { active = false; };
   }, [brokerageId, fileVersion]);
+  const canRefreshOwnership = useEffectEvent(() => !busy && !changing && !loadingMore &&
+    !(ownership?.appended && ownership.brokerageId === brokerageId && ownership.version === fileVersion && ownership.filters === filters));
   useEffect(() => {
     if (view !== "owners") return;
     let active = true;
-    void readManagerExceptions({ view: "owners", filters }, brokerageId).catch(() => ({ error: managerExceptionsUnavailable })).then((result) => {
-      if (active) setOwnership({ brokerageId, version: fileVersion, filters, ...("kind" in result && result.kind === "owners" ?
-        { page: result } : { error: "error" in result ? result.error : managerExceptionsUnavailable }) });
-    });
-    return () => { active = false; };
-  }, [brokerageId, view, filters, fileVersion]);
+    let reading = false;
+    async function read(isCurrent: () => boolean, background: boolean) {
+      if (reading || (background && !canRefreshOwnership())) return;
+      reading = true;
+      try {
+        const result = await readManagerExceptions({ view: "owners", filters }, brokerageId).catch(() => ({ error: managerExceptionsUnavailable }));
+        if (!active || !isCurrent() || (background && !canRefreshOwnership())) return;
+        if ("kind" in result && result.kind === "owners") setOwnership({ brokerageId, version: fileVersion, filters, page: result });
+        else if (!background) setOwnership({ brokerageId, version: fileVersion, filters,
+          error: "error" in result ? result.error : managerExceptionsUnavailable });
+      } finally { reading = false; }
+    }
+    void read(() => true, false);
+    const stopReturn = signedIn ? observeTabReturn(document, window, (isCurrent) => void read(isCurrent, true)) : undefined;
+    const watchHandoffs = signedIn && (filters.type === "Stalled handoffs" || filters.type === "Unassigned");
+    const stopChecks = watchHandoffs ? observeVisibleChecks(document, window, (isCurrent) => read(isCurrent, true)) : undefined;
+    return () => { active = false; stopReturn?.(); stopChecks?.(); };
+  }, [brokerageId, view, filters, fileVersion, signedIn]);
   const settingsResult = metadata?.brokerageId === brokerageId ? metadata.result : undefined;
   const settings = settingsResult && "kind" in settingsResult && settingsResult.kind === "settings" ? settingsResult : undefined;
   const settingsError = settingsResult && "error" in settingsResult ? settingsResult.error : undefined;
@@ -94,7 +110,7 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
         if (!("kind" in result) || result.kind !== "owners") return { ...latest, error: "error" in result ? result.error : managerExceptionsUnavailable };
         const rows = new Map(page.rows.map((row) => [row.item.id, row]));
         for (const row of result.rows) rows.set(row.item.id, row);
-        return { ...latest, page: { ...result, rows: [...rows.values()] }, error: undefined };
+        return { ...latest, page: { ...result, rows: [...rows.values()] }, error: undefined, appended: true };
       });
     } finally {
       setLoadingMore(false);

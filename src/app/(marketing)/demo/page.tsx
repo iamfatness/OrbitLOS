@@ -40,7 +40,7 @@ export default function DemoPage() {
           <li>Keep alternative quotes for comparison. If the saved quote differs from the reviewed 1003, load the 1003 amount in pricing before sending to mock UWM.</li>
           <li>Float and lock a matching mock quote after the linked UWM file receives the current 1003. See the amount and 1003 revision on the confirmation while pricing another quote.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
-          <li>Send a file to an assigned processor. Keep the original instructions visible after acceptance, work through mock lender clearance, and pick the file back up in Today with the processor’s internal note.</li>
+          <li>Send a file to an assigned processor. See acceptance and the private return note in the open handoff, or pick the file back up from Today after mock lender clearance.</li>
           <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. Work the exact condition, replace its evidence, and continue when it clears.</li>
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>

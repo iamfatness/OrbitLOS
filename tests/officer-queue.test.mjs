@@ -211,13 +211,20 @@ test("paged playbooks and holds retain policy deadlines, role checks, and one ro
   assert.equal(read(query, processor).items.find(({ id }) => id === "ready").title, "Accept processing handoff");
   writePlaybook(db, { ...defaultPlaybook, requireSecondReview: true });
   assert.ok(!read(query, processor).items.some(({ id }) => id === "ready"));
+  const stalled = () => readProcessorQueue(db, { readyOnly: false, exception: "Stalled handoffs" }, admin, admin.brokerage.id,
+    new Date("2026-11-10T18:00:00.000Z")).files;
+  assert.ok(!stalled().some(({ id }) => id === "ready"));
   db.prepare(`INSERT INTO loan_reviews (id, loanId, title, category, requesterEmail, requesterName, reviewerEmail, reviewerName, reviewerRole,
     reviewerAccessRevision, dueOn, status, applicationRevision, createdAt, updatedAt)
     VALUES ('review', 'ready', 'Second review', '1003 second review', ?, ?, ?, ?, 'Admin', 1, '2026-11-09', 'Approved', 1, ?, ?)`)
     .run(officer.email, officer.name, admin.email, admin.name, prior, prior);
   assert.ok(!read(query, processor).items.some(({ id }) => id === "ready"));
+  assert.ok(!stalled().some(({ id }) => id === "ready"));
   db.exec("UPDATE loan_reviews SET applicationRevision = 2 WHERE id = 'review'");
   assert.equal(read(query, processor).items.find(({ id }) => id === "ready").title, "Accept processing handoff");
+  assert.ok(stalled().some(({ id }) => id === "ready"));
+  db.exec("UPDATE loan_reviews SET applicationRevision = 1 WHERE id = 'review'; UPDATE loan_processing SET status = 'Returned to LO' WHERE loanId = 'ready';");
+  assert.ok(stalled().some(({ id }) => id === "ready"));
 });
 
 function callbackFeedFixture(t) {
@@ -1626,12 +1633,16 @@ test("direct processing assignment uses the unassigned queue revision and preser
   assert.ok(submit(pending, observed, processor, officer).error);
   assert.ok(submit(pending, observed, { ...processor, status: "Revoked" }).error);
   assert.ok(submit(pending, observed, null).error);
+  const beforeAssignment = readEditableLoan(db, pending, officer, officer.brokerage.id);
+  assert.equal(beforeAssignment.applications.length, 0);
   const first = submit(pending, observed);
   assert.equal(first.processing.status, "Assigned");
   assert.equal(first.processing.revision, 1);
   assert.equal(read().files.some((file) => file.id === pending), false);
   assert.ok(readEditableLoan(db, pending, officer, officer.brokerage.id).loans.length);
   assert.ok(readEditableLoan(db, pending, processorActor, officer.brokerage.id).loans.length);
+  const assignmentUpdate = readLoanHandoff(db, pending, beforeAssignment.handoffVersion, officer, officer.brokerage.id);
+  assert.equal(assignmentUpdate.loanProcessing[0].processorEmail, processor.email);
   assert.match(submit(pending, observed, replacement).error, /changed or left/);
   assert.deepEqual(submit(pending, observed).processing, first.processing);
   assert.equal(db.prepare("SELECT count(*) AS count FROM workspace_access_history WHERE action = 'Assigned shared processor'").get().count, 1);
