@@ -15,7 +15,7 @@ const nameFields = [
 ] as const;
 
 export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, openConditions,
-  shareBrokerage, shareAllowed }: {
+  shareBrokerage, handoffBlocker, openReviews }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
@@ -25,7 +25,8 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   canRecordReturn: boolean;
   openConditions: (id: string) => void;
   shareBrokerage?: string;
-  shareAllowed: boolean;
+  handoffBlocker: string | null;
+  openReviews?: () => void;
 }) {
   const originals = application.draft ? [application.draft.borrowerName,
     ...application.draft.urla.additional.map((person) => person.identity.fields.name)] : [];
@@ -43,6 +44,10 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   return <details className="application-review" id="manual-lender-export">
     <summary>Manual lender export</summary>
     <p className="muted">Use MISMO 3.4 XML for a manual upload rehearsal. Check the lender’s import profile and required fields before a live handoff.</p>
+    {ready && handoffBlocker && <div className="document-item">
+      <p>{handoffBlocker} You can prepare the XML for review.</p>
+      {openReviews && <div><Button size="sm" variant="outline" disabled={busy} onClick={openReviews}>Open required second review</Button></div>}
+    </div>}
     {!linkedFile && previousFile && <div className="document-item">
       <p className="muted">Previous lender file · {previousFile.lender} · {previousFile.externalId}. Its checklist is available while you prepare the revised export.</p>
       <div><Button size="sm" variant="outline" onClick={() => openConditions(previousFile.id)}>Open previous lender checklist</Button></div>
@@ -83,13 +88,13 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
         <div><Button size="sm" type="submit" disabled={busy || !confirmed || !valid}><Download /> Download MISMO 3.4 XML</Button></div>
       </form>}
     {shareBrokerage && <LenderHandoffShare brokerageId={shareBrokerage} loanId={application.loanId} revision={application.revision}
-      lenderRevision={application.lender?.revision ?? 0} names={names} canCreate={!!ready && valid && confirmed && shareAllowed}
+      lenderRevision={application.lender?.revision ?? 0} names={names} canCreate={!!ready && valid && confirmed && canRecordReturn && !handoffBlocker}
       onCreated={() => void save({ type: "refreshApplication", loanId: application.loanId })} />}
     {ready && initialCampaignHandoff && <section className="document-item" aria-label="Simulated lender acknowledgment">
       <div className="document-item-head"><strong>Fictional lender acknowledgment</strong><span className="pill">Demo</span></div>
       <p className="muted">{handoff?.exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
           "Prepare the MISMO download to enable acknowledgment for this revision."}</p>
-      <div><Button size="sm" disabled={busy || !handoff?.exportPrepared} onClick={() => {
+      <div><Button size="sm" disabled={busy || !handoff?.exportPrepared || !!handoffBlocker} onClick={() => {
         void save({
           type: "acknowledgeCampaignLenderExport", loanId: application.loanId, revision: application.revision,
           lenderRevision: application.lender?.revision ?? 0, eventId: acknowledgmentAttempt.current ??= crypto.randomUUID(),
@@ -123,6 +128,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
         </details>}
       </> : <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
+        if (handoffBlocker) return;
         const fields = new FormData(event.currentTarget);
         const input = { type: "recordManualHandoff", loanId: application.loanId, revision: application.revision,
           lenderRevision: application.lender?.revision ?? 0, outcome: "Acknowledged", note: "",
@@ -136,7 +142,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
           <label className="field">Lender name<input name="lender" required maxLength={160} defaultValue={previousFile?.lender} /></label>
           <label className="field">Lender file reference<input name="externalId" required maxLength={160} defaultValue={previousFile?.externalId} /></label>
         </div>
-        <div><Button size="sm" type="submit" disabled={busy}>Record lender acknowledgment</Button></div>
+        <div><Button size="sm" type="submit" disabled={busy || !!handoffBlocker}>Record lender acknowledgment</Button></div>
       </form>}
     </section>}
   </details>;

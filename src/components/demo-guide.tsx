@@ -4,6 +4,7 @@ import { ArrowRight, CircleCheck, ExternalLink, Play } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useSyncExternalStore } from "react";
 import { brokerageUrl } from "@/lib/brokerage-model";
+import { secondReviewBlocker } from "@/lib/application-model";
 import { loanReviewsTarget } from "@/lib/loan-review-model";
 import { searchTaskTarget } from "@/lib/workspace-search-model";
 import { prospectingBlocked, type PastClientProfile, type Submission, type Workspace } from "@/lib/model";
@@ -347,6 +348,9 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
   const manualAcknowledged = Boolean(manualSubmission && handoff?.exportPrepared && handoff.outcome === "Acknowledged" &&
     handoff.submissionId === manualSubmission.id);
   const manualReady = Boolean(priced && manualAcknowledged);
+  const reviewBlocker = application?.reviewedAt && !(manual ? manualAcknowledged : sent)
+    ? secondReviewBlocker(state.playbook.requireSecondReview, application) : null;
+  const openRequiredReview = loan && <Button size="sm" onClick={() => open(loan.id, loanReviewsTarget, campaignLender)}>Open required second review</Button>;
   const submission = manual ? manualSubmission : uwmSubmission;
   const condition = submission?.conditions.find((item) => !item.satisfiedAt);
   const multipleUwmConditions = !manual && (submission?.conditions.filter((item) => !item.satisfiedAt).length ?? 0) > 1;
@@ -422,25 +426,27 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
           "Check Confirm mock credit authorization, run mock credit, and choose Price with mock score. Save a quote and open the MISMO export. Download the file, then record the simulated acknowledgment in the same panel.") :
         "Check Confirm mock credit authorization, run mock credit, and choose Price with mock score. Run pricing, save a quote, and choose Send reviewed 1003 to mock UWM to open the lender checklist.",
       done: manual ? manualReady : Boolean(priced && sent),
-      action: loan && application?.reviewedAt && (!priced ? pricingAction : manual ? !manualSubmission &&
+      action: loan && application?.reviewedAt && (!priced ? pricingAction : reviewBlocker ? openRequiredReview : manual ? !manualSubmission &&
         <Button size="sm" onClick={() => open(loan.id, "manual-lender-export", "manual")}>Open manual MISMO handoff</Button> :
-        !sent && state.playbook.requireSecondReview && !application.secondReviewApproved ?
-          <Button size="sm" onClick={() => open(loan.id, loanReviewsTarget)}>Open required second review</Button> :
         !sent && <Button size="sm" disabled={busy} onClick={() => void save({
         type: "sendApplication", loanId: loan.id, revision: application.revision,
         quote: { runId: savedQuote.id, offerId: savedQuote.selectedId },
       })}>Send campaign file to mock UWM</Button>),
-      detail: loan && (manual && manualSubmission ? <>
-        <p className="muted">{manualSubmission.lender} · {manualSubmission.externalId} · {manualSubmission.status}</p>
-        {application?.reviewedAt && <Button size="sm" variant="outline" onClick={() => open(loan.id,
-          manualAcknowledged ? manualLenderAcknowledgmentTarget : "manual-lender-export", "manual")}>
-          {manualAcknowledged ? "Open lender acknowledgment" : "Open revised MISMO handoff"}
-        </Button>}
-      </> : application?.reviewedAt && !mockStarted && !handoff?.exportPrepared &&
-        <div className="loan-application-actions" role="group" aria-label="Lender handoff path">
-          <Button size="sm" variant="outline" aria-pressed={!manual} onClick={() => setManualChoice(null)}>Mock UWM path</Button>
-          <Button size="sm" variant="outline" aria-pressed={manual} onClick={() => setManualChoice(loan.id)}>Manual MISMO path</Button>
-        </div>),
+      detail: loan && <>
+        {reviewBlocker && <p className="muted">{reviewBlocker}</p>}
+        {reviewBlocker && !priced && openRequiredReview}
+        {manual && manualSubmission ? <>
+          <p className="muted">{manualSubmission.lender} · {manualSubmission.externalId} · {manualSubmission.status}</p>
+          {application?.reviewedAt && <Button size="sm" variant="outline" onClick={() => open(loan.id,
+            manualAcknowledged ? manualLenderAcknowledgmentTarget : "manual-lender-export", "manual")}>
+            {manualAcknowledged ? "Open lender acknowledgment" : "Open revised MISMO handoff"}
+          </Button>}
+        </> : application?.reviewedAt && !mockStarted && !handoff?.exportPrepared &&
+          <div className="loan-application-actions" role="group" aria-label="Lender handoff path">
+            <Button size="sm" variant="outline" aria-pressed={!manual} onClick={() => setManualChoice(null)}>Mock UWM path</Button>
+            <Button size="sm" variant="outline" aria-pressed={manual} onClick={() => setManualChoice(loan.id)}>Manual MISMO path</Button>
+          </div>}
+      </>,
     },
     {
       title: manual ? "Clear the manual lender condition" : "Clear the lender conditions",

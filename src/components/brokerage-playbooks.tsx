@@ -281,8 +281,8 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
         {canConfigureSecondReview && <fieldset className="record-form">
           <legend>1003 second review</legend>
           <label className="demo-confirm"><input type="checkbox" name="requireSecondReview" defaultChecked={policy.requireSecondReview}
-            aria-describedby="second-review-checkpoint-help" /> Require second 1003 approval before handoff and mock UWM submission</label>
-          <p className="muted" id="second-review-checkpoint-help">The checkpoint applies to sending and accepting a processing handoff and submitting a revision to mock UWM. Choose a reviewer manually or use automatic routing.</p>
+            aria-describedby="second-review-checkpoint-help" /> Require second 1003 approval before processing and lender handoff</label>
+          <p className="muted" id="second-review-checkpoint-help">Approval is required to hand off to processing, submit to mock UWM, share a manual lender package, or record lender delivery or acknowledgment. Choose a reviewer manually or use automatic routing.</p>
           <p className="muted">Choose an admin to enable automatic routing after the first staff review of each submitted 1003 revision. A different staff member must take the second review. When the selected admin is unavailable for the file, assign the review manually. Existing reviews keep their assignments.</p>
           <div className="form-grid">
             <label className="field">Automatic second reviewer<select name="secondReviewerEmail" defaultValue={reviewPolicy?.reviewerEmail ?? ""}>

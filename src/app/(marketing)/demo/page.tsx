@@ -33,6 +33,7 @@ export default function DemoPage() {
           <li>Run mock DU and LPA together on the same 1003 and sample credit report. Review separate findings and retry either service independently.</li>
           <li>Review a fictional income worksheet against the submitted 1003 and accepted documents. Carry the approved monthly amount into mock pricing with its source version.</li>
           <li>Give a fictional lender an expiring link for the reviewed MISMO export and selected sample PDFs. From the Demo Guide, record a lender return, replace the blocked link after review, and confirm receipt on the same lender file.</li>
+          <li>When the brokerage requires a second 1003 review, open it from the guide. Approval on the current revision unlocks manual package sharing and lender acknowledgment.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. Keep the original instructions visible after acceptance, work through mock lender clearance, and pick the file back up in Today with the processor’s internal note.</li>
           <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. Work the exact condition, replace its evidence, and continue when it clears.</li>

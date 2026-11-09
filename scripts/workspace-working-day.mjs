@@ -1073,7 +1073,7 @@ try {
     await loanAction(officer, repeatId, "reviewApplication", { revision });
     const handoff = { type: "recordManualHandoff", loanId: repeatId, revision, lenderRevision: 0,
       eventId: randomUUID(), outcome: "Acknowledged", note: "", lenderFile: { lender: "Fictional Wholesale", externalId: "FICT-REFI-1003" } };
-    assert.match((await action(officer, "mutate", handoff)).error, /Prepare the MISMO export/);
+    assert.match((await action(officer, "mutate", handoff)).error, /approved second review/i);
     const names = [{ first: imported.name.split(" ")[0], middle: "", last: imported.name.split(" ").slice(1).join(" "), suffix: "" }];
     const exported = await loanAction(officer, repeatId, "exportReviewedApplication", {
       revision, lenderRevision: 0, eventId: randomUUID(), names,
@@ -1081,12 +1081,10 @@ try {
     assert.match(exported.mismoXml, /<LoanPurposeType>Refinance<\/LoanPurposeType>/);
     assert.match(exported.mismoXml, /<AddressLineText>32 Updated Fictional Lane<\/AddressLineText>/);
     assert.ok((await action(competingOfficer, "mutate", handoff)).error);
-    const acknowledged = await write(officer, handoff);
-    const submissionId = acknowledged.loanWork.applications[0].manualHandoff.submissionId;
-    assert.ok(submissionId);
-    assert.equal((await write(officer, handoff)).loanWork.applications[0].manualHandoff.submissionId, submissionId);
-    assert.match((await action(officer, "mutate", { ...handoff, lenderFile: { ...handoff.lenderFile, externalId: "OTHER" } })).error, /new handoff entry/);
-    assert.equal((await file(officer, repeatId)).submissions.length, 1);
+    assert.match((await action(officer, "mutate", handoff)).error, /approved second review/i);
+    const { lenderFile, ...handoffEntry } = handoff;
+    assert.match((await action(officer, "mutate", { ...handoffEntry, outcome: "Delivered manually" })).error, /approved second review/i);
+    assert.equal((await file(officer, repeatId)).submissions.length, 0);
     const review = (input) => action(owner, "workOnLoanReview", { loanId: repeatId, ...input });
     async function approveCurrent() {
       const [pending] = (await review({ type: "loan" })).reviews;
@@ -1095,16 +1093,25 @@ try {
         decision: "Approved", note: "Reviewed the fictional refinance." });
       assert.equal(approved.kind, "saved", approved.error);
     }
-    await approveCurrent();
     const staffPackages = `/api/lender-packages?brokerage=${brokerage}`;
     const publicPackages = "/api/shared-lender-package";
     const packageCredentials = () => ({ token: `${brokerage}.${randomBytes(32).toString("hex")}`, code: randomBytes(12).toString("hex") });
     const originalPackage = { type: "create", loanId: repeatId, revision, lenderRevision: 0, shareId: randomUUID(),
-      ...packageCredentials(), recipient: handoff.lenderFile.lender, hours: 1, confirmedFictional: true, names, documents: [] };
+      ...packageCredentials(), recipient: lenderFile.lender, hours: 1, confirmedFictional: true, names, documents: [] };
     const packageRead = ({ token, code }) => ({ type: "read", token, code });
     const packageXml = (share) => runtime.dispatchFetch(`${origin}${publicPackages}`, { method: "POST",
       headers: { Origin: origin, "Content-Type": "application/json" },
       body: JSON.stringify({ ...packageRead(share), type: "download", slot: 0 }) });
+    const blockedPackage = await postResponse(staffPackages, originalPackage, officer);
+    assert.equal(blockedPackage.status, 409);
+    assert.match(blockedPackage.result.error, /approved second review/i);
+    await approveCurrent();
+    const acknowledged = await write(officer, handoff);
+    const submissionId = acknowledged.loanWork.applications[0].manualHandoff.submissionId;
+    assert.ok(submissionId);
+    assert.equal((await write(officer, handoff)).loanWork.applications[0].manualHandoff.submissionId, submissionId);
+    assert.match((await action(officer, "mutate", { ...handoff, lenderFile: { ...lenderFile, externalId: "OTHER" } })).error, /new handoff entry/);
+    assert.equal((await file(officer, repeatId)).submissions.length, 1);
     assert.equal((await post(staffPackages, originalPackage, officer)).createdId, originalPackage.shareId);
     const originalXml = await packageXml(originalPackage);
     assert.equal(originalXml.status, 200);
@@ -1226,13 +1233,18 @@ try {
     await checkReturnQueues(manualReturnStatus.review);
     await loanAction(assignedOfficer, repeatId, "reviewApplication", { revision: corrected.revision });
     await checkReturnQueues(manualReturnStatus.approval);
-    await approveCurrent();
-    await checkReturnQueues(manualReturnStatus.export);
     const reacknowledgment = { ...handoff, revision: corrected.revision, eventId: randomUUID() };
-    assert.match((await action(assignedOfficer, "mutate", reacknowledgment)).error, /Prepare the MISMO export/);
     const replacementPackage = { ...originalPackage, revision: corrected.revision, shareId: randomUUID(),
       ...packageCredentials(), replacesId: originalPackage.shareId };
     assert.equal((await postResponse(staffPackages, replacementPackage, officer)).status, 409);
+    assert.match((await action(assignedOfficer, "mutate", reacknowledgment)).error, /approved second review/i);
+    const blockedReplacement = await postResponse(staffPackages, replacementPackage, assignedOfficer);
+    assert.equal(blockedReplacement.status, 409);
+    assert.match(blockedReplacement.result.error, /approved second review/i);
+    assert.ok(await directory.brokerageForPortal(originalPackage.token));
+    await approveCurrent();
+    await checkReturnQueues(manualReturnStatus.export);
+    assert.match((await action(assignedOfficer, "mutate", reacknowledgment)).error, /Prepare the MISMO export/);
     const replaced = await post(staffPackages, replacementPackage, assignedOfficer);
     assert.deepEqual(await post(staffPackages, replacementPackage, assignedOfficer), replaced);
     assert.deepEqual(replaced.shares.map(({ id, status, applicationRevision, files }) =>

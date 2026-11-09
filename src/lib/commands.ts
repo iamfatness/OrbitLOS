@@ -13,7 +13,8 @@ import type { LoanMutationResult } from "./loan-work-model";
 import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
-import { manualHandoffOutcomes, reusablePropertyAddress } from "./application-model";
+import { manualHandoffNeedsApproval, manualHandoffOutcomes, reusablePropertyAddress } from "./application-model";
+import { handoffCheckpointError } from "./application-review-checkpoint";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
 import { approvedIncomeAmount, pricingInputError } from "./income-review-freshness";
 import { repriceIncomeMessage } from "./income-review-model";
@@ -1293,6 +1294,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
               (recorded && recorded.lenderRevision !== lenderRevision) || (file && !recorded?.submissionId)) {
               throw new WorkspaceError("Start a new handoff entry.");
             }
+          }
+          if (!previous && manualHandoffNeedsApproval(outcome)) {
+            const blocker = handoffCheckpointError(db, data.loanId);
+            if (blocker) throw new WorkspaceError(blocker);
           }
           let alreadyRecorded = !!previous;
           let submissionId: string | null = null;

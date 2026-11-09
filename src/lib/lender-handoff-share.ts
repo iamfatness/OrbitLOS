@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { z } from "zod";
-import { approvedSecondReview } from "./application-review-checkpoint";
+import { approvedSecondReview, handoffCheckpointError } from "./application-review-checkpoint";
 import { addApplicationActivity } from "./applications";
 import { portalBrokerage } from "./brokerage-model";
 import { prepareLenderExport } from "./lender-export";
@@ -142,6 +142,8 @@ export async function lenderShareWork(db: Store, input: unknown, staff: Workspac
   const now = clock.toISOString();
   if (data.type === "read") return sharePage(db, data.loanId, now);
   if (data.type === "create") {
+    const blocker = handoffCheckpointError(db, data.loanId);
+    if (blocker) return { error: blocker };
     if (data.replacesId && protectLinks && !db.prepare("SELECT 1 FROM lender_package_links WHERE id = ?").get(data.shareId)) {
       const current = reviewedFile(db, data.loanId);
       const active = activePackage(db, data.loanId, now);

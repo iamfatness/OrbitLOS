@@ -2139,6 +2139,11 @@ test("a campaign acknowledgment stays linked to one lender file through retry, u
   const quote = priced.state.pricingRuns[0];
   await apply({ type: "selectOffer", loanId, runId: quote.id, offerId: quote.offers[0].id });
   assert.match((await command(ack, { ...staff, brokerage: { ...staff.brokerage, pilot: false } })).error, /fictional campaign loan/);
+  const saveCheckpoint = (requireSecondReview) => apply({ type: "savePlaybook", ...workspace(db).playbook, requireSecondReview });
+  await saveCheckpoint(true);
+  assert.match((await command(ack)).error, /approved second review/i);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM submissions").get().count, 0);
+  await saveCheckpoint(false);
   const { state: acknowledged } = await apply(ack);
   assert.equal(acknowledged.applications[0].manualHandoff.outcome, "Acknowledged");
   assert.equal(acknowledged.submissions.length, 1);
@@ -2153,6 +2158,10 @@ test("a campaign acknowledgment stays linked to one lender file through retry, u
   }
   const auditCount = () => db.prepare("SELECT count(*) AS count FROM workspace_access_history WHERE action = 'Recorded simulated lender acknowledgment'").get().count;
   assert.equal(auditCount(), 1);
+  await saveCheckpoint(true);
+  assert.deepEqual((await apply(ack)).state.submissions, worked.submissions);
+  assert.equal(auditCount(), 1);
+  await saveCheckpoint(false);
   await apply({ type: "saveLenderDetails", loanId, revision: 0, details: blankLenderDetails() });
   assert.match((await command(ack)).error, /Lender details changed/);
   const refreshedAck = { ...ack, lenderRevision: 1, eventId: crypto.randomUUID() };

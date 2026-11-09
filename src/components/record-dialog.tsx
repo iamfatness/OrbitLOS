@@ -373,8 +373,8 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
       </details>}
       <ManualLenderExport key={`${loanId}:${application.revision}:${application.lender?.revision ?? 0}`}
         application={application} busy={busy} save={save} openConditions={openConditions}
-        canRecordReturn={canRecordReturn}
-        shareBrokerage={shareBrokerage} shareAllowed={canRecordReturn && !blocker}
+        canRecordReturn={canRecordReturn} handoffBlocker={blocker} openReviews={openReviews}
+        shareBrokerage={shareBrokerage}
         linkedFile={state.submissions.find((submission) => submission.id === application.manualHandoff?.submissionId && submission.loanId === loanId)}
         previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
         campaignManual={campaignManual} />
@@ -869,18 +869,20 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     ? state.applications.find((item) => item.loanId === loan.id) : undefined;
   const receivedByUwm = handoffApplication?.versions.some((version) =>
     version.revision === handoffApplication.revision && version.uwmReceipt);
-  const mockHandoffBlocker = campaignLender === "manual" || receivedByUwm ? null : secondReviewBlocker(state.playbook.requireSecondReview, handoffApplication);
-  const lenderHandoff = modal.kind === "pricing" && loan && (handoffApplication || mockHandoffBlocker) && staff?.brokerage.role !== "Processor" ? {
-    label: campaignLender === "manual" ? "Open manual MISMO export" : receivedByUwm ? "Open mock UWM checklist" :
-      mockHandoffBlocker ? (handoffApplication?.reviewedAt ? "Open team reviews" : "Open 1003 review") : "Send reviewed 1003 to mock UWM",
-    blocker: mockHandoffBlocker,
+  const lenderReceived = campaignLender === "manual"
+    ? handoffApplication?.manualHandoff?.outcome === "Acknowledged" && !!handoffApplication.manualHandoff.submissionId : receivedByUwm;
+  const handoffBlocker = lenderReceived ? null : secondReviewBlocker(state.playbook.requireSecondReview, handoffApplication);
+  const lenderHandoff = modal.kind === "pricing" && loan && (handoffApplication || handoffBlocker) && staff?.brokerage.role !== "Processor" ? {
+    label: handoffBlocker ? (handoffApplication?.reviewedAt ? "Open team reviews" : "Open 1003 review") :
+      campaignLender === "manual" ? "Open manual MISMO export" : receivedByUwm ? "Open mock UWM checklist" : "Send reviewed 1003 to mock UWM",
+    blocker: handoffBlocker,
     proceed: (quote: { runId: string; offerId: string }) => {
-      if (campaignLender === "manual") {
-        show({ kind: "details", loanId: loan.id, target: "manual-lender-export", campaignLender });
+      if (handoffBlocker) {
+        show({ kind: "details", loanId: loan.id, target: handoffApplication?.reviewedAt ? loanReviewsTarget : "loan-application", campaignLender });
         return;
       }
-      if (mockHandoffBlocker) {
-        show({ kind: "details", loanId: loan.id, target: handoffApplication?.reviewedAt ? loanReviewsTarget : "loan-application", campaignLender });
+      if (campaignLender === "manual") {
+        show({ kind: "details", loanId: loan.id, target: "manual-lender-export", campaignLender });
         return;
       }
       const openChecklist = (workspace: Workspace) => {

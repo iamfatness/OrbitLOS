@@ -194,6 +194,10 @@ export type BorrowerStatusRefresh = (
 
 export const manualHandoffOutcomes = ["Prepared", "Delivered manually", "Acknowledged", "Returned for changes"] as const;
 
+export function manualHandoffNeedsApproval(outcome: unknown) {
+  return outcome === "Delivered manually" || outcome === "Acknowledged";
+}
+
 export interface StaffApplication {
   joint?: StaffJointApplication;
   revision: number;
