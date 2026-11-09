@@ -197,6 +197,21 @@ export function initializeStore(db: Store, seedDemo = true) {
       details TEXT NOT NULL, revision INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS document_requests (${documentRequestColumns});
+    CREATE TABLE IF NOT EXISTS document_checklist_templates (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, purpose TEXT NOT NULL, revision INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS active_document_checklist_title
+      ON document_checklist_templates(title COLLATE NOCASE) WHERE archived = 0;
+    CREATE TABLE IF NOT EXISTS document_checklist_versions (
+      templateId TEXT NOT NULL REFERENCES document_checklist_templates(id), revision INTEGER NOT NULL,
+      config TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL,
+      PRIMARY KEY(templateId, revision)
+    );
+    CREATE TABLE IF NOT EXISTS document_checklist_origins (
+      requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
+      templateId TEXT NOT NULL, revision INTEGER NOT NULL,
+      FOREIGN KEY(templateId, revision) REFERENCES document_checklist_versions(templateId, revision)
+    );
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
@@ -1149,11 +1164,14 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
     mismoLoans: rows<{ loanId: string }>(db, `SELECT loanId FROM mismo_rehearsals ${where()}`, ...args).map((row) => row.loanId),
     applications: staffApplications(db, loanId),
     documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries">>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
-      failures.failedAt AS uwmDeliveryFailedAt, ${pdfColumns()}
+      failures.failedAt AS uwmDeliveryFailedAt, origin.revision AS templateRevision, json_extract(version.config, '$.title') AS templateTitle, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
       LEFT JOIN document_files files ON files.requestId = requests.id
       LEFT JOIN mock_delivery_failures failures ON failures.requestId = requests.id AND failures.revision = requests.revision
-      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map((request) => ({ ...request, previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
+      LEFT JOIN document_checklist_origins origin ON origin.requestId = requests.id
+      LEFT JOIN document_checklist_versions version ON version.templateId = origin.templateId AND version.revision = origin.revision
+      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, ...request }) =>
+      ({ ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}), previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
         FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run

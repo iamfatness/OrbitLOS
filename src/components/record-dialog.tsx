@@ -61,7 +61,7 @@ import { observeBorrowerChange } from "@/lib/borrower-change-signal";
 
 export type Modal =
   | { kind: "details"; loanId: string; target?: string; campaignLender?: CampaignLenderPath }
-  | { kind: "assignment"; loanId: string; returnToHandoff?: boolean; manualReturn?: ManualReturnAssignment }
+  | { kind: "assignment"; loanId: string; returnTo?: "processing-handoff" | "document-checklist"; manualReturn?: ManualReturnAssignment }
   | { kind: "loan"; loanId?: string; stage?: Stage; contactId?: string }
   | { kind: "contactHistory"; contactId: string }
   | { kind: "contactDuplicates"; contactId: string }
@@ -487,6 +487,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const partner = state.contacts.find((contact) => contact.id === loan.partnerId);
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
   const requests = state.documentRequests.filter((item) => item.loanId === loan.id);
+  const assignment = state.loanProcessing.find((item) => item.loanId === loan.id);
   const openConditionRequests = new Set(requests.filter((request) => submissions.some((submission) =>
     submission.id === request.submissionId && submission.lender === "UWM" && submission.syncedAt &&
     submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt))).map((request) => request.id));
@@ -550,10 +551,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </nav>
       {section === "Overview" && <>
       <LoanWorkflow key={loan.dispositionRevision} loan={loan} busy={busy} readOnly={processor} save={(input) => void save(input)} />
-      <ProcessingHandoff loan={loan} assignment={state.loanProcessing.find((item) => item.loanId === loan.id)}
+      <ProcessingHandoff loan={loan} assignment={assignment}
         application={application} documents={requests} requireSecondReview={state.playbook.requireSecondReview} staff={staff}
         busy={busy} save={(input) => void save(input)} open={open} openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined}
-        openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnToHandoff: true }) : undefined} />
+        openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "processing-handoff" }) : undefined} />
       {canOpenReviews && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open}
@@ -612,6 +613,11 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </section>
       <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} requests={requests} inlineRequests={inlineRequests}
         openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
+        customTemplates={!pausedLoan(loan) && !pastClientLoan(loan) && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot :
+          process.env.NODE_ENV === "development")}
+        officer={loan.officer} processor={assignment?.processorName}
+        openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "document-checklist" }) : undefined}
+        localTemplateEditor={!staff && process.env.NODE_ENV === "development"}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
       </>}
@@ -856,8 +862,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     <dialog ref={dialog} className={(modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog") + (modal.kind === "details" && modal.target === "loan-scenarios" ? " record-dialog-scenarios" : "")} aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
       <div className="dialog-top">
         <div className="dialog-head">
-          {modal.kind === "assignment" && modal.returnToHandoff && <Button variant="ghost" size="icon" aria-label="Back to processing handoff"
-            onClick={() => openContactLoan(modal.loanId, "processing-handoff")}><ArrowLeft /></Button>}
+          {modal.kind === "assignment" && modal.returnTo && <Button variant="ghost" size="icon"
+            aria-label={modal.returnTo === "document-checklist" ? "Back to document checklist" : "Back to processing handoff"}
+            onClick={() => openContactLoan(modal.loanId, modal.returnTo)}><ArrowLeft /></Button>}
           {loan && modal.kind !== "details" && modal.kind !== "assignment" && modal.kind !== "returningClient" && (modal.kind !== "fundingCheckIn" || modal.returnToLoan) &&
             <Button variant="ghost" size="icon" aria-label="Back to loan details" onClick={back}><ArrowLeft /></Button>}
           <h2 id="record-title">{title}</h2>
@@ -881,7 +888,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
         {modal.kind === "assignment" && staff?.brokerage.role === "Admin" && <LoanAssignmentEditor key={modal.loanId}
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
           manualReturn={modal.manualReturn}
-          openLoan={(id) => openContactLoan(id, modal.manualReturn ? undefined : "processing-handoff", modal.manualReturn)} />}
+          openLoan={(id) => openContactLoan(id, modal.manualReturn ? undefined : modal.returnTo ?? "processing-handoff", modal.manualReturn)} />}
         {modal.kind === "communication" && loan && <CommunicationPreview loan={loan} state={state} audience={modal.audience} draftId={modal.draftId} busy={busy} save={save} />}
         {modal.kind === "documentFollowUp" && loan && <DocumentFollowUp loan={loan} state={state} />}
         {modal.kind === "fundingCheckIn" && (loan && checkIn && canRecordFundingCheckIn(loan, state, staff?.brokerage.role) ?

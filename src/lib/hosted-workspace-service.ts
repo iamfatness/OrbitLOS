@@ -325,3 +325,7 @@ export async function submitQuoteRequest(input: unknown) {
 export async function loadQuoteIntakeSettings(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).quoteIntakeSettings(staff, input) : { error: quoteSettingsUnavailable };
 }
+
+export async function workOnDocumentTemplates(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).documentTemplates(staff, input) : { error: "Document templates are unavailable in this workspace." };
+}

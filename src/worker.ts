@@ -47,6 +47,7 @@ import { assignInboxLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-mod
 import { leadRouting, readLeadArchive } from "./lib/lead-inbox";
 import { quoteLeadInput } from "./lib/quote-intake-model";
 import { quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
+import { documentTemplateWork } from "./lib/document-templates";
 import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
 import { readSharedRealtorQueue } from "./lib/realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./lib/realtor-queue-report";
@@ -792,6 +793,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   quoteIntakeSettings(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return workOnQuoteSettings(this.#store, input, staff, this.#id);
+  }
+
+  documentTemplates(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return documentTemplateWork(this.#store, input, staff, this.#id);
   }
 
   reserveAddressLookup(token: string) {

@@ -1288,7 +1288,7 @@ try {
     assert.doesNotMatch(repeated.message, /was routed|were routed/);
     assert.equal(read(repeated.state, extraWaiting).officerEmail, null);
   });
-  await stage("A published website quote routes through campaign capacity into a prefilled 1003", async () => {
+  const quoteFile = await stage("A published website quote routes through campaign capacity into a prefilled 1003", async () => {
     const campaignId = randomUUID();
     const { leadRouting: routing } = await workspace(owner);
     await write(owner, { type: "createCallCampaign", id: campaignId, name: "Fictional website quotes" });
@@ -1334,6 +1334,61 @@ try {
     const history = await action(officer, "readHistoryPage", { record: "loan", id: referralLoanId });
     assert.match(JSON.stringify(history.events), /Website quote request · Form version 1.*fictional first home/);
     assert.equal((await workspace(owner)).inboxLeads.find(({ id }) => id === shared.id).officerEmail, officer.email);
+    return { id: referralLoanId, token: loan.applications[0].token };
+  });
+  await stage("A versioned checklist reaches the borrower and assigned processor without replacing existing requests", async () => {
+    const { id: loanId, token } = quoteFile;
+    const path = `/api/document-templates?brokerage=${brokerage}`;
+    const templateId = randomUUID();
+    const config = { title: "Fictional Purchase Starter", purpose: "Purchase", items: [
+      { kind: "Photo ID", instructions: "Fictional template ID instructions.", dueDays: 0 },
+      { kind: "Bank statement", instructions: "Attach a sample statement with the account period.", dueDays: 0 },
+    ] };
+    const publish = { type: "publish", id: templateId, revision: 0, config };
+    assert.equal((await postResponse(path, publish, officer)).status, 409);
+    assert.equal((await post(path, publish, owner)).templates[0].revision, 1);
+    const query = { type: "loan", loanId };
+    assert.equal((await postResponse(path, query, competingOfficer)).status, 409);
+    assert.equal((await postResponse(path, query, processor)).status, 409);
+    const existingDue = shiftReportDate(today, 4);
+    await loanAction(officer, loanId, "requestDocument", { kind: "Photo ID", instructions: "Keep the original ID instructions.", dueOn: existingDue });
+    await team(owner, { type: "assignProcessor", email: processor.email, loanId, revision: 0 });
+    const preview = await post(path, query, processor);
+    assert.equal(preview.templates[0].id, templateId);
+    assert.deepEqual(preview.templates[0].items, config.items);
+    const apply = { type: "applyDocumentTemplate", loanId, templateId, revision: 1, asOf: preview.asOf };
+    assert.ok((await action(competingOfficer, "mutate", apply)).error);
+    const applied = await write(processor, apply);
+    assert.match(applied.message, /Added 1 document request/);
+    assert.match((await write(processor, apply)).message, /already on the checklist/);
+    const checklist = (await file(processor, loanId)).documentRequests;
+    const existing = checklist.find(({ kind }) => kind === "Photo ID");
+    const statement = checklist.find(({ kind }) => kind === "Bank statement");
+    assert.equal(existing.instructions, "Keep the original ID instructions.");
+    assert.equal(existing.dueOn, existingDue);
+    assert.equal(statement.dueOn, preview.asOf);
+    assert.equal(statement.templateTitle, config.title);
+    assert.equal(statement.templateRevision, 1);
+    const draft = await borrower(token, { type: "read" });
+    const sent = await borrower(token, { type: "submit", revision: draft.revision, step: applicationSteps.length - 1,
+      draft: { ...sampleApplication(draft.draft), confirmedDemo: true } });
+    assert.equal(sent.loanStatus.documents.find(({ id }) => id === statement.id).instructions, config.items[1].instructions);
+    assert.equal(sent.loanStatus.documents.find(({ id }) => id === statement.id).dueOn, preview.asOf);
+    assert.equal("templateTitle" in sent.loanStatus.documents.find(({ id }) => id === statement.id), false);
+    const missing = await action(owner, "readManagerFileExceptions", { filter: "Missing evidence" });
+    const exception = missing.items.find(({ id }) => id === statement.id);
+    assert.equal(exception.owner, officer.name);
+    assert.equal(exception.dueOn, preview.asOf);
+    const v2 = { ...publish, revision: 1, config: { ...config, title: "Fictional Purchase Starter revised" } };
+    assert.equal((await post(path, v2, owner)).templates[0].revision, 2);
+    assert.match((await action(processor, "mutate", apply)).error, /template changed/);
+    const received = await borrower(token, { type: "attachSample", requestId: statement.id, revision: statement.revision, statusOnly: true });
+    const arrived = received.loanStatus.documents.find(({ id }) => id === statement.id);
+    assert.equal(arrived.status, "Received");
+    await loanAction(processor, loanId, "reviewDocument", { requestId: statement.id, revision: arrived.revision, decision: "Accepted", replacementNote: "" });
+    assert.equal((await borrower(token, { type: "status" })).loanStatus.documents.find(({ id }) => id === statement.id).status, "Accepted");
+    const history = await action(officer, "readHistoryPage", { record: "loan", id: loanId });
+    assert.equal(history.events.filter(({ text }) => text.includes(`Applied ${config.title} · Version 1`)).length, 1);
   });
   await stage("MISMO import returns the exact draft and a scoped duplicate receipt", async () => {
     const fields = { firstName: "Fictional", lastName: "Working Day MISMO", amount: "275000", purpose: "Purchase",

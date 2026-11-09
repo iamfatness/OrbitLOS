@@ -1,7 +1,7 @@
 import type { StaffApplication } from "./application-model";
 
 const checklistWrites = new Set([
-  "requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "setDocumentDeadline",
+  "requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline",
   "reviewDocument", "reopenMockUwmCondition",
 ]);
 

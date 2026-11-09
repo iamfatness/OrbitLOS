@@ -78,6 +78,8 @@ import { readPlaybook, recordedFundingCheckIn, retireFundingFollowUps, writePlay
 import { startFundingPlaybook, supersedeFundingPlaybook } from "./playbook-runs";
 import { archiveFundingFinancials } from "./brokerage-finance";
 import { completeContactFollowUp, setClosingChecklistStatus, setClosingTarget, setDocumentDeadline } from "./deadline-actions";
+import { applyDocumentTemplateInput } from "./document-template-model";
+import { applyDocumentTemplate } from "./document-templates";
 import { closingReviewReady } from "./loan-workflow";
 import { routeSecondApplicationReview } from "./loan-reviews";
 
@@ -230,6 +232,7 @@ const command = z.discriminatedUnion("type", [
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500), sendToMockUwm: z.boolean().optional(),
     dueOn: documentDueOn.optional() }),
   z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames) }),
+  applyDocumentTemplateInput,
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500),
     lenderFile: z.object({ lender: label, externalId: label }).optional() }),
@@ -307,7 +310,7 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if (staff.brokerage.role === "Processor") {
     const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "exportReviewedApplication", "reviewApplication", "requestApplicationCorrection",
-      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
+      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
       "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
       "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "saveManualCondition", "recordManualDelivery", "recordManualClearance", "updateProcessing"];
@@ -420,6 +423,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "requestSuggestedUwmDocuments":
     case "reviewDocument":
     case "applyDocumentPreset":
+    case "applyDocumentTemplate":
     case "sendConditionDocument":
     case "simulateDeliveryFailure":
     case "refreshMockUwmClearance":
@@ -1203,6 +1207,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           if (added) addApplicationActivity(db, data.loanId, `Applied ${data.preset.toLowerCase()} checklist · ${added} added`, now);
           message = added ? `Added ${added} document requests.` : "This checklist is already in place.";
+          break;
+        }
+        case "applyDocumentTemplate": {
+          const result = applyDocumentTemplate(db, data, staff, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
           break;
         }
         case "recordManualHandoff":

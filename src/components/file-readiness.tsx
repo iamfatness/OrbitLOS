@@ -2,7 +2,6 @@
 
 import { useRef } from "react";
 import { manualHandoffOutcomes } from "@/lib/application-model";
-import { checklistPresetNames } from "@/lib/document-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Loan, Workspace } from "@/lib/model";
 import { money } from "@/lib/utils";
@@ -40,21 +39,12 @@ export function FileReadiness({ loan, state, busy, save, open, preapprovalBroker
     <div className="section-heading"><h3>File readiness</h3><span className="pill">{openItems.length} open document requests</span></div>
     <div className="loan-application-actions">
       <Button size="sm" variant="outline" onClick={() => open("loan-application")}>1003 · {status}</Button>
+      <Button size="sm" variant="outline" onClick={() => open("document-checklist")}>Open document checklist</Button>
       <Button size="sm" variant="outline" onClick={() => open("credit-aus")}>Review mock credit and AUS</Button>
     </div>
     {openItems.length > 0 && <ul className="loan-task-list">{openItems.map((item) => <li key={item.id}>
       <button className="name-link" type="button" onClick={() => open(`document-${item.id}`)}>{item.kind} · {item.status}</button>
     </li>)}</ul>}
-    <details className="loan-task-create"><summary>Apply a reusable document checklist</summary>
-      <form className="task-form" onSubmit={(event) => {
-        event.preventDefault();
-        const data = new FormData(event.currentTarget);
-        void save({ type: "applyDocumentPreset", loanId: loan.id, preset: data.get("preset") });
-      }}>
-        <label className="field">Checklist<select name="preset">{checklistPresetNames.map((name) => <option key={name}>{name}</option>)}</select></label>
-        <Button size="sm" type="submit" disabled={busy}>Add missing requests</Button>
-      </form>
-    </details>
     <details className="loan-task-create" id="manual-lender-handoff"><summary>Preview file summary and record a handoff</summary>
       <label className="field">File summary<textarea rows={7} readOnly value={summary} /></label>
       {application?.reviewedAt && <form className="record-form" onSubmit={(event) => {

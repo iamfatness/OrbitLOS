@@ -133,7 +133,7 @@ test("checklist writes signal only the matching submitted and unrevoked applicat
     { loanId: "draft", submittedAt: null, revokedAt: null, token: "draft" },
     { loanId: "revoked", submittedAt, revokedAt: submittedAt, token: "revoked" },
   ];
-  for (const type of ["requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "setDocumentDeadline", "reviewDocument", "reopenMockUwmCondition"]) {
+  for (const type of ["requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline", "reviewDocument", "reopenMockUwmCondition"]) {
     assert.equal(borrowerChecklistToken({ type, loanId: "two" }, applications), "second");
   }
   for (const input of [null, { type: "refreshApplication", loanId: "one" }, { type: "requestDocument" },

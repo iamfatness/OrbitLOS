@@ -8,6 +8,7 @@ import { dateLabel } from "@/lib/client-retention";
 import { dateTime } from "@/lib/utils";
 import { DocumentStatusPill, SampleDocument } from "./sample-document";
 import { Button } from "./ui/button";
+import { ApplyDocumentChecklist, ManageDocumentTemplates } from "./document-checklist-templates";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
 
@@ -55,10 +56,12 @@ function RequestForm({ loanId, kinds, source, busy, save, suggestedKind }: {
   </details>;
 }
 
-export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequests, openConditionRequests, replaceableRequests, applicationStarted, applicationSubmitted, busy, save, followUp }: {
+export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequests, openConditionRequests, replaceableRequests,
+  applicationStarted, applicationSubmitted, customTemplates, officer, processor, openAssignment, localTemplateEditor, busy, save, followUp }: {
   loanId: string; brokerageId: string; requests: LoanDocumentRequest[]; inlineRequests: Set<string>; openConditionRequests: Set<string>;
   pilot?: boolean;
   replaceableRequests: Set<string>;
+  customTemplates: boolean; officer: string; processor?: string | null; openAssignment?: () => void; localTemplateEditor?: boolean;
   applicationStarted: boolean; applicationSubmitted: boolean; busy: boolean; save: Save; followUp: () => void;
 }) {
   const standalone = requests.filter((item) => !inlineRequests.has(item.id));
@@ -74,6 +77,9 @@ export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequ
     {waiting > 0 && applicationSubmitted && <div><Button size="sm" variant="outline" onClick={followUp}><Mail /> Preview document follow-up</Button></div>}
     {!applicationSubmitted && <p className="muted">{applicationStarted ? "Available to the borrower after 1003 submission." : "Start a 1003 to share the checklist."}</p>}
     {available.length > 0 && <DocumentRequestForm loanId={loanId} kinds={available} busy={busy} save={save} />}
+    <ApplyDocumentChecklist key={loanId} loanId={loanId} brokerageId={brokerageId} customAvailable={customTemplates} requests={requests}
+      officer={officer} processor={processor} openAssignment={openAssignment} busy={busy} save={save} />
+    {localTemplateEditor && <ManageDocumentTemplates brokerageId={brokerageId} />}
     {standalone.length ? <ul className="document-list">{standalone.map((request) => <li key={request.id}>
       <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot} busy={busy} save={save}
         openCondition={openConditionRequests.has(request.id)} replaceable={replaceableRequests.has(request.id)} />
@@ -90,6 +96,7 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
   return <div className="document-item" id={`document-${request.id}`} tabIndex={-1}>
         <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
         {request.conditionId && !compact && <small className="muted">Linked lender condition</small>}
+        {request.templateTitle && <small className="muted">{request.templateTitle} · Version {request.templateRevision}</small>}
         {request.instructions && !compact && <p>{request.instructions}</p>}
         {request.replacementNote && <p><strong>Replacement instructions</strong> · {request.replacementNote}</p>}
         {needsBorrowerDocument(request.status) && <>

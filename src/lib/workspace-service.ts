@@ -20,6 +20,7 @@ import { readRealtorWork } from "./realtor-work";
 import { readLeadInbox } from "./lead-inbox-query";
 import { readLeadArchive } from "./lead-inbox";
 import { receiveQuoteLead, workOnQuoteSettings } from "./quote-intake";
+import { documentTemplateWork } from "./document-templates";
 import { readSharedRealtorQueue } from "./realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./realtor-queue-report";
 import { assignWaitingRealtorInput } from "./realtor-queue-report-model";
@@ -418,4 +419,9 @@ export async function submitQuoteRequest(input: unknown) {
 export async function loadQuoteIntakeSettings(input: unknown, staff: WorkspaceStaff | null) {
   const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
   return workOnQuoteSettings(database(), input, actor, demoBrokerageId);
+}
+
+export async function workOnDocumentTemplates(input: unknown, staff: WorkspaceStaff | null) {
+  const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
+  return documentTemplateWork(database(), input, actor, demoBrokerageId);
 }

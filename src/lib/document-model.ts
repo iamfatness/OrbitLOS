@@ -44,6 +44,8 @@ export interface DocumentRequest {
 
 export interface LoanDocumentRequest extends DocumentRequest {
   loanId: string;
+  templateRevision?: number | null;
+  templateTitle?: string | null;
   requestedAt: string;
   deadlineRevision: number;
   submissionId: string | null;

@@ -1,0 +1,207 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { dateLabel } from "@/lib/client-retention";
+import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds, type DocumentKind, type LoanDocumentRequest } from "@/lib/document-model";
+import { documentTemplateConfig, documentTemplateDueOn, documentTemplatePurposes, type DocumentTemplate,
+  type DocumentTemplateConfig, type DocumentTemplatePage } from "@/lib/document-template-model";
+import { Button } from "./ui/button";
+
+async function loadTemplates(brokerageId: string, input: object, signal?: AbortSignal): Promise<DocumentTemplatePage> {
+  const response = await fetch(`/api/document-templates?brokerage=${encodeURIComponent(brokerageId)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal,
+  });
+  if (!response.headers.get("Content-Type")?.includes("application/json")) throw new Error("Could not open document templates.");
+  const result = await response.json() as DocumentTemplatePage | { error: string };
+  if ("error" in result) throw new Error(result.error);
+  if (!response.ok) throw new Error("Could not open document templates.");
+  return result;
+}
+
+const emptyTemplate: DocumentTemplateConfig = { title: "", purpose: "Any loan purpose", items: [] };
+
+export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }) {
+  const [opened, setOpened] = useState(false);
+  const [page, setPage] = useState<DocumentTemplatePage>();
+  const [draft, setDraft] = useState<{ id: string; revision: number; config: DocumentTemplateConfig }>();
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
+  const pending = useRef(false);
+  useEffect(() => {
+    if (!opened) return;
+    const controller = new AbortController();
+    void loadTemplates(brokerageId, { type: "manage" }, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setPage(result);
+    }).catch((failure: Error) => {
+      if (!controller.signal.aborted) setFeedback({ text: failure.message, error: true });
+    });
+    return () => controller.abort();
+  }, [brokerageId, opened]);
+
+  function edit(template: DocumentTemplate) {
+    const { id, revision, title, purpose, items } = template;
+    setDraft({ id, revision, config: { title, purpose, items } });
+  }
+
+  function change(update: Partial<DocumentTemplateConfig>) {
+    setDraft((value) => value && { ...value, config: { ...value.config, ...update } });
+  }
+
+  async function run(input: object, success?: string) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setFeedback(undefined);
+    try {
+      const result = await loadTemplates(brokerageId, input);
+      setPage(result);
+      if (success) {
+        setSearch("");
+        setDraft(undefined);
+        setFeedback({ text: success });
+      }
+    } catch (failure) {
+      setFeedback({ text: failure instanceof Error ? failure.message : "Could not save the checklist.", error: true });
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+
+  function toggleKind(kind: DocumentKind, checked: boolean) {
+    if (!draft) return;
+    change({ items: checked ? [...draft.config.items, { kind, instructions: checklistInstructions[kind], dueDays: null }] :
+      draft.config.items.filter((item) => item.kind !== kind) });
+  }
+
+  return <section className="pipeline relationship-panel" aria-label="Document checklist templates">
+    <h2>Document checklist templates</h2>
+    <p className="muted">Set the documents, borrower instructions, and deadline offsets your team can reuse on a loan.</p>
+    <details className="loan-task-create" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
+      <summary>Manage document templates</summary>
+      {opened && <div className="record-form">
+        {feedback && <p className="application-message" role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
+        {!page && !feedback && <p role="status">Opening templates…</p>}
+        <form className="loan-application-actions" onSubmit={(event) => { event.preventDefault(); void run({ type: "manage", search }); }}>
+          <label className="field">Find a template<input value={search} onChange={(event) => setSearch(event.target.value)} maxLength={80} disabled={busy} /></label>
+          <Button size="sm" variant="outline" type="submit" disabled={busy || (!page && !feedback)}>Search templates</Button>
+        </form>
+        {page && <>
+          {!page.templates.length && <p className="muted">No templates match. Create a checklist or change the search.</p>}
+          {page.more && <p className="muted">Search by name to find more archived templates.</p>}
+          {page.templates.length > 0 && <ul className="document-list">{page.templates.map((template) => <li key={template.id} className="document-item">
+            <div className="document-item-head"><strong>{template.title}</strong><span className="pill">{template.archived ? "Archived" : `Version ${template.revision}`}</span></div>
+            <p>{template.purpose} · {template.items.length} {template.items.length === 1 ? "document" : "documents"}</p>
+            <div className="loan-application-actions">
+              {!template.archived && <Button size="sm" variant="outline" disabled={busy} onClick={() => edit(template)}>Edit template</Button>}
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run({ type: "archive", id: template.id,
+                revision: template.revision, archived: !template.archived }, template.archived ? "Template restored." : "Template archived. Existing requests retain their details.")}>
+                {template.archived ? "Restore template" : "Archive template"}
+              </Button>
+            </div>
+          </li>)}</ul>}
+          {!draft && <div><Button size="sm" disabled={busy} onClick={() => {
+            setFeedback(undefined);
+            setDraft({ id: crypto.randomUUID(), revision: 0, config: emptyTemplate });
+          }}>New checklist template</Button></div>}
+        </>}
+        {draft && <form className="document-item record-form" aria-label="Checklist template editor" key={draft.id} onSubmit={(event) => {
+          event.preventDefault();
+          const config = documentTemplateConfig.safeParse(draft.config);
+          if (!config.success) { setFeedback({ text: "Enter a title and choose at least one document with a valid deadline.", error: true }); return; }
+          void run({ type: "publish", ...draft, config: config.data }, "Document checklist published.");
+        }}>
+          <h3>{draft.revision ? `Edit template version ${draft.revision}` : "New checklist template"}</h3>
+          <div className="form-grid">
+            <label className="field">Template title<input value={draft.config.title} required minLength={3} maxLength={80} disabled={busy}
+              onChange={(event) => change({ title: event.target.value })} /></label>
+            <label className="field">Loan purpose<select value={draft.config.purpose} disabled={busy}
+              onChange={(event) => change({ purpose: event.target.value as DocumentTemplateConfig["purpose"] })}>
+              {documentTemplatePurposes.map((purpose) => <option key={purpose}>{purpose}</option>)}
+            </select></label>
+          </div>
+          <p className="muted">Deadline days are calendar days from application of the template. Enter 0 for the same day or leave blank for no due date.</p>
+          {documentKinds.map((kind) => {
+            const item = draft.config.items.find((entry) => entry.kind === kind);
+            const editItem = (update: Partial<DocumentTemplateConfig["items"][number]>) =>
+              change({ items: draft.config.items.map((entry) => entry.kind === kind ? { ...entry, ...update } : entry) });
+            return <div key={kind} className="record-form">
+              <label className="demo-confirm"><input type="checkbox" checked={!!item} disabled={busy}
+                onChange={(event) => toggleKind(kind, event.target.checked)} /><span>Include {kind.toLowerCase()}</span></label>
+              {item && <div className="form-grid">
+                <label className="field">{kind} instructions<textarea value={item.instructions} rows={2} maxLength={500} disabled={busy}
+                  onChange={(event) => editItem({ instructions: event.target.value })} /></label>
+                <label className="field">{kind} deadline days<input type="number" min={0} max={90} step={1} value={item.dueDays ?? ""} disabled={busy}
+                  onChange={(event) => editItem({ dueDays: event.target.value === "" ? null : event.target.valueAsNumber })} /></label>
+              </div>}
+            </div>;
+          })}
+          <div className="loan-application-actions">
+            <Button size="sm" type="submit" disabled={busy || !draft.config.items.length}>Publish checklist</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => setDraft(undefined)}>Close editor</Button>
+          </div>
+        </form>}
+      </div>}
+    </details>
+  </section>;
+}
+
+export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, requests, officer, processor, openAssignment, busy, save }: {
+  brokerageId: string; loanId: string; customAvailable: boolean; requests: LoanDocumentRequest[];
+  officer: string; processor?: string | null; openAssignment?: () => void; busy: boolean; save: (input: unknown) => Promise<void>;
+}) {
+  const [opened, setOpened] = useState(false);
+  const [page, setPage] = useState<DocumentTemplatePage>();
+  const [refresh, setRefresh] = useState(0);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<string>(checklistPresetNames[0]);
+  useEffect(() => {
+    if (!opened || !customAvailable) return;
+    const controller = new AbortController();
+    void loadTemplates(brokerageId, { type: "loan", loanId }, controller.signal).then((result) => {
+      if (!controller.signal.aborted) { setPage(result); setError(""); }
+    }).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
+    return () => controller.abort();
+  }, [brokerageId, customAvailable, loanId, opened, refresh]);
+
+  const template = customAvailable && page ? page.templates.find(({ id }) => id === selected) : undefined;
+  const preset = checklistPresetNames.find((name) => name === selected);
+  const items = template?.items ?? (preset && checklistPresets[preset].map((kind) => ({ kind, instructions: checklistInstructions[kind], dueDays: null })));
+  const preview = items?.map((item) => ({ ...item, existing: requests.find((request) => request.kind === item.kind && !request.conditionId),
+    dueOn: page ? documentTemplateDueOn(page.asOf, item.dueDays) : null }));
+  const missing = preview?.filter((item) => !item.existing).length ?? 0;
+  return <details className="document-form" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
+    <summary>Apply a reusable document checklist</summary>
+    {opened && <div className="record-form">
+      <p className="muted">Preview the requests before adding them. Existing requests keep their dates and instructions.</p>
+      <p className="muted">Loan officer · {officer || "Unassigned"}{processor ? ` · Processor · ${processor}` : " · No processor assigned"}</p>
+      {openAssignment && <div><Button size="sm" variant="outline" onClick={openAssignment}>Review loan assignment</Button></div>}
+      <label className="field">Checklist<select value={selected} disabled={busy} onChange={(event) => setSelected(event.target.value)}>
+        <optgroup label="Standard checklists">{checklistPresetNames.map((name) => <option key={name}>{name}</option>)}</optgroup>
+        {!!page?.templates.length && customAvailable && <optgroup label="Brokerage templates">{page.templates.map((entry) =>
+          <option key={entry.id} value={entry.id}>{entry.title} · v{entry.revision}</option>)}</optgroup>}
+        {!template && !preset && <option value={selected}>Unavailable template</option>}
+      </select></label>
+      {customAvailable && <>
+        {error && <p role="alert">{error}</p>}
+        {!page && !error && <p role="status">Opening brokerage templates…</p>}
+        {page && !page.templates.length && <p className="muted">No brokerage templates match this loan. An admin can publish one from Team.</p>}
+        <div><Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPage(undefined); setError(""); setRefresh((value) => value + 1); }}>
+          Reload templates
+        </Button></div>
+      </>}
+      {preview && <ul className="document-list" aria-label="Checklist preview">{preview.map((item) => <li key={item.kind} className="document-item">
+        <div className="document-item-head"><strong>{item.kind}</strong><span className="pill">{item.existing ? "Already on checklist" : "Will be requested"}</span></div>
+        {!item.existing && <>
+          {item.instructions && <p>{item.instructions}</p>}
+          {item.dueOn && <p>Due <time dateTime={item.dueOn}>{dateLabel(item.dueOn)}</time></p>}
+        </>}
+      </li>)}</ul>}
+      {preview && <div><Button size="sm" disabled={busy || !missing} onClick={() => {
+        if (template && page) void save({ type: "applyDocumentTemplate", loanId, templateId: template.id, revision: template.revision, asOf: page.asOf });
+        else if (preset) void save({ type: "applyDocumentPreset", loanId, preset });
+      }}>Add missing requests{missing > 0 ? ` (${missing})` : ""}</Button></div>}
+    </div>}
+  </details>;
+}
