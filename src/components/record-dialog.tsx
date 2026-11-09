@@ -10,6 +10,7 @@ import { ApplicationAnswers } from "./application-fields";
 import { FollowUpPurposeField, LoanTaskRow } from "./loan-task";
 import { carriedCallbackOutcomes } from "@/lib/campaign-callback-performance-model";
 import { LoanPricing } from "./loan-pricing";
+import { LoanScenarios } from "./loan-scenarios";
 import { CommunicationPreview, LoanCommunications } from "./loan-communications";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
@@ -392,11 +393,13 @@ function LenderApplicationDetails({ application, busy, save, markDraftChanged }:
 
 const loanSections = [
   ["Overview", "loan-workflow"], ["1003", "loan-application"], ["Conditions", "lender-submissions"],
+  ["Scenarios", "loan-scenarios"],
   ["Pricing & credit", "loan-pricing"], ["Closing", "closing-workbench"], ["Activity", "loan-activity"],
 ] as const;
 
 function loanSection(target?: string) {
   if (!target) return "Overview";
+  if (target === "loan-scenarios") return "Scenarios";
   if (target === "loan-application" || target === "manual-lender-export" || target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-")) return "Conditions";
   if (target === "credit-aus" || target === "loan-pricing") return "Pricing & credit";
@@ -554,6 +557,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} />
       </>}
+      {section === "Scenarios" && staff && <LoanScenarios key={loan.id} loan={loan} state={state} staff={staff} markDraftChanged={markDraftChanged} />}
       {section === "Pricing & credit" && <>
       <section className="details-section" id="loan-pricing" tabIndex={-1} aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
@@ -844,7 +848,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     },
   } : undefined;
   return (
-    <dialog ref={dialog} className={modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog"} aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
+    <dialog ref={dialog} className={(modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog") + (modal.kind === "details" && modal.target === "loan-scenarios" ? " record-dialog-scenarios" : "")} aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
       <div className="dialog-top">
         <div className="dialog-head">
           {modal.kind === "assignment" && modal.returnToHandoff && <Button variant="ghost" size="icon" aria-label="Back to processing handoff"

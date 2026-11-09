@@ -35,6 +35,7 @@ import { documentKey, type DocumentUploadMode } from "./lib/document-files-model
 import { z } from "zod";
 import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback, type PilotPortalLink } from "./lib/pilot";
 import { explorationInput, loadExplorationExamples } from "./lib/pilot-exploration";
+import { loanScenarioWork } from "./lib/loan-scenarios";
 import { migrationInput } from "./lib/pipeline-migration-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, campaignRoutingOfficerLimit, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput } from "./lib/call-campaign-model";
 import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./lib/campaign-routing";
@@ -715,6 +716,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return loadExplorationExamples(this.#store, staff, input, members);
   }
+  loanScenarios(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return loanScenarioWork(this.#store, input, staff, this.#id);
+  }
   pilotFeedback(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return savePilotFeedback(this.#store, staff, input);
@@ -924,6 +929,14 @@ export default {
         }
         return privatePdf(object, staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot));
       } catch { return fileProblem(503, "Orbit could not retrieve this PDF. Try again shortly."); }
+    }
+    if (url.pathname === "/api/loan-scenarios") {
+      if (!staff) return Response.json({ error: "Sign in to view loan scenarios." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+      if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } });
+      return borrowerJson(request, async input => {
+        const result = await env.WORKSPACE.getByName(staff.brokerage.id).loanScenarios(staff, input);
+        return "error" in result ? { status: 409, error: result.error } : { value: result };
+      }, 32768);
     }
     if (url.pathname === "/api/brokerages") {
       const headers = { "Cache-Control": "private, no-store" };

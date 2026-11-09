@@ -155,6 +155,10 @@ export function initializeStore(db: Store, seedDemo = true) {
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, facts TEXT NOT NULL, revision INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS loan_scenario_plans (
+      loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, plan TEXT NOT NULL,
+      revision INTEGER NOT NULL, updatedAt TEXT NOT NULL, updatedBy TEXT NOT NULL, applicationRevision INTEGER
+    );
     CREATE TABLE IF NOT EXISTS applications (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
       token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL, draft TEXT NOT NULL,

@@ -631,3 +631,27 @@ button:disabled { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .orbit-button, .marketing-button { transition: none; }
 }
+.scenario-workspace { gap: 1.25rem; }
+.scenario-workspace h3 { display: flex; align-items: center; gap: .5rem; }
+.scenario-start { padding: 1.5rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface, #fff); }
+.scenario-fieldset { min-width: 0; border: 0; padding: 0; margin: 0; }
+.scenario-fieldset > legend { display: flex; align-items: center; gap: .4rem; font-weight: 600; padding: 0; margin-bottom: .75rem; }
+.scenario-table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.scenario-table { width: 100%; border-collapse: collapse; font-size: .875rem; font-variant-numeric: tabular-nums; }
+.scenario-table caption { text-align: left; padding: 1rem; color: var(--muted); }
+.scenario-table th, .scenario-table td { padding: .8rem 1rem; text-align: right; min-width: 150px; border-top: 1px solid var(--line); }
+.scenario-table th:first-child { text-align: left; min-width: 200px; font-weight: 500; }
+.scenario-table thead th { vertical-align: top; font-weight: 650; background: var(--surface, #fff); }
+.scenario-table tbody tr:nth-child(3), .scenario-table tbody tr:nth-child(6) { background: #f5f1ff; font-weight: 650; }
+.scenario-highlight, .scenario-budget { display: block; margin-top: .4rem; font-size: .7rem; font-weight: 600; }
+.scenario-highlight { color: #6041af; }
+.scenario-budget { color: #9a4c17; }
+.scenario-editors { display: grid; gap: .75rem; }
+.scenario-option summary { font-weight: 600; }
+.scenario-option > fieldset { margin-top: 1rem; }
+.scenario-workspace textarea { min-height: 84px; }
+@media (max-width: 640px) { .scenario-table th, .scenario-table td { padding: .65rem; } }
+
+.record-dialog-scenarios { max-width: min(1160px, 100vw); }
+.record-dialog-scenarios .loan-section-nav { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+@media (max-width: 640px) { .record-dialog-scenarios .loan-section-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
