@@ -988,6 +988,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
         </form>}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+          openApplication={() => show({ kind: "details", loanId: loan.id, campaignLender, target: "loan-application" })}
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?
             () => show({ kind: "details", loanId: loan.id, campaignLender, target: "income-worksheet" }) : undefined}

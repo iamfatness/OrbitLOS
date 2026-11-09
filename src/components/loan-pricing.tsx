@@ -107,13 +107,14 @@ function Terms({ offer }: { offer: PricingOffer }) {
   </dl>;
 }
 
-export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome }: {
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
   openIncome?: () => void;
+  openApplication: () => void;
   lenderHandoff?: { label: string; blocker: string | null; checkQuoteAmount: boolean; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
   const runs = state.pricingRuns.filter((item) => item.loanId === loan.id);
@@ -370,6 +371,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       </div>}
     </section>}
     <UwmRateLock loanId={loan.id} submissions={state.submissions.filter((item) => item.loanId === loan.id)}
+      application={application} openApplication={openApplication}
       rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} needsReprice={savedNeedsReprice}
       amountIssue={rateAmountIssue} use1003Amount={canUse1003Amount && !quoteAmountIssue ? use1003Amount : undefined} busy={busy} save={save} />
     {published && <section className="quote-saved" aria-label="Shared borrower quote">

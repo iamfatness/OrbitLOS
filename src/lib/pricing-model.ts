@@ -124,6 +124,19 @@ export function mockUwmQuoteAmountIssue(run: PricingRun | undefined,
     ? mockUwmAmountMismatch(run.scenario.loanAmount, submittedRequestedLoanAmount(application), action) : null;
 }
 
+export function mockUwmRateReceiptIssue(
+  application: Pick<StaffApplication, "revision" | "submittedAt" | "reviewedAt" | "correctionNote" | "uwmReference"> | undefined,
+  fileReference: string | undefined, received: boolean,
+) {
+  if (!application?.uwmReference) return null;
+  if (!fileReference) return "Refresh the loan to load its linked mock UWM file before floating or locking.";
+  if (fileReference !== application.uwmReference) return "Use the mock UWM file linked to the current 1003 before floating or locking.";
+  if (!application.submittedAt || !application.reviewedAt || application.correctionNote) {
+    return "Submit, review, and send the corrected 1003 to the linked mock UWM file before floating or locking.";
+  }
+  return received ? null : `Send 1003 revision ${application.revision} to the linked mock UWM file before floating or locking.`;
+}
+
 export interface BorrowerQuote {
   product: string;
   rate: number;

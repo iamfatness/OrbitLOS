@@ -15,7 +15,7 @@ registerHooks({
 });
 
 const { executeCommand } = await import("../src/lib/commands.ts");
-const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
+const { initializeStore, insertContact, insertLoan, insertSubmission } = await import("../src/lib/store.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
 const { applicationIssues, blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { zipCityState } = await import("../src/lib/zip-city-state.ts");
@@ -151,6 +151,12 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   await apply("selectOffer", { runId: fresh.id, offerId: fresh.offers[1].id });
   assert.match((await command("sendApplication", { revision: corrected.revision, quote: selection(fresh) })).error, /saved mock quote changed/);
   await apply("selectOffer", selection(fresh));
+  const freshFloat = { submissionId: file.id, ...selection(fresh), previousFloatReference: floating.floatReference };
+  const pendingReceipt = new RegExp(`Send 1003 revision ${corrected.revision} to the linked mock UWM file`);
+  assert.match((await command("floatMockRate", freshFloat)).error, pendingReceipt);
+  db.prepare("UPDATE mock_uwm_rates SET runId = ?, offerId = ? WHERE loanId = ?").run(fresh.id, fresh.offers[0].id, loanId);
+  assert.match((await command("lockMockRate", lockInput)).error, pendingReceipt);
+  assert.equal(db.prepare("SELECT lockReference FROM mock_uwm_rates WHERE loanId = ?").get(loanId).lockReference, null);
   const resent = await apply("sendApplication", { revision: corrected.revision, quote: selection(fresh) });
   assert.equal(resent.submissions.length, 1);
   assert.equal(resent.submissions[0].externalId, file.externalId);
@@ -177,8 +183,10 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.match((await command("lockMockRate", lockInput)).error, mismatchedRate);
   assert.equal(db.prepare("SELECT lockReference FROM mock_uwm_rates WHERE loanId = ?").get(loanId).lockReference, null);
   await apply("selectOffer", selection(fresh));
-  const current = (await apply("floatMockRate", { submissionId: file.id, ...selection(fresh),
-    previousFloatReference: floating.floatReference })).mockUwmRates[0];
+  const otherFile = { ...file, id: crypto.randomUUID(), externalId: "FICT-SYNC-OTHER", conditions: [] };
+  insertSubmission(db, otherFile);
+  assert.match((await command("floatMockRate", { ...freshFloat, submissionId: otherFile.id })).error, /Use the mock UWM file linked to the current 1003/);
+  const current = (await apply("floatMockRate", freshFloat)).mockUwmRates[0];
   const locked = (await apply("lockMockRate", { ...lockInput, floatReference: current.floatReference })).mockUwmRates[0];
   await apply("selectOffer", selection(alternative));
   assert.deepEqual((await apply("lockMockRate", { ...lockInput, floatReference: current.floatReference })).mockUwmRates[0], locked);
@@ -193,4 +201,14 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.equal(cancelled.sharedQuoteHistory[0].runId, original.id);
   await apply("revokeApplication", { token });
   assert.equal(borrowerCommandResult(db, { type: "status", token }).status, 404);
+
+  const importedId = crypto.randomUUID();
+  insertLoan(db, { id: importedId, contactId, partnerId: null, officer: staff.name, officerEmail: staff.email,
+    address: "", amount: scenario.loanAmount, purpose: "Purchase", stage: "Processing", stageSince: new Date().toISOString() });
+  const importedFile = { ...otherFile, loanId: importedId, id: crypto.randomUUID(), externalId: "FICT-SYNC-LEGACY" };
+  insertSubmission(db, importedFile);
+  const importedRun = (await apply("runPricing", { loanId: importedId, scenario, applicationRevision: null })).pricingRuns.find((run) => run.loanId === importedId);
+  await apply("selectOffer", { loanId: importedId, ...selection(importedRun) });
+  const imported = await apply("floatMockRate", { loanId: importedId, submissionId: importedFile.id, ...selection(importedRun), previousFloatReference: null });
+  assert.equal(imported.mockUwmRates.find((rate) => rate.loanId === importedId).loanNumber, importedFile.externalId);
 });

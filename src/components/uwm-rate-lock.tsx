@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { LockKeyhole } from "lucide-react";
+import type { StaffApplication } from "@/lib/application-model";
 import type { Submission } from "@/lib/model";
-import { mockLockExtensionPeriods, mockLockPeriods, mockRateStatus, type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer, type PricingRun } from "@/lib/pricing-model";
+import { mockLockExtensionPeriods, mockLockPeriods, mockRateStatus, mockUwmRateReceiptIssue,
+  type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer, type PricingRun } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -29,20 +31,27 @@ function ActiveLockActions({ rate, busy, save }: { rate: MockUwmRate; busy: bool
   </div>;
 }
 
-export function UwmRateLock({ loanId, submissions, rate, saved, offer, needsReprice, amountIssue, use1003Amount, busy, save }: {
+export function UwmRateLock({ loanId, submissions, application, rate, saved, offer, needsReprice, amountIssue, use1003Amount,
+  openApplication, busy, save }: {
   loanId: string; submissions: Submission[]; rate?: MockUwmRate; saved?: PricingRun; offer?: PricingOffer;
+  application?: Pick<StaffApplication, "revision" | "submittedAt" | "reviewedAt" | "correctionNote" | "uwmReference" | "versions">;
+  openApplication: () => void;
   needsReprice: boolean; amountIssue: string | null; use1003Amount?: () => void; busy: boolean; save: (input: unknown) => Promise<void>;
 }) {
   const [fileChoice, setFileChoice] = useState("");
   const [days, setDays] = useState<MockLockPeriod>(30);
-  const files = submissions.filter((submission) => submission.lender === "UWM" && submission.syncedAt);
+  const files = submissions.filter((submission) => submission.lender === "UWM" && submission.syncedAt &&
+    (!application?.uwmReference || submission.externalId === application.uwmReference));
   const fileId = files.find((file) => file.id === fileChoice)?.id ?? files.find((file) => file.id === rate?.submissionId)?.id
     ?? (files.length === 1 ? files[0].id : "");
   const status = rate && mockRateStatus(rate, new Date().toISOString());
+  const receipt = application?.versions.find(({ revision }) => revision === application.revision)?.uwmReceipt;
+  const receiptIssue = mockUwmRateReceiptIssue(application, files.find(({ id }) => id === fileId)?.externalId, Boolean(receipt));
   const matchingFloat = status === "Floating" && rate?.submissionId === fileId && rate.runId === saved?.id && rate.offerId === offer?.id;
 
   return <section className="quote-saved" aria-label="Mock UWM rate lock" id="uwm-rate-lock" tabIndex={-1}>
     <div className="section-heading"><h3><LockKeyhole size={17} /> UWM rate lock</h3><span className="pill">Mock</span></div>
+    {application?.uwmReference && receipt && !receiptIssue && <p className="muted">Mock UWM received 1003 revision {application.revision} · {dateTime(receipt.sentAt)} ET</p>}
     {rate && <div className="quote-preview">
       <div className="section-heading"><strong>{rate.product} at {rate.rate.toFixed(3)}%</strong><span className="pill">{status}</span></div>
       <p className="muted">UWM file {rate.loanNumber} · Quoted {dateTime(rate.quotedAt)} ET</p>
@@ -56,7 +65,10 @@ export function UwmRateLock({ loanId, submissions, rate, saved, offer, needsRepr
       </>}
     </div>}
     {status === "Mock locked" && rate && <ActiveLockActions key={rate.lockReference} rate={rate} busy={busy} save={save} />}
-    {status !== "Mock locked" && (!saved || !offer || saved.mode !== "mock"
+    {status !== "Mock locked" && (receiptIssue ? <div className="rate-lock-actions">
+      <p className="quote-disclaimer">{receiptIssue}</p>
+      <Button type="button" size="sm" variant="outline" disabled={busy} onClick={openApplication}>Open 1003 handoff</Button>
+    </div> : !saved || !offer || saved.mode !== "mock"
       ? <p className="muted">Save a sample pricing option to start the mock float and lock flow.</p>
       : needsReprice ? <p className="quote-disclaimer">Save a fresh quote from the current 1003 to float or request a mock lock.</p>
       : !files.length ? <p className="muted">Use Sync UWM for a sample UWM file, or send a reviewed 1003 to UWM (mock) from this loan first.</p>
