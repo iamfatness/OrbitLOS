@@ -1,6 +1,7 @@
 import { approvedSecondReview } from "./application-review-checkpoint";
 import { manualReturnStatus, type ManualReturnAssignment, type ManualReturnStatus } from "./lender-export-model";
 import type { Store } from "./store";
+import { defaultManualReturnHours } from "./playbook-model";
 
 // The parent query joins the active loan and its application as loan and app.
 export const pendingManualReturn = `LEFT JOIN application_handoff_events returned ON returned.activityId = (
@@ -13,6 +14,8 @@ export const pendingManualReturn = `LEFT JOIN application_handoff_events returne
   AND NOT EXISTS (SELECT 1 FROM closing_progress closing WHERE closing.loanId = loan.id AND closing.fundingDate IS NOT NULL)
   LEFT JOIN activity returnEntry ON returnEntry.id = returned.activityId
   LEFT JOIN submissions returnFile ON returnFile.id = returned.submissionId AND returnFile.loanId = loan.id AND returnFile.syncedAt IS NULL`;
+
+export const manualReturnDueAt = `coalesce(returned.followUpDueAt, strftime('%Y-%m-%dT%H:%M:%fZ', returnEntry.createdAt, '+${defaultManualReturnHours} hours'))`;
 
 export function manualReturnPhase(requireApproval: boolean) {
   return `CASE WHEN app.submittedAt IS NULL THEN '${manualReturnStatus.borrower}'

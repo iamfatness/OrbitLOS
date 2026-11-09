@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { readManagerExceptions } from "@/app/actions";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { leadSources } from "@/lib/model";
-import { documentReminderTimingLabel, documentReminderTimingLimit, secondReviewDueDaysLimit, type PlaybookWork } from "@/lib/playbook-model";
+import { documentReminderTimingLabel, documentReminderTimingLimit, manualReturnHoursLimit, secondReviewDueDaysLimit, type PlaybookWork } from "@/lib/playbook-model";
 import { defaultManagerExceptionFilters, managerExceptionsUnavailable, managerExceptionTypes, type ManagerExceptionFilters,
   type ManagerExceptionPage, type ManagerExceptionResult, type ManagerExceptionRow } from "@/lib/manager-exception-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
@@ -245,6 +245,7 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
           (secondReview?.reviewerEmail !== reviewPolicy?.reviewerEmail || secondReview?.dueDays !== reviewPolicy?.dueDays);
         void save({ type: "savePlaybook", revision: policy.revision, quietHours: Number(data.get("quietHours")),
           reviewHours: Number(data.get("reviewHours")), handoffHours: Number(data.get("handoffHours")), fundingDays: Number(data.get("fundingDays")),
+          manualReturnHours: Number(data.get("manualReturnHours")),
           ...(typeof reminderOffset === "string" ? { documentReminderOffsetDays: Number(reminderOffset) } : {}),
           ...(changedReview ? { secondReview } : {}),
           ...(canConfigureSecondReview ? { requireSecondReview: data.has("requireSecondReview") } : {}),
@@ -254,6 +255,10 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
           <label className="field">Hours after outreach without reply<input name="quietHours" type="number" min={1} max={336} defaultValue={policy.quietHours} required /></label>
           <label className="field">Hours to review a submitted 1003<input name="reviewHours" type="number" min={1} max={168} defaultValue={policy.reviewHours} required /></label>
           <label className="field">Hours to send or accept a handoff<input name="handoffHours" type="number" min={1} max={168} defaultValue={policy.handoffHours} required /></label>
+          <label className="field">Hours to follow up on a lender return<input name="manualReturnHours" type="number" min={1}
+            max={manualReturnHoursLimit} defaultValue={policy.manualReturnHours} required />
+            <small className="muted">The deadline is set when the lender return is recorded.</small>
+          </label>
           <label className="field">Days from funding to follow-up<input name="fundingDays" type="number" min={0} max={90} defaultValue={policy.fundingDays} required /></label>
           {canCheckDocuments && <div className="field">
             <label htmlFor="document-reminder-timing">Mock document reminder timing</label>

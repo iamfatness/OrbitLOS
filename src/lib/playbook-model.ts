@@ -5,22 +5,26 @@ import { secondReviewBlocker } from "./application-model";
 
 export const documentReminderTimingLimit = 14;
 export const secondReviewDueDaysLimit = 14;
+export const defaultManualReturnHours = 24;
+export const manualReturnHoursLimit = 168;
 
 export const savePlaybookInput = z.object({
   type: z.literal("savePlaybook"), revision: z.number().int().nonnegative(),
   quietHours: z.number().int().min(1).max(336), reviewHours: z.number().int().min(1).max(168),
   handoffHours: z.number().int().min(1).max(168), fundingDays: z.number().int().min(0).max(90),
+  manualReturnHours: z.number().int().min(1).max(manualReturnHoursLimit).optional(),
   documentReminderOffsetDays: z.number().int().min(-documentReminderTimingLimit).max(documentReminderTimingLimit).optional(),
   backupEmail: z.email().max(254).nullable(),
   secondReview: z.object({ reviewerEmail: z.email().max(254), dueDays: z.number().int().min(0).max(secondReviewDueDaysLimit) }).nullable().optional(),
   requireSecondReview: z.boolean().optional(),
 });
 
-export type PlaybookSettings = Omit<z.infer<typeof savePlaybookInput>, "type" | "documentReminderOffsetDays" | "secondReview" | "requireSecondReview"> & {
+export type PlaybookSettings = Omit<z.infer<typeof savePlaybookInput>, "type" | "documentReminderOffsetDays" | "secondReview" | "requireSecondReview" | "manualReturnHours"> & {
   documentReminderOffsetDays: number; secondReview: Exclude<z.infer<typeof savePlaybookInput>["secondReview"], undefined>; requireSecondReview: boolean;
+  manualReturnHours: number;
 };
 export const defaultPlaybook: PlaybookSettings = { revision: 0, quietHours: 48, reviewHours: 24, handoffHours: 24, fundingDays: 7,
-  documentReminderOffsetDays: 0, backupEmail: null, secondReview: null, requireSecondReview: false };
+  documentReminderOffsetDays: 0, backupEmail: null, secondReview: null, requireSecondReview: false, manualReturnHours: defaultManualReturnHours };
 export const afterHours = (value: string, hours: number) => new Date(Date.parse(value) + hours * 3_600_000).toISOString();
 
 export function documentReminderTimingLabel(offsetDays: number) {

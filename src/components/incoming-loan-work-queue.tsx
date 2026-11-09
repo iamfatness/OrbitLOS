@@ -49,6 +49,9 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
       return <li className="loan-task" key={`${item.kind}:${item.id}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
         <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
+        {item.returnDeadline && <span className={item.returnDeadline.overdue ? "open-chip" : "muted"}>
+          {item.returnDeadline.overdue ? "Follow-up overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET
+        </span>}
         {item.note && <span>{item.note}</span>}</div>
       <Button size="sm" variant="outline" disabled={paused} aria-label={`${item.kind === "document" ? `Review ${item.title.toLowerCase()}` : action} for ${item.name}`}
         onClick={() => open(item)}>{action}</Button>

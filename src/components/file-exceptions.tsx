@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { readManagerFileExceptions } from "@/app/actions";
 import { dateLabel } from "@/lib/client-retention";
-import { fileExceptionFilters, type FileException, type FileExceptionPage, type FileExceptionQuery } from "@/lib/file-exception-model";
+import { fileExceptionFilters, overdueManualReturnFilter, type FileException, type FileExceptionPage, type FileExceptionQuery } from "@/lib/file-exception-model";
 import { dateTime } from "@/lib/utils";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import type { ManualReturnAssignment } from "@/lib/lender-export-model";
@@ -26,7 +26,7 @@ export function FileExceptions({ brokerageId, version, busy, open, assign }: {
 }) {
   const [query, setQuery] = useState<FileExceptionQuery>({ filter: "All file exceptions" });
   const [result, setResult] = useState<{ query: FileExceptionQuery; version: object; data: FileExceptionPage | { error: string } }>();
-  const watchReturns = query.filter === "Manual lender returns" && !query.after && !busy;
+  const watchReturns = (query.filter === "Manual lender returns" || query.filter === overdueManualReturnFilter) && !query.after && !busy;
   useEffect(() => {
     let active = true;
     let reading = false;
@@ -63,8 +63,11 @@ export function FileExceptions({ brokerageId, version, busy, open, assign }: {
         <p className="muted">{item.owner ? `Staff owner · ${item.owner}${item.ownerAvailable ? "" : " · Owner unavailable"}` : "Staff owner · Unassigned"}
           {item.dueOn ? ` · Due ${dateLabel(item.dueOn)}` : item.kind === "Required 1003 approvals" ? " · Due date pending" : null}
           {item.reopenedAt && ` · ${item.kind === "Manual lender returns" ? "Returned" : "Reopened"} ${dateTime(item.reopenedAt)} ET`}</p>
+        {item.returnDueAt && <p className={item.overdue ? "open-chip" : "muted"}>
+          {item.overdue ? "Follow-up overdue since" : "Follow up by"} {dateTime(item.returnDueAt)} ET
+        </p>}
         {(item.evidence || item.nextParty || item.overdue || item.escalated) && <p className="muted">
-          {[item.evidence, item.nextParty && `${item.kind === "Manual lender returns" ? "Lender file" : "Manual condition next party"} · ${item.nextParty}`, item.overdue && "Overdue", item.escalated && "Escalated"].filter(Boolean).join(" · ")}
+          {[item.evidence, item.nextParty && `${item.kind === "Manual lender returns" ? "Lender file" : "Manual condition next party"} · ${item.nextParty}`, item.overdue && !item.returnDueAt && "Overdue", item.escalated && "Escalated"].filter(Boolean).join(" · ")}
         </p>}
         <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy}
           aria-label={`${item.kind === "Required 1003 approvals" || item.kind === "Manual lender returns" ? fileExceptionAction(item) : `Open ${item.title}`} for ${item.borrower}`} onClick={() => open(item)}>

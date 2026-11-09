@@ -15,7 +15,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 const { applicationSteps, sampleApplication } = await import("../src/lib/application-model.ts");
 const { campaignCallQueues, campaignOrigin, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
-const { defaultPlaybook, fundingTaskId } = await import("../src/lib/playbook-model.ts");
+const { afterHours, defaultPlaybook, fundingTaskId } = await import("../src/lib/playbook-model.ts");
 const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exception-model.ts");
 const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
@@ -958,6 +958,7 @@ try {
     assert.equal(cleared.submissions[0].conditions[0].manual.deliveries[0].reference, "FICT-DOC-01");
     assert.equal(loanNextAction(cleared.loans[0], cleared, "LO").title, "Review closing readiness");
     await write(officer, markClear);
+    await write(owner, { type: "savePlaybook", ...(await file(owner, repeatId)).playbook, manualReturnHours: 6 });
     const lenderReturn = { type: "requestApplicationCorrection", loanId: repeatId, revision,
       note: "Confirm the requested refinance amount.",
       lenderReturn: { eventId: randomUUID(), submissionId, lenderRevision: 0 } };
@@ -971,17 +972,22 @@ try {
     assert.equal(returned.submissions[0].status, "Returned for changes");
     const returns = (staff) => action(staff, "readManagerFileExceptions", { filter: "Manual lender returns" });
     const manualReturn = { eventId: lenderReturn.lenderReturn.eventId, submissionId };
+    const initialReturn = (await returns(owner)).items.find((item) => item.loanId === repeatId);
+    const returnDueAt = afterHours(initialReturn.reopenedAt, 6);
+    await write(owner, { type: "savePlaybook", ...(await file(owner, repeatId)).playbook, manualReturnHours: 2 });
     let assignedOfficer = officer;
     async function checkReturnQueues(status) {
       const personal = (await incoming(assignedOfficer, "today")).items.filter((item) => item.loanId === repeatId && item.kind !== "document");
       assert.deepEqual(personal.map(({ kind, id, returnStatus }) => ({ kind, id, returnStatus })),
         [{ kind: "lender-return", id: submissionId, returnStatus: status }]);
       assert.equal(personal[0].note, "Fictional Wholesale · FICT-REFI-1003");
+      assert.deepEqual(personal[0].returnDeadline, { dueAt: returnDueAt, overdue: false });
       const managed = (await returns(owner)).items.find((item) => item.loanId === repeatId);
       assert.equal(managed.status, status);
       assert.equal(managed.target, manualReturnSteps[status].target);
       assert.equal(managed.owner, assignedOfficer.name);
       assert.equal(managed.returnEventId, manualReturn.eventId);
+      assert.equal(managed.returnDueAt, returnDueAt);
       assert.equal(managed.dueOn, null);
       assert.equal(managed.overdue, false);
       assert.deepEqual((await file(assignedOfficer, repeatId)).manualReturn, { ...manualReturn, status });

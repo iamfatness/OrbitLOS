@@ -10,5 +10,6 @@ export type IncomingLoanWorkQuery = z.infer<typeof incomingLoanWorkQuery>;
 export type IncomingLoanWorkItem = z.infer<typeof cursor> & {
   loanId: string; name: string; title: string; revision: number; assignee: string | null; linkedCondition: boolean; note: string | null;
   returnStatus?: ManualReturnStatus;
+  returnDeadline?: { dueAt: string; overdue: boolean };
 };
 export type IncomingLoanWorkPage = { items: IncomingLoanWorkItem[]; next: z.infer<typeof cursor> | null };

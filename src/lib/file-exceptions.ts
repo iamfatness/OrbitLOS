@@ -1,13 +1,13 @@
 import type { BrokerageRole, VersionedBrokerageMember } from "./brokerage-model";
 import { easternDate } from "./client-retention";
-import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, type FileException, type FileExceptionPage } from "./file-exception-model";
+import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, type FileException, type FileExceptionPage } from "./file-exception-model";
 import { loanReviewsTarget, reviewTarget } from "./loan-review-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { conditionTarget } from "./uwm-alert-model";
 import { openSecondReview, pendingRequiredApproval } from "./application-review-checkpoint";
 import { readPlaybook } from "./playbooks";
-import { manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
+import { manualReturnDueAt, manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
 import { manualReturnSteps, type ManualReturnStatus } from "./lender-export-model";
 
 const limit = 20;
@@ -21,7 +21,7 @@ type Base = Omit<FileException, "target" | "action" | "evidence" | "owner" | "ow
   version: number | null; changed: number; requestStatus: string | null;
   returnEventId: string | null;
 };
-type Candidates = { rows: Base[]; next: FileExceptionPage["next"]; today: string };
+type Candidates = { rows: Base[]; next: FileExceptionPage["next"]; today: string; checkedAt: string };
 
 export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): Candidates | { error: string } {
   if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin") return { error: fileExceptionsUnavailable };
@@ -29,12 +29,14 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
   if (!parsed.success) return { error: "Choose a valid file exception view." };
   const { filter, after } = parsed.data;
   const today = easternDate(now);
-  const requireApproval = ["All file exceptions", "Required 1003 approvals", "Manual lender returns"].includes(filter) && readPlaybook(db).requireSecondReview;
+  const checkedAt = now.toISOString();
+  const overdueReturns = filter === overdueManualReturnFilter;
+  const requireApproval = ["All file exceptions", "Required 1003 approvals", "Manual lender returns", overdueManualReturnFilter].includes(filter) && readPlaybook(db).requireSecondReview;
   const showCheckpoint = (filter === "All file exceptions" || filter === "Required 1003 approvals") && requireApproval;
   const parts: string[] = [];
   const args: SqlValue[] = [];
   function add(kind: FileException["kind"], select: string, sort: string, parent: string, id: string, params: SqlValue[] = [], returnEvent = "NULL") {
-    if (filter !== "All file exceptions" && filter !== kind) return;
+    if (filter !== "All file exceptions" && filter !== kind && !(overdueReturns && kind === "Manual lender returns")) return;
     const rank = fileExceptionKinds.indexOf(kind);
     parts.push(`SELECT * FROM (SELECT '${kind}' AS kind, ${rank} AS rank, ${sort} AS sortOn, ${parent} AS parentId, ${id} AS id, ${returnEvent} AS returnEventId, ${select}
       ${after ? `AND (${sort}, ${rank}, ${parent}, ${id}) > (?, ?, ?, ?)` : ""}
@@ -91,7 +93,8 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
     loan.officer AS ownerName, loan.officerEmail AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision,
     0 AS escalated, app.revision AS version, 0 AS changed, NULL AS requestStatus
     FROM loans loan JOIN applications app ON app.loanId = loan.id ${loanJoins} ${pendingManualReturn}
-    WHERE ${activePipeline} AND returnFile.id IS NOT NULL`, "substr(returnEntry.createdAt, 1, 10)", "loan.id", "returnFile.id", [], "returned.activityId");
+    WHERE ${activePipeline} AND returnFile.id IS NOT NULL${overdueReturns ? ` AND ${manualReturnDueAt} < ?` : ""}`,
+  manualReturnDueAt, "loan.id", "returnFile.id", overdueReturns ? [checkedAt] : [], "returned.activityId");
 
   if (showCheckpoint) {
     add("Required 1003 approvals", `${loanColumns}, 'Required 1003 approval' AS title,
@@ -112,18 +115,18 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
     "coalesce(review.dueOn, route.dueOn, substr(app.reviewedAt, 1, 10))", "loan.id", "coalesce(review.id, CAST(app.revision AS TEXT))");
   }
 
-  if (!parts.length) return { rows: [], next: null, today };
+  if (!parts.length) return { rows: [], next: null, today, checkedAt };
   const all = db.prepare(`${parts.join(" UNION ALL ")} ORDER BY sortOn, rank, parentId, id LIMIT ?`).all(...args, limit + 1) as unknown as Base[];
   const rows = all.slice(0, limit);
   const last = rows.at(-1);
-  return { rows, next: all.length > limit && last ? { sortOn: last.sortOn, kind: last.kind, parentId: last.parentId, id: last.id } : null, today };
+  return { rows, next: all.length > limit && last ? { sortOn: last.sortOn, kind: last.kind, parentId: last.parentId, id: last.id } : null, today, checkedAt };
 }
 
 export function fileExceptionOwners(page: Candidates) {
   return [...new Set(page.rows.flatMap(({ ownerEmail }) => ownerEmail ? [ownerEmail] : []))];
 }
 
-export function nameFileExceptions({ rows, next, today }: Candidates, roster: VersionedBrokerageMember[]): FileExceptionPage {
+export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates, roster: VersionedBrokerageMember[]): FileExceptionPage {
   const members = new Map(roster.filter(({ status }) => status === "Active").map((member) => [member.email, member]));
   const items = rows.map(({ kind, id, parentId, sortOn, loanId, borrower, title, status, ownerName, ownerEmail, officerEmail, processorEmail,
     reviewerRole, reviewerAccessRevision, dueOn, reopenedAt, version, changed, escalated, requestStatus, nextParty, returnEventId }): FileException => {
@@ -145,8 +148,9 @@ export function nameFileExceptions({ rows, next, today }: Candidates, roster: Ve
     const evidence = version === null ? null : `${manual ? "Current 1003" : internalReview ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
-      ...(returnEventId ? { returnEventId } : {}),
-      ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: !!dueOn && dueOn < today, escalated: Boolean(escalated) };
+      ...(returnEventId ? { returnEventId, returnDueAt: sortOn } : {}),
+      ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: returnEventId ? sortOn < checkedAt : !!dueOn && dueOn < today,
+      escalated: Boolean(escalated) };
   });
   return { items, next, today };
 }

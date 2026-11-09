@@ -540,7 +540,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           writePlaybook(db, { revision: data.revision, quietHours: data.quietHours, reviewHours: data.reviewHours,
             handoffHours: data.handoffHours, fundingDays: data.fundingDays, backupEmail: data.backupEmail, secondReview, requireSecondReview,
-            documentReminderOffsetDays: data.documentReminderOffsetDays ?? policy.documentReminderOffsetDays });
+            documentReminderOffsetDays: data.documentReminderOffsetDays ?? policy.documentReminderOffsetDays,
+            manualReturnHours: data.manualReturnHours ?? policy.manualReturnHours });
           accessEvent(db, staff, "Updated brokerage playbook", "playbook", now);
           message = "Brokerage playbook saved.";
           if (scopedTaskUpdates) return { playbookSettings: readPlaybook(db), message };

@@ -2,6 +2,8 @@ import { applicationDraft, applicationIssues, type ApplicationDraft } from "./ap
 import { getApplication } from "./applications";
 import { easternDate } from "./client-retention";
 import { mismoNamespace } from "./mismo-rehearsal-model";
+import { afterHours } from "./playbook-model";
+import { readPlaybook } from "./playbooks";
 import type { ExportName, exportReviewedApplication } from "./lender-export-model";
 import { mismoBorrower, mismoFinances, mortgage, usage } from "./mismo-borrower-export";
 import { container, contactPoint, fields, indicator, label, mismoAddress, partyRole, relationship } from "./mismo-xml";
@@ -45,8 +47,9 @@ export function recordManualLenderReturn(db: Store, input: { loanId: string; rev
     return { error: "This lender acknowledgment changed or the loan has closed. Refresh before recording a return." };
   }
   db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(eventId, loanId, detail, now);
-  db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId)
-    VALUES (?, ?, ?, ?, ?, ?)`).run(eventId, loanId, revision, lenderRevision, outcome, submissionId);
+  const dueAt = afterHours(now, readPlaybook(db).manualReturnHours);
+  db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId, followUpDueAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(eventId, loanId, revision, lenderRevision, outcome, submissionId, dueAt);
   db.prepare("UPDATE submissions SET status = ? WHERE id = ?").run(outcome, submissionId);
   if (eligible.stage === "Clear to Close") db.prepare("UPDATE loans SET stage = 'Underwriting', stageSince = ? WHERE id = ?").run(now, loanId);
   return { alreadyRecorded: false as const };

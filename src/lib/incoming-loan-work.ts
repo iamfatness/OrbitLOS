@@ -1,7 +1,7 @@
 import { incomingLoanWorkProcessingStatuses, incomingLoanWorkQuery, incomingLoanWorkUnavailable, type IncomingLoanWorkItem,
   type IncomingLoanWorkPage } from "./incoming-loan-work-model";
 import { activeProcessingLoan, processingAcceptanceReady } from "./loan-processing";
-import { manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
+import { manualReturnDueAt, manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
 import { readPlaybook } from "./playbooks";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -9,7 +9,7 @@ import type { Store } from "./store";
 const pageSize = 8;
 
 export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  localName?: string): IncomingLoanWorkPage | { error: string } {
+  localName?: string, now = new Date()): IncomingLoanWorkPage | { error: string } {
   const parsed = incomingLoanWorkQuery.safeParse(input);
   if (!parsed.success || !staff || staff.brokerage.id !== brokerageId) return { error: incomingLoanWorkUnavailable };
   const { view, after } = parsed.data;
@@ -36,7 +36,8 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
         WHEN EXISTS (SELECT 1 FROM application_versions version WHERE version.loanId = app.loanId AND version.revision < app.revision)
         THEN 'Corrected 1003' ELSE 'Submitted 1003' END, NULL, 0,
       returnFile.lender || ' · ' || returnFile.externalId,
-      CASE WHEN returnFile.id IS NOT NULL THEN ${manualReturnPhase(requireApproval)} END
+      CASE WHEN returnFile.id IS NOT NULL THEN ${manualReturnPhase(requireApproval)} END,
+      CASE WHEN returnFile.id IS NOT NULL THEN ${manualReturnDueAt} END
     FROM loans loan CROSS JOIN applications app ON app.loanId = loan.id ${contacts} ${pendingManualReturn}
     WHERE ${activeProcessingLoan} AND ${owned} AND (returnFile.id IS NOT NULL OR (app.submittedAt IS NOT NULL AND app.reviewedAt IS NULL))`;
   const handoffs = processing ? `FROM loan_processing processing CROSS JOIN loans loan ON loan.id = processing.loanId
@@ -49,22 +50,27 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const rows = db.prepare(`WITH incoming AS (
     SELECT 'document' AS kind, request.id, loan.id AS loanId, contact.name,
       coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision, request.kind AS title,
-      ${team ? "processing.processorName" : "NULL"} AS assignee, request.conditionId IS NOT NULL AS linkedCondition, NULL AS note, NULL AS returnStatus
+      ${team ? "processing.processorName" : "NULL"} AS assignee, request.conditionId IS NOT NULL AS linkedCondition, NULL AS note,
+      NULL AS returnStatus, NULL AS returnDueAt
     ${from} ${contacts}
     WHERE ${activeProcessingLoan} AND ${scope} AND request.status = 'Received'
     ${applications}
     UNION ALL
     SELECT 'handoff', loan.id, loan.id, contact.name, processing.updatedAt, processing.revision,
       '${processing ? "Ready to accept" : "Returned from processing"}', ${processing && !team ? "loan.officer" : "processing.processorName"}, 0,
-      nullif(processing.note, ''), NULL
+      nullif(processing.note, ''), NULL, NULL
     ${handoffs}
   ) SELECT * FROM incoming ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?`)
     .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs,
       ...(after ? [after.receivedAt, after.kind, after.id] : []), pageSize + 1) as unknown as
-      (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus"> & { linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null })[];
-  const items = rows.slice(0, pageSize).map(({ linkedCondition, returnStatus, ...item }) =>
-    ({ ...item, linkedCondition: Boolean(linkedCondition), ...(returnStatus ? { returnStatus } : {}) }));
+      (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline"> & {
+        linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
+      })[];
+  const checkedAt = now.toISOString();
+  const items = rows.slice(0, pageSize).map(({ linkedCondition, returnStatus, returnDueAt, ...item }) =>
+    ({ ...item, linkedCondition: Boolean(linkedCondition), ...(returnStatus ? { returnStatus } : {}),
+      ...(returnDueAt ? { returnDeadline: { dueAt: returnDueAt, overdue: returnDueAt < checkedAt } } : {}) }));
   const last = items.at(-1);
   return { items, next: rows.length > pageSize && last ? { id: last.id, kind: last.kind, receivedAt: last.receivedAt } : null };
 }

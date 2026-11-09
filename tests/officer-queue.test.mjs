@@ -34,6 +34,7 @@ const { coverageWork } = await import("../src/lib/coverage.ts");
 const { coverageInput } = await import("../src/lib/coverage-model.ts");
 const { initializeBrokerages, changeBrokerage, selectedActiveMembers, activateBrokerages } = await import("../src/lib/brokerages.ts");
 const { readFileExceptions, nameFileExceptions } = await import("../src/lib/file-exceptions.ts");
+const { recordManualLenderReturn } = await import("../src/lib/lender-export.ts");
 const { applicationSteps, blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { demoGuideState, loadPilotScenario, loadProtectedPilotScenario, pilotReview, recordPilotMeasurement } = await import("../src/lib/pilot.ts");
 
@@ -1687,6 +1688,41 @@ test("condition aging pages by recorded opening, keeps age on sync, and starts o
   assert.equal(manual.error, undefined);
   const firstPage = read();
   assert.ok([...firstPage.files, ...read(firstPage.next).files].some((file) => file.condition.target.endsWith(conditionId) && file.condition.openedAt));
+});
+
+test("manual return deadlines are fixed at recording and surface overdue work at the same instant", (t) => {
+  const { db, loan, officer } = fixture(t);
+  const admin = { ...officer, brokerage: { ...officer.brokerage, role: "Admin" } };
+  const returnedAt = "2026-11-08T14:00:00.000Z";
+  const dueAt = "2026-11-08T20:00:00.000Z";
+  const afterDue = "2026-11-08T20:00:00.001Z";
+  const roster = [{ name: officer.name, email: officer.email, role: "LO", status: "Active" }];
+  const manager = (filter, now) => nameFileExceptions(readFileExceptions(db, { filter }, admin, admin.brokerage.id, new Date(now)), roster).items;
+  const personal = (now) => readIncomingLoanWorkPage(db, { view: "today" }, officer, officer.brokerage.id, undefined, new Date(now)).items;
+  writePlaybook(db, { ...defaultPlaybook, manualReturnHours: 6 });
+  for (const id of ["timed", "legacy"]) {
+    loan(id);
+    insertSubmission(db, { id: `${id}-file`, loanId: id, lender: "Fictional Wholesale", externalId: id,
+      status: "Acknowledged", conditions: [], syncedAt: null });
+    db.prepare(`INSERT INTO applications (loanId, token, expiresAt, draft, updatedAt, submittedAt, reviewedAt, revision)
+      VALUES (?, ?, '2026-11-16T15:00:00.000Z', ?, ?, ?, ?, 1)`).run(id, id, JSON.stringify(blankApplication()), returnedAt, returnedAt, returnedAt);
+    const acknowledgment = crypto.randomUUID();
+    db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, 'Acknowledged', ?)").run(acknowledgment, id, returnedAt);
+    db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId)
+      VALUES (?, ?, 1, 0, 'Acknowledged', ?)`).run(acknowledgment, id, `${id}-file`);
+    const eventId = crypto.randomUUID();
+    const result = recordManualLenderReturn(db, { loanId: id, revision: 1, note: "Fictional correction.",
+      lenderReturn: { eventId, submissionId: `${id}-file`, lenderRevision: 0 } }, returnedAt);
+    assert.deepEqual(result, { alreadyRecorded: false });
+    if (id === "legacy") db.prepare("UPDATE application_handoff_events SET followUpDueAt = NULL WHERE activityId = ?").run(eventId);
+  }
+  writePlaybook(db, { ...defaultPlaybook, manualReturnHours: 1 });
+  assert.deepEqual(manager("Overdue lender returns", dueAt), []);
+  assert.deepEqual(manager("Overdue lender returns", afterDue).map(({ id, returnDueAt, overdue }) => ({ id, returnDueAt, overdue })),
+    [{ id: "timed-file", returnDueAt: dueAt, overdue: true }]);
+  assert.deepEqual(personal(dueAt).find(({ id }) => id === "timed-file").returnDeadline, { dueAt, overdue: false });
+  assert.deepEqual(personal(afterDue).find(({ id }) => id === "timed-file").returnDeadline, { dueAt, overdue: true });
+  assert.equal(manager("Manual lender returns", afterDue).find(({ id }) => id === "legacy-file").returnDueAt, "2026-11-09T14:00:00.000Z");
 });
 
 test("manager file exceptions track lender reopenings independently of alert review and reconcile linked evidence", async (t) => {

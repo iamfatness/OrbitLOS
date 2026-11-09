@@ -2,9 +2,10 @@ import { z } from "zod";
 
 export const fileExceptionsUnavailable = "File exceptions are available to brokerage admins.";
 export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns"] as const;
-export const fileExceptionFilters = ["All file exceptions", ...fileExceptionKinds] as const;
+export const overdueManualReturnFilter = "Overdue lender returns";
+export const fileExceptionFilters = ["All file exceptions", ...fileExceptionKinds, overdueManualReturnFilter] as const;
 const key = z.string().min(1).max(500);
-const cursor = z.object({ sortOn: z.iso.date(), kind: z.enum(fileExceptionKinds), id: key, parentId: key });
+const cursor = z.object({ sortOn: z.union([z.iso.date(), z.iso.datetime()]), kind: z.enum(fileExceptionKinds), id: key, parentId: key });
 export const fileExceptionQuery = z.object({ filter: z.enum(fileExceptionFilters), after: cursor.optional() });
 export type FileExceptionQuery = z.infer<typeof fileExceptionQuery>;
 export type FileException = z.infer<typeof cursor> & {
@@ -12,5 +13,6 @@ export type FileException = z.infer<typeof cursor> & {
   owner: string | null; ownerAvailable: boolean; nextParty: string | null; dueOn: string | null; reopenedAt: string | null;
   evidence: string | null; overdue: boolean; escalated: boolean;
   returnEventId?: string;
+  returnDueAt?: string;
 };
 export type FileExceptionPage = { items: FileException[]; next: FileExceptionQuery["after"] | null; today: string };
