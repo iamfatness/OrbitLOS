@@ -259,3 +259,11 @@ Today then focused the acknowledgment form directly. Recording acknowledgment cl
 On Worker `a8f298be-928b-466f-baed-d1f1aac95496` from source `09b209e8f80d`, the fictional brokerage admin reassigned Casey’s return from File exceptions to an invited LO. The manager queue updated the owner while preserving the return timestamp, current 1003 revision, and lender reference. The prior owner’s Today row cleared. The invited LO signed in separately, opened the same return from Today, and found the original borrower link, delivery, and clearance records. The test used sequential sign-ins in Chrome and restored the original admin session.
 
 The built Worker verified that a non-admin, an ineligible processor, a stale owner, and a resolved or different return cannot change the assignment through this action. It verified a replay and let the new officer finish the revised handoff and record fictional funding. All 274 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed. The public Demo page reflects the reassignment.
+
+## Hosted lender-return deadlines
+
+On Worker `cf83a580-1b8f-4703-89f0-53c25cef7480` from source `8b064605c2bd`, the fictional brokerage showed a 24-hour deadline on its existing return. The manager's **Overdue lender returns** filter excluded that still-current row. Saving a six-hour playbook policy left the earlier deadline in place.
+
+The borrower resubmitted the 1003 from the same link. Staff reviewed the corrected application, downloaded its revised MISMO XML, and recorded acknowledgment under the original fictional lender reference. A subsequent return at 10:16 a.m. Eastern showed a 4:16 p.m. deadline. Reassigning that return preserved the deadline in **File exceptions** and **Today**.
+
+The deterministic SQLite test checked the exact boundary and one millisecond after it. The built Worker checked that a stored deadline survives a later policy edit, workflow transitions, and reassignment. All 275 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed. The public Demo page describes the overdue queue. The hosted rehearsal used a separate fictional workspace from the executive demo.
