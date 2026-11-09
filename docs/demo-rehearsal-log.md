@@ -327,3 +327,9 @@ On Worker `06e46eac-5617-4c72-bc48-50f85e86c6ca` from source `438a061db04d`, sta
 Both participants verified their mock upload sessions. The co-borrower submitted a clean sample PDF while the primary request stayed Requested. Staff asked the co-borrower for a replacement. The primary portal kept its upload session and did not show the co-borrower note. Staff accepted the co-borrower replacement while the primary request stayed Received. File Exceptions opened the exact outstanding co-borrower photo ID. Both public marketing pages returned HTTP 200 with the updated copy.
 
 All 298 tests, lint, typecheck, the Cloudflare build and both local rehearsals passed. The built Worker rejected cross-borrower request IDs and swapped sessions, then accepted each participant’s sample PDF. SQLite verified active primary upload sessions through migration, co-borrower reminder eligibility tied to the co-borrower link, and denial when a revoked link tried to finish an in-flight upload.
+
+## Hosted paired mock underwriting
+
+On Worker `90719be6-547e-417a-955b-1a9fdc1b159d` from source `7c820e2b1ea5`, a Guided Demo staff member authorized sample credit on a submitted fictional joint loan. Both mock services linked to revision 4 and the same credit reference. DU flagged an employment history gap and LPA simulated a timeout. Retrying LPA produced a new reference and findings. The DU result and reference stayed identical. The failed LPA attempt remained in history. The public Demo and Product pages both returned HTTP 200 with the paired workflow.
+
+All 300 tests, lint, typecheck, the Cloudflare build, and the working-day and recovery rehearsals passed. The built Worker verified exact replay and independent retry. SQLite verified role checks, refusal to reuse credit after a corrected submission, and atomic rollback of both orders and activity if the second write fails.

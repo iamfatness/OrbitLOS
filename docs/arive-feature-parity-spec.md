@@ -44,7 +44,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 
 | Group | Release baseline | Next evidence |
 | --- | --- | --- |
-| F01 | Mock credit and individual DU/LPA workbench | Run DU and LPA together with independent retry and consent and order evidence. |
+| F01 | Hosted paired mock DU/LPA with separate findings and retry history, tied to the submitted 1003 and authorized sample credit | Verify borrower selection, real consent evidence, service contracts, and reconciliation before any provider order. |
 | F02 | 1003 income answers and mock statement inputs | Review a documented income calculation against its source periods and evidence. |
 | F03 | Hosted mock UWM intake, conditions, manual MISMO export, acknowledgment and returns | Define verified lender capabilities and reconcile delayed, rejected, and repeated updates. |
 | F04 | Hosted versioned checklist templates with loan purpose, instructions and due dates, plus the existing request, mock-scanned PDF, replacement and clearance workflow | Verify additional checklist criteria and categories, and production scan and delivery contracts. |
@@ -74,7 +74,9 @@ Store the exact input/document/configuration revision used for every issued arti
 
 ### F01 — Credit and underwriting services
 
-Status: partial mock workbench. LO records authorization evidence, selects borrowers and service, submits a provider order, then reviews results and resulting tasks. Model an order per service with input revision, consent reference, provider reference, attempts and findings. A dual run creates independently traceable DU and LPA orders; one failure cannot erase the other result. Reuse the credit/AUS workbench and provider contracts. Dependencies: vendor access, current service schemas, credentials and approved data handling. Acceptance: two independent results, partial failure/retry without duplicate chargeable orders, corrected application invalidation, and separate credit versus underwriting provenance. Build contracts in 1–2; gate live use in 5.
+The hosted workbench records staff demo authorization for the sample credit report. A paired mock order ties both services to the same submitted 1003 revision and credit report. DU and LPA store separate references, findings, and retries. A corrected 1003 requires fresh sample credit before another paired run. [Hosted paired underwriting rehearsal](demo-rehearsal-log.md#hosted-paired-mock-underwriting)
+
+Live ordering still needs borrower selection and consent evidence, vendor access, current service schemas, credentials, and approved data handling. Verify that a lost response can be reconciled without a duplicate charge and that a corrected application retires prior findings from the current file decision. Confirm when findings should create staff work before enabling live use.
 
 ### F02 — Reviewed income analysis
 
