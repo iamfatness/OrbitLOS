@@ -62,6 +62,12 @@ On Worker `277a2d21-10a9-4ee9-bf17-2180a200cd9d` from `111a0b952efa`, a separate
 
 The built Worker rehearsal repeated the final attempt with a backup LO working coverage, verified that the replacement kept the configured owner and deadline, and replayed the outcome without routing another lead. SQLite exercised stale submission, LO scoping, the historical-event migration, and a later borrower-requested callback. All 307 tests, lint, typecheck, the production build, and both local rehearsals passed. Both public pages described the change and returned 200.
 
+## Hosted Next call flow
+
+On Worker `d3972e58-e2a5-4828-90bf-c3001b56d49c` from `b15422bfbbaa`, the separate fictional campaign had a due callback for Avery and an uncalled lead for Taylor. **Next call** opened and focused only Avery. Saving Connected opened and focused Taylor in the same view, with **Start 1003** still available for Avery. Saving No response for Taylor scheduled a retry and showed the caught-up state. Avery’s application shortcut opened the prefilled 1003 on the correct loan.
+
+The automated check covered due and upcoming boundaries, first-contact deadline ordering, the selected officer, campaign and segment, and exclusion of shared, held, opted-out and converted leads. All 308 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. Both public pages described the change and returned 200.
+
 ## Hosted selected campaign refresh
 
 On `14c3c758-4067-40fc-8234-e9e25e00fa79`, two signed-in owner tabs opened the same fictional campaign. One logged a requested callback for Jordan. In the other, Refresh queue kept Upcoming callbacks selected and displayed the original November 10, 2026, 10:32 a.m. ET deadline. The first tab logged Connected and started the 1003. Refresh queue in the second tab cleared the callback count, displayed the new loan under 1003s started, and opened the correct loan file. Neither tab logged a sampled application error. The updated product copy was verified. The `design-pass/roles` evidence directory contains `hosted-selected-campaign-refresh.png`.
