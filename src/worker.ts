@@ -31,7 +31,7 @@ import { placesHttp, reserveAddressLookup } from "./lib/places";
 import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
 import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDocumentUpload, finishDocumentUpload,
   issueDocumentCode, nextDocumentCleanup, recordDocumentDownload, verifyDocumentCode, type UploadAccess } from "./lib/document-files";
-import { fileProblem, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
+import { fileProblem, leadDocumentPortalHttp, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
 import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
 import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback, type PilotPortalLink } from "./lib/pilot";
@@ -44,6 +44,9 @@ import { sharedPreapprovalUnavailable } from "./lib/preapproval-model";
 import { confirmLenderPackagePdf, lenderPackageAccess, lenderShareWork } from "./lib/lender-handoff-share";
 import { sharedLenderPackageHttp } from "./lib/lender-handoff-share-http";
 import type { PackageDownloadInput, SharedLenderPackageInput } from "./lib/lender-handoff-share-model";
+import { beginLeadSample, convertedLeadLinkHashes, downloadableLeadDocument, failLeadSample, finishLeadSample,
+  leadDocumentWork, readLeadDocumentPortal, recordLeadDocumentDownload } from "./lib/lead-documents";
+import type { LeadSampleUpload } from "./lib/lead-document-model";
 import { migrationInput } from "./lib/pipeline-migration-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, campaignRoutingOfficerLimit, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput } from "./lib/call-campaign-model";
 import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./lib/campaign-routing";
@@ -515,6 +518,15 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
         reviewRouting, campaignRefillRoster, campaignOptOutRoster,
         protectPilotLinks: staff?.brokerage.pilot ? this.#protectPilotLinks : undefined });
     if ("state" in result && input && typeof input === "object" && "type" in input && (input.type === "deleteLoan" || input.type === "loadGuidedDemo")) await this.#scheduleCleanup();
+    if (staff?.brokerage.pilot && "referralLoanId" in result && result.referralLoanId && input && typeof input === "object" &&
+      "type" in input && input.type === "convertReferral" && "referralId" in input && typeof input.referralId === "string") {
+      const links = convertedLeadLinkHashes(this.#store, input.referralId, result.referralLoanId);
+      if (links.length) {
+        const protectedLinks = await this.#protectPilotLinks(links).catch(() => false);
+        if (!protectedLinks) console.warn("Orbit could not retain a converted lead link retirement in the directory.");
+      }
+      await this.#scheduleCleanup();
+    }
     return result;
   }
 
@@ -549,10 +561,39 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     await this.#scheduleCleanup();
   }
   downloadDocument(staff: WorkspaceStaff, requestId: string) {
-    return this.#accepts(staff) ? downloadableDocument(this.#store, staff, requestId) : null;
+    return this.#accepts(staff) ? downloadableDocument(this.#store, staff, requestId) ?? downloadableLeadDocument(this.#store, staff, requestId) : null;
   }
   auditDocumentDownload(staff: WorkspaceStaff, requestId: string, objectId: string) {
-    return this.#accepts(staff) && recordDocumentDownload(this.#store, staff, requestId, objectId);
+    return this.#accepts(staff) && (recordDocumentDownload(this.#store, staff, requestId, objectId) ||
+      recordLeadDocumentDownload(this.#store, staff, requestId, objectId));
+  }
+
+  leadDocuments(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    const uploadsEnabled = !!this.#documents && runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS").trim() === "mock";
+    return leadDocumentWork(this.#store, input, staff, this.#id, uploadsEnabled, this.#protectPilotLinks);
+  }
+
+  leadDocumentPortal(input: Pick<LeadSampleUpload, "token" | "code">) {
+    return readLeadDocumentPortal(this.#store, input);
+  }
+
+  async beginLeadSample(input: LeadSampleUpload) {
+    if (!await this.#permitsUpload("mock")) return { status: 503, error: "Sample PDF uploads are unavailable." };
+    const result = beginLeadSample(this.#store, input);
+    if ("objectId" in result) await this.#scheduleCleanup();
+    return result;
+  }
+
+  async finishLeadSample(input: LeadSampleUpload, objectId: string) {
+    const result = finishLeadSample(this.#store, input, objectId);
+    await this.#scheduleCleanup();
+    return result;
+  }
+
+  async failLeadSample(requestId: string, objectId: string) {
+    failLeadSample(this.#store, requestId, objectId);
+    await this.#scheduleCleanup();
   }
   async #scheduleCleanup() {
     if (!this.#documents) return;
@@ -907,6 +948,18 @@ export default {
       try { return await uploadBorrowerPdf(request, uploads, uploadWorkspace); }
       catch { return fileProblem(503, "Orbit could not process this PDF. Try again shortly."); }
     }
+    if (request.method === "POST" && url.pathname === "/api/shared-lead-documents") {
+      return leadDocumentPortalHttp(request, uploads, async (token) => {
+        const link = await linkedWorkspace(token);
+        if (!link?.pilot) return null;
+        return { id: link.id, store: {
+          read: (input) => link.store.leadDocumentPortal(input),
+          beginUpload: (input) => link.store.beginLeadSample(input),
+          finishUpload: (input, objectId) => link.store.finishLeadSample(input, objectId),
+          failUpload: (requestId, objectId) => link.store.failLeadSample(requestId, objectId),
+        } };
+      });
+    }
     const placesKey = runtimeSetting(env, "GOOGLE_PLACES_API_KEY").trim();
     // This endpoint can reach only the token-scoped borrower command.
     if (request.method === "POST" && url.pathname === "/api/demo-application") {
@@ -959,7 +1012,7 @@ export default {
         };
       }, filesEnv.DOCUMENTS);
     }
-    const tokenPage = reading && ["/apply", "/co-borrower", "/referrals", "/quote", "/lender-package"].includes(url.pathname);
+    const tokenPage = reading && ["/apply", "/co-borrower", "/referrals", "/quote", "/lender-package", "/lead-documents"].includes(url.pathname);
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
       return handleStaffAuth(request, url, google, directory, (staff) => directory.activateStaff(staff, bootstrapEmails));
     }

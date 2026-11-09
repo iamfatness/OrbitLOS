@@ -23,6 +23,7 @@ import { receiveQuoteLead, workOnQuoteSettings } from "./quote-intake";
 import { documentTemplateWork } from "./document-templates";
 import { feeTemplateWork } from "./fee-templates";
 import { incomeWorksheetWork } from "./income-review";
+import { leadDocumentWork } from "./lead-documents";
 import { lenderPackageAccess, lenderShareWork } from "./lender-handoff-share";
 import type { SharedLenderPackageInput } from "./lender-handoff-share-model";
 import { readSharedRealtorQueue } from "./realtor-claim-queue";
@@ -324,6 +325,10 @@ export async function loadLoanScenarios(input: unknown, staff: WorkspaceStaff | 
 
 export async function workOnIncomeWorksheet(input: unknown, staff: WorkspaceStaff | null) {
   return incomeWorksheetWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null), demoBrokerageId);
+}
+
+export async function workOnLeadDocuments(input: unknown, staff: WorkspaceStaff | null) {
+  return leadDocumentWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null), demoBrokerageId, false);
 }
 
 export async function loadPreapprovalLetters(input: unknown, staff: WorkspaceStaff | null) {

@@ -80,12 +80,15 @@ function resetLoanArgs(scenario: ScenarioRow) {
 }
 
 function activeResetLinks(db: Store, scenario: ScenarioRow, now: string): PilotPortalLink[] {
-  return db.prepare(`WITH resetLoans AS (SELECT id FROM loans WHERE ${resetLoanScope})
+  return db.prepare(`WITH resetLoans AS (SELECT id FROM loans WHERE ${resetLoanScope}),
+    resetLeads AS (SELECT id FROM referral_leads WHERE realtorId = ? OR instr(requestId, ?) = 1)
     SELECT token AS key, 0 AS hashed, expiresAt FROM applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
     UNION ALL SELECT token, 0, expiresAt FROM joint_applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
     UNION ALL SELECT token, 0, expiresAt FROM realtor_portals WHERE realtorId = ? AND expiresAt > ?
-    UNION ALL SELECT tokenHash, 1, expiresAt FROM lender_package_links WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans LIMIT ?`)
-    .all(...resetLoanArgs(scenario), now, now, scenario.realtorId, now, now, resetPortalLimit + 1)
+    UNION ALL SELECT tokenHash, 1, expiresAt FROM lender_package_links WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
+    UNION ALL SELECT tokenHash, 1, expiresAt FROM lead_document_links WHERE revokedAt IS NULL AND expiresAt > ? AND leadId IN resetLeads LIMIT ?`)
+    .all(...resetLoanArgs(scenario), scenario.realtorId, pilotSegmentLeadPrefix(String(scenario.id)),
+      now, now, scenario.realtorId, now, now, now, resetPortalLimit + 1)
     .map(({ key, hashed, expiresAt }) => ({ ...(hashed ? { tokenHash: String(key) } : { token: String(key) }), expiresAt: String(expiresAt) }));
 }
 

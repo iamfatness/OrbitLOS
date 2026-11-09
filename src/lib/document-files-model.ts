@@ -7,6 +7,7 @@ export const demoPdfFixtures = {
   replacement: "Clean replacement PDF",
   blocked: "Sample PDF that fails the demo scan",
 };
+export const demoPdfFixtureIds = ["clean", "replacement", "blocked"] as const;
 
 export function documentKey(brokerageId: string, objectId: string) {
   return `${brokerageId}/${objectId}.pdf`;

@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { portalTokenPattern } from "./brokerage-model";
+import { portalAccessCodePattern, portalTokenPattern } from "./brokerage-model";
 import { exportReviewedApplication } from "./lender-export-model";
 
 const maxDocuments = 8;
-const credentials = { token: z.string().regex(portalTokenPattern), code: z.string().trim().toLowerCase().regex(/^[a-f0-9]{24}$/) };
+const credentials = { token: z.string().regex(portalTokenPattern), code: z.string().trim().toLowerCase().regex(portalAccessCodePattern) };
 const loanId = exportReviewedApplication.shape.loanId;
 const shareId = z.uuid();
 export const lenderShareStaffInput = z.discriminatedUnion("type", [
@@ -38,8 +38,4 @@ export type LenderSharePage = {
 
 export function lenderPackageFilename(slot: number) {
   return slot === 0 ? "orbit-fictional-1003.xml" : `orbit-fictional-evidence-${slot}.pdf`;
-}
-
-export function newLenderPackageCode() {
-  return Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

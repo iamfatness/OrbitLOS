@@ -5,6 +5,11 @@ export type BrokerageRole = (typeof brokerageRoles)[number];
 export type MemberStatus = "Invited" | "Active" | "Revoked";
 export const brokerageIdPattern = /^(?:orbit-demo|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
 export const portalTokenPattern = /^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\.)?[a-f0-9]{64}$/;
+export const portalAccessCodePattern = /^[a-f0-9]{24}$/;
+
+export function newPortalAccessCode() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(12)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 export interface Brokerage {
   id: string;

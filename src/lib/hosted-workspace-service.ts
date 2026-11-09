@@ -31,6 +31,7 @@ import { preapprovalUnavailable, sharedPreapprovalUnavailable } from "./preappro
 import { lenderPackageUnavailable, type SharedLenderPackageInput } from "./lender-handoff-share-model";
 import { quoteSettingsUnavailable } from "./quote-intake-model";
 import { incomeReviewUnavailable } from "./income-review-model";
+import { leadDocumentsUnavailable } from "./lead-document-model";
 export { currentStaff } from "./current-staff";
 
 function staffWorkspace(staff: WorkspaceStaff | null) {
@@ -217,6 +218,10 @@ export async function loadLoanScenarios(input: unknown, staff: WorkspaceStaff | 
 
 export async function workOnIncomeWorksheet(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).incomeWorksheet(staff, input) : { error: incomeReviewUnavailable };
+}
+
+export async function workOnLeadDocuments(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).leadDocuments(staff, input) : { error: leadDocumentsUnavailable };
 }
 
 export async function loadPreapprovalLetters(input: unknown, staff: WorkspaceStaff | null) {

@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { portalToken } from "@/lib/brokerage-model";
-import { newLenderPackageCode, type LenderSharePage } from "@/lib/lender-handoff-share-model";
+import { newPortalAccessCode, portalToken } from "@/lib/brokerage-model";
+import type { LenderSharePage } from "@/lib/lender-handoff-share-model";
 import type { ExportName } from "@/lib/lender-export-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -80,7 +80,7 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
         const input = { type: "create", revision, lenderRevision, names, recipient, hours: Number(form.get("hours")), documents,
           confirmedFictional: form.has("confirmed") };
         const key = JSON.stringify(input);
-        if (attempt.current?.key !== key) attempt.current = { key, shareId: crypto.randomUUID(), token: portalToken(brokerageId), code: newLenderPackageCode() };
+        if (attempt.current?.key !== key) attempt.current = { key, shareId: crypto.randomUUID(), token: portalToken(brokerageId), code: newPortalAccessCode() };
         const { shareId, token, code } = attempt.current;
         void request({ ...input, shareId, token, code }).then((result) => {
           if (result?.createdId === shareId) {

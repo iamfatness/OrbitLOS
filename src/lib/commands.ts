@@ -46,6 +46,7 @@ import { inboxLeadScope } from "./lead-inbox-query";
 import { claimSharedRealtorInput, saveRealtorClaimPolicyInput } from "./realtor-claim-model";
 import { saveRealtorClaimPolicy } from "./realtor-claim-queue";
 import { archiveLead, carryLeadHistory, changeLeadRouting, claimSharedRealtor, restoreArchivedLead, setImportedLeadTaskStatus, updateInboxLead } from "./lead-inbox";
+import { carryLeadDocuments } from "./lead-documents";
 import { carryLeadConversation } from "./conversations";
 import { updateProcessingInput } from "./processing-model";
 import { updateProcessing } from "./loan-processing";
@@ -1107,6 +1108,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           insertLoan(db, { id: loanId, contactId: contact.id, partnerId: realtorId, officer: String(lead.officer || staff?.name || "Alex Morgan").slice(0, 160),
             officerEmail: assignedEmail, address: "", amount: 0, purpose: lead.purpose as Purpose,
             stage: "Lead", stageSince: now, createdAt: String(lead.createdAt), leadSource: source });
+          const carriedDocuments = carryLeadDocuments(db, data.referralId, loanId, now);
+          if (carriedDocuments === null) throw new WorkspaceError("A sample PDF is still processing. Wait for the upload to finish before converting the lead.");
           stopCampaignFollowUp(db, staff, data.referralId, now, "1003 started", true);
           const firstContactAt = carryLeadHistory(db, data.referralId, loanId);
           carryLeadConversation(db, data.referralId, loanId, contact.id, now);
@@ -1128,6 +1131,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           accessEvent(db, staff, imported ? "Converted imported lead" : realtorId ? "Converted referral" : "Converted quote request", data.referralId, now);
           referralLoanId = loanId;
           message = "Lead converted. The prefilled 1003 is ready.";
+          if (carriedDocuments) message += ` Moved ${carriedDocuments} sample document ${carriedDocuments === 1 ? "request" : "requests"} to the loan.`;
           break;
         }
         case "startApplication": {

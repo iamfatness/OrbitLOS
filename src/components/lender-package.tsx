@@ -1,17 +1,14 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState } from "react";
 import { lenderPackageFilename, lenderPackageUnavailable, type LenderPackageManifest, type SharedLenderPackageInput } from "@/lib/lender-handoff-share-model";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
-
-const subscribe = () => () => {};
+import { PortalAccessCodeForm } from "./portal-access-code-form";
 
 export function LenderPackage() {
-  const ready = useSyncExternalStore(subscribe, () => true, () => false);
   const [opened, setOpened] = useState<{ manifest: LenderPackageManifest; token: string; code: string }>();
-  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -62,18 +59,11 @@ export function LenderPackage() {
             }}>Download {file.slot === 0 ? "XML" : "PDF"}</Button>
           </div>
         </li>)}</ul>
-      </> : <form method="post" className="record-form" onSubmit={(event) => {
-        event.preventDefault();
+      </> : <PortalAccessCodeForm busy={busy} label="Lender access code" submitLabel="Open package" open={(code) => {
         const token = window.location.hash.slice(1);
         if (!token) return setError(lenderPackageUnavailable);
-        void request({ type: "read", token, code: code.trim() });
-      }}>
-        <p className="muted">Enter the code you received separately from this link.</p>
-        <label className="field">Lender access code<input type="password" autoComplete="off" autoCapitalize="none" spellCheck={false}
-          minLength={24} maxLength={24} pattern="[A-Fa-f0-9]{24}" required disabled={busy || !ready} value={code}
-          onChange={(event) => setCode(event.target.value)} /></label>
-        <div><Button type="submit" disabled={busy || !ready}>{busy ? "Opening package…" : "Open package"}</Button></div>
-      </form>}
+        void request({ type: "read", token, code });
+      }} />}
     </section>
   </main>;
 }

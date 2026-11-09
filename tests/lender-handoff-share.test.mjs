@@ -6,9 +6,8 @@ import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
-const { portalToken } = await import("../src/lib/brokerage-model.ts");
+const { newPortalAccessCode, portalToken } = await import("../src/lib/brokerage-model.ts");
 const { confirmLenderPackagePdf, lenderPackageAccess, lenderShareWork } = await import("../src/lib/lender-handoff-share.ts");
-const { newLenderPackageCode } = await import("../src/lib/lender-handoff-share-model.ts");
 const { loadProtectedPilotScenario } = await import("../src/lib/pilot.ts");
 
 test("only current approved sample artifacts can be shared and expiration and revocation deny all files", async (t) => {
@@ -40,7 +39,7 @@ test("only current approved sample artifacts can be shared and expiration and re
   const real = attach("live");
   const unknown = attach(null);
   const token = portalToken(brokerageId);
-  const code = newLenderPackageCode();
+  const code = newPortalAccessCode();
   const create = { type: "create", loanId, revision: 3, lenderRevision: 0, shareId: randomUUID(), token, code, hours: 1,
     recipient: "Fictional lender", confirmedFictional: true, names: [{ first: "Fictional", middle: "", last: "Borrower", suffix: "" }],
     documents: [{ id: sample.id, revision: sample.revision }] };
@@ -59,7 +58,7 @@ test("only current approved sample artifacts can be shared and expiration and re
   assert.equal(stored.codeHash, hash(code));
   assert.ok(!JSON.stringify(stored).includes(token) && !JSON.stringify(stored).includes(code));
   const read = { type: "read", token, code };
-  assert.equal(lenderPackageAccess(db, { ...read, code: newLenderPackageCode() }, at).status, 404);
+  assert.equal(lenderPackageAccess(db, { ...read, code: newPortalAccessCode() }, at).status, 404);
   assert.equal(lenderPackageAccess(db, read, expiresAt).status, 404);
   assert.equal(lenderPackageAccess(db, read, at).value.expiresAt, expiresAt);
   const getPdf = { ...read, type: "download", slot: 1 };

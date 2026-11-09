@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
 import { borrowerJson } from "./borrower-http";
-import { documentKey, maxPdfBytes, uploadSessionPattern, type DocumentUploadMode } from "./document-files-model";
+import { demoPdfFixtureIds, documentKey, maxPdfBytes, uploadSessionPattern, type DocumentUploadMode } from "./document-files-model";
 import { demoDocumentPdf } from "./demo-document-pdf";
+import { leadDocumentPortalInput, leadDocumentPortalUnavailable, type LeadSampleUpload } from "./lead-document-model";
+import type { readLeadDocumentPortal } from "./lead-documents";
 import type { UploadAccess } from "./document-files";
 import { runtimeSetting } from "./staff-auth";
 
@@ -30,12 +32,14 @@ export function uploadSettings(env: object & DocumentEnvironment, requestUrl: UR
 
 type Settings = NonNullable<ReturnType<typeof uploadSettings>>;
 type ErrorResult = { status: number; error: string };
-type DocumentStore = {
+type UploadWriter<Input> = {
+  beginUpload(input: Input): Promise<{ objectId: string } | ErrorResult>;
+  finishUpload(input: Input, objectId: string): Promise<{ received: boolean } | ErrorResult>;
+  failUpload(requestId: string, objectId: string): Promise<void>;
+};
+type DocumentStore = UploadWriter<UploadAccess> & {
   issueUploadCode(token: string, secret: string, mode: DocumentUploadMode): Promise<{ email: string; code: string } | ErrorResult>;
   verifyUploadCode(token: string, code: string, secret: string, mode: DocumentUploadMode): Promise<{ session: string } | ErrorResult>;
-  beginUpload(input: UploadAccess): Promise<{ objectId: string } | ErrorResult>;
-  finishUpload(input: UploadAccess, objectId: string): Promise<{ received: boolean } | ErrorResult>;
-  failUpload(requestId: string, objectId: string): Promise<void>;
 };
 
 const token = z.string().regex(portalTokenPattern);
@@ -45,7 +49,7 @@ const verification = z.discriminatedUnion("type", [
 ]);
 const uploadInput = z.object({ token, session: z.string().regex(uploadSessionPattern), requestId: z.uuid(),
   revision: z.string().regex(/^\d{1,10}$/).transform(Number) });
-const demoUploadInput = uploadInput.extend({ revision: z.number().int().nonnegative(), fixture: z.enum(["clean", "replacement", "blocked"]) });
+const demoUploadInput = uploadInput.extend({ revision: z.number().int().nonnegative(), fixture: z.enum(demoPdfFixtureIds) });
 
 const privateHeaders = { "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex", "X-Content-Type-Options": "nosniff" };
 export const fileProblem = (status: number, error: string) => Response.json({ error }, { status, headers: privateHeaders });
@@ -132,7 +136,25 @@ export async function uploadBorrowerPdf(request: Request, settings: Settings | n
   return "error" in result ? fileProblem(result.status, result.error) : Response.json(result.value, { headers: privateHeaders });
 }
 
-async function storePdf(settings: Settings, target: { id: string; store: DocumentStore }, data: UploadAccess,
+type LeadSampleStore = UploadWriter<LeadSampleUpload> & {
+  read(input: Pick<LeadSampleUpload, "token" | "code">): Promise<ReturnType<typeof readLeadDocumentPortal>>;
+};
+
+export function leadDocumentPortalHttp(request: Request, settings: Settings | null,
+  workspace: (token: string) => Promise<{ id: string; store: LeadSampleStore } | null>) {
+  return borrowerJson<{ requests: import("./document-model").DocumentRequest[] } | { received: boolean }>(request, async (input) => {
+    const parsed = leadDocumentPortalInput.safeParse(input);
+    if (settings?.mode !== "mock" || !parsed.success) return { status: 404, error: leadDocumentPortalUnavailable };
+    const data = parsed.data;
+    const target = await workspace(data.token);
+    if (!target) return { status: 404, error: leadDocumentPortalUnavailable };
+    if (data.type === "read") return target.store.read(data);
+    const { token, code, requestId, revision, fixture } = data;
+    return storePdf(settings, target, { token, code, requestId, revision }, async () => ({ bytes: demoDocumentPdf(fixture) }), fixture === "blocked");
+  }, 2048);
+}
+
+async function storePdf<Input extends { requestId: string }>(settings: Settings, target: { id: string; store: UploadWriter<Input> }, data: Input,
   read: () => Promise<PdfInput>, blockedDemo = false): Promise<{ value: { received: boolean } } | ErrorResult> {
   const started = await target.store.beginUpload(data);
   if ("error" in started) return started;

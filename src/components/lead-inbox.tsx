@@ -15,6 +15,7 @@ import { SharedRealtorPolicyForm, SharedRealtorQueueView } from "./shared-realto
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { leadWorkUnavailable } from "@/lib/lead-work-model";
 import { QuoteIntakeEditor } from "./quote-intake-settings";
+import { LeadDocumentChecklist } from "./lead-document-checklist";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void) => void;
@@ -207,6 +208,8 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, save, convert,
           <ul>{followUp.events.map((item) => <li key={item.id}>{item.text} · {item.actor} · {dateTime(item.at)} ET</li>)}</ul>
         </div>}
         <LeadTasks lead={lead} busy={busy} save={save} />
+        {lead.officerEmail && (staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&
+          <LeadDocumentChecklist brokerageId={staff?.brokerage.id ?? demoBrokerageId} leadId={lead.id} busy={busy} />}
         {lead.importedContactId && <p className="muted">The migration review linked this lead to its borrower contact.</p>}
         {flagged && lead.restrictedMatch && <p className="muted">A possible match needs brokerage admin review.</p>}
         {flagged && (lead.matches.length > 0 || !lead.restrictedMatch) && <label className="field">Contact to use

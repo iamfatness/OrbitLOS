@@ -1028,6 +1028,29 @@ export function initializeStore(db: Store, seedDemo = true) {
       firstDownloadedAt TEXT, lastDownloadedAt TEXT, PRIMARY KEY(shareId, slot)
     );
     CREATE TABLE IF NOT EXISTS document_file_cleanup (objectId TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS lead_document_requests (
+      id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL, instructions TEXT NOT NULL, requestedAt TEXT NOT NULL, dueOn TEXT,
+      status TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested', 'Received', 'Accepted', 'Needs replacement')),
+      replacementNote TEXT NOT NULL DEFAULT '', submittedAt TEXT, revision INTEGER NOT NULL DEFAULT 0,
+      objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL DEFAULT 0,
+      failed INTEGER NOT NULL DEFAULT 0, UNIQUE(leadId, kind)
+    );
+    CREATE TABLE IF NOT EXISTS lead_document_links (
+      id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE, tokenHash TEXT NOT NULL UNIQUE,
+      codeHash TEXT NOT NULL, createdBy TEXT NOT NULL, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, revokedAt TEXT
+    );
+    CREATE INDEX IF NOT EXISTS lead_document_links_by_lead ON lead_document_links(leadId, expiresAt);
+    CREATE TRIGGER IF NOT EXISTS lead_document_files_deleted AFTER DELETE ON lead_document_requests BEGIN
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId WHERE OLD.objectId IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM document_files WHERE objectId = OLD.objectId);
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL;
+    END;
+    CREATE TRIGGER IF NOT EXISTS lead_document_files_replaced AFTER UPDATE ON lead_document_requests BEGIN
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId WHERE OLD.objectId IS NOT NULL AND OLD.objectId IS NOT NEW.objectId;
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL
+        AND OLD.pendingId IS NOT NEW.pendingId AND OLD.pendingId IS NOT NEW.objectId;
+    END;
     CREATE TRIGGER IF NOT EXISTS document_files_deleted AFTER DELETE ON document_files BEGIN
       INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId WHERE OLD.objectId IS NOT NULL;
       INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL;
