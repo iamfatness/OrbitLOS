@@ -247,3 +247,9 @@ On Worker `61bf8d5a-05b9-4923-8f44-9e007a3adfe1` from source `1a7431e1ee90`, the
 The revised acknowledgment prefilled reference `FICT-REVISION-01` and reopened its only checklist. It still showed the original accepted sample, delivery revision, and clearance reference. The loan showed **Review closing readiness** again. The first borrower navigation after reload needed a second click. The sampled staff tab reported zero browser errors.
 
 The local built Worker also verified denied cross-officer access, exact return replay, mismatched lender references, rejection before a fresh export, revision-specific second review, and the unchanged condition and document IDs after re-acknowledgment. All 273 tests, lint, typecheck, build, and both local rehearsals passed. The public Demo page describes the return path.
+
+## Hosted lender returns in staff queues
+
+On Worker `06720fb4-d024-4839-8fd0-a15bd41bac39` from source `a4bc3a902b4f`, an existing fictional lender return appeared in Today and **Playbooks → File exceptions → Manual lender returns**. The manager view showed the owner and original reference. The borrower’s corrected submission changed both views to **Corrected 1003 ready for review**. Today opened the application, and the manager exception opened the revised export after staff review.
+
+Today then focused the acknowledgment form directly. Recording acknowledgment cleared the owner’s row, and a refresh confirmed the separate manager tab was empty. Neither sampled staff tab logged an app error. The local working-day rehearsal checked the required second-review phase, fresh status lookup, officer and manager scope, and clearing both rows after acknowledgment. All 274 tests, lint, typecheck, the build, and both local rehearsals passed.
