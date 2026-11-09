@@ -1128,9 +1128,9 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices"> & { scenario: string; offers: string; notices: string }>(db, `
       SELECT run.* FROM pricing_runs run
       WHERE ${loanId ? "run.loanId = ? AND " : ""}(run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
-         OR run.selectedId IS NOT NULL${loanId ? `
+         OR run.selectedId IS NOT NULL
          OR EXISTS (SELECT 1 FROM loan_scenario_plans plan JOIN json_each(plan.plan, '$.options') option
-           WHERE plan.loanId = run.loanId AND json_extract(option.value, '$.quoteSource.runId') = run.id)` : ""})
+           WHERE plan.loanId = run.loanId AND json_extract(option.value, '$.quoteSource.runId') = run.id))
       ORDER BY run.quotedAt DESC, run.rowid DESC
     `, ...args).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices) })),
     feeWorksheets: rows<Omit<FeeWorksheet, "inputs"> & { inputs: string }>(db, `SELECT pricing_runs.loanId, worksheet.*
