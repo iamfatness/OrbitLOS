@@ -78,8 +78,11 @@ function database(): Store {
     prepare(sql) {
       const statement = sqlite.prepare(sql);
       return {
-        get: (...args) => statement.get(...args) as Record<string, SqlValue> | undefined,
-        all: (...args) => statement.all(...args) as Record<string, SqlValue>[],
+        get: (...args) => {
+          const row = statement.get(...args);
+          return row ? { ...row } as Record<string, SqlValue> : undefined;
+        },
+        all: (...args) => statement.all(...args).map((row) => ({ ...row }) as Record<string, SqlValue>),
         run: (...args) => { statement.run(...args); },
       };
     },
