@@ -51,7 +51,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F05 | Staff can track disclosure status on the closing file | Specify a versioned package and signer lifecycle with mock evidence before selecting providers. |
 | F06 | Hosted save, resume, status, borrower requests and correction | Verify participant-specific permissions through a joint application and revocation. |
 | F07 | Public quote requests, referrals and attributed campaign intake | Add versioned intake fields and preview brokerage branding at mobile sizes. |
-| F08 | A reviewed 1003 can open a fictional preapproval text draft | Produce a versioned sample letter with review, expiry, and a traceable download. |
+| F08 | Hosted staff issue, replace, and download fictional PDFs with expiry, 1003 revision, and issuer history | Verify permissioned borrower and realtor publication, expiry and supersession on shared access, and qualified template review. |
 | F09 | Hosted realtor referrals, conversion counts and milestone portal | Verify partner permissions for approved estimates and letter sharing. |
 | F10 | Hosted staff comparison, exact mock offer, published borrower quote and mock UWM handoff | Validate provider coverage, quote provenance and changed terms. Confirm locks separately. |
 | F11 | Itemized fee worksheets and saved quote estimates | Add source and effective-date metadata and confirm cash-to-close totals against a fixture. |
@@ -102,7 +102,7 @@ Status: public intake foundation; full configuration unverified. Admin configure
 
 ### F08 — Controlled preapproval letters
 
-The reviewed file currently offers a fictional text draft. The LO reviews qualification evidence and chooses an approved template, authorized amount, property scope, conditions and expiry before issuing a versioned PDF. Download and share actions retain the same artifact and audit record. An amendment supersedes the prior letter. Acceptance checks cover expired and superseded letters, required review, borrower and realtor sharing scope, and visible fictional labeling. Template and qualification policy need qualified review. Build in increments 2–3 and gather provider-dependent evidence in 5.
+The fictional release stores an immutable staff PDF for each issued version. The officer reviews the current purchase 1003, confirms the sample amount and expiry, and selects the property scope. Issuance records the actor and application revision, while a replacement supersedes the prior version. Next verify borrower and realtor access, publication history, and expiry and supersession through shared links. Qualified review must approve templates, eligibility policy, and conditions for production. Build in increments 2–3 and gather provider-dependent evidence in 5. [Hosted letter rehearsal](demo-rehearsal-log.md#hosted-fictional-preapproval-letters)
 
 ### F09 — Realtor workspace
 
