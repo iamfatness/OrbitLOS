@@ -50,7 +50,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F04 | Hosted request, mock-scanned PDF, replacement and clearance | Verify configurable checklist rules and production scan and delivery contracts. |
 | F05 | Staff can track disclosure status on the closing file | Specify a versioned package and signer lifecycle with mock evidence before selecting providers. |
 | F06 | Hosted save, resume, status, borrower requests and correction | Verify participant-specific permissions through a joint application and revocation. |
-| F07 | Public quote requests, referrals and attributed campaign intake | Add versioned intake fields and preview brokerage branding at mobile sizes. |
+| F07 | Versioned brokerage quote form with a mobile borrower preview, one configurable question, branded themes and attributed campaign intake | Verify separate intake profiles, branch and officer overrides, conditional questions and safe mapping to the application. |
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
 | F10 | Hosted staff comparison, exact mock offer, published borrower quote and mock UWM handoff | Validate provider coverage, quote provenance and changed terms. Confirm locks separately. |
@@ -98,7 +98,9 @@ Status: partial functioning demo. Reuse application/status components for save/r
 
 ### F07 — Configurable intake and branding
 
-Status: public intake foundation; full configuration unverified. Admin configures brokerage/branch defaults and allowed LO overrides for branding, short intake and application questions. Store versioned field definitions, validation, conditional visibility, consent text references and safe presentation tokens. New forms adopt new versions; existing submissions retain their original schema. Map permitted answers to the lead/application without losing source attribution. Acceptance: invalid branching rejected, required data preserved, preview matches published mobile form, and configuration cannot inject executable content or expose another brokerage. Include accessibility/contrast checks. Increments 1–3.
+The [hosted quote form](demo-rehearsal-log.md#hosted-configurable-website-quote-intake) supports a brokerage title, introduction, one of three themes, contact requirements, ZIP and timeline visibility and one short question. Publishing keeps the link and creates a new version. Existing submissions retain their source, original version and answer. Eligible phone leads can enter a call campaign with the existing assignment caps.
+
+Remaining scope covers separate profiles, branch defaults and allowed LO overrides, conditional visibility, consent text references and configurable application questions. Validate branching and answer mapping, preserve historical versions, and test accessibility and brokerage isolation. Increments 1–3.
 
 ### F08 — Controlled preapproval letters
 
