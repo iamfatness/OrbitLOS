@@ -3,7 +3,7 @@ import { portalBrokerage } from "./brokerage-model";
 import { pdfColumns } from "./document-files-model";
 import { needsBorrowerDocument, type DocumentKind, type DocumentRequest, type DocumentStatus } from "./document-model";
 import { leadDocumentPortalUnavailable, leadDocumentStaffInput, leadDocumentsUnavailable,
-  type LeadDocumentLocation, type LeadDocumentPage, type LeadSampleUpload } from "./lead-document-model";
+  type LeadDocumentLocation, type LeadDocumentPage, type LeadDocumentRequest, type LeadSampleUpload } from "./lead-document-model";
 import { leadEvent } from "./lead-inbox";
 import type { PilotPortalLink, ProtectPilotLinks } from "./pilot";
 import type { WorkspaceStaff } from "./staff-store";
@@ -20,9 +20,10 @@ const access = (db: Store, staff: WorkspaceStaff, leadId: string) => {
     AND (? = 'Admin' OR lead.officerEmail = ?)`).get(leadId, staff.brokerage.role, staff.email);
 };
 
-function requests(db: Store, leadId: string, clock: number): DocumentRequest[] {
-  return db.prepare(`SELECT id, kind, instructions, status, replacementNote, submittedAt, dueOn, revision, ${pdfColumns(clock)}
-    FROM lead_document_requests files WHERE leadId = ? ORDER BY requestedAt, rowid`).all(leadId).map((row) => ({ ...row }) as unknown as DocumentRequest);
+function requests(db: Store, leadId: string, clock: number, includeDeadlineRevision = false) {
+  return db.prepare(`SELECT id, kind, instructions, status, replacementNote, submittedAt, dueOn, revision,
+    ${includeDeadlineRevision ? "deadlineRevision, " : ""}${pdfColumns(clock)}
+    FROM lead_document_requests files WHERE leadId = ? ORDER BY requestedAt, rowid`).all(leadId).map((row) => ({ ...row }));
 }
 
 function activeLink(db: Store, leadId: string, now: string) {
@@ -64,7 +65,7 @@ export async function leadDocumentWork(db: Store, input: unknown, staff: Workspa
     if (!lead) return { error: leadDocumentsUnavailable };
     const page = () => {
       const link = activeLink(db, leadId, now);
-      const items = requests(db, leadId, clock.getTime());
+      const items = requests(db, leadId, clock.getTime(), true) as unknown as LeadDocumentRequest[];
       return { requests: items, link: link ? { id: String(link.id), expiresAt: String(link.expiresAt) } : null,
         canRequest: !lead.heldAt, canIssue: uploadsEnabled && !lead.heldAt && items.length > 0 };
     };
@@ -85,6 +86,20 @@ export async function leadDocumentWork(db: Store, input: unknown, staff: Workspa
         .run(data.requestId, leadId, data.kind, data.instructions, now, data.dueOn);
       log(`Requested sample lead document · ${data.kind}`);
       return { ...page(), message: "Sample document requested." };
+    }
+    if (data.type === "setDeadline") {
+      const item = db.prepare(`SELECT kind, dueOn, revision, deadlineRevision FROM lead_document_requests
+        WHERE leadId = ? AND id = ? AND status IN ('Requested', 'Needs replacement')`).get(leadId, data.requestId);
+      if (!item || item.revision !== data.revision || (item.deadlineRevision !== data.deadlineRevision &&
+        !(item.deadlineRevision === data.deadlineRevision + 1 && item.dueOn === data.dueOn))) return { error: changed };
+      if (item.dueOn !== data.dueOn) {
+        db.prepare("UPDATE lead_document_requests SET dueOn = ?, deadlineRevision = deadlineRevision + 1 WHERE id = ?")
+          .run(data.dueOn, data.requestId);
+        const previous = item.dueOn ? ` from ${item.dueOn}` : "";
+        const change = data.dueOn ? `due date set${previous} to ${data.dueOn}` : `due date cleared${previous}`;
+        log(`Sample lead document ${change} · ${item.kind}`);
+      }
+      return { ...page(), message: data.dueOn ? "Lead document due date saved." : "Lead document due date cleared." };
     }
     if (data.type === "issue") {
       if (!page().canIssue || portalBrokerage(data.token) !== brokerageId) return { error: "Add a sample request and enable mock uploads before issuing a link." };
@@ -134,7 +149,7 @@ function portalLead(db: Store, { token, code }: Pick<LeadSampleUpload, "token" |
 
 export function readLeadDocumentPortal(db: Store, input: Pick<LeadSampleUpload, "token" | "code">, now = Date.now()) {
   const leadId = portalLead(db, input, now);
-  return leadId ? { value: { requests: requests(db, leadId, now) } } : unavailable;
+  return leadId ? { value: { requests: requests(db, leadId, now) as unknown as DocumentRequest[] } } : unavailable;
 }
 
 function uploadRequest(db: Store, input: LeadSampleUpload, now: number) {
@@ -197,8 +212,8 @@ export function recordLeadDocumentDownload(db: Store, staff: WorkspaceStaff, req
 
 export function carryLeadDocuments(db: Store, leadId: string, loanId: string, at: string) {
   if (db.prepare("SELECT 1 FROM lead_document_requests WHERE leadId = ? AND pendingUntil > ?").get(leadId, Date.parse(at))) return null;
-  const count = db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, dueOn, status, replacementNote, submittedAt, revision)
-    SELECT id, ?, kind, instructions, requestedAt, dueOn, status, replacementNote, submittedAt, revision FROM lead_document_requests
+  const count = db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, dueOn, deadlineRevision, status, replacementNote, submittedAt, revision)
+    SELECT id, ?, kind, instructions, requestedAt, dueOn, deadlineRevision, status, replacementNote, submittedAt, revision FROM lead_document_requests
     WHERE leadId = ? RETURNING id`).all(loanId, leadId).length;
   db.prepare(`INSERT INTO document_files (requestId, objectId, uploadedAt, attemptedAt, failed, uploadMode)
     SELECT id, objectId, uploadedAt, attemptedAt, failed OR pendingId IS NOT NULL, CASE WHEN objectId IS NOT NULL THEN 'mock' END

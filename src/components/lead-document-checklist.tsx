@@ -2,7 +2,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { newPortalAccessCode, portalToken } from "@/lib/brokerage-model";
-import { documentKinds } from "@/lib/document-model";
+import { documentKinds, needsBorrowerDocument } from "@/lib/document-model";
 import { leadDocumentsUnavailable, leadDocumentTarget, type LeadDocumentPage } from "@/lib/lead-document-model";
 import { dateLabel } from "@/lib/client-retention";
 import { dateTime } from "@/lib/utils";
@@ -85,7 +85,21 @@ export function LeadDocumentChecklist({ brokerageId, leadId, busy, focusRequestI
         {page.requests.length > 0 && <ul className="document-list">{page.requests.map((item) =>
           <li className="document-item" id={leadDocumentTarget(item.id)} tabIndex={-1} key={item.id}>
           <div className="document-item-head"><strong>{item.kind}</strong><DocumentStatusPill status={item.status} /></div>
-          <p>{item.instructions}{item.dueOn && ` · Due ${dateLabel(item.dueOn)}`}</p>
+          <p>{item.instructions}{item.dueOn && <> · Due <time dateTime={item.dueOn}>{dateLabel(item.dueOn)}</time></>}</p>
+          {page.canRequest && needsBorrowerDocument(item.status) && <details className="document-form" key={item.deadlineRevision}>
+            <summary>{item.dueOn ? "Edit due date" : "Set due date"}</summary>
+            <form method="post" className="record-form" onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const dueOn = new FormData(form).get("dueOn") || null;
+              void run({ type: "setDeadline", requestId: item.id, revision: item.revision, deadlineRevision: item.deadlineRevision, dueOn })
+                .then((result) => { if (result) form.closest("details")?.removeAttribute("open"); });
+            }}>
+              <label className="field">Borrower due date<input name="dueOn" type="date" defaultValue={item.dueOn ?? ""} /></label>
+              <p className="muted">Leave the date blank to clear it.</p>
+              <div><Button size="sm" type="submit" disabled={disabled}>Save due date</Button></div>
+            </form>
+          </details>}
           {item.replacementNote && <p className="muted">Replacement note · {item.replacementNote}</p>}
           {item.pdfStatus === "Processing" && <p className="muted">Mock scan in progress.</p>}
           {item.pdfUploadedAt && <a href={`/api/documents/download?brokerage=${encodeURIComponent(brokerageId)}&request=${item.id}`}>Download sample PDF</a>}

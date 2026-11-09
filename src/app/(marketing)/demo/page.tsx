@@ -19,7 +19,7 @@ export default function DemoPage() {
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s.</li>
-          <li>Request sample documents from an assigned lead. Open incoming uploads and overdue requests from My Tasks. The checklist and files follow the lead into the loan.</li>
+          <li>Request sample documents before the 1003, adjust borrower deadlines from Calendar, and review incoming uploads from My Tasks. The checklist follows the lead into the loan.</li>
           <li>Preview and publish a brokerage quote form. Send eligible requests to a call campaign and keep their website source.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>
           <li>Reuse sample brokerage fee templates by loan purpose and ZIP. Saved quotes keep their itemized amounts, and staff can trace the source and effective date.</li>

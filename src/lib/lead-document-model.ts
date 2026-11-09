@@ -13,6 +13,7 @@ export const leadDocumentStaffInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("locate"), leadId, requestId }),
   z.object({ type: z.literal("request"), leadId, requestId, kind: z.enum(documentKinds), instructions: z.string().trim().min(1).max(500),
     dueOn: z.iso.date().nullable() }),
+  z.object({ type: z.literal("setDeadline"), leadId, requestId, revision, deadlineRevision: revision, dueOn: z.iso.date().nullable() }),
   z.object({ type: z.literal("issue"), leadId, linkId, ...credentials, hours: z.literal([1, 24, 72]), confirmedFictional: z.literal(true) }),
   z.object({ type: z.literal("revoke"), leadId, linkId }),
   z.object({ type: z.literal("review"), leadId, requestId, revision, decision: z.enum(["Accepted", "Needs replacement"]),
@@ -25,8 +26,9 @@ export const leadDocumentPortalInput = z.discriminatedUnion("type", [
 ]);
 export type LeadDocumentPortalInput = z.infer<typeof leadDocumentPortalInput>;
 export type LeadSampleUpload = Omit<Extract<LeadDocumentPortalInput, { type: "upload" }>, "type" | "fixture">;
+export type LeadDocumentRequest = DocumentRequest & { deadlineRevision: number };
 export type LeadDocumentPage = {
-  requests: DocumentRequest[];
+  requests: LeadDocumentRequest[];
   link: { id: string; expiresAt: string } | null;
   canRequest: boolean;
   canIssue: boolean;

@@ -23,11 +23,11 @@ export type CampaignCallbackPage = {
 };
 export const calendarUnavailable = "This workspace calendar is unavailable.";
 export const calendarGroups = {
-  All: ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document", "appointment", "review"],
+  All: ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document", "lead-document", "appointment", "review"],
   Outreach: ["lead", "lead-task", "campaign", "contact"],
   Conversations: ["conversation"],
   Appointments: ["appointment"],
-  Documents: ["document"],
+  Documents: ["document", "lead-document"],
   Reviews: ["review"],
   Closings: ["closing", "checklist"],
   "Rate locks": ["lock"],

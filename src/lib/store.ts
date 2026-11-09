@@ -1030,7 +1030,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS document_file_cleanup (objectId TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS lead_document_requests (
       id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL, instructions TEXT NOT NULL, requestedAt TEXT NOT NULL, dueOn TEXT,
+      kind TEXT NOT NULL, instructions TEXT NOT NULL, requestedAt TEXT NOT NULL, dueOn TEXT, deadlineRevision INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'Requested' CHECK (status IN ('Requested', 'Received', 'Accepted', 'Needs replacement')),
       replacementNote TEXT NOT NULL DEFAULT '', submittedAt TEXT, revision INTEGER NOT NULL DEFAULT 0,
       objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL DEFAULT 0,
@@ -1060,6 +1060,9 @@ export function initializeStore(db: Store, seedDemo = true) {
       INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL
         AND OLD.pendingId IS NOT NEW.pendingId AND OLD.pendingId IS NOT NEW.objectId;
     END;`);
+    if (!db.prepare("PRAGMA table_info(lead_document_requests)").all().some(({ name }) => name === "deadlineRevision")) {
+      db.exec("ALTER TABLE lead_document_requests ADD COLUMN deadlineRevision INTEGER NOT NULL DEFAULT 0");
+    }
     if (!db.prepare("PRAGMA table_info(document_files)").all().some(({ name }) => name === "uploadMode")) {
       db.exec("ALTER TABLE document_files ADD COLUMN uploadMode TEXT");
     }
