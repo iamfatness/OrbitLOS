@@ -57,7 +57,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F11 | Hosted brokerage templates by purpose and ZIP, with effective dates, staff overrides, and immutable shared quote snapshots | Verify payer and payee detail, broader geographic matching, and external fee sources. |
 | F12 | Dashboard drilldowns, call-report preparation and exports | Reconcile report periods and data coverage before a custom report builder or filing claim. |
 | F13 | Internal workflow actions and planned delegated API | Define bounded event subscriptions and safe replay for Zapier. |
-| F14 | Hosted fictional lender package with link and separate code, exact accepted PDF revisions, and loan-level download history | Verify lead evidence exchange, stronger recipient identity, and live scanning before real use. |
+| F14 | Hosted fictional lead upload and lender download links with separate codes, document revisions, and conversion history | Verify stronger recipient identity, authorized delivery, and live scanning before real use. |
 | F15 | Broker financial visibility and a separate planned non-del channel | Specify investor price, margin policy and registry evidence with a non-del broker. |
 | F16 | Reviewed 1003 revisions, closing checklist, and closing and funding dates | Specify change and package revisions, approvals, and applicable UCD contracts. |
 | F17 | Funding and restricted expected versus received financial entries | Reconcile fictional purchase advice, receipt and reversal with reviewer history. |
@@ -142,7 +142,9 @@ Status: API/MCP planned; no established Zapier release. Reuse delegated API perm
 
 A fictional pilot owner or admin can issue one active package per loan for an hour, a day, or three days. The recipient enters a separate code to download the reviewed MISMO file and up to eight selected, accepted demo-scanned PDF revisions. The staff view retains issue, expiry, download and revocation evidence. Changes to the reviewed 1003, lender details, or selected files block the package. Explicit revocation and scenario reset retire the token hash in the directory. [Hosted manual lender package rehearsal](demo-rehearsal-log.md#hosted-manual-lender-package)
 
-Lead evidence exchange and conversion still need verification. Before handling real files, validate recipient identity, authorized delivery, scanning, and retirement of all affected active grants during snapshot recovery. Earlier PDFs without a recorded mock upload mode require a new sample upload to qualify.
+Assigned fictional leads can receive a private upload-only link and separate code. The lead owner can review the built-in PDFs before creating a loan. Conversion moves request IDs, deadlines, statuses, accepted object references, and review events in one transaction. The old lead link closes and the borrower continues from the 1003. [Hosted lead document rehearsal](demo-rehearsal-log.md#hosted-lead-document-conversion)
+
+Before handling real files, validate recipient identity, authorized delivery, scanning, and retirement of all affected grants during snapshot recovery. Earlier PDFs without a recorded mock upload mode require a new sample upload to qualify for lender sharing.
 
 ### F15 — Non-delegated pricing and registry
 
