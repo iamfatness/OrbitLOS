@@ -1567,6 +1567,14 @@ try {
     assert.equal(staffRequests.find(({ id }) => id === co.id).recipient, "Co-borrower");
   });
   await stage("A fictional lender downloads only the exact reviewed MISMO and approved sample PDF", async () => {
+    const publicPage = await runtime.dispatchFetch(`${origin}/lender-package`);
+    assert.equal(publicPage.status, 200);
+    assert.equal(publicPage.headers.get("Referrer-Policy"), "no-referrer");
+    const initialPage = await publicPage.text();
+    assert.match(initialPage, /<form\b[^>]*method="post"/);
+    const codeField = initialPage.match(/<input\b[^>]*type="password"[^>]*>/)?.[0];
+    assert.match(codeField, /\bdisabled/);
+    assert.doesNotMatch(codeField, /\bname=/);
     const { loanId, primaryToken } = jointFile;
     const current = await file(officer, loanId);
     const [application] = current.applications;

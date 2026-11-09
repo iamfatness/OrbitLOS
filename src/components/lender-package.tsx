@@ -1,13 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { lenderPackageFilename, lenderPackageUnavailable, type LenderPackageManifest, type SharedLenderPackageInput } from "@/lib/lender-handoff-share-model";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
+const subscribe = () => () => {};
+
 export function LenderPackage() {
+  const ready = useSyncExternalStore(subscribe, () => true, () => false);
   const [opened, setOpened] = useState<{ manifest: LenderPackageManifest; token: string; code: string }>();
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -58,17 +62,17 @@ export function LenderPackage() {
             }}>Download {file.slot === 0 ? "XML" : "PDF"}</Button>
           </div>
         </li>)}</ul>
-      </> : <form className="record-form" onSubmit={(event) => {
+      </> : <form method="post" className="record-form" onSubmit={(event) => {
         event.preventDefault();
         const token = window.location.hash.slice(1);
-        const code = String(new FormData(event.currentTarget).get("code") ?? "").trim();
         if (!token) return setError(lenderPackageUnavailable);
-        void request({ type: "read", token, code });
+        void request({ type: "read", token, code: code.trim() });
       }}>
         <p className="muted">Enter the code you received separately from this link.</p>
-        <label className="field">Lender access code<input type="password" name="code" autoComplete="off" autoCapitalize="none" spellCheck={false}
-          minLength={24} maxLength={24} pattern="[A-Fa-f0-9]{24}" required disabled={busy} /></label>
-        <div><Button type="submit" disabled={busy}>{busy ? "Opening package…" : "Open package"}</Button></div>
+        <label className="field">Lender access code<input type="password" autoComplete="off" autoCapitalize="none" spellCheck={false}
+          minLength={24} maxLength={24} pattern="[A-Fa-f0-9]{24}" required disabled={busy || !ready} value={code}
+          onChange={(event) => setCode(event.target.value)} /></label>
+        <div><Button type="submit" disabled={busy || !ready}>{busy ? "Opening package…" : "Open package"}</Button></div>
       </form>}
     </section>
   </main>;
