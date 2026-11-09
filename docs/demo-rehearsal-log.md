@@ -377,3 +377,7 @@ All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehe
 On Worker `6486b48f-51a2-4b30-9d67-131bd4734203` from `72f8b0c8cbce`, the Guided Demo admin opened Playbooks → Ownership and deadlines → Lead documents. A fictional campaign lead in the shared inbox showed one borrower upload outstanding, one received upload ready for review, and the November 8 deadline. Open lead took the admin to the current ownership field in Lead Inbox. Assign lead cleared the exception and the receiving owner's Today showed both the received pay stub and the overdue bank statement. The same borrower link still showed the received status and original due date. The public Product and Demo pages showed the reassignment flow.
 
 All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. SQLite also covered an unavailable owner, source and campaign filters, the admin permission check, a held lead, a stale assignment, and an idempotent retry with one recovery audit event.
+
+## Timed executive rehearsal and callback note
+
+The [full hosted run](executive-rehearsal.md#november-9-full-rehearsal) took 3:32 from creating the fictional pilot to opening the rate-watch refinance. It ended with all seven guide steps ready. On Worker `91061111-89bd-4316-b458-89fdf6d68d36`, reopening the original callback in the same pilot showed the saved check-in note and unchanged Eastern deadline. The public Product and Demo pages reflected the update.
