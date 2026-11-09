@@ -22,7 +22,7 @@ const { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationCompariso
 const { cutoverReadinessLimit } = await import("../src/lib/migration-cutover-model.ts");
 const { migrationFile, mappedMigrationRows, migrationFileByteLimit } = await import("../src/lib/pipeline-migration-model.ts");
 const { optOutContact, optOutLead, outreachSuppressionKeys, prospectiveOptOutKeys } = await import("../src/lib/outreach-preferences.ts");
-const { campaignCallQueues, campaignOrigin, campaignRehearsalCsv, nextCampaignCallId, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
+const { campaignCallNote, campaignCallQueues, campaignOrigin, campaignRehearsalCsv, nextCampaignCallId, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
 const { recordCampaignCall } = await import("../src/lib/call-campaigns.ts");
 const { campaignOptOutPlans } = await import("../src/lib/campaign-routing.ts");
 const { borrowerCommandResult, startApplication } = await import("../src/lib/applications.ts");
@@ -2148,8 +2148,14 @@ test("rescheduling a campaign callback keeps the original call, task, and owner 
   const originalTime = daysFromNow(1);
   const newTime = daysFromNow(2);
   const logged = await apply({ type: "recordCampaignCall", leadId, campaignId, revision: lead(imported).followUp.revision,
-    outcome: "Requested callback", note: "Borrower asked for a callback.", callbackAt: originalTime }, officer);
+    outcome: "Requested callback", note: "Borrower asked for a callback · confirm the estimate.", callbackAt: originalTime }, officer);
   const taskId = member(logged).callbackTaskId;
+  const request = lead(logged).followUp.events.find(({ kind }) => kind === "Call");
+  const campaignName = logged.state.callCampaigns.find(({ id }) => id === campaignId).name;
+  const promise = { requestEventId: request.id, originalDueAt: originalTime, dueAt: originalTime };
+  assert.deepEqual(member(logged).callbackPromise, promise);
+  assert.equal(campaignCallNote(request, campaignName), "Borrower asked for a callback · confirm the estimate.");
+  assert.equal(campaignCallNote(request, "Renamed imported campaign"), request.text);
   const [exception] = campaignFollowUpWork(logged.state);
   assert.deepEqual({ id: exception.id, campaignId: exception.campaignId, recordId: exception.recordId, title: exception.title,
     dueAt: exception.dueAt, ownerEmail: exception.ownerEmail },
@@ -2163,7 +2169,7 @@ test("rescheduling a campaign callback keeps the original call, task, and owner 
   assert.match((await command({ ...move, callbackAt: daysFromNow(-1) }, officer)).error, /future/);
   assert.match((await command({ ...move, callbackAt: originalTime }, officer)).error, /different/);
   const moved = await apply(move, officer);
-  assert.deepEqual(member(moved), { ...member(logged), callbackDueAt: newTime });
+  assert.deepEqual(member(moved), { ...member(logged), callbackDueAt: newTime, callbackPromise: { ...promise, dueAt: newTime } });
   assert.deepEqual(campaignFollowUpWork(moved.state), [{ ...exception, dueAt: newTime }]);
   assert.equal(lead(moved).followUp.firstContactAt, lead(logged).followUp.firstContactAt);
   assert.equal(lead(moved).followUp.revision, revision + 1);
@@ -2189,11 +2195,15 @@ test("rescheduling a campaign callback keeps the original call, task, and owner 
   assert.ok(lead(optedOut).importedTasks[0].completedAt);
   assert.match((await command({ ...moveAgain, revision: lead(optedOut).followUp.revision, callbackAt: daysFromNow(5) }, another)).error, /unavailable/);
   assert.equal(member(optedOut).attempts, 1);
+  assert.equal(member(optedOut).callbackPromise, undefined);
 
   const reserve = imported.state.inboxLeads.find((item) => item.id !== leadId);
   const retry = await apply({ type: "recordCampaignCall", leadId: reserve.id, campaignId, revision: reserve.followUp.revision,
     outcome: "Left message", note: "", callbackAt: null });
   assert.equal(campaignFollowUpWork(retry.state)[0]?.title, "Campaign call retry");
+  assert.equal(retry.state.callCampaignMembers.find((item) => item.leadId === reserve.id).callbackPromise, undefined);
+  const retryCall = retry.state.inboxLeads.find(({ id }) => id === reserve.id).followUp.events.find(({ kind }) => kind === "Call");
+  assert.equal(campaignCallNote(retryCall, campaignName), "");
   const closed = await apply({ type: "recordCampaignCall", leadId: reserve.id, campaignId,
     revision: retry.state.inboxLeads.find((item) => item.id === reserve.id).followUp.revision,
     outcome: "Connected", note: "", callbackAt: null });
@@ -2475,7 +2485,7 @@ test("numbered CRM batches restore tracked campaign promises, exact call evidenc
   assert.equal(mismatch.status, "Review");
   assert.match(mismatch.detail, /matching campaign task/);
   changeDue.run(scheduled, mappedTask);
-  await commit(batches[1]);
+  const restored = await commit(batches[1]);
   const interrupted = cutover();
   assert.equal(interrupted.byType.callbacks, 2);
   assert.equal(interrupted.callbacks.counts["Needs recovery"], 1);
@@ -2484,6 +2494,11 @@ test("numbered CRM batches restore tracked campaign promises, exact call evidenc
   const importedCampaign = member().campaignId;
   assert.notEqual(importedCampaign, campaignId);
   assert.equal(member().callbackTaskId, mappedTask);
+  const pending = restored.state.callCampaignMembers.find(({ leadId }) => leadId === mappedLead);
+  const pendingEvent = restored.state.inboxLeads.find(({ id }) => id === mappedLead).followUp.events
+    .find(({ id }) => id === pending.callbackPromise.requestEventId);
+  assert.match(pendingEvent.text, /Attempt and replacement promise/);
+  assert.deepEqual([pending.callbackDueAt, pending.callbackPromise.dueAt, pending.callbackPromise.originalDueAt], [scheduled, missedDue, missedDue]);
   const report = () => readCampaignCallbackPerformance(destination.db, { campaignId: importedCampaign }, destination.staff, scope);
   assert.equal(report().counts["On time"], 1);
   assert.equal(report().counts.Overdue, 2);

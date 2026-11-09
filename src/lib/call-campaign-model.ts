@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { readCsv } from "./contact-csv";
-import { leadContactFields } from "./lead-inbox-model";
+import { leadContactFields, type LeadEvent } from "./lead-inbox-model";
 import type { MigrationRow } from "./pipeline-migration-model";
 import type { InboxLead, Loan, Workspace } from "./model";
 import { referralPhone } from "./referral-matches";
@@ -9,6 +9,13 @@ export const callOutcomes = ["Connected", "Left message", "No response", "Reques
 export type CallOutcome = (typeof callOutcomes)[number];
 export function unansweredCampaignCall(outcome: CallOutcome) {
   return outcome === "Left message" || outcome === "No response";
+}
+
+export function campaignCallNote(event: LeadEvent, campaignName: string) {
+  const heading = `${event.outcome} · Call campaign · ${campaignName}`;
+  if (event.text === heading || event.text === event.outcome) return "";
+  const prefix = `${heading} · `;
+  return event.text.startsWith(prefix) ? event.text.slice(prefix.length) : event.text;
 }
 
 export type CampaignLenderPath = "uwm" | "manual";
@@ -99,6 +106,7 @@ export interface CallCampaignMember {
   retryExhaustedAt: string | null;
   callbackTaskId: string | null;
   callbackDueAt: string | null;
+  callbackPromise?: { requestEventId: string; originalDueAt: string; dueAt: string };
   followUpRunStatus: "Failed" | "Paused" | null;
   followUpRun?: { id: string; dueAt: string };
   outreachSuppressed: boolean;

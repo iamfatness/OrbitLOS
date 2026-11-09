@@ -26,7 +26,7 @@ import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
 import { readPlaybook } from "./playbooks";
 import { assignableCampaignLead, defaultCampaignRules, type CallCampaign, type CallCampaignMember, type CampaignLeadOption, type CampaignQueueFile } from "./call-campaign-model";
 import { blockedOutreachKeys, indexPendingContactOutreach, initializeContactOutreachIndex, initializeLeadReplyIndex, initializeRealtorReplyIndex,
-  migrateCampaignOptOuts, outreachIdentityKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
+  migrateCampaignOptOuts, openCallbackPromise, outreachIdentityKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import { initializeContactDuplicateQueue } from "./contact-duplicate-queue";
 import type { CrmSegment } from "./crm-segment-model";
 import { readCampaignRouting } from "./campaign-routing";
@@ -1358,21 +1358,26 @@ function campaignRows(db: Store, campaignId?: string, includeRouting = true, off
 function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: string | string[]) {
   const scope = typeof leadIds === "string" ? "WHERE member.leadId = ?" : leadIds ? "WHERE member.leadId IN (SELECT value FROM json_each(?))" : "";
   return rows<Omit<CallCampaignMember, "outreachSuppressed"> & { email: string; phone: string; contactId: string | null;
-    runId: string | null; runDueAt: string | null }>(db,
+    runId: string | null; runDueAt: string | null; requestEventId: string | null; promisedDueAt: string | null }>(db,
     `SELECT member.campaignId, member.leadId, member.segmentId, segment.name AS segmentName,
       lead.name, lead.resolvedAt, lead.loanId, lead.email, lead.phone, coalesce(loan.contactId, lead.importedContactId) AS contactId,
       member.attempts, member.lastOutcome, member.reachedAt, member.retryExhaustedAt, member.callbackTaskId,
-      CASE WHEN task.completedAt IS NULL THEN task.dueAt END AS callbackDueAt, run.status AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt
+      CASE WHEN task.completedAt IS NULL THEN task.dueAt END AS callbackDueAt,
+      CASE WHEN run.status IN ('Failed', 'Paused') THEN run.status END AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt,
+      CASE WHEN run.status = 'Completed' AND run.outcome = 'Requested callback' AND run.taskId = task.id
+        AND task.completedAt IS NULL AND task.leadId = member.leadId AND lead.resolvedAt IS NULL AND ${openCallbackPromise}
+        THEN run.promiseRequestEventId END AS requestEventId, coalesce(run.promiseDueAt, run.dueAt) AS promisedDueAt
     FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
     LEFT JOIN loans loan ON loan.id = lead.loanId
     LEFT JOIN crm_segments segment ON segment.id = member.segmentId
     LEFT JOIN lead_import_tasks task ON task.id = member.callbackTaskId
     LEFT JOIN campaign_follow_up_runs run ON run.leadId = lead.id AND run.campaignId = member.campaignId AND run.callNumber = member.attempts
-      AND run.outcome = member.lastOutcome AND run.status IN ('Failed', 'Paused')
+      AND run.outcome = member.lastOutcome
     ${scope} ORDER BY member.joinedAt, member.leadId`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []))
-    .map(({ email, phone, contactId, runId, runDueAt, ...member }) => ({ ...member,
-      ...(runId && runDueAt ? { followUpRun: { id: runId, dueAt: runDueAt } } : {}), outreachSuppressed: member.lastOutcome === "Opted out" ||
-      outreachSuppressed(suppression, { email, phone, contactId, leadId: member.leadId }) }));
+    .map(({ email, phone, contactId, runId, runDueAt, requestEventId, promisedDueAt, ...member }) => ({ ...member,
+      ...(member.followUpRunStatus && runId && runDueAt ? { followUpRun: { id: runId, dueAt: runDueAt } } : {}),
+      ...(requestEventId && runDueAt && promisedDueAt ? { callbackPromise: { requestEventId, originalDueAt: runDueAt, dueAt: promisedDueAt } } : {}),
+      outreachSuppressed: member.lastOutcome === "Opted out" || outreachSuppressed(suppression, { email, phone, contactId, leadId: member.leadId }) }));
 }
 
 export function leadContactCandidates(db: Store, lead: Pick<InboxLeadRow, "email" | "phone">) {

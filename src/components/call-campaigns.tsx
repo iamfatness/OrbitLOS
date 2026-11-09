@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Phone, RefreshCw, Upload } from "lucide-react";
 import { demoBrokerageId } from "@/lib/brokerage-model";
-import { assignableCampaignLead, callOutcomes, campaignCallQueues, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
+import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
   type CallCampaign, type CallCampaignMember, type CallOutcome, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { firstContactOverdue } from "@/lib/lead-inbox-model";
@@ -165,9 +165,39 @@ function CampaignApplicationAction({ lead, busy, openLead, convert, focus = fals
   }}>Start 1003</Button>;
 }
 
-function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, busy, overdue, callbackDue, allowDirectAssignment, save, openLead, openConversation, convert, onCallSaved, onClaim }: {
+function CampaignCallContext({ lead, member, campaignName }: { lead: InboxLead; member: CallCampaignMember; campaignName: string }) {
+  const events = lead.followUp.events;
+  const lastCall = events.find(({ kind }) => kind === "Call");
+  const lastNote = lastCall ? campaignCallNote(lastCall, campaignName) : "";
+  const { callbackDueAt, callbackPromise } = member;
+  const request = callbackPromise && events.find(({ id, kind, outcome }) =>
+    id === callbackPromise.requestEventId && kind === "Call" && outcome === "Requested callback");
+  const requestNote = request && request.id !== lastCall?.id ? campaignCallNote(request, campaignName) : "";
+  return <section className="campaign-call-context" aria-label="Call context">
+    {callbackDueAt && <div>
+      <strong>{member.lastOutcome === "Requested callback" ? "Borrower-requested callback" :
+        member.lastOutcome === "Left message" || member.lastOutcome === "No response" ? "Automatic retry" : "Scheduled follow-up"}</strong>
+      <p>Scheduled for <time dateTime={callbackDueAt}>{dateTime(callbackDueAt)} ET</time></p>
+      {callbackPromise && callbackPromise.dueAt !== callbackDueAt &&
+        <p>Promise deadline <time dateTime={callbackPromise.dueAt}>{dateTime(callbackPromise.dueAt)} ET</time></p>}
+      {callbackPromise && callbackPromise.originalDueAt !== callbackDueAt && callbackPromise.originalDueAt !== callbackPromise.dueAt &&
+        <p className="muted">First scheduled for <time dateTime={callbackPromise.originalDueAt}>{dateTime(callbackPromise.originalDueAt)} ET</time></p>}
+      {requestNote && <p>Callback request note · {requestNote}</p>}
+    </div>}
+    <div>
+      <strong>Last logged call</strong>
+      {lastCall ? <>
+        <p className="muted">{lastCall.outcome && `${lastCall.outcome} · `}<time dateTime={lastCall.at}>{dateTime(lastCall.at)} ET</time>
+          {lastCall.actor && ` · ${lastCall.actor}`}</p>
+        {lastNote ? <p>{lastNote}</p> : <p className="muted">No note recorded.</p>}
+      </> : <p className="muted">No previous call recorded.</p>}
+    </div>
+  </section>;
+}
+
+function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, busy, overdue, callbackDue, showCallContext, allowDirectAssignment, save, openLead, openConversation, convert, onCallSaved, onClaim }: {
   member: CallCampaignMember; lead?: InboxLead; campaign: CallCampaign; staff: WorkspaceStaff | null; busy: boolean; save: Save;
-  focused: boolean; focusTaskId?: string; overdue: boolean; callbackDue: boolean; allowDirectAssignment: boolean;
+  focused: boolean; focusTaskId?: string; overdue: boolean; callbackDue: boolean; showCallContext: boolean; allowDirectAssignment: boolean;
   openLead: (id: string) => void; openConversation: (id: string) => void; convert: (id: string) => void;
   onCallSaved: (lead: InboxLead, outcome: CallOutcome, updated: Workspace) => void;
   onClaim: (leadId: string) => void;
@@ -202,7 +232,7 @@ function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, bus
     <p className="muted">{member.attempts} {member.attempts === 1 ? "call" : "calls"} logged{lead && ` · ${lead.officerEmail ? lead.officer : "Shared inbox"}`}
       {lead && (lead.officerEmail || shared) && !lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt && !optedOut && !held &&
         ` · First contact due ${dateTime(lead.dueAt)} ET`}
-      {!member.resolvedAt && !held && member.callbackDueAt && ` · ${dateTime(member.callbackDueAt)} ET`}</p>
+      {!(showCallContext && canWork && !optedOut) && !member.resolvedAt && !held && member.callbackDueAt && ` · ${dateTime(member.callbackDueAt)} ET`}</p>
     {directAssignment && lead && <div className="record-form">
       <div><Button size="sm" variant="outline" disabled={busy} aria-expanded={assigning} onClick={() => setAssigning(!assigning)}>
         {assigning ? "Close assignment" : "Assign this lead"}
@@ -216,6 +246,7 @@ function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, bus
     {lead && !optedOut && !held && <>
       <p>{lead.phone} · {lead.purpose}</p>
       {canWork ? <>
+        {showCallContext && <CampaignCallContext lead={lead} member={member} campaignName={campaign.name} />}
         {member.lastOutcome === "Requested callback" && member.callbackDueAt &&
           <details className="document-form" key={member.callbackDueAt}>
             <summary>Reschedule callback</summary>
@@ -400,6 +431,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     return <CampaignCall key={member.leadId} member={member} lead={lead} campaign={campaign} staff={staff}
       focused={member.leadId === (view === "Next call" ? callLeadId : claimedLeadId ?? focusLeadId)} busy={busy}
       focusTaskId={view !== "Next call" && member.leadId === focusLeadId ? focusTaskId : undefined} overdue={overdueIds.has(member.leadId)} callbackDue={dueCallbackIds.has(member.leadId)}
+      showCallContext={view === "Next call" || (member.leadId === focusLeadId && !!member.callbackDueAt)}
       allowDirectAssignment={canManage && view === "Unassigned"} save={save} openLead={openLead} openConversation={openConversation} convert={convert}
       onClaim={(leadId) => { changeView("Enrolled"); setClaimedLeadId(leadId); }}
       onCallSaved={(lead, outcome, updated) => {
