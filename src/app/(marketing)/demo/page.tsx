@@ -28,7 +28,7 @@ export default function DemoPage() {
           <li>Issue a fictional preapproval PDF from the reviewed purchase 1003. Share the current version separately with the borrower and their realtor.</li>
           <li>Turn a past-client rate-watch follow-up into a refinance 1003 with the confirmed property address. Open both loans from the returning-client report.</li>
           <li>Log borrower or lender follow-up from Today. Managers can find overdue returns without a contact attempt and reassign the file with its activity and revised 1003 intact.</li>
-          <li>See requests and sample PDFs reach open borrower and staff views. Reopen the lender checklist from the guide to review attachments already received.</li>
+          <li>See requests and sample PDFs update in open borrower and staff views across separate browser sessions. Reopen the lender checklist from the guide to review attachments already received.</li>
           <li>Preview a brokerage document checklist with borrower instructions and due dates. Add missing requests and find outstanding items in staff queues.</li>
           <li>Give two borrowers separate links to save and submit their own portions. Review the combined fictional 1003 on one loan.</li>
           <li>Assign document requests to each borrower on a joint loan. Each private checklist shows that person’s evidence and mock upload status.</li>

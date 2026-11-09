@@ -6,7 +6,7 @@ import { BuyerFAQ } from "../buyer-faq";
 export const metadata: Metadata = { title: "Product · OrbitLOS", alternates: { canonical: "https://orbitlos.com/product" }, description: "Explore mortgage CRM, borrower applications, processing, dashboards, financials, and daily team workflows in OrbitLOS." };
 const tools = [
   {icon:ListChecks,title:"Website quote intake",text:"Preview and publish a brokerage quote form. Route eligible requests into a call campaign and carry the website source and form answers into the loan history."},
-  {icon:ListChecks,title:"Document checklists",text:"Reuse brokerage templates with borrower instructions and deadlines. On joint files, each borrower sees their own requests while staff track both in one checklist."},
+  {icon:ListChecks,title:"Document checklists",text:"Reuse brokerage templates with borrower instructions and deadlines. Open borrower and staff checklists update across separate sessions. On joint files, each borrower sees their own requests while staff track both."},
   {icon:ListChecks,title:"Documents before the 1003",text:"Review sample uploads from My Tasks and adjust deadlines from Calendar. Managers can reassign leads with open document requests. Files and review history carry into the loan."},
   {icon:ShieldCheck,title:"Separate joint borrower links",text:"Each borrower saves and submits their own answers. Loan staff review one combined 1003 and can return a portion to its borrower for correction."},
   {icon:ShieldCheck,title:"Paired mock underwriting",text:"Run mock DU and LPA together on the same submitted 1003 and sample credit report. Keep each service’s findings and retry history separate."},

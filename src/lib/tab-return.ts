@@ -71,3 +71,16 @@ export function observeVisibleChecks(
     page.removeEventListener("visibilitychange", visibilityChanged);
   };
 }
+
+export function observeHandoffChecks(
+  page: Parameters<typeof observeTabReturn>[0],
+  windowEvents: Parameters<typeof observeTabReturn>[1] & Parameters<typeof observeVisibleChecks>[1],
+  check: (isCurrent: () => boolean, periodic: boolean) => Promise<void>,
+  mock: boolean,
+) {
+  const stopReturn = observeTabReturn(page, windowEvents, (isCurrent) => {
+    void check(isCurrent, false).catch(() => {});
+  });
+  const stopChecks = observeVisibleChecks(page, windowEvents, (isCurrent) => check(isCurrent, true), mock ? 5_000 : undefined);
+  return () => { stopReturn(); stopChecks(); };
+}

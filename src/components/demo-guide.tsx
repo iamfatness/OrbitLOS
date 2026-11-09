@@ -315,7 +315,7 @@ function mockConditionInstructions(submission: Submission | undefined, requests:
   if (suggested.length === 1) return `Choose Request ${suggested[0].toLowerCase()}. Then open the borrower checklist.`;
   if (missing.length) return "Open the outstanding condition and choose Request borrower document.";
   const waiting = linked.filter(({ status }) => needsBorrowerDocument(status)).length;
-  if (waiting) return "In the borrower tab, choose Refresh status if the requests are still loading. Get and verify the on-screen demo code once, then submit a Clean sample PDF for each request. Back on the loan, choose Refresh requested documents if the samples have not appeared.";
+  if (waiting) return "The borrower checklist checks for requests while open. Verify the on-screen demo code once, then submit a Clean sample PDF for each request. The staff checklist checks for the uploads. Use the refresh controls if needed.";
   if (linked.some(({ status }) => status === "Received")) return "Review each received sample and choose Accept & send to UWM (mock). Wait for the mock delivery receipt before moving to the next document.";
   if (linked.some(({ status, uwmReceipt }) => status === "Accepted" && !uwmReceipt)) return "Send each accepted sample to mock UWM. Retry any delivery marked failed.";
   const delivered = linked.filter(({ uwmReceipt }) => uwmReceipt).length;

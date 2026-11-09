@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { registerHooks } from "node:module";
-import { observeTabReturn, observeVisibleChecks } from "../src/lib/tab-return.ts";
+import { observeHandoffChecks, observeTabReturn, observeVisibleChecks } from "../src/lib/tab-return.ts";
 
 registerHooks({ resolve(specifier, context, next) {
   try { return next(specifier, context); }
@@ -117,6 +117,41 @@ test("a focused queue can use a shorter interval that still stops when hidden", 
   assert.equal(interval, 5_000);
   stop();
   assert.equal(interval, undefined);
+});
+
+test("document handoff checks promptly in a visible mock session and refreshes once on return", async () => {
+  for (const mock of [true, false]) {
+    const { page, windowEvents, visibility, focus } = tabs();
+    let scheduled;
+    const timers = Object.assign(windowEvents, {
+      setInterval(tick, delay) {
+        assert.equal(delay, mock ? 5_000 : 15_000);
+        scheduled = tick;
+        return 1;
+      },
+      clearInterval() { scheduled = undefined; },
+    });
+    const reads = [];
+    const stop = observeHandoffChecks(page, timers, async (isCurrent, periodic) => { reads.push({ isCurrent, periodic }); }, mock);
+    assert.equal(reads.length, 0);
+    scheduled();
+    scheduled();
+    assert.deepEqual(reads.map(({ periodic }) => periodic), [true]);
+    visibility(true);
+    focus(false);
+    assert.equal(scheduled, undefined);
+    assert.equal(reads[0].isCurrent(), false);
+    visibility(false);
+    focus(true);
+    assert.deepEqual(reads.map(({ periodic }) => periodic), [true, false]);
+    await Promise.resolve();
+    scheduled();
+    assert.deepEqual(reads.map(({ periodic }) => periodic), [true, false, true]);
+    stop();
+    assert.equal(scheduled, undefined);
+    assert.equal(reads[1].isCurrent(), false);
+    assert.equal(reads[2].isCurrent(), false);
+  }
 });
 
 test("a same-browser notification carries no borrower details and uses a loan-specific channel", { timeout: 3000 }, async (t) => {

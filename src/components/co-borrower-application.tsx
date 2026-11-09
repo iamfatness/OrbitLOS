@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Check, Save } from "lucide-react";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { coBorrowerReviewStep, coBorrowerSections, coBorrowerSubmissionIssues, sampleCoBorrower, type CoBorrowerApplication } from "@/lib/joint-application-model";
-import { observeVisibleChecks } from "@/lib/tab-return";
+import { observeHandoffChecks } from "@/lib/tab-return";
 import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-change-signal";
 import type { DocumentRequest } from "@/lib/document-model";
 import { borrowerDefinition, jointQuestions, type BorrowerDetails } from "@/lib/urla";
@@ -48,6 +48,7 @@ function CoBorrowerForm({ token }: { token?: string }) {
   const requestVersion = useRef(0);
   const submitted = Boolean(view?.submittedAt);
   const awaitingOtherPortion = submitted && !view?.complete;
+  const mockHandoff = view?.documentUploadsMode === "mock";
 
   useEffect(() => {
     if (token === undefined) return;
@@ -60,25 +61,27 @@ function CoBorrowerForm({ token }: { token?: string }) {
 
   useEffect(() => {
     if (!token || !submitted) return;
-    const controller = new AbortController();
-    let refreshing = false;
-    async function refresh(isCurrent: () => boolean) {
-      if (!token) return;
-      if (pending.current || controller.signal.aborted || refreshing) return;
+    let active = true;
+    let reading: AbortController | undefined;
+    async function refresh(isCurrent: () => boolean, periodic = false) {
+      const canRefresh = () => active && isCurrent() && window.location.hash.slice(1) === token;
+      if (!token || !canRefresh() || pending.current || (periodic && reading)) return;
+      reading?.abort();
+      const controller = new AbortController();
+      reading = controller;
       const version = requestVersion.current;
-      refreshing = true;
       try {
         const next = await requestCoBorrower(token, { type: "read" }, controller.signal);
-        if (isCurrent() && !controller.signal.aborted && version === requestVersion.current) {
+        if (canRefresh() && !controller.signal.aborted && version === requestVersion.current) {
           setView((current) => current?.submittedAt ? next : current);
         }
       } catch { /* A manual refresh shows any link error. */ }
-      finally { refreshing = false; }
+      finally { if (reading === controller) reading = undefined; }
     }
-    const stop = observeVisibleChecks(document, window, refresh);
-    const stopChanges = observeBorrowerChange(token, "checklist-changed", () => void refresh(() => !controller.signal.aborted));
-    return () => { stop(); stopChanges(); controller.abort(); };
-  }, [submitted, token]);
+    const stop = observeHandoffChecks(document, window, refresh, mockHandoff);
+    const stopChanges = observeBorrowerChange(token, "checklist-changed", () => void refresh(() => active));
+    return () => { active = false; stop(); stopChanges(); reading?.abort(); };
+  }, [mockHandoff, submitted, token]);
 
   async function perform(input: CoBorrowerAction, success: string, move = false) {
     if (!token || pending.current) return;

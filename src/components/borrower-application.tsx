@@ -6,7 +6,7 @@ import { applicationIssues, applicationSteps, sampleApplication, type BorrowerAp
 import type { DocumentRequest } from "@/lib/document-model";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-change-signal";
-import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
+import { observeHandoffChecks } from "@/lib/tab-return";
 import { primaryJointDraft } from "@/lib/joint-application-model";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
@@ -23,7 +23,7 @@ type BorrowerAction = { type: "save" | "submit"; step: number; revision: number;
 function applicationView(application: BorrowerApplication): ApplicationView {
   const { submittedAt, loanStatus, documentUploadsMode } = application;
   if (submittedAt && loanStatus) return { kind: "status", submittedAt, loanStatus, documentUploadsMode };
-  if (submittedAt && application.separateJoint) return { kind: "joint-waiting", submittedAt };
+  if (submittedAt && application.separateJoint) return { kind: "joint-waiting", submittedAt, documentUploadsMode };
   return application;
 }
 
@@ -72,6 +72,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
   const application = view && !("kind" in view) ? view : null;
   const submitted = !!view && "kind" in view;
   const jointWaiting = submitted && view.kind === "joint-waiting";
+  const mockHandoff = view?.documentUploadsMode === "mock";
 
   useEffect(() => {
     if (token === null) return;
@@ -113,18 +114,16 @@ function BorrowerApplication({ token }: { token: string | null }) {
         if (statusRead.current === controller) statusRead.current = null;
       }
     }
-    const stopReturn = observeTabReturn(document, window, (isCurrent) => void refreshStatus(isCurrent));
     const stopChanges = observeBorrowerChange(token, "checklist-changed", () => void refreshStatus(() => active));
-    const stopChecks = observeVisibleChecks(document, window, (isCurrent) => refreshStatus(isCurrent, true));
+    const stopChecks = observeHandoffChecks(document, window, refreshStatus, mockHandoff);
     return () => {
       active = false;
       statusRead.current?.abort();
       queuedStatusRead.current = null;
-      stopReturn();
       stopChanges();
       stopChecks();
     };
-  }, [submitted, token]);
+  }, [mockHandoff, submitted, token]);
 
   async function perform(input: BorrowerAction, onSuccess: (next: ApplicationView) => void) {
     if (!token || pending.current) return;

@@ -81,7 +81,9 @@ export function BorrowerDocumentChecklist({ token, documents, busy, refresh, att
       {uploadsMode && waiting > 0 && !pdf.session && <BorrowerPdfVerification pdf={pdf} busy={busy} demo={demo} />}
       {pdf.error && <p role="alert" className="application-message banner-error">{pdf.error}</p>}
       {pdf.notice && <p role="status" className="muted">{pdf.notice}</p>}
-      {documents.length > 0 && <p className="document-counts">{waiting} to attach · {received} in review · {documents.length - waiting - received} accepted</p>}
+      <p role="status" className={documents.length ? "document-counts" : "muted"}>{documents.length
+        ? `${waiting} to attach · ${received} in review · ${documents.length - waiting - received} accepted`
+        : "New document requests will appear here."}</p>
       {documents.length ? <ul className="document-list">{documents.map((request) =>
         <li className="document-item" key={request.id}>
           <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
@@ -89,7 +91,7 @@ export function BorrowerDocumentChecklist({ token, documents, busy, refresh, att
           {request.status === "Needs replacement" && <p><strong>From your loan team</strong> · {request.replacementNote}</p>}
           {request.dueOn && needsBorrowerDocument(request.status) && <p><strong>Due <time dateTime={request.dueOn}>{dateLabel(request.dueOn)}</time></strong></p>}
           {uploadsMode !== "live" && !request.pdfUploadedAt && <SampleDocument kind={request.kind} />}
-          {(pdf.processing === request.id || request.pdfStatus === "Processing") && <p role="status">PDF is processing. Refresh status to check for updates.</p>}
+          {(pdf.processing === request.id || request.pdfStatus === "Processing") && <p role="status">PDF is processing. This checklist checks for updates automatically.</p>}
           {request.pdfStatus === "Retry" && <p className="muted">The last PDF upload needs a retry.</p>}
           {needsBorrowerDocument(request.status) ? <>
             {uploadsMode && pdf.session && request.pdfStatus !== "Processing" && <BorrowerPdfForm key={request.revision} pdf={pdf} request={request} busy={busy} demo={demo} />}
@@ -98,6 +100,6 @@ export function BorrowerDocumentChecklist({ token, documents, busy, refresh, att
             </Button>}
           </> : request.submittedAt && <small className="muted">{request.pdfUploadedAt ? (demo ? "Demo PDF received" : "PDF received") : "Sample attached"} {dateTime(request.submittedAt)} ET</small>}
         </li>
-      )}</ul> : <p className="muted">No documents requested.</p>}
+      )}</ul> : null}
   </section>;
 }
