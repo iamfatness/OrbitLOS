@@ -45,7 +45,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | Group | Release baseline | Next evidence |
 | --- | --- | --- |
 | F01 | Hosted paired mock DU/LPA with separate findings and retry history, tied to the submitted 1003 and authorized sample credit | Verify borrower selection, real consent evidence, service contracts, and reconciliation before any provider order. |
-| F02 | 1003 income answers and mock statement inputs | Review a documented income calculation against its source periods and evidence. |
+| F02 | Hosted income worksheet with source periods, adjustments, exact accepted evidence, and reviewed income in mock pricing | Verify approved calculation policies and supported evidence before using real files. |
 | F03 | Hosted mock UWM intake and conditions, manual MISMO export and sample packages, acknowledgment and returns | Define verified lender capabilities and reconcile delayed, rejected, and repeated updates. |
 | F04 | Hosted versioned checklist templates with loan purpose, instructions and due dates, plus the existing request, mock-scanned PDF, replacement and clearance workflow | Verify additional checklist criteria and categories, and production scan and delivery contracts. |
 | F05 | Staff can track disclosure status on the closing file | Specify a versioned package and signer lifecycle with mock evidence before selecting providers. |
@@ -80,7 +80,9 @@ Live ordering still needs borrower selection and consent evidence, vendor access
 
 ### F02 — Reviewed income analysis
 
-Status: application income fields and sample non-agency calculations are a foundation, not a complete analyzer. Processor assembles income sources, periods and supporting document revisions; the LO reviews inclusions, exclusions and adjustments. Store calculation inputs, method/version, monthly result, rationale, reviewer and unresolved evidence. Initial scope covers agreed wage and self-employment cases, with unsupported methods clearly identified. Acceptance: independently calculated fixtures reconcile, missing periods block completion, replacing evidence invalidates review, and only a reviewed result is carried into qualification. Product/qualified mortgage review determines methods before implementation; no invented underwriting rules. Increments 2–3.
+An assigned processor can prepare a sample worksheet for the primary or separately linked co-borrower. The worksheet records dates, amounts, inclusions and exclusions, adjustments, and accepted evidence revisions. Missing source periods block review. Staff enter the arithmetic basis and rationale, and the LO or admin records approval against the current reviewed 1003. Conventional mock pricing records the worksheet revision and amount. Changes to the 1003, evidence, or worksheet block reuse of the earlier quote while preserving history. [Hosted income worksheet rehearsal](demo-rehearsal-log.md#hosted-reviewed-income-worksheet)
+
+The demonstrated methods cover staff-entered monthly amounts, totals over a specified number of months, and gross amounts per pay period. Underwriting eligibility, calculation policies, additional borrower structures, and live pricing still need qualified review and provider validation.
 
 ### F03 — Lender submission and updates
 
