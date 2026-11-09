@@ -51,10 +51,10 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     handoffs.set(loanId, handoff);
   }
   return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved,
-    CASE WHEN app.submittedAt IS NULL THEN trim(coalesce(json_extract(app.draft, '$.propertyAddress'), '')) <> '' ELSE 0 END AS draftHasPropertyStreet,
     ${lastManualLenderSubmission} AS lastManualSubmissionId
     FROM applications app${filter}`).all(...args).map((value) => {
-    const row = value as ApplicationRow & { secondReviewApproved: number; draftHasPropertyStreet: number; lastManualSubmissionId: string | null };
+    const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null };
+    const draft = JSON.parse(row.draft);
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
       ORDER BY reviewedAt IS NOT NULL DESC, revision DESC LIMIT 1`).get(row.loanId, row.revision);
     const versions = db.prepare("SELECT revision, submittedAt, reviewedAt, uwmReceipt, uwmSentAt FROM application_versions WHERE loanId = ? ORDER BY revision DESC")
@@ -69,8 +69,9 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, secondReviewApproved: Boolean(row.secondReviewApproved), uwmReference: row.uwmReference,
-      draft: row.submittedAt ? applicationDraft.parse(JSON.parse(row.draft)) : null,
-      ...(row.draftHasPropertyStreet ? { draftHasPropertyStreet: true } : {}),
+      draft: row.submittedAt ? applicationDraft.parse(draft) : null,
+      ...(!row.submittedAt && typeof draft?.propertyAddress === "string" && draft.propertyAddress.trim()
+        ? { draftHasPropertyStreet: true } : {}),
       lender: lender.get(row.loanId) ?? null,
       manualHandoff,
       ...(typeof lastManualSubmissionId === "string" ? { lastManualSubmissionId } : {}),
