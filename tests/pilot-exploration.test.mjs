@@ -59,6 +59,13 @@ test('the shared demo supports examples while a one-person workspace never fabri
  assert.equal(db.prepare('SELECT count(*) AS n FROM loan_reviews').get().n,0);
  assert.equal(db.prepare('SELECT count(*) AS n FROM loans WHERE officerEmail=?').get(actor.email).n,8);
 });
+
+test('different officers can load their own examples in the same workspace',t=>{
+ const {db,admin,officer,processor,members,seed}=fixture(t);
+ assert.ok(seed().message);
+ assert.ok(loadExplorationExamples(db,admin,{type:'loadPilotExploration',officerEmail:admin.email,processorEmail:processor.email},members).message);
+ for (const email of [admin.email,officer.email]) assert.equal(db.prepare('SELECT count(*) AS n FROM loans WHERE officerEmail=?').get(email).n,8);
+});
 test('repeat loading refreshes dates without duplicating, reopening, or overwriting edited examples',t=>{
  const {db,seed}=fixture(t);assert.ok(seed().message);
  const tasks=db.prepare('SELECT * FROM tasks ORDER BY id').all();const appointments=db.prepare('SELECT * FROM loan_appointments ORDER BY id').all();

@@ -159,7 +159,11 @@ export function loadExplorationExamples(db: Store, staff: WorkspaceStaff, input:
       return { id, contactId };
     });
     const campaignId = crypto.randomUUID();
-    db.prepare("INSERT INTO call_campaigns (id, name, createdAt) VALUES (?, 'Purchase follow-ups · Demo', ?)").run(campaignId, now);
+    const campaignBase = "Purchase follow-ups · Demo";
+    let campaignName = campaignBase;
+    let campaignNumber = 1;
+    while (db.prepare("SELECT 1 FROM call_campaigns WHERE name = ?").get(campaignName)) campaignName = `${campaignBase} ${++campaignNumber}`;
+    db.prepare("INSERT INTO call_campaigns (id, name, createdAt) VALUES (?, ?, ?)").run(campaignId, campaignName, now);
     for (const [i, name] of ["Amelia Davis", "Noah Bennett", "Charlotte Kim", "Liam Thompson", "Avery Williams", "Elijah Robinson"].entries()) {
       const id = crypto.randomUUID();
       db.prepare("INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt) VALUES (?, ?, ?, ?, ?, ?, 'Purchase', ?, ?, ?, ?)")
