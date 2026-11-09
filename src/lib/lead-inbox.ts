@@ -220,7 +220,8 @@ export function assignRoutedCampaignLead(db: Store, staff: WorkspaceStaff | null
 
 export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: InboxAction, members: LeadOwner[], now: string,
   { campaignCall = false, coveredOwnerEmail, verifiedRealtorClaim = false, shareOnReactivation = false }:
-    { campaignCall?: boolean; coveredOwnerEmail?: string; verifiedRealtorClaim?: boolean; shareOnReactivation?: boolean } = {}): Outcome & { eventId?: string } {
+    { campaignCall?: boolean; coveredOwnerEmail?: string; verifiedRealtorClaim?: boolean; shareOnReactivation?: boolean } = {}):
+  (Outcome & { eventId?: string }) | { error: string; claimConflict: true } {
   const callbackPromiseId = data.type === "assignInboxLead" ? data.callbackPromiseId : undefined;
   const documentRecovery = data.type === "assignInboxLead" && data.documentRecovery;
   if (documentRecovery && (staff?.brokerage.role !== "Admin" || !staff.brokerage.pilot || callbackPromiseId)) {
@@ -235,12 +236,13 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
   const lead = db.prepare("SELECT officerEmail, realtorId, resolvedAt, heldAt, email, phone, importedContactId AS contactId FROM referral_leads WHERE id = ?").get(data.leadId);
   if (!lead || lead.resolvedAt || staff?.brokerage.role === "Processor") return { error: "This lead is no longer available." };
   const isOfficer = staff?.brokerage.role === "LO";
+  const selfClaim = data.type === "assignInboxLead" && data.previousEmail === null && data.email === staff?.email;
+  const claimConflict = { error: "This lead already has an owner.", claimConflict: true as const };
   const mayClaim = isOfficer && (lead.realtorId === null || verifiedRealtorClaim) && lead.officerEmail === null &&
     data.type === "assignInboxLead" && data.email === staff.email;
   const mayCover = campaignCall && data.type === "leadContact" && Boolean(coveredOwnerEmail) && lead.officerEmail === coveredOwnerEmail;
   if (isOfficer && lead.officerEmail !== staff.email && !mayClaim && !mayCover) {
-    return { error: lead.officerEmail && data.type === "assignInboxLead" && data.previousEmail === null && data.email === staff.email
-      ? "This lead already has an owner. Refresh the queue before claiming." : "This lead is outside your assigned work." };
+    return lead.officerEmail && selfClaim ? claimConflict : { error: "This lead is outside your assigned work." };
   }
   const actor = staff?.name || "Demo workspace";
   const campaign = db.prepare("SELECT lastOutcome FROM call_campaign_members WHERE leadId = ?").get(data.leadId);
@@ -258,7 +260,9 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
       return { error: "This lead document exception changed. Refresh the manager queue before assigning." };
     }
     if (lead.officerEmail === data.email) return { message: "Lead assignment is up to date." };
-    if (lead.officerEmail !== data.previousEmail) return { error: "The owner changed. Refresh the inbox before assigning." };
+    if (lead.officerEmail !== data.previousEmail) {
+      return selfClaim ? claimConflict : { error: "The owner changed. Refresh the inbox before assigning." };
+    }
     const campaignEligible = Boolean(campaign) && !suppressed();
     if (mayClaim && campaign && (lead.heldAt || !campaignEligible)) {
       return { error: "This campaign lead is no longer available to claim. Refresh the queue." };

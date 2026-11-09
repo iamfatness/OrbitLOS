@@ -297,6 +297,7 @@ const command = z.discriminatedUnion("type", [
 ]);
 
 class WorkspaceError extends Error {}
+class LeadClaimConflict extends WorkspaceError {}
 
 function addDocumentRequest(db: Store, loanId: string, kind: DocumentKind, instructions: string, now: string,
   source?: { submissionId: string; conditionId: string }, dueOn: string | null = null, recipient: DocumentRecipient = primaryDocumentRecipient) {
@@ -478,7 +479,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     reviewRouting?: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null }; campaignRefillRoster?: CampaignRefillRoster; campaignOptOutRoster?: CampaignOptOutRoster } = {}):
   Promise<WorkspaceMutationSuccess | LeadMutationResult | CampaignMutationResult | CampaignNavigationResult | CampaignQueueResult | LoanMutationResult |
     ContactMutationResult | LeadInboxMutation | TaskMutationResult | TemplateMutationResult | RealtorMutationResult | PlaybookSettingsMutation |
-    MigrationMutationResult | { error: string }> {
+    MigrationMutationResult | { error: string; claimConflict?: true }> {
   const parsed = command.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message || "Check the form and try again." };
   const data = parsed.data;
@@ -1082,6 +1083,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "leadContact": {
           const shareOnReactivation = data.type === "leadHold" && data.action === "Reactivate" && returnCampaignLeadToShared(db, staff, data.leadId, "hold");
           const result = updateInboxLead(db, staff, data, leadMembers, now, { shareOnReactivation });
+          if ("claimConflict" in result) throw new LeadClaimConflict(result.error);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;
@@ -2018,6 +2020,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         applicationLoanId, migration, segmentPreview, mismoXml, mismoDuplicateLoanId, loanAudit };
     });
   } catch (error) {
+    if (error instanceof LeadClaimConflict) return { error: error.message, claimConflict: true };
     if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };
     if (data.type === "runPricing") return { error: "Pricing could not be completed. Try again." };
     console.error("Orbit mutation failed", error);

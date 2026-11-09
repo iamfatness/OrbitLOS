@@ -167,7 +167,7 @@ try {
       return result;
     };
     const reviewed = await migrate(input);
-    assert.ok(reviewed.migration.rows.every(({ status }) => status !== "Review"));
+    assert.deepEqual(reviewed.migration.rows.filter(({ status }) => status === "Review").map(({ detail }) => detail), []);
     return (await migrate({ ...input, preview: reviewed.migration.fingerprint })).migration;
   }
 
@@ -303,7 +303,12 @@ try {
     const winnerIndex = results.findIndex(({ inboxChanged }) => inboxChanged);
     const winner = contenders[winnerIndex];
     const loser = contenders[1 - winnerIndex];
-    assert.match(results[1 - winnerIndex].error, /already has an owner/i);
+    assert.deepEqual(results[1 - winnerIndex], { error: "This lead already has an owner.", claimConflict: true });
+    const refreshed = (await write(loser, { type: "openCampaigns", campaignId, loadIntake: false })).campaignNavigation.queue;
+    assert.ok(!refreshed.inboxLeads.some(({ id }) => id === shared.id));
+    assert.ok(!refreshed.members.some(({ leadId }) => leadId === shared.id));
+    const loserInbox = await action(loser, "readInboxWork", { type: "list", view: "Unassigned" });
+    assert.ok(!loserInbox.leads.some(({ id }) => id === shared.id));
     assert.equal(results[winnerIndex].state, undefined);
     const { lead: claimed } = await action(winner, "readInboxWork", { type: "open", id: shared.id });
     assert.equal(claimed.officerEmail, winner.email);
@@ -1931,6 +1936,47 @@ try {
     assert.equal(existing.mismoDuplicateLoanId, created.applicationLoanId, existing.error);
     assert.equal(existing.migrationChanged, false);
     assert.equal(existing.state, undefined);
+  });
+  await stage("The winning shared-queue claimant keeps the same callback when starting the 1003", async () => {
+    const claimCampaignId = randomUUID();
+    const name = "Fictional Shared Callback";
+    const email = "shared-callback@example.test";
+    const zip = "48304";
+    await write(owner, { type: "createCallCampaign", id: claimCampaignId, name: "Fictional shared callback QA" });
+    const rows = parseCampaignLeadCsv(`id,name,email,phone,purpose,zip\nshared-callback,${name},${email},313-555-0197,Purchase,${zip}`, dueAt);
+    const imported = await importRows({ type: "migratePipeline", origin: campaignOrigin(claimCampaignId), campaignId: claimCampaignId, decisions: {}, rows });
+    const leadId = imported.rows[0].targetId;
+    const refresh = async (staff) => (await write(staff, { type: "refreshCampaignQueue", campaignId: claimCampaignId })).campaignQueue;
+    const actors = [officer, competingOfficer];
+    const initial = await Promise.all(actors.map(refresh));
+    assert.ok(initial.every(({ inboxLeads }) => inboxLeads.some(({ id, officerEmail }) => id === leadId && officerEmail === null)));
+    const claims = await Promise.all(actors.map((staff) =>
+      action(staff, "mutate", { type: "assignInboxLead", leadId, email: staff.email, previousEmail: null })));
+    const winner = actors[claims.findIndex(({ leadWork }) => leadWork?.lead.id === leadId)];
+    const loser = actors.find((staff) => staff !== winner);
+    assert.ok(winner);
+    assert.equal(claims.filter(({ claimConflict }) => claimConflict).length, 1);
+    const reconciled = (await write(loser, { type: "openCampaigns", campaignId: claimCampaignId, loadIntake: false })).campaignNavigation;
+    assert.ok(!reconciled.campaigns.some(({ id }) => id === claimCampaignId));
+    assert.ok(!reconciled.queue?.inboxLeads.some(({ id }) => id === leadId));
+    const lead = (await refresh(winner)).inboxLeads.find(({ id }) => id === leadId);
+    const callbackAt = new Date(now + 7 * 86_400_000).toISOString();
+    const logged = await write(winner, { type: "recordCampaignCall", campaignId: claimCampaignId, leadId,
+      revision: lead.followUp.revision, outcome: "Requested callback", note: "Fictional borrower requested this time.", callbackAt });
+    const taskId = logged.leadWork.member.callbackTaskId;
+    const personal = async (staff) => (await upcomingCallbacks(staff)).items.find((item) => item.taskId === taskId);
+    const before = await personal(winner);
+    assert.equal(before.dueAt, callbackAt);
+    const { referralLoanId: loanId } = await write(winner, { type: "convertReferral", referralId: leadId, contactId: null });
+    const converted = await file(winner, loanId);
+    assert.equal(converted.loans[0].officerEmail, winner.email);
+    const application = await borrower(converted.applications[0].token, { type: "read" });
+    assert.equal(application.draft.borrowerName, name);
+    assert.equal(application.draft.email, email);
+    assert.equal(application.draft.propertyLocation.zip, zip);
+    assert.deepEqual(await personal(winner), { ...before, loanId });
+    assert.equal(await personal(loser), undefined);
+    assert.ok((await action(loser, "readLoanForWork", loanId)).error);
   });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],

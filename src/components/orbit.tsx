@@ -362,6 +362,17 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       const result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
       if ("error" in result) {
         setError(result.error);
+        if ("claimConflict" in result && result.claimConflict) {
+          if (section === "Lead Inbox") setState((current) => ({ ...current }));
+          if (section === "Call Campaigns" && selectedCampaignId) {
+            const refreshed = await mutate({ type: "openCampaigns", campaignId: selectedCampaignId, loadIntake: false },
+              staff?.brokerage.id ?? demoBrokerageId).catch(() => null);
+            if (refreshed && "campaignNavigation" in refreshed) {
+              setState((current) => applyCampaignNavigation(current, refreshed.campaignNavigation));
+              setSelectedCampaignId((current) => current === selectedCampaignId ? refreshed.campaignNavigation.queue?.campaignId ?? "" : current);
+            } else setError(`${result.error} Use Refresh queue to check for other leads.`);
+          }
+        }
         return;
       }
       if ("campaignNavigation" in result) {

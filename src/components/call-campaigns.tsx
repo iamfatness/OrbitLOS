@@ -145,10 +145,11 @@ function CampaignImport({ campaign, staff, busy, save, rehearsal }: {
 
 function canStartCampaignApplication(member: CallCampaignMember, lead: InboxLead | undefined, staff: WorkspaceStaff | null): lead is InboxLead {
   return !!lead && (!staff || (!!lead.officerEmail && (staff.brokerage.role === "Admin" || lead.officerEmail === staff.email))) &&
-    member.lastOutcome === "Connected" && !member.resolvedAt && !member.loanId && !member.outreachSuppressed && !lead.heldAt && !lead.outreachSuppressed;
+    (member.lastOutcome === "Connected" || member.lastOutcome === "Requested callback") &&
+    !member.resolvedAt && !member.loanId && !member.outreachSuppressed && !lead.heldAt && !lead.outreachSuppressed;
 }
 
-const connectedCallNotice = "campaign-connected-call-notice";
+const applicationCallNotice = "campaign-application-call-notice";
 
 function CampaignApplicationAction({ lead, busy, openLead, convert, focus = false }: {
   lead: InboxLead; busy: boolean; openLead: (id: string) => void; convert: (id: string) => void; focus?: boolean;
@@ -161,7 +162,7 @@ function CampaignApplicationAction({ lead, busy, openLead, convert, focus = fals
     action.current.focus({ preventScroll: true });
     action.current.scrollIntoView({ block: "center" });
   }, [focus, busy]);
-  return <Button ref={action} size="sm" disabled={busy} aria-describedby={focus ? connectedCallNotice : undefined} onClick={() => {
+  return <Button ref={action} size="sm" disabled={busy} aria-describedby={focus ? applicationCallNotice : undefined} onClick={() => {
     if (!lead.importedContactId && (lead.matches.length || lead.restrictedMatch)) openLead(lead.id);
     else convert(lead.id);
   }}>Start 1003</Button>;
@@ -311,7 +312,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   openCallback: (item: CampaignCallbackItem) => void;
 }) {
   const [view, setView] = useState<(typeof views)[number]>("Enrolled");
-  const [connected, setConnected] = useState<CallContinuation>();
+  const [applicationCall, setApplicationCall] = useState<CallContinuation>();
   const [savedCall, setSavedCall] = useState<CallContinuation & { callEventId: string }>();
   const [segmentFilter, setSegmentFilter] = useState("");
   const [importOpen, setImportOpen] = useState(state.campaignRehearsal?.campaignId === selectedId && state.campaignRehearsal.importedCount < 2);
@@ -384,8 +385,9 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   const continuationFor = (call?: CallContinuation) => call && call.campaignId === campaign?.id && call.view === view && call.segmentId === segmentId &&
     !visible.some(({ member }) => member.leadId === call.leadId)
     ? records.find(({ member, lead }) => member.leadId === call.leadId && lead?.officerEmail === call.ownerEmail) : undefined;
-  const continuation = continuationFor(connected);
-  const connectedLead = continuation && canStartCampaignApplication(continuation.member, continuation.lead, staff) ? continuation.lead : undefined;
+  const continuation = continuationFor(applicationCall);
+  const applicationLead = continuation && canStartCampaignApplication(continuation.member, continuation.lead, staff) ? continuation.lead : undefined;
+  const scheduledApplicationCall = continuation?.member.lastOutcome === "Requested callback";
   const followUpRecord = continuationFor(savedCall);
   const followUpLead = followUpRecord?.lead;
   const followUp = followUpRecord && followUpLead && (!staff || (staff.brokerage.pilot && (staff.brokerage.role === "Admin" || staff.email === followUpLead.officerEmail)))
@@ -420,7 +422,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
 
   function changeView(next: typeof view) {
     if (next !== view) {
-      setConnected(undefined);
+      setApplicationCall(undefined);
       setSavedCall(undefined);
     }
     setClaimedLeadId(undefined);
@@ -431,7 +433,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
 
   function changeCampaign(id: string, alreadyLoaded = false) {
     select(id, alreadyLoaded);
-    setConnected(undefined);
+    setApplicationCall(undefined);
     setSavedCall(undefined);
     setClaimedLeadId(undefined);
     setCallLeadId(undefined);
@@ -453,7 +455,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
       onClaim={(leadId) => { changeView("Enrolled"); setClaimedLeadId(leadId); }}
       onCallSaved={(lead, outcome, updated) => {
         const anchor = { leadId: lead.id, campaignId: member.campaignId, ownerEmail: lead.officerEmail, view, segmentId };
-        if (outcome === "Connected") setConnected(anchor);
+        if (outcome === "Connected" || outcome === "Requested callback") setApplicationCall(anchor);
         const call = updated.inboxLeads.find(({ id }) => id === lead.id)?.followUp.events.find(({ kind }) => kind === "Call");
         setSavedCall(call && { ...anchor, callEventId: call.id });
         if (view === "Next call") selectNextCall(updated, lead.id);
@@ -469,7 +471,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         {callbacksOpen && <PersonalCampaignCallbacks key={staff.email} brokerageId={staff.brokerage.id} version={state} busy={busy}
           openCallback={(item) => {
             if (!item.loanId) {
-              setConnected(undefined);
+              setApplicationCall(undefined);
               setSavedCall(undefined);
               setView("Enrolled");
               setSegmentFilter("");
@@ -570,12 +572,13 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         {view === "Unassigned" && <p className="muted">Claim or assign a shared lead before calling. Existing callback times stay with the lead.</p>}
         {view === "Retry limit reached" && <p className="muted">These leads keep their owner and call history. They no longer use an automatic routing slot, and you can still log a new call or a requested callback.</p>}
         {view === "Next call" && <p className="muted">Work your assigned leads one at a time. Due callbacks and retries go before first calls.</p>}
-        {connectedLead && <div className="document-item" key={connectedLead.id}>
-          <div className="document-item-head"><strong id={connectedCallNotice}>Connected with {connectedLead.name}</strong><span className="pill">Call logged</span></div>
-          <div><CampaignApplicationAction lead={connectedLead} busy={busy} openLead={openLead} convert={convert} focus={view !== "Next call" || !nextCall} /></div>
-          {followUpLead?.id === connectedLead.id && followUpDraft}
+        {applicationLead && <div className="document-item" key={applicationLead.id}>
+          <div className="document-item-head"><strong id={applicationCallNotice}>{scheduledApplicationCall ? "Callback scheduled for" : "Connected with"} {applicationLead.name}</strong><span className="pill">Call logged</span></div>
+          {scheduledApplicationCall && <p className="muted">The scheduled callback will follow the loan if you start the 1003 now.</p>}
+          <div><CampaignApplicationAction lead={applicationLead} busy={busy} openLead={openLead} convert={convert} focus={view !== "Next call" || !nextCall} /></div>
+          {followUpLead?.id === applicationLead.id && followUpDraft}
         </div>}
-        {followUpDraft && followUpLead?.id !== connectedLead?.id && <div className="document-item">
+        {followUpDraft && followUpLead?.id !== applicationLead?.id && <div className="document-item">
           <div className="document-item-head"><strong>Follow up with {followUpLead?.name}</strong><span className="pill">Call logged</span></div>
           {followUpDraft}
         </div>}
