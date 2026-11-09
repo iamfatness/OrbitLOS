@@ -86,12 +86,19 @@ test("retention saves return the authorized loan with its follow-up, and repeat 
   assert.ok((await write(officer, save)).error);
   assert.equal(read(officer, "Rate watchlist").rows[0].reached, true);
 
+  const address = "400 Demo Way, Bloomfield Hills, MI 48304";
+  db.prepare("UPDATE loans SET address = ? WHERE id = ?").run(address, id);
   const start = { type: "startReturningClient1003", loanId: id, purpose: "Refinance" };
-  const created = await write(officer, start);
+  assert.match((await write(officer, { ...start, confirmedPropertyAddress: "Former property" })).error, /property address changed/);
+  assert.match((await write(officer, { ...start, purpose: "Purchase", confirmedPropertyAddress: address })).error, /Choose Refinance/);
+  const created = await write(officer, { ...start, confirmedPropertyAddress: address });
   assert.equal(created.state, undefined);
   assert.notEqual(created.applicationLoanId, id);
   assert.equal(created.loanWork.loans[0].id, created.applicationLoanId);
   assert.ok(created.loanWork.applications[0].token);
+  const { draft } = borrowerCommandResult(db, { type: "read", token: created.loanWork.applications[0].token }).application;
+  assert.equal(draft.propertyAddress, "400 Demo Way");
+  assert.deepEqual(draft.propertyLocation, { unit: "", city: "Bloomfield Hills", state: "MI", zip: "48304" });
   assert.equal((await write(officer, { ...start, purpose: "Purchase" })).applicationLoanId, created.applicationLoanId);
   assert.equal(read(officer, "All clients", "source").rows[0].repeat, "open");
   db.prepare("UPDATE loans SET officerEmail = ? WHERE id = ?").run(other.email, created.applicationLoanId);

@@ -948,8 +948,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             throw new WorkspaceError("Open the borrower’s post-funding check-in before starting its returning-client 1003.");
           }
           const propertyAddress = data.confirmedPropertyAddress;
-          if (propertyAddress && (!rateTaskId || propertyAddress !== reusablePropertyAddress(String(funded.address)))) {
-            throw new WorkspaceError("The original property address changed. Reopen the rate-watch follow-up and confirm the current address.");
+          if (propertyAddress && data.purpose !== "Refinance") {
+            throw new WorkspaceError("Choose Refinance to reuse the original property address.");
+          }
+          if (propertyAddress && propertyAddress !== reusablePropertyAddress(String(funded.address))) {
+            throw new WorkspaceError("The original property address changed. Reopen the refinance setup and confirm the current address.");
           }
           const loanId = crypto.randomUUID();
           insertLoan(db, {

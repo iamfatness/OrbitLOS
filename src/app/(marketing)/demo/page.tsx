@@ -44,7 +44,7 @@ export default function DemoPage() {
           <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. Work the exact condition, replace its evidence, and continue when it clears.</li>
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>
-          <li>Record a post-funding check-in and see the original note on the scheduled callback in Tasks.</li>
+          <li>Record a post-funding check-in, see its note on the scheduled callback in Tasks, and confirm the original property address when starting a separate refinance.</li>
           <li>Open scheduled campaign calls from one queue. Reschedule from the loan and keep missed deadlines visible in reporting.</li>
           <li>Explore a fictional brokerage’s appointments, open files, borrower conversations, and funded loans without entering customer data.</li>
           <li>Compare staff time and handoffs with your current process using the same fictional case.</li>

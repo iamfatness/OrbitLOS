@@ -766,6 +766,30 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   );
 }
 
+function ReturningClientForm({ borrower, originalProperty, fromRateWatch, busy, close, start }: {
+  borrower: string; originalProperty?: string; fromRateWatch?: true; busy: boolean; close: () => void;
+  start: (purpose: "Purchase" | "Refinance", confirmedPropertyAddress?: string) => void;
+}) {
+  const [purpose, setPurpose] = useState<"" | "Purchase" | "Refinance">(fromRateWatch ? "Refinance" : "");
+  const reuse = purpose === "Refinance" ? originalProperty : undefined;
+  return <form className="record-form" onSubmit={(event) => {
+    event.preventDefault();
+    if (purpose) start(purpose, new FormData(event.currentTarget).has("confirmProperty") ? reuse : undefined);
+  }}>
+    <p>Start a separate application for <strong>{borrower}</strong> using their saved contact details. Open or copy the borrower link from the new loan record.</p>
+    {fromRateWatch ? <p>Start the refinance once the borrower asks to proceed. This completes the rate-watch task.</p> :
+      <Field label="Loan purpose"><select id="returning-client-purpose" value={purpose} required onChange={(event) => setPurpose(event.target.value as typeof purpose)}>
+        <option value="" disabled>Choose a loan purpose</option><option>Purchase</option><option>Refinance</option>
+      </select></Field>}
+    {reuse && <label className="demo-confirm" key={reuse}>
+      <input type="checkbox" name="confirmProperty" id={fromRateWatch ? "returning-client-purpose" : undefined} />
+      <span>Reuse the original property address <strong>{reuse}</strong></span>
+    </label>}
+    <div className="dialog-footer"><div className="spacer" /><Button variant="outline" onClick={close}>Cancel</Button>
+      <Button id={fromRateWatch && !reuse ? "returning-client-purpose" : undefined} type="submit" disabled={busy}>Start and open 1003</Button></div>
+  </form>;
+}
+
 export function RecordDialog({ modal, state, staff, busy, error, save, show, close, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion }: {
   modal: Modal; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; error: ReactNode; save: Save; show: (modal: Modal) => void; close: () => void;
   refreshLoan?: () => void;
@@ -888,7 +912,6 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const retention = modal.kind === "retention" ? state.pastClients.find((profile) => profile.loanId === modal.loanId) : undefined;
   const checkIn = modal.kind === "fundingCheckIn" ? state.closingProgress.find((item) => item.loanId === modal.loanId) : undefined;
   const checkInBorrower = checkIn && loan ? state.contacts.find((item) => item.id === loan.contactId) : undefined;
-  const originalProperty = modal.kind === "returningClient" && modal.fromRateWatch && loan ? reusablePropertyAddress(loan.address) : undefined;
   const canStartRepeat = repeatOption ? repeatOption.kind === "start" : checkInBorrower && checkInBorrower.role !== "Realtor" &&
     !state.returningClientLoans.some((item) => item.fundedLoanId === loan?.id);
   const key = `${modal.kind}-${loan?.id ?? contact?.id ?? "new"}-${modal.kind === "communication" ? modal.draftId ?? modal.audience : submission?.id ?? ""}`;
@@ -964,29 +987,14 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             borrower={checkInBorrower} busy={busy} save={save} close={modal.returnToLoan ? back : close}
             startRepeat={canStartRepeat ? () => show({ kind: "returningClient", loanId: loan.id }) : undefined} /> :
           <p className="empty-inline">Refresh the post-funding tasks to see the current check-in.</p>)}
-        {modal.kind === "returningClient" && loan && <form className="record-form" onSubmit={(event) => {
-          event.preventDefault();
-          const form = new FormData(event.currentTarget);
-          const purpose = modal.fromRateWatch ? "Refinance" : form.get("purpose");
-          const confirmedPropertyAddress = form.has("confirmProperty") ? originalProperty : undefined;
-          void save({ type: "startReturningClient1003", loanId: loan.id, purpose, fromRateWatch: modal.fromRateWatch, confirmedPropertyAddress }, ({ applicationLoanId }) => {
+        {modal.kind === "returningClient" && loan && <ReturningClientForm key={`${loan.id}:${modal.fromRateWatch ?? false}`}
+          borrower={state.contacts.find((item) => item.id === loan.contactId)?.name ?? "this borrower"}
+          originalProperty={reusablePropertyAddress(loan.address)} fromRateWatch={modal.fromRateWatch} busy={busy} close={close}
+          start={(purpose, confirmedPropertyAddress) => void save({
+            type: "startReturningClient1003", loanId: loan.id, purpose, fromRateWatch: modal.fromRateWatch, confirmedPropertyAddress,
+          }, ({ applicationLoanId }) => {
             if (applicationLoanId) show({ kind: "details", loanId: applicationLoanId, target: "loan-application" });
-          });
-        }}>
-          <p>Start a separate application for <strong>{state.contacts.find((item) => item.id === loan.contactId)?.name ?? "this borrower"}</strong> using their saved contact details. Open or copy the borrower link from the new loan record.</p>
-          {modal.fromRateWatch ? <>
-            <p>Start the refinance once the borrower asks to proceed. This completes the rate-watch task.</p>
-            {originalProperty && <label className="demo-confirm">
-              <input type="checkbox" name="confirmProperty" id="returning-client-purpose" />
-              <span>Reuse the original property address <strong>{originalProperty}</strong></span>
-            </label>}
-          </> :
-            <Field label="Loan purpose"><select name="purpose" id="returning-client-purpose" required defaultValue="">
-            <option value="" disabled>Choose a loan purpose</option><option>Purchase</option><option>Refinance</option>
-          </select></Field>}
-          <div className="dialog-footer"><div className="spacer" /><Button variant="outline" onClick={close}>Cancel</Button>
-            <Button id={modal.fromRateWatch && !originalProperty ? "returning-client-purpose" : undefined} type="submit" disabled={busy}>Start and open 1003</Button></div>
-        </form>}
+          })} />}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           openApplication={() => show({ kind: "details", loanId: loan.id, campaignLender, target: "loan-application" })}
