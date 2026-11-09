@@ -7,6 +7,11 @@ import { canClaimSharedRealtor } from "./realtor-claim-model";
 import type { ManualReturnAssignment } from "./lender-export-model";
 import { readManualReturnWork } from "./manual-lender-work";
 
+export function scopeJointLinks(applications: Workspace["applications"], staff: WorkspaceStaff) {
+  return staff.brokerage.role === "Processor" ? applications.map((app) => app.joint
+    ? { ...app, joint: { ...app.joint, token: undefined } } : app) : applications;
+}
+
 export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): Workspace {
   if (!staff) return state.playbook.secondReview ? { ...state, playbook: { ...state.playbook, secondReview: null } } : state;
   if (staff.brokerage.role === "Admin") return state;
@@ -59,7 +64,7 @@ export function scopeWorkspace(state: Workspace, staff: WorkspaceStaff | null): 
     mismoLoans: state.mismoLoans.filter((id) => owned.has(id)),
     submissions: scoped(state.submissions), tasks: state.tasks.filter((item) => owned.has(item.loanId)),
     communicationDrafts: scoped(state.communicationDrafts), pastClients: scoped(state.pastClients),
-    closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scoped(state.applications),
+    closingPlans: scoped(state.closingPlans), closingItems: scoped(state.closingItems), applications: scopeJointLinks(scoped(state.applications), staff),
     closingProgress: scoped(state.closingProgress),
     returningClientLoans: state.returningClientLoans.filter((item) => owned.has(item.fundedLoanId) && owned.has(item.loanId)),
     loanProcessing: scoped(state.loanProcessing),

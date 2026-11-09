@@ -34,8 +34,8 @@ function Basics({ fields, draft, update }: { fields: Basic[]; draft: Application
   })}</div>;
 }
 
-export function ApplicationFields({ step, draft, update, lookupEnabled }: {
-  step: number; draft: ApplicationDraft; update: UpdateDraft; lookupEnabled?: boolean;
+export function ApplicationFields({ step, draft, update, lookupEnabled, separateJoint }: {
+  step: number; draft: ApplicationDraft; update: UpdateDraft; lookupEnabled?: boolean; separateJoint?: boolean;
 }) {
   const section = sections[step];
   if (!section) return null;
@@ -53,15 +53,16 @@ export function ApplicationFields({ step, draft, update, lookupEnabled }: {
     </>;
   }
 
-  const joint = urla.credit.fields.type === "Joint";
-  const borrowers = joint ? [urla.primary, ...urla.additional] : [urla.primary];
+  const joint = separateJoint || urla.credit.fields.type === "Joint";
+  const borrowers = joint && !separateJoint ? [urla.primary, ...urla.additional] : [urla.primary];
   const editBorrower = (index: number, key: BorrowerSection | "joint"): ChangeAnswers => (change) => update((previous) => {
     if (index === 0) return { urla: { ...previous.urla, primary: { ...previous.urla.primary, [key]: change(previous.urla.primary[key]) } } };
     return { urla: { ...previous.urla, additional: previous.urla.additional.map((person, i) => i === index - 1 ? { ...person, [key]: change(person[key]) } : person) } };
   });
   return <>
     <h2>{borrowerQuestions[section].label}</h2>
-    {section === "identity" && <QuestionnaireFields definition={applicationCredit} answers={urla.credit} change={changeShared("credit")} />}
+    {section === "identity" && (separateJoint ? <p className="muted">Joint application · Your co-borrower enters their own answers through a separate link.</p> :
+      <QuestionnaireFields definition={applicationCredit} answers={urla.credit} change={changeShared("credit")} />)}
     {section === "work" && <p className="muted">You may omit alimony, child support, or separate maintenance if you prefer to qualify without it.</p>}
     {section === "demographics" && <p className="muted">Choose all that apply or choose “Prefer not to provide.” These answers are collected for the sample application.</p>}
     {section === "acknowledgment" && <p className="muted">Review the <a className="name-link" href="https://singlefamily.fanniemae.com/media/7896/display#page=7" target="_blank" rel="noopener noreferrer">official acknowledgments</a>. The typed names below show the demo signing flow.</p>}
@@ -81,7 +82,7 @@ export function ApplicationFields({ step, draft, update, lookupEnabled }: {
         change={editBorrower(index, section)} lookupEnabled={lookupEnabled} />
       {section === "identity" && joint && <QuestionnaireFields definition={jointQuestions} answers={borrower.joint} change={editBorrower(index, "joint")} />}
     </section>)}
-    {section === "identity" && joint && <Button type="button" size="sm" variant="outline" disabled={urla.additional.length >= 4} onClick={() =>
+    {section === "identity" && joint && !separateJoint && <Button type="button" size="sm" variant="outline" disabled={urla.additional.length >= 4} onClick={() =>
       update((previous) => ({ urla: { ...previous.urla, additional: [...previous.urla.additional, blankBorrower()] } }))}>Add borrower</Button>}
     {section === "identity" && !joint && urla.additional.length > 0 && <p className="muted">Additional borrower answers are still saved. Select joint credit to include them.</p>}
   </>;

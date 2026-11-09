@@ -7,13 +7,14 @@ import type { DocumentRequest } from "@/lib/document-model";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-change-signal";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
+import { primaryJointDraft } from "@/lib/joint-application-model";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
 import { BorrowerStatus } from "./borrower-status";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 
-type SubmittedView = Extract<BorrowerStatusRefresh, { kind: "status" }>;
+type SubmittedView = Exclude<BorrowerStatusRefresh, { kind: "resume" }>;
 type ApplicationView = BorrowerApplication | SubmittedView;
 type BorrowerAction = { type: "save" | "submit"; step: number; revision: number; draft: BorrowerApplication["draft"] }
   | { type: "status" }
@@ -21,7 +22,17 @@ type BorrowerAction = { type: "save" | "submit"; step: number; revision: number;
 
 function applicationView(application: BorrowerApplication): ApplicationView {
   const { submittedAt, loanStatus, documentUploadsMode } = application;
-  return submittedAt && loanStatus ? { kind: "status", submittedAt, loanStatus, documentUploadsMode } : application;
+  if (submittedAt && loanStatus) return { kind: "status", submittedAt, loanStatus, documentUploadsMode };
+  if (submittedAt && application.separateJoint) return { kind: "joint-waiting", submittedAt };
+  return application;
+}
+
+function sampleAnswers(application: BorrowerApplication) {
+  const sample = sampleApplication(application.draft);
+  if (!application.separateJoint) return sample;
+  const joint = primaryJointDraft(sample);
+  joint.urla.primary.joint.fields.initials = joint.borrowerName.trim().split(/\s+/).map((part) => part[0]).join("").slice(0, 16);
+  return joint;
 }
 
 async function requestApplication<Result = BorrowerApplication>(token: string, input: object, signal: AbortSignal) {
@@ -60,6 +71,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
   const queuedStatusRead = useRef<(() => void) | null>(null);
   const application = view && !("kind" in view) ? view : null;
   const submitted = !!view && "kind" in view;
+  const jointWaiting = submitted && view.kind === "joint-waiting";
 
   useEffect(() => {
     if (token === null) return;
@@ -182,7 +194,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
       return;
     }
     if (!application) return;
-    const missing = applicationIssues(application.draft);
+    const missing = applicationIssues(application.draft, application.separateJoint);
     if (missing.length) {
       setError(`Complete these items before submitting: ${missing.join("; ")}.`);
       return;
@@ -193,16 +205,20 @@ function BorrowerApplication({ token }: { token: string | null }) {
   return <><PortalHeader label="Demo only" /><main className="application-shell borrower-portal">
     <div className="application-intro">
       <OrbitRings />
-      <h1>{view?.submittedAt ? "Your loan status" : "Mortgage application"}</h1>
+      <h1>{jointWaiting ? "Your portion is submitted" : view?.submittedAt ? "Your loan status" : "Mortgage application"}</h1>
       {!view?.submittedAt && <p>Save your progress and return with this link.</p>}
     </div>
-    <aside className="application-warning">{view?.submittedAt ? (view.documentUploadsMode === "mock" ? "Use sample files. Verification and scanning are simulated." : view.documentUploadsMode === "live" ? "Use fictional PDFs when testing uploads." : "Use the built-in sample documents.") : "Fictional information only. Use a test tax ID such as 000-00-1234. Leave real tax IDs, account numbers, and documents out of the demo."}</aside>
+    {!jointWaiting && <aside className="application-warning">{view?.submittedAt ? (view.documentUploadsMode === "mock" ? "Use sample files. Verification and scanning are simulated." : view.documentUploadsMode === "live" ? "Use fictional PDFs when testing uploads." : "Use the built-in sample documents.") : "Fictional information only. Use a test tax ID such as 000-00-1234. Leave real tax IDs, account numbers, and documents out of the demo."}</aside>}
     {application?.correctionNote && <aside className="application-warning"><strong>Corrections requested</strong><p>{application.correctionNote}</p>
       <p>Your previous answers are filled in. Make the requested changes, then submit the 1003 again to return to your loan status and checklist.</p></aside>}
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status" className="application-message">Opening your application…</p>}
-    {view?.submittedAt ? token && view.loanStatus && <BorrowerStatus token={token} status={view.loanStatus} submittedAt={view.submittedAt}
+    {jointWaiting ? <section className="pipeline relationship-panel" aria-label="Joint application progress">
+      <h2>Waiting for the co-borrower</h2>
+      <p>Your loan officer can review the joint application after both portions are submitted. Return with this link to check progress.</p>
+      <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void perform({ type: "status" }, () => setNotice("Joint application progress refreshed."))}>Refresh joint status</Button></div>
+    </section> : view?.submittedAt && "loanStatus" in view ? token && view.loanStatus && <BorrowerStatus token={token} status={view.loanStatus} submittedAt={view.submittedAt}
       busy={busy} attach={attach} uploadsMode={view.documentUploadsMode} refresh={() => void perform({ type: "status" }, () => setNotice("Loan status refreshed."))} />
       : application && <section className="application-panel application-editor" aria-label="1003 application">
       <div className="application-steps">
@@ -225,12 +241,12 @@ function BorrowerApplication({ token }: { token: string | null }) {
         <fieldset disabled={busy} className="application-step">
           <div className="application-step-meta"><small>Step {step + 1} of {applicationSteps.length}</small>
             {step === 0 && <Button variant="outline" size="sm" onClick={() => {
-              setView({ ...application, draft: sampleApplication(application.draft) });
+              setView({ ...application, draft: sampleAnswers(application) });
               setNotice("Sample answers loaded. Save or continue to keep them.");
               setError("");
             }}>Load sample answers</Button>}
             {step === 0 && !application.correctionNote && <Button variant="outline" size="sm" onClick={() => {
-              setView({ ...application, step: applicationSteps.length - 1, draft: sampleApplication(application.draft) });
+              setView({ ...application, step: applicationSteps.length - 1, draft: sampleAnswers(application) });
               setNotice("Sample answers loaded. Confirm the fictional information to submit.");
               setError("");
               window.scrollTo(0, 0);
@@ -241,7 +257,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
             <ApplicationAnswers draft={application.draft} />
             <label className="demo-confirm"><input type="checkbox" checked={application.draft.confirmedDemo}
               onChange={(event) => { const confirmedDemo = event.target.checked; update(() => ({ confirmedDemo })); }} /> I’m submitting fictional information for the Orbit demo.</label>
-          </> : <ApplicationFields step={step} draft={application.draft} update={update} lookupEnabled={application.addressLookupEnabled} />}
+          </> : <ApplicationFields step={step} draft={application.draft} update={update} lookupEnabled={application.addressLookupEnabled} separateJoint={application.separateJoint} />}
         </fieldset>
         <div className="application-actions">
           {step > 0 && <Button variant="ghost" disabled={busy} onClick={() => {
@@ -251,7 +267,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
           }}><ArrowLeft /> Back</Button>}
           <div className="spacer" />
           <Button variant="outline" disabled={busy} onClick={() => void save("save", step)}><Save /> Save draft</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Saving…" : reviewing ? <>Submit demo application <Check /></> : <>Continue <ArrowRight /></>}</Button>
+          <Button type="submit" disabled={busy}>{busy ? "Saving…" : reviewing ? <>{application.separateJoint ? "Submit my portion" : "Submit demo application"} <Check /></> : <>Continue <ArrowRight /></>}</Button>
         </div>
       </form>
       <p className="application-attribution">ZIP suggestions use <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a> data.</p>

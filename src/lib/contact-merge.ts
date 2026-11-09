@@ -63,7 +63,7 @@ function undoBaseline(db: Store, targetId: string, mergeId: string) {
   for (const table of ["uwm_document_deliveries", "uwm_document_delivery_history", "mock_delivery_failures", "document_files"]) {
     read(table, "requestId", requestIds);
   }
-  for (const table of ["activity", "loan_audit", "applications", "application_versions", "application_lender_details",
+  for (const table of ["activity", "loan_audit", "applications", "joint_applications", "application_versions", "application_lender_details",
     "loan_processing", "submissions", "tasks", "closing_plans", "closing_items", "closing_progress",
     "loan_appointments", "loan_reviews", "past_client_profiles", "funding_check_ins", "loan_financials", "loan_financial_entries",
     "pricing_runs", "published_quotes", "mock_uwm_rates", "mock_credit_aus_runs", "returning_client_loans"]) {

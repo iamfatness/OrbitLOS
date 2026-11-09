@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { BorrowerLoanStatus } from "./document-model";
 import type { DocumentUploadMode } from "./document-files-model";
 import { blankBorrower, blankUrla, normalizeUrla, sampleUrla, urlaDetailsSchema, type LenderDetails } from "./urla";
+import type { StaffJointApplication } from "./joint-application-model";
 
 const shortText = z.string().trim().max(160);
 const dollars = z.string().trim().regex(/^\d{0,10}(?:\.\d{1,2})?$/).refine((value) => Number(value) <= 1_000_000_000);
@@ -146,7 +147,7 @@ function completeAddress(street: string, { city, state, zip, country }: AddressL
   return !!street.trim() && !!city.trim() && (!domestic || (usStates.has(state.trim().toUpperCase()) && usZip.test(zip.trim())));
 }
 
-export function applicationIssues(draft: ApplicationDraft) {
+export function applicationIssues(draft: ApplicationDraft, separateJoint = false) {
   const missing: string[] = [];
   if (!draft.borrowerName || !z.email().safeParse(draft.email).success) {
     missing.push("Borrower name and valid email");
@@ -166,12 +167,13 @@ export function applicationIssues(draft: ApplicationDraft) {
   for (const [name, signer] of [[draft.borrowerName, draft.urla.primary], ...draft.urla.additional.map((item) => [item.identity.fields.name, item] as const)] as const) {
     if ((name ?? "").trim().toLowerCase() !== signer.acknowledgment.fields.signature?.trim().toLowerCase()) missing.push("Each sample signature must match the borrower’s full name");
   }
-  missing.push(...normalizeUrla(draft.urla, true, completeAddress(draft.priorAddress, draft.priorLocation)).issues);
+  missing.push(...normalizeUrla(draft.urla, true, completeAddress(draft.priorAddress, draft.priorLocation), separateJoint).issues);
   if (!draft.confirmedDemo) missing.push("Sample data confirmation");
   return missing;
 }
 
 export interface BorrowerApplication {
+  separateJoint?: boolean;
   correctionNote?: string;
   draft: ApplicationDraft;
   step: number;
@@ -186,12 +188,14 @@ export interface BorrowerApplication {
 
 export type BorrowerStatusRefresh = (
   | { kind: "status"; submittedAt: string; loanStatus: BorrowerLoanStatus }
+  | { kind: "joint-waiting"; submittedAt: string }
   | { kind: "resume" }
 ) & { documentUploadsMode?: DocumentUploadMode };
 
 export const manualHandoffOutcomes = ["Prepared", "Delivered manually", "Acknowledged", "Returned for changes"] as const;
 
 export interface StaffApplication {
+  joint?: StaffJointApplication;
   revision: number;
   correctionNote: string;
   versions: {

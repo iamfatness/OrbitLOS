@@ -4,7 +4,7 @@ import { applicationDraft, applicationIssues, applicationSteps, blankApplication
 import type { Store } from "./store";
 import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
-import { lenderDetailsSchema, normalizeUrla } from "./urla";
+import { borrowerDetailsSchema, lenderDetailsSchema, normalizeBorrowerDetails, normalizeUrla, type BorrowerDetails } from "./urla";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
 import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
@@ -14,8 +14,10 @@ import { accessEvent } from "./workspace-access";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 import { zipCityState } from "./zip-city-state";
 import { approvedSecondReview } from "./application-review-checkpoint";
+import { activeCoBorrowerLink, jointApplication, staffJointApplications } from "./joint-application";
+import { coBorrowerCommand, coBorrowerSubmissionIssues, jointLinkUnavailable, primaryJointDraft, type CoBorrowerApplication } from "./joint-application-model";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
+type ApplicationRow = Omit<StaffApplication, "draft" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
 export function getApplication(db: Store, loanId: string) {
@@ -25,6 +27,7 @@ export function getApplication(db: Store, loanId: string) {
 export function staffApplications(db: Store, loanId?: string): StaffApplication[] {
   const filter = loanId ? " WHERE loanId = ?" : "";
   const args = loanId ? [loanId] : [];
+  const joints = staffJointApplications(db, loanId);
   const lender = new Map(db.prepare(`SELECT * FROM application_lender_details${filter}`).all(...args).map((item) => [item.loanId, {
     details: lenderDetailsSchema.parse(JSON.parse(String(item.details))), revision: Number(item.revision),
   }]));
@@ -60,6 +63,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       }));
     const manualHandoff = handoffs.get(row.loanId);
     const lastManualSubmissionId = manualHandoff?.submissionId ?? row.lastManualSubmissionId;
+    const joint = joints.get(row.loanId);
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, secondReviewApproved: Boolean(row.secondReviewApproved), uwmReference: row.uwmReference,
@@ -69,6 +73,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       ...(typeof lastManualSubmissionId === "string" ? { lastManualSubmissionId } : {}),
       revision: row.revision, correctionNote: row.correctionNote, versions,
       previousAnswers: prior ? applicationDraft.parse(JSON.parse(String(prior.draft))) : null,
+      ...(joint ? { joint } : {}),
     };
   });
 }
@@ -162,14 +167,60 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
 }
 
 function borrowerResult(db: Store, row: ApplicationRow, now: string): BorrowerResult {
-  const draft = applicationDraft.parse(JSON.parse(row.draft));
+  const joint = jointApplication(db, row.loanId);
+  const stored = applicationDraft.parse(JSON.parse(row.draft));
+  const draft = joint ? primaryJointDraft(stored) : stored;
   if (!row.submittedAt) draft.propertyLocation = fillPropertyLocality(draft.propertyLocation);
   return { application: {
     draft,
-    step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt,
+    step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt ?? joint?.primarySubmittedAt ?? null,
     loanStatus: readBorrowerLoanStatus(db, row, row.token, now),
-    correctionNote: row.correctionNote || undefined,
+    correctionNote: !joint?.primarySubmittedAt && row.correctionNote ? row.correctionNote : undefined,
+    ...(joint ? { separateJoint: true } : {}),
   } };
+}
+
+function saveBorrowerDraft(db: Store, row: ApplicationRow, draft: ApplicationDraft, step: number, now: string, submitted: boolean) {
+  const next: ApplicationRow = { ...row, draft: JSON.stringify(draft), step, revision: row.revision + 1,
+    updatedAt: now, submittedAt: submitted ? now : null, correctionNote: submitted ? "" : row.correctionNote };
+  db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ?, correctionNote = ? WHERE loanId = ?")
+    .run(next.draft, next.step, next.revision, next.updatedAt, next.submittedAt, next.correctionNote, next.loanId);
+  return next;
+}
+
+function finishApplication(db: Store, row: ApplicationRow, draft: ApplicationDraft, step: number, now: string, pilot: boolean) {
+  const auditBefore = loanAuditSnapshot(db, row.loanId);
+  const next = saveBorrowerDraft(db, row, draft, step, now, true);
+  saveApplicationVersion(db, next);
+  const { unit, city, state, zip } = draft.propertyLocation;
+  const propertyPending = draft.purpose === "Purchase" && draft.urla.property.fields.propertyPending === "Yes";
+  const locality = `${city}, ${state.toUpperCase()} ${zip}`;
+  const street = [draft.propertyAddress, unit].filter(Boolean).join(", ");
+  const address = propertyPending ? "" : `${street.slice(0, 238 - locality.length).trimEnd()}, ${locality}`;
+  db.prepare(`UPDATE loans SET
+    stage = CASE WHEN disposition = 'Active' AND stage IN ('Lead', 'Pre-qual') THEN 'Application' ELSE stage END,
+    stageSince = CASE WHEN disposition = 'Active' AND stage IN ('Lead', 'Pre-qual') THEN ? ELSE stageSince END,
+    address = CASE WHEN trim(address) = '' THEN ? ELSE address END,
+    amount = CASE WHEN amount = 0 THEN ? ELSE amount END
+    WHERE id = ?`).run(now, address, Math.round(Number(draft.loanAmount)), row.loanId);
+  createApplicationFollowUps(db, row.loanId);
+  if (row.correctionNote) {
+    db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Review corrected 1003', ?)
+      ON CONFLICT(id) DO NOTHING`).run(`application-correction:${row.loanId}:${next.revision}`, row.loanId, new Date(Date.parse(now) + 86_400_000).toISOString());
+  }
+  createMilestoneDrafts(db, row.loanId, "Application received", now);
+  addApplicationActivity(db, row.loanId, row.correctionNote ? "Corrected 1003 received." : "Demo 1003 received. Follow-up task created for the loan officer.", now);
+  recordLoanAudit(db, row.loanId, "Borrower", "Submitted 1003", now, auditBefore);
+  if (pilot) accessEvent(db, { name: "Borrower", email: "Borrower" }, "Pilot 1003 submitted", row.loanId, now);
+  return next;
+}
+
+function combinedJointDraft(primary: ApplicationDraft, coBorrower: BorrowerDetails): ApplicationDraft {
+  return { ...primary, urla: { ...primary.urla, additional: [coBorrower] } };
+}
+
+function invalidApplication(issues: string[]) {
+  return { status: 422, error: `Complete these items before submitting: ${issues.join("; ")}.` };
 }
 
 function attachBorrowerSample(db: Store, row: BorrowerStatusRow, data: { requestId: string; revision: number }, allowSample: boolean, now: string) {
@@ -201,7 +252,10 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       const row = db.prepare(`SELECT loanId, submittedAt, reviewedAt, correctionNote, revision ${borrowerLink}`)
         .get(data.token, now) as BorrowerStatusRow | undefined;
       if (!row) return borrowerLinkUnavailable;
-      if (!row.submittedAt) return { statusView: { kind: "resume" } };
+      if (!row.submittedAt) {
+        const submittedAt = jointApplication(db, row.loanId)?.primarySubmittedAt;
+        return { statusView: submittedAt ? { kind: "joint-waiting", submittedAt } : { kind: "resume" } };
+      }
       if (data.type === "attachSample") {
         const failure = attachBorrowerSample(db, row, data, allowSample, now);
         if (failure) return failure;
@@ -216,15 +270,19 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row, now);
     }
     const submitted = data.type === "submit";
+    const joint = jointApplication(db, row.loanId);
+    const primaryReady = joint?.primarySubmittedAt;
     const alreadySubmitted = { status: 409, error: "This application has been submitted. Reopen the link to see your loan status." };
-    if (row.submittedAt && (!submitted || row.revision !== data.revision + 1 || row.step !== data.step)) return alreadySubmitted;
-    if (!row.submittedAt && row.revision !== data.revision) {
+    if (primaryReady && (!submitted || row.step !== data.step)) return alreadySubmitted;
+    if (!primaryReady && row.submittedAt && (!submitted || row.revision !== data.revision + 1 || row.step !== data.step)) return alreadySubmitted;
+    if (!primaryReady && !row.submittedAt && row.revision !== data.revision) {
       return { status: 409, error: "This application was updated in another tab. Reopen the link to continue from the latest saved draft." };
     }
 
-    const normalized = normalizeUrla(data.draft.urla, false);
+    const inputDraft = joint ? primaryJointDraft(data.draft) : data.draft;
+    const normalized = normalizeUrla(inputDraft.urla, false);
     if (normalized.issues.length) return { status: 422, error: "Use a fictional tax ID in the format 000-00-1234 and only four digits for account references." };
-    const draft = { ...data.draft, urla: normalized.details };
+    const draft = { ...inputDraft, urla: normalized.details };
     const work = draft.urla.primary.work;
     if (work.fields.hasJobs || work.fields.hasIncome) {
       const jobs = work.fields.hasJobs === "Yes" ? work.groups.jobs ?? [] : [];
@@ -236,44 +294,66 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       draft.employer = current[0]?.employer?.slice(0, 160) ?? "";
       draft.monthlyIncome = Math.min(1_000_000_000, Math.max(0, monthlyIncome)).toFixed(2);
     }
-    const serializedDraft = JSON.stringify(draft);
+    if (primaryReady) {
+      const stored = primaryJointDraft(applicationDraft.parse(JSON.parse(row.draft)));
+      return isDeepStrictEqual(draft, stored) ? borrowerResult(db, row, now) : alreadySubmitted;
+    }
     if (row.submittedAt) {
-      return isDeepStrictEqual(JSON.parse(serializedDraft), JSON.parse(row.draft)) ? borrowerResult(db, row, now) : alreadySubmitted;
+      return isDeepStrictEqual(JSON.parse(JSON.stringify(draft)), JSON.parse(row.draft)) ? borrowerResult(db, row, now) : alreadySubmitted;
     }
-    if (submitted) {
-      const issues = applicationIssues(draft);
-      if (issues.length) return { status: 422, error: `Complete these items before submitting: ${issues.join("; ")}.` };
+    if (!submitted) return borrowerResult(db, saveBorrowerDraft(db, row, draft, data.step, now, false), now);
+    const issues = applicationIssues(draft, !!joint);
+    if (issues.length) return invalidApplication(issues);
+    const combined = joint?.submittedAt ? combinedJointDraft(draft, borrowerDetailsSchema.parse(JSON.parse(joint.draft))) : draft;
+    if (joint) {
+      db.prepare("UPDATE joint_applications SET primarySubmittedAt = ? WHERE loanId = ?").run(now, row.loanId);
+      addApplicationActivity(db, row.loanId, "Primary borrower submitted their portion of the joint 1003.", now);
     }
-    const auditBefore = submitted ? loanAuditSnapshot(db, row.loanId) : null;
-    const next: ApplicationRow = {
-      ...row, draft: serializedDraft, step: data.step, revision: row.revision + 1,
-      updatedAt: now, submittedAt: submitted ? now : null, correctionNote: submitted ? "" : row.correctionNote,
-    };
-    db.prepare("UPDATE applications SET draft = ?, step = ?, revision = ?, updatedAt = ?, submittedAt = ?, correctionNote = ? WHERE loanId = ?")
-      .run(next.draft, next.step, next.revision, next.updatedAt, next.submittedAt, next.correctionNote, next.loanId);
-    if (submitted) {
-      saveApplicationVersion(db, next);
-      const { unit, city, state, zip } = draft.propertyLocation;
-      const propertyPending = draft.purpose === "Purchase" && draft.urla.property.fields.propertyPending === "Yes";
-      const locality = `${city}, ${state.toUpperCase()} ${zip}`;
-      const street = [draft.propertyAddress, unit].filter(Boolean).join(", ");
-      const address = propertyPending ? "" : `${street.slice(0, 238 - locality.length).trimEnd()}, ${locality}`;
-      db.prepare(`UPDATE loans SET
-        stage = CASE WHEN disposition = 'Active' AND stage IN ('Lead', 'Pre-qual') THEN 'Application' ELSE stage END,
-        stageSince = CASE WHEN disposition = 'Active' AND stage IN ('Lead', 'Pre-qual') THEN ? ELSE stageSince END,
-        address = CASE WHEN trim(address) = '' THEN ? ELSE address END,
-        amount = CASE WHEN amount = 0 THEN ? ELSE amount END
-        WHERE id = ?`).run(now, address, Math.round(Number(draft.loanAmount)), row.loanId);
-      createApplicationFollowUps(db, row.loanId);
-      if (row.correctionNote) {
-        db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, 'Review corrected 1003', ?)
-          ON CONFLICT(id) DO NOTHING`).run(`application-correction:${row.loanId}:${next.revision}`, row.loanId, new Date(Date.parse(now) + 86_400_000).toISOString());
-      }
-      createMilestoneDrafts(db, row.loanId, "Application received", now);
-      addApplicationActivity(db, row.loanId, row.correctionNote ? "Corrected 1003 received." : "Demo 1003 received. Follow-up task created for the loan officer.", now);
-      recordLoanAudit(db, row.loanId, "Borrower", "Submitted 1003", now, auditBefore);
-      if (pilot) accessEvent(db, { name: "Borrower", email: "Borrower" }, "Pilot 1003 submitted", row.loanId, now);
-    }
+    const next = joint && !joint.submittedAt ? saveBorrowerDraft(db, row, draft, data.step, now, false) :
+      finishApplication(db, row, combined, data.step, now, pilot);
     return borrowerResult(db, next, now);
+  });
+}
+
+export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false, now = new Date().toISOString()):
+  { value: CoBorrowerApplication } | { status: number; error: string } {
+  const parsed = coBorrowerCommand.safeParse(input);
+  if (!parsed.success) return { status: 400, error: "Check the length and format of your answers." };
+  const data = parsed.data;
+  return db.transaction(() => {
+    const row = activeCoBorrowerLink(db, data.token, now);
+    const application = row && getApplication(db, row.loanId);
+    if (!row || !application) return { status: 404, error: jointLinkUnavailable };
+    const current = borrowerDetailsSchema.parse(JSON.parse(row.draft));
+    const view = (draft = current, revision = row.revision, step = row.step, updatedAt = row.updatedAt,
+      submittedAt = row.submittedAt, complete = Boolean(application.submittedAt), confirmedDemo = Boolean(row.confirmedDemo)): { value: CoBorrowerApplication } =>
+      ({ value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
+        ...(row.correctionNote && !submittedAt ? { correctionNote: row.correctionNote } : {}) } });
+    if (data.type === "read") return view();
+    const submitted = data.type === "submit";
+    const { borrower, issues } = normalizeBorrowerDetails(data.draft, false, false, true);
+    if (issues.length) return { status: 422, error: "Use a fictional tax ID in the format 000-00-1234 and only four digits for account references." };
+    if (row.submittedAt) {
+      return submitted && row.revision === data.revision + 1 && row.step === data.step && data.confirmedDemo && isDeepStrictEqual(borrower, current)
+        ? view() : { status: 409, error: "Your portion has already been submitted. Reopen the link to check its status." };
+    }
+    if (row.revision !== data.revision) return { status: 409, error: "Your draft changed in another tab. Reopen the link to load the latest answers." };
+    if (submitted) {
+      const missing = coBorrowerSubmissionIssues(borrower, data.confirmedDemo);
+      if (missing.length) return invalidApplication(missing);
+    }
+    const submittedAt = submitted ? now : null;
+    db.prepare(`UPDATE joint_applications SET draft = ?, step = ?, revision = revision + 1, updatedAt = ?, submittedAt = ?,
+      confirmedDemo = ?, correctionNote = CASE WHEN ? IS NULL THEN correctionNote ELSE '' END WHERE loanId = ?`)
+      .run(JSON.stringify(borrower), data.step, now, submittedAt, Number(data.confirmedDemo), submittedAt, row.loanId);
+    const complete = submitted && Boolean(row.primarySubmittedAt);
+    if (submitted) {
+      addApplicationActivity(db, row.loanId, "Co-borrower submitted their portion of the joint 1003.", now);
+      if (complete) {
+        const primary = primaryJointDraft(applicationDraft.parse(JSON.parse(application.draft)));
+        finishApplication(db, application, combinedJointDraft(primary, borrower), application.step, now, pilot);
+      }
+    }
+    return view(borrower, data.revision + 1, data.step, now, submittedAt, complete, data.confirmedDemo);
   });
 }

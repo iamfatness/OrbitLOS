@@ -14,7 +14,7 @@ export const stalledLoanCutoff = (now: number) => now - stalledLoanDays * day;
 
 type LoanActionRecord = Pick<Loan, "id" | "stage" | "contactId" | "officer" | "disposition" | "dispositionReason" | "revisitDate">;
 export type LoanNextActionState = {
-  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "correctionNote" | "manualHandoff" | "lastManualSubmissionId"> & {
+  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "correctionNote" | "manualHandoff" | "lastManualSubmissionId" | "joint"> & {
     versions: Pick<Workspace["applications"][number]["versions"][number], "revision" | "uwmReceipt">[];
   })[];
   contacts: Pick<Workspace["contacts"][number], "id" | "outreachSuppressed">[];
@@ -100,6 +100,11 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     (item.id !== borrowerCheckIn || (funding && role !== "Processor")));
   const pastClient = loan.stage === "Funded" || loan.stage === "Closed";
   const processing = state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail);
+  if (application?.joint && !application.submittedAt && !pastClient) return {
+    title: application.correctionNote ? "Follow up on joint 1003 correction" : "Follow up on joint 1003",
+    target: "loan-application", dueAt: null, blocker: application.joint.primarySubmittedAt ? "Waiting on co-borrower" :
+      application.joint.submittedAt ? "Waiting on primary borrower" : "Waiting on both borrowers",
+  };
   if (application?.correctionNote && !pastClient) return {
     title: "Follow up on corrected 1003", target: "loan-application", dueAt: null, blocker: "Waiting on borrower",
   };

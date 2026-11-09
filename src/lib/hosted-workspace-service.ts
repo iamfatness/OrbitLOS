@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import type { WorkspaceStaff } from "./staff-store";
 import type { WorkspaceMutationScope } from "./commands";
 import { demoBrokerageId, portalBrokerage } from "./brokerage-model";
+import { jointLinkUnavailable } from "./joint-application-model";
 import { googleSettings } from "./staff-auth";
 import { fundingDashboardUnavailable } from "./funding-dashboard-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
@@ -296,14 +297,21 @@ export async function updateMigrationCutover(staff: WorkspaceStaff, input: unkno
   return staffWorkspace(staff).recordCutoverReview(staff, input);
 }
 
-async function linkedWorkspace(input: unknown) {
+async function linkedWorkspace(input: unknown, pilotOnly = false) {
   const token = input && typeof input === "object" && "token" in input ? input.token : input;
   const id = portalBrokerage(token);
-  if (!id || (id !== demoBrokerageId && !await env.WORKSPACE.getByName(demoBrokerageId).brokerageForPortal(token))) return null;
+  if (!id) return null;
+  if (id !== demoBrokerageId) {
+    const link = await env.WORKSPACE.getByName(demoBrokerageId).brokerageForPortal(token);
+    if (!link || (pilotOnly && !link.pilot)) return null;
+  }
   return env.WORKSPACE.getByName(id);
 }
 export async function updateBorrowerApplication(input: unknown) {
   return (await linkedWorkspace(input))?.borrower(input) ?? { status: 404, error: "This application link is invalid or expired." };
+}
+export async function updateCoBorrowerApplication(input: unknown) {
+  return (await linkedWorkspace(input, true))?.coBorrower(input) ?? { status: 404, error: jointLinkUnavailable };
 }
 export async function reserveBorrowerAddressLookup(token: string) {
   return (await linkedWorkspace(token))?.reserveAddressLookup(token) ?? 404;

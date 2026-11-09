@@ -79,10 +79,11 @@ function resetLoanArgs(scenario: ScenarioRow) {
 }
 
 function activeResetLinks(db: Store, scenario: ScenarioRow, now: string): PilotPortalLink[] {
-  return db.prepare(`SELECT token, expiresAt FROM applications WHERE revokedAt IS NULL AND expiresAt > ?
-    AND loanId IN (SELECT id FROM loans WHERE ${resetLoanScope})
+  return db.prepare(`WITH resetLoans AS (SELECT id FROM loans WHERE ${resetLoanScope})
+    SELECT token, expiresAt FROM applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
+    UNION ALL SELECT token, expiresAt FROM joint_applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
     UNION ALL SELECT token, expiresAt FROM realtor_portals WHERE realtorId = ? AND expiresAt > ? LIMIT ?`)
-    .all(now, ...resetLoanArgs(scenario), scenario.realtorId, now, resetPortalLimit + 1)
+    .all(...resetLoanArgs(scenario), now, now, scenario.realtorId, now, resetPortalLimit + 1)
     .map(({ token, expiresAt }) => ({ token: String(token), expiresAt: String(expiresAt) }));
 }
 

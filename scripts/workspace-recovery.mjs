@@ -245,6 +245,12 @@ try {
       return result.status;
     }));
   }
+  async function coPortal(token) {
+    const result = await runtime.dispatchFetch(`${origin}/api/joint-application`, { method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ type: "read", token }) });
+    await result.arrayBuffer();
+    return result.status;
+  }
 
   await boot(live);
   await directory().seedDirectory([a, b]);
@@ -275,6 +281,10 @@ try {
   const fixtureLinksB = await ns.getByName(b.id).linkFixture(b.loan);
   const otherLinks = { borrower: fixtureLinksB.borrower, realtor: { token: fixtureLinksB.realtor.token } };
   const resetBorrower = (await ns.getByName(a.id).linkFixture(resetLoan)).borrower;
+  const jointDraft = (await request(a, "readLoanForWork", resetLoan)).applications[0];
+  await write(a, { type: "enableJointApplication", loanId: resetLoan, revision: jointDraft.revision });
+  const retiredCo = (await request(a, "readLoanForWork", resetLoan)).applications[0].joint.token;
+  assert.equal(await coPortal(retiredCo), 200);
   assert.deepEqual(await portals(links), [200, 200]);
   assert.deepEqual(await portals(otherLinks), [200, 200]);
   journal = openJournal();
@@ -324,7 +334,8 @@ try {
   const interrupted = edit(a, before.closingItems.find(({ id }) => id === checkpointEdit.itemId), "Review the fictional wire checklist");
   const otherWrite = edit(b, title(b, await file(b)), "Other brokerage kept working");
   const revocations = [{ type: "revokeApplication", loanId: a.loan, token: links.borrower },
-    { type: "revokeRealtorPortal", realtorId: links.realtor.realtorId }];
+    { type: "revokeRealtorPortal", realtorId: links.realtor.realtorId },
+    { type: "revokeJointLink", loanId: resetLoan, token: retiredCo }];
   const rejected = { ...receipt, revision: receipt.revision + 5, title: "Conflicting fixture edit" };
   const rejectedSequence = recordIntent(journal, a, rejected);
   assert.match((await request(a, "mutate", rejected)).error, /closing item changed/i);
@@ -353,10 +364,15 @@ try {
   assert.match((await request(a, "mutate", revocations[1])).error, /access/i);
   assert.equal(await directory().revocationCount(a.id), 0);
   await write(a, revocations[0], a.staff.admin);
+  await write(a, revocations[2], a.staff.admin);
+  await write(a, { type: "replaceJointLink", loanId: resetLoan, token: retiredCo }, a.staff.admin);
+  const resetCo = (await request(a, "readLoanForWork", resetLoan)).applications[0].joint.token;
+  assert.equal(await coPortal(retiredCo), 404);
+  assert.equal(await coPortal(resetCo), 200);
   await write(a, { type: "createRealtorPortal", realtorId: links.realtor.realtorId }, a.staff.admin);
   const replacementRealtor = (await ns.getByName(a.id).linkFixture(resetLoan)).realtor.token;
   const resetLinks = { borrower: resetBorrower, realtor: { token: replacementRealtor } };
-  assert.equal(await directory().revocationCount(a.id), 2);
+  assert.equal(await directory().revocationCount(a.id), 3);
   assert.deepEqual(await portals(links), [404, 404]);
   assert.deepEqual(await portals(resetLinks), [200, 200]);
   const otherSequence = recordIntent(journal, b, otherWrite);
@@ -370,7 +386,8 @@ try {
   assert.match((await file(a)).error, /unavailable/i);
   await write(a, { type: "loadGuidedDemo", id: randomUUID(), previousId: a.scenario }, a.staff.admin);
   assert.deepEqual(await portals(resetLinks), [404, 404]);
-  assert.equal(await directory().revocationCount(a.id), 4);
+  assert.equal(await coPortal(resetCo), 404);
+  assert.equal(await directory().revocationCount(a.id), 6);
   await runtime.dispose();
   runtime = undefined;
   journal.close();
@@ -399,11 +416,14 @@ try {
   assert.ok((await restoredWorkspace.borrower({ type: "read", token: links.borrower }, true)).application);
   assert.ok((await restoredWorkspace.realtor({ type: "read", token: links.realtor.token }, true)).value);
   assert.ok((await restoredWorkspace.borrower({ type: "read", token: resetBorrower }, true)).application);
+  assert.ok((await restoredWorkspace.coBorrower({ type: "read", token: retiredCo }, true)).value);
+  assert.equal(await coPortal(retiredCo), 404);
+  assert.equal(await coPortal(resetCo), 404);
   assert.deepEqual(await portals(links), [404, 404]);
   assert.deepEqual(await portals(resetLinks), [404, 404]);
   assert.deepEqual(await portals(otherLinks), [200, 200]);
   for (const revocation of revocations) await write(a, revocation, a.staff.admin);
-  assert.equal(await directory().revocationCount(a.id), 4);
+  assert.equal(await directory().revocationCount(a.id), 6);
   assert.deepEqual(await portals(links), [404, 404]);
   assert.equal((await file(a, a.staff.backup)).status, 401);
   assert.equal((await file(a, b.staff.officer)).status, 403);

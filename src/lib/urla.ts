@@ -179,8 +179,8 @@ const rowSchema = z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9]*$/), z.string(
 const answersSchema = z.object({
   fields: rowSchema.default({}),
   groups: z.record(z.string(), z.array(rowSchema).max(12)).default({}),
-}).default({ fields: {}, groups: {} });
-const borrowerDetailsSchema = z.object({
+}).default(blankAnswers);
+export const borrowerDetailsSchema = z.object({
   identity: answersSchema, work: answersSchema, finances: answersSchema, realEstate: answersSchema, declarations: answersSchema,
   military: answersSchema, demographics: answersSchema, acknowledgment: answersSchema, joint: answersSchema,
 });
@@ -268,40 +268,50 @@ export function borrowerDefinition(section: BorrowerSection, primary: boolean) {
   return primary ? primaryDefinitions[section] : borrowerQuestions[section];
 }
 
-export function normalizeUrla(details: UrlaDetails, complete: boolean, hasLegacyPrior = false) {
+export function normalizeBorrowerDetails(borrower: BorrowerDetails, primary: boolean, complete: boolean, joint: boolean, hasLegacyPrior = false) {
   const issues: string[] = [];
-  const clean = (definition: Questionnaire, input: Answers, check = complete) => {
-    const result = cleanAnswers(definition, input, check);
+  const result = blankBorrower();
+  function clean(section: BorrowerSection | "joint", definition: Questionnaire, check: boolean) {
+    const cleaned = cleanAnswers(definition, borrower[section], check);
+    issues.push(...cleaned.issues.map((issue) => `${definition.label} · ${issue}`));
+    result[section] = cleaned.answers;
+  }
+  for (const section of Object.keys(borrowerQuestions) as BorrowerSection[]) clean(section, borrowerDefinition(section, primary), complete);
+  clean("joint", jointQuestions, complete && joint);
+  if (complete) {
+    if (borrower.acknowledgment.fields.agreed !== "Yes") issues.push("Each borrower must acknowledge their sample answers");
+    const housing = Number(borrower.identity.fields.years) * 12 + Number(borrower.identity.fields.months);
+    if (housing < 24 && !borrower.identity.groups.prior?.length && !(primary && hasLegacyPrior)) {
+      issues.push("Add former housing if at the current address for less than two years");
+    }
+    const properties = borrower.realEstate.fields.hasProperty === "Yes" ? borrower.realEstate.groups.properties ?? [] : [];
+    const mortgages = borrower.realEstate.groups.mortgages ?? [];
+    for (const [index, property] of properties.entries()) {
+      if (property.hasMortgage === "Yes" && !mortgages.some((item) => item.property === String(index + 1))) {
+        issues.push(`Add a mortgage entry with related property item number ${index + 1}`);
+      }
+    }
+    if (properties.length && mortgages.some((item) => Number(item.property) < 1 || Number(item.property) > properties.length)) {
+      issues.push("Each property mortgage must reference an owned property item number");
+    }
+  }
+  return { borrower: result, issues };
+}
+
+export function normalizeUrla(details: UrlaDetails, complete: boolean, hasLegacyPrior = false, separateJoint = false) {
+  const issues: string[] = [];
+  const clean = (definition: Questionnaire, input: Answers) => {
+    const result = cleanAnswers(definition, input, complete);
     issues.push(...result.issues.map((issue) => `${definition.label} · ${issue}`));
     return result.answers;
   };
   const credit = clean(applicationCredit, details.credit);
   const joint = credit.fields.type === "Joint";
-  if (complete && joint && !details.additional.length) issues.push("Add at least one additional borrower for joint credit");
+  if (complete && joint && !separateJoint && !details.additional.length) issues.push("Add at least one additional borrower for joint credit");
   function person(borrower: BorrowerDetails, primary: boolean) {
-    const result = blankBorrower();
-    for (const section of Object.keys(borrowerQuestions) as BorrowerSection[]) {
-      result[section] = clean(borrowerDefinition(section, primary), borrower[section]);
-    }
-    result.joint = clean(jointQuestions, borrower.joint, complete && joint);
-    if (complete) {
-      if (borrower.acknowledgment.fields.agreed !== "Yes") issues.push("Each borrower must acknowledge their sample answers");
-      const housing = Number(borrower.identity.fields.years) * 12 + Number(borrower.identity.fields.months);
-      if (housing < 24 && !borrower.identity.groups.prior?.length && !(primary && hasLegacyPrior)) {
-        issues.push("Add former housing if at the current address for less than two years");
-      }
-      const properties = borrower.realEstate.fields.hasProperty === "Yes" ? borrower.realEstate.groups.properties ?? [] : [];
-      const mortgages = borrower.realEstate.groups.mortgages ?? [];
-      for (const [index, property] of properties.entries()) {
-        if (property.hasMortgage === "Yes" && !mortgages.some((item) => item.property === String(index + 1))) {
-          issues.push(`Add a mortgage entry with related property item number ${index + 1}`);
-        }
-      }
-      if (properties.length && mortgages.some((item) => Number(item.property) < 1 || Number(item.property) > properties.length)) {
-        issues.push("Each property mortgage must reference an owned property item number");
-      }
-    }
-    return result;
+    const result = normalizeBorrowerDetails(borrower, primary, complete, joint, hasLegacyPrior);
+    issues.push(...result.issues);
+    return result.borrower;
   }
   const primary = person(details.primary, true);
   const additional = details.additional.map((borrower) => person(borrower, false));

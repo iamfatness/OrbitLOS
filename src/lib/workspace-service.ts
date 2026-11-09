@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
 import { contactMergeWork } from "./contact-merge";
-import { borrowerCommandResult } from "./applications";
+import { borrowerCommandResult, coBorrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
 import type { WorkspaceStaff } from "./staff-store";
 import { demoBrokerageId, portalBrokerage } from "./brokerage-model";
@@ -400,6 +400,10 @@ export async function updateBorrowerApplication(input: unknown) {
 
 export function reserveBorrowerAddressLookup(token: string) {
   return reserveAddressLookup(database(), token);
+}
+
+export async function updateCoBorrowerApplication(input: unknown) {
+  return coBorrowerCommandResult(database(), input);
 }
 
 export async function loadRealtorReferrals(input: unknown) {

@@ -80,6 +80,8 @@ import { archiveFundingFinancials } from "./brokerage-finance";
 import { completeContactFollowUp, setClosingChecklistStatus, setClosingTarget, setDocumentDeadline } from "./deadline-actions";
 import { applyDocumentTemplateInput } from "./document-template-model";
 import { applyDocumentTemplate } from "./document-templates";
+import { changeJointApplicationLink, jointApplication, reopenJointBorrower } from "./joint-application";
+import { jointLinkCommand } from "./joint-application-model";
 import { closingReviewReady } from "./loan-workflow";
 import { routeSecondApplicationReview } from "./loan-reviews";
 
@@ -220,6 +222,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("simulateUwmChanges") }),
   z.object({ type: z.literal("reviewUwmAlert"), loanId: id, alertId: z.uuid() }),
   z.object({ type: z.literal("startApplication"), loanId: id }),
+  jointLinkCommand,
   z.object({ type: z.literal("revokeApplication"), loanId: id, token: z.string().regex(portalTokenPattern) }),
   z.object({ type: z.literal("refreshApplication"), loanId: id }),
   z.object({ type: z.literal("requestDocument"), loanId: id, kind: z.enum(documentKinds), instructions: z.string().trim().max(500),
@@ -268,6 +271,7 @@ const command = z.discriminatedUnion("type", [
   reviewApplicationInput,
   z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
     note: z.string().trim().min(1).max(500),
+    recipient: z.enum(["Primary borrower", "Co-borrower"]).default("Primary borrower"),
     lenderReturn: z.object({ eventId: z.uuid(), submissionId: id, lenderRevision: z.number().int().nonnegative() }).optional() }),
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
   z.object({ type: z.literal("sendApplication"), loanId: id, revision: z.number().int().nonnegative(),
@@ -419,6 +423,9 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "completeClosingItem":
     case "prepareClosingHandoff":
     case "requestDocument":
+    case "enableJointApplication":
+    case "revokeJointLink":
+    case "replaceJointLink":
     case "setDocumentDeadline":
     case "requestSuggestedUwmDocuments":
     case "reviewDocument":
@@ -458,20 +465,22 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       const campaignQueue = db.transaction(() => readCampaignQueue(db, data.campaignId, staff));
       return { campaignQueue, message: campaignQueue.campaign ? "Campaign queue refreshed." : "This campaign is no longer in your queue." };
     }
-    if (protectPilotLinks && (data.type === "revokeApplication" || data.type === "revokeRealtorPortal" || data.type === "createRealtorPortal")) {
+    if (protectPilotLinks && (data.type === "revokeApplication" || data.type === "revokeJointLink" ||
+      data.type === "revokeRealtorPortal" || data.type === "createRealtorPortal")) {
       if (data.type === "createRealtorPortal" &&
         (!db.prepare("SELECT 1 FROM contacts WHERE id = ? AND role = 'Realtor'").get(data.realtorId) ||
           (data.officerEmail && (referralOwner ?? staff)?.email !== data.officerEmail))) {
         throw new WorkspaceError("Choose a realtor contact and an active staff member in this brokerage.");
       }
-      const link = data.type === "revokeApplication"
-        ? db.prepare("SELECT token, expiresAt FROM applications WHERE loanId = ? AND token = ?").get(data.loanId, data.token)
+      const link = data.type === "revokeApplication" || data.type === "revokeJointLink"
+        ? db.prepare(`SELECT token, expiresAt FROM ${data.type === "revokeJointLink" ? "joint_applications" : "applications"}
+          WHERE loanId = ? AND token = ?`).get(data.loanId, data.token)
         : db.prepare("SELECT token, expiresAt FROM realtor_portals WHERE realtorId = ?").get(data.realtorId);
       if (typeof link?.token === "string" && typeof link.expiresAt === "string") {
         const protectedLink = await protectPilotLinks([{ token: link.token, expiresAt: link.expiresAt }]);
         if (!protectedLink) throw new WorkspaceError("Orbit could not protect the link change. Try again.");
         authorizeLoanOfficer(db, data, staff);
-        if (data.type !== "revokeApplication") {
+        if (data.type === "revokeRealtorPortal" || data.type === "createRealtorPortal") {
           const current = db.prepare("SELECT token FROM realtor_portals WHERE realtorId = ?").get(data.realtorId);
           if (current && current.token !== link.token) throw new WorkspaceError("The realtor link changed. Refresh before continuing.");
         }
@@ -1116,6 +1125,14 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = "Borrower link revoked.";
           break;
         }
+        case "enableJointApplication":
+        case "revokeJointLink":
+        case "replaceJointLink": {
+          const result = changeJointApplicationLink(db, staff, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
         case "refreshApplication":
           message = "Application and checklist refreshed.";
           break;
@@ -1461,6 +1478,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "requestApplicationCorrection": {
+          const coBorrower = data.recipient === "Co-borrower";
+          const joint = jointApplication(db, data.loanId);
+          if (coBorrower && (!joint?.submittedAt || !joint.primarySubmittedAt || data.lenderReturn)) {
+            throw new WorkspaceError("Choose a submitted co-borrower portion on the current joint 1003.");
+          }
           if (data.lenderReturn) {
             const result = recordManualLenderReturn(db, { ...data, lenderReturn: data.lenderReturn }, now);
             if ("error" in result) throw new WorkspaceError(result.error);
@@ -1473,13 +1495,16 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const application = getApplication(db, data.loanId);
           if (!application?.submittedAt || application.revision !== data.revision) throw new WorkspaceError("Refresh the submitted application before requesting corrections.");
           saveApplicationVersion(db, application);
+          if (joint) reopenJointBorrower(db, data.loanId, data.recipient, data.note, now);
           db.prepare(`UPDATE applications SET correctionNote = ?, submittedAt = NULL, reviewedAt = NULL,
-            revision = revision + 1, step = 0, updatedAt = ? WHERE loanId = ?`).run(data.note, now, data.loanId);
+            revision = revision + 1, step = ?, updatedAt = ? WHERE loanId = ?`)
+            .run(coBorrower ? "Co-borrower corrections requested." : data.note, coBorrower ? application.step : 0, now, data.loanId);
           db.prepare(`UPDATE tasks SET completedAt = ? WHERE loanId = ? AND completedAt IS NULL
             AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
-          addApplicationActivity(db, data.loanId, "Loan officer requested 1003 corrections.", now);
+          addApplicationActivity(db, data.loanId, coBorrower ? "Loan officer requested co-borrower corrections." : "Loan officer requested 1003 corrections.", now);
           message = data.lenderReturn ? "Lender return recorded. The borrower can reopen the same link to correct the 1003." :
-            "The borrower can reopen the same link to correct and resubmit the 1003.";
+            coBorrower ? "The co-borrower can reopen their link to correct and resubmit their portion." :
+              "The borrower can reopen the same link to correct and resubmit the 1003.";
           break;
         }
         case "saveLenderDetails": {

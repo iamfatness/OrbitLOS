@@ -4,7 +4,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import app from "vinext/server/app-router-entry";
 import { assignContactFollowUpInput, campaignRefillLeadId, executeCommand, reviewApplicationInput, staffCampaignOptOutTarget } from "./lib/commands";
 import { readPlaybook } from "./lib/playbooks";
-import { borrowerCommandResult } from "./lib/applications";
+import { borrowerCommandResult, coBorrowerCommandResult } from "./lib/applications";
+import { jointLinkUnavailable } from "./lib/joint-application-model";
 import { borrowerHttp, borrowerJson, documentUploadMode } from "./lib/borrower-http";
 import { initializeStore, readStaffWorkspaceEntry, readWorkspace, type SqlValue, type Store } from "./lib/store";
 import { readPipeline } from "./lib/pipeline";
@@ -754,6 +755,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return borrowerCommandResult(this.#store, input,
       pilot || this.#id === demoBrokerageId || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot);
   }
+  coBorrower(input: unknown, pilot = this.#id !== demoBrokerageId) {
+    return coBorrowerCommandResult(this.#store, input, pilot);
+  }
   async #resolveLeadOwner(email: string | null, emails: string[], adminEmail?: string) {
     if (!email) return null;
     return this.#id === demoBrokerageId ? this.leadOwner(this.#id, email, emails, adminEmail)
@@ -886,6 +890,13 @@ export default {
         return { ...result, uploadsMode: documentUploadMode(uploads?.mode, link.id, link.pilot) };
       }, Boolean(placesKey));
     }
+    if (request.method === "POST" && url.pathname === "/api/joint-application") {
+      return borrowerJson(request, async (input) => {
+        const link = await linkedWorkspace(input);
+        return link && (link.pilot || link.id === demoBrokerageId) ? link.store.coBorrower(input, link.pilot) :
+          { status: 404, error: jointLinkUnavailable };
+      }, 262_144);
+    }
     if (request.method === "POST" && url.pathname === "/api/demo-address") {
       return placesHttp(request, placesKey, async (token) => (await linkedWorkspace(token))?.store.reserveAddressLookup(token) ?? 404);
     }
@@ -909,7 +920,7 @@ export default {
           : { status: 404, error: "This quote request link is unavailable." };
       }, 4096);
     }
-    const tokenPage = reading && (url.pathname === "/apply" || url.pathname === "/referrals" || url.pathname === "/quote");
+    const tokenPage = reading && ["/apply", "/co-borrower", "/referrals", "/quote"].includes(url.pathname);
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
       return handleStaffAuth(request, url, google, directory, (staff) => directory.activateStaff(staff, bootstrapEmails));
     }

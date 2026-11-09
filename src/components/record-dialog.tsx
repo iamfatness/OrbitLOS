@@ -7,6 +7,7 @@ import { activityKinds, contactOutcomes, leadSources, prospectingBlocked, stages
 import { dateTime, initials, money, stageDays } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
+import { JointBorrowerLinks } from "./joint-borrower-links";
 import { FollowUpPurposeField, LoanTaskRow } from "./loan-task";
 import { carriedCallbackOutcomes } from "@/lib/campaign-callback-performance-model";
 import { LoanPricing } from "./loan-pricing";
@@ -251,8 +252,8 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, borrowerUrl,
   );
 }
 
-function LoanApplication({ loanId, state, busy, save, processor, openConditions, campaignManual, openReviews, markDraftChanged }: {
-  loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean;
+function LoanApplication({ loanId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, markDraftChanged }: {
+  loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean; jointLinks: boolean;
   openConditions: (id: string) => void; campaignManual: boolean; openReviews?: () => void;
   markDraftChanged: (editor: Node) => void;
 }) {
@@ -271,7 +272,7 @@ function LoanApplication({ loanId, state, busy, save, processor, openConditions,
   const currentSent = !!lastSent && lastSent.revision === application?.revision;
   const status = application?.correctionNote ? "Corrections requested" : application?.submittedAt && !application.reviewedAt
     ? "Needs review" : currentSent ? "Sent to UWM · Mock" : application?.reviewedAt
-      ? (application.uwmReference ? "Ready to send to existing file" : "Reviewed") : "Draft";
+      ? (application.uwmReference ? "Ready to send to existing file" : "Reviewed") : application?.joint ? "Collecting joint 1003" : "Draft";
   const run = (type: string) => void save({ type, loanId });
 
   async function copy() {
@@ -317,6 +318,8 @@ function LoanApplication({ loanId, state, busy, save, processor, openConditions,
         </div>
       </div>}
       {copyStatus && <p role="status" className="muted">{copyStatus}</p>}
+      <JointBorrowerLinks key={application.loanId} application={application} mayManage={jointLinks} busy={busy} save={save}
+        canEnable={jointLinks && linkStatus === "Active" && canRecordReturn && !application.submittedAt && !application.versions.length} />
       {application.uwmReference && <div className="record-form">
         <p className="application-sent"><CheckCircle2 size={16} /> Mock UWM file · {application.uwmReference}</p>
         {lastSent?.uwmReceipt ? <p className="muted">Last received revision {lastSent.revision} · {dateTime(lastSent.uwmReceipt.sentAt)} ET</p>
@@ -336,8 +339,11 @@ function LoanApplication({ loanId, state, busy, save, processor, openConditions,
         <details className="loan-task-create"><summary>Request borrower corrections</summary>
           <form className="record-form" onSubmit={(event) => {
             event.preventDefault();
-            void save({ type: "requestApplicationCorrection", loanId, revision: application.revision, note: text(new FormData(event.currentTarget), "note") });
+            const data = new FormData(event.currentTarget);
+            void save({ type: "requestApplicationCorrection", loanId, revision: application.revision, note: text(data, "note"),
+              recipient: data.get("recipient") || "Primary borrower" });
           }}>
+            {application.joint && <Field label="Correction recipient"><select name="recipient"><option>Primary borrower</option><option>Co-borrower</option></select></Field>}
             <Field label="Instructions for the borrower"><textarea name="note" rows={3} required maxLength={500} /></Field>
             <div><Button size="sm" type="submit" disabled={busy}>Request corrections</Button></div>
           </form>
@@ -590,6 +596,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </>}
       {section === "1003" && <>
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor}
+        jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}
         markDraftChanged={markDraftChanged}
         openConditions={(id) => open(submissionTarget(id))} campaignManual={campaignLender === "manual" && !processor}
         openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined} />

@@ -10,7 +10,7 @@ import { returningClientOption } from "./past-client-queue";
 import type { ReturningClientOption } from "./past-client-queue-model";
 import type { WorkspaceStaff } from "./staff-store";
 import { loanWorkRecords, readBrokerageTemplates, type Store } from "./store";
-import { loanAccess } from "./workspace-access";
+import { loanAccess, scopeJointLinks } from "./workspace-access";
 import { searchTaskTarget } from "./workspace-search-model";
 import { readManualReturnWork } from "./manual-lender-work";
 
@@ -25,7 +25,8 @@ function loanHandoffVersion(db: Store, loanId: string) {
   const documents = db.prepare(`SELECT requests.id, requests.status, requests.revision, requests.deadlineRevision, ${pdfColumns()}
     FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
     WHERE requests.loanId = ? ORDER BY requests.requestedAt, requests.id`).all(loanId);
-  return createHash("sha256").update(JSON.stringify([application, documents])).digest("hex");
+  const joint = db.prepare("SELECT submittedAt, primarySubmittedAt, revokedAt, expiresAt FROM joint_applications WHERE loanId = ?").get(loanId);
+  return createHash("sha256").update(JSON.stringify([application, documents, joint])).digest("hex");
 }
 
 export function readLoanHandoff(db: Store, loanId: unknown, knownVersion: unknown, staff: WorkspaceStaff | null, brokerageId: string) {
@@ -78,6 +79,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
   return {
     ...records, loanId, handoffVersion, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
+    applications: scopeJointLinks(records.applications, staff),
     repeatOption,
     ...(manualReturn ? { manualReturn } : {}),
     ...(action ? { workTarget: action.taskId && action.target !== fundingCheckInTarget ? searchTaskTarget(action.taskId) : action.target } : {}),
