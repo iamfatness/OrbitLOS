@@ -519,3 +519,11 @@ On the previous hosted release, the invited LO opened Upcoming before converting
 Start 1003 created the loan in the conversion tab, but that tab returned to Today during this rehearsal. Reopening the campaign confirmed the converted card. The conversation initially also returned to Today after creation and opened successfully from its lead card on the next visit. These navigation observations are separate from the successful old-link checks.
 
 The scoped read matches the original lead, task, current scheduled time, and current loan owner. The Worker verified the same callback ID before and after conversion and denied other staff. SQLite checks rejected a different task or deadline, another brokerage, a prior owner, an inactive loan, an opted-out lead, and a completed or recorded task. All 310 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. The public Product and Demo pages returned 200 with the updated copy.
+
+## Open the saved draft directly from a campaign
+
+Worker `b60313a7-cda5-4f85-ba07-889bcbe33576` from `93492140f8bf` uses an authenticated JSON request for staff lead conversion. The response includes the exact loan and the affected campaign. The built Worker received that response with a simulated previous-client compatibility header. It verified sign-in, brokerage, ownership, role and origin restrictions, the open-slot refill, and a retry that returned the same loan and borrower link.
+
+On the live release, the invited LO opened Finley's draft from a scheduled callback and Emery's draft from a connected call. Both stayed in Call Campaigns. Finley's callback stayed due Nov 17 at 11:15 a.m. Eastern. Finley's campaign card retained Start 1003 until a retry opened the same borrower link and advanced the card. Emery's card advanced on the first conversion. A tab opened before deployment also converted Cedar and opened the draft. The earlier return to Today did not recur in these samples, and its original cause remains unconfirmed.
+
+All 310 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. The public Product and Demo pages returned 200 with the updated copy.
