@@ -203,7 +203,7 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
       {selected && "error" in selected && <p role="alert">{selected.error}</p>}
       {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
       {newThread && <>
-        <p className="muted">{"leadId" in newThread.subject ? "Lead" : "loanId" in newThread.subject ?
+        <p className="muted">{"leadId" in newThread.subject ? newThread.convertedLoan ? "Borrower · Converted loan" : "Lead" : "loanId" in newThread.subject ?
           `${newThread.subject.audience} · ${newThread.loanName}’s loan` : `${newThread.subject.audience} · Contact conversation`} · {newThread.owner}</p>
         <div><Button size="sm" disabled={saving} onClick={() => void change("leadId" in newThread.subject ?
           { type: "startLead", ...newThread.subject } : "loanId" in newThread.subject ?

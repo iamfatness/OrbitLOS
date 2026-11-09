@@ -416,6 +416,59 @@ test("lead reply matches normalize phone numbers and page across a bounded backf
   assert.equal(last.next, null);
 });
 
+test("first conversation after conversion follows the current loan and links the exact borrower", async (t) => {
+  const { db, lead, lo, other, admin, processor, write, read, now } = fixture(t);
+  async function convert(name) {
+    const leadId = lead(name);
+    assert.equal(read({ type: "lead", leadId }).kind, "new");
+    const result = await executeCommand(db, { type: "convertReferral", referralId: leadId, contactId: null }, lo);
+    assert.ok(result.referralLoanId, result.error);
+    const loan = result.state.loans.find(({ id }) => id === result.referralLoanId);
+    return { leadId, loanId: loan.id, contactId: loan.contactId };
+  }
+  const { leadId, loanId, contactId } = await convert("Fictional first conversation");
+  const leadStart = { type: "startLead", leadId };
+  const source = { type: "lead", leadId };
+  db.prepare("UPDATE loans SET officerEmail = ?, officer = ? WHERE id = ?").run(other.email, other.name, loanId);
+  db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
+    VALUES (?, ?, ?, 'Assigned', '', ?, 1)`).run(loanId, processor.email, processor.name, now.toISOString());
+  for (const actor of [lo, processor]) {
+    assert.ok(read(source, actor).error);
+    assert.ok(write(leadStart, actor).error);
+  }
+  assert.ok(write(leadStart, other, crypto.randomUUID()).error);
+  assert.equal(read(source, other).convertedLoan, true);
+  assert.equal(read(source, admin).subject.leadId, leadId);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM loan_conversations WHERE loanId = ?").get(loanId).total, 0);
+  db.prepare("UPDATE loans SET disposition = 'On hold' WHERE id = ?").run(loanId);
+  assert.ok(write(leadStart, other).error);
+  db.prepare("UPDATE loans SET disposition = 'Active' WHERE id = ?").run(loanId);
+  db.prepare("UPDATE applications SET revokedAt = ? WHERE loanId = ?").run(now.toISOString(), loanId);
+  const direct = write({ type: "start", loanId, contactId, audience: "Borrower" }, other);
+  assert.ok(direct.id, direct.error);
+  assert.equal(db.prepare("SELECT sourceLeadId FROM loan_conversations WHERE id = ?").get(direct.id).sourceLeadId, null);
+  const note = { type: "note", id: direct.id, eventId: crypto.randomUUID(), revision: direct.opened.thread.revision, text: "Fictional pre-existing note." };
+  assert.ok(write(note, other).message);
+  const linked = write(leadStart, other);
+  assert.equal(linked.id, direct.id);
+  assert.equal(linked.opened.events[0].text, note.text);
+  assert.equal(linked.opened.thread.revision, direct.opened.thread.revision + 2);
+  assert.equal(write(leadStart, other).opened.thread.revision, linked.opened.thread.revision);
+  assert.equal(write(leadStart, processor).id, linked.id);
+
+  const conflicted = await convert("Fictional different source");
+  const ordinary = write({ type: "start", loanId: conflicted.loanId, contactId: conflicted.contactId, audience: "Borrower" });
+  const otherSource = lead("Fictional conflicting source");
+  db.prepare("UPDATE loan_conversations SET sourceLeadId = ? WHERE id = ?").run(otherSource, ordinary.id);
+  assert.ok(write({ type: "startLead", leadId: conflicted.leadId }).error);
+  assert.equal(db.prepare("SELECT sourceLeadId FROM loan_conversations WHERE id = ?").get(ordinary.id).sourceLeadId, otherSource);
+
+  const withoutApplication = await convert("Fictional legacy loan without application");
+  db.prepare("DELETE FROM applications WHERE loanId = ?").run(withoutApplication.loanId);
+  assert.ok(write({ type: "startLead", leadId: withoutApplication.leadId }).error);
+  assert.ok(write({ type: "start", loanId: withoutApplication.loanId, contactId: withoutApplication.contactId, audience: "Borrower" }).id);
+});
+
 test("a delayed reply to a lead is recorded without resetting newer call and follow-up work", (t) => {
   const { db, lead, admin, lo, write, read, brokerage, now } = fixture(t);
   const leadId = lead("Fictional lead with a newer call");

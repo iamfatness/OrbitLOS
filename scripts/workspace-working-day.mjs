@@ -2045,6 +2045,35 @@ try {
     assert.equal(await personal(loser), undefined);
     assert.ok((await action(loser, "readLoanForWork", loanId)).error);
   });
+  await stage("A first conversation opens on the loan after conversion in another tab", async () => {
+    const campaignId = randomUUID();
+    await write(owner, { type: "createCallCampaign", id: campaignId, name: "Fictional conversion before conversation" });
+    const rows = parseCampaignLeadCsv("id,name,email,phone,purpose,zip\nconversation-after-conversion,Fictional Late Conversation,late-conversation@example.test,313-555-0198,Purchase,48067", dueAt);
+    const imported = await importRows({ type: "migratePipeline", origin: campaignOrigin(campaignId), campaignId, decisions: {},
+      rows: rows.map((row) => ({ ...row, ownerEmail: officer.email })) });
+    const leadId = imported.rows[0].targetId;
+    const current = (await action(officer, "readInboxWork", { type: "open", id: leadId })).lead;
+    const callbackAt = new Date(now + 5 * 86_400_000).toISOString();
+    const logged = await write(officer, { type: "recordCampaignCall", campaignId, leadId, revision: current.followUp.revision,
+      outcome: "Requested callback", note: "Fictional call before the first conversation.", callbackAt });
+    const taskId = logged.leadWork.member.callbackTaskId;
+    const source = { type: "lead", leadId };
+    assert.equal((await action(officer, "readConversationWork", source)).kind, "new");
+    const conversion = await post(`/api/lead-conversion?brokerage=${brokerage}`, { type: "convertReferral", referralId: leadId, contactId: null }, officer);
+    const loanId = conversion.referralLoanId;
+    assert.equal((await action(officer, "readConversationWork", source)).convertedLoan, true);
+    const path = `/api/conversation-start?brokerage=${brokerage}`;
+    const start = { start: { type: "startLead", leadId }, queue: { filter: "Active", mine: true } };
+    assert.equal((await postResponse(path, start, competingOfficer)).status, 409);
+    const [first, repeated] = await Promise.all([post(path, start, officer), post(path, start, officer)]);
+    assert.equal(first.id, repeated.id);
+    assert.equal(first.opened.thread.loanId, loanId);
+    assert.equal(first.opened.thread.audience, "Borrower");
+    assert.deepEqual(first.opened.thread.campaignCallback, { loanId, taskId, dueAt: callbackAt });
+    assert.ok(first.opened.events.some(({ text, origin }) => origin === "Lead log" && text.includes("Fictional call before the first conversation.")));
+    assert.equal(first.queue.rows.filter(({ id }) => id === first.id).length, 1);
+    assert.equal((await action(officer, "readConversationWork", source)).thread.id, first.id);
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

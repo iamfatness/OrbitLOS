@@ -96,6 +96,23 @@ function getLeadParticipant(db: Store, staff: WorkspaceStaff, leadId: string) {
     .get(leadId, ...scope.params);
 }
 
+function convertedLeadConversation(db: Store, staff: WorkspaceStaff, leadId: string) {
+  const scope = loanScope(staff);
+  const loan = db.prepare(`SELECT loan.id, loan.contactId, loan.disposition, loan.officer, borrower.name, lead.heldAt, lead.archiveToken,
+    EXISTS(SELECT 1 FROM applications WHERE loanId = loan.id) AS hasApplication
+    FROM referral_leads lead JOIN loans loan ON loan.id = lead.loanId ${loanAccessJoins}
+    WHERE lead.id = ? AND lead.resolvedAt IS NOT NULL ${scope.sql}`).get(leadId, ...scope.params);
+  if (typeof loan?.id !== "string" || typeof loan.contactId !== "string") return;
+  const thread = getLoanThread(db, staff, "thread.loanId = ? AND thread.audience = 'Borrower' AND thread.contactId = ?", [loan.id, loan.contactId]);
+  if (thread?.sourceLeadId === leadId) return { thread };
+  // A converted loan always has a 1003. With an application in place, loan edits cannot replace its borrower.
+  if (staff.brokerage.role === "Processor" || loan.disposition !== "Active" || !loan.hasApplication ||
+    loan.heldAt || loan.archiveToken || thread?.sourceLeadId ||
+    db.prepare("SELECT 1 FROM loan_conversations WHERE sourceLeadId = ?").get(leadId)) return;
+  const subject: ConversationSubject = { loanId: loan.id, contactId: loan.contactId, audience: "Borrower" };
+  return { subject, name: String(loan.name), owner: String(loan.officer || "Unassigned") };
+}
+
 // Conversion owns the transaction. Keep the thread ID, event IDs, due date and read state.
 export function carryLeadConversation(db: Store, leadId: string, loanId: string, contactId: string, at: string) {
   const saved = db.prepare(`INSERT INTO loan_conversations (id, loanId, contactId, audience, ownerRole, status, unread, dueOn, updatedAt, revision, sourceLeadId)
@@ -114,15 +131,21 @@ function getParticipant(db: Store, staff: WorkspaceStaff, subject: ConversationS
     WHERE loan.id = ? AND recipient.id = ? ${scope.sql}`).get(subject.audience, subject.loanId, subject.contactId, ...scope.params);
 }
 
-function ensureConversation(db: Store, staff: WorkspaceStaff, subject: ConversationSubject, at: string) {
+function ensureConversation(db: Store, staff: WorkspaceStaff, subject: ConversationSubject, at: string, sourceLeadId: string | null = null) {
   const person = getParticipant(db, staff, subject);
   if (!person) return null;
   const { loanId, audience, contactId } = subject;
-  const existing = db.prepare("SELECT id FROM loan_conversations WHERE loanId = ? AND audience = ? AND contactId = ?").get(loanId, audience, contactId);
-  if (typeof existing?.id === "string") return existing.id;
+  const existing = db.prepare("SELECT id, sourceLeadId FROM loan_conversations WHERE loanId = ? AND audience = ? AND contactId = ?").get(loanId, audience, contactId);
+  if (typeof existing?.id === "string") {
+    if (sourceLeadId && existing.sourceLeadId === null) {
+      db.prepare("UPDATE loan_conversations SET sourceLeadId = ?, revision = revision + 1 WHERE id = ? AND sourceLeadId IS NULL")
+        .run(sourceLeadId, existing.id);
+    }
+    return existing.id;
+  }
   const id = crypto.randomUUID();
-  db.prepare("INSERT INTO loan_conversations (id, loanId, audience, contactId, ownerRole, updatedAt) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(id, loanId, audience, contactId, person.processorEmail && !person.officerEmail ? "Processor" : "Loan officer", at);
+  db.prepare("INSERT INTO loan_conversations (id, loanId, audience, contactId, ownerRole, updatedAt, sourceLeadId) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, loanId, audience, contactId, person.processorEmail && !person.officerEmail ? "Processor" : "Loan officer", at, sourceLeadId);
   return id;
 }
 
@@ -285,14 +308,17 @@ export function readConversations(db: Store, input: unknown, staff: WorkspaceSta
   if (query.type === "list") return list(db, staff, query, now);
   if (query.type === "myReplies") return staff.brokerage.role === "Processor" ? { error: conversationsUnavailable } :
     { kind: "replies", checkedAt: now.toISOString(), page: readOwnedConversationReplies(db, staff, undefined, now, localName) };
+  const converted = query.type === "lead" ? convertedLeadConversation(db, staff, query.leadId) : undefined;
   const row = query.type === "thread" ? getThread(db, staff, query.id) :
-    query.type === "lead" ? getLeadThread(db, staff, "thread.leadId = ?", [query.leadId]) ?? getLoanThread(db, staff, "thread.sourceLeadId = ?", [query.leadId]) :
+    query.type === "lead" ? getLeadThread(db, staff, "thread.leadId = ?", [query.leadId]) ?? converted?.thread :
     query.type === "contact" ? getContactThread(db, staff, "thread.contactId = ?", [query.contactId]) :
       getLoanThread(db, staff, "thread.loanId = ? AND thread.audience = ? AND thread.contactId = ?", [query.loanId, query.audience, query.contactId]);
   if (!row) {
     if (query.type === "thread") return { error: conversationsUnavailable };
     if (query.type === "lead") {
       const lead = getLeadParticipant(db, staff, query.leadId);
+      if (converted?.subject) return { kind: "new", subject: { leadId: query.leadId }, name: converted.name,
+        loanName: converted.name, owner: converted.owner, convertedLoan: true };
       return lead ? { kind: "new", subject: { leadId: query.leadId }, name: String(lead.name), loanName: String(lead.name),
         owner: String(lead.officer || "Unassigned") } : { error: conversationsUnavailable };
     }
@@ -340,8 +366,11 @@ export function changeConversation(db: Store, input: unknown, staff: WorkspaceSt
       return openedConversation(ensureConversation(db, staff, data, at), "Conversation opened.");
     }
     if (data.type === "startLead") {
-      const id = ensureLeadConversation(db, staff, data.leadId, at) ?? getLoanThread(db, staff, "thread.sourceLeadId = ?", [data.leadId])?.id;
-      return openedConversation(id ?? null, "Lead conversation opened.");
+      const id = ensureLeadConversation(db, staff, data.leadId, at);
+      if (id) return openedConversation(id, "Lead conversation opened.");
+      const converted = convertedLeadConversation(db, staff, data.leadId);
+      const carriedId = converted?.thread?.id ?? (converted?.subject ? ensureConversation(db, staff, converted.subject, at, data.leadId) : null);
+      return openedConversation(carriedId, "Borrower conversation opened on the loan.");
     }
     if (data.type === "startContact") {
       return openedConversation(ensureContactConversation(db, staff, data.contactId, at), "Contact conversation opened.");

@@ -68,7 +68,7 @@ export type ConversationResult =
   | { kind: "replies"; checkedAt: string; page: ConversationReplyPage }
   | { kind: "thread"; thread: ConversationDetail; events: ConversationEvent[]; next: ConversationCursor | null }
   | { kind: "new"; subject: ConversationSubject | { leadId: string } | (ContactSubject & { audience: ConversationSubject["audience"] });
-    name: string; loanName: string; owner: string }
+    name: string; loanName: string; owner: string; convertedLoan?: true }
   | { error: string };
 type OpenedConversation = Extract<ConversationResult, { kind: "thread" }>;
 export type ConversationChange = { id: string; message: string; opened?: OpenedConversation } | { error: string };
