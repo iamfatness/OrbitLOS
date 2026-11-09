@@ -47,7 +47,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F01 | Mock credit and individual DU/LPA workbench | Run DU and LPA together with independent retry and consent and order evidence. |
 | F02 | 1003 income answers and mock statement inputs | Review a documented income calculation against its source periods and evidence. |
 | F03 | Hosted mock UWM intake, conditions, manual MISMO export, acknowledgment and returns | Define verified lender capabilities and reconcile delayed, rejected, and repeated updates. |
-| F04 | Hosted request, mock-scanned PDF, replacement and clearance | Verify configurable checklist rules and production scan and delivery contracts. |
+| F04 | Hosted versioned checklist templates with loan purpose, instructions and due dates, plus the existing request, mock-scanned PDF, replacement and clearance workflow | Verify additional checklist criteria and categories, and production scan and delivery contracts. |
 | F05 | Staff can track disclosure status on the closing file | Specify a versioned package and signer lifecycle with mock evidence before selecting providers. |
 | F06 | Hosted save, resume, status, borrower requests and correction | Verify participant-specific permissions through a joint application and revocation. |
 | F07 | Versioned brokerage quote form with a mobile borrower preview, one configurable question, branded themes and attributed campaign intake | Verify separate intake profiles, branch and officer overrides, conditional questions and safe mapping to the application. |
@@ -86,7 +86,9 @@ Status: mock UWM and manual handoffs exist. Staff validate the current applicati
 
 ### F04 — Document and condition lifecycle
 
-Status: partial implemented demo. Extend existing requests and review queues with versioned criteria-based checklist rules, reusable categories, ownership and deadlines. Track requested, received, scan-pending, blocked, reviewed, replacement-needed, delivered and lender-confirmed outcomes distinctly. Acceptance: a document replacement cannot inherit an old review/clearance, rule changes do not silently rewrite active requests, uploads recover, and lender confirmation alone establishes lender clearance. Reuse private storage and scan adapters; live evidence required separately. Increments 1–3.
+The [hosted checklist](demo-rehearsal-log.md#hosted-brokerage-document-checklist-templates) gives admins reusable versions with purpose filters, borrower instructions and deadline offsets. Loan staff preview what will be added and can open the current file assignment. Requests inherit that assignment and keep their original version when a template changes. Each request uses the existing borrower, review, and manager queues.
+
+Remaining scope covers additional criteria, reusable categories, and production scan and delivery. Track requested, received, scan-pending, blocked, reviewed, replacement-needed, delivered and lender-confirmed outcomes distinctly. Verify that replacement requests require fresh review, uploads recover, and lender confirmation alone establishes lender clearance. Reuse private storage and scan adapters. Increments 1–3.
 
 ### F05 — Disclosure and signature workspace
 
