@@ -46,7 +46,7 @@ export default function DemoPage() {
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>
           <li>Record a post-funding check-in, see its note on the scheduled callback in Tasks, and confirm the original property address when starting a separate refinance.</li>
           <li>Open scheduled campaign calls from one queue. Reschedule from the loan and keep missed deadlines visible in reporting.</li>
-          <li>Explore a fictional brokerage’s appointments, open files, borrower conversations, and funded loans without entering customer data.</li>
+          <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Compare staff time and handoffs with your current process using the same fictional case.</li>
         </ul>
         <p className="marketing-request-note">A live browser rehearsal took 3 minutes 32 seconds from creating a fresh pilot to opening the rate-watch refinance. It included a CSV upload, two sample PDFs, mock lender clearance, funding, and a separate prefilled repeat 1003. The run used one signed-in staff account and fictional records. Timing excluded sign-in and spoken narration.</p>

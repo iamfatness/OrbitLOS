@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, Bell, CircleCheck, List, LogOut, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, X,
 } from "lucide-react";
@@ -134,6 +134,8 @@ function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
   );
 }
 
+const subscribeToControlsReady = () => () => {};
+
 export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: GuideTrack; deferredWorkspace: boolean;
 }) {
@@ -142,6 +144,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const canOpenCalendar = Boolean(staff) || process.env.NODE_ENV === "development";
   const canOpenProcessing = processor || staff?.brokerage.role === "Admin" || (!staff && process.env.NODE_ENV === "development");
   const processorTaskEntry = processor && initialGuide === "campaign";
+  const controlsReady = useSyncExternalStore(subscribeToControlsReady, () => true, () => false);
   const [state, setState] = useState(initial);
   const [workspaceStatus, setWorkspaceStatus] = useState<"cold" | "loading" | "failed" | "ready">(deferredWorkspace ? "cold" : "ready");
   const [reviewVersion, setReviewVersion] = useState(0);
@@ -1020,11 +1023,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           mobileMenu.current?.focus();
         }
       }}>
-        <button type="button" className="brand w-fit rounded-lg hover:text-[var(--orbit-lilac)]" aria-label="OrbitLOS home, back to Pipeline"
+        <button type="button" className="brand w-fit rounded-lg hover:text-[var(--orbit-lilac)]" aria-label="OrbitLOS home, back to Pipeline" disabled={!controlsReady}
           onClick={() => navigate("Pipeline")}>
           <span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span>
         </button>
-        <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button"
+        <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button" disabled={!controlsReady}
           aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
           {mobileNavOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />} Menu
         </Button>
@@ -1033,7 +1036,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
               {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => (
-                <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined} onClick={() => navigate(label)}>
+                <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
+                  disabled={!controlsReady} onClick={() => navigate(label)}>
                   <Icon size={20} aria-hidden="true" /><span>{label}</span>{label === "Tasks" && workspaceStatus === "ready" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
                 </button>
               ))}
@@ -1053,14 +1057,14 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section}</strong></span>
           <div className="topbar-actions">
             {canOpenCalendar && <Button className="workspace-search-trigger" type="button" size="sm" variant="ghost" data-tooltip="Search workspace"
-              aria-label="Search workspace" aria-current={section === "Search" ? "page" : undefined}
+              aria-label="Search workspace" aria-current={section === "Search" ? "page" : undefined} disabled={!controlsReady}
               onClick={() => navigate("Search", false)}><Search aria-hidden="true" /><span>Search</span></Button>}
             {canOpenCalendar && <Button type="button" size="sm" variant="ghost" className="review-inbox-trigger" data-tooltip="Review inbox"
               aria-label={reviewInbox.unread ? `Review inbox, ${reviewInbox.unread} unread` : "Review inbox"}
-              aria-current={section === "Review Inbox" ? "page" : undefined} onClick={() => navigate("Review Inbox", false)}>
+              aria-current={section === "Review Inbox" ? "page" : undefined} disabled={!controlsReady} onClick={() => navigate("Review Inbox", false)}>
               <Bell aria-hidden="true" />{reviewInbox.unread && <span aria-hidden="true">{reviewInbox.unread}</span>}
             </Button>}
-            <button className="connection-chip" onClick={() => navigate("Integrations")}><span /> UWM mock</button>
+            <button className="connection-chip" disabled={!controlsReady} onClick={() => navigate("Integrations")}><span /> UWM mock</button>
             {staff && <form method="post" action="/auth/logout"><Button type="submit" size="sm" variant="ghost"><LogOut /> Sign out</Button></form>}
           </div>
         </header>
@@ -1074,7 +1078,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               <div className="heading-actions pipeline-actions">
                 {!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}
                 {syncButton()}
-                {!processor && <Button className="pipeline-demo" variant="ghost" onClick={() => navigate("Demo Guide")}><workspaceIcons.demo aria-hidden="true" /> Guided demo</Button>}
+                {!processor && <Button className="pipeline-demo" variant="ghost" disabled={!controlsReady} onClick={() => navigate("Demo Guide")}><workspaceIcons.demo aria-hidden="true" /> Guided demo</Button>}
               </div>
             </div>
             <dl className="metrics">
@@ -1084,6 +1088,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             </dl>
           </section> : <div className="page-heading">
             <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
+            {section === "Demo Guide" && !controlsReady && <p className="muted" role="status">Getting the walkthrough ready…</p>}
             {!waitingForWorkspace && <div className="heading-actions">
               {section === "Contacts" && admin && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && staff && <Button variant="outline" disabled={busy}
@@ -1451,7 +1456,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               void openQueueLoan({ kind: "details", loanId: item.recordId, target });
             }} />}
 
-          {section === "Demo Guide" && !processor && <div className="record-form">
+          {section === "Demo Guide" && !processor && <fieldset className="record-form guide-controls" aria-label="Walkthrough controls" disabled={!controlsReady}>
             <div className="view-toggle" role="group" aria-label="Walkthrough path">
               <button type="button" aria-pressed={guideTrack === "referral"} onClick={() => setGuideTrack("referral")}>Realtor referral</button>
               <button type="button" aria-pressed={guideTrack === "campaign"} onClick={() => setGuideTrack("campaign")}>CSV to repeat loan</button>
@@ -1470,7 +1475,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             recordCheckIn={(loanId) => show({ kind: "fundingCheckIn", loanId })}
             startRepeat={(loanId) => show({ kind: "returningClient", loanId })}
             showTasks={showGuideTasks} />
-          </div>}
+          </fieldset>}
 
           {section === "Integrations" && <section className="integration">
             <div className="integration-head"><span className="metric-icon lavender"><workspaceIcons.integrations size={20} aria-hidden="true" /></span><div><h2>United Wholesale Mortgage</h2></div><span className="pill">Mock connection</span></div>
