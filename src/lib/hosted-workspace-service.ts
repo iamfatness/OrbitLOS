@@ -28,6 +28,7 @@ import { leadWorkUnavailable } from "./lead-work-model";
 import { incomingLoanWorkUnavailable } from "./incoming-loan-work-model";
 import { manualReturnFollowUpUnavailable } from "./lender-export-model";
 import { preapprovalUnavailable, sharedPreapprovalUnavailable } from "./preapproval-model";
+import { lenderPackageUnavailable, type SharedLenderPackageInput } from "./lender-handoff-share-model";
 import { quoteSettingsUnavailable } from "./quote-intake-model";
 export { currentStaff } from "./current-staff";
 
@@ -323,6 +324,14 @@ export async function loadRealtorReferrals(input: unknown) {
 
 export async function loadSharedPreapproval(input: unknown) {
   return (await linkedWorkspace(input))?.sharedPreapproval(input) ?? { status: 404, error: sharedPreapprovalUnavailable };
+}
+
+export async function workOnLenderPackages(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).lenderPackages(staff, input) : { error: lenderPackageUnavailable };
+}
+
+export async function loadSharedLenderPackage(input: SharedLenderPackageInput) {
+  return (await linkedWorkspace(input, true))?.sharedLenderPackage(input) ?? { status: 404, error: lenderPackageUnavailable };
 }
 
 export async function submitQuoteRequest(input: unknown) {

@@ -8,13 +8,15 @@ import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Submission } from "@/lib/model";
 import { exportName, manualLenderAcknowledgmentTarget, mismoHandoffCoverage, suggestExportName, type ExportName } from "@/lib/lender-export-model";
 import { downloadSampleFile } from "./sample-download";
+import { LenderHandoffShare } from "./lender-handoff-share";
 import { Button } from "./ui/button";
 
 const nameFields = [
   ["first", "First name"], ["middle", "Middle name"], ["last", "Last name"], ["suffix", "Suffix"],
 ] as const;
 
-export function ManualLenderExport({ application, busy, save, campaign, linkedFile, previousFile, canRecordReturn, openConditions }: {
+export function ManualLenderExport({ application, busy, save, campaign, linkedFile, previousFile, canRecordReturn, openConditions,
+  shareBrokerage, shareAllowed }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
@@ -23,6 +25,8 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
   previousFile?: Submission;
   canRecordReturn: boolean;
   openConditions: (id: string) => void;
+  shareBrokerage?: string;
+  shareAllowed: boolean;
 }) {
   const originals = application.draft ? [application.draft.borrowerName,
     ...application.draft.urla.additional.map((person) => person.identity.fields.name)] : [];
@@ -79,6 +83,9 @@ export function ManualLenderExport({ application, busy, save, campaign, linkedFi
           onChange={(event) => setConfirmed(event.target.checked)} /> I verified the borrower names for this fictional export.</label>
         <div><Button size="sm" type="submit" disabled={busy || !confirmed || !valid}><Download /> Download MISMO 3.4 XML</Button></div>
       </form>}
+    {shareBrokerage && <LenderHandoffShare brokerageId={shareBrokerage} loanId={application.loanId} revision={application.revision}
+      lenderRevision={application.lender?.revision ?? 0} names={names} canCreate={!!ready && valid && confirmed && shareAllowed}
+      onCreated={() => void save({ type: "refreshApplication", loanId: application.loanId })} />}
     {ready && campaign && <section className="document-item" aria-label="Simulated lender acknowledgment">
       <div className="document-item-head"><strong>Fictional lender acknowledgment</strong><span className="pill">Demo</span></div>
       <p className="muted">{existing ? "The acknowledgment is recorded for this revision." :

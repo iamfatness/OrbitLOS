@@ -22,6 +22,7 @@ const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { closingReviewReady, loanNextAction } = await import("../src/lib/loan-workflow.ts");
 const { manualReturnStatus, manualReturnSteps } = await import("../src/lib/lender-export-model.ts");
+const { demoDocumentPdf } = await import("../src/lib/demo-document-pdf.ts");
 const { pricingScenarioOption, sampleScenarioPlan } = await import("../src/lib/loan-scenario-model.ts");
 const { Miniflare, convertV4MiniflareOptions } = createRequire(import.meta.resolve("wrangler"))("miniflare");
 const server = fileURLToPath(new URL("../dist/server/", import.meta.url));
@@ -1564,6 +1565,73 @@ try {
     const staffRequests = (await file(officer, loanId)).documentRequests;
     assert.equal(staffRequests.find(({ id }) => id === primary.id).recipient, "Primary borrower");
     assert.equal(staffRequests.find(({ id }) => id === co.id).recipient, "Co-borrower");
+  });
+  await stage("A fictional lender downloads only the exact reviewed MISMO and approved sample PDF", async () => {
+    const { loanId, primaryToken } = jointFile;
+    const current = await file(officer, loanId);
+    const [application] = current.applications;
+    await loanAction(officer, loanId, "reviewApplication", { revision: application.revision });
+    const accepted = current.documentRequests.find(({ status, recipient }) => status === "Accepted" && recipient === "Co-borrower");
+    const received = current.documentRequests.find(({ status, recipient }) => status === "Received" && recipient === "Primary borrower");
+    assert.ok(accepted && received);
+    const staffPath = `/api/lender-packages?brokerage=${brokerage}`;
+    const publicPath = "/api/shared-lender-package";
+    const token = `${brokerage}.${randomBytes(32).toString("hex")}`;
+    const code = randomBytes(12).toString("hex");
+    const share = { type: "create", loanId, revision: application.revision, lenderRevision: 0, shareId: randomUUID(),
+      token, code, recipient: "Fictional Wholesale Desk", hours: 1, confirmedFictional: true,
+      names: [{ first: "Fictional", middle: "Joint", last: "Primary", suffix: "" }, { first: "Jordan", middle: "", last: "Sample", suffix: "" }],
+      documents: [{ id: accepted.id, revision: accepted.revision }] };
+    assert.equal((await postResponse(staffPath, share, competingOfficer)).status, 409);
+    assert.equal((await postResponse(staffPath, share, processor)).status, 409);
+    assert.equal((await postResponse(staffPath, share, officer)).status, 409);
+    const review = (input, staff = owner) => action(staff, "workOnLoanReview", { loanId, ...input });
+    const [pendingReview] = (await review({ type: "loan" })).reviews;
+    const detailQuery = { type: "detail", id: pendingReview.id };
+    let { review: detail } = await review(detailQuery);
+    if (detail.evidenceChanged) {
+      const resubmitted = await review({ type: "resubmit", id: detail.id, revision: detail.revision, eventId: randomUUID(),
+        dueOn: detail.dueOn, note: "Review the current fictional lender package revision." }, officer);
+      assert.equal(resubmitted.kind, "saved", resubmitted.error);
+      ({ review: detail } = await review(detailQuery));
+    }
+    const approved = await review({ type: "decide", id: detail.id, revision: detail.revision, eventId: randomUUID(),
+      decision: "Approved", note: "Reviewed the fictional lender package 1003." });
+    assert.equal(approved.kind, "saved", approved.error);
+    assert.equal((await postResponse(staffPath, { ...share, documents: [{ id: received.id, revision: received.revision }] }, officer)).status, 409);
+    const created = await post(staffPath, share, officer);
+    assert.equal(created.createdId, share.shareId);
+    assert.equal((await post(staffPath, share, officer)).shares.length, 1);
+    assert.ok(!JSON.stringify(created).includes(code) && !JSON.stringify(created).includes(token));
+    const read = { type: "read", token, code };
+    assert.equal((await postResponse(publicPath, { ...read, code: randomBytes(12).toString("hex") })).status, 404);
+    assert.equal((await postResponse(publicPath, { ...read, token: primaryToken })).status, 404);
+    assert.equal((await postResponse("/api/demo-application", { type: "read", token })).status, 404);
+    const manifest = await post(publicPath, read);
+    assert.deepEqual(manifest.files.map(({ label }) => label), ["Reviewed 1003 · MISMO 3.4 XML", "Photo ID · Co-borrower"]);
+    const get = (slot) => runtime.dispatchFetch(`${origin}${publicPath}`, { method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ ...read, type: "download", slot }) });
+    assert.equal((await get(2)).status, 404);
+    const xml = await get(0);
+    assert.equal(xml.status, 200);
+    assert.match(xml.headers.get("Content-Disposition"), /attachment.*\.xml/);
+    const xmlContent = await xml.text();
+    assert.match(xmlContent, /MISMOReferenceModelIdentifier/);
+    assert.match(xmlContent, /<FirstName>Jordan<\/FirstName>/);
+    const pdf = await get(1);
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers.get("Content-Type"), "application/pdf");
+    assert.match(pdf.headers.get("Cache-Control"), /no-store/);
+    assert.deepEqual(new Uint8Array(await pdf.arrayBuffer()), demoDocumentPdf("replacement"));
+    const staffRead = await post(staffPath, { type: "read", loanId }, officer);
+    assert.deepEqual(staffRead.shares[0].files.map(({ downloads }) => downloads), [1, 1]);
+    await loanAction(officer, loanId, "requestApplicationCorrection", { revision: application.revision,
+      recipient: "Co-borrower", note: "Reopen this fictional application to expire the previous handoff." });
+    assert.equal((await get(1)).status, 404);
+    assert.equal((await post(staffPath, { type: "read", loanId }, officer)).shares[0].status, "File changed");
+    assert.equal((await post(staffPath, { type: "revoke", loanId, shareId: share.shareId }, officer)).shares[0].status, "Revoked");
+    assert.equal(await directory.brokerageForPortal(token), null);
+    assert.equal((await postResponse(publicPath, read)).status, 404);
   });
   await stage("MISMO import returns the exact draft and a scoped duplicate receipt", async () => {
     const fields = { firstName: "Fictional", lastName: "Working Day MISMO", amount: "275000", purpose: "Purchase",

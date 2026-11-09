@@ -19,7 +19,7 @@ function sameOrbitOrigin(request: Request) {
     request.headers.get("Host") === loopback && origin === `http://${loopback}`;
 }
 
-export async function borrowerJson<T>(request: Request, run: (input: unknown) => Promise<{ value: T } | { status: number; error: string }>, limit: number) {
+export async function borrowerJson<T>(request: Request, run: (input: unknown) => Promise<Response | { value: T } | { status: number; error: string }>, limit: number) {
   if (!sameOrbitOrigin(request)) return problem("Open the application directly in Orbit.", 403);
   if (request.headers.get("Content-Type")?.split(";")[0] !== "application/json") return problem("Send the application as JSON.", 415);
   const reader = request.body?.getReader();
@@ -48,6 +48,7 @@ export async function borrowerJson<T>(request: Request, run: (input: unknown) =>
   }
   try {
     const result = await run(input);
+    if (result instanceof Response) return result;
     if ("error" in result) return problem(result.error, result.status);
     return Response.json(result.value, { headers });
   } catch {

@@ -117,8 +117,8 @@ export function finishDocumentUpload(db: Store, input: UploadAccess, objectId: s
     const pending = db.prepare("SELECT 1 FROM document_files WHERE requestId = ? AND pendingId = ? AND pendingUntil > ?").get(input.requestId, objectId, now);
     if (!pending) return failure(409, "The upload expired. Refresh your checklist and try again.");
     const at = new Date(now).toISOString();
-    db.prepare(`UPDATE document_files SET objectId = ?, uploadedAt = ?, pendingId = NULL, pendingUntil = NULL, failed = 0 WHERE requestId = ?`)
-      .run(objectId, at, input.requestId);
+    db.prepare(`UPDATE document_files SET objectId = ?, uploadedAt = ?, uploadMode = ?, pendingId = NULL, pendingUntil = NULL, failed = 0 WHERE requestId = ?`)
+      .run(objectId, at, input.mode, input.requestId);
     db.prepare("UPDATE document_requests SET status = 'Received', submittedAt = ?, revision = revision + 1 WHERE id = ?").run(at, input.requestId);
     const action = input.mode === "mock" ? (item.replacement ? "Replacement demo PDF received" : "Demo PDF received")
       : item.replacement ? "Replacement PDF received" : "Borrower PDF received";

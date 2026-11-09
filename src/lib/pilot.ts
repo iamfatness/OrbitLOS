@@ -66,8 +66,9 @@ function scenarioRow(db: Store) {
 }
 
 type ScenarioRow = NonNullable<ReturnType<typeof scenarioRow>>;
-export type PilotPortalLink = { token: string; expiresAt: string };
+export type PilotPortalLink = ({ token: string } | { tokenHash: string }) & { expiresAt: string };
 export type ProtectPilotLinks = (links: PilotPortalLink[]) => Promise<boolean>;
+const pilotLinkKey = (link: PilotPortalLink) => "token" in link ? `token:${link.token}` : `hash:${link.tokenHash}`;
 const resetPortalLimit = 100;
 const resetLoanScope = `id IN (?, ?, ?, ?, ?) OR id IN
   (SELECT loanId FROM referral_leads WHERE (realtorId = ? OR instr(requestId, ?) = 1) AND loanId IS NOT NULL)`;
@@ -80,11 +81,12 @@ function resetLoanArgs(scenario: ScenarioRow) {
 
 function activeResetLinks(db: Store, scenario: ScenarioRow, now: string): PilotPortalLink[] {
   return db.prepare(`WITH resetLoans AS (SELECT id FROM loans WHERE ${resetLoanScope})
-    SELECT token, expiresAt FROM applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
-    UNION ALL SELECT token, expiresAt FROM joint_applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
-    UNION ALL SELECT token, expiresAt FROM realtor_portals WHERE realtorId = ? AND expiresAt > ? LIMIT ?`)
-    .all(...resetLoanArgs(scenario), now, now, scenario.realtorId, now, resetPortalLimit + 1)
-    .map(({ token, expiresAt }) => ({ token: String(token), expiresAt: String(expiresAt) }));
+    SELECT token AS key, 0 AS hashed, expiresAt FROM applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
+    UNION ALL SELECT token, 0, expiresAt FROM joint_applications WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans
+    UNION ALL SELECT token, 0, expiresAt FROM realtor_portals WHERE realtorId = ? AND expiresAt > ?
+    UNION ALL SELECT tokenHash, 1, expiresAt FROM lender_package_links WHERE revokedAt IS NULL AND expiresAt > ? AND loanId IN resetLoans LIMIT ?`)
+    .all(...resetLoanArgs(scenario), now, now, scenario.realtorId, now, now, resetPortalLimit + 1)
+    .map(({ key, hashed, expiresAt }) => ({ ...(hashed ? { tokenHash: String(key) } : { token: String(key) }), expiresAt: String(expiresAt) }));
 }
 
 export function demoGuideState(db: Store): DemoGuideState | null {
@@ -201,7 +203,7 @@ export async function loadProtectedPilotScenario(db: Store, staff: WorkspaceStaf
   const links = activeResetLinks(db, scenario, clock.toISOString());
   if (links.length > resetPortalLimit) return { error: "Revoke some active sample links before resetting this scenario." };
   if (links.length && !await protectLinks(links)) return { error: "Orbit could not protect the old links. Try resetting again." };
-  return loadPilotScenario(db, staff, input, owner, clock, new Set(links.map(({ token }) => token)));
+  return loadPilotScenario(db, staff, input, owner, clock, new Set(links.map(pilotLinkKey)));
 }
 
 export function loadPilotScenario(db: Store, staff: WorkspaceStaff | null, input: unknown, owner: StaffIdentity, clock = new Date(),
@@ -217,7 +219,7 @@ export function loadPilotScenario(db: Store, staff: WorkspaceStaff | null, input
       ? { message: "Pilot scenario is ready." } : { error: "Start a new scenario request to change its setup." };
     if ((previous?.id ?? null) !== previousId) return { error: "The scenario changed. Refresh the workspace before trying again." } as const;
     if (previous) {
-      if (protectedTokens && activeResetLinks(db, previous, clock.toISOString()).some(({ token }) => !protectedTokens.has(token))) {
+      if (protectedTokens && activeResetLinks(db, previous, clock.toISOString()).some((link) => !protectedTokens.has(pilotLinkKey(link)))) {
         return { error: "A sample link changed during reset. Review the scenario and try again." } as const;
       }
       db.prepare("DELETE FROM outreach_opt_outs WHERE scenarioId = ?").run(previous.id);

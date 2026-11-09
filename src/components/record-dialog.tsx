@@ -259,10 +259,11 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
   );
 }
 
-function LoanApplication({ loanId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, markDraftChanged }: {
+function LoanApplication({ loanId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, markDraftChanged, shareBrokerage }: {
   loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean; jointLinks: boolean;
   openConditions: (id: string) => void; campaignManual: boolean; openReviews?: () => void;
   markDraftChanged: (editor: Node) => void;
+  shareBrokerage?: string;
 }) {
   const [copyStatus, setCopyStatus] = useState("");
   const [confirmingRevocation, setConfirmingRevocation] = useState<string | null>(null);
@@ -370,6 +371,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
       <ManualLenderExport key={`${loanId}:${application.revision}:${application.lender?.revision ?? 0}`}
         application={application} busy={busy} save={save} openConditions={openConditions}
         canRecordReturn={canRecordReturn}
+        shareBrokerage={shareBrokerage} shareAllowed={canRecordReturn && !blocker}
         linkedFile={state.submissions.find((submission) => submission.id === application.manualHandoff?.submissionId && submission.loanId === loanId)}
         previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
         campaign={campaignManual ? { submission: campaignManualSubmission(state.submissions, loanId), openConditions } : undefined} />
@@ -604,6 +606,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "1003" && <>
       <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor}
         jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}
+        shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         markDraftChanged={markDraftChanged}
         openConditions={(id) => open(submissionTarget(id))} campaignManual={campaignLender === "manual" && !processor}
         openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined} />

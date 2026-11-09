@@ -22,6 +22,8 @@ import { readLeadArchive } from "./lead-inbox";
 import { receiveQuoteLead, workOnQuoteSettings } from "./quote-intake";
 import { documentTemplateWork } from "./document-templates";
 import { feeTemplateWork } from "./fee-templates";
+import { lenderPackageAccess, lenderShareWork } from "./lender-handoff-share";
+import type { SharedLenderPackageInput } from "./lender-handoff-share-model";
 import { readSharedRealtorQueue } from "./realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./realtor-queue-report";
 import { assignWaitingRealtorInput } from "./realtor-queue-report-model";
@@ -434,4 +436,12 @@ export async function workOnDocumentTemplates(input: unknown, staff: WorkspaceSt
 export async function workOnFeeTemplates(input: unknown, staff: WorkspaceStaff | null) {
   const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
   return feeTemplateWork(database(), input, actor, demoBrokerageId);
+}
+
+export async function workOnLenderPackages(input: unknown, staff: WorkspaceStaff | null) {
+  return lenderShareWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null), demoBrokerageId);
+}
+
+export async function loadSharedLenderPackage(input: SharedLenderPackageInput) {
+  return lenderPackageAccess(database(), input);
 }

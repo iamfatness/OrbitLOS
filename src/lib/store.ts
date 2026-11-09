@@ -1004,7 +1004,20 @@ export function initializeStore(db: Store, seedDemo = true) {
     db.exec(`CREATE TABLE IF NOT EXISTS borrower_upload_access (${borrowerUploadAccessColumns});
     CREATE TABLE IF NOT EXISTS document_files (
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
-      objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL, failed INTEGER NOT NULL DEFAULT 0
+      objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL, failed INTEGER NOT NULL DEFAULT 0,
+      uploadMode TEXT
+    );
+    CREATE TABLE IF NOT EXISTS lender_package_links (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, borrowerId TEXT NOT NULL,
+      applicationRevision INTEGER NOT NULL, lenderRevision INTEGER NOT NULL, recipient TEXT NOT NULL, tokenHash TEXT NOT NULL UNIQUE,
+      codeHash TEXT NOT NULL, requestHash TEXT NOT NULL, xml TEXT NOT NULL, createdBy TEXT NOT NULL, createdAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL, revokedAt TEXT
+    );
+    CREATE INDEX IF NOT EXISTS lender_packages_by_loan ON lender_package_links(loanId, createdAt);
+    CREATE TABLE IF NOT EXISTS lender_package_files (
+      shareId TEXT NOT NULL REFERENCES lender_package_links(id) ON DELETE CASCADE, slot INTEGER NOT NULL, label TEXT NOT NULL,
+      requestId TEXT, documentRevision INTEGER, objectId TEXT, downloads INTEGER NOT NULL DEFAULT 0,
+      firstDownloadedAt TEXT, lastDownloadedAt TEXT, PRIMARY KEY(shareId, slot)
     );
     CREATE TABLE IF NOT EXISTS document_file_cleanup (objectId TEXT PRIMARY KEY);
     CREATE TRIGGER IF NOT EXISTS document_files_deleted AFTER DELETE ON document_files BEGIN
@@ -1016,6 +1029,9 @@ export function initializeStore(db: Store, seedDemo = true) {
       INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.pendingId WHERE OLD.pendingId IS NOT NULL
         AND OLD.pendingId IS NOT NEW.pendingId AND OLD.pendingId IS NOT NEW.objectId;
     END;`);
+    if (!db.prepare("PRAGMA table_info(document_files)").all().some(({ name }) => name === "uploadMode")) {
+      db.exec("ALTER TABLE document_files ADD COLUMN uploadMode TEXT");
+    }
     // Earlier presenter scenarios seeded a request ID that staff actions reject.
     if (!db.prepare("PRAGMA table_info(borrower_upload_access)").all().some((column) => column.name === "recipient")) {
       const columns = "loanId, tokenHash, email, codeHash, codeUntil, sendWindow, sendCount, sentAt, attempts, sessionHash, sessionUntil";

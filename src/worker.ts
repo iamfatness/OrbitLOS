@@ -40,6 +40,9 @@ import { loanScenarioWork } from "./lib/loan-scenarios";
 import { workOnPreapprovalLetters } from "./lib/preapproval-letters";
 import { sharedPreapprovalDownload } from "./lib/preapproval-sharing";
 import { sharedPreapprovalUnavailable } from "./lib/preapproval-model";
+import { confirmLenderPackagePdf, lenderPackageAccess, lenderShareWork } from "./lib/lender-handoff-share";
+import { sharedLenderPackageHttp } from "./lib/lender-handoff-share-http";
+import type { PackageDownloadInput, SharedLenderPackageInput } from "./lib/lender-handoff-share-model";
 import { migrationInput } from "./lib/pipeline-migration-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, campaignRoutingOfficerLimit, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput } from "./lib/call-campaign-model";
 import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./lib/campaign-routing";
@@ -612,9 +615,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return row ? { pilot: Boolean(row.pilot) } : null;
   }
   #protectPilotLinks = (links: PilotPortalLink[]) => {
-    if (this.#id === demoBrokerageId || links.some(({ token }) => portalBrokerage(token) !== this.#id)) return Promise.resolve(false);
+    if (this.#id === demoBrokerageId || links.some((link) => "token" in link && portalBrokerage(link.token) !== this.#id)) return Promise.resolve(false);
     return this.env.WORKSPACE.getByName(demoBrokerageId).retainPilotPortalRevocations(this.#id,
-      links.map(({ token, expiresAt }) => ({ tokenHash: portalHash(token), expiresAt })));
+      links.map((link) => ({ tokenHash: "token" in link ? portalHash(link.token) : link.tokenHash, expiresAt: link.expiresAt })));
   };
   retainPilotPortalRevocations(id: string, links: { tokenHash: string; expiresAt: string }[]) {
     if (!this.brokerageDetails(id)?.pilot || links.length > 100 ||
@@ -739,6 +742,19 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
   sharedPreapproval(input: unknown) {
     return sharedPreapprovalDownload(this.#store, input);
+  }
+
+  lenderPackages(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
+    return lenderShareWork(this.#store, input, staff, this.#id, this.#protectPilotLinks);
+  }
+
+  sharedLenderPackage(input: SharedLenderPackageInput) {
+    return lenderPackageAccess(this.#store, input);
+  }
+
+  confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
+    return confirmLenderPackagePdf(this.#store, input, objectId);
   }
   pilotFeedback(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
@@ -928,7 +944,17 @@ export default {
           : { status: 404, error: "This quote request link is unavailable." };
       }, 4096);
     }
-    const tokenPage = reading && ["/apply", "/co-borrower", "/referrals", "/quote"].includes(url.pathname);
+    if (request.method === "POST" && url.pathname === "/api/shared-lender-package") {
+      return sharedLenderPackageHttp(request, async (token) => {
+        const link = await linkedWorkspace(token);
+        if (!link?.pilot) return null;
+        return {
+          id: link.id, read: (input) => link.store.sharedLenderPackage(input),
+          confirmPdf: (input, objectId) => link.store.confirmLenderPackagePdf(input, objectId),
+        };
+      }, filesEnv.DOCUMENTS);
+    }
+    const tokenPage = reading && ["/apply", "/co-borrower", "/referrals", "/quote", "/lender-package"].includes(url.pathname);
     if (google && ["/login", "/auth/google", "/auth/google/callback", "/auth/logout"].includes(url.pathname)) {
       return handleStaffAuth(request, url, google, directory, (staff) => directory.activateStaff(staff, bootstrapEmails));
     }
