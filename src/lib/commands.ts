@@ -77,7 +77,7 @@ import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEve
 
 import { exportReviewedApplication } from "./lender-export-model";
 import { hasPreparedLenderExport, prepareLenderExport, recordManualLenderReturn } from "./lender-export";
-import { fundingTaskId, reversedFundingTaskPrefix, savePlaybookInput } from "./playbook-model";
+import { fundingCheckInActivityTitle, fundingTaskId, reversedFundingTaskPrefix, savePlaybookInput } from "./playbook-model";
 import { readPlaybook, recordedFundingCheckIn, retireFundingFollowUps, writePlaybook } from "./playbooks";
 import { startFundingPlaybook, supersedeFundingPlaybook } from "./playbook-runs";
 import { archiveFundingFinancials } from "./brokerage-finance";
@@ -866,7 +866,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "recordFundingCheckIn": {
           const dueAt = data.followUp ? `${data.followUp}T17:00:00.000Z` : null;
-          const text = data.note ? `Post-funding borrower check-in · ${data.note}` : "Post-funding borrower check-in";
+          const text = data.note ? `${fundingCheckInActivityTitle} · ${data.note}` : fundingCheckInActivityTitle;
           const prior = db.prepare(`SELECT activity.officerEmail, activity.kind, activity.outcome, activity.text,
             coalesce((SELECT previousDueAt FROM contact_callback_reschedules WHERE activityId = activity.id ORDER BY revision LIMIT 1), activity.dueAt) AS dueAt,
             activity.purpose, checkIn.loanId, checkIn.fundingRevision FROM contact_activity activity

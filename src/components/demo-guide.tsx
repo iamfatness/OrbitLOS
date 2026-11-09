@@ -311,7 +311,7 @@ function mockConditionInstructions(submission: Submission | undefined, requests:
   if (suggested.length === 1) return `Choose Request ${suggested[0].toLowerCase()}. Then open the borrower checklist.`;
   if (missing.length) return "Open the outstanding condition and choose Request borrower document.";
   const waiting = linked.filter(({ status }) => needsBorrowerDocument(status)).length;
-  if (waiting) return "In the borrower tab, get and verify the on-screen demo code once. Submit the Clean sample PDF for each request, or choose Attach text sample for a shorter rehearsal.";
+  if (waiting) return "In the borrower tab, choose Refresh status if the requests are still loading. Get and verify the on-screen demo code once, then submit a Clean sample PDF for each request. Back on the loan, choose Refresh requested documents if the samples have not appeared.";
   if (linked.some(({ status }) => status === "Received")) return "Review each received sample and choose Accept & send to UWM (mock). Wait for the mock delivery receipt before moving to the next document.";
   if (linked.some(({ status, uwmReceipt }) => status === "Accepted" && !uwmReceipt)) return "Send each accepted sample to mock UWM. Retry any delivery marked failed.";
   const delivered = linked.filter(({ uwmReceipt }) => uwmReceipt).length;
@@ -462,8 +462,8 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
     },
     {
       title: "Start a repeat application",
-      description: checkInOpen ? "Start a returning-client 1003 from the borrower check-in in My Tasks. Choose the new loan purpose, then use your browser’s Back button to return to the guide and review campaign conversion." :
-        "Start a separate 1003 for this borrower. Use your browser’s Back button to return to the guide and review campaign conversion.",
+      description: checkInOpen ? "Start a returning-client 1003 from the borrower check-in in My Tasks. Choose the new loan purpose, then close the loan record and return to Demo Guide to review campaign conversion." :
+        "Start a separate 1003 for this borrower. Close the loan record and return to Demo Guide to review campaign conversion.",
       done: Boolean(repeat),
       action: loan && funding && (repeat && rehearsal ? <>
         <Button size="sm" onClick={() => openCampaign(rehearsal.campaignId)}>Review campaign conversion</Button>

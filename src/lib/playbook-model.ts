@@ -34,6 +34,7 @@ export function documentReminderTimingLabel(offsetDays: number) {
 }
 
 export const fundingTaskPrefix = "post-funding:";
+export const fundingCheckInActivityTitle = "Post-funding borrower check-in";
 export const reversedFundingTaskPrefix = "reversed-funding:";
 export const fundingMilestones = { Borrower: "Post-funding check-in", Realtor: "Realtor thank-you" } as const;
 export const fundingTaskId = (loanId: string, audience: "borrower" | "realtor") => `${fundingTaskPrefix}${audience}:${loanId}`;

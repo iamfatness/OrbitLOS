@@ -10,7 +10,7 @@ import { compactMoney, dateTime, initials, money, stageDays } from "@/lib/utils"
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
-import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpCompletion, ContactFollowUpResult, ContactImport } from "./contact-crm";
+import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpCheckIn, ContactFollowUpCompletion, ContactFollowUpResult, ContactImport } from "./contact-crm";
 import { ContactsDirectory } from "./contacts-directory";
 import { contactUnavailable } from "@/lib/contact-directory-model";
 import { useLeadOwners } from "./use-lead-owners";
@@ -1294,6 +1294,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
                 openLoan={() => show({ kind: "contactHistory", contactId: contact.id })}
                 onChange={item.completedAt ? () => void save({ type: "completeContactFollowUp", contactId: contact.id, eventId: item.id,
                   revision: item.revision, completed: false }) : undefined}>
+                <ContactFollowUpCheckIn item={item} />
                 <ContactFollowUpResult completion={item.latestCompletion} current={!!item.completedAt} />
                 {!item.completedAt && !blocked && <ContactFollowUpCompletion item={item} busy={busy} save={save} />}
                 {!blocked && <BorrowerCallbackReschedule item={item} busy={busy} save={save} />}

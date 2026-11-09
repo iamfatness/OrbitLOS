@@ -8,6 +8,7 @@ import { parseContactCsv, type ContactImportRow } from "@/lib/contact-csv";
 import { activityKinds, contactOutcomes, followUpOutcomes, prospectingBlocked, type ActivityKind, type Contact, type ContactActivity, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { earliestCallbackDate, easternDate } from "@/lib/client-retention";
+import { fundingCheckInActivityTitle } from "@/lib/playbook-model";
 import { Button } from "./ui/button";
 import { FollowUpPurposeField } from "./loan-task";
 import { ActivityPages } from "./activity-pages";
@@ -147,6 +148,13 @@ export function BorrowerCallbackReschedule({ item, busy, save }: {
       <div><Button size="sm" variant="outline" type="submit" disabled={busy}>Save callback date</Button></div>
     </form>
   </details>;
+}
+
+export function ContactFollowUpCheckIn({ item }: { item: Pick<ContactActivity, "postFundingCheckIn" | "text"> }) {
+  if (!item.postFundingCheckIn || item.text === fundingCheckInActivityTitle) return null;
+  const prefix = `${fundingCheckInActivityTitle} · `;
+  const note = item.text.startsWith(prefix) ? item.text.slice(prefix.length) : item.text;
+  return note ? <p><strong>Check-in note</strong> · {note}</p> : null;
 }
 
 export function ContactFollowUpResult({ completion, current, showNote = false }: {

@@ -17,7 +17,7 @@ const tools = [
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},
   {icon:ShieldCheck,title:"Reviews and exceptions",text:"Page through callbacks, document deadlines, mock lender alerts, and completed work. Managers can open overdue or unassigned work directly, then reassign it without losing the original deadline."},
-  {icon:Workflow,title:"Consistent follow-up",text:"See who received each imported lead and move from a connected call into a prefilled 1003. Recover interrupted callbacks and schedule mock document reminders."},
+  {icon:Workflow,title:"Consistent follow-up",text:"See who received each imported lead and move from a connected call into a prefilled 1003. Recover interrupted callbacks and see the original post-funding check-in note when opening a scheduled callback."},
   {icon:ArrowDownUp,title:"Pipeline migration",text:"Map owners and carry callback history. Open the current lead, loan, or task evidence from an import receipt. Download a cutover handoff with open checks and reviewer attribution."},
 ];
 export default function Product(){return <>

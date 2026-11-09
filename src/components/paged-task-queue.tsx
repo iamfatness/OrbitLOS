@@ -9,7 +9,7 @@ import { queueActionLabel, workspaceTaskGroupNames, workspaceTasksUnavailable, w
   type CalendarItem, type ContactTaskWork, type WorkspaceTaskList, type WorkspaceTaskPage } from "@/lib/officer-queue-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
-import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpCompletion, ContactFollowUpResult } from "./contact-crm";
+import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpCheckIn, ContactFollowUpCompletion, ContactFollowUpResult } from "./contact-crm";
 import { LoanTaskRow } from "./loan-task";
 import { Button } from "./ui/button";
 import { useLeadOwners } from "./use-lead-owners";
@@ -101,6 +101,7 @@ export function PagedTaskQueue({ staff, version, busy, focusContact, openWork, o
         context={work.item.outcome ?? undefined} openLoan={() => openHistory(work.contact.id, work.contact.role === "Realtor")}
         onChange={work.item.completedAt ? () => void save({ type: "completeContactFollowUp", contactId: work.contact.id,
           eventId: work.item.id, revision: work.item.revision, completed: false }) : undefined}>
+        <ContactFollowUpCheckIn item={work.item} />
         <ContactFollowUpResult completion={work.item.latestCompletion} current={!!work.item.completedAt} />
         {!work.item.completedAt && !work.blocked && <ContactFollowUpCompletion item={work.item} busy={busy || contactLoading} save={save} />}
         {!work.blocked && <BorrowerCallbackReschedule item={work.item} busy={busy || contactLoading} save={save} />}
