@@ -26,7 +26,7 @@ import { contactMergeUnavailable } from "./contact-merge-model";
 import { leadWorkUnavailable } from "./lead-work-model";
 import { incomingLoanWorkUnavailable } from "./incoming-loan-work-model";
 import { manualReturnFollowUpUnavailable } from "./lender-export-model";
-import { preapprovalUnavailable } from "./preapproval-model";
+import { preapprovalUnavailable, sharedPreapprovalUnavailable } from "./preapproval-model";
 export { currentStaff } from "./current-staff";
 
 function staffWorkspace(staff: WorkspaceStaff | null) {
@@ -310,6 +310,10 @@ export async function reserveBorrowerAddressLookup(token: string) {
 
 export async function loadRealtorReferrals(input: unknown) {
   return (await linkedWorkspace(input))?.realtor(input) ?? { status: 404, error: "This referral link is invalid or expired." };
+}
+
+export async function loadSharedPreapproval(input: unknown) {
+  return (await linkedWorkspace(input))?.sharedPreapproval(input) ?? { status: 404, error: sharedPreapprovalUnavailable };
 }
 
 export async function submitQuoteRequest(input: unknown) {

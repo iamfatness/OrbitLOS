@@ -7,6 +7,7 @@ import type { LeadFollowUp, LeadRouting } from "./lead-inbox-model";
 import type { RealtorClaimPolicy } from "./realtor-claim-model";
 import type { LoanProcessing } from "./processing-model";
 import type { FeeWorksheet } from "./quote-worksheet";
+import type { SharedPreapprovalLetter } from "./preapproval-model";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -211,7 +212,7 @@ export interface RealtorPortal {
 
 export interface RealtorReferrals {
   realtorName: string;
-  referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string }[];
+  referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string; preapproval?: SharedPreapprovalLetter }[];
   next: RealtorReferralCursor | null;
 }
 

@@ -37,6 +37,8 @@ import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScena
 import { explorationInput, loadExplorationExamples } from "./lib/pilot-exploration";
 import { loanScenarioWork } from "./lib/loan-scenarios";
 import { workOnPreapprovalLetters } from "./lib/preapproval-letters";
+import { sharedPreapprovalDownload } from "./lib/preapproval-sharing";
+import { sharedPreapprovalUnavailable } from "./lib/preapproval-model";
 import { migrationInput } from "./lib/pipeline-migration-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, campaignRoutingOfficerLimit, loadCampaignRehearsalInput, routeCampaignQueueInput, saveCampaignRoutingInput } from "./lib/call-campaign-model";
 import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./lib/campaign-routing";
@@ -725,6 +727,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return workOnPreapprovalLetters(this.#store, input, staff, this.#id);
   }
+  sharedPreapproval(input: unknown) {
+    return sharedPreapprovalDownload(this.#store, input);
+  }
   pilotFeedback(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return savePilotFeedback(this.#store, staff, input);
@@ -863,6 +868,13 @@ export default {
         const link = await linkedWorkspace(input);
         return link ? link.store.realtor(input, link.pilot, bootstrapEmails) : { status: 404, error: "This referral link is invalid or expired." };
       });
+    }
+    if (request.method === "POST" && url.pathname === "/api/shared-preapproval") {
+      return borrowerJson(request, async (input) => {
+        const link = await linkedWorkspace(input);
+        return link && (link.pilot || link.id === demoBrokerageId) ? link.store.sharedPreapproval(input) :
+          { status: 404, error: sharedPreapprovalUnavailable };
+      }, 1024);
     }
     if (request.method === "POST" && url.pathname === "/api/quote-requests") {
       return borrowerJson(request, async (input) => {

@@ -1,5 +1,6 @@
 import type { Condition, Stage } from "./model";
 import type { BorrowerQuote } from "./pricing-model";
+import type { SharedPreapprovalLetter } from "./preapproval-model";
 
 export const documentKinds = ["Pay stub", "Bank statement", "Tax form", "Photo ID", "Homeowners insurance"] as const;
 export type DocumentKind = (typeof documentKinds)[number];
@@ -59,6 +60,7 @@ export interface BorrowerLoanStatus {
   reviewed: boolean;
   documents: DocumentRequest[];
   quote: BorrowerQuote | null;
+  preapproval?: SharedPreapprovalLetter;
 }
 
 export function needsBorrowerDocument(status: DocumentStatus) {

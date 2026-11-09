@@ -8,6 +8,7 @@ import { DocumentStatusPill, SampleDocument } from "./sample-document";
 import { Button } from "./ui/button";
 import { BorrowerPdfForm, BorrowerPdfVerification, useBorrowerPdf } from "./borrower-pdf";
 import type { DocumentUploadMode } from "@/lib/document-files-model";
+import { SharedPreapprovalDownload } from "./shared-preapproval";
 
 const stageUpdates: Record<Stage, { label: string; next: string }> = {
   Lead: { label: "Getting started", next: "Your loan officer will review your application and share the next steps." },
@@ -58,6 +59,10 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
         </dl>}
         <small className="muted">Quoted {dateTime(status.quote.quotedAt)} ET · Demo estimate</small>
       </div>
+    </section>}
+    {status.preapproval && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-letter-heading">
+      <h2 id="borrower-letter-heading">Your shared sample preapproval</h2>
+      <SharedPreapprovalDownload key={status.preapproval.grantId} letter={status.preapproval} token={token} audience="Borrower" />
     </section>}
     <section className="application-panel application-receipt document-section" aria-labelledby="borrower-documents-heading">
       <div className="section-heading"><h2 id="borrower-documents-heading"><FileCheck2 size={19} /> Document checklist</h2></div>

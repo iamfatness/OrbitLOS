@@ -15,6 +15,7 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { workOnPreapprovalLetters } = await import("../src/lib/preapproval-letters.ts");
 const { preapprovalLetterPdf } = await import("../src/lib/preapproval-letter-pdf.ts");
+const { readSharedPreapprovalLetters, sharedPreapprovalDownload } = await import("../src/lib/preapproval-sharing.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -113,4 +114,90 @@ test("the sample PDF escapes text and preserves Latin names", () => {
   const offset = Number(/startxref\n(\d+)/.exec(pdf)[1]);
   assert.ok(pdf.slice(offset).startsWith("xref\n0 7\n"));
   assert.equal(Buffer.byteLength(pdf), pdf.length);
+});
+
+test("portal grants are versioned, independently withdrawn, and return the original PDF", (t) => {
+  const { db, loanId, issue, work, download } = fixture(t);
+  const borrower = "a".repeat(64);
+  const realtor = "b".repeat(64);
+  const clock = new Date("2026-11-10T04:59:59.999Z");
+  insertContact(db, { id: "realtor", name: "Fictional Partner", role: "Realtor", phone: "", email: "partner@example.test" });
+  db.prepare("INSERT INTO realtor_portals (realtorId, token, expiresAt) VALUES ('realtor', ?, '2099-01-01')").run(realtor);
+  db.exec("UPDATE loans SET partnerId = 'realtor'");
+  assert.equal(work(issue).issuedVersion, 1);
+  const initial = work().page.sharing;
+  assert.deepEqual(initial.audiences.map(({ visible }) => visible), [false, false]);
+  const grant = (audience) => {
+    const target = work().page.sharing.audiences.find((item) => item.audience === audience);
+    return { type: "publish", loanId, version: work().page.latestVersion, audience,
+      grantId: crypto.randomUUID(), previousGrantId: target.grantId, recipientStamp: target.recipient.stamp, confirmed: true };
+  };
+  const borrowerGrant = grant("Borrower");
+  const realtorGrant = grant("Realtor");
+  assert.ok(work({ ...borrowerGrant, confirmed: false }).error);
+  assert.match(work({ ...realtorGrant, recipientStamp: "c".repeat(64) }).error, /recipient or portal link changed/);
+  assert.ok(work(borrowerGrant).shareMessage);
+  assert.ok(work(borrowerGrant).shareMessage);
+  assert.ok(work(realtorGrant).shareMessage);
+  const request = (token, audience, grantId, at = clock) => sharedPreapprovalDownload(db, { token, audience, grantId }, at);
+  assert.equal(request(realtor, "Borrower", borrowerGrant.grantId).status, 404);
+  assert.equal(request(borrower, "Realtor", realtorGrant.grantId).status, 404);
+  assert.equal(request("c".repeat(64), "Realtor", realtorGrant.grantId).status, 404);
+  assert.deepEqual(request(borrower, "Borrower", borrowerGrant.grantId).value, download(1));
+  assert.deepEqual(request(realtor, "Realtor", realtorGrant.grantId).value, download(1));
+  assert.deepEqual(request(realtor, "Realtor", realtorGrant.grantId).value, download(1));
+  assert.deepEqual(work().page.sharing.audiences.map(({ firstDownloadedAt }) => firstDownloadedAt), [clock.toISOString(), clock.toISOString()]);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM activity WHERE text LIKE '%portal first requested sample preapproval%'").get().total, 2);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM activity WHERE text LIKE 'Shared sample letter%'").get().total, 2);
+
+  const beforeExpiry = new Date("2026-11-11T04:59:59.999Z");
+  const expired = new Date("2026-11-11T05:00:00.000Z");
+  assert.ok(request(realtor, "Realtor", realtorGrant.grantId, beforeExpiry).value);
+  assert.equal(request(realtor, "Realtor", realtorGrant.grantId, expired).status, 404);
+  const withdraw = { ...borrowerGrant, type: "withdraw" };
+  assert.ok(work(withdraw).shareMessage);
+  assert.ok(work(withdraw).shareMessage);
+  assert.equal(request(borrower, "Borrower", borrowerGrant.grantId).status, 404);
+  assert.ok(request(realtor, "Realtor", realtorGrant.grantId).value);
+  const next = work({ ...issue, requestId: crypto.randomUUID(), previousVersion: 1, amountCents: 34_000_000 });
+  assert.equal(next.issuedVersion, 2);
+  assert.deepEqual(next.page.sharing.audiences.map(({ visible }) => visible), [false, false]);
+  assert.equal(request(realtor, "Realtor", realtorGrant.grantId).status, 404);
+  const newRealtor = grant("Realtor");
+  assert.ok(work(newRealtor).shareMessage);
+  assert.equal(readSharedPreapprovalLetters(db, [loanId], "Realtor", realtor, clock.toISOString()).get(loanId).version, 2);
+  db.exec("UPDATE applications SET revision = revision + 1, submittedAt = NULL, reviewedAt = NULL, correctionNote = 'Correction required'");
+  assert.equal(request(realtor, "Realtor", newRealtor.grantId).status, 404);
+  assert.equal(readSharedPreapprovalLetters(db, [loanId], "Realtor", realtor, clock.toISOString()).size, 0);
+  assert.ok(download(1).pdf);
+});
+
+test("recipient changes require explicit publication against the new portal link", (t) => {
+  const { db, loanId, issue, work } = fixture(t);
+  const old = "b".repeat(64);
+  const renewed = "c".repeat(64);
+  const clock = new Date("2026-11-10T04:59:59.999Z");
+  insertContact(db, { id: "realtor", name: "Fictional Partner", role: "Realtor", phone: "", email: "partner@example.test" });
+  db.prepare("INSERT INTO realtor_portals (realtorId, token, expiresAt) VALUES ('realtor', ?, '2099-01-01')").run(old);
+  db.exec("UPDATE loans SET partnerId = 'realtor'");
+  assert.equal(work(issue).issuedVersion, 1);
+  const target = () => work().page.sharing.audiences.find(({ audience }) => audience === "Realtor");
+  const publish = () => ({ type: "publish", loanId, version: 1, audience: "Realtor",
+    grantId: crypto.randomUUID(), previousGrantId: target().grantId, recipientStamp: target().recipient.stamp, confirmed: true });
+  const first = publish();
+  assert.ok(work(first).shareMessage);
+  const check = (token, grantId) => sharedPreapprovalDownload(db, { token, audience: "Realtor", grantId }, clock);
+  assert.ok(check(old, first.grantId).value);
+  db.prepare("UPDATE realtor_portals SET token = ?").run(renewed);
+  assert.equal(check(old, first.grantId).status, 404);
+  assert.equal(check(renewed, first.grantId).status, 404);
+  assert.match(work(first).error, /recipient or portal link changed/);
+  const second = publish();
+  assert.ok(work(second).shareMessage);
+  assert.ok(check(renewed, second.grantId).value);
+  db.exec("UPDATE loans SET partnerId = NULL; UPDATE loans SET partnerId = 'realtor';");
+  assert.equal(check(renewed, second.grantId).status, 404);
+  assert.equal(target().visible, false);
+  db.exec("DELETE FROM loans");
+  assert.equal(db.prepare("SELECT count(*) AS total FROM sample_preapproval_shares").get().total, 0);
 });

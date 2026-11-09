@@ -650,8 +650,34 @@ try {
     const firstLetter = await post(letterPath, downloadFirst, officer);
     assert.match(firstLetter.pdf, /^%PDF-1\.4/);
     assert.equal((await postResponse(letterPath, downloadFirst, competingOfficer)).status, 409);
+    const borrowerLetter = async () => (await borrower(token, { type: "status" })).loanStatus.preapproval;
+    const realtorLetter = async () => (await realtor(realtorToken)).referrals.find(({ borrowerName }) => borrowerName === imported.name)?.preapproval;
+    assert.equal(await borrowerLetter(), undefined);
+    assert.equal(await realtorLetter(), undefined);
+    const audiences = (await post(letterPath, letterRead, officer)).page.sharing.audiences;
+    const publishLetter = (audience) => ({ type: "publish", loanId, version: 1, audience, grantId: randomUUID(),
+      previousGrantId: null, recipientStamp: audiences.find((item) => item.audience === audience).recipient.stamp, confirmed: true });
+    const borrowerGrant = publishLetter("Borrower");
+    const realtorGrant = publishLetter("Realtor");
+    assert.equal((await postResponse(letterPath, realtorGrant, competingOfficer)).status, 409);
+    assert.ok((await post(letterPath, borrowerGrant, officer)).shareMessage);
+    assert.ok((await post(letterPath, realtorGrant, officer)).shareMessage);
+    assert.equal((await borrowerLetter()).grantId, borrowerGrant.grantId);
+    assert.equal((await realtorLetter()).grantId, realtorGrant.grantId);
+    const sharedPath = "/api/shared-preapproval";
+    const borrowerDownload = { token, audience: "Borrower", grantId: borrowerGrant.grantId };
+    const realtorDownload = { token: realtorToken, audience: "Realtor", grantId: realtorGrant.grantId };
+    assert.equal((await postResponse(sharedPath, { ...realtorDownload, token })).status, 404);
+    assert.deepEqual(await post(sharedPath, borrowerDownload), firstLetter);
+    assert.deepEqual(await post(sharedPath, realtorDownload), firstLetter);
+    assert.ok((await post(letterPath, { type: "withdraw", loanId, version: 1, audience: "Realtor", grantId: realtorGrant.grantId }, officer)).shareMessage);
+    assert.equal(await realtorLetter(), undefined);
+    assert.equal((await postResponse(sharedPath, realtorDownload)).status, 404);
+    assert.deepEqual(await post(sharedPath, borrowerDownload), firstLetter);
     assert.equal((await post(letterPath, { ...issueLetter, requestId: randomUUID(), previousVersion: 1,
       amountCents: issueLetter.amountCents - 100 }, officer)).issuedVersion, 2);
+    assert.equal(await borrowerLetter(), undefined);
+    assert.equal((await postResponse(sharedPath, borrowerDownload)).status, 404);
     assert.deepEqual(await post(letterPath, downloadFirst, officer), firstLetter);
     assert.deepEqual((await post(letterPath, letterRead, owner)).page.letters.map(({ status }) => status), ["Current", "Superseded"]);
     const letterHistory = await action(officer, "readHistoryPage", { record: "loan", id: loanId });

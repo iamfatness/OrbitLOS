@@ -7,6 +7,7 @@ import { accessEvent } from "./workspace-access";
 import { leadContactFields } from "./lead-inbox-model";
 import { firstContactDue, leadRouting, startLeadFollowUp } from "./lead-inbox";
 import type { StaffIdentity } from "./staff-store";
+import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 
 export type RealtorPortalResult = { value: RealtorReferrals } | { status: number; error: string };
 
@@ -72,11 +73,11 @@ export function realtorReferrals(db: Store, input: unknown, now = new Date().toI
     }
 
     const after = data.type === "submit" ? undefined : data.after;
-    return { value: { realtorName: String(portal.name), ...referralPage(db, String(portal.realtorId), after) } };
+    return { value: { realtorName: String(portal.name), ...referralPage(db, String(portal.realtorId), data.token, now, after) } };
   });
 }
 
-function referralPage(db: Store, realtorId: string, after?: RealtorReferralCursor) {
+function referralPage(db: Store, realtorId: string, token: string, now: string, after?: RealtorReferralCursor) {
   const loanCursor = after ? `AND (loan.stageSince, loan.id) ${after.source === "referral" ? "<=" : "<"} (?, ?)` : "";
   const leadCursor = after ? "AND (createdAt, id) < (?, ?)" : "";
   const pageArgs = [realtorId, ...(after ? [after.at, after.id] : []), pageSize + 1];
@@ -93,9 +94,13 @@ function referralPage(db: Store, realtorId: string, after?: RealtorReferralCurso
     )
     SELECT * FROM loan_page UNION ALL SELECT * FROM referral_page
     ORDER BY updatedAt DESC, id DESC, source DESC LIMIT ?`).all(...pageArgs, ...pageArgs, pageSize + 1);
-  const referrals = rows.slice(0, pageSize).map(({ borrowerName, stage, updatedAt }) => ({
-    borrowerName: String(borrowerName), stage: stage as RealtorReferrals["referrals"][number]["stage"], updatedAt: String(updatedAt),
-  }));
+  const page = rows.slice(0, pageSize);
+  const letters = readSharedPreapprovalLetters(db, page.filter(({ source }) => source === "loan").map(({ id }) => String(id)), "Realtor", token, now);
+  const referrals = page.map(({ id, source, borrowerName, stage, updatedAt }) => {
+    const preapproval = source === "loan" ? letters.get(String(id)) : undefined;
+    return { borrowerName: String(borrowerName), stage: stage as RealtorReferrals["referrals"][number]["stage"], updatedAt: String(updatedAt),
+      ...(preapproval ? { preapproval } : {}) };
+  });
   const last = rows.length > pageSize ? rows[pageSize - 1] : null;
   const next: RealtorReferralCursor | null = last ? { at: String(last.updatedAt), id: String(last.id), source: last.source as RealtorReferralCursor["source"] } : null;
   return { referrals, next };

@@ -6,6 +6,7 @@ import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
 import { lenderDetailsSchema, normalizeUrla } from "./urla";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "./document-model";
+import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
 import { quoteMatchesApplication, type BorrowerQuote } from "./pricing-model";
 import { pdfColumns } from "./document-files-model";
@@ -137,7 +138,7 @@ const borrowerCommand = z.discriminatedUnion("type", [
 const borrowerLink = "FROM applications WHERE token = ? AND expiresAt > ? AND revokedAt IS NULL";
 const borrowerLinkUnavailable = { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
 
-function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow): BorrowerLoanStatus | null {
+function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string): BorrowerLoanStatus | null {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
   const published = loan && !row.correctionNote && db.prepare(`SELECT quote.product, quote.rate, quote.principalAndInterest,
     quote.quotedAt, quote.publishedAt, quote.presentation FROM published_quotes quote
@@ -148,22 +149,25 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow): BorrowerLoan
     const run = db.prepare("SELECT applicationRevision FROM pricing_runs WHERE id = ? AND loanId = ?").get(option.runId, row.loanId);
     return run && quoteMatchesApplication(run.applicationRevision, row);
   }) ?? true;
+  const preapproval = loan && row.reviewedAt && !row.correctionNote &&
+    readSharedPreapprovalLetters(db, [row.loanId], "Borrower", token, now).get(row.loanId);
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: db.prepare(`SELECT requests.id, kind, instructions, status, replacementNote, submittedAt, revision, dueOn, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN document_files files ON files.requestId = requests.id
       WHERE loanId = ? ORDER BY requestedAt, requests.id`).all(row.loanId).map((item) => ({ ...item }) as unknown as DocumentRequest),
     quote: published && currentAlternatives ? { ...published, presentation } as unknown as BorrowerQuote : null,
+    ...(preapproval ? { preapproval } : {}),
   } : null;
 }
 
-function borrowerResult(db: Store, row: ApplicationRow): BorrowerResult {
+function borrowerResult(db: Store, row: ApplicationRow, now: string): BorrowerResult {
   const draft = applicationDraft.parse(JSON.parse(row.draft));
   if (!row.submittedAt) draft.propertyLocation = fillPropertyLocality(draft.propertyLocation);
   return { application: {
     draft,
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt,
-    loanStatus: readBorrowerLoanStatus(db, row),
+    loanStatus: readBorrowerLoanStatus(db, row, row.token, now),
     correctionNote: row.correctionNote || undefined,
   } };
 }
@@ -202,14 +206,14 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
         const failure = attachBorrowerSample(db, row, data, allowSample, now);
         if (failure) return failure;
       }
-      const loanStatus = readBorrowerLoanStatus(db, row);
+      const loanStatus = readBorrowerLoanStatus(db, row, data.token, now);
       return loanStatus ? { statusView: { kind: "status", submittedAt: row.submittedAt, loanStatus } } : borrowerLinkUnavailable;
     }
     const row = db.prepare(`SELECT * ${borrowerLink}`).get(data.token, now) as ApplicationRow | undefined;
     if (!row) return borrowerLinkUnavailable;
-    if (data.type === "read") return borrowerResult(db, row);
+    if (data.type === "read") return borrowerResult(db, row, now);
     if (data.type === "attachSample") {
-      return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row);
+      return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row, now);
     }
     const submitted = data.type === "submit";
     const alreadySubmitted = { status: 409, error: "This application has been submitted. Reopen the link to see your loan status." };
@@ -234,7 +238,7 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     }
     const serializedDraft = JSON.stringify(draft);
     if (row.submittedAt) {
-      return isDeepStrictEqual(JSON.parse(serializedDraft), JSON.parse(row.draft)) ? borrowerResult(db, row) : alreadySubmitted;
+      return isDeepStrictEqual(JSON.parse(serializedDraft), JSON.parse(row.draft)) ? borrowerResult(db, row, now) : alreadySubmitted;
     }
     if (submitted) {
       const issues = applicationIssues(draft);
@@ -270,6 +274,6 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
       recordLoanAudit(db, row.loanId, "Borrower", "Submitted 1003", now, auditBefore);
       if (pilot) accessEvent(db, { name: "Borrower", email: "Borrower" }, "Pilot 1003 submitted", row.loanId, now);
     }
-    return borrowerResult(db, next);
+    return borrowerResult(db, next, now);
   });
 }

@@ -4,6 +4,7 @@ import { demoBrokerageId } from "./brokerage-model";
 import { easternDate } from "./client-retention";
 import { preapprovalLetterPdf } from "./preapproval-letter-pdf";
 import { preapprovalRequest, preapprovalUnavailable, type PreapprovalLetter, type PreapprovalPage, type PreapprovalResult } from "./preapproval-model";
+import { activePreapprovalLoan, changePreapprovalShare, preapprovalShareStates } from "./preapproval-sharing";
 import { shiftReportDate } from "./report-date-range";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -43,6 +44,7 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
   const data = parsed.data;
   const { loanId } = data;
   const today = easternDate(clock);
+  const now = clock.toISOString();
   return db.transaction(() => {
     if (!loanAccess(db, staff, loanId)) return { error: preapprovalUnavailable };
     if (data.type === "download") {
@@ -50,12 +52,16 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
       return row ? { pdf: String(row.pdf), filename: `orbit-fictional-preapproval-v${data.version}.pdf` } : { error: preapprovalUnavailable };
     }
     const file = db.prepare(`SELECT loan.purpose, app.draft, app.revision, app.submittedAt, app.reviewedAt, app.correctionNote,
-        (loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed') AND past.closingDate IS NULL AND closing.fundingDate IS NULL) AS active
+        (${activePreapprovalLoan}) AS active
       FROM loans loan LEFT JOIN applications app ON app.loanId = loan.id
       LEFT JOIN past_client_profiles past ON past.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
       WHERE loan.id = ?`).get(loanId) as File;
     let latestVersion = Number(db.prepare("SELECT max(version) AS version FROM sample_preapproval_letters WHERE loanId = ?").get(loanId)?.version ?? 0);
     const terms = issueTerms(db, loanId, file, today);
+    function canPublish(version: number) {
+      return version === latestVersion && !("blocked" in terms) && !!db.prepare(`SELECT 1 FROM sample_preapproval_letters
+        WHERE loanId = ? AND version = ? AND applicationRevision = ? AND expiresOn >= ?`).get(loanId, version, terms.applicationRevision, today);
+    }
     function readPage(beforeVersion?: number): PreapprovalPage {
       const records = db.prepare(`SELECT version, applicationRevision, issuedAt, expiresOn, issuer, amountCents, scope
         FROM sample_preapproval_letters WHERE loanId = ?${beforeVersion ? " AND version < ?" : ""}
@@ -67,9 +73,16 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
       }));
       const issue = "blocked" in terms ? terms : { applicationRevision: terms.applicationRevision, amountCents: terms.amountCents,
         property: terms.property, earliestExpiry: terms.earliestExpiry, latestExpiry: terms.latestExpiry, suggestedExpiry: terms.suggestedExpiry };
-      return { letters, issue, latestVersion, beforeVersion: records.length > pageSize ? letters.at(-1)!.version : null };
+      const publishable = !beforeVersion && latestVersion > 0 && canPublish(latestVersion);
+      const sharing = !beforeVersion && latestVersion ? { version: latestVersion, canPublish: publishable,
+        audiences: preapprovalShareStates(db, loanId, latestVersion, publishable, now) } : null;
+      return { letters, issue, sharing, latestVersion, beforeVersion: records.length > pageSize ? letters.at(-1)!.version : null };
     }
     if (data.type === "read") return { page: readPage(data.beforeVersion) };
+    if (data.type === "publish" || data.type === "withdraw") {
+      const change = changePreapprovalShare(db, data, staff, canPublish(data.version), now);
+      return "error" in change ? { error: change.error } : { page: readPage(), shareMessage: change.message };
+    }
 
     const earlier = db.prepare(`SELECT loanId, version, applicationRevision, issuerEmail, amountCents, scope, expiresOn
       FROM sample_preapproval_letters WHERE requestId = ?`).get(data.requestId);
@@ -95,14 +108,14 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Orbit could not prepare the sample PDF." };
     }
-    const issuedAt = clock.toISOString();
+    db.prepare("UPDATE sample_preapproval_shares SET revokedAt = ? WHERE loanId = ? AND revokedAt IS NULL").run(now, loanId);
     db.prepare(`INSERT INTO sample_preapproval_letters
       (loanId, version, requestId, applicationRevision, issuedAt, expiresOn, issuer, issuerEmail, amountCents, scope, pdf)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(loanId, version, data.requestId, data.applicationRevision,
-      issuedAt, data.expiresOn, staff.name, staff.email, data.amountCents, data.scope, pdf);
+      now, data.expiresOn, staff.name, staff.email, data.amountCents, data.scope, pdf);
     db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), loanId,
-      `Issued fictional preapproval letter v${version} · 1003 revision ${data.applicationRevision} · ${staff.name} · Expires ${data.expiresOn}`, issuedAt);
-    accessEvent(db, staff, `Issued sample preapproval v${version}`, loanId, issuedAt);
+      `Issued fictional preapproval letter v${version} · 1003 revision ${data.applicationRevision} · ${staff.name} · Expires ${data.expiresOn}`, now);
+    accessEvent(db, staff, `Issued sample preapproval v${version}`, loanId, now);
     latestVersion = version;
     return { page: readPage(), issuedVersion: version };
   });

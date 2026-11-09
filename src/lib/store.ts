@@ -133,6 +133,23 @@ export function initializeStore(db: Store, seedDemo = true) {
       expiresOn TEXT NOT NULL, issuer TEXT NOT NULL, issuerEmail TEXT NOT NULL, amountCents INTEGER NOT NULL,
       scope TEXT NOT NULL, pdf TEXT NOT NULL, PRIMARY KEY (loanId, version)
     );
+    CREATE TABLE IF NOT EXISTS sample_preapproval_shares (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL, version INTEGER NOT NULL,
+      audience TEXT NOT NULL CHECK(audience IN ('Borrower', 'Realtor')), recipientId TEXT NOT NULL, recipientStamp TEXT NOT NULL,
+      portalHash TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL, revokedAt TEXT, firstDownloadedAt TEXT,
+      FOREIGN KEY (loanId, version) REFERENCES sample_preapproval_letters(loanId, version) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS sample_preapproval_active_shares ON sample_preapproval_shares(loanId, version, audience) WHERE revokedAt IS NULL;
+    CREATE INDEX IF NOT EXISTS sample_preapproval_share_history ON sample_preapproval_shares(loanId, version);
+    CREATE TRIGGER IF NOT EXISTS revoke_preapproval_after_recipient_change
+      AFTER UPDATE OF contactId, partnerId ON loans
+      WHEN OLD.contactId IS NOT NEW.contactId OR OLD.partnerId IS NOT NEW.partnerId
+      BEGIN
+        UPDATE sample_preapproval_shares SET revokedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE loanId = NEW.id AND revokedAt IS NULL AND (
+          (audience = 'Borrower' AND OLD.contactId IS NOT NEW.contactId) OR
+          (audience = 'Realtor' AND OLD.partnerId IS NOT NEW.partnerId));
+      END;
     CREATE TABLE IF NOT EXISTS manual_return_follow_ups (
       activityId TEXT PRIMARY KEY REFERENCES activity(id) ON DELETE CASCADE,
       returnEventId TEXT NOT NULL REFERENCES application_handoff_events(activityId) ON DELETE CASCADE,

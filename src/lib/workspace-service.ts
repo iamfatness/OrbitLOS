@@ -6,7 +6,7 @@ import { contactMergeWork } from "./contact-merge";
 import { borrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
 import type { WorkspaceStaff } from "./staff-store";
-import { demoBrokerageId } from "./brokerage-model";
+import { demoBrokerageId, portalBrokerage } from "./brokerage-model";
 import { localCampaignOfficers } from "./call-campaign-model";
 import { scopeWorkspace } from "./workspace-access";
 import { realtorReferrals } from "./realtor-portal";
@@ -42,6 +42,8 @@ import { readIncomingLoanWorkPage } from "./incoming-loan-work";
 import { recordManualReturnFollowUp } from "./manual-lender-work";
 import { loanScenarioWork } from "./loan-scenarios";
 import { workOnPreapprovalLetters } from "./preapproval-letters";
+import { sharedPreapprovalDownload } from "./preapproval-sharing";
+import { sharedPreapprovalRequest, sharedPreapprovalUnavailable } from "./preapproval-model";
 import { readEditableLead } from "./editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./sales-dashboard";
 import { changeConversation, readConversations } from "./conversations";
@@ -400,6 +402,12 @@ export function reserveBorrowerAddressLookup(token: string) {
 
 export async function loadRealtorReferrals(input: unknown) {
   return realtorReferrals(database(), input);
+}
+
+export async function loadSharedPreapproval(input: unknown) {
+  const parsed = sharedPreapprovalRequest.safeParse(input);
+  if (!parsed.success || portalBrokerage(parsed.data.token) !== demoBrokerageId) return { status: 404, error: sharedPreapprovalUnavailable };
+  return sharedPreapprovalDownload(database(), parsed.data);
 }
 
 export async function submitQuoteRequest(input: unknown) {

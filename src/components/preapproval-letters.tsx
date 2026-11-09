@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download } from "lucide-react";
 import { dateLabel } from "@/lib/client-retention";
-import { preapprovalAmount, preapprovalScopes, type PreapprovalPage, type PreapprovalResult } from "@/lib/preapproval-model";
+import { preapprovalAmount, preapprovalScopes, type PreapprovalAudience, type PreapprovalPage, type PreapprovalResult,
+  type PreapprovalShareState } from "@/lib/preapproval-model";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
@@ -21,10 +22,12 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
   const [refresh, setRefresh] = useState(0);
   const [result, setResult] = useState<{ beforeVersion?: number; revision?: number; refresh: number; page?: PreapprovalPage; error?: string }>();
   const [editing, setEditing] = useState(false);
+  const [publishing, setPublishing] = useState<PreapprovalAudience>();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean }>();
   const saving = useRef(false);
   const attempt = useRef<{ key: string; id: string }>(null);
+  const shareAttempt = useRef<{ key: string; id: string }>(null);
   const endpoint = `/api/preapproval-letters?brokerage=${encodeURIComponent(brokerageId)}`;
   useEffect(() => {
     if (!expanded) return;
@@ -55,8 +58,10 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
       } else {
         setResult({ beforeVersion, revision, refresh, page: value.page });
         setEditing(false);
+        setPublishing(undefined);
         attempt.current = null;
-        setFeedback({ message: `Sample letter v${value.issuedVersion} issued. The PDF is ready to download.` });
+        shareAttempt.current = null;
+        setFeedback({ message: value.shareMessage ?? `Sample letter v${value.issuedVersion} issued. The PDF is ready to download.` });
       }
     } catch {
       setFeedback({ message: "Could not confirm the request. Try again.", error: true });
@@ -76,6 +81,15 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
     void perform({ ...input, requestId: attempt.current.id });
   }
+  function publish(event: FormEvent<HTMLFormElement>, target: PreapprovalShareState, version: number) {
+    event.preventDefault();
+    if (!target.recipient || saving.current || !new FormData(event.currentTarget).has("permission")) return;
+    const input = { type: "publish", loanId, version, audience: target.audience, previousGrantId: target.grantId,
+      recipientStamp: target.recipient.stamp, confirmed: true };
+    const key = JSON.stringify(input);
+    if (shareAttempt.current?.key !== key) shareAttempt.current = { key, id: crypto.randomUUID() };
+    void perform({ ...input, grantId: shareAttempt.current.id });
+  }
 
   return <details className="loan-task-create" onToggle={(event) => {
     const open = event.currentTarget.open;
@@ -84,7 +98,7 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
   }}>
     <summary>Sample preapproval letters</summary>
     {expanded && <section className="record-form" aria-label="Sample preapproval letters">
-      <p className="muted">Fictional demo PDFs for staff review. Each issued version records the reviewed 1003, expiry date, and issuer.</p>
+      <p className="muted">Each fictional PDF records the reviewed 1003, expiry date, and issuer. Choose who can see the current version.</p>
       {!current && <p className="muted" role="status">Loading sample letters…</p>}
       {current?.error && <p role="alert">{current.error}</p>}
       {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
@@ -100,13 +114,47 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
         {beforeVersion && <Button size="sm" variant="outline" disabled={busy} onClick={() => setBeforeVersion(undefined)}>Latest letters</Button>}
         {page?.beforeVersion && <Button size="sm" variant="outline" disabled={busy} onClick={() => setBeforeVersion(page.beforeVersion!)}>Older letters</Button>}
         {(page || current?.error) && <Button size="sm" variant="outline" disabled={busy} onClick={() => {
-          setEditing(false); setFeedback(undefined); setBeforeVersion(undefined); setRefresh((value) => value + 1);
+          setEditing(false); setPublishing(undefined); setFeedback(undefined); setBeforeVersion(undefined); setRefresh((value) => value + 1);
         }}>Refresh letters</Button>}
         {issue && !beforeVersion && !editing && <Button size="sm" disabled={busy} onClick={() => setEditing(true)}>
           {page?.latestVersion ? "Prepare a new version" : "Prepare sample letter"}
         </Button>}
       </div>
       {page && !beforeVersion && "blocked" in page.issue && <p className="muted">{page.issue.blocked}</p>}
+      {page?.sharing && !editing && <section className="record-form" aria-label="Share current sample letter">
+        <div><strong>Share version {page.sharing.version}</strong>
+          <p className="muted">Publication adds the PDF to the selected private portal. A replacement needs a new publication.</p></div>
+        {!page.sharing.canPublish && <p className="muted">Only a current sample letter can be shared.</p>}
+        {page.sharing.audiences.map((target) => {
+          const version = page.sharing!.version;
+          const audience = target.audience.toLowerCase();
+          return <div className="document-item" key={target.audience}>
+            <div className="document-item-head"><strong>{target.audience}</strong>
+              <span className="pill">{target.visible ? "Shared" : target.grantId ? "Access ended" : "Private"}</span></div>
+            <p className="muted">{target.recipient?.name ?? `An active ${audience} portal link is needed.`}</p>
+            {target.firstDownloadedAt && <p className="muted">First PDF request {dateTime(target.firstDownloadedAt)} ET</p>}
+            <div className="loan-application-actions">
+              {page.sharing!.canPublish && target.recipient && !target.visible && publishing !== target.audience &&
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => { setFeedback(undefined); setPublishing(target.audience); }}>
+                  Share with {audience}
+                </Button>}
+              {target.grantId && <Button size="sm" variant="outline" disabled={busy}
+                onClick={() => void perform({ type: "withdraw", loanId, version, audience: target.audience, grantId: target.grantId })}>
+                Withdraw {audience} access
+              </Button>}
+            </div>
+            {page.sharing!.canPublish && target.recipient && publishing === target.audience &&
+              <form className="record-form" onSubmit={(event) => publish(event, target, version)}>
+                <label className="demo-confirm"><input type="checkbox" name="permission" required disabled={busy} />
+                  <span>I have permission to share this fictional letter with {target.recipient.name}.</span></label>
+                <div className="loan-application-actions">
+                  <Button type="submit" size="sm" disabled={busy}>Publish to {audience} portal</Button>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => setPublishing(undefined)}>Cancel</Button>
+                </div>
+              </form>}
+          </div>;
+        })}
+      </section>}
       {issue && editing && !beforeVersion && <form className="record-form" onSubmit={submit} key={`${issue.applicationRevision}:${page?.latestVersion}`}>
         <div className="form-grid">
           <label className="field">Sample loan amount<input name="amount" type="number" min="0.01" max={issue.amountCents / 100}

@@ -6,6 +6,7 @@ import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
+import { SharedPreapprovalDownload } from "./shared-preapproval";
 
 async function requestReferrals(token: string, signal: AbortSignal, submission?: Record<string, unknown>) {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete referral link from your loan officer.");
@@ -140,7 +141,9 @@ export function RealtorReferralPortal() {
       <section className="pipeline" aria-label="Your referred loans">
       {portal.view.referrals.length ? <div className="table-scroll"><table className="data-table">
         <thead><tr><th>Borrower</th><th>Milestone</th><th>Milestone updated</th></tr></thead>
-        <tbody>{portal.view.referrals.map((loan, index) => <tr key={index}><td>{loan.borrowerName}</td><td>{loan.stage}</td><td>{dateTime(loan.updatedAt)} ET</td></tr>)}</tbody>
+        <tbody>{portal.view.referrals.map((loan, index) => <tr key={index}><td>{loan.borrowerName}
+          {loan.preapproval && <SharedPreapprovalDownload key={loan.preapproval.grantId} letter={loan.preapproval} token={portal.token}
+            audience="Realtor" name={loan.borrowerName} />}</td><td>{loan.stage}</td><td>{dateTime(loan.updatedAt)} ET</td></tr>)}</tbody>
       </table></div> : <p className="empty-inline no-matches">No referrals yet.</p>}
       {(portal.previous.length > 0 || portal.view.next) && <div className="toolbar" aria-label="Referral pages">
         <Button variant="outline" disabled={busy || !portal.previous.length}
