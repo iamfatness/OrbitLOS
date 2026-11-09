@@ -443,3 +443,11 @@ In a separate fictional pilot, staff enabled required second review after the ma
 Staff then recorded a lender return on the same file. It moved back to Underwriting. The borrower corrected the requested amount to $348,500, and after first review Pipeline requested a second review. The manager queue identified revision 13 and opened Team Reviews for that loan. The pilot used one staff identity and left that revision awaiting a second reviewer. Both public pages reflected the revision rule.
 
 All 306 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. SQLite verified that the loan record, Pipeline and stalled-file work agreed, a current receipt suppressed the obsolete assignment prompt, and pending processor send or acceptance still required approval. The live Pipeline still showed its stored $360,000 loan amount alongside the different corrected request in the 1003.
+
+## Recorded loan amount and the corrected 1003 request
+
+On Worker `c9ffcd3a-b286-4cd6-a12c-d0277c494927` from `35e2bfd45767`, the isolated fictional pilot showed a $360,000 recorded amount and a $348,500 1003 request in Pipeline. The request opened the exact comparison on the loan. Pricing explained both sources while showing its separate $347,500 saved mock quote.
+
+Staff used the reviewed 1003 amount. Pipeline and the loan record showed $348,500 without a manual refresh, and the audit recorded one change from $360,000 to $348,500. The same $347,500 saved quote and pricing timestamp remained in pricing. The correction was still awaiting its second reviewer for lender handoff. The public Demo and Product pages reflected the reconciliation.
+
+All 306 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. The built Worker rejected an unreviewed or stale revision, a stale recorded amount, a former owner, and a post-closing edit. It also checked that a replay did not duplicate the audit, the second tab received the update, and the exact cents stayed in the reviewed application and MISMO when the recorded amount used whole dollars.
