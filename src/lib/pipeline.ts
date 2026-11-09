@@ -1,4 +1,4 @@
-import { approvedSecondReview } from "./application-review-checkpoint";
+import { loanActionApplications } from "./applications";
 import { loanNextAction, matchesWorkFilter, pausedLoan, type LoanNextActionState } from "./loan-workflow";
 import { prospectingBlocked, stages, type Loan } from "./model";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
@@ -9,9 +9,6 @@ import type { SqlValue, Store } from "./store";
 import { stageDays } from "./utils";
 
 type Candidate = Loan & { name: string; email: string; phone: string; lenderSearch: string };
-type Application = Omit<LoanNextActionState["applications"][number], "versions" | "secondReviewApproved"> & {
-  secondReviewApproved: number; uwmReceipt: string | null; uwmSentAt: string | null;
-};
 const selectIds = "SELECT value FROM json_each(?)";
 
 function byLoan<T extends { loanId: string }>(records: T[]) {
@@ -25,16 +22,10 @@ function byLoan<T extends { loanId: string }>(records: T[]) {
 }
 
 function pipelineFacts(db: Store, candidates: Candidate[], role?: WorkspaceStaff["brokerage"]["role"]) {
-  const ids = JSON.stringify(candidates.map(({ id }) => id));
+  const loanIds = candidates.map(({ id }) => id);
+  const ids = JSON.stringify(loanIds);
   const read = <T extends { loanId: string }>(sql: string) => db.prepare(sql).all(ids) as unknown as T[];
-  const applications = byLoan(read<Application>(`SELECT app.loanId, app.submittedAt, app.reviewedAt, app.revision,
-    app.uwmReference, app.correctionNote, ${approvedSecondReview} AS secondReviewApproved, version.uwmReceipt, version.uwmSentAt
-    FROM applications app LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
-    WHERE app.loanId IN (${selectIds})`).map(({ uwmReceipt, uwmSentAt, secondReviewApproved, ...app }) => ({ ...app,
-    secondReviewApproved: Boolean(secondReviewApproved),
-    versions: typeof uwmReceipt === "string" && typeof uwmSentAt === "string" ?
-      [{ revision: app.revision, uwmReceipt: { reference: uwmReceipt, sentAt: uwmSentAt } }] : [],
-  })));
+  const applications = byLoan(loanActionApplications(db, loanIds));
   const submissions = byLoan(read<Omit<LoanNextActionState["submissions"][number], "conditions"> & { conditions: string }>(`
     SELECT id, loanId, lender, externalId, status, syncedAt, conditions FROM submissions WHERE loanId IN (${selectIds})
     ORDER BY lender, id`).map(({ conditions, ...submission }) => ({

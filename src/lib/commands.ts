@@ -1789,7 +1789,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if ((data.type === "markClearToClose" || loan.stage !== stage) && mockClearanceClosingStages.some((item) => item === stage) &&
             hasReopenedMockUwmCondition(db, loanId)) throw new WorkspaceError(reopenedMockClosingMessage);
           if (file) {
-            if (!closingReviewReady(file.loans[0], { ...file, playbook: readPlaybook(db) })) {
+            if (!closingReviewReady(file.loans[0], file)) {
               throw new WorkspaceError("This file is no longer ready for Clear to Close. Refresh the loan and check the current 1003, conditions, documents, and handoff.");
             }
             message = "Loan marked Clear to Close.";

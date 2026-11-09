@@ -1,4 +1,5 @@
 import { loanNextAction, stalledLoanCutoff, type LoanNextActionState } from "./loan-workflow";
+import { loanActionApplications } from "./applications";
 import type { Loan } from "./model";
 import { stalledLoanStages, type BrokerageStalledPage, type StalledLoanPage, type StalledLoanQuery } from "./officer-dashboard-model";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
@@ -10,7 +11,6 @@ import { stageDays } from "./utils";
 type StalledRow = Pick<Loan, "id" | "stage" | "stageSince" | "officer" | "officerEmail" | "contactId"> & {
   enteredAt: number; name: string; email: string; phone: string;
 };
-type ApplicationRow = Omit<LoanNextActionState["applications"][number], "versions"> & { uwmReceipt: string | null; uwmSentAt: string | null };
 const pageSize = 12;
 const pageIds = "SELECT value FROM json_each(?)";
 const activePipeline = "loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')";
@@ -18,20 +18,16 @@ const stageAge = "julianday(loan.stageSince)";
 const stalled = `${stageAge} <= julianday(?)`;
 
 function actionState(db: Store, page: StalledRow[]): LoanNextActionState {
-  const ids = JSON.stringify(page.map(({ id }) => id));
+  const loanIds = page.map(({ id }) => id);
+  const ids = JSON.stringify(loanIds);
   const read = <T>(sql: string, ...args: SqlValue[]) => db.prepare(sql).all(ids, ...args) as unknown as T[];
   const suppressed = blockedOutreachKeys(db, page);
   const contacts = page.map((loan) => ({ id: loan.contactId, outreachSuppressed: outreachSuppressed(suppressed, loan) }));
   const blockedIds = JSON.stringify(contacts.filter(({ outreachSuppressed }) => outreachSuppressed).map(({ id }) => id));
-  const applications = read<ApplicationRow>(`SELECT app.loanId, app.submittedAt, app.reviewedAt, app.revision, app.uwmReference,
-      CASE WHEN app.correctionNote <> '' THEN 'Pending' ELSE '' END AS correctionNote, version.uwmReceipt, version.uwmSentAt
-    FROM applications app LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
-    WHERE app.loanId IN (${pageIds})`).map(({ uwmReceipt, uwmSentAt, ...app }) => ({ ...app,
-    versions: typeof uwmReceipt === "string" && typeof uwmSentAt === "string" ? [{ revision: app.revision, uwmReceipt: { reference: uwmReceipt, sentAt: uwmSentAt } }] : [],
-  }));
+  const applications = loanActionApplications(db, loanIds);
   const submissions = read<Omit<LoanNextActionState["submissions"][number], "conditions"> & { conditions: string }>(`
-    SELECT id, loanId, lender, syncedAt, conditions FROM submissions
-    WHERE loanId IN (${pageIds}) AND lender = 'UWM' COLLATE BINARY AND syncedAt IS NOT NULL ORDER BY id`)
+    SELECT id, loanId, lender, externalId, status, syncedAt, conditions FROM submissions
+    WHERE loanId IN (${pageIds}) ORDER BY lender, id`)
     .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) as LoanNextActionState["submissions"][number]["conditions"] }));
   return { contacts, applications, submissions, playbook: readPlaybook(db),
     tasks: read<LoanNextActionState["tasks"][number]>(`WITH pageLoans AS (${pageIds})

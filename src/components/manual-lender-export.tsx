@@ -45,7 +45,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
     <summary>Manual lender export</summary>
     <p className="muted">Use MISMO 3.4 XML for a manual upload rehearsal. Check the lender’s import profile and required fields before a live handoff.</p>
     {ready && handoffBlocker && <div className="document-item">
-      <p>{handoffBlocker} You can prepare the XML for review.</p>
+      <p>{linkedFile ? "An approved second review is required to share a new package." : handoffBlocker} You can prepare the XML for review.</p>
       {openReviews && <div><Button size="sm" variant="outline" disabled={busy} onClick={openReviews}>Open required second review</Button></div>}
     </div>}
     {!linkedFile && previousFile && <div className="document-item">

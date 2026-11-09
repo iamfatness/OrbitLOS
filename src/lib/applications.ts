@@ -15,7 +15,8 @@ import { borrowerDocuments } from "./borrower-documents";
 import { accessEvent } from "./workspace-access";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 import { zipCityState } from "./zip-city-state";
-import { approvedSecondReview } from "./application-review-checkpoint";
+import { approvedSecondReview, currentManualExportPrepared, currentManualLenderSubmission, lastManualLenderSubmission } from "./application-review-checkpoint";
+import type { LoanNextActionState } from "./loan-workflow";
 import { activeCoBorrowerLink, jointApplication, staffJointApplications } from "./joint-application";
 import { coBorrowerCommand, coBorrowerSubmissionIssues, jointLinkUnavailable, primaryJointDraft, type CoBorrowerApplication } from "./joint-application-model";
 import { readClosingPauses } from "./processing-conditions";
@@ -50,10 +51,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     handoffs.set(loanId, handoff);
   }
   return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved,
-    (SELECT event.submissionId FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
-      JOIN submissions file ON file.id = event.submissionId AND file.loanId = event.loanId AND file.syncedAt IS NULL
-      WHERE event.loanId = app.loanId AND event.outcome = 'Acknowledged'
-      ORDER BY event.applicationRevision DESC, event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS lastManualSubmissionId
+    ${lastManualLenderSubmission} AS lastManualSubmissionId
     FROM applications app${filter}`).all(...args).map((value) => {
     const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null };
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
@@ -79,6 +77,30 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       ...(joint ? { joint } : {}),
     };
   });
+}
+
+type ActionApplication = LoanNextActionState["applications"][number];
+type ActionApplicationRow = Omit<ActionApplication, "versions" | "secondReviewApproved" | "lastManualSubmissionId"> & {
+  secondReviewApproved: number; uwmReceipt: string | null; uwmSentAt: string | null;
+  manualSubmissionId: string | null; exportPrepared: number; lastManualSubmissionId: string | null;
+};
+
+export function loanActionApplications(db: Store, loanIds: string[]): ActionApplication[] {
+  if (!loanIds.length) return [];
+  const rows = db.prepare(`SELECT app.loanId, app.submittedAt, app.reviewedAt, app.revision, app.uwmReference,
+    CASE WHEN app.correctionNote <> '' THEN 'Pending' ELSE '' END AS correctionNote,
+    ${approvedSecondReview} AS secondReviewApproved, version.uwmReceipt, version.uwmSentAt,
+    ${currentManualLenderSubmission} AS manualSubmissionId, ${currentManualExportPrepared} AS exportPrepared,
+    ${lastManualLenderSubmission} AS lastManualSubmissionId
+    FROM applications app LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
+    WHERE app.loanId IN (SELECT value FROM json_each(?))`).all(JSON.stringify(loanIds)) as unknown as ActionApplicationRow[];
+  return rows.map(({ secondReviewApproved, uwmReceipt, uwmSentAt, manualSubmissionId, exportPrepared, lastManualSubmissionId, ...app }) => ({
+    ...app, secondReviewApproved: Boolean(secondReviewApproved),
+    versions: typeof uwmReceipt === "string" && typeof uwmSentAt === "string"
+      ? [{ revision: app.revision, uwmReceipt: { reference: uwmReceipt, sentAt: uwmSentAt } }] : [],
+    ...(manualSubmissionId ? { manualHandoff: { outcome: "Acknowledged", submissionId: manualSubmissionId, exportPrepared: Boolean(exportPrepared) } } : {}),
+    ...(lastManualSubmissionId ? { lastManualSubmissionId } : {}),
+  }));
 }
 
 export function saveApplicationVersion(db: Store, row: ApplicationRow) {

@@ -6,9 +6,24 @@ import type { Store } from "./store";
 export const approvedSecondReview = `EXISTS (SELECT 1 FROM loan_reviews approved WHERE approved.loanId = app.loanId
   AND approved.applicationRevision = app.revision AND approved.category = '1003 second review' AND approved.status = 'Approved')`;
 
+const currentManualEvent = `event.loanId = app.loanId AND event.applicationRevision = app.revision
+  AND event.lenderRevision = coalesce((SELECT revision FROM application_lender_details WHERE loanId = app.loanId), 0)`;
+export const currentManualLenderSubmission = `(SELECT CASE WHEN event.outcome = 'Acknowledged' THEN file.id END
+  FROM application_handoff_events event JOIN activity entry ON entry.id = event.activityId
+  LEFT JOIN submissions file ON file.id = event.submissionId AND file.loanId = event.loanId AND file.syncedAt IS NULL
+  WHERE ${currentManualEvent} AND event.outcome <> 'Export prepared'
+  ORDER BY entry.rowid DESC LIMIT 1)`;
+export const currentManualExportPrepared = `EXISTS (SELECT 1 FROM application_handoff_events event
+  WHERE ${currentManualEvent} AND event.outcome = 'Export prepared')`;
+export const lastManualLenderSubmission = `(SELECT event.submissionId FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
+  JOIN submissions file ON file.id = event.submissionId AND file.loanId = event.loanId AND file.syncedAt IS NULL
+  WHERE event.loanId = app.loanId AND event.outcome = 'Acknowledged'
+  ORDER BY event.applicationRevision DESC, event.lenderRevision DESC, activity.rowid DESC LIMIT 1)`;
+
 export const pendingRequiredApproval = `app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND NOT ${approvedSecondReview}
-  AND (coalesce(processing.status IN ('Assigned', 'Ready for processing'), 0) OR NOT EXISTS (
-    SELECT 1 FROM application_versions version WHERE version.loanId = app.loanId AND version.revision = app.revision AND version.uwmReceipt IS NOT NULL))`;
+  AND (coalesce(processing.processorEmail IS NOT NULL AND processing.status IN ('Assigned', 'Ready for processing'), 0)
+    OR (${currentManualLenderSubmission} IS NULL AND NOT EXISTS (
+      SELECT 1 FROM application_versions version WHERE version.loanId = app.loanId AND version.revision = app.revision AND version.uwmReceipt IS NOT NULL)))`;
 
 export const openSecondReview = `pending.loanId = app.loanId AND pending.category = '1003 second review'
   AND pending.status IN ('Requested', 'Changes requested')`;

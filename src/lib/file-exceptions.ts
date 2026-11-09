@@ -32,8 +32,7 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
   const today = easternDate(now);
   const checkedAt = now.toISOString();
   const overdueReturns = filter === overdueManualReturnFilter || filter === unattendedManualReturnFilter;
-  const requireApproval = (overdueReturns || ["All file exceptions", "Required 1003 approvals", "Manual lender returns"].includes(filter)) &&
-    readPlaybook(db).requireSecondReview;
+  const requireApproval = readPlaybook(db).requireSecondReview;
   const showCheckpoint = (filter === "All file exceptions" || filter === "Required 1003 approvals") && requireApproval;
   const parts: string[] = [];
   const args: SqlValue[] = [];
@@ -73,14 +72,13 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
       ${showCheckpoint ? `AND NOT (review.category = '1003 second review' AND ${activePipeline} AND ${pendingRequiredApproval})` : ""}`,
   "review.dueOn", "'-'", "review.id", [today]);
 
-  add("Internal reviews", `${loanColumns}, 'Assign second 1003 reviewer' AS title, 'Reviewer needed' AS status, route.dueOn,
+  if (!requireApproval) add("Internal reviews", `${loanColumns}, 'Assign second 1003 reviewer' AS title, 'Reviewer needed' AS status, route.dueOn,
     NULL AS reopenedAt, NULL AS nextParty, loan.officer AS ownerName, loan.officerEmail AS ownerEmail,
     NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, route.applicationRevision AS version,
     0 AS changed, route.reason AS requestStatus
     FROM application_review_routing_blocks route JOIN loans loan ON loan.id = route.loanId ${loanJoins}
     JOIN applications app ON app.loanId = route.loanId AND app.revision = route.applicationRevision
-    WHERE ${activePipeline} AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL
-      ${showCheckpoint ? `AND NOT (${pendingRequiredApproval})` : ""}`,
+    WHERE ${activePipeline} AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL`,
   "route.dueOn", "loan.id", "CAST(route.applicationRevision AS TEXT)");
 
   add("Reopened conditions", `${loanColumns}, item.title, 'Reopened' AS status, request.dueOn, item.reopenedAt, item.manualOwner AS nextParty,

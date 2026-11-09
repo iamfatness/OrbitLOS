@@ -281,6 +281,11 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
   const path = application ? `/apply#${application.token}` : "";
   const lastSent = application?.versions.find((version) => version.uwmReceipt);
   const currentSent = !!lastSent && lastSent.revision === application?.revision;
+  const linkedFile = state.submissions.find((file) =>
+    file.id === application?.manualHandoff?.submissionId && file.loanId === loanId && file.syncedAt === null);
+  const processingPending = state.loanProcessing.some((item) => item.loanId === loanId && item.processorEmail &&
+    (item.status === "Assigned" || item.status === "Ready for processing"));
+  const showCheckpoint = requireSecondReview && (!blocker || processingPending || (!currentSent && !linkedFile));
   const status = application?.correctionNote ? "Corrections requested" : application?.submittedAt && !application.reviewedAt
     ? "Needs review" : currentSent ? "Sent to UWM · Mock" : application?.reviewedAt
       ? (application.uwmReference ? "Ready to send to existing file" : "Reviewed") : application?.joint ? "Collecting joint 1003" : "Draft";
@@ -301,7 +306,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
       <h3><ClipboardList size={17} /> 1003 application</h3>
       {application && <span className="pill">{status}</span>}
     </div>
-    {requireSecondReview && <SecondReviewCheckpoint blocker={blocker} revision={application?.revision} busy={busy} openReviews={openReviews} />}
+    {showCheckpoint && <SecondReviewCheckpoint blocker={blocker} revision={application?.revision} busy={busy} openReviews={openReviews} />}
     {!application ? <div className="loan-application-box">
       <p className="muted">Create a link for a borrower to complete a sample application. Use fictional information.</p>
       {!processor && <Button size="sm" disabled={busy} onClick={() => run("startApplication")}><Plus /> Start 1003</Button>}
@@ -375,7 +380,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
         application={application} busy={busy} save={save} openConditions={openConditions}
         canRecordReturn={canRecordReturn} handoffBlocker={blocker} openReviews={openReviews}
         shareBrokerage={shareBrokerage}
-        linkedFile={state.submissions.find((submission) => submission.id === application.manualHandoff?.submissionId && submission.loanId === loanId)}
+        linkedFile={linkedFile}
         previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
         campaignManual={campaignManual} />
       <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application}

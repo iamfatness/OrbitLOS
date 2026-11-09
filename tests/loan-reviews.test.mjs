@@ -11,12 +11,16 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 
-const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
+const { initializeStore, insertContact, insertLoan, workspace } = await import("../src/lib/store.ts");
 const { borrowerCommandResult, startApplication } = await import("../src/lib/applications.ts");
 const { sampleApplication } = await import("../src/lib/application-model.ts");
 const { realtorReferrals } = await import("../src/lib/realtor-portal.ts");
 const { loanReviewWork, reviewParticipants } = await import("../src/lib/loan-reviews.ts");
 const { loanReviewsTarget, reviewInput, reviewTarget } = await import("../src/lib/loan-review-model.ts");
+const { loanNextAction } = await import("../src/lib/loan-workflow.ts");
+const { readPipeline } = await import("../src/lib/pipeline.ts");
+const { emptyPipelineFilters } = await import("../src/lib/pipeline-model.ts");
+const { stalledLoanPage } = await import("../src/lib/officer-stalled.ts");
 const { readOfficerQueue, readWorkspaceCalendar } = await import("../src/lib/officer-queue.ts");
 const { readProcessorQueue } = await import("../src/lib/processor-queue.ts");
 const { readFileExceptions, fileExceptionOwners, nameFileExceptions } = await import("../src/lib/file-exceptions.ts");
@@ -620,6 +624,60 @@ test("an exact mock UWM receipt leaves only an assigned or ready processor hando
   assert.deepEqual(rows(), []);
   db.exec("UPDATE loans SET disposition = 'Active', stage = 'Funded' WHERE id = 'loan'");
   assert.deepEqual(rows(), []);
+});
+
+test("a current manual receipt preserves condition work until the application is corrected or processing is pending", async (t) => {
+  const context = secondReviewFixture(t);
+  const { db, command, enable, save, submit, review, file, officer, reviewer } = context;
+  const token = db.prepare("SELECT token FROM applications WHERE loanId = 'loan'").get().token;
+  const draft = { ...sampleApplication(borrowerCommandResult(db, { type: "read", token }).application.draft), confirmedDemo: true };
+  db.prepare("UPDATE applications SET draft = ? WHERE loanId = 'loan'").run(JSON.stringify(draft));
+  const unavailable = { reviewerEmail: reviewer.email, reviewer: null };
+  assert.ok((await enable()).state);
+  submit(7);
+  assert.ok((await review(7, officer, unavailable)).state);
+  assert.ok(file().routingBlock);
+  const prepared = await command({ type: "exportReviewedApplication", loanId: "loan", revision: 7, lenderRevision: 0,
+    eventId: crypto.randomUUID(), names: [{ first: "Fictional", middle: "", last: "Borrower", suffix: "" }] });
+  assert.ok(prepared.mismoXml);
+  const receipt = await command({ type: "recordManualHandoff", loanId: "loan", revision: 7, lenderRevision: 0, eventId: crypto.randomUUID(),
+    outcome: "Acknowledged", note: "", lenderFile: { lender: "Fictional lender", externalId: "MANUAL-7" } });
+  const submissionId = receipt.state.applications[0].manualHandoff.submissionId;
+  assert.ok((await command({ type: "saveManualCondition", loanId: "loan", submissionId, conditionId: crypto.randomUUID(), revision: 0,
+    category: "Income", owner: "Loan officer", description: "Fictional income request." })).state);
+  assert.ok((await save({ requireSecondReview: true })).state);
+
+  const next = () => {
+    const state = workspace(db);
+    const action = loanNextAction(state.loans[0], state, "LO").title;
+    const pipeline = readPipeline(db, { view: "List", search: "", filters: emptyPipelineFilters }, officer);
+    const stalled = stalledLoanPage(db, officer, { type: "stalledLoans", stage: "" }, new Date("2026-11-20T15:00:00.000Z"));
+    assert.equal(pipeline.list.loans[0].action.title, action);
+    assert.equal(stalled.items[0].action, action);
+    return action;
+  };
+  const required = () => approvalExceptionPage(context).items;
+  assert.equal(next(), "Work income condition");
+  assert.deepEqual(required(), []);
+  assert.deepEqual(approvalExceptionPage(context, { filter: "All file exceptions" }).items, []);
+  assert.equal(file().routingBlock, undefined);
+  const processing = db.prepare("UPDATE loan_processing SET status = ? WHERE loanId = 'loan'");
+  for (const status of ["Assigned", "Ready for processing"]) {
+    processing.run(status);
+    assert.equal(next(), "Complete required second review");
+    assert.equal(required()[0].evidence, "Submitted 1003 revision 7");
+    assert.ok(file().routingBlock);
+  }
+  processing.run("In processing");
+  const returned = await command({ type: "requestApplicationCorrection", loanId: "loan", revision: 7, note: "Correct the fictional amount.",
+    lenderReturn: { eventId: crypto.randomUUID(), submissionId, lenderRevision: 0 } });
+  assert.ok(returned.state, returned.error);
+  assert.deepEqual(required(), []);
+  submit(8);
+  assert.ok((await review(8, officer, unavailable)).state);
+  assert.equal(next(), "Complete required second review");
+  assert.equal(required()[0].evidence, "Submitted 1003 revision 8");
+  assert.ok(file().routingBlock);
 });
 
 test("required approval pages preserve loans with tied fallback dates", async (t) => {

@@ -69,8 +69,7 @@ export function canRecordFundingCheckIn(loan: Pick<Loan, "id" | "disposition">, 
 }
 
 export function closingReviewReady(loan: Pick<Loan, "id" | "stage" | "disposition">,
-  state: Pick<LoanNextActionState, "applications" | "documentRequests" | "submissions" | "loanProcessing" | "pastClients" | "closingProgress"> &
-    Partial<Pick<LoanNextActionState, "playbook">>) {
+  state: Pick<LoanNextActionState, "applications" | "documentRequests" | "submissions" | "loanProcessing" | "pastClients" | "closingProgress">) {
   if (pausedLoan(loan) || loan.stage === "Funded" || loan.stage === "Closed" ||
     state.pastClients.some((item) => item.loanId === loan.id && item.closingDate) ||
     state.closingProgress.some((item) => item.loanId === loan.id && item.fundingDate) ||
@@ -81,8 +80,7 @@ export function closingReviewReady(loan: Pick<Loan, "id" | "stage" | "dispositio
   if (submissions.some((item) => item.conditions.some(({ satisfiedAt }) => !satisfiedAt)) ||
     state.documentRequests.some((item) => item.loanId === loan.id && item.status !== "Accepted")) return false;
   if (!application.uwmReference) {
-    return Boolean(!secondReviewBlocker(Boolean(state.playbook?.requireSecondReview), application) &&
-      application.manualHandoff?.exportPrepared && application.manualHandoff.outcome === "Acknowledged" &&
+    return Boolean(application.manualHandoff?.exportPrepared && application.manualHandoff.outcome === "Acknowledged" &&
       submissions.some((item) => item.id === application.manualHandoff?.submissionId && item.syncedAt === null &&
         item.conditions.length && item.conditions.every(({ manual }) => manual?.confirmedDelivery)));
   }
@@ -124,9 +122,11 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     title: "Review submitted 1003", target: "loan-application", dueAt: afterHours(application.submittedAt, state.playbook.reviewHours), blocker: null,
   };
   const currentReceipt = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
+  const manualReceipt = application?.manualHandoff?.outcome === "Acknowledged" && state.submissions.find((item) =>
+    item.id === application.manualHandoff?.submissionId && item.loanId === loan.id && item.syncedAt === null);
   const processingPending = processing?.status === "Assigned" || processing?.status === "Ready for processing";
   const checkpoint = secondReviewBlocker(Boolean(state.playbook.requireSecondReview), application);
-  if (!pastClient && application?.reviewedAt && checkpoint && (processingPending || !currentReceipt)) return {
+  if (!pastClient && application?.reviewedAt && checkpoint && (processingPending || (!currentReceipt && !manualReceipt))) return {
     title: "Complete required second review", target: loanReviewsTarget, dueAt: null, blocker: "Current 1003 approval required",
   };
   if (!pastClient && application?.reviewedAt && application.uwmReference && !currentReceipt) return {
@@ -154,7 +154,7 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     return { title: "Prepare revised manual handoff", target: "manual-lender-export", dueAt: null, blocker: null };
   }
   const outstandingCondition = state.submissions.filter((item) => item.loanId === loan.id &&
-    (item.lender === "UWM" && item.syncedAt || item.id === application?.manualHandoff?.submissionId && item.syncedAt === null))
+    (item.lender === "UWM" && item.syncedAt || manualReceipt && item.id === manualReceipt.id))
     .flatMap((item) => item.conditions.filter((condition) => !condition.satisfiedAt).map((condition) => ({
       condition, target: conditionTarget(item.id, condition.id),
       request: documents.find((request) => request.submissionId === item.id && request.conditionId === condition.id),

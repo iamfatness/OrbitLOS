@@ -155,15 +155,19 @@ export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding
       const focused = db.prepare(`SELECT ${columns} ${joined} WHERE review.loanId = ? AND review.id = ?`).get(input.loanId, input.focusId) as unknown as Base | undefined;
       if (focused) reviews.unshift(summary(focused, today));
     }
-    const routingBlock = loan.active && loan.inPipeline && loan.applicationRevision !== null ? db.prepare(`SELECT dueOn, reason FROM application_review_routing_blocks
+    const requireApproval = readPlaybook(db).requireSecondReview;
+    const inReviewPipeline = loan.active && loan.inPipeline && loan.applicationRevision !== null;
+    const pendingApproval = inReviewPipeline && requireApproval && db.prepare(`SELECT NOT EXISTS (
+      SELECT 1 FROM loan_reviews pending WHERE ${openSecondReview}) AS needsAssignment
+      FROM applications app LEFT JOIN loan_processing processing ON processing.loanId = app.loanId
+      WHERE app.loanId = ? AND ${pendingRequiredApproval}`).get(input.loanId);
+    const routingBlock = inReviewPipeline && (!requireApproval || pendingApproval) ? db.prepare(`SELECT dueOn, reason FROM application_review_routing_blocks
       WHERE loanId = ? AND applicationRevision = ?`).get(input.loanId, loan.applicationRevision) : undefined;
-    const needsAssignment = !routingBlock && loan.active && loan.inPipeline && loan.applicationRevision !== null && readPlaybook(db).requireSecondReview &&
-      db.prepare(`SELECT 1 FROM applications app LEFT JOIN loan_processing processing ON processing.loanId = app.loanId
-        WHERE app.loanId = ? AND ${pendingRequiredApproval} AND NOT EXISTS (SELECT 1 FROM loan_reviews pending WHERE ${openSecondReview})`).get(input.loanId);
     return { kind: "loan", reviews, options: loan.active ? options(members, loan, staff.email) : [], today,
       hasMore: rows.length > pageSize, canReview1003: loan.applicationRevision !== null,
       ...(routingBlock ? { routingBlock: { dueOn: String(routingBlock.dueOn), reason: String(routingBlock.reason) } } :
-        needsAssignment ? { routingBlock: { dueOn: null, reason: "Assign a second reviewer for the current 1003 before handoff." } } : {}) };
+        pendingApproval && pendingApproval.needsAssignment
+          ? { routingBlock: { dueOn: null, reason: "Assign a second reviewer for the current 1003 before handoff." } } : {}) };
   }
   const row = scopedReview(db, input.loanId, input.id);
   if (!row) return { error: reviewsUnavailable };
