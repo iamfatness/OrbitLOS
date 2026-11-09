@@ -365,3 +365,9 @@ All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehe
 On Worker `bab073cb-62cc-404f-8a9c-9784f40c7a5d` from `7b0a09a2bd1f`, My Tasks showed the assigned fictional lead's overdue pay stub. A separate borrower browser sent the clean sample PDF. The foreground staff page picked up the review item and removed its overdue entry without a manual refresh. Opening the review item expanded the lead checklist and focused that pay stub. After staff accepted it, the review item disappeared.
 
 Staff left an overdue bank statement task open in one tab and converted the lead in another. The old lead task opened and focused the bank statement request on the converted loan. The public Demo and Product pages showed the new flow. All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. The SQLite test also checked that unrelated staff could not see the request or resolve its location.
+
+## Hosted lead document calendar
+
+The fictional request and borrower link existed before Worker `b86e973e-77d8-434a-8c70-5b00af3cc837` from `f90e5ae2532a`. The admin opened the assigned officer's bank statement request from November 10 in the Brokerage calendar. Moving it to November 12 removed the original calendar entry. Refreshing the same borrower link showed the new date. Clearing the date removed the item from the agenda and left the bank statement request open for the borrower. The public Product and Demo pages showed the updated workflow.
+
+All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehearsals passed. SQLite verified permission boundaries, the same-date retry, stale-write rejection, upload continuity during a date change, and preservation of the deadline revision and history during conversion.
