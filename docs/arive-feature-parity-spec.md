@@ -54,7 +54,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
 | F10 | Hosted staff comparison, exact mock offer, published borrower quote and mock UWM handoff | Validate provider coverage, quote provenance and changed terms. Confirm locks separately. |
-| F11 | Itemized fee worksheets and saved quote estimates | Add source and effective-date metadata and confirm cash-to-close totals against a fixture. |
+| F11 | Hosted brokerage templates by purpose and ZIP, with effective dates, staff overrides, and immutable shared quote snapshots | Verify payer and payee detail, broader geographic matching, and external fee sources. |
 | F12 | Dashboard drilldowns, call-report preparation and exports | Reconcile report periods and data coverage before a custom report builder or filing claim. |
 | F13 | Internal workflow actions and planned delegated API | Define bounded event subscriptions and safe replay for Zapier. |
 | F14 | Borrower upload tied to a specific request and fictional document verification | Verify revocable, recipient-scoped exchange for leads and loan documents. |
@@ -124,7 +124,9 @@ The fictional release verifies a saved scenario recommendation against its exact
 
 ### F11 — Fee estimation service
 
-Status: worksheets exist; external fee integration unverified. Combine approved lender fees, brokerage templates and selected third-party estimates with source, geography, effective date and overrides. Store line-item payer, paid-to, category, amount/basis and provenance; avoid double counting lender credits or financed costs. Acceptance: fixture totals reconcile to cash-to-close, changed location/terms invalidate estimates, unavailable fees remain unknown, and published quotes retain their fee snapshot. Decide provider after evaluating coverage and cost; do not assume ARIVE's branded fee service is available to Orbit. Increments 2–3; live validation in 5.
+Brokerage admins publish sample fee templates with a source, effective date, loan purpose, and optional ZIP. Staff can override individual fees. Unknown amounts stay blank and quote totals identify which fees are missing. The worksheet and shared quote preserve the selected version and edited amounts. The borrower view shows estimates without the internal source record. The fictional cash-to-close fixture reconciles the lender credit, deposit, and seller credit. [Hosted fee template rehearsal](demo-rehearsal-log.md#hosted-brokerage-fee-templates)
+
+Remaining scope includes payer, payee, amount basis, broader geographic rules, and approved external estimates. Verify financed costs and provider coverage before live use.
 
 ### F12 — Reporting
 
