@@ -381,3 +381,11 @@ All 305 tests, lint, typecheck, the Cloudflare build, and both local Worker rehe
 ## Timed executive rehearsal and callback note
 
 The [full hosted run](executive-rehearsal.md#november-9-full-rehearsal) took 3:32 from creating the fictional pilot to opening the rate-watch refinance. It ended with all seven guide steps ready. On Worker `91061111-89bd-4316-b458-89fdf6d68d36`, reopening the original callback in the same pilot showed the saved check-in note and unchanged Eastern deadline. The public Product and Demo pages reflected the update.
+
+## Processing handoff instructions
+
+On Worker `91061111-89bd-4316-b458-89fdf6d68d36`, the hosted fictional file appeared in the receiving tab's Processing queue with its send note and focused the exact handoff. Accepting with a blank note removed the instructions from the workbench, although Activity still held the original note.
+
+On Worker `53c57dda-bad8-4196-9b04-6fee4e84ec51` from `166295da4520`, reopening the already-accepted file showed the original instructions under Recent handoff history. Returning the file surfaced the exact new note in Today without a manual refresh. The button focused the handoff, and completing it with a blank note removed the queue item while keeping both notes visible on the loan. Both public pages reflected the update. The hosted tabs shared one admin identity.
+
+The built Worker used separate LO and processor sessions. It verified scoped acceptance and completion responses, the original send and return notes, both mock condition clearances, and no disclosure of the return note to the borrower or realtor. The two handoff writes each took 7 ms, with the first recipient queue reads at 3 ms and 7 ms on loopback. All 305 tests, lint, typecheck, the Cloudflare build, and both local rehearsals passed.
