@@ -1368,6 +1368,68 @@ test("an LO conversion refills one eligible campaign slot and preserves scoped a
   });
 });
 
+test("the last unanswered retry refills one campaign slot and keeps the lead available to its officer", async (t) => {
+  const { db, staff } = fixture(t);
+  const officer = { ...staff, name: "Retry LO", email: "retry-lo@example.test", role: "LO", brokerage: { ...staff.brokerage, role: "LO" } };
+  const members = [officer, staff];
+  const campaignId = crypto.randomUUID();
+  const command = (input, actor = staff, options) => executeCommand(db, input, actor, undefined, members, options);
+  const apply = async (input, actor, options) => {
+    const result = await command(input, actor, options);
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  await apply({ type: "createCallCampaign", id: campaignId, name: "Fictional retry capacity" });
+  await apply({ type: "saveCampaignRouting", campaignId, revision: 0, enabled: true, officers: members.map(({ email }) => ({ email, limit: 1 })) });
+  await apply({ type: "saveCampaignRules", campaignId, revision: 0, voicemailDays: 1, noResponseDays: 1, maxAttempts: 2 });
+  const csv = ["id,name,phone,email,purpose,zip", ...[1, 2, 3, 4].map((n) =>
+    `${n},Fictional Retry ${n},248555019${n},retry-${n}@example.test,Purchase,48067`)].join("\n");
+  const rows = parseCampaignLeadCsv(csv, new Date().toISOString()).map((row, index) => ({
+    ...row, createdAt: new Date(Date.now() - (4 - index) * 3600_000).toISOString(),
+  }));
+  const payload = { type: "migratePipeline", campaignId, origin: campaignOrigin(campaignId), rows, decisions: {} };
+  const preview = await apply(payload);
+  const { state } = await apply({ ...payload, preview: preview.migration.fingerprint });
+  const [first, other, waiting, overflow] = [1, 2, 3, 4].map((n) => state.inboxLeads.find(({ name }) => name === `Fictional Retry ${n}`));
+  assert.deepEqual([first, other, waiting, overflow].map(({ officerEmail }) => officerEmail), [officer.email, staff.email, null, null]);
+  const options = { scopedLeadUpdates: true, campaignRefillRoster: { campaignId, revision: 1, members } };
+  const call = (lead, outcome = "No response", callbackAt = null) => ({ type: "recordCampaignCall", campaignId, leadId: lead.id,
+    revision: lead.followUp.revision, outcome, callbackAt, note: "Fictional retry result" });
+  const initial = await apply(call(first), officer, options);
+  assert.ok(initial.leadWork.member.callbackDueAt);
+  assert.equal(initial.leadWork.member.retryExhaustedAt, null);
+  assert.equal((await apply({ type: "refreshWorkspace" })).state.inboxLeads.find(({ id }) => id === waiting.id).officerEmail, null);
+  const lastCall = call(initial.leadWork.lead, "Left message");
+  const exhausted = await apply(lastCall, officer, options);
+  assert.match(exhausted.message, /attempt limit reached.*shared lead was routed/);
+  const queue = exhausted.campaignQueue;
+  const retained = queue.inboxLeads.find(({ id }) => id === first.id);
+  const replacement = queue.inboxLeads.find(({ id }) => id === waiting.id);
+  assert.equal(retained.officerEmail, officer.email);
+  assert.equal(replacement.officerEmail, officer.email);
+  assert.equal(replacement.dueAt, waiting.dueAt);
+  assert.equal(queue.inboxLeads.find(({ id }) => id === overflow.id).officerEmail, null);
+  assert.ok(!queue.inboxLeads.some(({ id }) => id === other.id));
+  const member = queue.members.find(({ leadId }) => leadId === first.id);
+  assert.ok(member.retryExhaustedAt);
+  assert.equal(member.callbackDueAt, null);
+  assert.equal(member.attempts, 2);
+  assert.match((await command(lastCall, officer, options)).error, /lead changed/);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM lead_events WHERE leadId = ? AND text LIKE 'Assigned to %'").get(waiting.id).count, 1);
+
+  db.exec("ALTER TABLE call_campaign_members DROP COLUMN retryExhaustedAt");
+  initializeStore(db, false);
+  const upgraded = (await apply({ type: "refreshCampaignQueue", campaignId }, officer)).campaignQueue;
+  assert.equal(upgraded.members.find(({ leadId }) => leadId === first.id).retryExhaustedAt, member.retryExhaustedAt);
+  const promisedAt = new Date(Date.now() + 86_400_000).toISOString();
+  const callback = await apply(call(retained, "Requested callback", promisedAt), officer, options);
+  assert.equal(callback.leadWork.member.retryExhaustedAt, null);
+  assert.equal(callback.leadWork.member.callbackDueAt, promisedAt);
+  const noAnswer = await apply(call(callback.leadWork.lead), officer, options);
+  assert.equal(noAnswer.leadWork.member.retryExhaustedAt, null);
+  assert.equal((await apply({ type: "refreshWorkspace" })).state.inboxLeads.find(({ id }) => id === overflow.id).officerEmail, null);
+});
+
 test("two-officer routing leaves overflow shared and direct assignment preserves its deadline and scope", async (t) => {
   const { db, staff } = fixture(t);
   const officer = { ...staff, name: "Pilot LO", email: "lo@example.test", role: "LO", brokerage: { ...staff.brokerage, role: "LO" } };

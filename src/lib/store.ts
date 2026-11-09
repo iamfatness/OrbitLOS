@@ -846,6 +846,17 @@ export function initializeStore(db: Store, seedDemo = true) {
             WHERE history.leadId = member.leadId AND history.firstOutreachAt >= member.joinedAt))
         WHERE attempts > 0;`);
     }
+    if (!db.prepare("PRAGMA table_info(call_campaign_members)").all().some((column) => column.name === "retryExhaustedAt")) {
+      db.exec(`ALTER TABLE call_campaign_members ADD COLUMN retryExhaustedAt TEXT;
+        UPDATE call_campaign_members AS member SET retryExhaustedAt = (
+          SELECT event.at FROM lead_events event WHERE event.leadId = member.leadId
+            AND event.kind = 'Campaign' AND event.text = 'Automatic retries ended · attempt limit reached.'
+            AND event.rowid > (SELECT call.rowid FROM lead_events call WHERE call.leadId = member.leadId
+              AND call.kind = 'Call' AND instr(call.text, call.outcome || ' · Call campaign · ') = 1
+              ORDER BY call.at DESC, call.rowid DESC LIMIT 1)
+        ) WHERE member.reachedAt IS NULL AND member.lastOutcome IN ('Left message', 'No response')
+          AND NOT EXISTS (SELECT 1 FROM lead_follow_up WHERE leadId = member.leadId AND replyReceivedAt IS NOT NULL);`);
+    }
     const googleAttemptColumns = db.prepare("PRAGMA table_info(staff_google_attempts)").all();
     if (!googleAttemptColumns.some((column) => column.name === "brokerageId")) {
       db.exec("ALTER TABLE staff_google_attempts ADD COLUMN brokerageId TEXT");
@@ -1350,7 +1361,7 @@ function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: strin
     runId: string | null; runDueAt: string | null }>(db,
     `SELECT member.campaignId, member.leadId, member.segmentId, segment.name AS segmentName,
       lead.name, lead.resolvedAt, lead.loanId, lead.email, lead.phone, coalesce(loan.contactId, lead.importedContactId) AS contactId,
-      member.attempts, member.lastOutcome, member.reachedAt, member.callbackTaskId,
+      member.attempts, member.lastOutcome, member.reachedAt, member.retryExhaustedAt, member.callbackTaskId,
       CASE WHEN task.completedAt IS NULL THEN task.dueAt END AS callbackDueAt, run.status AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt
     FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
     LEFT JOIN loans loan ON loan.id = lead.loanId

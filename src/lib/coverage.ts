@@ -1,5 +1,7 @@
 import { recordCampaignCall } from "./call-campaigns";
-import { campaignRefillNotice, captureCampaignOptOutCapacity, refillCampaignsAfterOptOut, type CampaignOptOutRoster } from "./campaign-routing";
+import { unansweredCampaignCall } from "./call-campaign-model";
+import { campaignRefillNotice, campaignReleaseRouting, captureCampaignOptOutCapacity, refillCampaignsAfterOptOut,
+  refillReleasedCampaignSlot, type CampaignOptOutRoster, type CampaignRefillRoster } from "./campaign-routing";
 import { easternDate } from "./client-retention";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import { coverageUnavailable, type CoverageDetail, type CoverageInput, type CoverageItem, type CoverageResult, type CoverageWindow } from "./coverage-model";
@@ -62,18 +64,24 @@ function detail(db: Store, row: CalendarItem): CoverageDetail {
     phone: String(fields?.phone ?? ""), email: String(fields?.email ?? ""), context: String(fields?.context ?? "").slice(0, 500) };
 }
 
-export function coveredCampaignOptOutTarget(db: Store, input: CoverageInput, staff: WorkspaceStaff,
-  members: VersionedBrokerageMember[], now = new Date()): OutreachOptOutTarget | undefined {
-  if (!staff.brokerage.pilot || input.type !== "act" || input.update.kind !== "campaign" || input.update.outcome !== "Opted out") return;
+export function coveredCampaignRouting(db: Store, input: CoverageInput, staff: WorkspaceStaff,
+  members: VersionedBrokerageMember[], now = new Date()): {
+  optOut?: OutreachOptOutTarget; release?: ReturnType<typeof campaignReleaseRouting>;
+} {
+  if (!staff.brokerage.pilot || input.type !== "act" || input.update.kind !== "campaign" || input.update.outcome === "Connected") return {};
   const window = findWindow(db, input.id);
   if (!window || !activeBackup(window, staff, members, easternDate(now)) ||
-    db.prepare("SELECT 1 FROM coverage_operations WHERE id = ?").get(input.operationId)) return;
+    db.prepare("SELECT 1 FROM coverage_operations WHERE id = ?").get(input.operationId)) return {};
   const [row] = readCoverageDeadlines(db, window, now, undefined, input.update).items;
-  if (row?.kind === "campaign" && detail(db, row).revision === input.update.revision) return { kind: "lead", id: row.recordId };
+  if (row?.kind !== "campaign" || detail(db, row).revision !== input.update.revision) return {};
+  return input.update.outcome === "Opted out" ? { optOut: { kind: "lead", id: row.recordId } } : {
+    release: campaignReleaseRouting(db, staff, { leadId: row.recordId, retryOutcome: input.update.outcome, coveredOwnerEmail: window.absentEmail }),
+  };
 }
 
 export function coverageWork(db: Store, input: CoverageInput, staff: WorkspaceStaff, brokerageId: string,
-  members: VersionedBrokerageMember[], now = new Date(), campaignOptOutRoster?: CampaignOptOutRoster): CoverageResult {
+  members: VersionedBrokerageMember[], now = new Date(), campaignOptOutRoster?: CampaignOptOutRoster,
+  campaignRefillRoster?: CampaignRefillRoster): CoverageResult {
   const participants = staff.brokerage.id === brokerageId ? coverageParticipants(db, input, staff) : null;
   if (!participants) return { error: coverageUnavailable };
   const today = easternDate(now);
@@ -145,6 +153,8 @@ export function coverageWork(db: Store, input: CoverageInput, staff: WorkspaceSt
     const loanId = row.recordId;
     const optOutCapacity = change.kind === "campaign" && change.outcome === "Opted out"
       ? captureCampaignOptOutCapacity(db, staff, campaignOptOutRoster) : [];
+    const release = campaignRefillRoster && change.kind === "campaign" && unansweredCampaignCall(change.outcome)
+      ? campaignReleaseRouting(db, staff, { leadId: row.recordId, retryOutcome: change.outcome, coveredOwnerEmail: window.absentEmail }) : undefined;
     let result;
     switch (change.kind) {
       case "campaign":
@@ -171,7 +181,9 @@ export function coverageWork(db: Store, input: CoverageInput, staff: WorkspaceSt
         deadlineRevision: change.deadlineRevision, dueOn: change.dueOn }, staff, at); break;
     }
     if ("error" in result) return { error: result.error ?? coverageUnavailable };
-    const message = result.message + campaignRefillNotice(refillCampaignsAfterOptOut(db, staff, optOutCapacity, at, campaignOptOutRoster));
+    const refilled = "releasedCampaignSlot" in result && result.releasedCampaignSlot ?
+      refillReleasedCampaignSlot(db, staff, release, at, campaignRefillRoster) : 0;
+    const message = result.message + campaignRefillNotice(refilled + refillCampaignsAfterOptOut(db, staff, optOutCapacity, at, campaignOptOutRoster));
     accessEvent(db, staff, "Worked staff coverage item", `${window.id} · ${change.kind} · ${row.id}`, at);
     db.prepare("INSERT INTO coverage_operations VALUES (?, ?, ?, ?, ?)").run(input.operationId, window.id, staff.email, request, message);
     return saved(message);

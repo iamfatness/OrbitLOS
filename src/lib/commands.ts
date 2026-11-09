@@ -59,13 +59,13 @@ import { migratePipeline } from "./pipeline-migration";
 import { undoMigration } from "./migration-recovery";
 import type { MigrationMutationResult } from "./migration-record-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, createCallCampaignInput, loadCampaignRehearsalInput, openCampaignsInput, pauseCampaignRetriesInput, recordCampaignCallInput, refreshCampaignQueueInput, routeCampaignQueueInput,
-  campaignManualHandoff, rescheduleCampaignCallbackInput, saveCampaignRoutingInput, saveCampaignRulesInput } from "./call-campaign-model";
+  campaignManualHandoff, rescheduleCampaignCallbackInput, saveCampaignRoutingInput, saveCampaignRulesInput, unansweredCampaignCall } from "./call-campaign-model";
 import { assignCampaignLeads, createCallCampaign, linkCampaignLead, mayManageCampaigns, pauseCampaignRetries, recordCampaignCall, rescheduleCampaignCallback,
   saveCampaignRules, stopCampaignFollowUp } from "./call-campaigns";
 import { enrollCrmSegmentInput, saveCrmSegmentInput, type SegmentPreview } from "./crm-segment-model";
 import { enrollCrmSegment, saveCrmSegment } from "./crm-segments";
 import { campaignRefillNotice, campaignReleaseRouting, captureCampaignOptOutCapacity, distributeCampaignLeads, readCampaignRouting,
-  refillCampaignsAfterOptOut, returnCampaignLeadToShared, saveCampaignRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./campaign-routing";
+  refillCampaignsAfterOptOut, refillReleasedCampaignSlot, returnCampaignLeadToShared, saveCampaignRouting, type CampaignOptOutRoster, type CampaignRefillRoster } from "./campaign-routing";
 import { ensureCampaignManualFile, linkCampaignSampleRealtor, loadCampaignRehearsal, type CampaignRehearsalMember } from "./campaign-rehearsal";
 import { blockedOutreachKeys, closeSuppressedOutreach, loanOutreachSuppressed, optOutContact, outreachSuppressed, outreachSuppressionKeys, retainContactOptOut,
   type OutreachOptOutTarget } from "./outreach-preferences";
@@ -96,14 +96,19 @@ export const reviewApplicationInput = z.object({ type: z.literal("reviewApplicat
 const convertReferralInput = z.object({ type: z.literal("convertReferral"), referralId: z.uuid(), contactId: id.nullable(), allowDuplicate: z.boolean().default(false) });
 const dismissReferralInput = z.object({ type: z.literal("dismissReferral"), referralId: z.uuid(), revision: z.number().int().nonnegative() });
 
-export function campaignRefillLeadId(input: unknown) {
+export function campaignRefillTarget(input: unknown) {
   if (!input || typeof input !== "object" || !("type" in input)) return;
   if (input.type === "convertReferral" || input.type === "dismissReferral") {
     const parsed = (input.type === "convertReferral" ? convertReferralInput : dismissReferralInput).safeParse(input);
-    return parsed.data?.referralId;
+    if (parsed.data) return { leadId: parsed.data.referralId };
   }
   if (input.type === "leadHold" && "action" in input && input.action === "Hold") {
-    return leadHoldInput.safeParse(input).data?.leadId;
+    const { data } = leadHoldInput.safeParse(input);
+    if (data) return { leadId: data.leadId };
+  }
+  if (input.type === "recordCampaignCall") {
+    const { data } = recordCampaignCallInput.safeParse(input);
+    if (data && unansweredCampaignCall(data.outcome)) return { leadId: data.leadId, retryOutcome: data.outcome };
   }
 }
 
@@ -557,8 +562,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       let mismoXml: string | undefined;
       let mismoDuplicateLoanId: string | undefined;
       let loanAudit: LoanAuditEvent[] | undefined;
-      const releasingLeadId = !staff || campaignRefillRoster ? campaignRefillLeadId(data) : undefined;
-      const refill = releasingLeadId ? campaignReleaseRouting(db, staff, releasingLeadId) : undefined;
+      let releasedCampaignSlot = data.type !== "recordCampaignCall";
+      const releaseTarget = !staff || campaignRefillRoster ? campaignRefillTarget(data) : undefined;
+      const refill = releaseTarget ? campaignReleaseRouting(db, staff, releaseTarget) : undefined;
       const optOutTarget = campaignOptOutTarget(data);
       const optOutCapacity = optOutTarget ? captureCampaignOptOutCapacity(db, staff, campaignOptOutRoster, optOutTarget) : [];
       const auditAction = loanAuditActions[data.type as keyof typeof loanAuditActions];
@@ -673,6 +679,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             data.type === "addCampaignLead" ? linkCampaignLead(db, data.campaignId, data.leadId, now) : recordCampaignCall(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
+          if ("releasedCampaignSlot" in result) releasedCampaignSlot = result.releasedCampaignSlot;
           if ("added" in result && result.added && data.type === "addCampaignLead") {
             accessEvent(db, staff, "Added lead to call campaign", data.leadId, now);
             const { assigned } = distributeCampaignLeads(db, staff, data.campaignId, staff ? leadMembers : undefined, now, [data.leadId]);
@@ -1943,11 +1950,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
       }
-      if (refill && (!staff || (campaignRefillRoster?.campaignId === refill.campaignId && campaignRefillRoster.revision === refill.revision &&
-        campaignRefillRoster.members.some(({ email }) => email === refill.ownerEmail)))) {
-        const { assigned } = distributeCampaignLeads(db, staff, refill.campaignId, staff ? campaignRefillRoster?.members ?? [] : undefined,
-          now, undefined, { ownerEmail: refill.ownerEmail });
+      if (refill && releasedCampaignSlot) {
+        const assigned = refillReleasedCampaignSlot(db, staff, refill, now, campaignRefillRoster);
         message += campaignRefillNotice(assigned);
+        if (assigned && scopedLeadUpdates && data.type === "recordCampaignCall") {
+          return { campaignQueue: readCampaignQueue(db, data.campaignId, staff), message };
+        }
       }
       message += campaignRefillNotice(refillCampaignsAfterOptOut(db, staff, optOutCapacity, now, campaignOptOutRoster));
       const leadId = scopedLeadUpdates ? scopedLeadId(data) : undefined;

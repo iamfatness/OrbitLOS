@@ -7,6 +7,10 @@ import { referralPhone } from "./referral-matches";
 
 export const callOutcomes = ["Connected", "Left message", "No response", "Requested callback", "Opted out"] as const;
 export type CallOutcome = (typeof callOutcomes)[number];
+export function unansweredCampaignCall(outcome: CallOutcome) {
+  return outcome === "Left message" || outcome === "No response";
+}
+
 export type CampaignLenderPath = "uwm" | "manual";
 
 export const campaignManualHandoff = {
@@ -92,6 +96,7 @@ export interface CallCampaignMember {
   attempts: number;
   lastOutcome: CallOutcome | null;
   reachedAt: string | null;
+  retryExhaustedAt: string | null;
   callbackTaskId: string | null;
   callbackDueAt: string | null;
   followUpRunStatus: "Failed" | "Paused" | null;

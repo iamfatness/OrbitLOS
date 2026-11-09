@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { assignableCampaignLead, defaultCampaignRules, localCampaignOfficers,
+import { assignableCampaignLead, defaultCampaignRules, localCampaignOfficers, unansweredCampaignCall,
   type assignCampaignLeadsInput, type createCallCampaignInput, type pauseCampaignRetriesInput, type recordCampaignCallInput, type rescheduleCampaignCallbackInput,
   type saveCampaignRulesInput } from "./call-campaign-model";
 import { easternDate, easternDayStart } from "./client-retention";
@@ -127,7 +127,8 @@ export function stopCampaignFollowUp(db: Store, staff: WorkspaceStaff | null, le
 
 export function recordCampaignCall(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof recordCampaignCallInput>, now: string, coveredOwnerEmail?: string) {
   if (input.simulateFollowUpFailure && staff && !mayManageCampaigns(staff)) return { error: "A fictional pilot admin can rehearse a follow-up failure." };
-  const member = db.prepare(`SELECT campaign.name, member.callbackTaskId, member.attempts, rules.voicemailDays, rules.noResponseDays, rules.maxAttempts,
+  const member = db.prepare(`SELECT campaign.name, member.callbackTaskId, member.attempts, member.reachedAt, member.retryExhaustedAt,
+    rules.voicemailDays, rules.noResponseDays, rules.maxAttempts,
     rules.revision, rules.automaticPaused, rules.retryTime, follow.replyReceivedAt,
     task.id IS NOT NULL AND task.completedAt IS NULL AS pendingTask
     FROM call_campaign_members member JOIN call_campaigns campaign ON campaign.id = member.campaignId
@@ -181,14 +182,16 @@ export function recordCampaignCall(db: Store, staff: WorkspaceStaff | null, inpu
   if (wouldRetry && member.replyReceivedAt) followUp = "Call logged. Automatic retries are off because a reply was already logged.";
   if (followUp) leadEvent(db, input.leadId, actor, now, followUp, "Campaign");
   const reachedAt = input.outcome === "Connected" || input.outcome === "Requested callback" || input.outcome === "Opted out" ? now : null;
+  const exhaustedAt = !dueAt && !member.reachedAt && !member.replyReceivedAt && unansweredCampaignCall(input.outcome)
+    ? member.retryExhaustedAt ?? (retryDays && attemptLimitReached ? now : null) : null;
   db.prepare(`UPDATE call_campaign_members SET attempts = attempts + 1, lastOutcome = ?, callbackTaskId = ?,
-    reachedAt = coalesce(reachedAt, ?), firstCallAt = coalesce(firstCallAt, ?) WHERE leadId = ?`)
-    .run(input.outcome, callbackTaskId, reachedAt, now, input.leadId);
+    reachedAt = coalesce(reachedAt, ?), firstCallAt = coalesce(firstCallAt, ?), retryExhaustedAt = ? WHERE leadId = ?`)
+    .run(input.outcome, callbackTaskId, reachedAt, now, exhaustedAt, input.leadId);
   if (input.outcome === "Opted out") {
     optOutLead(db, input.leadId, now);
     accessEvent(db, staff, "Recorded brokerage outreach opt-out", input.leadId, now);
   }
-  return { message: followUp || "Campaign call outcome saved." };
+  return { message: followUp || "Campaign call outcome saved.", releasedCampaignSlot: !!exhaustedAt && !member.retryExhaustedAt };
 }
 
 export function rescheduleCampaignCallback(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof rescheduleCampaignCallbackInput>, now: string) {

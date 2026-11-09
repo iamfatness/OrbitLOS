@@ -24,7 +24,7 @@ import { PersonalCampaignCallbacks } from "./personal-campaign-callbacks";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
 const campaignMetrics = ["Enrolled", "Reached", "1003s started", "1003s submitted", "Funded"] as const;
-const views = [...campaignMetrics, "Unassigned", "First contact overdue", "Ready to call", "Replies logged", "Scheduled follow-up", "Upcoming callbacks", "Needs recovery", "On hold", "Opted out"] as const;
+const views = [...campaignMetrics, "Unassigned", "First contact overdue", "Ready to call", "Replies logged", "Scheduled follow-up", "Upcoming callbacks", "Retry limit reached", "Needs recovery", "On hold", "Opted out"] as const;
 function CampaignRulesForm({ campaign, canManage, busy, save }: { campaign: CallCampaign; canManage: boolean; busy: boolean; save: Save }) {
   const retryTime = campaign.retryTime ?? defaultCampaignRules.retryTime;
   const [hours, minutes] = retryTime.split(":");
@@ -185,6 +185,7 @@ function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, bus
   const canWork = !staff || (!!lead?.officerEmail && (staff.brokerage.role === "Admin" || lead.officerEmail === staff.email));
   const optedOut = member.outreachSuppressed;
   const held = !!lead?.heldAt;
+  const retryExhausted = !!member.retryExhaustedAt && !lead?.followUp.replyReceivedAt;
   const shared = lead && !lead.officerEmail && !member.resolvedAt && !held && !optedOut;
   const directAssignment = allowDirectAssignment && shared && assignableCampaignLead(lead);
   const canClaim = staff && staff.brokerage.role !== "Processor" && shared && !lead.realtorId && assignableCampaignLead(lead);
@@ -194,8 +195,8 @@ function CampaignCall({ member, lead, campaign, staff, focused, focusTaskId, bus
   const stage = held ? "On hold" : optedOut ? "Opted out" : member.resolvedAt ? "Closed lead" :
     member.followUpRunStatus === "Paused" ? "Automatic retry paused" : member.followUpRunStatus === "Failed" ? "Follow-up needs recovery" :
       member.callbackDueAt ? (member.lastOutcome === "Requested callback" ? "Callback scheduled" : "Retry scheduled") :
-        lead?.followUp.replyReceivedAt ? "Reply received" : member.lastOutcome || "Ready to call";
-  const badge = shared ? "Needs owner" : callbackDue ? (member.lastOutcome === "Requested callback" ? "Callback due" : "Retry due") : overdue ? "First contact overdue" : stage;
+        lead?.followUp.replyReceivedAt ? "Reply received" : retryExhausted ? "Retry limit reached" : member.lastOutcome || "Ready to call";
+  const badge = shared && !retryExhausted ? "Needs owner" : callbackDue ? (member.lastOutcome === "Requested callback" ? "Callback due" : "Retry due") : overdue ? "First contact overdue" : stage;
   return <li className="document-item campaign-lead" ref={card} tabIndex={-1}>
     <div className="document-item-head"><strong>{member.name}</strong><span className={overdue || callbackDue ? "open-chip" : "pill"}>{badge}</span></div>
     <p className="muted">{member.attempts} {member.attempts === 1 ? "call" : "calls"} logged{lead && ` · ${lead.officerEmail ? lead.officer : "Shared inbox"}`}
@@ -316,7 +317,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   const overdue = records.filter(({ lead, optedOut }) => lead?.officerEmail && !optedOut && firstContactOverdue(lead, now))
     .sort((a, b) => a.lead!.dueAt.localeCompare(b.lead!.dueAt));
   const overdueIds = new Set(overdue.map(({ member }) => member.leadId));
-  const unassigned = records.filter(({ lead, member, optedOut }) => lead && !member.resolvedAt && !lead.heldAt && !lead.officerEmail && !optedOut && !lead.outreachSuppressed);
+  const unassigned = records.filter(({ lead, member, optedOut }) => lead && !member.resolvedAt && !member.retryExhaustedAt &&
+    !lead.heldAt && !lead.officerEmail && !optedOut && !lead.outreachSuppressed);
   const buckets = {
     Enrolled: records,
     Reached: records.filter(({ member }) => member.reachedAt),
@@ -329,6 +331,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     "Replies logged": records.filter(({ lead }) => lead?.followUp.replyReceivedAt),
     "Scheduled follow-up": scheduled,
     "Upcoming callbacks": upcomingCallbacks,
+    "Retry limit reached": records.filter(({ member, lead, optedOut }) => member.retryExhaustedAt && !member.resolvedAt &&
+      !lead?.heldAt && !lead?.followUp.replyReceivedAt && !optedOut),
     "Needs recovery": records.filter(({ member, lead, optedOut }) => !member.resolvedAt && !lead?.heldAt && !optedOut && member.followUpRunStatus),
     "On hold": records.filter(({ lead }) => lead?.heldAt),
     "Opted out": records.filter(({ optedOut }) => optedOut),
@@ -343,7 +347,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   const showCapacity = canManage && view === "Unassigned" && campaign?.routing?.enabled;
   const routingLeads = showCapacity ? campaignMembers.flatMap((member) => {
     const lead = inbox.get(member.leadId);
-    return lead && !member.resolvedAt && !member.outreachSuppressed && member.lastOutcome !== "Opted out" && assignableCampaignLead(lead) ? [lead] : [];
+    return lead && !member.resolvedAt && !member.retryExhaustedAt && !member.outreachSuppressed &&
+      member.lastOutcome !== "Opted out" && assignableCampaignLead(lead) ? [lead] : [];
   }) : [];
   const fundedVolume = buckets.Funded.reduce((sum, { loan }) => sum + (loan?.amount ?? 0), 0);
   const fundedRate = members.length ? Math.round(buckets.Funded.length / members.length * 100) : 0;
@@ -355,7 +360,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   ];
   const empty = !members.length ? "Import a lead list or add an existing lead to start the queue." : view === "Upcoming callbacks" ?
     "No upcoming callbacks." : view === "Scheduled follow-up" ? "No assigned callbacks or retries are scheduled." :
-      view === "Unassigned" ? "No shared leads waiting for an owner." : "No leads in this view.";
+      view === "Unassigned" ? "No shared leads waiting for an owner." : view === "Retry limit reached" ?
+        "No unanswered leads have reached the retry limit." : "No leads in this view.";
 
   function changeView(next: typeof view) {
     if (next !== view) setConnected(undefined);
@@ -454,6 +460,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
           <Button size="sm" variant="outline" aria-pressed={view === "Upcoming callbacks"} onClick={() => changeView("Upcoming callbacks")}>
             Upcoming callbacks · {upcomingCallbacks.length}
           </Button>
+          {buckets["Retry limit reached"].length > 0 && <Button size="sm" variant="outline" aria-pressed={view === "Retry limit reached"}
+            onClick={() => changeView("Retry limit reached")}>Retry limit reached · {buckets["Retry limit reached"].length}</Button>}
           {canManage && <>
             <Button size="sm" variant="outline" aria-pressed={view === "First contact overdue"} onClick={() => changeView("First contact overdue")}>
               {overdue.length} overdue for first contact
@@ -486,6 +494,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
           {views.map((value) => <option key={value} value={value}>{value === "Unassigned" ? "Shared queue" : value}</option>)}
         </select></label>
         {view === "Unassigned" && <p className="muted">Claim or assign a shared lead before calling. Existing callback times stay with the lead.</p>}
+        {view === "Retry limit reached" && <p className="muted">These leads keep their owner and call history. They no longer use an automatic routing slot, and you can still log a new call or a requested callback.</p>}
         {connectedLead && <div className="document-item" key={connectedLead.id}>
           <div className="document-item-head"><strong id={connectedCallNotice}>Connected with {connectedLead.name}</strong><span className="pill">Call logged</span></div>
           <div><CampaignApplicationAction lead={connectedLead} busy={busy} openLead={openLead} convert={convert} focus /></div>

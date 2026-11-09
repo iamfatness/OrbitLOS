@@ -18,7 +18,7 @@ export default function DemoPage() {
       <div><p className="marketing-kicker">Your walkthrough</p><h2>See the work come together.</h2>
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
-          <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s.</li>
+          <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s. See how the next shared lead moves up after an unanswered lead reaches its retry limit.</li>
           <li>Request sample documents before the 1003, adjust deadlines from Calendar, and review uploads from My Tasks. Managers can reassign leads with open requests, and the checklist follows the lead into the loan.</li>
           <li>Preview and publish a brokerage quote form. Send eligible requests to a call campaign and keep their website source.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>

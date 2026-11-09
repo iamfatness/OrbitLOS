@@ -369,6 +369,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       if ("campaignQueue" in result) {
         setState((current) => applyCampaignQueue(current, result.campaignQueue));
         if (announce) setNotice(result.message);
+        after?.({ state: applyCampaignQueue(state, result.campaignQueue), message: result.message });
         return;
       }
       if ("campaignWork" in result) {

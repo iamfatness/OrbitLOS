@@ -1391,11 +1391,11 @@ try {
     assert.equal(read(retained.state, first).officerEmail, officer.email);
     assert.equal(member(retained.state, first).callbackDueAt, campaignCallbackAt);
   });
-  await stage("A covered opt-out refills only slots released across matching campaign leads", async () => {
+  await stage("Covered opt-out and exhausted retries refill only the campaign slots they release", async () => {
     const firstCampaign = randomUUID();
     const secondCampaign = randomUUID();
     const names = ["Fictional opt-out source", "Fictional shared alias", "Fictional first replacement", "Fictional extra waiting",
-      "Fictional owned alias", "Fictional second replacement"];
+      "Fictional owned alias", "Fictional second replacement", "Fictional covered retry", "Fictional retry replacement", "Fictional extra retry lead"];
     const email = (index) => `capacity-opt-out-${index}@example.test`;
     const phone = (index) => `248-555-017${index}`;
     async function prepare(campaignId, assignee, indices) {
@@ -1421,7 +1421,7 @@ try {
     const sourceCall = await call(officer, firstCampaign, read(before, source));
     await call(competingOfficer, secondCampaign, read(before, ownedAlias));
     const id = randomUUID();
-    const through = new Date(Date.parse(`${today}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+    const through = new Date(Date.parse(`${today}T12:00:00Z`) + 4 * 86_400_000).toISOString().slice(0, 10);
     const schedule = await action(owner, "workOnStaffCoverage", { type: "schedule", id, absentEmail: officer.email, backupEmail: competingOfficer.email,
       startsOn: today, endsOn: through });
     assert.equal(schedule.kind, "saved", schedule.error);
@@ -1449,6 +1449,27 @@ try {
     const repeated = await write(owner, { type: "optOutContact", contactId: bridge.contactId });
     assert.doesNotMatch(repeated.message, /was routed|were routed/);
     assert.equal(read(repeated.state, extraWaiting).officerEmail, null);
+
+    const retryCampaign = randomUUID();
+    const [unanswered, nextLead, stillShared] = await prepare(retryCampaign, officer, [6, 7, 8]);
+    await write(owner, { type: "saveCampaignRules", campaignId: retryCampaign, revision: 0, voicemailDays: 1, noResponseDays: 1, maxAttempts: 2 });
+    const retryLead = read(await workspace(owner), unanswered);
+    const firstTry = await write(officer, { type: "recordCampaignCall", campaignId: retryCampaign, leadId: unanswered,
+      revision: retryLead.followUp.revision, outcome: "Left message", note: "First fictional voicemail.", callbackAt: null });
+    assert.ok(firstTry.leadWork.member.callbackDueAt);
+    assert.equal(read(await workspace(owner), nextLead).officerEmail, null);
+    const lastTry = { type: "act", id, operationId: randomUUID(), update: { kind: "campaign", id: firstTry.leadWork.member.callbackTaskId,
+      revision: firstTry.leadWork.lead.followUp.revision, outcome: "No response", note: "Last fictional retry during coverage." } };
+    const exhausted = await action(competingOfficer, "workOnStaffCoverage", lastTry);
+    assert.match(exhausted.message, /attempt limit reached.*shared lead was routed/, exhausted.error);
+    assert.deepEqual(await action(competingOfficer, "workOnStaffCoverage", lastTry), exhausted);
+    const retried = await workspace(owner);
+    assert.ok(member(retried, unanswered).retryExhaustedAt);
+    assert.equal(member(retried, unanswered).callbackDueAt, null);
+    assert.equal(read(retried, unanswered).officerEmail, officer.email);
+    assert.equal(read(retried, nextLead).officerEmail, officer.email);
+    assert.equal(read(retried, nextLead).dueAt, dueAt);
+    assert.equal(read(retried, stillShared).officerEmail, null);
   });
   const quoteFile = await stage("A published website quote routes through campaign capacity into a prefilled 1003", async () => {
     const campaignId = randomUUID();

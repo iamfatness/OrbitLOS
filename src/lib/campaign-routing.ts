@@ -1,5 +1,5 @@
-import { assignableCampaignLead, campaignAssignmentLimit, localCampaignOfficers,
-  type CampaignRouting, type saveCampaignRoutingInput } from "./call-campaign-model";
+import { assignableCampaignLead, campaignAssignmentLimit, defaultCampaignRules, localCampaignOfficers,
+  type CallOutcome, type CampaignRouting, type saveCampaignRoutingInput } from "./call-campaign-model";
 import { assignRoutedCampaignLead } from "./lead-inbox";
 import { blockedOutreachKeys, outreachSuppressed, outreachSuppressionKeys, prospectiveOptOutKeys, type OutreachOptOutTarget } from "./outreach-preferences";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
@@ -34,19 +34,30 @@ export function saveCampaignRouting(db: Store, staff: WorkspaceStaff | null, inp
   return { message: "Campaign routing saved." };
 }
 
-export function campaignReleaseRouting(db: Store, staff: WorkspaceStaff | null, leadId: string) {
+export function campaignReleaseRouting(db: Store, staff: WorkspaceStaff | null,
+  { leadId, retryOutcome, coveredOwnerEmail }: { leadId: string; retryOutcome?: CallOutcome; coveredOwnerEmail?: string }) {
   if (staff && (!staff.brokerage.pilot || staff.brokerage.role === "Processor")) return;
-  const lead = db.prepare(`SELECT member.campaignId, lead.id AS leadId, lead.officerEmail, lead.email, lead.phone, lead.importedContactId AS contactId
+  const lead = db.prepare(`SELECT member.campaignId, lead.id AS leadId, lead.officerEmail, lead.email, lead.phone, lead.importedContactId AS contactId,
+    member.attempts, member.reachedAt, follow.replyReceivedAt, rules.voicemailDays, rules.noResponseDays, rules.maxAttempts
     FROM referral_leads lead JOIN call_campaign_members member ON member.leadId = lead.id
     JOIN campaign_routing routing ON routing.campaignId = member.campaignId AND routing.enabled = 1
+    LEFT JOIN call_campaign_rules rules ON rules.campaignId = member.campaignId
+    LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
     WHERE lead.id = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND lead.officerEmail IS NOT NULL
+      AND member.retryExhaustedAt IS NULL
       AND coalesce(member.lastOutcome, '') <> 'Opted out' AND EXISTS (
         SELECT 1 FROM call_campaign_members waiting JOIN referral_leads shared ON shared.id = waiting.leadId
         WHERE waiting.campaignId = member.campaignId AND shared.officerEmail IS NULL AND shared.resolvedAt IS NULL AND shared.heldAt IS NULL
+          AND waiting.retryExhaustedAt IS NULL
           AND coalesce(waiting.lastOutcome, '') <> 'Opted out'
       )`).get(leadId);
   if (!lead || typeof lead.campaignId !== "string" || typeof lead.officerEmail !== "string" ||
-    (staff?.brokerage.role === "LO" && lead.officerEmail !== staff.email)) return;
+    (coveredOwnerEmail ? lead.officerEmail !== coveredOwnerEmail : staff?.brokerage.role === "LO" && lead.officerEmail !== staff.email)) return;
+  if (retryOutcome) {
+    const retryDays = retryOutcome === "Left message" ? lead.voicemailDays ?? defaultCampaignRules.voicemailDays :
+      retryOutcome === "No response" ? lead.noResponseDays ?? defaultCampaignRules.noResponseDays : 0;
+    if (!Number(retryDays) || lead.reachedAt || lead.replyReceivedAt || Number(lead.attempts) + 1 < Number(lead.maxAttempts ?? defaultCampaignRules.maxAttempts)) return;
+  }
   const routing = readCampaignRouting(db, lead.campaignId);
   if (!routing?.officers.some(({ email }) => email === lead.officerEmail) || !assignableCampaignLead({
     phone: String(lead.phone ?? ""), outreachSuppressed: outreachSuppressed(blockedOutreachKeys(db, [lead]), lead),
@@ -54,10 +65,19 @@ export function campaignReleaseRouting(db: Store, staff: WorkspaceStaff | null, 
   return { campaignId: lead.campaignId, ownerEmail: lead.officerEmail, revision: routing.revision, officers: routing.officers.map(({ email }) => email) };
 }
 
+export function refillReleasedCampaignSlot(db: Store, staff: WorkspaceStaff | null, release: ReturnType<typeof campaignReleaseRouting>,
+  now: string, roster?: CampaignRefillRoster) {
+  if (!release || (staff && (roster?.campaignId !== release.campaignId || roster.revision !== release.revision ||
+    !roster.members.some(({ email }) => email === release.ownerEmail)))) return 0;
+  return distributeCampaignLeads(db, staff, release.campaignId, staff ? roster?.members ?? [] : undefined,
+    now, undefined, { ownerEmail: release.ownerEmail }).assigned;
+}
+
 function campaignRoutingLeads(db: Store, campaignId: string, suppression = outreachSuppressionKeys(db)) {
   return db.prepare(`SELECT lead.id, lead.officerEmail, lead.email, lead.phone, lead.importedContactId AS contactId
     FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
-    WHERE member.campaignId = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND coalesce(member.lastOutcome, '') <> 'Opted out'
+    WHERE member.campaignId = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL
+      AND member.retryExhaustedAt IS NULL AND coalesce(member.lastOutcome, '') <> 'Opted out'
     ORDER BY member.joinedAt, lead.createdAt, lead.id`).all(campaignId)
     .filter((lead) => assignableCampaignLead({ phone: String(lead.phone ?? ""), outreachSuppressed: outreachSuppressed(suppression, { ...lead, leadId: lead.id }) }));
 }
@@ -85,7 +105,8 @@ export function campaignOptOutPlans(db: Store, target: OutreachOptOutTarget): Ca
   const candidates = db.prepare(`SELECT member.campaignId, lead.id AS leadId, lead.email, lead.phone, lead.importedContactId AS contactId
     FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
     JOIN campaign_routing routing ON routing.campaignId = member.campaignId AND routing.enabled = 1
-    WHERE lead.officerEmail IS NOT NULL AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND coalesce(member.lastOutcome, '') <> 'Opted out'`).all();
+    WHERE lead.officerEmail IS NOT NULL AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL
+      AND member.retryExhaustedAt IS NULL AND coalesce(member.lastOutcome, '') <> 'Opted out'`).all();
   const affected = new Set(candidates.filter((lead) => outreachSuppressed(projected, lead) && assignableCampaignLead({
     phone: String(lead.phone ?? ""), outreachSuppressed: outreachSuppressed(current, lead),
   })).map(({ campaignId }) => String(campaignId)));
@@ -132,7 +153,8 @@ export function returnCampaignLeadToShared(db: Store, staff: WorkspaceStaff | nu
   const lead = db.prepare(`SELECT member.campaignId, lead.id AS leadId, lead.officerEmail, lead.email, lead.phone, lead.importedContactId AS contactId,
     lead.heldAt, lead.resolvedAt, lead.archiveToken FROM referral_leads lead JOIN call_campaign_members member ON member.leadId = lead.id
     JOIN campaign_routing routing ON routing.campaignId = member.campaignId AND routing.enabled = 1
-    WHERE lead.id = ? AND lead.loanId IS NULL AND lead.officerEmail IS NOT NULL AND coalesce(member.lastOutcome, '') <> 'Opted out'`).get(leadId);
+    WHERE lead.id = ? AND lead.loanId IS NULL AND lead.officerEmail IS NOT NULL
+      AND member.retryExhaustedAt IS NULL AND coalesce(member.lastOutcome, '') <> 'Opted out'`).get(leadId);
   if (!lead || typeof lead.campaignId !== "string" || typeof lead.officerEmail !== "string" ||
     (staff?.brokerage.role === "LO" && lead.officerEmail !== staff.email)) return false;
   const returning = from === "hold" ? lead.heldAt && !lead.resolvedAt : lead.archiveToken && lead.resolvedAt && !lead.heldAt;

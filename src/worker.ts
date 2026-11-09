@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { demoRequest } from "./lib/demo-request";
 import { createHash, timingSafeEqual } from "node:crypto";
 import app from "vinext/server/app-router-entry";
-import { assignContactFollowUpInput, campaignRefillLeadId, executeCommand, reviewApplicationInput, staffCampaignOptOutTarget } from "./lib/commands";
+import { assignContactFollowUpInput, campaignRefillTarget, executeCommand, reviewApplicationInput, staffCampaignOptOutTarget } from "./lib/commands";
 import { readPlaybook } from "./lib/playbooks";
 import { borrowerCommandResult, coBorrowerCommandResult } from "./lib/applications";
 import { jointLinkUnavailable } from "./lib/joint-application-model";
@@ -89,7 +89,7 @@ import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
 import { conversationInput } from "./lib/conversation-model";
 import { changeInboundReply, readInboundReplies } from "./lib/inbound-replies";
-import { coverageParticipants, coverageWork, coveredCampaignOptOutTarget } from "./lib/coverage";
+import { coverageParticipants, coverageWork, coveredCampaignRouting } from "./lib/coverage";
 import { coverageInput, coverageUnavailable, type CoverageResult } from "./lib/coverage-model";
 import { readWorkspaceSearch } from "./lib/workspace-search";
 import { loanReviewWork, reviewParticipants } from "./lib/loan-reviews";
@@ -321,14 +321,24 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const selected = lookup === "team" ? null : lookup;
     let roster = await directory.coverageRoster(staff, emails, selected);
     if (!roster) return { error: coverageUnavailable };
-    const target = coveredCampaignOptOutTarget(this.#store, parsed.data, staff, roster);
-    const optOutPlans = target ? campaignOptOutPlans(this.#store, target) : [];
+    const { optOut, release } = coveredCampaignRouting(this.#store, parsed.data, staff, roster);
+    const optOutPlans = optOut ? campaignOptOutPlans(this.#store, optOut) : [];
     const optOutRoster = optOutPlans.length ? await this.#campaignOptOutRoster(staff, optOutPlans) : undefined;
-    if (optOutPlans.length) {
+    let refillRoster: CampaignRefillRoster | undefined;
+    if (release) {
+      try {
+        const members = await directory.campaignRoutingRoster(staff, emails, release.officers);
+        if (!members) return { error: coverageUnavailable };
+        refillRoster = { campaignId: release.campaignId, revision: release.revision, members };
+      } catch {
+        // Staff can still log the result and route the remaining queue after recovery.
+      }
+    }
+    if (optOutPlans.length || release) {
       roster = await directory.coverageRoster(staff, emails, selected);
       if (!roster) return { error: coverageUnavailable };
     }
-    return coverageWork(this.#store, parsed.data, staff, this.#id, roster, undefined, optOutRoster);
+    return coverageWork(this.#store, parsed.data, staff, this.#id, roster, undefined, optOutRoster, refillRoster);
   }
 
   processorQueue(input: unknown, staff: WorkspaceStaff) {
@@ -494,9 +504,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
         : await this.env.WORKSPACE.getByName(demoBrokerageId).team(staff, emails);
       leadMembers = team.members.filter((member) => member.status === "Active" && member.role !== "Processor");
     }
-    const releasingLeadId = staff?.brokerage.pilot ? campaignRefillLeadId(input) : undefined;
-    if (staff && releasingLeadId) {
-      const refill = campaignReleaseRouting(this.#store, staff, releasingLeadId);
+    const releaseTarget = staff?.brokerage.pilot ? campaignRefillTarget(input) : undefined;
+    if (staff && releaseTarget) {
+      const refill = campaignReleaseRouting(this.#store, staff, releaseTarget);
       if (refill) {
         const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
         const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
