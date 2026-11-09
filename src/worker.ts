@@ -1052,7 +1052,11 @@ export default {
             }
           }
         }
-        catch { return new Response("Orbit sign-in is temporarily unavailable.", { status: 503, headers: { "Cache-Control": "no-store" } }); }
+        catch (error) {
+          const reason = error instanceof Error ? error.message.replace(/[^\s]+@[^\s]+|[\w-]{24,}/g, "[redacted]").slice(0, 300) : "Unknown error";
+          console.error("Orbit staff session lookup failed", reason);
+          return new Response("Orbit sign-in is temporarily unavailable.", { status: 503, headers: { "Cache-Control": "no-store" } });
+        }
         if (!staff) {
           if (reading) return login();
           return new Response(staffSignInRequired, { status: 401, headers: { "Cache-Control": "no-store" } });
