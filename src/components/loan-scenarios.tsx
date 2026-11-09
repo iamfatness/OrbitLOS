@@ -3,15 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Copy, GitCompareArrows, Plus, Save, Star } from "lucide-react";
 import type { Loan, Workspace } from "@/lib/model";
-import type { WorkspaceStaff } from "@/lib/staff-store";
-import { blankScenarioOption, compareLoanScenarios, sampleScenarioPlan, scenarioGoals, scenarioPlanSchema,
-  type LoanScenarioOption, type ScenarioPlan, type ScenarioResponse } from "@/lib/loan-scenario-model";
+import { blankScenarioOption, compareLoanScenarios, pricingScenarioOption, sampleScenarioPlan, scenarioGoals, scenarioPlanSchema,
+  type LoanScenarioOption, type ScenarioPlan, type ScenarioQuoteSource, type ScenarioResponse } from "@/lib/loan-scenario-model";
+import { quoteMatchesApplication } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const money = (cents: number) => dollars.format(cents / 100);
-type NumericOption = { [K in keyof LoanScenarioOption]: LoanScenarioOption[K] extends number ? K : never }[keyof LoanScenarioOption];
+type NumericOption = { [K in keyof LoanScenarioOption]-?: LoanScenarioOption[K] extends number ? K : never }[keyof LoanScenarioOption];
 const optionFields: [NumericOption, string, boolean][] = [
   ["loanAmount", "Loan amount", true], ["rate", "Interest rate (%)", false], ["years", "Term (years)", false],
   ["pointsPercent", "Discount points (%)", false], ["lenderCredit", "Lender credit", true], ["fees", "Loan and settlement fees", true],
@@ -24,13 +24,14 @@ function NumberInput({ label, value, cents = false, optional = false, max, chang
   label: string; value: number | null; cents?: boolean; optional?: boolean; max?: number; change: (value: number | null) => void;
 }) {
   return <label className="field"><span>{label}</span><input type="number" min={0} max={max ?? (cents ? 25_000_000 : 480)}
-    step={cents ? "0.01" : label.includes("(%)") ? "0.001" : "1"} required={!optional}
+    step={cents ? "0.01" : label.includes("(%)") ? "any" : "1"} required={!optional}
     value={value === null ? "" : cents ? value / 100 : value} placeholder={optional ? "No limit" : undefined}
     onChange={event => change(event.target.value === "" && optional ? null : cents ? Math.round(Number(event.target.value) * 100) : Number(event.target.value))} /></label>;
 }
 
-export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
-  loan: Loan; state: Workspace; staff: WorkspaceStaff; markDraftChanged: (editor: Node) => void;
+export function LoanScenarios({ loan, state, brokerageId, sampleAllowed, markDraftChanged, openPricing }: {
+  loan: Loan; state: Workspace; brokerageId: string; sampleAllowed: boolean; markDraftChanged: (editor: Node) => void;
+  openPricing: (source: ScenarioQuoteSource) => void;
 }) {
   const [response, setResponse] = useState<ScenarioResponse>();
   const [plan, setPlan] = useState<ScenarioPlan | null>(null);
@@ -40,12 +41,13 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
   const [reload, setReload] = useState(0);
   const [pricingKey, setPricingKey] = useState("");
   const form = useRef<HTMLFormElement>(null);
-  const endpoint = `/api/loan-scenarios?brokerage=${encodeURIComponent(staff.brokerage.id)}`;
-  const draft = state.applications.find(application => application.loanId === loan.id)?.draft;
-  const currentAppRevision = state.applications.find(application => application.loanId === loan.id)?.revision ?? null;
-  const quoteOptions = state.pricingRuns.filter(run => run.loanId === loan.id && run.applicationRevision === currentAppRevision)
+  const endpoint = `/api/loan-scenarios?brokerage=${encodeURIComponent(brokerageId)}`;
+  const application = state.applications.find(application => application.loanId === loan.id);
+  const draft = application?.draft;
+  const currentAppRevision = application?.revision ?? null;
+  const quoteOptions = state.pricingRuns.filter(run => run.loanId === loan.id && run.mode === "mock" &&
+    quoteMatchesApplication(run.applicationRevision, application) && (!plan || run.scenario.purpose === plan.purpose))
     .flatMap(run => run.offers.filter(offer => /fixed/i.test(offer.product)).map(offer => ({ key: `${run.id}/${offer.id}`, run, offer })));
-  const sampleAllowed = staff.brokerage.pilot || staff.brokerage.id === "orbit-demo";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -60,6 +62,7 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
   }, [endpoint, loan.id, reload]);
 
   const dirty = JSON.stringify(plan) !== JSON.stringify(response?.record?.plan ?? null);
+  const assumptionsNeedReview = Boolean(response?.record && response.record.applicationRevision !== currentAppRevision);
   function edit(next: ScenarioPlan, financial = true) {
     setPlan(financial ? { ...next, recommendedId: null, recommendation: "" } : next);
     setMessage("");
@@ -72,8 +75,35 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
       options: [blankScenarioOption(amount)] });
   }
   function updateOption(id: string, patch: Partial<LoanScenarioOption>) {
-    if (plan) edit({ ...plan, options: plan.options.map(option => option.id === id ? { ...option, ...patch } : option) });
+    const sourceTermsChanged = ["loanAmount", "rate", "years", "pointsPercent", "lenderCredit", "program"].some(key => key in patch);
+    if (plan) edit({ ...plan, options: plan.options.map(option => option.id === id
+      ? { ...option, ...patch, ...(sourceTermsChanged ? { quoteSource: undefined } : {}) } : option) });
   }
+  function addPricingSnapshot() {
+    const item = quoteOptions.find(quote => quote.key === pricingKey);
+    if (!item || (plan?.options.length ?? 0) >= 4) return;
+    const worksheet = state.feeWorksheets.find(fee => fee.runId === item.run.id && fee.offerId === item.offer.id)?.inputs;
+    const scenario = item.run.scenario;
+    const option = pricingScenarioOption(item.run, item.offer, worksheet, `Pricing option ${(plan?.options.length ?? 0) + 1}`, plan?.options[0]);
+    const initial = { purpose: scenario.purpose, propertyValue: Math.round((scenario.purchasePrice ?? scenario.propertyValue) * 100),
+      payoffs: scenario.purpose === "Refinance" ? worksheet?.payoffs ?? option.loanAmount : 0,
+      deposit: worksheet?.deposit ?? 0, sellerCredit: worksheet?.sellerCredits ?? 0,
+      holdingMonths: 60, goal: scenarioGoals[0], monthlyBudget: null, cashBudget: null, recommendedId: null, recommendation: "" };
+    edit({ ...(plan ?? initial), options: [...(plan?.options ?? []), option] });
+    setPricingKey("");
+  }
+  const sourcePicker = quoteOptions.length > 0 && <div className="loan-application-actions">
+    <label className="field">Mock pricing option<select value={pricingKey} disabled={busy} onChange={event => setPricingKey(event.target.value)}>
+      <option value="">Choose an option</option>
+      {quoteOptions.map(({ key, run, offer }) => <option key={key} value={key}>{offer.product} · {offer.rate.toFixed(3)}% · {offer.pricingLabel} · {dateTime(run.quotedAt)}</option>)}
+    </select></label>
+    <Button type="button" size="sm" variant="outline" disabled={busy || !quoteOptions.some(quote => quote.key === pricingKey) ||
+      (plan?.options.length ?? 0) >= 4} onClick={addPricingSnapshot}>Add pricing snapshot</Button>
+  </div>;
+  const recommended = plan?.options.find(option => option.id === plan.recommendedId);
+  const recommendedSource = recommended?.quoteSource;
+  const sourceAvailable = recommendedSource && quoteOptions.some(({ run, offer }) =>
+    run.id === recommendedSource.runId && offer.id === recommendedSource.offerId);
   const parsed = plan ? scenarioPlanSchema.safeParse(plan) : null;
   const metrics = parsed?.success ? compareLoanScenarios(parsed.data) : [];
   const eligible = metrics.filter(metric => metric.withinBudget);
@@ -107,10 +137,14 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
     }}>{dirty ? "Discard edits and reload" : "Reload saved comparison"}</Button>}</div>
     {response && <form ref={form} className="record-form" onSubmit={event => { event.preventDefault(); void save(); }}>
       {!plan ? <div className="scenario-start"><h4>Build a plan for this borrower</h4><p>Compare payment, cash needed, and cost over time.</p>
-        {response.canEdit && <div className="loan-application-actions"><Button type="button" onClick={() => start(false)}><Plus size={16} /> Add first option</Button>
-          {sampleAllowed && <Button type="button" variant="outline" onClick={() => start(true)}>Load sample comparison</Button>}</div>}
+        {response.canEdit && <>
+          <div className="loan-application-actions"><Button type="button" onClick={() => start(false)}><Plus size={16} /> Add first option</Button>
+            {sampleAllowed && <Button type="button" variant="outline" onClick={() => start(true)}>Load sample comparison</Button>}</div>
+          {sourcePicker}
+        </>}
       </div> : <>
-        {response.record && response.record.applicationRevision !== currentAppRevision && <p className="application-message">The 1003 has changed. Review these assumptions before saving.</p>}
+        {assumptionsNeedReview && <p className="application-message">The 1003 has changed. Review these assumptions before saving.</p>}
+        {plan.options.some(option => option.quoteSource) && <p className="muted">Pricing snapshots keep the quoted terms. Review fee and property expense estimates, and confirm any refinance payoff.</p>}
         <fieldset className="scenario-fieldset" disabled={busy || !response.canEdit}>
           <legend>Borrower priorities</legend>
           <div className="form-grid">
@@ -121,7 +155,8 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
             <NumberInput label="Cash available for closing" value={plan.cashBudget} cents optional change={value => edit({ ...plan, cashBudget: value })} />
           </div>
           <details className="document-form"><summary>Property and closing assumptions</summary><div className="form-grid">
-            <label className="field">Purpose<select value={plan.purpose} onChange={event => edit({ ...plan, purpose: event.target.value as ScenarioPlan["purpose"], deposit: 0, sellerCredit: 0 })}>
+            <label className="field">Purpose<select value={plan.purpose} onChange={event => edit({ ...plan, purpose: event.target.value as ScenarioPlan["purpose"],
+              deposit: 0, sellerCredit: 0, options: plan.options.map(option => ({ ...option, quoteSource: undefined })) })}>
               <option>Purchase</option><option>Refinance</option></select></label>
             <NumberInput label={plan.purpose === "Purchase" ? "Purchase price" : "Property value"} value={plan.propertyValue} cents change={value => edit({ ...plan, propertyValue: value ?? 0 })} />
             {plan.purpose === "Purchase" ? <>
@@ -132,7 +167,9 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
         </fieldset>
         {parsed && !parsed.success && <p role="alert" className="application-message">{parsed.error.issues[0].message}</p>}
         {metrics.length > 0 && <>
-          <div className="scenario-table-scroll"><table className="scenario-table"><caption>Fixed-rate estimates · {plan.holdingMonths}-month comparison</caption>
+          <p className="scenario-table-hint muted">Scroll across to see all options.</p>
+          <div className="scenario-table-scroll" tabIndex={0} role="region" aria-label="Fixed-rate comparison">
+            <table className="scenario-table"><caption>Fixed-rate estimates · {plan.holdingMonths}-month comparison</caption>
             <thead><tr><th scope="col">Compare</th>{plan.options.map((option, index) => <th scope="col" key={option.id}>{option.name}
               {metrics[index].withinBudget && metrics[index][goalField] === bestValue && metrics.length > 1 && <span className="scenario-highlight">Best on selected goal</span>}
               {!metrics[index].withinBudget && <span className="scenario-budget">Above budget</span>}
@@ -160,7 +197,7 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
           </details>
         </>}
         <div className="scenario-editors">{plan.options.map((option, index) => <details className="document-form scenario-option" key={option.id} open={plan.options.length === 1 ? true : undefined}>
-          <summary>{option.name} · Edit assumptions</summary><fieldset className="scenario-fieldset" disabled={busy || !response.canEdit}>
+          <summary>{option.name} · {option.quoteSource ? "Pricing snapshot" : "Edit assumptions"}</summary><fieldset className="scenario-fieldset" disabled={busy || !response.canEdit}>
             <legend className="sr-only">{option.name} assumptions</legend><div className="form-grid">
               <label className="field">Option name<input maxLength={60} required value={option.name} onChange={event => updateOption(option.id, { name: event.target.value })} /></label>
               <label className="field">Program / lender<input maxLength={60} required value={option.program} onChange={event => updateOption(option.id, { program: event.target.value })} /></label>
@@ -174,29 +211,19 @@ export function LoanScenarios({ loan, state, staff, markDraftChanged }: {
           </fieldset></details>)}</div>
         {response.canEdit && <>
           <div className="loan-application-actions"><Button type="button" variant="outline" size="sm" disabled={busy || plan.options.length >= 4}
-            onClick={() => edit({ ...plan, options: [...plan.options, blankScenarioOption(plan.options[0].loanAmount, `Option ${plan.options.length + 1}`)] })}><Plus size={15} /> Add option</Button>
-            {quoteOptions.length > 0 && <><label className="field">Saved pricing option<select value={pricingKey} onChange={event => setPricingKey(event.target.value)}><option value="">Choose an option</option>
-              {quoteOptions.map(({ key, run, offer }) => <option key={key} value={key}>{offer.product} · {offer.rate.toFixed(3)}% · {run.mode} · {dateTime(run.quotedAt)}</option>)}</select></label>
-              <Button type="button" size="sm" variant="outline" disabled={busy || !pricingKey || plan.options.length >= 4} onClick={() => {
-                const item = quoteOptions.find(quote => quote.key === pricingKey); if (!item) return;
-                const worksheet = state.feeWorksheets.find(fee => fee.runId === item.run.id && fee.offerId === item.offer.id);
-                const fees = worksheet?.inputs.fees;
-                edit({ ...plan, options: [...plan.options, { ...blankScenarioOption(Math.round(item.run.scenario.loanAmount * 100), `Pricing option ${plan.options.length + 1}`),
-                  program: item.offer.product.slice(0, 60), rate: item.offer.rate, years: item.offer.years,
-                  pointsPercent: Math.max(0, (item.offer.pricingAmount ?? 0) / item.run.scenario.loanAmount * 100),
-                  lenderCredit: Math.max(0, -Math.round((item.offer.pricingAmount ?? 0) * 100)),
-                  fees: fees ? fees.origination + fees.appraisal + fees.creditReport + fees.settlement + fees.government + fees.other : 0,
-                  prepaids: fees?.prepaid ?? 0, escrow: fees?.escrow ?? 0 }] }); setPricingKey("");
-              }}>Add pricing snapshot</Button></>}
-          </div>
+            onClick={() => edit({ ...plan, options: [...plan.options, blankScenarioOption(plan.options[0].loanAmount, `Option ${plan.options.length + 1}`)] })}><Plus size={15} /> Add option</Button></div>
+          {sourcePicker}
           <fieldset className="scenario-fieldset" disabled={busy}><legend><Star size={15} /> Recommendation</legend><div className="form-grid">
             <label className="field">Preferred option<select value={plan.recommendedId ?? ""} onChange={event => edit({ ...plan, recommendedId: event.target.value || null }, false)}>
               <option value="">Choose after reviewing</option>{plan.options.map(option => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
             <label className="field">Why this fits the borrower<textarea maxLength={1200} required={Boolean(plan.recommendedId)} value={plan.recommendation}
               placeholder="Connect the recommendation to their priorities." onChange={event => edit({ ...plan, recommendation: event.target.value }, false)} /></label>
           </div></fieldset>
-          <div className="loan-application-actions"><Button type="submit" disabled={busy || !parsed?.success || !dirty}><Save size={16} /> {busy ? "Saving…" : "Save comparison"}</Button>
+          <div className="loan-application-actions"><Button type="submit" disabled={busy || !parsed?.success || (!dirty && !assumptionsNeedReview)}><Save size={16} /> {busy ? "Saving…" : "Save comparison"}</Button>
+            {recommendedSource && sourceAvailable && <Button type="button" variant="outline" disabled={busy || dirty || assumptionsNeedReview}
+              onClick={() => openPricing(recommendedSource)}>Open recommended pricing option</Button>}
             <span className="muted">{response.record ? `Saved ${dateTime(response.record.updatedAt)} by ${response.record.updatedBy}` : "Save this comparison with the loan."}</span></div>
+          {recommendedSource && !sourceAvailable && <p className="quote-disclaimer">This snapshot is historical. Reprice from the current 1003 to use a new quote.</p>}
         </>}
         {!response.canEdit && plan.recommendation && <p><strong>Recommendation:</strong> {plan.recommendation}</p>}
       </>}

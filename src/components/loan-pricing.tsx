@@ -5,7 +5,8 @@ import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
 import type { ApplicationDraft } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Loan, Workspace } from "@/lib/model";
-import { pricingPrograms, quoteMatchesApplication, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario } from "@/lib/pricing-model";
+import { pricingPrograms, quoteMatchesApplication, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario,
+  type PublishedQuote } from "@/lib/pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { UwmRateLock } from "./uwm-rate-lock";
@@ -104,15 +105,19 @@ function Terms({ offer }: { offer: PricingOffer }) {
   </dl>;
 }
 
-export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHandoff }: {
+export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHandoff, sourceQuote }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
+  sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   lenderHandoff?: { label: string; blocker: string | null; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
   const runs = state.pricingRuns.filter((item) => item.loanId === loan.id);
   const current = runs[0];
   const saved = runs.filter((item) => item.selectedAt).sort((a, b) => (b.selectedAt ?? "").localeCompare(a.selectedAt ?? ""))[0];
   const selected = saved?.offers.find((offer) => offer.id === saved.selectedId);
+  const sourceRun = runs.find((run) => run.id === sourceQuote?.runId);
+  const sourceOffer = sourceRun?.offers.find((offer) => offer.id === sourceQuote?.offerId);
+  const sourceIsSaved = sourceRun && sourceOffer && saved?.id === sourceRun.id && selected?.id === sourceOffer.id;
   const application = state.applications.find((item) => item.loanId === loan.id);
   const draft = application?.draft;
   const credit = state.mockCreditAusRuns.find((run) => run.loanId === loan.id && run.service === "Credit");
@@ -121,11 +126,12 @@ export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHando
   const publishedRun = runs.find((run) => run.id === published?.runId);
   const sharedHistory = state.sharedQuoteHistory.filter((quote) => quote.loanId === loan.id);
   const [form, setForm] = useState(() => {
-    const initial = defaults(loan, draft, current);
+    const initial = defaults(loan, draft, sourceRun ?? current);
     return { ...initial, creditScore: useMockScore && mockScore ? mockScore : initial.creditScore || mockScore };
   });
-  const [formRevision, setFormRevision] = useState(current ? current.applicationRevision : application?.revision ?? null);
-  const [preview, setPreview] = useState(false);
+  const initialRun = sourceRun ?? current;
+  const [formRevision, setFormRevision] = useState(initialRun ? initialRun.applicationRevision : application?.revision ?? null);
+  const [preview, setPreview] = useState(Boolean(sourceIsSaved));
   const [pricing, setPricing] = useState(false);
   const [alternativeKeys, setAlternativeKeys] = useState(() =>
     published?.presentation?.alternatives.map((item) => `${item.runId}/${item.offerId}`) ?? []);
@@ -197,6 +203,19 @@ export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHando
       <div><h3><Calculator size={18} /> UWM Easy Qualifier</h3><p>Conventional, DSCR, and bank statement scenarios.</p></div>
       <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : "Mock pricing"}</span>
     </header>
+    {sourceQuote && <section className="quote-saved" aria-label="Pricing option from loan scenarios">
+      <h3>Pricing option from loan scenarios</h3>
+      {sourceRun && sourceOffer ? <>
+        <p>{sourceOffer.product} · {cash(sourceRun.scenario.loanAmount)} · {sourceRun.scenario.purpose}</p>
+        <p className="muted timestamp">{sourceRun.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced {dateTime(sourceRun.quotedAt)} ET</p>
+        <Terms offer={sourceOffer} />
+        {!isCurrent(sourceRun) ? <p className="quote-disclaimer">Reprice from the current 1003 before saving this quote.</p> :
+          <Button size="sm" variant="outline" disabled={busy || sourceIsSaved}
+            onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: sourceRun.id, offerId: sourceOffer.id }, () => setPreview(true))}>
+            {sourceIsSaved ? "Saved to this loan" : "Save this quote"}
+          </Button>}
+      </> : <p className="quote-disclaimer">This pricing option is no longer in the current results. Run pricing again to continue.</p>}
+    </section>}
     <form className="pricing-form" onSubmit={(event) => void price(event)}>
       <div className="form-grid">
         <label className="field"><span>Loan program</span><select value={form.program} onChange={(event) => change("program", event.target.value)}>

@@ -1,12 +1,17 @@
 import { z } from "zod";
+import type { PricingOffer, PricingRun } from "./pricing-model";
+import { quoteSelection, type FeeInputs } from "./quote-worksheet";
 
 export const scenarioGoals = ["Lower monthly payment", "Less cash upfront", "Lower borrowing cost"] as const;
 const money = z.number().int().min(0).max(2_500_000_000);
+const quoteSource = quoteSelection.pick({ runId: true, offerId: true });
+export type ScenarioQuoteSource = z.infer<typeof quoteSource>;
 export const loanScenarioOption = z.object({
   id: z.uuid(), name: z.string().trim().min(1).max(60), program: z.string().trim().min(1).max(60),
   loanAmount: money.min(100000), rate: z.number().min(0).max(25), years: z.number().int().min(5).max(40),
   pointsPercent: z.number().min(0).max(10), lenderCredit: money, fees: money, prepaids: money, escrow: money,
   monthlyTaxes: money, monthlyInsurance: money, monthlyHoa: money, monthlyMi: money, miMonths: z.number().int().min(0).max(480),
+  quoteSource: quoteSource.optional(),
 }).superRefine((option, ctx) => {
   if (option.monthlyMi > 0 && option.miMonths === 0) ctx.addIssue({ code: "custom", path: ["miMonths"], message: "Enter the expected months of mortgage insurance." });
   const costs = option.fees + option.prepaids + option.escrow + Math.round(option.loanAmount * option.pointsPercent / 100);
@@ -86,6 +91,28 @@ export function compareLoanScenarios(plan: ScenarioPlan) {
 export function blankScenarioOption(amount: number, name = "Option 1"): LoanScenarioOption {
   return { id: crypto.randomUUID(), name, program: "Conventional fixed", loanAmount: Math.max(100000, Math.round(amount)), rate: 0, years: 30,
     pointsPercent: 0, lenderCredit: 0, fees: 0, prepaids: 0, escrow: 0, monthlyTaxes: 0, monthlyInsurance: 0, monthlyHoa: 0, monthlyMi: 0, miMonths: 0 };
+}
+
+export function scenarioPricingTerms(run: Pick<PricingRun, "scenario">, offer: PricingOffer) {
+  const loanAmount = Math.round(run.scenario.loanAmount * 100);
+  const adjustment = Math.round((offer.pricingAmount ?? 0) * 100);
+  return { loanAmount, rate: offer.rate, years: offer.years,
+    pointsPercent: Math.max(0, adjustment) / loanAmount * 100, lenderCredit: Math.max(0, -adjustment) };
+}
+
+export function pricingScenarioOption(run: PricingRun, offer: PricingOffer, worksheet: FeeInputs | undefined, name: string,
+  baseline?: LoanScenarioOption): LoanScenarioOption {
+  const terms = scenarioPricingTerms(run, offer);
+  const fees = worksheet?.fees;
+  const expenses = run.scenario.nonAgency;
+  return { ...blankScenarioOption(terms.loanAmount, name), ...terms, program: offer.product.slice(0, 60),
+    fees: fees ? fees.origination + fees.appraisal + fees.creditReport + fees.settlement + fees.government + fees.other : baseline?.fees ?? 0,
+    prepaids: fees?.prepaid ?? baseline?.prepaids ?? 0, escrow: fees?.escrow ?? baseline?.escrow ?? 0,
+    monthlyTaxes: expenses ? Math.round(expenses.monthlyTaxes * 100) : baseline?.monthlyTaxes ?? 0,
+    monthlyInsurance: expenses ? Math.round(expenses.monthlyInsurance * 100) : baseline?.monthlyInsurance ?? 0,
+    monthlyHoa: expenses ? Math.round(expenses.monthlyHoa * 100) : baseline?.monthlyHoa ?? 0,
+    monthlyMi: baseline?.monthlyMi ?? 0, miMonths: baseline?.miMonths ?? 0,
+    quoteSource: { runId: run.id, offerId: offer.id } };
 }
 
 export function sampleScenarioPlan(amount: number, purpose: ScenarioPlan["purpose"]): ScenarioPlan {

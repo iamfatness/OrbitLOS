@@ -206,6 +206,10 @@ export async function saveManualReturnFollowUp(input: unknown, staff: WorkspaceS
   return staff ? staffWorkspace(staff).manualReturnFollowUp(input, staff) : { error: manualReturnFollowUpUnavailable };
 }
 
+export async function loadLoanScenarios(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).loanScenarios(staff, input) : { error: "Sign in to view loan scenarios." };
+}
+
 export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | null) {
   if (!staff || staff.brokerage.role === "Processor") return { error: leadWorkUnavailable };
   return staffWorkspace(staff).editableLead(input, staff);

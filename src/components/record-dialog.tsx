@@ -11,6 +11,7 @@ import { FollowUpPurposeField, LoanTaskRow } from "./loan-task";
 import { carriedCallbackOutcomes } from "@/lib/campaign-callback-performance-model";
 import { LoanPricing } from "./loan-pricing";
 import { LoanScenarios } from "./loan-scenarios";
+import type { ScenarioQuoteSource } from "@/lib/loan-scenario-model";
 import { CommunicationPreview, LoanCommunications } from "./loan-communications";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { demoBrokerageId } from "@/lib/brokerage-model";
@@ -72,7 +73,7 @@ export type Modal =
   | { kind: "documentFollowUp"; loanId: string }
   | { kind: "returningClient"; loanId: string; fromRateWatch?: true }
   | { kind: "fundingCheckIn"; loanId: string; returnToLoan?: boolean; campaignLender?: CampaignLenderPath }
-  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean }
+  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean; sourceQuote?: ScenarioQuoteSource }
   | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
@@ -544,7 +545,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         </div>
         <Button size="sm" onClick={() => open(action.target)}>Open next action <ArrowRight aria-hidden="true" /></Button>
       </div>
-      <nav className="loan-section-nav" aria-label="Loan sections">{loanSections.map(([name, destination]) =>
+      <nav className="loan-section-nav" aria-label="Loan sections">{loanSections.filter(([name]) => name !== "Scenarios" || staff || process.env.NODE_ENV === "development").map(([name, destination]) =>
         <button key={name} type="button" aria-current={section === name ? "page" : undefined} onClick={() => open(destination)}>{name}</button>)}
       </nav>
       {section === "Overview" && <>
@@ -557,7 +558,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></Field>
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} />
       </>}
-      {section === "Scenarios" && staff && <LoanScenarios key={loan.id} loan={loan} state={state} staff={staff} markDraftChanged={markDraftChanged} />}
+      {section === "Scenarios" && (staff || process.env.NODE_ENV === "development") && <LoanScenarios key={loan.id} loan={loan} state={state}
+        brokerageId={staff?.brokerage.id ?? demoBrokerageId} sampleAllowed={!staff || staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot)}
+        markDraftChanged={markDraftChanged} openPricing={(sourceQuote) => show({ kind: "pricing", loanId: loan.id, campaignLender, sourceQuote })} />}
       {section === "Pricing & credit" && <>
       <section className="details-section" id="loan-pricing" tabIndex={-1} aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
@@ -806,7 +809,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     returningClient: "Start returning-client 1003",
     fundingCheckIn: "Record borrower check-in",
   }[modal.kind];
-  const backTarget = modal.kind === "pricing" ? "loan-pricing" : modal.kind === "communication" ? modal.returnTo ?? "loan-communications" :
+  const backTarget = modal.kind === "pricing" ? (modal.sourceQuote ? "loan-scenarios" : "loan-pricing") : modal.kind === "communication" ? modal.returnTo ?? "loan-communications" :
     modal.kind === "retention" ? "loan-retention" : modal.kind === "documentFollowUp" ? "document-checklist" :
     modal.kind === "submission" ? "lender-submissions" : modal.kind === "fundingCheckIn" && modal.returnToLoan ? "loan-tasks" : undefined;
   const back = () => loan ? show({ kind: "details", loanId: loan.id, target: backTarget, campaignLender }) : close();
@@ -908,7 +911,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             <Button id={modal.fromRateWatch && !originalProperty ? "returning-client-purpose" : undefined} type="submit" disabled={busy}>Start and open 1003</Button></div>
         </form>}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
-          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} />}
+          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} />}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({
             type: "saveRetention", loanId: loan.id, revision: retention?.revision ?? 0, closingDate: text(data, "closingDate"),

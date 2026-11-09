@@ -1,4 +1,5 @@
-import { scenarioRequest, type ScenarioRecord, type ScenarioResponse } from "./loan-scenario-model";
+import { scenarioPricingTerms, scenarioRequest, type ScenarioRecord, type ScenarioResponse } from "./loan-scenario-model";
+import type { PricingOffer, PricingScenario } from "./pricing-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
@@ -19,6 +20,19 @@ export function loanScenarioWork(db: Store, input: unknown, staff: WorkspaceStaf
     if (!canEdit) return { error: "Only the loan officer or an admin can save scenarios." };
     if (data.applicationRevision !== currentApplicationRevision) return { error: "The 1003 changed. Reload and review the scenario assumptions before saving." };
     if (data.revision !== (record?.revision ?? 0)) return { error: "These scenarios changed. Reload the saved version before saving." };
+    const pricingRun = db.prepare("SELECT scenario, offers FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'");
+    for (const option of data.plan.options) {
+      if (!option.quoteSource) continue;
+      const source = pricingRun.get(option.quoteSource.runId, data.loanId);
+      const offer = source && (JSON.parse(String(source.offers)) as PricingOffer[]).find((item) => item.id === option.quoteSource?.offerId);
+      if (!source || !offer || !/fixed/i.test(offer.product)) return { error: "The pricing source is unavailable for this loan." };
+      const scenario = JSON.parse(String(source.scenario)) as PricingScenario;
+      const terms = scenarioPricingTerms({ scenario }, offer);
+      if (scenario.purpose !== data.plan.purpose || option.loanAmount !== terms.loanAmount || option.rate !== terms.rate ||
+        option.years !== terms.years || option.pointsPercent !== terms.pointsPercent || option.lenderCredit !== terms.lenderCredit) {
+        return { error: "The option terms changed. Add a fresh pricing snapshot or save it as an independent estimate." };
+      }
+    }
     const now = clock.toISOString();
     const next = { plan: data.plan, revision: data.revision + 1, updatedAt: now, updatedBy: staff.name, applicationRevision: currentApplicationRevision };
     db.prepare(`INSERT INTO loan_scenario_plans (loanId, plan, revision, updatedAt, updatedBy, applicationRevision) VALUES (?, ?, ?, ?, ?, ?)

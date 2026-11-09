@@ -1,6 +1,8 @@
 # Loan scenarios
 
-Open a loan and choose **Scenarios**. Create up to four fixed-rate options, duplicate an option, or add a snapshot from a current fixed-rate pricing run. Demo and pilot workspaces also offer a sample comparison.
+Open a loan and choose **Scenarios**. Create up to four fixed-rate options, duplicate an option, or add a snapshot from a current mock fixed-rate pricing run. Demo and pilot workspaces also offer a sample comparison.
+
+When the recommended option comes from mock pricing, **Open recommended pricing option** reopens the exact offer after you save the comparison. Review and save the quote explicitly in Pricing before sharing it or sending the reviewed 1003 to mock UWM. A new pricing run preserves the linked source on the loan. A changed 1003 makes the earlier snapshot historical. Editing a snapshot's quoted terms turns it into an independent estimate.
 
 The officer sets the borrower's goal, monthly/cash budgets and expected holding period. The comparison highlights the lowest value on that goal among options within the budgets. The officer selects a preferred option and records the reason. Changing assumptions clears the working recommendation so it can be reviewed again.
 
@@ -10,6 +12,6 @@ Calculations use integer cents. Monthly amortization rounds interest and payment
 
 Cost break-even compares equal principal amounts against the first option. For an option with higher upfront borrowing cost, it finds the first month after which cumulative interest, MI and net fees never exceed the baseline through the full modeled term. A later break-even is labeled when it falls outside the borrower's timeframe. The comparison approach is informed by the CFPB's [loan offer comparison guidance](https://www.consumerfinance.gov/owning-a-home/compare/compare-loan-estimates/) and [points and lender credits explanation](https://www.consumerfinance.gov/ask-cfpb/how-should-i-use-lender-credits-and-points-also-called-discount-points-en-136/).
 
-Plans are stored per loan in the existing brokerage Durable Object. Access follows loan ownership and processor assignment; processors can read, and officers/admins can save. The authenticated same-origin API enforces a 32 KiB limit, schemas, maximum four options, optimistic plan revisions, and application revision checks. Saves append access-history entries and leave the application, lender quote and loan balance unchanged.
+Plans are stored per loan in the existing brokerage Durable Object or the local Next.js SQLite demo. Hosted access follows loan ownership and processor assignment. Processors can read, and officers and admins can save. The same-origin API enforces a 32 KiB limit, schemas, a maximum of four options, optimistic plan revisions, and application revision checks. It verifies linked offer terms against the loan's mock pricing result. Saves append access-history entries and leave the application, lender quote, and loan balance unchanged.
 
 Validation: six tests cover cent-rounded and zero-rate amortization, purchase/refinance cash, MI duration, equity versus borrowing cost, break-even, budgets, validation, loan permissions, tenant isolation, concurrent edits and changed applications. Full suite passed 281 tests. Cloudflare build and TypeScript passed. `node scripts/loan-scenarios-rehearsal.mjs` verifies the built Worker API; `--serve` adds an isolated local browser fixture on port 3437. The browser rehearsal verified comparison changes when the holding period moves from 60 to 12 months, a saved recommendation, and reload persistence.

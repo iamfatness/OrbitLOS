@@ -21,6 +21,7 @@ const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { closingReviewReady, loanNextAction } = await import("../src/lib/loan-workflow.ts");
 const { manualReturnStatus, manualReturnSteps } = await import("../src/lib/lender-export-model.ts");
+const { pricingScenarioOption, sampleScenarioPlan } = await import("../src/lib/loan-scenario-model.ts");
 const { Miniflare, convertV4MiniflareOptions } = createRequire(import.meta.resolve("wrangler"))("miniflare");
 const server = fileURLToPath(new URL("../dist/server/", import.meta.url));
 const config = createRequire(import.meta.url)(join(server, "wrangler.json"));
@@ -649,13 +650,42 @@ try {
     const run = priced.state.pricingRuns.find((quote) => quote.loanId === loanId);
     assert.equal(run.mode, "mock");
     const offer = run.offers[0];
+    const scenarioPath = `/api/loan-scenarios?brokerage=${brokerage}`;
+    const plan = sampleScenarioPlan(Math.round(run.scenario.loanAmount * 100), run.scenario.purpose);
+    const recommended = pricingScenarioOption(run, offer, undefined, "Recommended mock quote");
+    const recommendation = "Fictional recommendation for the borrower’s expected time in the home.";
+    const scenarios = { type: "save", loanId, revision: 0, applicationRevision: corrected.revision, plan: {
+      ...plan, propertyValue: Math.round((run.scenario.purchasePrice ?? run.scenario.propertyValue) * 100),
+      options: [plan.options[0], recommended], recommendedId: recommended.id, recommendation,
+    } };
+    assert.equal((await postResponse(scenarioPath, scenarios, competingOfficer)).status, 409);
+    const invalidSource = { ...scenarios, plan: { ...scenarios.plan,
+      options: [plan.options[0], { ...recommended, quoteSource: { ...recommended.quoteSource, runId: randomUUID() } }] } };
+    assert.match((await postResponse(scenarioPath, invalidSource, officer)).result.error, /pricing source/i);
+    const alteredTerms = { ...scenarios, plan: { ...scenarios.plan, options: [plan.options[0], { ...recommended, rate: recommended.rate + 0.125 }] } };
+    assert.match((await postResponse(scenarioPath, alteredTerms, officer)).result.error, /option terms changed/i);
+    const savedPlan = await post(scenarioPath, scenarios, officer);
+    const reopenedPlan = await post(scenarioPath, { type: "read", loanId }, officer);
+    assert.deepEqual(reopenedPlan.record, savedPlan.record);
+    assert.equal(reopenedPlan.record.plan.recommendedId, recommended.id);
+    assert.deepEqual(reopenedPlan.record.plan.options[1].quoteSource, { runId: run.id, offerId: offer.id });
+    const reprice = await loanAction(officer, loanId, "runPricing", { applicationRevision: corrected.revision,
+      scenario: { ...run.scenario, creditScore: 725 } });
+    assert.notEqual(reprice.state.pricingRuns[0].id, run.id);
+    assert.equal(reprice.state.pricingRuns.find((item) => item.id === run.id).selectedId, null);
     await loanAction(officer, loanId, "selectOffer", { runId: run.id, offerId: offer.id });
     await loanAction(officer, loanId, "publishQuote", { runId: run.id, offerId: offer.id });
     const status = await borrower(token, { type: "status" });
     assert.equal(status.kind, "status");
     assert.equal(status.loanStatus.quote.rate, offer.rate);
+    assert.equal(status.loanStatus.quote.presentation.primary.offerId, offer.id);
+    assert.ok(!JSON.stringify(status).includes(recommendation));
     assert.ok(!("draft" in status));
+    assert.match((await action(officer, "mutate", { type: "sendApplication", loanId, revision: corrected.revision,
+      quote: { runId: run.id, offerId: run.offers[1].id } })).error, /saved mock quote changed/i);
     await loanAction(officer, loanId, "sendApplication", { revision: corrected.revision, quote: { runId: run.id, offerId: offer.id } });
+    const handedOff = await file(officer, loanId);
+    assert.ok(handedOff.applications[0].versions.find((version) => version.revision === corrected.revision).uwmReceipt);
   });
 
   const processing = async (staff, actionName, note = "") => {
