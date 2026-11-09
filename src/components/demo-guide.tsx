@@ -10,6 +10,7 @@ import { prospectingBlocked, type PastClientProfile, type Submission, type Works
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import type { LoanProcessing } from "@/lib/processing-model";
 import { rateTargetReached } from "@/lib/client-retention";
+import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { quoteMatchesApplication } from "@/lib/pricing-model";
 import { campaignManualSubmission, campaignRehearsalCsv, type CampaignLenderPath, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import { fundingTaskId } from "@/lib/playbook-model";
@@ -164,7 +165,8 @@ export function DemoGuide(props: DemoGuideProps) {
           <Button size="sm" disabled={busy || Boolean(currentApplicationSent)}
           onClick={() => void save({ type: "sendApplication", loanId: loan.id, revision: application.revision, quote })}>
           {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button> :
-        credit?.result.status === "Report ready" ? <Button size="sm" onClick={() => openPricing(loan.id)}>Open mock pricing</Button> :
+        credit?.result.status === "Report ready" && mockRunMatchesApplication(credit, submittedApplicationRevision(application))
+          ? <Button size="sm" onClick={() => openPricing(loan.id)}>Open mock pricing</Button> :
           <Button size="sm" onClick={() => open(loan.id, "credit-aus")}>Open mock credit</Button>),
     },
     {
@@ -345,7 +347,7 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
   const condition = submission?.conditions.find((item) => !item.satisfiedAt);
   const multipleUwmConditions = !manual && (submission?.conditions.filter((item) => !item.satisfiedAt).length ?? 0) > 1;
   const cleared = manual ? manualReady && Boolean(submission?.conditions.length) && !condition : Boolean(submission && !condition);
-  const pricingAction = loan && (credit?.result.status === "Report ready" ?
+  const pricingAction = loan && (credit?.result.status === "Report ready" && mockRunMatchesApplication(credit, submittedApplicationRevision(application)) ?
     <Button size="sm" onClick={() => openPricing(loan.id, campaignLender)}>Price campaign loan</Button> :
     <Button size="sm" onClick={() => open(loan.id, "credit-aus", campaignLender)}>Open mock credit</Button>);
   const canClose = loan && ["Clear to Close", "Funded", "Closed"].includes(loan.stage);

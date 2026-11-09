@@ -1,17 +1,28 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ClipboardCheck, RefreshCw } from "lucide-react";
-import { ausMethods, type AusMethod, type MockCreditAusRun } from "@/lib/credit-aus-model";
+import { ausMethods, mockAusScenarios, mockRunMatchesApplication, type AusMethod, type MockCreditAusRun } from "@/lib/credit-aus-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
+type Revision = number | null;
+type MethodRuns = Record<AusMethod, MockCreditAusRun | undefined>;
 
-function Attempt({ run, creditReference }: { run: MockCreditAusRun; creditReference?: string }) {
+function currentCredit(credit: MockCreditAusRun | undefined, revision: Revision) {
+  return credit?.result.status === "Report ready" && mockRunMatchesApplication(credit, revision) ? credit : undefined;
+}
+
+function Attempt({ run, creditReference, stale }: { run: MockCreditAusRun; creditReference?: string; stale?: boolean }) {
   const { result } = run;
   return <div className="document-item">
     <div className="document-item-head"><strong>{run.reference}</strong><span className="pill">{result.status}</span></div>
     <p className="muted">{run.retryOf ? "Retry · " : ""}{run.requestedBy} · {dateTime(run.requestedAt)} ET</p>
+    <p className="muted">{run.applicationRevision == null ? "No submitted 1003 linked" : `1003 revision ${run.applicationRevision}`}
+      {run.batchId && " · Paired AUS"}{stale && " · Previous inputs"}</p>
     {creditReference && <p className="muted">Mock credit reference {creditReference}</p>}
+    {run.authorization && <details><summary>Mock credit authorization</summary>
+      <p className="muted">{run.authorization.reference} · {run.authorization.recordedBy} · {dateTime(run.authorization.recordedAt)} ET</p>
+    </details>}
     {result.status === "Failed" && <p>{result.reason}</p>}
     {result.status === "Report ready" && <p>Fictional credit score <strong>{result.score}</strong></p>}
     {result.status === "Findings ready" && <div>
@@ -21,24 +32,29 @@ function Attempt({ run, creditReference }: { run: MockCreditAusRun; creditRefere
   </div>;
 }
 
-function retryAttempt(run: MockCreditAusRun, save: Save) {
-  void save({ type: "retryMockCreditAus", loanId: run.loanId, attemptId: crypto.randomUUID(), previousId: run.id, service: run.service });
+function RetryButton({ run, revision, busy, save }: { run: MockCreditAusRun; revision: Revision; busy: boolean; save: Save }) {
+  const request = useRef<{ previousId: string; attemptId: string } | null>(null);
+  return <Button size="sm" variant="outline" disabled={busy} onClick={() => {
+    if (request.current?.previousId !== run.id) request.current = { previousId: run.id, attemptId: crypto.randomUUID() };
+    void save({ type: "retryMockCreditAus", loanId: run.loanId, ...request.current, service: run.service, applicationRevision: revision });
+  }}>Retry mock {run.service === "Credit" ? "credit" : run.service}</Button>;
 }
 
-function CreditPanel({ loanId, credit, busy, save, openPricing }: {
-  loanId: string; credit?: MockCreditAusRun; busy: boolean; save: Save; openPricing?: () => void;
+function CreditPanel({ loanId, credit, revision, busy, save, openPricing }: {
+  loanId: string; credit?: MockCreditAusRun; revision: Revision; busy: boolean; save: Save; openPricing?: () => void;
 }) {
   const [authorized, setAuthorized] = useState(false);
+  const stale = !!credit && !mockRunMatchesApplication(credit, revision);
   return <section className="credit-aus-panel" aria-label="Mock credit">
     <h4>Credit report</h4>
-    {credit ? <Attempt run={credit} /> : <p className="muted">Confirm demo authorization to generate a fictional report and reference.</p>}
-    {credit?.result.status === "Report ready" && openPricing && <div>
+    {credit ? <Attempt run={credit} stale={stale} /> : <p className="muted">Confirm demo authorization to generate a fictional report and reference.</p>}
+    {!stale && credit?.result.status === "Report ready" && openPricing && <div>
       <Button size="sm" disabled={busy} onClick={openPricing}>Price with mock score</Button>
     </div>}
     <form className="credit-aus-panel" onSubmit={(event) => {
       event.preventDefault();
       const scenario = new FormData(event.currentTarget).get("scenario");
-      void save({ type: "runMockCredit", loanId, attemptId: crypto.randomUUID(), previousId: credit?.id ?? null, authorized, scenario },
+      void save({ type: "runMockCredit", loanId, attemptId: crypto.randomUUID(), previousId: credit?.id ?? null, authorized, scenario, applicationRevision: revision },
         () => setAuthorized(false));
     }}>
       <label className="demo-confirm"><input type="checkbox" checked={authorized} onChange={(event) => setAuthorized(event.target.checked)} disabled={busy} />
@@ -47,7 +63,7 @@ function CreditPanel({ loanId, credit, busy, save, openPricing }: {
       <div className="rate-lock-actions">
         <label className="field">Mock credit scenario<select name="scenario" disabled={busy}><option value="ready">Report ready</option><option value="failure">Temporary failure</option></select></label>
         <Button size="sm" type="submit" disabled={busy || !authorized}>Run mock credit</Button>
-        {credit?.result.status === "Failed" && <Button size="sm" variant="outline" disabled={busy} onClick={() => retryAttempt(credit, save)}>Retry mock credit</Button>}
+        {!stale && credit?.result.status === "Failed" && <RetryButton run={credit} revision={revision} busy={busy} save={save} />}
       </div>
     </form>
   </section>;
@@ -55,37 +71,87 @@ function CreditPanel({ loanId, credit, busy, save, openPricing }: {
 
 const methodNames: Record<AusMethod, string> = { DU: "Desktop Underwriter", LPA: "Loan Product Advisor" };
 
-function AusPanel({ loanId, method, run, credit, previousCredit, busy, save }: {
-  loanId: string; method: AusMethod; run?: MockCreditAusRun; credit?: MockCreditAusRun; previousCredit?: MockCreditAusRun; busy: boolean; save: Save;
+function ScenarioOptions() {
+  return mockAusScenarios.map(([value, label]) => <option key={value} value={value}>{label}</option>);
+}
+
+function PairedAusPanel({ loanId, runs, latest, credit, revision, busy, readOnly, save }: {
+  loanId: string; runs: MockCreditAusRun[]; latest: MethodRuns; credit?: MockCreditAusRun; revision: Revision;
+  busy: boolean; readOnly?: boolean; save: Save;
 }) {
-  const ready = credit?.result.status === "Report ready";
-  const current = ready && run?.creditId === credit.id;
+  const request = useRef<{ key: string; batchId: string; DU: string; LPA: string } | null>(null);
+  const recentPair = runs.find((run) => run.batchId && !run.retryOf);
+  const needsCredit = !credit?.authorization;
+  const ready = revision !== null && !needsCredit;
+  if (readOnly && !recentPair) return null;
+  return <section className="credit-aus-panel" aria-label="Paired mock AUS">
+    <h4>Run DU and LPA together</h4>
+    {recentPair && <div className="document-item" aria-label="Latest paired AUS result">
+      <p><strong>1003 revision {recentPair.applicationRevision}</strong>
+        {(!mockRunMatchesApplication(recentPair, revision) || recentPair.creditId !== credit?.id) && " · Previous inputs"}</p>
+      {ausMethods.map((method) => {
+        const run = runs.find((item) => item.batchId === recentPair.batchId && item.service === method);
+        if (!run) return null;
+        const { result } = run;
+        return <p key={method}><strong>{method}</strong> · {result.status === "Findings ready" ? result.recommendation : result.status}
+          {run.retryOf && " · Retried"}</p>;
+      })}
+    </div>}
+    {!readOnly && <>
+      <p className="muted">{revision === null ? "Submit the 1003 to run both services on the same application." : needsCredit
+        ? "Run authorized mock credit for this 1003 before ordering both services."
+        : "Both services use the same submitted 1003 and sample credit report. Each returns its own findings."}</p>
+      <form className="rate-lock-actions" onSubmit={(event) => {
+        event.preventDefault();
+        if (!ready || !credit) return;
+        const form = new FormData(event.currentTarget);
+        const du = { previousId: latest.DU?.id ?? null, scenario: form.get("DU") };
+        const lpa = { previousId: latest.LPA?.id ?? null, scenario: form.get("LPA") };
+        const key = JSON.stringify([loanId, revision, credit.id, du, lpa]);
+        if (request.current?.key !== key) request.current = { key, batchId: crypto.randomUUID(), DU: crypto.randomUUID(), LPA: crypto.randomUUID() };
+        const { batchId, DU, LPA } = request.current;
+        void save({ type: "runMockPairedAus", loanId, batchId, creditId: credit.id, applicationRevision: revision,
+          orders: { DU: { ...du, attemptId: DU }, LPA: { ...lpa, attemptId: LPA } } }, () => { request.current = null; });
+      }}>
+        {ausMethods.map((method) => <label className="field" key={method}>Paired {method} scenario
+          <select name={method} disabled={busy || !ready}><ScenarioOptions /></select>
+        </label>)}
+        <Button size="sm" type="submit" disabled={busy || !ready}>Run mock DU and LPA</Button>
+      </form>
+    </>}
+  </section>;
+}
+
+function AusPanel({ loanId, method, run, credit, previousCredit, revision, busy, save }: {
+  loanId: string; method: AusMethod; run?: MockCreditAusRun; credit?: MockCreditAusRun; previousCredit?: MockCreditAusRun;
+  revision: Revision; busy: boolean; save: Save;
+}) {
+  const current = !!credit && run?.creditId === credit.id && mockRunMatchesApplication(run, revision);
   return <section className="credit-aus-panel" aria-label={`Mock ${method}`}>
     <h4>{methodNames[method]} ({method})</h4>
-    {run && <Attempt run={run} creditReference={previousCredit?.reference} />}
-    {!ready ? <p className="muted">Run mock credit to make a report available for {method}.</p>
-      : run && !current && <p className="muted">This result uses a previous mock credit report. Run {method} again with the current report.</p>}
+    {run && <Attempt run={run} creditReference={previousCredit?.reference} stale={!current} />}
+    {!credit ? <p className="muted">Run mock credit to make a current report available for {method}.</p>
+      : run && !current && <p className="muted">Run {method} again to use the current application and credit report.</p>}
     <form className="rate-lock-actions" onSubmit={(event) => {
       event.preventDefault();
-      if (!ready) return;
+      if (!credit) return;
       const scenario = new FormData(event.currentTarget).get("scenario");
-      void save({ type: "runMockAus", loanId, attemptId: crypto.randomUUID(), previousId: run?.id ?? null, method, creditId: credit.id, scenario });
+      void save({ type: "runMockAus", loanId, attemptId: crypto.randomUUID(), previousId: run?.id ?? null, method, creditId: credit.id, scenario, applicationRevision: revision });
     }}>
-      <label className="field">Mock {method} scenario<select name="scenario" disabled={busy || !ready}>
-        <option value="eligible">Eligible sample</option><option value="review">Review required</option><option value="failure">Temporary failure</option>
-      </select></label>
-      <Button size="sm" type="submit" disabled={busy || !ready}>Run mock {method}</Button>
-      {current && run.result.status === "Failed" && <Button size="sm" variant="outline" disabled={busy} onClick={() => retryAttempt(run, save)}>Retry mock {method}</Button>}
+      <label className="field">Mock {method} scenario<select name="scenario" disabled={busy || !credit}><ScenarioOptions /></select></label>
+      <Button size="sm" type="submit" disabled={busy || !credit}>Run mock {method}</Button>
+      {current && run.result.status === "Failed" && <RetryButton run={run} revision={revision} busy={busy} save={save} />}
     </form>
   </section>;
 }
 
-export function CreditAusWorkbench({ loanId, runs, busy, readOnly, save, openPricing }: {
-  loanId: string; runs: MockCreditAusRun[]; busy: boolean; readOnly?: boolean; save: Save; openPricing?: () => void;
+export function CreditAusWorkbench({ loanId, runs, revision, busy, readOnly, save, openPricing }: {
+  loanId: string; runs: MockCreditAusRun[]; revision: Revision; busy: boolean; readOnly?: boolean; save: Save; openPricing?: () => void;
 }) {
   const credit = runs.find((run) => run.service === "Credit");
-  const methods = ausMethods.map((method) => ({ method, run: runs.find((run) => run.service === method) }));
-  const latestIds = new Set([credit?.id, ...methods.map(({ run }) => run?.id)]);
+  const report = currentCredit(credit, revision);
+  const latest = { DU: runs.find((run) => run.service === "DU"), LPA: runs.find((run) => run.service === "LPA") };
+  const latestIds = new Set([credit?.id, latest.DU?.id, latest.LPA?.id]);
   const history = runs.filter((run) => !latestIds.has(run.id));
   const byId = new Map(runs.map((run) => [run.id, run]));
   return <section className="details-section credit-aus-panel" aria-label="Credit & AUS" id="credit-aus" tabIndex={-1}>
@@ -93,13 +159,17 @@ export function CreditAusWorkbench({ loanId, runs, busy, readOnly, save, openPri
       <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshWorkspace" })}><RefreshCw /> Refresh</Button>
     </div>
     <p className="muted">Mock credit and AUS use fictional reports. Live providers will appear in Integrations when connected.</p>
+    {!readOnly && <CreditPanel loanId={loanId} credit={credit} revision={revision} busy={busy} save={save} openPricing={openPricing} />}
+    <PairedAusPanel loanId={loanId} runs={runs} latest={latest} credit={report} revision={revision} busy={busy} readOnly={readOnly} save={save} />
     {readOnly ? <><p className="muted">The loan officer runs credit and AUS. Saved results are available for review.</p>
-      {runs.filter((run) => latestIds.has(run.id)).map((run) => <Attempt key={run.id} run={run} creditReference={run.creditId ? byId.get(run.creditId)?.reference : undefined} />)}
-    </> : <>
-      <CreditPanel loanId={loanId} credit={credit} busy={busy} save={save} openPricing={openPricing} />
-      {methods.map(({ method, run }) => <AusPanel key={method} loanId={loanId} method={method} run={run} credit={credit}
-        previousCredit={run?.creditId ? byId.get(run.creditId) : undefined} busy={busy} save={save} />)}
-    </>}
+      {runs.filter((run) => latestIds.has(run.id)).map((run) => <Attempt key={run.id} run={run}
+        stale={!mockRunMatchesApplication(run, revision) || (run.service !== "Credit" && run.creditId !== report?.id)}
+        creditReference={run.creditId ? byId.get(run.creditId)?.reference : undefined} />)}
+    </> : ausMethods.map((method) => {
+      const run = latest[method];
+      return <AusPanel key={method} loanId={loanId} method={method} run={run} credit={report} revision={revision}
+        previousCredit={run?.creditId ? byId.get(run.creditId) : undefined} busy={busy} save={save} />;
+    })}
     {history.length > 0 && <details className="document-form"><summary>Previous mock requests ({history.length})</summary>
       <div className="credit-aus-panel">
         {history.map((run) => <Attempt key={run.id} run={run} creditReference={run.creditId ? byId.get(run.creditId)?.reference : undefined} />)}

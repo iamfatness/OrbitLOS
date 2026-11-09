@@ -33,7 +33,7 @@ import { checklistInstructions, checklistPresetNames, checklistPresets, conditio
   documentRecipients, primaryDocumentRecipient, suggestedConditionDocument, type DocumentKind, type DocumentRecipient } from "./document-model";
 import { documentRecipientAvailable } from "./borrower-documents";
 import { referralMatches } from "./referral-matches";
-import { mockAusInput, mockCreditInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
+import { mockAusInput, mockCreditInput, mockPairedAusInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
 import { loadProtectedPilotScenario, trackPilotBorrower, type ProtectPilotLinks } from "./pilot";
 import { contactCsvDuplicateKeys, contactCsvKeys, contactImportRows } from "./contact-csv";
 import { matchingContactCsvKeys } from "./contact-directory";
@@ -261,6 +261,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario, applicationRevision: z.number().int().nonnegative().nullable() }),
   mockCreditInput,
   mockAusInput,
+  mockPairedAusInput,
   mockRetryInput,
   z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
   z.object({ type: z.literal("floatMockRate"), loanId: id, submissionId: id, runId: id, offerId: id, previousFloatReference: id.nullable() }),
@@ -432,6 +433,10 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "setDocumentDeadline":
     case "requestSuggestedUwmDocuments":
     case "reviewDocument":
+    case "runMockCredit":
+    case "runMockAus":
+    case "runMockPairedAus":
+    case "retryMockCreditAus":
     case "applyDocumentPreset":
     case "applyDocumentTemplate":
     case "sendConditionDocument":
@@ -739,6 +744,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "runMockCredit":
         case "runMockAus":
+        case "runMockPairedAus":
         case "retryMockCreditAus": {
           const result = runMockCreditAus(db, data, staff, now);
           if ("error" in result) throw new WorkspaceError(result.error);

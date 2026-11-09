@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
 import type { ApplicationDraft } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import type { Loan, Workspace } from "@/lib/model";
 import { pricingPrograms, quoteMatchesApplication, sampleNonAgencyMetrics, type PricingOffer, type PricingProgram, type PricingRun, type PricingScenario,
   type PublishedQuote } from "@/lib/pricing-model";
@@ -121,7 +122,8 @@ export function LoanPricing({ loan, state, busy, save, useMockScore, lenderHando
   const application = state.applications.find((item) => item.loanId === loan.id);
   const draft = application?.draft;
   const credit = state.mockCreditAusRuns.find((run) => run.loanId === loan.id && run.service === "Credit");
-  const mockScore = credit?.result.status === "Report ready" ? String(credit.result.score) : "";
+  const mockScore = credit?.result.status === "Report ready" && mockRunMatchesApplication(credit, submittedApplicationRevision(application))
+    ? String(credit.result.score) : "";
   const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
   const publishedRun = runs.find((run) => run.id === published?.runId);
   const sharedHistory = state.sharedQuoteHistory.filter((quote) => quote.loanId === loan.id);

@@ -34,6 +34,7 @@ import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@
 import { ClosingWorkbench } from "./closing-workbench";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
+import { submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
@@ -588,7 +589,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
       <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
-        busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} />
+        revision={submittedApplicationRevision(application)} busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} />
       </>}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}

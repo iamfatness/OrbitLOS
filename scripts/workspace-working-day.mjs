@@ -690,8 +690,31 @@ try {
     const pricedFile = await file(officer, loanId);
     const report = pricedFile.mockCreditAusRuns.find(({ service }) => service === "Credit");
     assert.equal(report.result.status, "Report ready");
-    await loanAction(officer, loanId, "runMockAus", { attemptId: randomUUID(), previousId: null,
+    assert.equal(report.authorization.recordedBy, officer.email);
+    const duId = randomUUID();
+    await loanAction(officer, loanId, "runMockAus", { attemptId: duId, previousId: null,
       method: "DU", creditId: report.id, scenario: "eligible" });
+    const pair = { type: "runMockPairedAus", loanId, batchId: randomUUID(), creditId: report.id, applicationRevision: corrected.revision, orders: {
+      DU: { attemptId: randomUUID(), previousId: duId, scenario: "review" },
+      LPA: { attemptId: randomUUID(), previousId: null, scenario: "failure" },
+    } };
+    const paired = await write(officer, pair);
+    const du = paired.loanWork.mockCreditAusRuns.find(({ id }) => id === pair.orders.DU.attemptId);
+    const lpa = paired.loanWork.mockCreditAusRuns.find(({ id }) => id === pair.orders.LPA.attemptId);
+    assert.equal(du.result.recommendation, "Review required");
+    assert.equal(lpa.result.status, "Failed");
+    assert.equal(du.creditId, lpa.creditId);
+    assert.equal(du.batchId, lpa.batchId);
+    assert.match((await write(officer, pair)).message, /already/i);
+    const retryId = randomUUID();
+    const retry = await loanAction(officer, loanId, "retryMockCreditAus", { service: "LPA", attemptId: retryId,
+      previousId: lpa.id, applicationRevision: corrected.revision });
+    const latestAus = retry.loanWork.mockCreditAusRuns;
+    assert.deepEqual(latestAus.find(({ service }) => service === "DU"), du);
+    assert.equal(latestAus[0].id, retryId);
+    assert.equal(latestAus[0].retryOf, lpa.id);
+    assert.equal(latestAus[0].batchId, pair.batchId);
+    assert.equal(latestAus[0].result.status, "Findings ready");
     const draft = pricedFile.applications[0].draft;
     const priced = await loanAction(officer, loanId, "runPricing", { applicationRevision: corrected.revision, scenario: {
       purpose: draft.purpose, loanAmount: Number(draft.loanAmount), propertyValue: Number(draft.estimatedValue), purchasePrice: null,

@@ -497,6 +497,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       service TEXT NOT NULL CHECK (service IN ('Credit', 'DU', 'LPA')), reference TEXT NOT NULL,
       creditId TEXT REFERENCES mock_credit_aus_runs(id), retryOf TEXT REFERENCES mock_credit_aus_runs(id),
       requestedBy TEXT NOT NULL, requestedAt TEXT NOT NULL, result TEXT NOT NULL,
+      applicationRevision INTEGER, authorization TEXT, batchId TEXT, requestKey TEXT,
       CHECK ((service = 'Credit') = (creditId IS NULL))
     );
     CREATE INDEX IF NOT EXISTS mock_credit_aus_by_loan ON mock_credit_aus_runs(loanId, service);
@@ -1037,6 +1038,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.prepare("UPDATE document_requests SET kind = 'Homeowners insurance' WHERE id = ?").run(newId);
     }
     const rateColumns = new Set(db.prepare("PRAGMA table_info(mock_uwm_rates)").all().map((column) => column.name));
+    const mockOrderColumns = new Set(db.prepare("PRAGMA table_info(mock_credit_aus_runs)").all().map((column) => column.name));
+    for (const [column, type] of Object.entries({ applicationRevision: "INTEGER", authorization: "TEXT", batchId: "TEXT", requestKey: "TEXT" })) {
+      if (!mockOrderColumns.has(column)) db.exec(`ALTER TABLE mock_credit_aus_runs ADD COLUMN ${column} ${type}`);
+    }
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS initial_mock_order_by_batch ON mock_credit_aus_runs(batchId, service)
+      WHERE batchId IS NOT NULL AND retryOf IS NULL`);
     for (const [column, type] of Object.entries({
       lockExtensionReference: "TEXT", lockExtensionDays: "INTEGER", lockCancellationReference: "TEXT", lockCancelledAt: "TEXT",
     })) {
