@@ -31,7 +31,7 @@ One product milestone is active at a time. An independent partner-readiness task
 
 The first R1 release is the owner Exceptions workflow, aligned with Today and Processing. Start with existing exact-record drilldowns and scope. Rehearse the loaded queue, a cleared queue, and an exception that reopens. Keep the [feature coverage register](docs/arive-feature-parity-spec.md#current-release-reconciliation) as the detailed F01–F19 inventory and update it from evidence at each release.
 
-R1.1 is live. The owner sidebar opens file exceptions and includes unassigned handoffs, reopened conditions, and sample disclosure reviews. R1.2 is live with explicit handoff ownership, preserved drafts, revision checks, and closing hold updates. R1.3 brings the role and exception scenarios together in one working-day release rehearsal. The UWM stage pricing guard shipped alongside R1.1, and capability mapping and receipt recovery are next on the integration track. [Exceptions evidence](docs/demo-rehearsal-log.md#hosted-owner-exceptions) · [Handoff evidence](docs/demo-rehearsal-log.md#staff-handoff-draft-recovery)
+R1 is live. The owner sidebar opens file exceptions, the handoff preserves drafts and identifies the next staff member, and the Processing badge opens incoming work. The full fictional working day passed against the built Worker. Hosted verification covered the signed-in owner and the public pages. R2 starts with the conventional purchase and rate-and-term refinance file paths and their manual MISMO fallback. [Exceptions evidence](docs/demo-rehearsal-log.md#hosted-owner-exceptions) · [Handoff evidence](docs/demo-rehearsal-log.md#staff-handoff-draft-recovery) · [Working-day evidence](docs/demo-rehearsal-log.md#processing-attention-and-working-day-acceptance)
 
 ### R1 execution plan
 
@@ -41,7 +41,7 @@ R1.1 is live. The owner sidebar opens file exceptions and includes unassigned ha
 | **R1.2 · Finish the cross-role handoff** | Walk one shared file in separate owner, LO, and processor sessions. Fix contradictory state labels, stale next actions, and lost context at intake review, processing return, and closing hold. Reuse the existing event and audit records. | The responsible staff member can find, accept, act, and return the file without being told where to click. The other roles see the updated state with authorized detail. An independent second edit is preserved and a stale competing edit can be recovered. |
 | **R1.3 · Release the complete flow** | Run the same working day on desktop, portrait and phone. Correct any workflow blocker, update the public site with what shipped, and verify the deployed release. | Keep role, responsive, permission, failure and live evidence together. Record the baseline handling time and required external actions for the later paired broker comparison. |
 
-Alongside R1, start the UWM readiness contract with the existing pricing adapter and synthetic scenarios. Define what the adapter can support and how it reports unsupported requests. Write the outbound and receipt acceptance cases before implementing an additional network operation.
+The UWM readiness contract covers the capabilities, receipt and recovery boundaries, and activation gate. Offline EQ fixtures check quote mapping and failures, and the fictional working-day test recovers the original mock receipt after a lost acknowledgment. The actual import transaction and event receiver remain sandbox work. [Lender sandbox acceptance](docs/lender-sandbox-acceptance.md)
 
 ## Design and usability gate for every release
 
