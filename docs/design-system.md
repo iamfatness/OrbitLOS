@@ -74,6 +74,8 @@ Before implementation, review the current path with Impeccable and UI UX Pro Max
 
 Use Playwright to verify the rendered candidate on desktop, 900 × 1200 portrait, and 390 × 844 phone widths. Run Impeccable on the rendered feature when the local browser supports it. Walk through the applicable empty, loading, successful, blocked, stale, and error states with keyboard and touch behavior. On returning to a queue, verify the prior filters and meaningful focus remain. Compare the role views for terminology, count definitions, status and action hierarchy. Log before and after evidence, the decision it changed, and any limitation with the release. [Product roadmap design gate](../PRODUCT-ROADMAP.md#design-and-usability-gate-for-every-release)
 
+For each affected workflow, record the role and task, the tool and checked surface, what changed, and the browser result. Owner counts should open the records they count. LO and processor queues should identify who acts next and link to the exact record or section. On portrait and phone screens, keep the status and primary action visible without horizontal scrolling. A source-only scan cannot verify contrast, focus, or rendered layout.
+
 ## Final visual acceptance
 
 Apply this standard to owner dashboards, LO Today/pipeline/drawer, processor conditions, communication/calendar/search, finance, migration, and borrower/realtor portals. Review desktop and narrow screens plus keyboard, loading, empty, error, and conflict states. Verify icons together as a set and in their actual controls. The font change requires clipping/wrapping, number alignment, zoom, and fallback checks.

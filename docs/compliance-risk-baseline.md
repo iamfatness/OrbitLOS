@@ -1,0 +1,34 @@
+# Compliance Risk & Gaps baseline
+
+November 10, 2026. RG-0 engineering inventory. Cloudflare reports Worker `e596597e-9c0e-4083-8547-3c1f62151f9f` serving 100% of OrbitLOS.com traffic, with source `f0055788acd3f04ef3ab78865c12423d707381c9`. Release record `5e50011` confirms admin verification and 35 UWM stage offers from a fictional purchase. The deployed source is the reference for this inventory. The separate compliance research work remains in the shared checkout and is research only. [UWM release verification](uwm-release-2026-11-10.md)
+
+## Actions and evidence
+
+| Action | Current path and persisted evidence | Boundary and accountable role to assign |
+| --- | --- | --- |
+| Intake and assignment | `applications.ts`, `lead-inbox.ts`, `commands.ts`, and `application_versions` preserve file changes and reviewed 1003 revisions. Assignment and handoff work identify staff owners. | A completed 1003 is one file event. Per-element receipt and regulatory-clock applicability still need validation. Assign intake operations and compliance reviewers for C01–C03. |
+| Credit and AUS | `mock-credit-aus.ts` records fictional runs and findings in `mock_credit_aus_runs`. | Assign the credit integration and compliance reviewers to verify permission, notice responsibility, and actual provider evidence for C06. |
+| Price | `commands.ts` and `pricing-provider.ts` record provider, mode, scenario reference, input, result, and 1003 and income-review revisions in `pricing_runs`. UWM stage pricing was verified on a fictional conventional purchase. Non-QM stage pricing returns unsupported and the LO can record a manual offer. | Keep stage inputs fictional. Before an Insights brokerage is mapped, review `uwmPricingEnvironment` because its exact-brokerage path can also select `uwm-stage`. Assign pricing and provider owners to confirm permitted input/environment and current product mappings for C05. |
+| Read lender status and conditions | `uwm-live.ts` scopes Insights to one brokerage. `uwm.ts` stores accepted status, conditions and sync time in `submissions` and creates `uwm_alerts`. The deployed fictional workflow uses sample data. | Separate Insights credentials and brokerage mapping are pending. Before operational use, the provider owner must verify completeness, timestamps, matching and missing or reordered events against the authorized shop. A read snapshot establishes observed lender status. |
+| Submit, lock, deliver, clear | `commands.ts` guards simulated lender mutations in a connected brokerage. Fictional files use `mock_uwm_acceptances`, `mock_uwm_rates`, and `uwm_document_deliveries` with delivery history. `lender-export.ts` provides staff-recorded handoff evidence. | Assign provider and processing owners to validate separate write permissions, lifecycle callbacks, unknown outcomes and recovery. Keep provider-confirmed, simulated, and staff-recorded evidence distinct. [Connector acceptance](lender-sandbox-acceptance.md) |
+| Prepare, issue, and review disclosures | `disclosures.ts` records versioned sample packages against application, quote and fee revisions. It also records sample issuance and signer activity. `commands.ts` records manually entered disclosure status, and the workbench records closing disclosure review. | Treat each record as evidence of the action Orbit actually observed. Assign the brokerage reviewer and lender counterpart to confirm responsibility and evidence for delivery, receipt, revised versions, and waiting-period calculations under C03–C04. |
+| Outreach | `outreach-preferences.ts` and campaign commands use contact preferences and suppression records. Email and text execution is simulated. | Before live dispatch, assign communications and compliance owners to validate purpose, permission, local time and current suppression at the dispatch boundary for C07. |
+| Closing, reporting and records | Closing/funding commands, pipeline exports, document requests, accepted file revisions and cleanup each have a separate operational path. | Assign closing, reporting and privacy owners to verify custody, export scope and holds across replacement, cleanup, filing and deletion for C08–C11. |
+
+## First engineering fixture
+
+Use a fictional Michigan conventional purchase with a single brokerage, assigned LO and processor, and an owner reviewing one versioned disclosure package. This is a test fixture. Test a staff-entered status, a missing receipt, an older package version, and an authorized review of sample evidence. Retain the Michigan applicability question as a requirement review, the unverified delivery connector as a control gap, and the exact-version receipt issue as an operational finding. Give each independent status and history. No statutory timer or production action is enabled by the fixture.
+
+| Sequence | Work | Acceptance and owner role |
+| --- | --- | --- |
+| RG-1 / C01, C08 | Add tenant-scoped case types, ownership, revision, event history, and coverage health. Exercise restartable backfill and unapproved research separately. | Platform and privacy review. RG-A01–03, A13, A16, A18–19. |
+| RG-2 / C03, C04 | Connect owner overview to the exact filtered queue and versioned file. Surface assigned work in the LO or processor's existing queue. Preserve queue state on return. | Design and QA review. RG-A02, A05–07, A13, A18–20. |
+| RG-3 and RG-4 / C01, C03, C04 | Add reviewer-approved evidence and decisions, then test stale input, duplicate events, and denied actions using approved fixtures before any enforcement. | Named brokerage compliance reviewer, lender counterpart, and engineering owner required. |
+
+RG-0 still needs named brokerage and legal reviewers, an agreed operational scope, and approved evidence and responsibility assignments. The fixture and design can progress while those decisions remain open.
+
+## UX acceptance for the first queue
+
+- Owner opens **Review needed** and sees the same population in the filtered queue. Each row shows the issue, owner, timing, and next action. Coverage distinguishes waiting for evaluation, current results, and a failed or stale evaluation. [21st.dev dashboard patterns](https://21st.dev/community/components/explore/dashboard-component)
+- LO or processor opens the exact package from Today or the file and sees the issue and next authorized action before supporting detail. Test keyboard focus on entry and return, and use stacked rows on portrait and phone. [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
+- Use distinct plain-language messages for no matching results, no evaluated files, missing evidence, and permission denial. Scan the rendered workflow and check it at desktop, 900 × 1200 and 390 × 844. [Impeccable detector](https://impeccable.style/docs/detector/) · [Orbit design gate](design-system.md#design-gate-for-each-release)
