@@ -55,8 +55,8 @@ export function ComplianceLeadBackfill({ brokerageId, openRecord }: {
       <p role="status" className="muted">{pending && data ? "Updating lead history…" : progress}</p>
       {error && <p role="alert">{error}</p>}
       {data && (state === "Complete" || state === "Scanning") && <>
-        <label><input type="checkbox" checked={unknownOnly} disabled={pending} onChange={(event) => void load(event.target.checked)} />
-          {" "}Show only records without an exact timestamp ({data.unknown})</label>
+        <div><Button size="sm" variant="outline" aria-pressed={unknownOnly} disabled={pending} onClick={() => void load(!unknownOnly)}>
+          Missing timestamps only · {data.unknown}</Button></div>
         {data.entries.length ? <ul className="loan-task-list">{data.entries.map(({ destination, ...entry }) => <li className="loan-task compliance-row" key={`${entry.kind}:${entry.id}`}>
           <div className="loan-task-copy">
             <strong>{entry.name}</strong>
