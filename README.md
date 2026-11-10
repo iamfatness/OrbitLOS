@@ -309,9 +309,15 @@ Choose **First 7 days**, **First 30 days**, or **First 90 days** to count outcom
 
 Open **Saved views and conversion targets** to save applied filters and restore them after reload. Targets are percentages of eligible leads and apply across all owners for the selected channel and follow-up window. Filter to **All owners** to set or compare the targets.
 
+## Review the brokerage owner scorecard
+
+Open **Reports → Owner scorecard** as a brokerage admin. Apply inclusive Eastern dates and an optional current owner. Campaign counts use enrollment in the period and recorded outcomes through the check. Funding compares projected volume based on scheduled closings with volume on recorded funding dates. The current follow-up and lender condition counts use the owner filter and the latest open work.
+
+Select a count to see its records and open the lead, follow-up, condition, or loan. A file with multiple open conditions counts once and the row opens a reopened condition first when present. Save the applied dates and owner under **Saved scorecard views** to reuse them with the brokerage's admins. The fictional campaign guide links to the scorecard after funding.
+
 ## Review projected and actual funding
 
-Open **Reports → Funding dashboard** as a brokerage admin, or **Reports** in the local development demo. Set an inclusive date range and officer, then choose **Apply filters**. Projected funding uses target closing dates on active unfunded loans. Actual funding uses recorded funding dates. Select any total to open its loan list and drill into the closing workbench. The previous period has the same number of days immediately before the selected period, and the timestamp shows when Orbit checked the records.
+Open **Reports → Funding dashboard** as a brokerage admin or in the local development demo. Set an inclusive date range and officer, then choose **Apply filters**. Projected funding uses target closing dates on active unfunded loans. Actual funding uses recorded funding dates. Select any total to open its loan list and drill into the closing workbench. The previous period has the same number of days immediately before the selected period, and the timestamp shows when Orbit checked the records.
 
 Save the applied filters and drilldown as a named funding view. Choose all officers and a full calendar month to set the brokerage’s funded loan count and principal targets. Select **Open loan** for a fresh view of its closing facts. Select **Open closing workbench** when that file is loaded in the workspace.
 

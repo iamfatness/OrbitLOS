@@ -15,6 +15,8 @@ Open the [campaign guide](https://orbitlos.com/workspace?guide=campaign) with a 
 
 The solo route has one available officer. Jordan is assigned to the admin and Casey waits in the shared inbox after the one-lead cap. For a two-officer routing demonstration, prepare a fictional pilot with a second active member and verify both assignments before the meeting.
 
+Close with **Open Brokerage Owner Scorecard** at the bottom of the campaign guide. Click the funded count for the demo campaign to open Jordan's loan. The same view shows current overdue follow-ups and open conditions, along with projected and recorded funding for the selected dates.
+
 The live two-officer check used three fictional CSV rows and a one-lead cap per officer. Each officer received one lead and the third stayed shared. In **Call Campaigns → Unassigned**, show both caps and **0 open slots**, then use **Assign this lead**. The receiving officer can open that exact lead from **Today → Next 7 days** with the original deadline.
 
 ## Prepared CTO examples

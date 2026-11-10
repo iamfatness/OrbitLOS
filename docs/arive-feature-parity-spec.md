@@ -55,7 +55,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
 | F10 | Hosted staff comparison, exact mock offer, dated borrower comparison with five-year cost and break-even, an owned task to review shared term changes, and mock UWM handoff | Validate provider coverage and provenance. Confirm locks separately. |
 | F11 | Hosted brokerage templates by purpose and ZIP, with effective dates and staff overrides. Sample payer and payee details carry from shared quote to closing. Finance compares the confirmed gross fees, borrower shares, and payees with sample settlement figures and reviews differences on the funding cycle. | Verify broader geographic matching, external fee sources, and live settlement inputs. |
-| F12 | Dashboard drilldowns, call-report preparation and exports | Reconcile report periods and data coverage before a custom report builder or filing claim. |
+| F12 | Owner scorecard with saved date and owner views, campaign conversion, current follow-ups and conditions, and projected and recorded funding. Separate reports support call-report preparation and review exports. | Reconcile report periods and data coverage before a custom report builder or filing claim. |
 | F13 | Internal workflow actions and planned delegated API | Define bounded event subscriptions and safe replay for Zapier. |
 | F14 | Hosted fictional lead upload and lender download links with separate codes, document revisions, and conversion history | Verify stronger recipient identity, authorized delivery, and live scanning before real use. |
 | F15 | Broker financial visibility and a separate planned non-del channel | Specify investor price, margin policy and registry evidence with a non-del broker. |
@@ -139,6 +139,8 @@ Brokerage admins publish sample fee templates with a source, effective date, loa
 Remaining scope includes payer, payee, amount basis, broader geographic rules, and approved external estimates. Verify financed costs and provider coverage before live use.
 
 ### F12 — Reporting
+
+The owner scorecard reuses the campaign enrollment and funding report calculations and lets brokerage admins save the common date and owner filters. Campaign counts open the contributing lead or loan. Current work counts overdue follow-ups and one row per active loan with conditions. Funding projection uses scheduled closings, while actual funding uses recorded dates.
 
 Status: call-report preparation and dashboards exist; complete filing coverage/custom builder unverified. Define report periods, metric formulas, field mappings, revisions and exceptions. Deliver reconciled exports and drilldowns first, followed by saved custom field/filter/group selections with role limits. Acceptance: corrections and funding reversals reconcile, missing data is explicit, exports reproduce a versioned snapshot, and restricted fields cannot leak through aggregate counts or downloads. Verify current required formats before claiming filing support; no automatic filing implied. Increments 3–4, operational acceptance in 5.
 
