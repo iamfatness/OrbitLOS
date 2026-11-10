@@ -19,6 +19,8 @@ Close with **Open Brokerage Owner Scorecard** at the bottom of the campaign guid
 
 For the lender exception beat, open **Conditions** after the file reaches Clear to Close. On **Income**, expand **Simulate reopening (mock)** and confirm. In **Closing**, show **Record closing** disabled and use **Open reopened condition**. The borrower receives the replacement request in the open checklist. In the realtor tab, select **Refresh referrals** to show **Closing on hold**. After accepting, mock-sending, and clearing the replacement, select **Refresh referrals** again to show the return to Clear to Close. This can be shown on the same file or on a prepared sample if presentation time is tight.
 
+To show how a processor handles several documents on one file, open **Conditions → Work documents in bulk** with two received sample PDFs. Choose **Accept and send to mock UWM**, select both, and confirm the review. Switch to **Check selected mock clearances**. Check one receipt first to show the other condition stays outstanding, then clear the second.
+
 The live two-officer check used three fictional CSV rows and a one-lead cap per officer. Each officer received one lead and the third stayed shared. In **Call Campaigns → Unassigned**, show both caps and **0 open slots**, then use **Assign this lead**. The receiving officer can open that exact lead from **Today → Next 7 days** with the original deadline.
 
 ## Prepared CTO examples
