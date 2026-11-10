@@ -3,10 +3,11 @@ import { readdir, readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 
 const version = process.argv[2];
-if (!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(version ?? "")) {
-  throw new Error("Pass the Cloudflare version staged in the OrbitLOS deployment.");
+const live = version === "--live";
+if (!live && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(version ?? "")) {
+  throw new Error("Pass the staged Cloudflare version or --live for ordinary routing.");
 }
-const headers = { "Cloudflare-Workers-Version-Overrides": `orbit-crm-demo="${version}"` };
+const headers = live ? undefined : { "Cloudflare-Workers-Version-Overrides": `orbit-crm-demo="${version}"` };
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const groups = [{ directory: "chunks", extension: ".js", type: "javascript" }, { directory: "css", extension: ".css", type: "text/css" }];
 const client = new URL("../dist/client/", import.meta.url);
@@ -29,15 +30,17 @@ async function check(asset) {
 }
 
 let clean = 0;
-for (let attempt = 1; attempt <= 15; attempt++) {
+const attempts = live ? 3 : 15;
+for (let attempt = 1; attempt <= attempts; attempt++) {
   const failures = (await Promise.all(assets.map(check))).filter(Boolean);
   clean = failures.length ? 0 : clean + 1;
-  console.log(`Asset check ${attempt} · ${assets.length - failures.length}/${assets.length} matched · ${clean}/2 clean passes`);
+  console.log(`${live ? "Live" : "Staged"} asset check ${attempt} · ${assets.length - failures.length}/${assets.length} matched · ${clean}/2 clean passes`);
   for (const failure of failures) console.log(failure);
   if (clean === 2) break;
-  if (attempt < 15) await delay(4000);
+  if (attempt < attempts) await delay(4000);
 }
 if (clean < 2) {
-  console.error("The staged assets are still inconsistent. Leave the current release serving normal traffic.");
+  console.error(live ? "Ordinary traffic did not consistently return the expected assets." :
+    "The staged assets are still inconsistent. Leave the current release serving normal traffic.");
   process.exitCode = 1;
 }
