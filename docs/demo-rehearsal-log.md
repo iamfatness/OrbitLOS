@@ -587,3 +587,9 @@ On November 9, 2026, Worker `8579817c-e5da-41b8-b2bd-13d889ace1fb` from `6089c1d
 The LO recorded a call and mock text, then logged an incoming reply from Communications. The pending email disappeared from Today. Simulate sample reply is a preview. Log reply records an inbound activity and stops the sequence. Starting the 1003 for a second lead and recording an opt-out for a third removed their remaining steps. The fourth lead completed all three steps. Both mock messages appeared in the lead's conversation as Simulated.
 
 SQLite coverage verified admin permissions, version pinning, weekday scheduling, duplicate import handling, stale actions, and all three stop conditions. All 313 tests, lint, typecheck, the production build, and both local Worker rehearsals passed. The public Demo and Product pages returned 200 with the updated copy.
+
+## Campaign manager outcome drilldowns
+
+On November 9, 2026, Worker `77029422-0206-42a4-b996-98c2cd4de0e5` from `45f0c54c5064` was verified in the fictional Role Handoff QA brokerage. One new CSV lead produced an overdue New Lead call. The selected campaign showed one overdue lead, one logged reply, one conversion, and one opt-out. Each count opened its expected record, including the converted lead's loan drawer. A second campaign showed its own totals. The invited LO could still open Call Campaigns while the report remained available to the pilot admin.
+
+The first hosted import exposed a duplicate panel caused by a shared React key. The corrected release showed one report after refreshing the campaign queue. SQLite tests covered access, shared and held leads, tied deadlines, multiple overdue items on one lead, opt-out aliases, and paging. All 315 tests, lint, typecheck, and the production Worker build passed. The local working-day and write-concurrency rehearsals passed. The public Demo and Product pages returned 200 with the updated copy.
