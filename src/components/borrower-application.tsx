@@ -9,7 +9,7 @@ import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-ch
 import { observeHandoffChecks } from "@/lib/tab-return";
 import { primaryJointDraft } from "@/lib/joint-application-model";
 import type { BorrowerPortalPreferences } from "@/lib/borrower-channel-model";
-import { sameBorrowerHours, type BorrowerHours } from "@/lib/borrower-hours";
+import { borrowerWeekendHours, sameBorrowerHours, type BorrowerHours } from "@/lib/borrower-hours";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
@@ -64,7 +64,8 @@ function PortalContactPreferences({ token }: { token: string }) {
   useEffect(() => () => pending.current?.abort(), []);
   const savedHours = saved?.hours ?? null;
   const changed = !!saved && (draft !== saved.blocked || !sameBorrowerHours(hours, savedHours));
-  const invalidHours = hours && (!hours.start || !hours.end || hours.start >= hours.end);
+  const weekend = hours && borrowerWeekendHours(hours);
+  const invalidHours = hours && weekend && [hours, weekend].some(({ start, end }) => !start || !end || start >= end);
 
   async function update(save: boolean) {
     if (pending.current || (save && (!saved || saved.optedOut || !changed || invalidHours))) return;
@@ -111,16 +112,20 @@ function PortalContactPreferences({ token }: { token: string }) {
           <label className="demo-confirm"><input type="checkbox" checked={!!hours} onChange={(event) => setHours(event.target.checked ?
             (savedHours ?? { start: "09:00", end: "17:00", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }) : null)} />
             Set preferred contact hours</label>
-          {hours && <div className="form-grid">
-            <label className="field">Start time<input type="time" value={hours.start} required onChange={(event) => setHours({ ...hours, start: event.target.value })} /></label>
-            <label className="field">End time<input type="time" value={hours.end} required onChange={(event) => setHours({ ...hours, end: event.target.value })} /></label>
+          {hours && weekend && <>
             <label className="field">Time zone<select value={hours.timeZone} onChange={(event) => setHours({ ...hours, timeZone: event.target.value })}>
               {[...new Set(["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "UTC",
                 hours.timeZone, ...Intl.supportedValuesOf("timeZone")])].map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}
             </select></label>
-          </div>}
-          <p className="muted">{invalidHours ? "Enter an end time later than the start time." :
-            "This window applies every day in your selected time zone. Follow-up sequences wait until it opens."}</p>
+            <div className="form-grid">
+              <label className="field">Weekday start time<input type="time" value={hours.start} required onChange={(event) => setHours({ ...hours, weekend, start: event.target.value })} /></label>
+              <label className="field">Weekday end time<input type="time" value={hours.end} required onChange={(event) => setHours({ ...hours, weekend, end: event.target.value })} /></label>
+              <label className="field">Weekend start time<input type="time" value={weekend.start} required onChange={(event) => setHours({ ...hours, weekend: { ...weekend, start: event.target.value } })} /></label>
+              <label className="field">Weekend end time<input type="time" value={weekend.end} required onChange={(event) => setHours({ ...hours, weekend: { ...weekend, end: event.target.value } })} /></label>
+            </div>
+          </>}
+          <p className="muted">{invalidHours ? "Each end time must be later than its start time." :
+            "Weekday hours apply Monday through Friday. Weekend hours apply Saturday and Sunday. Sequences use your selected time zone."}</p>
         </fieldset>
       </>}
       <div className="loan-application-actions">

@@ -356,6 +356,18 @@ test("preferred contact hours use local time across DST gaps, repeated hours, an
   assert.equal(nextBorrowerContactTime("2026-06-01T02:00:00.000Z", { ...pacific, timeZone: "Asia/Kolkata" }), "2026-06-01T03:30:00.000Z");
 });
 
+test("preferred contact hours choose weekdays and weekends using the borrower's local date", () => {
+  const hours = { start: "17:00", end: "19:00", timeZone: "America/Los_Angeles", weekend: { start: "10:00", end: "12:00" } };
+  // Already Saturday in UTC, but still Friday and within weekday hours in California.
+  assert.equal(nextBorrowerContactTime("2026-07-11T01:00:00.000Z", hours), "2026-07-11T01:00:00.000Z");
+  assert.equal(nextBorrowerContactTime("2026-07-11T02:00:00.000Z", hours), "2026-07-11T17:00:00.000Z");
+  assert.equal(nextBorrowerContactTime("2026-07-12T18:59:59.999Z", hours), "2026-07-12T18:59:59.999Z");
+  assert.equal(nextBorrowerContactTime("2026-07-12T19:00:00.000Z", hours), "2026-07-14T00:00:00.000Z");
+  const spring = { ...hours, weekend: { start: "02:30", end: "03:30" } };
+  assert.equal(nextBorrowerContactTime("2026-03-08T09:30:00.000Z", spring), "2026-03-08T10:00:00.000Z");
+  assert.equal(nextBorrowerContactTime("2026-03-08T10:30:00.000Z", spring), "2026-03-10T00:00:00.000Z");
+});
+
 test("portal contact hours defer campaign calls and mock email and text, even after a window closes", async (t) => {
   const { db, staff } = fixture(t);
   const contactId = crypto.randomUUID();
@@ -430,6 +442,30 @@ test("portal contact hours defer campaign calls and mock email and text, even af
   assert.equal(db.prepare("SELECT nextAt FROM lead_follow_up WHERE leadId = ?").get(inboxLead).nextAt, opened);
   assert.match(inbox("Mock send", "2099-07-07T01:00:00.000Z").error, /preferred contact window/);
   assert.ok(!inbox("Mock send", textAt).error);
+
+  const weekend = { start: "10:00", end: "12:00" };
+  const split = { ...hours, weekend };
+  assert.equal(save(hours, { ...hours, weekend: { start: "12:00", end: "10:00" } }).status, 400);
+  assert.deepEqual(save(hours, { ...hours, weekend: { start: hours.start, end: hours.end } }).preferences.hours, hours);
+  assert.deepEqual(save(hours, split).preferences.hours, split);
+  assert.equal(save(hours, { ...hours, end: "19:00" }).status, 409);
+  assert.ok(readRecordHistory(db, staff, { record: "contact", id: contactId }).events.some(({ text }) =>
+    text === "Borrower updated contact preferences · Preferred contact hours Weekdays 16:00–18:00 · Weekends 10:00–12:00 (America/Los Angeles)"));
+
+  const fridayClose = "2099-07-11T01:00:00.000Z";
+  const saturdayOpen = "2099-07-11T17:00:00.000Z";
+  const weekendLead = addLead();
+  assert.ok(!linkCampaignLead(db, campaignId, weekendLead, fridayClose).error);
+  enrollCampaignSequence(db, weekendLead, template, fridayClose);
+  assert.equal(step(fridayClose, weekendLead).dueAt, saturdayOpen);
+  const weekendCall = { ...call, leadId: weekendLead, revision: revision(weekendLead) };
+  assert.match(recordCampaignCall(db, staff, weekendCall, fridayClose).error, /preferred hours/);
+  assert.ok(!recordCampaignCall(db, staff, weekendCall, saturdayOpen).error);
+  const sundayClose = "2099-07-12T19:00:00.000Z";
+  const mondayOpen = "2099-07-13T23:00:00.000Z";
+  assert.equal(step(saturdayOpen, weekendLead).dueAt, mondayOpen);
+  assert.match(inbox("Mock send", sundayClose).error, /preferred contact window/);
+  assert.ok(!inbox("Mock send", mondayOpen).error);
 });
 
 test("reusable reactivation and past-client sequences enroll the right audiences and keep their versions in Today", async (t) => {

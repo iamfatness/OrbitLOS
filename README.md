@@ -76,7 +76,7 @@ On an open **Lead Inbox** record or in **Contact History**, expand **Contact pre
 
 Primary borrowers can change the same settings from **Contact preferences** on their active application link before or after submission. Each change records the allowed or blocked channels and the time in the loan’s **Activity** and the borrower’s **Contact History**. The brokerage-wide outreach opt-out takes precedence. Email and text remain simulated.
 
-Under **Contact preferences**, borrowers can set or clear one daily window with a start time, end time, and time zone. Campaign and Lead Inbox sequences keep their normal cadence and move out-of-hours steps to the next opening in the borrower’s zone, including daylight saving changes. If a step is still open when the window closes, it waits until the next opening. Staff can see the window and preference history in **Contact History**.
+Under **Contact preferences**, borrowers can set separate windows for weekdays and weekends in one time zone. Existing daily hours carry forward to both windows. Campaign and Lead Inbox sequences keep their normal cadence and move out-of-hours steps to the next opening in the borrower’s zone, including daylight saving changes. If a step is still open when the window closes, it waits until the next opening. Staff can see the windows and preference history in **Contact History**.
 
 Pilot admins can **Pause sequence** on a campaign lead or from its overdue report row. **Manager view → Paused sequences** keeps those leads together. Resuming restores the same step and original due time. A step whose deadline passed is ready immediately. Separate campaign callbacks and retries keep their own schedules.
 
