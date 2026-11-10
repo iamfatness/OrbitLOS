@@ -12,5 +12,5 @@ export async function POST(request: Request) {
   return borrowerJson(request, async (input) => {
     const result = await loadQuoteIntakeSettings(input, staff);
     return "error" in result ? { status: 409, error: result.error } : { value: result };
-  }, 4096);
+  }, 8192);
 }

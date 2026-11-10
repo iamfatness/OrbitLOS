@@ -6,6 +6,7 @@ import { quoteContactOptions, quoteFieldModes, quoteIntakeConfig, quoteProfiles,
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import { dateTime } from "@/lib/utils";
 import { QuoteIntakeFields, QuoteIntakeHeading } from "./quote-request";
+import { QuoteQuestionEditor } from "./quote-question-editor";
 import { Button } from "./ui/button";
 
 async function settingsRequest(endpoint: string, data: object, signal?: AbortSignal) {
@@ -146,6 +147,7 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
           <label className="demo-confirm"><input type="checkbox" checked={draft.question?.required ?? false} disabled={busy || !draft.question}
             onChange={(event) => draft.question && change({ question: { ...draft.question, required: event.target.checked } })} />
             <span>Require an answer to the additional question.</span></label>
+          <QuoteQuestionEditor questions={draft.questions} change={(questions) => change({ questions })} busy={busy} />
           <div className="form-grid">
             <label className="field">Call campaign for eligible requests<select value={draft.campaignId ?? ""}
               onChange={(event) => change({ campaignId: event.target.value || null })} disabled={busy}>

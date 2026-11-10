@@ -27,7 +27,7 @@ export default function DemoPage() {
           <li>Use Next call to work assigned leads one at a time. See the last call note, the scheduled callback, and any earlier promise deadline before logging the next outcome.</li>
           <li>Start a shared conversation from the lead and open its call history in Communications, even if another tab already converted it to a loan. Record simulated follow-up with brokerage opt-outs enforced.</li>
           <li>Request sample documents before the 1003, adjust deadlines from Calendar, and review uploads from My Tasks. Managers can reassign leads with open requests, and the checklist follows the lead into the loan.</li>
-          <li>Preview and publish separate purchase and refinance intake profiles. Route one to a call campaign and the other to a loan officer, then open each lead’s original answers and form version.</li>
+          <li>Preview and publish separate purchase and refinance intake profiles with conditional follow-up questions. Route each inquiry to a campaign or loan officer, then review which answers should prefill the 1003.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>
           <li>Share a saved comparison with cash to close, five-year borrowing cost, break-even, and an expiration date. A fee edit opens an LO review while the borrower keeps the shared version through its expiration.</li>
           <li>Reuse sample brokerage fee templates by purpose and ZIP. Record who pays and receives a fee, then follow the saved allocation into the sample disclosure and closing packet.</li>

@@ -69,6 +69,7 @@ import type { MigrationDestination } from "@/lib/migration-record-model";
 import { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, applyLeadConversion, applyLeadMutation, applyLeadWork, type LeadWorkRequest } from "@/lib/lead-work-model";
 import type { WorkspaceMutationScope, WorkspaceMutationSuccess } from "@/lib/commands";
 import type { LeadInboxMutation } from "@/lib/lead-inbox-model";
+import type { QuotePrefillSelection } from "@/lib/quote-intake-questions";
 import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
 import { announceBorrowerChange, borrowerChecklistTokens, borrowerDisclosureTokens } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
@@ -527,8 +528,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     }
   }
 
-  function convertLead(id: string, contactId: string | null, allowDuplicate: boolean, scope?: "inbox", after?: () => void) {
-    void save({ type: "convertReferral", referralId: id, contactId, allowDuplicate }, ({ referralLoanId }) => {
+  function convertLead(id: string, contactId: string | null, allowDuplicate: boolean, scope?: "inbox", after?: () => void, intakeReview?: QuotePrefillSelection) {
+    void save({ type: "convertReferral", referralId: id, contactId, allowDuplicate, intakeReview }, ({ referralLoanId }) => {
       if (referralLoanId) {
         after?.();
         setModal({ kind: "details", loanId: referralLoanId, target: "loan-application" });
@@ -1250,7 +1251,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           {section === "Lead Inbox" && <LeadInbox version={state} staff={staff} now={taskNow} busy={busy}
             focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} focusDocumentId={focusLeadDocumentId} focusArchivedLeadId={focusArchivedLeadId}
             save={(input, after) => save(input, after, true, "inbox")}
-            convert={(id, contactId, allowDuplicate, after) => convertLead(id, contactId, allowDuplicate, "inbox", after)}
+            convert={(id, contactId, allowDuplicate, after, intakeReview) => convertLead(id, contactId, allowDuplicate, "inbox", after, intakeReview)}
             openCampaign={(campaignId, leadId) => openLeadWork(leadId, campaignId)} openConversation={(leadId) => openConversation({ leadId })} />}
           {section === "Call Campaigns" && !processor && <CallCampaigns state={state} staff={staff} selectedId={selectedCampaignId} select={selectCampaign}
             focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} now={taskNow} busy={busy} save={save} openLead={(id) => { navigate("Lead Inbox"); setFocusLeadId(id); }}

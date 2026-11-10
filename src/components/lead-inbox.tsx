@@ -16,13 +16,14 @@ import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { leadWorkUnavailable } from "@/lib/lead-work-model";
 import { QuoteIntakeEditor } from "./quote-intake-settings";
 import { quoteRequestPath } from "@/lib/quote-intake-model";
+import { quotePrefillLabels, type QuotePrefillField, type QuotePrefillSelection } from "@/lib/quote-intake-questions";
 import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { LeadDocumentChecklist } from "./lead-document-checklist";
 import { BorrowerChannelPreferences } from "./borrower-channel-preferences";
 import { borrowerHoursLabel, nextBorrowerContactTime } from "@/lib/borrower-hours";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
-type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void) => void;
+type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void, intakeReview?: QuotePrefillSelection) => void;
 
 function OwnerOptions({ members }: { members: BrokerageMember[] }) {
   return <>{members.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}</>;
@@ -105,6 +106,8 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
   close: () => void;
 }) {
   const [match, setMatch] = useState("");
+  const [prefill, setPrefill] = useState<QuotePrefillField[]>([]);
+  const intake = lead.intake;
   const isAdmin = !staff || staff.brokerage.role === "Admin";
   const canWork = isAdmin || lead.officerEmail === staff?.email;
   const followUp = lead.followUp;
@@ -137,6 +140,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
       <summary>Work lead</summary>
       <div className="record-form">
         <p>{[lead.email, lead.phone].filter(Boolean).join(" · ")}</p>
+        {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
         {isAdmin && members.length > 0 && <form className="task-form" key={lead.officerEmail ?? ""} onSubmit={(event) => {
           event.preventDefault();
           const email = String(new FormData(event.currentTarget).get("owner") ?? "");
@@ -230,9 +234,21 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
           </select>
         </label>}
         {(chosen || lead.importedContactId) && <p className="muted">The loan keeps the linked contact’s history. The 1003 uses this lead’s email and phone when provided and fills blanks from the saved contact.</p>}
+        {intake && <fieldset id={`intake-review-${lead.id}`} className="record-form document-item" disabled={busy || !!lead.heldAt}>
+          <legend>Review intake answers</legend>
+          <p className="muted">{intake.profile} profile · Version {intake.revision}. Select which answers to copy to the borrower’s draft. They can edit the fields before submitting.</p>
+          {intake.answers.map(({ id, prompt, value, prefill: field }) => <div key={id}>
+            <p><strong>{prompt}</strong></p>
+            <p>{value}</p>
+            {field && <label className="demo-confirm"><input type="checkbox" checked={prefill.includes(field)}
+              onChange={(event) => setPrefill(event.target.checked ? [...prefill, field] : prefill.filter((item) => item !== field))} />
+              <span>Prefill {quotePrefillLabels[field].toLowerCase()}</span></label>}
+          </div>)}
+        </fieldset>}
         <div className="loan-application-actions">
           <Button size="sm" disabled={busy || !!lead.heldAt || (!lead.importedContactId && !chosen && !canCreate)}
-            onClick={() => convert(lead.id, chosen?.id ?? null, flagged && canCreate, close)}>Create loan and prefill 1003</Button>
+            onClick={() => convert(lead.id, chosen?.id ?? null, flagged && canCreate, close,
+              intake && prefill.length ? { revision: intake.revision, fields: prefill } : undefined)}>Create loan and prefill 1003</Button>
         </div>
         <details className="document-form">
           <summary>Archive lead</summary>

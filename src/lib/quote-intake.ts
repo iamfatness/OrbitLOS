@@ -8,6 +8,7 @@ import { defaultQuoteIntakeConfig, quoteFormChanged, quoteFormUnavailable, quote
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
+import { collectQuoteAnswers } from "./quote-intake-questions";
 
 type QuotePortalResult = { value: PublicQuoteForm | { received: true } } | { status: number; error: string };
 
@@ -105,8 +106,9 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
     if (!current.quoteToken || data.token !== current.quoteToken) return { status: 404, error: quoteFormUnavailable };
     if (data.type === "read") {
       const form = currentQuoteForm(db, data.purpose);
-      const { title, introduction, theme, contact, zip, timing, question } = form.config;
-      return { value: { profile: form.profile, revision: form.revision, config: { title, introduction, theme, contact, zip, timing, question } } };
+      const { title, introduction, theme, contact, zip, timing, question, questions } = form.config;
+      return { value: { profile: form.profile, revision: form.revision, config: { title, introduction, theme, contact, zip, timing, question,
+        questions: questions.map((item) => ({ ...item, prefill: null })) } } };
     }
     if (db.prepare("SELECT 1 FROM referral_leads WHERE realtorId IS NULL AND requestId = ?").get(data.requestId)) return { value: { received: true } };
     const effective = quoteIntakeRouting(db, data.purpose);
@@ -118,6 +120,8 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
     }
     const issue = quoteResponseIssue(form.config, data);
     if (issue) return { status: 400, error: issue };
+    const structured = collectQuoteAnswers(form.config.questions, data.answers);
+    if ("error" in structured) return { status: 400, error: structured.error };
     const lastHour = new Date(Date.parse(now) - 3_600_000).toISOString();
     const count = db.prepare("SELECT count(*) AS total FROM referral_leads WHERE realtorId IS NULL AND createdAt > ?").get(lastHour);
     if (Number(count?.total) >= 30) return { status: 429, error: "This form has reached its hourly limit. Try again later." };
@@ -146,12 +150,12 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
         db.prepare("UPDATE referral_leads SET officer = ?, officerEmail = ? WHERE id = ?").run(fallback.name.slice(0, 160), fallback.email, id);
       }
     }
-    db.prepare("INSERT INTO quote_intake_receipts (leadId, formRevision, timing, answer, campaignId, profile) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, form.revision, timing, answer, enrolled, form.profile);
+    db.prepare(`INSERT INTO quote_intake_receipts (leadId, formRevision, timing, answer, campaignId, profile, structuredAnswers)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, form.revision, timing, answer, enrolled, form.profile, JSON.stringify(structured.answers));
     const intake = [`Website quote request · Form version ${form.revision}`,
       form.profile !== "General" && `${form.profile} profile`,
       timing && `Timeline · ${timing}`, answer && form.config.question && `${form.config.question.prompt} · ${answer}`].filter(Boolean);
-    leadEvent(db, id, "Quote form", now, intake.join(" · "));
+    leadEvent(db, id, "Quote form", now, [...intake, ...structured.answers.map(({ prompt, value }) => `${prompt} · ${value}`)].join(" · "));
     return { value: { received: true } };
   });
 }

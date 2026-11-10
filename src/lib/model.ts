@@ -254,6 +254,7 @@ export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName
   source: (typeof leadSources)[number];
   importedTasks: ImportedLeadTask[];
   followUp: LeadFollowUp;
+  intake?: import("./quote-intake-model").QuoteIntakeEvidence;
   matches: ReferralReview["matches"];
   restrictedMatch: boolean;
 }

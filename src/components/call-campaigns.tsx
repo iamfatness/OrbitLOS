@@ -161,6 +161,7 @@ function CampaignApplicationAction({ lead, busy, openLead, convert, focus = fals
 }) {
   const action = useRef<HTMLButtonElement>(null);
   const focused = useRef(false);
+  const reviewIntake = lead.intake?.answers.some(({ prefill }) => prefill !== null);
   useEffect(() => {
     if (!focus || busy || !action.current || focused.current) return;
     focused.current = true;
@@ -168,9 +169,9 @@ function CampaignApplicationAction({ lead, busy, openLead, convert, focus = fals
     action.current.scrollIntoView({ block: "center" });
   }, [focus, busy]);
   return <Button ref={action} size="sm" disabled={busy} aria-describedby={focus ? applicationCallNotice : undefined} onClick={() => {
-    if (!lead.importedContactId && (lead.matches.length || lead.restrictedMatch)) openLead(lead.id);
+    if (reviewIntake || (!lead.importedContactId && (lead.matches.length || lead.restrictedMatch))) openLead(lead.id);
     else convert(lead.id);
-  }}>Start 1003</Button>;
+  }}>{reviewIntake ? "Review intake and start 1003" : "Start 1003"}</Button>;
 }
 
 function CampaignCallContext({ lead, member, campaignName }: { lead: InboxLead; member: CallCampaignMember; campaignName: string }) {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
 import { leadContactFields } from "./lead-inbox-model";
+import { quoteAcceptedAnswers, quoteIntakeQuestions, quoteQuestionAnswers, type QuoteAcceptedAnswer } from "./quote-intake-questions";
 
 export const quoteContactOptions = ["Email or phone", "Email required", "Phone required"] as const;
 export const quoteFieldModes = ["Hidden", "Optional", "Required"] as const;
@@ -21,6 +22,7 @@ export const quoteIntakeConfig = z.object({
   theme: z.enum(quoteThemes), contact: z.enum(quoteContactOptions),
   zip: z.enum(quoteFieldModes), timing: z.enum(quoteFieldModes),
   question: z.object({ prompt: z.string().trim().min(3).max(120), required: z.boolean() }).nullable(),
+  questions: quoteIntakeQuestions.default([]),
   campaignId: campaign.nullable(), ownerEmail: z.email().max(254).toLowerCase().nullable().optional(),
 });
 export type QuoteIntakeConfig = z.infer<typeof quoteIntakeConfig>;
@@ -31,10 +33,26 @@ export type QuoteIntakeSettings = QuoteFormVersion & {
   campaigns: { id: string; name: string }[];
   history: { revision: number; publishedAt: string; active: boolean }[];
 };
+export type QuoteIntakeEvidence = { profile: QuoteProfile; revision: number; answers: QuoteAcceptedAnswer[] };
+
+export function quoteIntakeEvidence(profileValue: unknown, revisionValue: unknown, json: unknown): QuoteIntakeEvidence | undefined {
+  if (typeof json !== "string" || json === "[]") return;
+  const profile = quoteProfile.safeParse(profileValue);
+  const number = revision.safeParse(revisionValue);
+  if (!profile.success || !number.success) return;
+  try {
+    const answers = quoteAcceptedAnswers.safeParse(JSON.parse(json));
+    if (answers.success && answers.data.length) {
+      return { profile: profile.data, revision: number.data, answers: answers.data };
+    }
+  } catch {
+    return;
+  }
+}
 
 export const defaultQuoteIntakeConfig: QuoteIntakeConfig = {
   title: "Request a mortgage quote", introduction: "Tell the loan team how to reach you and what you’re looking for.",
-  theme: "Orbit", contact: "Email or phone", zip: "Optional", timing: "Hidden", question: null, campaignId: null,
+  theme: "Orbit", contact: "Email or phone", zip: "Optional", timing: "Hidden", question: null, questions: [], campaignId: null,
 };
 export const quoteIntakeSettingsRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), profile: quoteProfile.default("General"), search: z.string().trim().max(100).default("") }),
@@ -46,6 +64,7 @@ export const quoteLeadInput = z.object({
   type: z.literal("submit").optional(), token, requestId: z.uuid(), formRevision: revision.default(0), ...leadContactFields,
   zip: z.string().trim().regex(/^\d{5}$|^$/).default(""), timing: z.enum(["", ...quoteTimelines]).default(""),
   answer: z.string().trim().max(200).default(""), consent: z.literal(true), website: z.literal("").optional(),
+  answers: quoteQuestionAnswers,
 }).refine((value) => !!(value.email || value.phone));
 export const quotePortalRequest = z.union([z.object({ type: z.literal("read"), token, purpose: quotePurpose.optional() }), quoteLeadInput]);
 export const quoteFormUnavailable = "This quote request link is unavailable.";

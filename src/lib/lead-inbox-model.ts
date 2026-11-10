@@ -4,6 +4,7 @@ import type { InboxLead } from "./model";
 import type { EditableLoan } from "./loan-work-model";
 import type { CampaignQueueSnapshot } from "./lead-work-model";
 import type { RealtorClaimPolicy } from "./realtor-claim-model";
+import { quotePrefillSelection } from "./quote-intake-questions";
 
 export type InboxLeadSummary = Pick<InboxLead, "id" | "name" | "realtorName" | "source" | "purpose" | "zip" |
   "officer" | "officerEmail" | "dueAt" | "heldAt" | "revisitDate" | "outreachSuppressed"> & {
@@ -44,7 +45,7 @@ export type LeadInboxMutation = {
 
 export const convertReferralInput = z.object({
   type: z.literal("convertReferral"), referralId: z.uuid(), contactId: z.string().min(1).max(100).nullable(),
-  allowDuplicate: z.boolean().default(false),
+  allowDuplicate: z.boolean().default(false), intakeReview: quotePrefillSelection.optional(),
 });
 
 const ownerEmail = z.email().max(254);

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { defaultQuoteIntakeConfig, quoteFormChanged, quotePurpose, quoteResponseIssue, quoteTimelines,
   type PublicQuoteForm, type QuotePurpose } from "@/lib/quote-intake-model";
+import { collectQuoteAnswers, quoteAnswerOptions, visibleQuoteQuestions, type QuoteIntakeQuestion } from "@/lib/quote-intake-questions";
 import { Button } from "./ui/button";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 
@@ -12,6 +13,24 @@ export function QuoteIntakeHeading({ config, preview }: { config: PublicQuoteFor
     <OrbitRings /><p className="eyebrow">QUOTE REQUEST</p>
     {preview ? <h3>{config.title}</h3> : <h1>{config.title}</h1>}{config.introduction && <p>{config.introduction}</p>}
   </div>;
+}
+
+function QuoteFollowUps({ questions, busy }: { questions: QuoteIntakeQuestion[]; busy: boolean }) {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  function change(id: string, value: string) {
+    const next = { ...answers, [id]: value };
+    setAnswers(Object.fromEntries(visibleQuoteQuestions(questions, next).map((item) => [item.id, next[item.id] ?? ""])));
+  }
+  return <>{visibleQuoteQuestions(questions, answers).map(({ id, prompt, kind, required }, index) => {
+    const options = quoteAnswerOptions(kind);
+    const field = { name: `intake:${id}`, disabled: busy, required, value: answers[id] ?? "" };
+    return <label key={id} className="field">{prompt || `Follow-up ${index + 1}`}{!required && " (optional)"}
+      {options.length ? <select {...field} onChange={(event) => change(id, event.target.value)}>
+        <option value="">Choose an answer</option>{options.map((option) => <option key={option}>{option}</option>)}
+      </select> : <input {...field} inputMode={kind === "Dollar amount" ? "decimal" : undefined}
+        maxLength={kind === "Dollar amount" ? 14 : 200} autoComplete="off" onChange={(event) => change(id, event.target.value)} />}
+    </label>;
+  })}</>;
 }
 
 export function QuoteIntakeFields({ config, purpose, changePurpose, busy = false, preview = false, revision }: {
@@ -37,6 +56,7 @@ export function QuoteIntakeFields({ config, purpose, changePurpose, busy = false
     </div>
     {config.question && <label className="field" key={`question:${detailsKey}:${config.question.prompt}`}>{config.question.prompt}{!config.question.required && " (optional)"}
       <input name="answer" type="text" maxLength={200} required={config.question.required} autoComplete="off" disabled={busy} /></label>}
+    <QuoteFollowUps key={detailsKey} questions={config.questions} busy={busy} />
     {config.contact === "Email or phone" && <p className="muted">Enter an email address or phone number.</p>}
     <input name="website" type="hidden" value="" readOnly />
     <label className="demo-confirm" key={`consent:${detailsKey}`}><input type="checkbox" name="consent" required disabled={busy} />
@@ -84,11 +104,15 @@ function PublishedQuoteRequest({ token, initialPurpose }: { token: string; initi
     if (!form || request.current) return;
     const fields = new FormData(event.currentTarget);
     const text = (name: string) => String(fields.get(name) ?? "").trim();
+    const answers = Object.fromEntries(form.config.questions.filter(({ id }) => fields.has(`intake:${id}`))
+      .map(({ id }) => [id, text(`intake:${id}`)]));
     const payload = { token, formRevision: form.revision, name: text("name"), email: text("email"), phone: text("phone"),
-      zip: text("zip"), timing: text("timing"), answer: text("answer"), purpose,
+      zip: text("zip"), timing: text("timing"), answer: text("answer"), purpose, answers,
       consent: fields.has("consent"), website: text("website") };
     const problem = quoteResponseIssue(form.config, payload);
     if (problem) { setError(problem); return; }
+    const intake = collectQuoteAnswers(form.config.questions, answers);
+    if ("error" in intake) { setError(intake.error); return; }
     const signature = JSON.stringify(payload);
     if (attempt.current?.fields !== signature) attempt.current = { id: crypto.randomUUID(), fields: signature };
     const controller = new AbortController();

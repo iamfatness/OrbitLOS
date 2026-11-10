@@ -48,6 +48,8 @@ import { contactUnavailable, type ContactMutationResult } from "./contact-direct
 import { assignInboxLeadInput, convertReferralInput, leadContactInput, leadHoldInput, leadOptOutInput, leadSequenceInput, restoreLeadInput,
   saveLeadRoutingInput, type LeadInboxMutation } from "./lead-inbox-model";
 import { inboxLeadScope } from "./lead-inbox-query";
+import { quoteIntakeEvidence } from "./quote-intake-model";
+import { quotePrefillLabels, reviewedQuotePrefill, type QuoteApplicationPrefill } from "./quote-intake-questions";
 import { claimSharedRealtorInput, saveRealtorClaimPolicyInput } from "./realtor-claim-model";
 import { saveRealtorClaimPolicy } from "./realtor-claim-queue";
 import { archiveLead, carryLeadHistory, changeLeadRouting, claimSharedRealtor, leadEvent, restoreArchivedLead, setImportedLeadTaskStatus,
@@ -1243,6 +1245,19 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             break;
           }
           if (lead.heldAt) throw new WorkspaceError("Reactivate this lead before creating its loan.");
+          let reviewedFields: QuoteApplicationPrefill | undefined;
+          let intakeAudit: string | undefined;
+          if (data.intakeReview) {
+            const receipt = db.prepare("SELECT profile, formRevision, structuredAnswers FROM quote_intake_receipts WHERE leadId = ?").get(data.referralId);
+            const evidence = quoteIntakeEvidence(receipt?.profile, receipt?.formRevision, receipt?.structuredAnswers);
+            if (!evidence || evidence.revision !== data.intakeReview.revision) {
+              throw new WorkspaceError("The intake answers changed. Reopen the lead and review the answers again.");
+            }
+            const fields = reviewedQuotePrefill(evidence.answers, data.intakeReview.fields);
+            if (!fields) throw new WorkspaceError("A selected intake answer cannot prefill the 1003. Reopen the lead and review it again.");
+            reviewedFields = fields;
+            intakeAudit = `Prefilled 1003 from ${evidence.profile} intake v${evidence.revision} · ${data.intakeReview.fields.map((field) => quotePrefillLabels[field]).join(", ")}`;
+          }
           const email = String(lead.email);
           const phone = String(lead.phone);
           const matches = referralMatches({ email, phone }, leadContactCandidates(db, { email, phone }));
@@ -1284,11 +1299,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             db.prepare("INSERT INTO tasks (id, loanId, title, dueAt, completedAt, purpose) VALUES (?, ?, 'Make first contact', ?, ?, 'Prospecting')")
               .run(`first-contact:${loanId}`, loanId, lead.dueAt, firstContactAt);
           }
-          if (!startApplication(db, loanId, now, staff?.brokerage.id, { email, phone, propertyZip: String(lead.zip ?? "") })) {
+          if (!startApplication(db, loanId, now, staff?.brokerage.id, { email, phone, propertyZip: String(lead.zip ?? ""), reviewedFields })) {
             throw new WorkspaceError("Orbit could not create the borrower link.");
           }
           db.prepare("UPDATE referral_leads SET resolvedAt = ?, loanId = ? WHERE id = ?").run(now, loanId, data.referralId);
           recordLoanAudit(db, loanId, staff, "Converted lead to loan", now, null);
+          if (intakeAudit) addApplicationActivity(db, loanId, `${intakeAudit} · ${staff?.name ?? "Demo workspace"}`, now);
           addApplicationActivity(db, loanId, `Converted ${source.toLowerCase()} to a loan with a prefilled 1003.`, now);
           accessEvent(db, staff, imported ? "Converted imported lead" : realtorId ? "Converted referral" : "Converted quote request", data.referralId, now);
           referralLoanId = loanId;

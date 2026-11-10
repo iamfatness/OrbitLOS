@@ -5,7 +5,7 @@ import { DemoCTA } from "../demo-cta";
 import { BuyerFAQ } from "../buyer-faq";
 export const metadata: Metadata = { title: "Product · OrbitLOS", alternates: { canonical: "https://orbitlos.com/product" }, description: "Explore mortgage CRM, borrower applications, processing, dashboards, financials, and daily team workflows in OrbitLOS." };
 const tools = [
-  {icon:ListChecks,title:"Website quote intake",text:"Publish separate purchase and refinance intake profiles. Ask different questions, route each inquiry to a campaign or loan officer, and keep its original answers and version in the lead history."},
+  {icon:ListChecks,title:"Website quote intake",text:"Publish separate purchase and refinance intake profiles and show follow-up questions based on each answer. Route the lead to a campaign or loan officer. Staff can review the original answers and choose which fields prefill the 1003."},
   {icon:ListChecks,title:"Borrower next actions",text:"Open the exact correction, question, document request, or pending mock signature from one prioritized list. On joint files, each borrower sees their own actions. Staff can preview checklist rules and review answers from Incoming loan work."},
   {icon:ListChecks,title:"Documents before the 1003",text:"Review sample uploads from My Tasks and adjust deadlines from Calendar. Managers can reassign leads with open document requests. Files and review history carry into the loan."},
   {icon:ShieldCheck,title:"Separate joint borrower links",text:"Each borrower saves and submits their own answers. Loan staff review one combined 1003 and can return a portion to its borrower for correction."},

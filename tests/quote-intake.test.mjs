@@ -11,7 +11,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 
-const { initializeStore, insertContact } = await import("../src/lib/store.ts");
+const { initializeStore, insertContact, leadWorkRecord } = await import("../src/lib/store.ts");
 const { createCallCampaign } = await import("../src/lib/call-campaigns.ts");
 const { saveCampaignRouting } = await import("../src/lib/campaign-routing.ts");
 const { defaultLeadRouting } = await import("../src/lib/lead-inbox-model.ts");
@@ -19,6 +19,8 @@ const { leadFollowUp, writeLeadRouting } = await import("../src/lib/lead-inbox.t
 const { optOutContact } = await import("../src/lib/outreach-preferences.ts");
 const { defaultQuoteIntakeConfig } = await import("../src/lib/quote-intake-model.ts");
 const { quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } = await import("../src/lib/quote-intake.ts");
+const { executeCommand } = await import("../src/lib/commands.ts");
+const { getApplication } = await import("../src/lib/applications.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -161,4 +163,60 @@ test("purpose profiles preserve versioned questions, route separately and reject
   assert.deepEqual(receive(borrower).value, { received: true });
   assert.equal(lead(borrower).answer, borrower.answer);
   assert.equal(lead(borrower).formRevision, refi.revision);
+});
+
+test("visible answers are immutable and only staff-selected compatible fields prefill a new draft", async (t) => {
+  const { db, admin, officer, settings, receive, request, lead } = fixture(t);
+  const gate = { id: crypto.randomUUID(), prompt: "Is this a rental?", kind: "Yes or no", required: true, when: null, prefill: null };
+  const occupancy = { id: crypto.randomUUID(), prompt: "How will you use it?", kind: "Occupancy", required: true,
+    when: { questionId: gate.id, equals: "Yes" }, prefill: "occupancy" };
+  const amount = { id: crypto.randomUUID(), prompt: "What loan amount are you considering?", kind: "Dollar amount", required: true,
+    when: { questionId: occupancy.id, equals: "Investment property" }, prefill: "loanAmount" };
+  const value = { ...amount, id: crypto.randomUUID(), prompt: "What is the estimated property value?", prefill: "estimatedValue" };
+  const publish = (questions, revision = 0) => settings({ type: "publish", profile: "Refinance", revision,
+    config: { ...defaultQuoteIntakeConfig, questions, ownerEmail: officer.email } }, admin, admin.brokerage.id, officer);
+  assert.ok(publish([occupancy, gate]).error);
+  assert.ok(publish([gate, { ...occupancy, prefill: "loanAmount" }]).error);
+  assert.ok(publish([gate, occupancy, amount, { ...value, prefill: "loanAmount" }]).error);
+  const config = [gate, occupancy, amount, value];
+  assert.equal(publish(config).revision, 1);
+  const form = receive({ type: "read", purpose: "Refinance" }).value;
+  assert.ok(form.config.questions.every((question) => question.prefill === null));
+  const answers = { [gate.id]: "Yes", [occupancy.id]: "Investment property", [amount.id]: "260000.00", [value.id]: "350000" };
+  const visible = request(1, { purpose: "Refinance", answers });
+  const hidden = request(2, { purpose: "Refinance", answers: { ...answers, [gate.id]: "No" } });
+  assert.match(receive({ ...visible, answers: { ...answers, [occupancy.id]: "" } }).error, /How will you use it/);
+  assert.match(receive({ ...visible, answers: { ...answers, [amount.id]: "-500" } }).error, /positive dollar amount/);
+  assert.match(receive({ ...visible, answers: { ...answers, [occupancy.id]: "FHA secondary residence" } }).error, /Choose an available answer/);
+  assert.deepEqual(receive(hidden).value, { received: true });
+  assert.deepEqual(receive(visible).value, { received: true });
+  assert.equal(publish([gate, { ...occupancy, prompt: "New prompt" }], 1).revision, 2);
+  assert.deepEqual(receive(visible).value, { received: true });
+  const leadId = lead(visible).id;
+  assert.deepEqual(leadWorkRecord(db, lead(hidden).id).lead.intake.answers.map(({ value }) => value), ["No"]);
+  const evidence = leadWorkRecord(db, leadId).lead.intake;
+  assert.equal(evidence.revision, 1);
+  assert.equal(evidence.answers[1].prompt, occupancy.prompt);
+  const command = { type: "convertReferral", referralId: leadId, contactId: null };
+  const lo = { ...officer, brokerage: { ...admin.brokerage, role: "LO" } };
+  const convert = (revision, fields, staff = lo) =>
+    executeCommand(db, { ...command, intakeReview: { revision, fields, occupancy: "Primary residence", loanAmount: "1" } }, staff);
+  assert.ok((await convert(1, ["occupancy"], { ...lo, email: "other@example.test" })).error);
+  assert.match((await convert(2, ["occupancy"])).error, /intake answers changed/);
+  assert.ok((await convert(1, ["occupancy", "occupancy"])).error);
+  assert.match((await executeCommand(db, { ...command, referralId: lead(hidden).id, intakeReview: { revision: 1, fields: ["loanAmount"] } }, lo)).error,
+    /cannot prefill/);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM loans").get().total, 0);
+  const converted = await convert(1, ["occupancy", "loanAmount"]);
+  assert.ok(converted.referralLoanId, converted.error);
+  const draft = getApplication(db, converted.referralLoanId);
+  assert.deepEqual([draft.submittedAt, draft.reviewedAt], [null, null]);
+  assert.deepEqual([JSON.parse(draft.draft).occupancy, JSON.parse(draft.draft).loanAmount, JSON.parse(draft.draft).estimatedValue],
+    ["Investment property", "260000", ""]);
+  assert.equal(db.prepare("SELECT amount FROM loans WHERE id = ?").get(converted.referralLoanId).amount, 0);
+  const replay = await convert(1, ["estimatedValue"]);
+  assert.equal(replay.referralLoanId, converted.referralLoanId);
+  assert.equal(getApplication(db, converted.referralLoanId).draft, draft.draft);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM activity WHERE loanId = ? AND text LIKE 'Prefilled 1003 from Refinance intake v1%'")
+    .get(converted.referralLoanId).total, 1);
 });

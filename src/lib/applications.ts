@@ -163,7 +163,8 @@ function fillPropertyLocality(location: AddressLocation): AddressLocation {
 }
 
 export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string,
-  intake?: { email?: string; phone?: string; propertyZip?: string; propertyAddress?: string }) {
+  intake?: { email?: string; phone?: string; propertyZip?: string; propertyAddress?: string;
+    reviewedFields?: Partial<Pick<ApplicationDraft, "occupancy" | "loanAmount" | "estimatedValue">> }) {
   const loan = db.prepare(`SELECT loans.address, loans.amount, loans.purpose, contacts.name, contacts.email, contacts.phone
     FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?`).get(loanId);
   if (!loan) return false;
@@ -185,6 +186,7 @@ export function startApplication(db: Store, loanId: string, now: string, brokera
     email: email.length <= 160 ? email : "", phone: intake?.phone || String(loan.phone),
     loanAmount: Number(loan.amount) > 0 ? String(loan.amount) : "",
     purpose: loan.purpose === "Refinance" ? "Refinance" : "Purchase",
+    ...intake?.reviewedFields,
   };
   db.prepare("INSERT INTO applications (loanId, token, expiresAt, draft, updatedAt) VALUES (?, ?, ?, ?, ?)")
     .run(loanId, token, expiresAt, JSON.stringify(draft), now);
