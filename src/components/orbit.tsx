@@ -12,6 +12,7 @@ import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
 import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpCheckIn, ContactFollowUpCompletion, ContactFollowUpResult, ContactImport } from "./contact-crm";
 import { ContactsDirectory } from "./contacts-directory";
+import { CrmFieldSettings } from "./crm-fields";
 import { contactUnavailable } from "@/lib/contact-directory-model";
 import { useLeadOwners } from "./use-lead-owners";
 import { fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, loanTaskTarget, matchesWorkFilter, pausedLoan,
@@ -1286,6 +1287,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
                 onClick={() => setContactToolsOpen(!contactToolsOpen)}>Import or export contacts</Button>}
             </>} />
             {!processor && contactToolsOpen && <ContactImport brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} />}
+            {admin && <CrmFieldSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           </>}
 
           {section === "Today" && canOpenToday && <OfficerToday brokerageId={staff?.brokerage.id ?? demoBrokerageId}

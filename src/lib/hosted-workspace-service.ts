@@ -7,6 +7,7 @@ import { googleSettings } from "./staff-auth";
 import { fundingDashboardUnavailable } from "./funding-dashboard-model";
 import { ownerScorecardUnavailable } from "./owner-scorecard-model";
 import { customReportUnavailable } from "./custom-report-model";
+import { crmFieldUnavailable } from "./crm-field-model";
 import { disclosureCalendarUnavailable } from "./disclosure-calendar-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
@@ -273,6 +274,10 @@ export async function updateOwnerScorecard(input: unknown, staff: WorkspaceStaff
 
 export async function workOnCustomReport(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).customReport(input, staff) : { error: customReportUnavailable };
+}
+
+export async function workOnCrmFields(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).crmFields(input, staff) : { error: crmFieldUnavailable };
 }
 
 export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceStaff | null) {

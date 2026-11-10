@@ -1,5 +1,7 @@
 "use client";
 
+import { CrmFieldValues } from "./crm-fields";
+
 import { BorrowerChannelPreferences } from "./borrower-channel-preferences";
 import { useRef, useState } from "react";
 import { readContactsWork } from "@/app/actions";
@@ -248,6 +250,7 @@ export function ContactHistory({ contact, state, brokerageId, open, openLead, op
     </div></div>
     <p>{contact.email || "No email"} · {contact.phone || "No phone"}</p>
     {assignedOnly && <p className="muted">This view shows the contact and activity for your assigned follow-up.</p>}
+    {!assignedOnly && contact.role !== "Realtor" && <CrmFieldValues brokerageId={brokerageId} target={{ record: "contact", recordId: contact.id }} />}
     {contact.role !== "Realtor" && <div className="work-queue">
       <h4>Outreach preference</h4>
       {contact.outreachSuppressed ? <p className="muted"><span className="open-chip">Opted out</span> Orbit blocks prospecting across this brokerage, including new campaign imports.</p> :

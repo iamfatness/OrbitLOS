@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { linkedChannelLeadIds, readBorrowerHours, readContactChannelBlocks, setBorrowerHours, setContactChannelBlocks } from "./borrower-channels";
 import { reconcileBorrowerSequences } from "./borrower-sequences";
+import { carryCrmFields } from "./crm-fields";
 import { contactMatchFields, contactMergeInput, contactMergeUnavailable, type ContactMergeCursor, type ContactMergeHistory,
   type ContactMergeHistoryRow, type ContactMergePreview, type ContactMergeResult, type ContactUndoPreview } from "./contact-merge-model";
 import type { Contact } from "./model";
@@ -27,14 +28,22 @@ const links = [
 const revises = new Set(["loan_conversations", "contact_conversations", "realtor_portals", "contact_activity"]);
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
+type ContactFieldRow = { recordId: string; fieldId: string; value: string | null; revision: number };
 type MergeSnapshot = {
   source: Contact; target: Contact; affected: { label: string; ids: string[] }[];
   imports: { origin: SqlValue; recordKey: SqlValue }[];
+  customFields?: ContactFieldRow[];
   undo?: { digest: string; aliases: string[] } | { blocker: string };
 };
 
-function archiveLinks(snapshot: Pick<MergeSnapshot, "affected" | "imports">) {
+function contactFieldRows(db: Store, first: string, second = first) {
+  return db.prepare(`SELECT recordId, fieldId, value, revision FROM crm_contact_field_values
+    WHERE recordId IN (?, ?) ORDER BY recordId, fieldId`).all(first, second) as ContactFieldRow[];
+}
+
+function archiveLinks(snapshot: Pick<MergeSnapshot, "affected" | "imports" | "customFields">) {
   return [...snapshot.affected.map(({ label, ids }) => ({ label, count: ids.length })),
+    { label: "CRM field values reviewed", count: snapshot.customFields?.filter(({ value }) => value !== null).length ?? 0 },
     { label: "Import source links", count: snapshot.imports.length }].filter(({ count }) => count);
 }
 
@@ -92,6 +101,8 @@ function undoBaseline(db: Store, targetId: string, mergeId: string) {
   read("migration_records", "targetId", target, "AND recordKey LIKE 'Contact:%'");
   read("pilot_sample_contacts", "contactId", target);
   read("pilot_scenario", "realtorId", target);
+  const customFields = contactFieldRows(db, targetId);
+  if (customFields.length) digest.update(JSON.stringify(customFields));
   // Include the alias graph, not the snapshot containing this digest.
   const aliases = db.prepare(`SELECT operationId, sourceId, targetId FROM contact_merges
     WHERE canonicalId = ? AND operationId <> ? ORDER BY operationId LIMIT ?`).all(targetId, mergeId, linkLimit + 1);
@@ -146,6 +157,17 @@ function undoContactMerge(db: Store, request: Extract<z.infer<typeof contactMerg
   if (fingerprint !== request.fingerprint) return { error: "Review a fresh undo preview before restoring these contacts." };
 
   insertContact(db, source);
+  if (snapshot.customFields) {
+    const current = new Map(contactFieldRows(db, target.id).map((field) => [field.fieldId, field]));
+    const restore = db.prepare(`INSERT INTO crm_contact_field_values (recordId, fieldId, value, revision) VALUES (?, ?, ?, ?)
+      ON CONFLICT(recordId, fieldId) DO UPDATE SET value = excluded.value, revision = excluded.revision`);
+    for (const field of snapshot.customFields) {
+      const after = field.recordId === target.id ? current.get(field.fieldId) : undefined;
+      restore.run(field.recordId, field.fieldId, field.value, Math.max(field.revision, after?.revision ?? 0) + 1);
+      if (after) current.delete(field.fieldId);
+    }
+    for (const field of current.values()) restore.run(target.id, field.fieldId, null, field.revision + 1);
+  }
   db.prepare("UPDATE contacts SET email = ?, phone = ? WHERE id = ?").run(target.email, target.phone, target.id);
   if (source.outreachChannelBlocks || target.outreachChannelBlocks) {
     setContactChannelBlocks(db, source.id, source.outreachChannelBlocks ?? 0);
@@ -230,7 +252,8 @@ function mergePreview(db: Store, sourceId: string, targetId: string) {
   const optedOut = identities.some((row) => row.role !== "Realtor" && outreachSuppressed(blocked, row));
   const kept = { name: target.name, role: target.role, email: target.email.trim() ? target.email : source.email,
     phone: target.phone.trim() ? target.phone : source.phone };
-  const snapshot = { source, target, affected, imports };
+  const customFields = contactFieldRows(db, source.id, target.id);
+  const snapshot = { source, target, affected, imports, ...(customFields.length ? { customFields } : {}) };
   const fingerprint = hash({ ...snapshot, kept, optedOut, blockers });
   const preview: ContactMergePreview = {
     kind: "preview", source, target, kept, fingerprint, matches: [matches.email ? "Email" : "", matches.phone ? "Phone" : ""].filter(Boolean),
@@ -283,6 +306,7 @@ export function contactMergeWork(db: Store, input: unknown, staff: WorkspaceStaf
     }
     db.prepare("UPDATE migration_records SET targetId = ? WHERE targetId = ? AND recordKey LIKE 'Contact:%'").run(targetId, sourceId);
     db.prepare("UPDATE contact_merges SET canonicalId = ? WHERE canonicalId = ?").run(targetId, sourceId);
+    carryCrmFields(db, { record: "contact", recordId: sourceId }, targetId);
     db.prepare("DELETE FROM contacts WHERE id = ?").run(sourceId);
     if (optedOut) closeSuppressedOutreach(db, now);
     const channelBlocks = (source.outreachChannelBlocks ?? 0) | (plan.snapshot.target.outreachChannelBlocks ?? 0);

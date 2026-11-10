@@ -14,6 +14,7 @@ registerHooks({ resolve(specifier, context, next) {
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { customReportWork } = await import("../src/lib/custom-reports.ts");
 const { defaultCustomReport } = await import("../src/lib/custom-report-model.ts");
+const { crmFieldWork } = await import("../src/lib/crm-fields.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -55,6 +56,67 @@ function fixture(t) {
   };
   return { db, now, brokerageId, admin, officer, other, processor, work, save, run, records, file, inquiry };
 }
+
+test("CRM filters keep counts and drilldowns scoped and refuse revoked or archived fields", (t) => {
+  const { db, brokerageId, admin, officer, other, processor, work, save, run, records, inquiry, file } = fixture(t);
+  const fieldId = crypto.randomUUID();
+  const fields = (input, actor = admin, tenant = brokerageId) => crmFieldWork(db, input, actor, tenant);
+  const definition = { label: "Outreach score", kind: "Number", options: [], roles: ["LO", "Processor"] };
+  const create = { type: "saveField", fieldId, revision: 0, definition };
+  assert.ok(fields(create, officer).error);
+  assert.equal(fields(create).field.revision, 1);
+  assert.ok(fields({ type: "list" }, officer, "other-tenant").error);
+  inquiry("mine", officer);
+  inquiry("unscoped", other);
+  inquiry("other-score", officer);
+  inquiry("shared", null);
+  file("production", officer);
+  file("unassigned", other);
+  db.prepare("INSERT INTO loan_processing VALUES ('production', ?, ?, 'Accepted', '', ?, 1)")
+    .run(processor.email, processor.name, "2026-11-10T12:00:00.000Z");
+  const set = (record, recordId, value, options = {}) => ({
+    type: "saveValue", record, recordId, fieldId, value, fieldRevision: 1, revision: 0, ...options,
+  });
+  const value = "999999999999.0001";
+  assert.equal(fields(set("lead", "mine", value), officer).entries[0].value, value);
+  assert.ok(fields(set("lead", "mine", "99"), officer).error);
+  assert.ok(fields(set("lead", "unscoped", value), officer).error);
+  assert.ok(fields(set("lead", "shared", value), officer).error);
+  assert.ok(fields(set("lead", "other-score", "2e4"), officer).error);
+  assert.equal(fields(set("lead", "other-score", "-00.0000"), officer).entries[0].value, "0");
+  assert.equal(fields(set("lead", "other-score", null, { revision: 1 }), officer).entries[0].revision, 2);
+  assert.ok(fields(set("lead", "other-score", value), officer).error);
+  fields(set("lead", "unscoped", value));
+  fields(set("contact", "contact-production", value));
+  fields(set("contact", "contact-unassigned", value));
+  assert.equal(fields({ type: "values", record: "contact", recordId: "contact-production" }, processor).editable, false);
+  assert.ok(fields({ type: "values", record: "contact", recordId: "contact-unassigned" }, processor).error);
+  assert.ok(fields(set("contact", "contact-production", "1", { revision: 1 }), processor).error);
+
+  const customFilter = { fieldId, value };
+  const setup = { ...defaultCustomReport, name: "Priority intake", roles: ["LO"], customFilter };
+  const { report } = save(setup);
+  assert.equal(run(report).totals.inquiries, 2);
+  assert.equal(run(report, officer).totals.inquiries, 1);
+  assert.deepEqual(records(report, "inquiries", officer).rows.map(({ id }) => id), ["mine"]);
+  const { report: production } = save({ ...setup, name: "Priority production", dataset: "Loan production", metrics: ["files"], roles: ["Processor"] });
+  assert.equal(run(production, processor).totals.files, 1);
+  assert.deepEqual(records(production, "files", processor).rows.map(({ id }) => id), ["production"]);
+
+  assert.equal(fields({ ...create, revision: 1, definition: { ...definition, roles: [] } }).field.revision, 2);
+  assert.match(save({ ...setup, name: "Unavailable to LO" }).error, /every role/);
+  assert.equal(work({ type: "list" }, officer).reports.length, 0);
+  assert.ok(run(report, officer).error);
+  assert.ok(records(report, "inquiries", officer).error);
+  assert.ok(run(production, processor).error);
+  assert.equal(run(report).totals.inquiries, 2);
+  assert.equal(fields({ type: "archiveField", fieldId, revision: 2 }).kind, "archived");
+  assert.ok(work({ type: "list" }).reports.some(({ id }) => id === report.id));
+  assert.match(run(report).error, /CRM field is unavailable/);
+  assert.match(records(report, "inquiries").error, /CRM field is unavailable/);
+  const repaired = save({ ...setup, customFilter: undefined }, report);
+  assert.equal(run(repaired.report, officer).totals.inquiries, 2);
+});
 
 test("intake report uses current ownership for open and converted leads and keeps drilldowns within the shared role", (t) => {
   const { db, now, brokerageId, admin, officer, other, processor, work, save, run, records, file, inquiry } = fixture(t);

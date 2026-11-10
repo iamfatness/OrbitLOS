@@ -34,6 +34,7 @@ import { blockedOutreachKeys, indexPendingContactOutreach, initializeContactOutr
   migrateCampaignOptOuts, openCallbackPromise, outreachIdentityKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import { initializeContactDuplicateQueue } from "./contact-duplicate-queue";
 import type { CrmSegment } from "./crm-segment-model";
+import { crmFieldFilter } from "./crm-field-model";
 import { readCampaignRouting } from "./campaign-routing";
 import { campaignResponses } from "./campaign-response";
 import { initializeProcessingConditions, reopenedMockUwmAtSql } from "./processing-conditions";
@@ -798,8 +799,24 @@ export function initializeStore(db: Store, seedDemo = true) {
       );
       CREATE TABLE IF NOT EXISTS crm_segments (
         id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, kind TEXT NOT NULL,
-        quietDays INTEGER NOT NULL, revision INTEGER NOT NULL
+        quietDays INTEGER NOT NULL, revision INTEGER NOT NULL, customFilter TEXT
       );
+      CREATE TABLE IF NOT EXISTS crm_fields (
+        id TEXT PRIMARY KEY, label TEXT NOT NULL, revision INTEGER NOT NULL, definition TEXT NOT NULL, archivedAt TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS active_crm_field_labels ON crm_fields(label COLLATE NOCASE) WHERE archivedAt IS NULL;
+      CREATE TABLE IF NOT EXISTS crm_lead_field_values (
+        recordId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
+        fieldId TEXT NOT NULL REFERENCES crm_fields(id), value TEXT, revision INTEGER NOT NULL,
+        PRIMARY KEY (recordId, fieldId)
+      );
+      CREATE TABLE IF NOT EXISTS crm_contact_field_values (
+        recordId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+        fieldId TEXT NOT NULL REFERENCES crm_fields(id), value TEXT, revision INTEGER NOT NULL,
+        PRIMARY KEY (recordId, fieldId)
+      );
+      CREATE INDEX IF NOT EXISTS crm_lead_value_lookup ON crm_lead_field_values(fieldId, value, recordId);
+      CREATE INDEX IF NOT EXISTS crm_contact_value_lookup ON crm_contact_field_values(fieldId, value, recordId);
       CREATE TABLE IF NOT EXISTS call_campaign_rules (
         campaignId TEXT PRIMARY KEY REFERENCES call_campaigns(id) ON DELETE CASCADE,
         revision INTEGER NOT NULL, voicemailDays INTEGER NOT NULL, noResponseDays INTEGER NOT NULL, maxAttempts INTEGER NOT NULL,
@@ -970,6 +987,9 @@ export function initializeStore(db: Store, seedDemo = true) {
         UPDATE campaign_follow_up_runs SET status = 'Superseded', reason = 'Borrower reply logged.'
         WHERE delayDays IS NOT NULL AND status IN ('Failed', 'Paused') AND leadId IN (
           SELECT leadId FROM lead_follow_up WHERE replyReceivedAt IS NOT NULL);`);
+    }
+    if (!db.prepare("PRAGMA table_info(crm_segments)").all().some((column) => column.name === "customFilter")) {
+      db.exec("ALTER TABLE crm_segments ADD COLUMN customFilter TEXT");
     }
     if (!db.prepare("PRAGMA table_info(call_campaign_members)").all().some((column) => column.name === "segmentId")) {
       db.exec("ALTER TABLE call_campaign_members ADD COLUMN segmentId TEXT REFERENCES crm_segments(id) ON DELETE SET NULL");
@@ -1706,7 +1726,10 @@ export function readCampaignQueue(db: Store, campaignId: string, staff: Workspac
 }
 
 export function crmSegmentRows(db: Store) {
-  return rows<CrmSegment>(db, "SELECT id, name, kind, quietDays, revision FROM crm_segments ORDER BY name, id");
+  return rows<Omit<CrmSegment, "customFilter"> & { customFilter: string | null }>(db,
+    "SELECT id, name, kind, quietDays, revision, customFilter FROM crm_segments ORDER BY name, id")
+    .map(({ customFilter, ...segment }): CrmSegment => customFilter === null ? segment :
+      { ...segment, customFilter: crmFieldFilter.parse(JSON.parse(customFilter)) });
 }
 
 function campaignLeadOptions(db: Store): CampaignLeadOption[] {

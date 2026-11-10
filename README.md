@@ -339,6 +339,12 @@ Under **Reports → Custom reports**, an admin can save an intake cohort or loan
 
 Share a report with LOs to show their own leads and loans. Share a production report with processors to show assigned files. Changing the report’s audience or archiving the report updates access to saved report links.
 
+### Add brokerage CRM fields
+
+Under **Contacts → Manage CRM fields**, admins can define a short text, choice, yes or no, number, or date field and choose which staff roles can see it. In an open lead or a borrower contact’s history, expand **CRM fields** to enter values. Converting a lead fills empty borrower fields and preserves existing borrower values. Processors can view shared fields on their assigned borrower records.
+
+In **Saved CRM segments** or **Custom reports**, choose a CRM field and the exact value to match. Quiet lead segments and intake reports use lead values. Past-client segments and production reports use borrower contact values. Segment enrollment still applies outreach eligibility. Revoking a role’s access also removes its access to reports that filter on that field. Update any saved filters that refer to an archived field before running them again.
+
 ## Prepare a quarterly call report review
 
 1. Sign in as a brokerage admin and open **Reports → Call report**. Select the reporting year and quarter. Filter by confirmed property state or originator NMLS ID. Choose a count to see the loan records behind it.

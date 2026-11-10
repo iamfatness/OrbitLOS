@@ -4,21 +4,23 @@ import { useRef, useState } from "react";
 import type { CallCampaign } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { segmentEnrollmentLimit, segmentKinds, sequenceKindForSegment, type CrmSegment, type SegmentPreview } from "@/lib/crm-segment-model";
+import { CrmFieldFilterEditor } from "./crm-fields";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
 
-function SegmentEditor({ segment, busy, save, onSaved }: {
-  segment?: CrmSegment; busy: boolean; save: Save; onSaved: (id: string) => void;
+function SegmentEditor({ segment, brokerageId, busy, save, onSaved }: {
+  segment?: CrmSegment; brokerageId: string; busy: boolean; save: Save; onSaved: (id: string) => void;
 }) {
   const [kind, setKind] = useState<CrmSegment["kind"]>(segment?.kind ?? segmentKinds[0]);
+  const [customFilter, setCustomFilter] = useState(segment?.customFilter);
   const newId = useRef<string | null>(null);
   return <form className="record-form" onSubmit={(event) => {
     event.preventDefault();
     const fields = new FormData(event.currentTarget);
     const id = segment?.id ?? (newId.current ??= crypto.randomUUID());
     void save({ type: "saveCrmSegment", id, revision: segment?.revision ?? 0, name: fields.get("name"), kind,
-      quietDays: kind === "Quiet leads" ? Number(fields.get("quietDays")) : 7 }, () => onSaved(id));
+      quietDays: kind === "Quiet leads" ? Number(fields.get("quietDays")) : 7, customFilter }, () => onSaved(id));
   }}>
     <div className="form-grid">
       <label className="field">Segment name<input name="name" maxLength={80} defaultValue={segment?.name} required placeholder="e.g. Quiet for a week" /></label>
@@ -28,12 +30,14 @@ function SegmentEditor({ segment, busy, save, onSaved }: {
       {kind === "Quiet leads" && <label className="field">Days without a reply<input name="quietDays" type="number" min={1} max={90}
         defaultValue={segment?.quietDays ?? 7} required /></label>}
     </div>
+    <CrmFieldFilterEditor brokerageId={brokerageId} value={customFilter} change={setCustomFilter} disabled={busy}
+      scope={kind === "Quiet leads" ? "Matches values saved on leads." : "Matches values saved on borrower contacts."} />
     <div><Button size="sm" variant="outline" disabled={busy} type="submit">{segment ? "Save segment changes" : "Save new segment"}</Button></div>
   </form>;
 }
 
-export function CrmSegments({ segments, campaign, busy, save }: {
-  segments: CrmSegment[]; campaign?: CallCampaign; busy: boolean; save: Save;
+export function CrmSegments({ segments, campaign, brokerageId, busy, save }: {
+  segments: CrmSegment[]; campaign?: CallCampaign; brokerageId: string; busy: boolean; save: Save;
 }) {
   const [selected, setSelected] = useState("");
   const [result, setResult] = useState<{ key: string; preview: SegmentPreview; selectedIds: string[] }>();
@@ -68,7 +72,7 @@ export function CrmSegments({ segments, campaign, busy, save }: {
       <option value="">New segment</option>
       {segments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
     </select></label>
-    <SegmentEditor key={segment ? `${segment.id}:${segment.revision}` : "new"} segment={segment} busy={busy} save={save}
+    <SegmentEditor key={segment ? `${segment.id}:${segment.revision}` : "new"} segment={segment} brokerageId={brokerageId} busy={busy} save={save}
       onSaved={(id) => { setSelected(id); setResult(undefined); }} />
     {segment && (campaign ? <div className="work-queue">
       <h3>Preview for {campaign.name}</h3>

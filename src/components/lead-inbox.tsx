@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { readArchivePage, readInboxWork } from "@/app/actions";
 import { demoBrokerageId, type BrokerageMember } from "@/lib/brokerage-model";
+import { CrmFieldValues } from "./crm-fields";
 import { firstContactOverdue, leadInboxUnavailable, leadInboxViews, leadOutcomes, leadSequenceSteps, outreachChannels,
   type ArchivedLead, type InboxLeadSummary, type LeadArchivePage, type LeadInboxPage, type LeadInboxView, type LeadRouting, type leadSequenceActions } from "@/lib/lead-inbox-model";
 import type { InboxLead } from "@/lib/model";
@@ -140,6 +141,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
       <summary>Work lead</summary>
       <div className="record-form">
         <p>{[lead.email, lead.phone].filter(Boolean).join(" · ")}</p>
+        <CrmFieldValues brokerageId={staff?.brokerage.id ?? demoBrokerageId} target={{ record: "lead", recordId: lead.id }} />
         {lead.initialRouting && <section className="work-queue" aria-label="Website routing at submission">
           <h4>Website routing at submission</h4>
           <p>{quoteRoutingLabel(lead.initialRouting)}</p>

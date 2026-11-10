@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { crmFieldFilter } from "./crm-field-model";
 import type { CampaignSequenceKind } from "./campaign-sequence-model";
 
 export const segmentKinds = ["Quiet leads", "Past clients at rate target", "Past clients"] as const;
@@ -7,6 +8,7 @@ export const segmentEnrollmentLimit = 100;
 export const saveCrmSegmentInput = z.object({
   type: z.literal("saveCrmSegment"), id: z.uuid(), revision: z.number().int().min(0),
   name: z.string().trim().min(1).max(80), kind: z.enum(segmentKinds), quietDays: z.number().int().min(1).max(90),
+  customFilter: crmFieldFilter.optional(),
 });
 export const enrollCrmSegmentInput = z.object({
   type: z.literal("enrollCrmSegment"), segmentId: z.uuid(), campaignId: z.uuid(),

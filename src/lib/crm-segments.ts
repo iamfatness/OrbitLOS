@@ -4,6 +4,8 @@ import { linkCampaignLead } from "./call-campaigns";
 import { distributeCampaignLeads, readCampaignRouting } from "./campaign-routing";
 import { attachedCampaignSequence, enrollCampaignSequence } from "./campaign-sequences";
 import { rateTargetReached } from "./client-retention";
+import { crmFieldFilter } from "./crm-field-model";
+import { crmFieldValueTable, resolveCrmFieldFilter } from "./crm-fields";
 import { pilotSegmentLeadPrefix, segmentEnrollmentLimit, sequenceKindForSegment, type CrmSegment, type SegmentPreview,
   type enrollCrmSegmentInput, type saveCrmSegmentInput } from "./crm-segment-model";
 import { firstContactDue, leadEvent, leadRouting } from "./lead-inbox";
@@ -19,10 +21,14 @@ type PastClient = { id: string; name: string; email: string; phone: string; cont
   observedRate: number | null; targetRate: number | null; watchEnabled: number };
 type PreviewRow = SegmentPreview["rows"][number];
 type SegmentMutation = { message: string; preview?: SegmentPreview; leadIds?: string[] } | { error: string };
+const filterUnavailable = { error: "The segment’s CRM field is unavailable. Update its filter before continuing." };
 
 export function saveCrmSegment(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof saveCrmSegmentInput>, now: string): SegmentMutation {
-  const current = db.prepare("SELECT revision, name, kind, quietDays FROM crm_segments WHERE id = ?").get(input.id);
-  if (current?.name === input.name && current.kind === input.kind && current.quietDays === input.quietDays) {
+  const resolved = input.customFilter ? resolveCrmFieldFilter(db, input.customFilter) : null;
+  if (input.customFilter && !resolved) return filterUnavailable;
+  const customFilter = resolved ? JSON.stringify({ fieldId: resolved.field.id, value: resolved.value }) : null;
+  const current = db.prepare("SELECT revision, name, kind, quietDays, customFilter FROM crm_segments WHERE id = ?").get(input.id);
+  if (current?.name === input.name && current.kind === input.kind && current.quietDays === input.quietDays && current.customFilter === customFilter) {
     return { message: "CRM segment is saved." };
   }
   if (Number(current?.revision ?? 0) !== input.revision || (!current && input.revision !== 0)) {
@@ -31,9 +37,10 @@ export function saveCrmSegment(db: Store, staff: WorkspaceStaff | null, input: z
   if (db.prepare("SELECT 1 FROM crm_segments WHERE name = ? COLLATE NOCASE AND id <> ?").get(input.name, input.id)) {
     return { error: "Use a different segment name." };
   }
-  db.prepare(`INSERT INTO crm_segments (id, name, kind, quietDays, revision) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET name = excluded.name, kind = excluded.kind, quietDays = excluded.quietDays, revision = excluded.revision`)
-    .run(input.id, input.name, input.kind, input.quietDays, input.revision + 1);
+  db.prepare(`INSERT INTO crm_segments (id, name, kind, quietDays, revision, customFilter) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET name = excluded.name, kind = excluded.kind, quietDays = excluded.quietDays,
+      revision = excluded.revision, customFilter = excluded.customFilter`)
+    .run(input.id, input.name, input.kind, input.quietDays, input.revision + 1, customFilter);
   accessEvent(db, staff, current ? "Updated CRM segment" : "Saved CRM segment", input.id, now);
   return { message: "CRM segment is saved." };
 }
@@ -65,10 +72,17 @@ function pastClients(db: Store, atRateTarget: boolean) {
 }
 
 export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof enrollCrmSegmentInput>, now: string, members: StaffIdentity[]): SegmentMutation {
-  const segment = db.prepare("SELECT * FROM crm_segments WHERE id = ?").get(input.segmentId) as CrmSegment | undefined;
+  const segment = db.prepare("SELECT * FROM crm_segments WHERE id = ?").get(input.segmentId) as
+    (Omit<CrmSegment, "customFilter"> & { customFilter: string | null }) | undefined;
   if (!segment || !db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(input.campaignId)) {
     return { error: "Choose an available saved segment and call campaign." };
   }
+  const fieldFilter = segment.customFilter === null ? null :
+    resolveCrmFieldFilter(db, crmFieldFilter.parse(JSON.parse(segment.customFilter)));
+  if (segment.customFilter !== null && !fieldFilter) return filterUnavailable;
+  const valueTable = crmFieldValueTable[segment.kind === "Quiet leads" ? "lead" : "contact"];
+  const matches = fieldFilter ? new Set(db.prepare(`SELECT recordId FROM ${valueTable} WHERE fieldId = ? AND value = ?`)
+    .all(fieldFilter.field.id, fieldFilter.value).map(({ recordId }) => recordId)) : null;
   const attachment = attachedCampaignSequence(db, input.campaignId);
   const kind = sequenceKindForSegment(segment.kind);
   if (attachment && attachment.kind !== "New Lead" && attachment.kind !== kind) {
@@ -85,7 +99,7 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
     ? leads.filter((lead) => !lead.replied && Date.parse(lead.lastOutreach) <= cutoff)
     : pastClients(db, segment.kind === "Past clients at rate target");
   const seen = new Set<string>();
-  const plan = candidates.map((candidate) => {
+  const plan = candidates.filter((candidate) => !matches || matches.has("lastOutreach" in candidate ? candidate.id : candidate.contactId)).map((candidate) => {
     const keys = outreachIdentityKeys(candidate);
     const lead = "lastOutreach" in candidate ? candidate : null;
     let status: PreviewRow["status"] = "Eligible";
@@ -107,7 +121,10 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
   });
   const eligible = plan.filter(({ row }) => row.status === "Eligible");
   const excluded = plan.filter(({ row }) => row.status !== "Eligible");
-  const fingerprint = createHash("sha256").update(JSON.stringify({ segment, campaign: input.campaignId, routingRevision: routing?.revision,
+  const { customFilter, ...baseSegment } = segment;
+  const fingerprint = createHash("sha256").update(JSON.stringify({
+    segment: fieldFilter ? { ...baseSegment, customFilter, fieldRevision: fieldFilter.field.revision } : baseSegment,
+    campaign: input.campaignId, routingRevision: routing?.revision,
     sequenceVersion: sequence?.version, plan })).digest("hex");
   if (!input.fingerprint) {
     const pages = Math.max(1, Math.ceil(eligible.length / segmentEnrollmentLimit));

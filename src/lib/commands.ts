@@ -2,6 +2,7 @@ import { z } from "zod";
 import { saveBorrowerChannelsInput } from "./borrower-channel-model";
 import { carryLeadChannelBlocks, linkedChannelLeadIds, saveBorrowerChannels } from "./borrower-channels";
 import { reconcileBorrowerSequences } from "./borrower-sequences";
+import { carryCrmFields } from "./crm-fields";
 import { campaignWorkPatch, crmSegmentRows, insertContact, insertLoan, insertSubmission, leadContactCandidates, leadWorkRecord, loanWorkRecords,
   readCampaignNavigation, readCampaignQueue, readWorkspace, savedPricingRun, workspace, type SqlValue, type Store } from "./store";
 import { activityKinds, contactOutcomes, disclosureStatuses, dispositions, draftMilestones, followUpOutcomes, followUpPurposes,
@@ -1285,6 +1286,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const carriedDocuments = carryLeadDocuments(db, data.referralId, loanId, now);
           if (carriedDocuments === null) throw new WorkspaceError("A sample PDF is still processing. Wait for the upload to finish before converting the lead.");
           stopCampaignFollowUp(db, staff, data.referralId, now, "1003 started", true);
+          carryCrmFields(db, { record: "lead", recordId: data.referralId }, contact.id);
           if (carryLeadChannelBlocks(db, data.referralId, contact.id)) {
             reconcileBorrowerSequences(db, linkedChannelLeadIds(db, contact.id).filter((leadId) => leadId !== data.referralId), now);
           }

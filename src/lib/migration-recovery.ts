@@ -211,13 +211,15 @@ function hasProtectedLinks(db: Store, table: Table, id: string, row: Record<stri
       UNION ALL SELECT 1 FROM communication_drafts WHERE contactId = ?
       UNION ALL SELECT 1 FROM realtor_portals WHERE realtorId = ?
       UNION ALL SELECT 1 FROM pilot_scenario WHERE realtorId = ?
-      UNION ALL SELECT 1 FROM pilot_sample_contacts WHERE contactId = ? LIMIT 1`).get(id, id, id, id, id, id);
+      UNION ALL SELECT 1 FROM pilot_sample_contacts WHERE contactId = ?
+      UNION ALL SELECT 1 FROM crm_contact_field_values WHERE recordId = ? LIMIT 1`).get(id, id, id, id, id, id, id);
     if (usage) return true;
     const links = db.prepare(`SELECT 'referral_leads:' || id AS linked FROM referral_leads WHERE importedContactId = ? OR realtorId = ?
       UNION ALL SELECT 'contact_activity:' || id FROM contact_activity WHERE contactId = ? LIMIT 101`).all(id, id, id);
     return links.some(({ linked }) => !eligible.has(String(linked)));
   }
   if (table === "referral_leads") {
+    if (db.prepare("SELECT 1 FROM crm_lead_field_values WHERE recordId = ?").get(id)) return true;
     if (!eligible.has(`call_campaign_members:${id}`) && db.prepare("SELECT 1 FROM call_campaign_members WHERE leadId = ?").get(id)) return true;
     const links = db.prepare(`SELECT 'lead_events:' || id AS linked FROM lead_events WHERE leadId = ?
       UNION ALL SELECT 'lead_import_tasks:' || id FROM lead_import_tasks WHERE leadId = ? LIMIT 101`).all(id, id);

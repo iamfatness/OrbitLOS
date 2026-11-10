@@ -9,6 +9,7 @@ import { leadSources } from "@/lib/model";
 import { currentReportMonth } from "@/lib/report-date-range";
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { CrmFieldFilterEditor } from "./crm-fields";
 
 type Edit = { id: string; revision: number; definition: CustomReportDefinition };
 type Drill = { metric: CustomReportMetric; group?: CustomReportGroup; page: CustomReportRecords };
@@ -17,8 +18,9 @@ function toggle<T>(options: T[], value: T) {
   return options.includes(value) ? options.filter((option) => option !== value) : [...options, value];
 }
 
-function ReportEditor({ edit, busy, change, save, cancel }: {
-  edit: Edit; busy: boolean; change: (update: Partial<CustomReportDefinition>) => void; save: (event: FormEvent<HTMLFormElement>) => void; cancel: () => void;
+function ReportEditor({ edit, brokerageId, busy, change, save, cancel }: {
+  edit: Edit; brokerageId: string; busy: boolean; change: (update: Partial<CustomReportDefinition>) => void;
+  save: (event: FormEvent<HTMLFormElement>) => void; cancel: () => void;
 }) {
   const report = edit.definition;
   const { groups, metrics } = customReportChoices[report.dataset];
@@ -55,6 +57,8 @@ function ReportEditor({ edit, busy, change, save, cancel }: {
         onChange={(event) => change({ purpose: event.target.value as CustomReportDefinition["purpose"] })}>
         <option value="">All purposes</option><option>Purchase</option><option>Refinance</option></select></label>
     </div>
+    <CrmFieldFilterEditor brokerageId={brokerageId} value={report.customFilter} change={(customFilter) => change({ customFilter })} disabled={busy}
+      scope={report.dataset === "Intake cohort" ? "Matches values saved on leads." : "Matches values saved on borrower contacts."} />
     <div className="form-grid">
       <fieldset className="document-item" disabled={busy}><legend>Counts to show</legend>
         {metrics.map((metric) => <label className="demo-confirm" key={metric}><input type="checkbox" checked={report.metrics.includes(metric)}
@@ -219,7 +223,7 @@ export function CustomReports({ brokerageId, role, openRecord }: {
       }}>New report</Button>}
     </div>}
     {catalog?.length === 0 && !edit && <p className="muted">{admin ? "No saved custom reports yet." : "No reports have been shared with your role."}</p>}
-    {edit && <ReportEditor edit={edit} busy={busy} change={(update) => {
+    {edit && <ReportEditor edit={edit} brokerageId={brokerageId} busy={busy} change={(update) => {
       setEdit({ ...edit, definition: { ...edit.definition, ...update } });
       setMessage(undefined);
     }} save={save} cancel={() => { setEdit(undefined); setMessage(undefined); }} />}

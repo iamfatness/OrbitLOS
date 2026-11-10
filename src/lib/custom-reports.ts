@@ -1,4 +1,5 @@
 import { easternDayStart } from "./client-retention";
+import { canSeeCrmField, crmFieldValueTable, resolveCrmFieldFilter } from "./crm-fields";
 import { customReportDefinition, customReportInput, customReportLimit, customReportRange, customReportUnavailable,
   type CustomReport, type CustomReportCounts, type CustomReportInput, type CustomReportMetric, type CustomReportRecord,
   type CustomReportResult } from "./custom-report-model";
@@ -17,9 +18,13 @@ function definition(row: SavedRow): CustomReport {
   return { ...customReportDefinition.parse(JSON.parse(row.definition)), id: row.id, revision: row.revision };
 }
 
-function canRun(report: CustomReport, staff: WorkspaceStaff) {
+function visibleReport(db: Store, report: CustomReport, staff: WorkspaceStaff) {
   const { role } = staff.brokerage;
-  return role === "Admin" || report.roles.includes(role);
+  if (role === "Admin") return true;
+  if (!report.roles.includes(role)) return false;
+  if (!report.customFilter) return true;
+  const filter = resolveCrmFieldFilter(db, report.customFilter);
+  return Boolean(filter && canSeeCrmField(filter.field, role));
 }
 
 function changeReport(db: Store, input: Extract<CustomReportInput, { type: "save" | "archive" }>, staff: WorkspaceStaff,
@@ -35,7 +40,14 @@ function changeReport(db: Store, input: Extract<CustomReportInput, { type: "save
       accessEvent(db, staff, "Archived custom report", input.id, now);
       return { kind: "archived" };
     }
-    const serialized = JSON.stringify(input.definition);
+    const { customFilter, ...base } = input.definition;
+    const filter = customFilter ? resolveCrmFieldFilter(db, customFilter) : null;
+    if (customFilter && !filter) return { error: "Choose an available CRM field and a valid filter value." };
+    if (filter && !base.roles.every((role) => canSeeCrmField(filter.field, role))) {
+      return { error: "Share the CRM field with every role that can run this report, or change who can run it." };
+    }
+    const config = filter ? { ...base, customFilter: { fieldId: filter.field.id, value: filter.value } } : base;
+    const serialized = JSON.stringify(config);
     if (row && !row.archivedAt && row.definition === serialized) return { kind: "saved", report: definition(row) };
     if (row?.archivedAt || (row?.revision ?? 0) !== input.revision) return changed;
     const duplicate = db.prepare("SELECT 1 FROM custom_reports WHERE name = ? COLLATE NOCASE AND archivedAt IS NULL AND id <> ?")
@@ -49,7 +61,7 @@ function changeReport(db: Store, input: Extract<CustomReportInput, { type: "save
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, revision = excluded.revision, definition = excluded.definition`)
       .run(input.id, input.definition.name, revision, serialized);
     accessEvent(db, staff, row ? "Updated custom report" : "Created custom report", input.id, now);
-    return { kind: "saved", report: { ...input.definition, id: input.id, revision } };
+    return { kind: "saved", report: { ...config, id: input.id, revision } };
   });
 }
 
@@ -84,7 +96,7 @@ function eventRows(report: CustomReport, staff: WorkspaceStaff, range: ReportDat
     const needsSubmission = report.metrics.includes("converted");
     const needsFunding = report.metrics.includes("cohortFunded");
     const inputs = `intake AS (
-      SELECT lead.id, lead.createdAt AS at, coalesce(borrower.name, lead.name) AS name,
+      SELECT lead.id, lead.id AS fieldRecordId, lead.createdAt AS at, coalesce(borrower.name, lead.name) AS name,
         CASE WHEN loan.id IS NULL THEN 'lead' ELSE 'loan' END AS targetKind,
         coalesce(loan.id, lead.id) AS targetId, ${owner} AS ownerEmail, coalesce(loan.officer, lead.officer) AS owner,
         ${source} AS source, coalesce(loan.purpose, lead.purpose) AS purpose, loan.amount AS amount,
@@ -111,7 +123,7 @@ function eventRows(report: CustomReport, staff: WorkspaceStaff, range: ReportDat
   const sql = report.metrics.map((metric) => {
     const event = loanEvents[metric as keyof typeof loanEvents];
     params.push(...(metric === "funding" ? [range.from, shiftReportDate(range.through, 1)] : [first, last]), ...(ownership ? [staff.email] : []));
-    return `SELECT loan.id, ${event.at} AS at, borrower.name, 'loan' AS targetKind, loan.id AS targetId, loan.officerEmail AS ownerEmail,
+    return `SELECT loan.id, borrower.id AS fieldRecordId, ${event.at} AS at, borrower.name, 'loan' AS targetKind, loan.id AS targetId, loan.officerEmail AS ownerEmail,
       loan.officer AS owner, ${reportSource} AS source, loan.purpose, loan.amount, loan.stage AS status,
       NULL AS campaignId, NULL AS campaignName, '${metric}' AS metric
       ${event.source} JOIN contacts borrower ON borrower.id = loan.contactId
@@ -123,12 +135,17 @@ function eventRows(report: CustomReport, staff: WorkspaceStaff, range: ReportDat
 function cohort(report: CustomReport, staff: WorkspaceStaff, range: ReportDateRange) {
   const events = eventRows(report, staff, range);
   const { key, name } = groups[report.groupBy];
+  const { customFilter } = report;
+  const table = crmFieldValueTable[report.dataset === "Intake cohort" ? "lead" : "contact"];
   return {
     sql: `WITH ${events.inputs} events AS (${events.sql}), report AS (
       SELECT *, ${key} AS groupKey, ${name} AS groupName FROM events WHERE 1 = 1
       ${report.source ? "AND source = ?" : ""} ${report.purpose ? "AND purpose = ?" : ""}
+      ${customFilter ? `AND EXISTS (SELECT 1 FROM ${table} fieldValue
+        WHERE fieldValue.recordId = events.fieldRecordId AND fieldValue.fieldId = ? AND fieldValue.value = ?)` : ""}
     )`,
-    params: [...events.params, ...(report.source ? [report.source] : []), ...(report.purpose ? [report.purpose] : [])],
+    params: [...events.params, ...(report.source ? [report.source] : []), ...(report.purpose ? [report.purpose] : []),
+      ...(customFilter ? [customFilter.fieldId, customFilter.value] : [])],
   };
 }
 
@@ -185,12 +202,15 @@ export function customReportWork(db: Store, input: unknown, staff: WorkspaceStaf
   if (request.type === "list") {
     const rows = db.prepare("SELECT id, revision, definition FROM custom_reports WHERE archivedAt IS NULL ORDER BY name COLLATE NOCASE, id LIMIT ?")
       .all(customReportLimit) as unknown as SavedRow[];
-    return { kind: "list", reports: rows.map(definition).filter((report) => canRun(report, staff)) };
+    return { kind: "list", reports: rows.map(definition).filter((report) => visibleReport(db, report, staff)) };
   }
   const row = db.prepare("SELECT id, revision, definition FROM custom_reports WHERE id = ? AND archivedAt IS NULL").get(request.id) as SavedRow | undefined;
   if (!row) return { error: customReportUnavailable };
   const report = definition(row);
-  if (!canRun(report, staff)) return { error: customReportUnavailable };
+  if (!visibleReport(db, report, staff)) return { error: customReportUnavailable };
+  if (report.customFilter && !resolveCrmFieldFilter(db, report.customFilter)) {
+    return { error: "This report’s CRM field is unavailable. Update the saved filter before running it." };
+  }
   if (request.revision !== report.revision) return { error: "This report changed. Reload the saved report before running it." };
   const range = customReportRange(report.period, now);
   return request.type === "run" ? runReport(db, request, report, staff, range) : reportRecords(db, request, report, staff, range);

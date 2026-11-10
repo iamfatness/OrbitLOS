@@ -38,6 +38,7 @@ const { campaignFollowUpWork, playbookWork } = await import("../src/lib/playbook
 const { playbookRunWork } = await import("../src/lib/playbook-runs.ts");
 const { changeConversation, readConversations } = await import("../src/lib/conversations.ts");
 const { contactMergeWork } = await import("../src/lib/contact-merge.ts");
+const { crmFieldWork } = await import("../src/lib/crm-fields.ts");
 const { indexPendingContactOutreach, indexPendingRealtorReplies } = await import("../src/lib/outreach-preferences.ts");
 const { readWorkspaceSearch } = await import("../src/lib/workspace-search.ts");
 const { realtorReferrals } = await import("../src/lib/realtor-portal.ts");
@@ -77,6 +78,55 @@ function fixture(t) {
     brokerage: { id: crypto.randomUUID(), name: "Fictional brokerage", role: "Admin", pilot: true } };
   return { db, staff };
 }
+
+test("CRM field matches drive segment previews without overriding outreach rules or existing borrower values", async (t) => {
+  const { db, staff } = fixture(t);
+  const fields = (input) => crmFieldWork(db, input, staff, staff.brokerage.id);
+  const fieldId = crypto.randomUUID();
+  const config = { type: "saveField", fieldId, revision: 0,
+    definition: { label: "Outreach tier", kind: "Choice", options: ["Priority", "Standard"], roles: ["LO"] } };
+  assert.equal(fields(config).kind, "savedField");
+  const campaignId = crypto.randomUUID();
+  const write = (input) => executeCommand(db, input, staff, undefined, [], { scopedLeadUpdates: true });
+  assert.ok(!(await write({ type: "createCallCampaign", id: campaignId, name: "Fictional priority campaign" })).error);
+  const segmentId = crypto.randomUUID();
+  const segment = { type: "saveCrmSegment", id: segmentId, revision: 0, name: "Priority quiet leads", kind: "Quiet leads", quietDays: 7,
+    customFilter: { fieldId, value: "Priority" } };
+  assert.ok(!(await write(segment)).error);
+  const at = new Date(Date.now() - 10 * 86_400_000).toISOString();
+  const [mine, blocked, standard] = ["0151", "0152", "0153"].map((suffix) => {
+    const id = crypto.randomUUID();
+    db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt)
+      VALUES (?, ?, ?, ?, ?, 'Purchase', ?, ?, ?, ?)`).run(id, id, `Fictional ${suffix}`, `qa-${suffix}@example.test`, `248555${suffix}`, staff.name, staff.email, at, at);
+    return id;
+  });
+  const set = (record, recordId, value, revision = 0) =>
+    fields({ type: "saveValue", record, recordId, fieldId, fieldRevision: 1, revision, value });
+  assert.equal(set("lead", mine, "Priority").kind, "values");
+  assert.equal(set("lead", blocked, "Priority").kind, "values");
+  assert.equal(set("lead", standard, "Standard").kind, "values");
+  assert.ok(!(await write({ type: "leadOptOut", leadId: blocked })).error);
+  const enroll = { type: "enrollCrmSegment", segmentId, campaignId };
+  const first = (await write(enroll)).segmentPreview;
+  assert.deepEqual(first.rows.map(({ id, status }) => [id, status]), [[mine, "Eligible"], [blocked, "Opted out"]]);
+  assert.equal(set("lead", mine, "Standard", 1).kind, "values");
+  assert.match((await write({ ...enroll, fingerprint: first.fingerprint, selectedIds: [mine] })).error, /results changed/);
+  assert.equal(set("lead", mine, "Priority", 2).kind, "values");
+  const refreshed = (await write(enroll)).segmentPreview;
+  assert.ok(!(await write({ ...enroll, fingerprint: refreshed.fingerprint, selectedIds: [mine] })).error);
+  const converted = await write({ type: "convertReferral", referralId: mine, contactId: null });
+  assert.ok(converted.referralLoanId, converted.error);
+  const contactId = db.prepare("SELECT contactId FROM loans WHERE id = ?").get(converted.referralLoanId).contactId;
+  assert.equal(fields({ type: "values", record: "contact", recordId: contactId }).entries[0].value, "Priority");
+  assert.ok(fields({ type: "values", record: "lead", recordId: mine }).error);
+  db.prepare("UPDATE referral_leads SET importedContactId = ? WHERE id = ?").run(contactId, standard);
+  assert.ok((await write({ type: "convertReferral", referralId: standard, contactId: null })).referralLoanId);
+  assert.equal(fields({ type: "values", record: "contact", recordId: contactId }).entries[0].value, "Priority");
+
+  assert.equal(fields({ type: "archiveField", fieldId, revision: 1 }).kind, "archived");
+  assert.match((await write(enroll)).error, /field is unavailable/);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
 
 test("CSV sequence progress survives a manager pause and retires on reply, conversion, opt-out or archive", async (t) => {
   const { db, staff } = fixture(t);
@@ -889,6 +939,13 @@ test("admin undo restores original links and records one receipt after checking 
   const work = (input, actor = staff, brokerage = tenant, time = at) => contactMergeWork(db, input, actor, brokerage, time);
   insertContact(db, { id: "source", name: "Fictional Source", role: "Borrower", email: "BUYER@example.test", phone: "2485550199" });
   insertContact(db, { id: "primary", name: "Fictional Primary", role: "Borrower", email: "buyer@example.test", phone: "" });
+  const fieldId = crypto.randomUUID();
+  const fields = (input) => crmFieldWork(db, input, staff, tenant, at);
+  assert.equal(fields({ type: "saveField", fieldId, revision: 0,
+    definition: { label: "Outreach note", kind: "Short text", options: [], roles: [] } }).kind, "savedField");
+  assert.equal(fields({ type: "saveValue", record: "contact", recordId: "source", fieldId, fieldRevision: 1,
+    revision: 0, value: "Fictional outreach tag" }).kind, "values");
+  const tag = (recordId) => fields({ type: "values", record: "contact", recordId }).entries[0];
   for (const [id, contactId] of [["source-loan", "source"], ["primary-loan", "primary"]]) {
     insertLoan(db, { id, contactId, partnerId: null, officer: staff.name, officerEmail: staff.email,
       amount: 250000, address: "", purpose: "Purchase", stage: "Lead", stageSince: at });
@@ -904,6 +961,7 @@ test("admin undo restores original links and records one receipt after checking 
   const mergeId = crypto.randomUUID();
   const merge = { ...pair, type: "merge", operationId: mergeId, fingerprint: work({ ...pair, type: "preview" }).fingerprint };
   assert.deepEqual(work(merge), { kind: "merged", contactId: "primary" });
+  assert.equal(tag("primary").value, "Fictional outreach tag");
   const previewInput = { type: "previewUndo", mergeId };
   const preview = work(previewInput);
   assert.equal(preview.blocker, null);
@@ -924,6 +982,9 @@ test("admin undo restores original links and records one receipt after checking 
   db.exec("DROP TRIGGER fail_restore;");
 
   assert.deepEqual(work(undo, admin, tenant, undoAt), { kind: "undone", contactId: "source" });
+  assert.equal(tag("source").value, "Fictional outreach tag");
+  assert.equal(tag("primary").value, null);
+  assert.ok(tag("primary").revision > 1);
   assert.deepEqual(work(undo, admin, tenant, undoAt), { kind: "undone", contactId: "source" });
   assert.ok(work(undo).error);
   assert.match(work(merge).error, /was undone/);

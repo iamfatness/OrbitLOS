@@ -1682,6 +1682,7 @@ try {
     assert.equal(read(retried, nextLead).dueAt, dueAt);
     assert.equal(read(retried, stillShared).officerEmail, null);
   });
+  const crmFieldId = randomUUID();
   const quoteFile = await stage("A published website quote routes through campaign capacity into a prefilled 1003", async () => {
     const campaignId = randomUUID();
     const { leadRouting: routing } = await workspace(owner);
@@ -1815,12 +1816,24 @@ try {
     const before = await pdf(officer);
     assert.equal(before.status, 200);
     assert.deepEqual(new Uint8Array(await before.arrayBuffer()), demoDocumentPdf("clean"));
+    const createField = { type: "saveField", fieldId: crmFieldId, revision: 0,
+      definition: { label: "Fictional outreach tier", kind: "Choice", options: ["Priority", "Standard"], roles: ["LO", "Processor"] } };
+    assert.ok((await action(officer, "accessCrmFields", createField)).error);
+    assert.equal((await action(owner, "accessCrmFields", createField)).kind, "savedField");
+    const saveField = { type: "saveValue", record: "lead", recordId: first.id, fieldId: crmFieldId,
+      fieldRevision: 1, revision: 0, value: "Priority" };
+    assert.ok((await action(competingOfficer, "accessCrmFields", saveField)).error);
+    assert.equal((await action(officer, "accessCrmFields", saveField)).entries[0].value, "Priority");
     const convert = { type: "convertReferral", referralId: first.id, contactId: null };
     const { referralLoanId } = await write(officer, convert);
     assert.equal((await write(officer, convert)).referralLoanId, referralLoanId);
     assert.equal((await postResponse(publicDocuments, read)).status, 404);
     assert.equal(await directory.brokerageForPortal(token), null);
     const loan = await file(officer, referralLoanId);
+    const fieldValues = { type: "values", record: "contact", recordId: loan.loans[0].contactId };
+    assert.equal((await action(officer, "accessCrmFields", fieldValues)).entries[0].value, "Priority");
+    assert.ok((await action(competingOfficer, "accessCrmFields", fieldValues)).error);
+    assert.ok((await action(officer, "accessCrmFields", fieldValues, undefined, randomUUID())).error);
     assert.equal(loan.loans[0].leadSource, "Website quote request");
     assert.equal(loan.documentRequests[0].id, requestId);
     assert.equal(loan.documentRequests[0].status, "Accepted");
@@ -2339,6 +2352,26 @@ try {
     assert.equal((await reportWork(processor, { type: "run", ...productionRef })).totals.files, processorResults.rows.length);
     for (const { destination } of processorResults.rows) assert.equal((await file(processor, destination.id)).loans[0].id, destination.id);
     assert.ok((await reportWork(officer, { type: "run", ...productionRef })).error);
+  });
+  await stage("CRM field filtering follows the converted loan and sharing can be revoked", async () => {
+    const reportWork = (staff, input) => action(staff, "accessCustomReport", input);
+    const save = { type: "save", id: randomUUID(), revision: 0, definition: { name: "Fictional priority intake",
+      dataset: "Intake cohort", period: { kind: "Last 30 days" }, groupBy: "Lead source", metrics: ["inquiries"],
+      columns: ["Loan officer"], source: "", purpose: "", roles: ["LO"], customFilter: { fieldId: crmFieldId, value: "Priority" } } };
+    const { report } = await reportWork(owner, save);
+    const ref = { id: report.id, revision: report.revision };
+    const run = { type: "run", ...ref };
+    const records = { type: "records", ...ref, metric: "inquiries" };
+    assert.equal((await reportWork(officer, run)).totals.inquiries, 1);
+    assert.deepEqual((await reportWork(officer, records)).rows.map(({ destination }) => destination), [{ kind: "loan", id: quoteFile.id }]);
+    assert.equal((await reportWork(competingOfficer, run)).totals.inquiries, 0);
+    assert.equal((await action(owner, "accessCrmFields", { type: "saveField", fieldId: crmFieldId, revision: 1,
+      definition: { label: "Fictional outreach tier", kind: "Choice", options: ["Priority", "Standard"], roles: [] } })).kind, "savedField");
+    assert.ok((await reportWork(officer, run)).error);
+    assert.ok((await reportWork(officer, records)).error);
+    assert.equal((await reportWork(owner, run)).totals.inquiries, 1);
+    assert.equal((await action(owner, "accessCrmFields", { type: "archiveField", fieldId: crmFieldId, revision: 2 })).kind, "archived");
+    assert.ok((await reportWork(owner, run)).error);
   });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],

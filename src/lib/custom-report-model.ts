@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { crmFieldFilter } from "./crm-field-model";
 import { easternDate } from "./client-retention";
 import { leadSources } from "./model";
 import { reportMonthDates, shiftReportDate, validReportRange } from "./report-date-range";
@@ -27,6 +28,7 @@ export const customReportDefinition = z.object({
   name: z.string().trim().min(1).max(80), dataset: z.enum(customReportTypes), period, groupBy: z.enum(customReportGroups),
   metrics: z.array(z.enum(metrics)).min(1).max(3), columns: z.array(z.enum(customReportColumns)).max(customReportColumns.length),
   source: z.enum(["", ...leadSources]), purpose: z.enum(["", "Purchase", "Refinance"]), roles: z.array(role).max(2),
+  customFilter: crmFieldFilter.optional(),
 }).superRefine((report, ctx) => {
   const choices = customReportChoices[report.dataset];
   if (!choices.groups.some((group) => group === report.groupBy) || report.metrics.some((metric) => !choices.metrics.some((item) => item === metric))) {

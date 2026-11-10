@@ -91,6 +91,7 @@ import { readEditableLead } from "./lib/editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./lib/sales-dashboard";
 import { changeOwnerScorecardSettings, readOwnerScorecard } from "./lib/owner-scorecard";
 import { customReportWork } from "./lib/custom-reports";
+import { crmFieldWork } from "./lib/crm-fields";
 import { disclosureCalendarWork } from "./lib/disclosure-calendar";
 import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
@@ -406,6 +407,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   customReport(input: unknown, staff: WorkspaceStaff) {
     return customReportWork(this.#store, input, staff, this.#id);
+  }
+
+  crmFields(input: unknown, staff: WorkspaceStaff) {
+    return crmFieldWork(this.#store, input, staff, this.#id);
   }
 
   disclosureCalendar(input: unknown, staff: WorkspaceStaff) {

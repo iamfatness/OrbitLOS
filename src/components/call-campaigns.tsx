@@ -538,7 +538,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         </Button>}
       </div>}
     </section>
-    {canManage && segmentsOpen && <CrmSegments segments={state.crmSegments} campaign={campaign} busy={busy} save={save} />}
+    {canManage && segmentsOpen && <CrmSegments segments={state.crmSegments} campaign={campaign}
+      brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} />}
     {campaign && <>
       {canManage && routingOpen && <CampaignRouting key={`routing:${campaign.id}:${campaign.routing?.revision ?? 0}`} campaign={campaign} staff={staff} busy={busy} save={save} />}
       {canManage && importOpen && <CampaignImport key={`import:${campaign.id}:${campaign.routing?.revision ?? 0}`} campaign={campaign} staff={staff} busy={busy} save={save}
