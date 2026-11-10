@@ -128,8 +128,8 @@ export function ManageBorrowerQuestionSets({ brokerageId }: { brokerageId: strin
 function SetRequests({ loanId, set, preview, busy, save, onSaved }: {
   loanId: string; set: QuestionSet; preview: QuestionSetPreview; busy: boolean; save: Save; onSaved: () => void;
 }) {
-  const [choices, setChoices] = useState(() => set.items.map(({ dueDays }, position) => ({
-    position, included: true, recipient: preview.recipients[0], dueOn: questionSetDueDate(preview.asOf, dueDays),
+  const [choices, setChoices] = useState(() => set.items.map((_, position) => ({
+    position, included: true, recipient: preview.recipients[0],
   })));
   const attempt = useRef<{ id: string; payload: string } | null>(null);
   const count = choices.filter(({ included }) => included).length;
@@ -139,14 +139,15 @@ function SetRequests({ loanId, set, preview, busy, save, onSaved }: {
   return <form className="record-form" onSubmit={(event) => {
     event.preventDefault();
     if (busy || !count || count > preview.remaining) return;
+    const form = new FormData(event.currentTarget);
     const input = { type: "applyBorrowerQuestionSet", loanId, setId: set.id, revision: set.revision,
       asOf: preview.asOf, applicationRevision: preview.applicationRevision, items: choices.filter(({ included }) => included)
-        .map(({ position, recipient, dueOn }) => ({ position, recipient, dueOn })) };
+        .map(({ position, recipient }) => ({ position, recipient, dueOn: String(form.get(`dueOn-${position}`) ?? "") || null })) };
     const payload = JSON.stringify(input);
     if (attempt.current?.payload !== payload) attempt.current = { id: crypto.randomUUID(), payload };
     void save({ ...input, batchId: attempt.current.id }, onSaved);
   }}>
-    {choices.map(({ position, included, recipient, dueOn }) => <div className="document-item" key={position}>
+    {choices.map(({ position, included, recipient }) => <div className="document-item" key={position}>
       <label className="demo-confirm"><input type="checkbox" checked={included} disabled={busy}
         onChange={(event) => change(position, { included: event.target.checked })} />Include question {position + 1}</label>
       <p><strong>{set.items[position].prompt}</strong> · {set.items[position].kind}</p>
@@ -155,8 +156,8 @@ function SetRequests({ loanId, set, preview, busy, save, onSaved }: {
           change(position, { recipient: event.target.value as DocumentRecipient })}>
           {preview.recipients.map((option) => <option key={option}>{option}</option>)}
         </select></label>
-        <label className="field">Due date for question {position + 1}<input type="date" min={preview.asOf} max="2199-12-31"
-          value={dueOn ?? ""} disabled={busy || !included} onChange={(event) => change(position, { dueOn: event.target.value || null })} /></label>
+        <label className="field">Due date for question {position + 1}<input type="date" name={`dueOn-${position}`} min={preview.asOf} max="2199-12-31"
+          defaultValue={questionSetDueDate(preview.asOf, set.items[position].dueDays) ?? ""} disabled={busy || !included} /></label>
       </div>
     </div>)}
     {count > preview.remaining && <p role="status">This loan has room for {preview.remaining} more questions. Leave some out before adding the set.</p>}
