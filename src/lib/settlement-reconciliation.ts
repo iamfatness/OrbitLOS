@@ -3,6 +3,7 @@ import type { FinanceLoan, FinanceResult, SettlementEntry, SettlementMutation, S
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
+import { settlementFeeQueueCounts, settlementFeeQueuePage } from "./settlement-fees";
 
 const pageSize = 20;
 const balanceLimit = 50_000_000_000;
@@ -94,10 +95,12 @@ export function readSettlementQueue(db: Store, { view, after }: SettlementQueueQ
     WHEN summary.expectedCents = summary.receivedCents THEN CASE WHEN NOT ${reviewed} THEN 'Matches to confirm' END
     WHEN ${reviewed} THEN 'Reviewed differences'
     ELSE 'Differences' END`;
-  const counts: SettlementQueuePage["counts"] = { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 0 };
+  const counts: SettlementQueuePage["counts"] = { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 0,
+    ...settlementFeeQueueCounts(db) };
   const totals = db.prepare(`SELECT ${category} AS view, count(*) AS count ${source} WHERE progress.fundingDate IS NOT NULL GROUP BY view`)
     .all() as { view: SettlementQueueQuery["view"] | null; count: number }[];
   for (const total of totals) if (total.view) counts[total.view] = total.count;
+  if (view === "Fee differences" || view === "Reviewed fee differences") return settlementFeeQueuePage(db, { type: "settlementQueue", view, after }, counts);
   const cursor = after ? "AND (summary.changedAt, summary.loanId, summary.cycle) < (?, ?, ?)" : "";
   const records = db.prepare(`SELECT summary.loanId AS id, summary.cycle, summary.changedAt,
       contact.name AS borrower, loan.officer, progress.fundingDate AS date, summary.expectedCents, summary.receivedCents,

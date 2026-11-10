@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessBrokerageFinance } from "@/app/actions";
 import { financeInputCents as cents, financeMoney, inputDollars, type FinanceEntry, type FinanceInput, type FinanceListQuery, type FinanceLoan,
-  type FinanceMutation, type FinanceResult, type SettlementChange, type SettlementQueueQuery } from "@/lib/brokerage-finance-model";
+  type FinanceMutation, type FinanceResult, type SettlementChange, type SettlementFeeChange, type SettlementQueueQuery } from "@/lib/brokerage-finance-model";
 import { dateLabel } from "@/lib/client-retention";
 import type { Loan, Workspace } from "@/lib/model";
 import { currentReportMonth } from "@/lib/report-date-range";
@@ -11,6 +11,7 @@ import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { SettlementExceptionQueue } from "./settlement-exception-queue";
 import { SettlementReconciliation } from "./settlement-reconciliation";
+import { SettlementFeeComparison } from "./settlement-fee-comparison";
 import { Button } from "./ui/button";
 
 type List = Extract<FinanceResult, { kind: "list" }>;
@@ -107,7 +108,7 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   const [query, setQuery] = useState<FinanceListQuery>(() => ({ type: "list", ...currentReportMonth(), view: "Funded", owner: "" }));
   const [showExceptions, setShowExceptions] = useState(false);
   const [exceptionView, setExceptionView] = useState<SettlementQueueQuery["view"]>("Differences");
-  const [selection, setSelection] = useState<{ loanId: string; cycle: number; before?: number; settlementBefore?: number }>();
+  const [selection, setSelection] = useState<{ loanId: string; cycle: number; before?: number; settlementBefore?: number; feeBefore?: number; focusFees?: true }>();
   const [version, setVersion] = useState(0);
   const [list, setList] = useState<{ query: FinanceListQuery; data: List | { error: string } }>();
   const [detail, setDetail] = useState<{ selection: typeof selection; data: Detail | { error: string } }>();
@@ -142,7 +143,7 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
         attempt.current = null;
         setFeedback({ text: result.message });
         after?.();
-        setSelection((current) => current && { loanId: current.loanId, cycle: current.cycle });
+        setSelection((current) => current && { loanId: current.loanId, cycle: current.cycle, focusFees: current.focusFees });
       }
     } catch { setFeedback({ text: "Could not confirm this action. Refresh or try again.", error: true }); }
     finally { pending.current = false; setBusy(false); setVersion((current) => current + 1); }
@@ -152,10 +153,12 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   const data = selection ? detail?.selection === selection ? detail?.data : undefined : !showingQueue && list?.query === query ? list.data : undefined;
   const owners = [...new Map(loans.filter(({ officer }) => officer).map((loan) => [loan.officerEmail ? `email:${loan.officerEmail}` : `name:${loan.officer}`, loan.officer])).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
-  const save = (change: Change | SettlementChange, after?: () => void) => {
+  const save = (change: Change | SettlementChange | SettlementFeeChange, after?: () => void) => {
     if (!data || "error" in data || data.kind !== "detail" || pending.current) return;
     const { id: loanId, cycle, date: fundingDate } = data.loan;
-    const revision = change.type.startsWith("settlement") ? data.settlement.revision : data.loan.revision;
+    const feeChange = change.type === "settlementFeeStatement" || change.type === "settlementFeeReview";
+    if (feeChange && !data.settlementFees) return;
+    const revision = feeChange ? data.settlementFees?.revision ?? 0 : change.type.startsWith("settlement") ? data.settlement.revision : data.loan.revision;
     const fields = { ...change, loanId, cycle, fundingDate, revision };
     const key = JSON.stringify(fields);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
@@ -174,7 +177,7 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
       setSelection(undefined); setFeedback(undefined);
     }}>{showExceptions ? "Back to settlement exceptions" : "Back to financials"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setVersion((value) => value + 1)}>Refresh ledger</Button></div>
       : showingQueue ? <SettlementExceptionQueue brokerageId={brokerageId} fundingVersion={fundingVersion} view={exceptionView} selectView={setExceptionView}
-        open={(loanId, cycle) => { setFeedback(undefined); setSelection({ loanId, cycle }); }} /> : <>
+        open={(loanId, cycle, focusFees) => { setFeedback(undefined); setSelection({ loanId, cycle, focusFees }); }} /> : <>
       <form className="record-form" key={`${query.from}:${query.through}:${query.view}:${query.owner}`} onSubmit={(event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
@@ -222,6 +225,9 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
       <p className="muted">Funded {dateLabel(data.loan.date)} · Cycle {data.loan.cycle}{data.loan.reversedAt && ` · Reversed ${dateTime(data.loan.reversedAt)} ET · Archived ledger`}</p>
       <SettlementReconciliation work={data.settlement} today={data.today} active={!data.loan.reversedAt} busy={busy} save={save}
         currentPage={!selection?.settlementBefore} onPage={(settlementBefore) => setSelection((current) => current && { ...current, settlementBefore })} />
+      {data.settlementFees && <SettlementFeeComparison work={data.settlementFees} today={data.today} active={!data.loan.reversedAt} busy={busy}
+        focus={selection?.focusFees} save={save} currentPage={!selection?.feeBefore}
+        onPage={(feeBefore) => setSelection((current) => current && { ...current, feeBefore })} />}
       <LoanAmounts loan={data.loan} />
       <p className="muted">{data.loan.expenseReviewed ? "Direct expenses reviewed." : "Direct expense review is incomplete."} Estimated margin covers this loan’s direct costs.</p>
       {!data.loan.reversedAt && <FinanceForms key={`${data.loan.id}:${data.loan.cycle}:${data.loan.revision}`} loan={data.loan} today={data.today} busy={busy} save={save} />}

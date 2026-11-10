@@ -339,6 +339,18 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE UNIQUE INDEX IF NOT EXISTS settlement_unique_receipt ON settlement_events(loanId, cycle, receiptReference COLLATE NOCASE)
       WHERE receiptReference IS NOT NULL;
     CREATE INDEX IF NOT EXISTS settlement_evidence_by_kind ON settlement_events(loanId, cycle, kind, revision);
+    CREATE TABLE IF NOT EXISTS settlement_fee_events (
+      loanId TEXT NOT NULL, cycle INTEGER NOT NULL, revision INTEGER NOT NULL, id TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK(kind IN ('Statement', 'Review')), fundingDate TEXT NOT NULL,
+      at TEXT NOT NULL, actor TEXT NOT NULL, actorEmail TEXT NOT NULL, note TEXT NOT NULL,
+      baseline TEXT NOT NULL, statement TEXT NOT NULL, request TEXT NOT NULL,
+      differenceCount INTEGER NOT NULL, missingCount INTEGER NOT NULL, supersededAt TEXT,
+      PRIMARY KEY(loanId, cycle, revision),
+      FOREIGN KEY(loanId, cycle) REFERENCES loan_financials(loanId, cycle) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS current_settlement_fee_event ON settlement_fee_events(loanId, cycle) WHERE supersededAt IS NULL;
+    CREATE INDEX IF NOT EXISTS settlement_fee_differences_by_date ON settlement_fee_events(at DESC, loanId DESC, cycle DESC)
+      WHERE supersededAt IS NULL AND differenceCount > 0;
     CREATE TABLE IF NOT EXISTS loan_financial_entries (
       sequence INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, loanId TEXT NOT NULL, cycle INTEGER NOT NULL,
       kind TEXT NOT NULL, amountCents INTEGER, occurredOn TEXT NOT NULL, reference TEXT NOT NULL, note TEXT NOT NULL,

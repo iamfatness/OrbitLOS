@@ -32,6 +32,10 @@ const { readCsv } = await import("../src/lib/contact-csv.ts");
 const { canRecordFundingCheckIn, fundingCheckInTarget, loanNextAction } = await import("../src/lib/loan-workflow.ts");
 const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 const { queueActionLabel } = await import("../src/lib/officer-queue-model.ts");
+const { sampleApplication } = await import("../src/lib/application-model.ts");
+const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
+const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
+const { blankFees } = await import("../src/lib/quote-worksheet.ts");
 
 function fundingFixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -120,7 +124,8 @@ test("fictional settlement matches partial receipts, preserves corrections, and 
   save(write("settlementReview", { note: "Fictional second receipt is still pending." }));
   assert.equal(detail().settlement.status, "Difference reviewed");
   assert.equal(detail().settlement.entries[0].amountCents, 50_000);
-  assert.deepEqual(queue().counts, { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 1 });
+  assert.deepEqual(queue().counts, { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 1,
+    "Fee differences": 0, "Reviewed fee differences": 0 });
   const beforeUpgrade = queue("Reviewed differences");
   db.exec("DROP TRIGGER settlement_cycle_event_insert; DROP TABLE settlement_cycle_summary");
   initializeStore(db, false);
@@ -189,7 +194,8 @@ test("settlement exceptions page across tied timestamps and reopen only the curr
   assert.deepEqual(first.rows.map(({ id }) => id), ids.slice(2, 22).reverse());
   assert.deepEqual(second.rows.map(({ id }) => id), ids.slice(0, 2).reverse());
   assert.equal(second.next, null);
-  assert.deepEqual(second.counts, { Differences: 22, "Matches to confirm": 0, "Missing evidence": 1, "Reviewed differences": 0 });
+  assert.deepEqual(second.counts, { Differences: 22, "Matches to confirm": 0, "Missing evidence": 1, "Reviewed differences": 0,
+    "Fee differences": 0, "Reviewed fee differences": 0 });
 
   const loanId = ids[0];
   assert.equal(finance({ type: "settlementReview", loanId, cycle: 1, fundingDate: initialFunding, revision: 2,
@@ -203,6 +209,97 @@ test("settlement exceptions page across tied timestamps and reopen only the curr
   assert.ok(reversal.state, reversal.error);
   assert.equal(finance(query).counts.Differences, 21);
   assert.equal(finance({ type: "detail", loanId, cycle: 1 }).settlement.differenceCents, 10_000);
+});
+
+test("itemized settlement differences pin the confirmed sample and reopen on a funding correction", async (t) => {
+  const { db, admin, officer, loanId, run, apply, closing, initialFunding, correctedFunding, day } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  const finance = (input, actor = owner) => brokerageFinanceWork(db, { loanId, cycle: 1, ...input }, actor, owner.brokerage.id);
+  const detail = (cycle = 1) => finance({ type: "detail", cycle });
+  const work = () => detail().settlementFees;
+  const queue = (view = "Fee differences") => finance({ type: "settlementQueue", view });
+  const save = (input) => {
+    const result = finance(input);
+    assert.equal(result.kind, "saved", result.error);
+  };
+  const app = (await apply({ type: "startApplication" })).applications[0];
+  const draft = sampleApplication(borrowerCommandResult(db, { type: "read", token: app.token }).application.draft);
+  Object.assign(draft.propertyLocation, { city: "Bloomfield Hills", state: "MI", zip: "48304" });
+  const submitted = borrowerCommandResult(db, { type: "submit", token: app.token, step: 9, revision: app.revision,
+    draft: { ...draft, confirmedDemo: true } });
+  assert.ok(submitted.application?.submittedAt, submitted.error);
+  const applicationRevision = submitted.application.revision;
+  await apply({ type: "reviewApplication", revision: applicationRevision });
+  const pricing = (await apply({ type: "runPricing", applicationRevision, scenario: { purpose: "Purchase",
+    loanAmount: 350000, propertyValue: 450000, purchasePrice: 450000, zip: "48304", creditScore: 760, monthlyIncome: 9500,
+    occupancy: "Primary residence", propertyType: "Single family", firstTimeBuyer: false } })).pricingRuns[0];
+  const choice = { runId: pricing.id, offerId: pricing.offers[0].id };
+  await apply({ type: "selectOffer", ...choice });
+  const worksheet = { fees: { ...blankFees(), settlement: 100_000, appraisal: 40_000 },
+    allocations: { settlement: { payee: "Fictional Title Co", seller: 30_000, lender: 0, other: 0 } },
+    purchasePrice: 45_000_000, payoffs: null, deposit: 0, sellerCredits: 0, otherCredits: 0 };
+  await apply({ type: "saveAllocatedFeeWorksheet", ...choice, feeRevision: 0, worksheet });
+  await apply({ type: "prepareDisclosurePackage", ...choice, applicationRevision, feeRevision: 1,
+    previousVersion: null, documents: sampleDisclosureDocuments, signBy: day(0) });
+  const version = () => {
+    const [{ version, revision }] = readDisclosureWork(db, loanId).packages;
+    return { version, revision };
+  };
+  await apply({ type: "issueDisclosurePackage", ...version() });
+  await apply({ type: "respondToDisclosurePackage", ...version(), signer: "Borrower", response: "Signed" });
+  await apply({ type: "confirmClosingDisclosure", ...version() });
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
+  assert.equal(work().status, "Awaiting fee statement");
+  const pinned = work().baseline;
+  assert.deepEqual(pinned.lines.settlement, { gross: 100_000, borrower: 70_000, payee: "Fictional Title Co" });
+  const request = {
+    type: "settlementFeeStatement", fundingDate: initialFunding, revision: 0, entryId: crypto.randomUUID(),
+    baseline: { version: pinned.version, revision: pinned.revision }, occurredOn: initialFunding, reference: "Fictional statement A", note: "",
+    lines: { ...pinned.lines, settlement: { gross: 125_000, borrower: 95_000, payee: "Fictional Escrow Co" },
+      appraisal: { gross: 15_000, borrower: 15_000, payee: "" } },
+  };
+  assert.match(finance(request, officer).error, /workspace owner/);
+  assert.match(finance({ ...request, baseline: { ...request.baseline, version: 99 } }).error, /baseline changed/);
+  save(request);
+  save(request);
+  assert.equal(work().revision, 1);
+  assert.equal(work().status, "Fee difference to review");
+  assert.deepEqual(queue().rows[0].feeComparison, { differenceCount: 2, missingCount: 0 });
+  assert.equal(queue().rows[0].id, loanId);
+  assert.equal(queue().counts.Differences, 0);
+  assert.equal(detail().settlement.status, "Awaiting advice");
+  const review = { type: "settlementFeeReview", fundingDate: initialFunding, revision: 1,
+    entryId: crypto.randomUUID(), note: "Fictional title increase and offsetting appraisal decrease reviewed." };
+  save(review);
+  assert.equal(queue().counts["Fee differences"], 0);
+  assert.equal(queue("Reviewed fee differences").rows[0].cycle, 1);
+  await apply({ type: "saveAllocatedFeeWorksheet", ...choice, feeRevision: 1,
+    worksheet: { ...worksheet, fees: { ...worksheet.fees, settlement: 160_000 } } });
+  assert.deepEqual(work().baseline, pinned);
+  const corrected = { ...request, entryId: crypto.randomUUID(), revision: 2, reference: "Fictional statement B",
+    note: "Corrected figures match the confirmed comparison.", lines: pinned.lines };
+  save(corrected);
+  assert.equal(work().status, "Fees match");
+  assert.equal(work().entries[1].note, review.note);
+  assert.deepEqual(work().entries[1].statement.lines, request.lines);
+  assert.equal(queue("Reviewed fee differences").counts["Reviewed fee differences"], 0);
+  save({ ...request, entryId: crypto.randomUUID(), revision: 3, note: "Record corrected simulated source statement." });
+  assert.match(finance({ ...review, entryId: crypto.randomUUID(), revision: 2 }).error, /comparison changed/);
+  save({ ...review, entryId: crypto.randomUUID(), revision: 4 });
+  await apply({ type: "recordFunding", fundingDate: correctedFunding, revision: 1 });
+  assert.equal(queue().rows[0].date, correctedFunding);
+  assert.equal(work().status, "Fee difference to review");
+  assert.match(finance({ ...review, entryId: crypto.randomUUID(), revision: 5 }).error, /current funded cycle/);
+  save({ ...review, entryId: crypto.randomUUID(), revision: 5, fundingDate: correctedFunding });
+  const archived = work();
+  assert.ok((await run({ type: "reverseFunding", fundingDate: correctedFunding, revision: 2, reason: "Fictional reversal." })).state);
+  assert.deepEqual(work(), archived);
+  assert.equal(queue("Reviewed fee differences").rows.length, 0);
+  await apply({ type: "recordFunding", fundingDate: day(0), revision: 3 });
+  assert.equal(detail(2).settlementFees.status, "Awaiting confirmed fees");
+  assert.equal(detail(2).settlementFees.revision, 0);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
 });
 
 test("reporting readiness and reconciled export share blockers, including a funding correction across quarters", async (t) => {

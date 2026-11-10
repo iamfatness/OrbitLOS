@@ -3,6 +3,7 @@ import { canManageFinance, financeInput, financeMoney, financeUnavailable, type 
 import { easternDate } from "./client-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
+import { readSettlementFees, saveSettlementFees } from "./settlement-fees";
 import { accessEvent } from "./workspace-access";
 import { readSettlement, readSettlementQueue, saveSettlement, settlementStatuses } from "./settlement-reconciliation";
 
@@ -92,7 +93,7 @@ function financeDetail(db: Store, input: Extract<FinanceInput, { type: "detail" 
     .all(input.loanId, input.cycle, ...(input.before ? [input.before] : []), pageSize + 1) as unknown as FinanceEntry[];
   const entries = rows.slice(0, pageSize).map((entry) => ({ ...entry }));
   return { kind: "detail", loan, entries, before: rows.length > pageSize ? entries.at(-1)?.sequence ?? null : null, today,
-    settlement: readSettlement(db, loan, input.settlementBefore) };
+    settlement: readSettlement(db, loan, input.settlementBefore), settlementFees: readSettlementFees(db, loan, input.feeBefore) };
 }
 
 function saveFinance(db: Store, input: FinanceMutation, staff: WorkspaceStaff, at: string, today: string): FinanceResult {
@@ -156,6 +157,9 @@ export function brokerageFinanceWork(db: Store, input: unknown, staff: Workspace
   if (data.type === "list" || data.type === "export") return financePage(db, data, staff, at);
   if (data.type === "detail") return financeDetail(db, data, today);
   if (data.type === "settlementQueue") return readSettlementQueue(db, data);
+  if (data.type === "settlementFeeStatement" || data.type === "settlementFeeReview") {
+    return db.transaction(() => saveSettlementFees(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));
+  }
   if (data.type === "settlementAdvice" || data.type === "settlementReceipt" || data.type === "settlementReverse" || data.type === "settlementReview") {
     return db.transaction(() => saveSettlement(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));
   }

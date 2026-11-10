@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { WorkspaceStaff } from "./staff-store";
 import { validReportRange } from "./report-date-range";
+import { settlementFeeAmounts, settlementFeeBaselineVersion, settlementFeeQueueViews,
+  type SettlementFeeStatus, type SettlementFeeWork } from "./settlement-fee-model";
 
 export const financeUnavailable = "Brokerage financials are available to the fictional workspace owner.";
 export function canManageFinance(staff: WorkspaceStaff | null) {
@@ -20,7 +22,7 @@ const write = { ...record, entryId, revision, fundingDate: date };
 const note = z.string().trim().max(280);
 const settlementAmount = z.number().int().min(0).max(5_000_000_000);
 const settlementReference = z.string().trim().min(1).max(120);
-export const settlementQueueViews = ["Differences", "Matches to confirm", "Missing evidence", "Reviewed differences"] as const;
+export const settlementQueueViews = ["Differences", "Matches to confirm", "Missing evidence", "Reviewed differences", ...settlementFeeQueueViews] as const;
 const settlementCursor = z.object({ id: loanId, cycle, changedAt: z.iso.datetime() });
 
 const settlementInputs = [
@@ -30,17 +32,24 @@ const settlementInputs = [
   z.object({ type: z.literal("settlementReverse"), ...write, occurredOn: date, originalId: entryId, note: note.min(1) }),
   z.object({ type: z.literal("settlementReview"), ...write, note }),
 ] as const;
+const settlementFeeInputs = [
+  z.object({ type: z.literal("settlementFeeStatement"), ...write, baseline: settlementFeeBaselineVersion,
+    occurredOn: date, reference: settlementReference, lines: settlementFeeAmounts, note }),
+  z.object({ type: z.literal("settlementFeeReview"), ...write, note: note.min(1) }),
+] as const;
 
 export const financeInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("list"), ...filters, after: cursor.optional() }).refine(validReportRange),
   z.object({ type: z.literal("export"), ...filters }).refine(validReportRange),
-  z.object({ type: z.literal("detail"), ...record, before: z.number().int().positive().optional(), settlementBefore: revision.min(1).optional() }),
+  z.object({ type: z.literal("detail"), ...record, before: z.number().int().positive().optional(),
+    settlementBefore: revision.min(1).optional(), feeBefore: revision.min(1).optional() }),
   z.object({ type: z.literal("settlementQueue"), view: z.enum(settlementQueueViews), after: settlementCursor.optional() }),
   z.object({ type: z.literal("estimate"), ...write, expectedCents: cents.nullable(), commissionCents: cents.nullable(), expenseReviewed: z.boolean() }),
   z.object({ type: z.literal("post"), ...write, kind: z.enum(["Receipt", "Expense"]), amountCents: cents.min(1), occurredOn: date,
     reference: z.string().trim().min(1).max(120), note }),
   z.object({ type: z.literal("reverse"), ...write, originalId: entryId, occurredOn: date, note: note.min(1) }),
   ...settlementInputs,
+  ...settlementFeeInputs,
 ]);
 
 export type FinanceInput = z.infer<typeof financeInput>;
@@ -48,13 +57,17 @@ export type FinanceListQuery = Extract<FinanceInput, { type: "list" }>;
 export type SettlementQueueQuery = Extract<FinanceInput, { type: "settlementQueue" }>;
 export type SettlementQueueRow = z.infer<typeof settlementCursor> & {
   borrower: string; officer: string; date: string; expectedCents: number | null; receivedCents: number;
-  differenceCents: number | null; status: SettlementWork["status"];
+  differenceCents: number | null; status: SettlementWork["status"] | SettlementFeeStatus;
+  feeComparison?: { differenceCount: number; missingCount: number };
 };
 export type SettlementQueuePage = { kind: "settlementQueue"; rows: SettlementQueueRow[];
   counts: Record<SettlementQueueQuery["view"], number>; next: z.infer<typeof settlementCursor> | null };
 export type FinanceMutation = Extract<FinanceInput, { type: "estimate" | "post" | "reverse" }>;
 export type SettlementMutation = z.infer<(typeof settlementInputs)[number]>;
 export type SettlementChange<Action = SettlementMutation> = Action extends SettlementMutation
+  ? Omit<Action, "loanId" | "cycle" | "fundingDate" | "revision" | "entryId"> : never;
+export type SettlementFeeMutation = z.infer<(typeof settlementFeeInputs)[number]>;
+export type SettlementFeeChange<Action = SettlementFeeMutation> = Action extends SettlementFeeMutation
   ? Omit<Action, "loanId" | "cycle" | "fundingDate" | "revision" | "entryId"> : never;
 export type SettlementEntry = { revision: number; id: string; at: string; actorName: string; input: SettlementMutation;
   amountCents: number | null; reversed: boolean };
@@ -75,7 +88,7 @@ export type FinanceEntry = { sequence: number; id: string; kind: "Estimate" | "R
   amountCents: number | null; occurredOn: string; reference: string; note: string; reversesId: string | null; reversedBy: string | null;
   at: string; actorName: string };
 export type FinanceResult = { kind: "list"; loans: FinanceLoan[]; totals: FinanceTotals; next: z.infer<typeof cursor> | null } |
-  { kind: "detail"; loan: FinanceLoan; entries: FinanceEntry[]; before: number | null; today: string; settlement: SettlementWork } |
+  { kind: "detail"; loan: FinanceLoan; entries: FinanceEntry[]; before: number | null; today: string; settlement: SettlementWork; settlementFees?: SettlementFeeWork } |
   { kind: "export"; csv: string; count: number } | { kind: "saved"; message: string } | SettlementQueuePage | { error: string };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
