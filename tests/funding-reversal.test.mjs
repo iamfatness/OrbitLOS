@@ -76,6 +76,73 @@ function fundingFixture(t) {
   return { db, admin, officer, loanId, contactId, partnerId, day, closing, initialFunding, correctedFunding, stageSince, run, apply };
 }
 
+test("fictional settlement matches partial receipts, preserves corrections, and archives the funding cycle", async (t) => {
+  const { db, admin, officer, loanId, run, apply, closing, initialFunding, day } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  const finance = (input, actor = owner, brokerageId = owner.brokerage.id) => brokerageFinanceWork(db, { loanId, cycle: 1, ...input }, actor, brokerageId);
+  const detail = (cycle = 1) => finance({ type: "detail", cycle });
+  const write = (type, fields = {}) => ({ type, fundingDate: initialFunding, entryId: crypto.randomUUID(), revision: detail().settlement.revision, ...fields });
+  const save = (input) => {
+    const result = finance(input);
+    assert.equal(result.kind, "saved", result.error);
+    return result;
+  };
+  const list = (view = "Funded") => finance({ type: "list", from: day(-10), through: day(1), owner: "", view });
+  await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
+  await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
+  assert.equal(detail().settlement.status, "Awaiting advice");
+  assert.match(finance({ type: "detail" }, officer).error, /workspace owner/);
+  assert.match(finance({ type: "detail" }, admin).error, /workspace owner/);
+  assert.match(finance({ type: "detail" }, owner, crypto.randomUUID()).error, /workspace owner/);
+  const advice = write("settlementAdvice", { reference: "Fictional advice 01", occurredOn: closing, grossCents: 35_000_000,
+    feesCents: 125_000, adjustmentCents: -5_000, note: "" });
+  save(advice);
+  assert.equal(detail().settlement.expectedCents, 34_870_000);
+  assert.equal(detail().settlement.status, "Awaiting receipts");
+  const first = write("settlementReceipt", { reference: "DEMO-RECEIPT 01", occurredOn: initialFunding, amountCents: 34_820_000, note: "" });
+  save(first);
+  save(first);
+  assert.equal(detail().settlement.receiptCount, 1);
+  assert.equal(detail().settlement.differenceCents, 50_000);
+  assert.equal(list().loans[0].settlementStatus, "Difference to review");
+  assert.match(finance(write("settlementReceipt", { reference: "demo-receipt   01", occurredOn: initialFunding, amountCents: 50_000, note: "" })).error,
+    /reference is already recorded/);
+  assert.match(finance(write("settlementReview", { note: "" })).error, /Record why/);
+  save(write("settlementReview", { note: "Fictional second receipt is still pending." }));
+  assert.equal(detail().settlement.status, "Difference reviewed");
+  assert.equal(detail().settlement.entries[0].amountCents, 50_000);
+  const second = write("settlementReceipt", { reference: "DEMO-RECEIPT 02", occurredOn: initialFunding, amountCents: 50_000, note: "" });
+  save(second);
+  assert.equal(detail().settlement.status, "Ready to confirm");
+  assert.match(finance(write("settlementReview", { revision: second.revision, note: "" })).error, /evidence changed/);
+  save(write("settlementReview", { note: "" }));
+  assert.equal(detail().settlement.status, "Reconciled");
+  const correction = write("settlementAdvice", { reference: advice.reference, occurredOn: closing, grossCents: advice.grossCents,
+    feesCents: 175_000, adjustmentCents: advice.adjustmentCents, note: "Fictional settlement fee was corrected." });
+  save(correction);
+  assert.equal(detail().settlement.differenceCents, -50_000);
+  assert.equal(detail().settlement.status, "Difference to review");
+  assert.match(finance(write("settlementReverse", { originalId: second.entryId, occurredOn: closing, note: "Too early" })).error, /on or after/);
+  save(write("settlementReverse", { originalId: second.entryId, occurredOn: initialFunding, note: "Fictional duplicate installment reversed." }));
+  assert.equal(detail().settlement.entries.find(({ id }) => id === second.entryId).reversed, true);
+  assert.equal(detail().settlement.status, "Ready to confirm");
+  assert.match(finance(write("settlementReverse", { originalId: second.entryId, occurredOn: initialFunding, note: "Already reversed" })).error, /unreversed/);
+  save(write("settlementReview", { note: "Corrected fictional proceeds match." }));
+  assert.equal(detail().loan.receiptsCents, 0);
+  assert.equal(detail().loan.expectedCents, null);
+  const saved = detail();
+  const reversal = await run({ type: "reverseFunding", fundingDate: initialFunding, revision: 1, reason: "Fictional funding reversal." });
+  assert.ok(reversal.state, reversal.error);
+  assert.ok(detail().loan.reversedAt);
+  assert.deepEqual(detail().settlement, saved.settlement);
+  assert.equal(list("Reversed").loans[0].settlementStatus, "Reconciled");
+  assert.match(finance(write("settlementReview", { note: "" })).error, /funding cycle changed/);
+  await apply({ type: "recordFunding", fundingDate: day(-1), revision: 2 });
+  assert.equal(detail(2).settlement.status, "Awaiting advice");
+  assert.equal(detail(2).settlement.receivedCents, 0);
+  assert.equal(detail().settlement.status, "Reconciled");
+});
+
 test("reporting readiness and reconciled export share blockers, including a funding correction across quarters", async (t) => {
   const { db, admin, officer, loanId, run, apply } = fundingFixture(t);
   const checkedAt = new Date("2026-11-08T15:00:00.000Z");

@@ -18,31 +18,65 @@ const filters = { from: date, through: date, view: z.enum(["Funded", "Reversed"]
 const record = { loanId, cycle };
 const write = { ...record, entryId, revision, fundingDate: date };
 const note = z.string().trim().max(280);
+const settlementAmount = z.number().int().min(0).max(5_000_000_000);
+const settlementReference = z.string().trim().min(1).max(120);
+
+const settlementInputs = [
+  z.object({ type: z.literal("settlementAdvice"), ...write, occurredOn: date, reference: settlementReference,
+    grossCents: settlementAmount.min(1), feesCents: settlementAmount, adjustmentCents: z.number().int().min(-5_000_000_000).max(5_000_000_000), note }),
+  z.object({ type: z.literal("settlementReceipt"), ...write, occurredOn: date, reference: settlementReference, amountCents: settlementAmount.min(1), note }),
+  z.object({ type: z.literal("settlementReverse"), ...write, occurredOn: date, originalId: entryId, note: note.min(1) }),
+  z.object({ type: z.literal("settlementReview"), ...write, note }),
+] as const;
 
 export const financeInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("list"), ...filters, after: cursor.optional() }).refine(validReportRange),
   z.object({ type: z.literal("export"), ...filters }).refine(validReportRange),
-  z.object({ type: z.literal("detail"), ...record, before: z.number().int().positive().optional() }),
+  z.object({ type: z.literal("detail"), ...record, before: z.number().int().positive().optional(), settlementBefore: revision.min(1).optional() }),
   z.object({ type: z.literal("estimate"), ...write, expectedCents: cents.nullable(), commissionCents: cents.nullable(), expenseReviewed: z.boolean() }),
   z.object({ type: z.literal("post"), ...write, kind: z.enum(["Receipt", "Expense"]), amountCents: cents.min(1), occurredOn: date,
     reference: z.string().trim().min(1).max(120), note }),
   z.object({ type: z.literal("reverse"), ...write, originalId: entryId, occurredOn: date, note: note.min(1) }),
+  ...settlementInputs,
 ]);
 
 export type FinanceInput = z.infer<typeof financeInput>;
 export type FinanceListQuery = Extract<FinanceInput, { type: "list" }>;
 export type FinanceMutation = Extract<FinanceInput, { type: "estimate" | "post" | "reverse" }>;
+export type SettlementMutation = z.infer<(typeof settlementInputs)[number]>;
+export type SettlementChange<Action = SettlementMutation> = Action extends SettlementMutation
+  ? Omit<Action, "loanId" | "cycle" | "fundingDate" | "revision" | "entryId"> : never;
+export type SettlementEntry = { revision: number; id: string; at: string; actorName: string; input: SettlementMutation;
+  amountCents: number | null; reversed: boolean };
+export type SettlementWork = {
+  revision: number; expectedCents: number | null; receivedCents: number; differenceCents: number | null;
+  advice: Extract<SettlementMutation, { type: "settlementAdvice" }> | null;
+  receiptCount: number; reviewed: boolean;
+  status: "Awaiting advice" | "Awaiting receipts" | "Difference to review" | "Ready to confirm" | "Difference reviewed" | "Reconciled";
+  entries: SettlementEntry[]; before: number | null;
+};
 export type FinanceAmounts = { expectedCents: number | null; commissionCents: number | null; receiptsCents: number;
   expensesCents: number; expenseReviewed: boolean; remainingCents: number | null; marginCents: number | null };
-export type FinanceLoan = z.infer<typeof cursor> & FinanceAmounts & { borrower: string; officer: string; reversedAt: string | null; revision: number };
+export type FinanceLoan = z.infer<typeof cursor> & FinanceAmounts & { borrower: string; officer: string; reversedAt: string | null; revision: number;
+  settlementStatus?: SettlementWork["status"] };
 export type FinanceTotals = { count: number; expectedCount: number; expectedCents: number; receiptsCents: number;
   expensesCents: number; marginCount: number; marginCents: number };
 export type FinanceEntry = { sequence: number; id: string; kind: "Estimate" | "Receipt" | "Expense" | "Reverse receipt" | "Reverse expense";
   amountCents: number | null; occurredOn: string; reference: string; note: string; reversesId: string | null; reversedBy: string | null;
   at: string; actorName: string };
 export type FinanceResult = { kind: "list"; loans: FinanceLoan[]; totals: FinanceTotals; next: z.infer<typeof cursor> | null } |
-  { kind: "detail"; loan: FinanceLoan; entries: FinanceEntry[]; before: number | null; today: string } |
+  { kind: "detail"; loan: FinanceLoan; entries: FinanceEntry[]; before: number | null; today: string; settlement: SettlementWork } |
   { kind: "export"; csv: string; count: number } | { kind: "saved"; message: string } | { error: string };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 export const financeMoney = (amount: number | null) => amount === null ? "Unknown" : usd.format(amount / 100);
+export const inputDollars = (amount: number | null) => amount === null ? "" : (amount / 100).toFixed(2);
+
+export function financeInputCents(value: FormDataEntryValue | null, limit = 1_000_000_000, signed = false) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const parts = /^(\d*)(?:\.(\d{1,2}))?$/.exec(signed && text.startsWith("-") ? text.slice(1) : text);
+  if (!parts || !(parts[1] || parts[2])) return undefined;
+  const amount = Number(parts[1]) * 100 + Number((parts[2] ?? "").padEnd(2, "0"));
+  return Number.isSafeInteger(amount) && amount <= limit ? (text.startsWith("-") && amount ? -amount : amount) : undefined;
+}

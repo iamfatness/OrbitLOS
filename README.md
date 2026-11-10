@@ -193,6 +193,8 @@ After each signer has a mock receipt, open **Closing → Sample disclosures for 
 
 Choose **Prepare sample closing packet** and download the internal PDF. It captures the confirmed disclosure, mock receipts, critical dates, and the current checklist. Updating the checklist or confirming a revised disclosure allows staff to prepare another packet while keeping earlier downloads intact.
 
+In a fictional pilot, the finance owner can open a funded loan in **Financials** and record sample purchase advice and one or more settlement receipts. Review the difference against net proceeds, or confirm a match. Corrected advice and receipt reversals keep the earlier evidence, and a funding reversal archives that cycle. Use fictional references and amounts.
+
 ## Rehearse a missing mock lender receipt
 
 On an active fictional loan with a reviewed 1003, open **1003 → Rehearse a missing mock UWM acknowledgment** and simulate the missing receipt. In **Today**, open **Check mock UWM submission receipt**. Select **Check mock UWM for receipt** to recover the original acknowledgment and open its conditions. The receipt stays tied to the reviewed 1003 version, and recovering it closes the task.

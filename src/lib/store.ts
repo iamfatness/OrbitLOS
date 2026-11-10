@@ -294,6 +294,16 @@ export function initializeStore(db: Store, seedDemo = true) {
       PRIMARY KEY (loanId, cycle)
     );
     CREATE INDEX IF NOT EXISTS reversed_financials_by_date ON loan_financials(fundingDate, loanId, cycle) WHERE reversedAt IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS settlement_events (
+      loanId TEXT NOT NULL, cycle INTEGER NOT NULL, revision INTEGER NOT NULL,
+      id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, receiptReference TEXT, amountCents INTEGER,
+      reversesId TEXT UNIQUE, at TEXT NOT NULL, actorName TEXT NOT NULL, actorEmail TEXT NOT NULL, request TEXT NOT NULL,
+      PRIMARY KEY (loanId, cycle, revision),
+      FOREIGN KEY (loanId, cycle) REFERENCES loan_financials(loanId, cycle) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS settlement_unique_receipt ON settlement_events(loanId, cycle, receiptReference COLLATE NOCASE)
+      WHERE receiptReference IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS settlement_evidence_by_kind ON settlement_events(loanId, cycle, kind, revision);
     CREATE TABLE IF NOT EXISTS loan_financial_entries (
       sequence INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, loanId TEXT NOT NULL, cycle INTEGER NOT NULL,
       kind TEXT NOT NULL, amountCents INTEGER, occurredOn TEXT NOT NULL, reference TEXT NOT NULL, note TEXT NOT NULL,

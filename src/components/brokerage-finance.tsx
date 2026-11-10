@@ -2,30 +2,20 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessBrokerageFinance } from "@/app/actions";
-import { financeMoney, type FinanceEntry, type FinanceInput, type FinanceListQuery, type FinanceLoan,
-  type FinanceMutation, type FinanceResult } from "@/lib/brokerage-finance-model";
+import { financeInputCents as cents, financeMoney, inputDollars, type FinanceEntry, type FinanceInput, type FinanceListQuery, type FinanceLoan,
+  type FinanceMutation, type FinanceResult, type SettlementChange } from "@/lib/brokerage-finance-model";
 import { dateLabel } from "@/lib/client-retention";
 import type { Loan, Workspace } from "@/lib/model";
 import { currentReportMonth } from "@/lib/report-date-range";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
+import { SettlementReconciliation } from "./settlement-reconciliation";
 import { Button } from "./ui/button";
 
 type List = Extract<FinanceResult, { kind: "list" }>;
 type Detail = Extract<FinanceResult, { kind: "detail" }>;
 type Change<Action = FinanceMutation> = Action extends FinanceMutation ? Omit<Action, "loanId" | "cycle" | "fundingDate" | "revision" | "entryId"> : never;
 type Save = (change: Change, after?: () => void) => void;
-
-const inputDollars = (amount: number | null) => amount === null ? "" : (amount / 100).toFixed(2);
-
-function cents(value: FormDataEntryValue | null) {
-  const text = String(value ?? "").trim();
-  if (!text) return null;
-  const parts = /^(\d*)(?:\.(\d{1,2}))?$/.exec(text);
-  if (!parts) return undefined;
-  const amount = Number(parts[1]) * 100 + Number((parts[2] ?? "").padEnd(2, "0"));
-  return Number.isSafeInteger(amount) && amount <= 1_000_000_000 ? amount : undefined;
-}
 
 function LoanAmounts({ loan }: { loan: FinanceLoan }) {
   return <dl className="metrics finance-metrics">
@@ -114,7 +104,7 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   brokerageId: string; loans: Loan[]; fundingVersion: Workspace["closingProgress"]; openFunding: (id: string) => void;
 }) {
   const [query, setQuery] = useState<FinanceListQuery>(() => ({ type: "list", ...currentReportMonth(), view: "Funded", owner: "" }));
-  const [selection, setSelection] = useState<{ loanId: string; cycle: number; before?: number }>();
+  const [selection, setSelection] = useState<{ loanId: string; cycle: number; before?: number; settlementBefore?: number }>();
   const [version, setVersion] = useState(0);
   const [list, setList] = useState<{ query: FinanceListQuery; data: List | { error: string } }>();
   const [detail, setDetail] = useState<{ selection: typeof selection; data: Detail | { error: string } }>();
@@ -158,9 +148,10 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   const data = selection ? detail?.selection === selection ? detail?.data : undefined : list?.query === query ? list.data : undefined;
   const owners = [...new Map(loans.filter(({ officer }) => officer).map((loan) => [loan.officerEmail ? `email:${loan.officerEmail}` : `name:${loan.officer}`, loan.officer])).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
-  const save: Save = (change, after) => {
+  const save = (change: Change | SettlementChange, after?: () => void) => {
     if (!data || "error" in data || data.kind !== "detail" || pending.current) return;
-    const { id: loanId, cycle, date: fundingDate, revision } = data.loan;
+    const { id: loanId, cycle, date: fundingDate } = data.loan;
+    const revision = change.type.startsWith("settlement") ? data.settlement.revision : data.loan.revision;
     const fields = { ...change, loanId, cycle, fundingDate, revision };
     const key = JSON.stringify(fields);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
@@ -207,6 +198,7 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
           aria-label={`Open financials for ${loan.borrower}`} onClick={() => { setFeedback(undefined); setSelection({ loanId: loan.id, cycle: loan.cycle }); }}>Open financials</Button></div>
         <p className="muted">Funded {dateLabel(loan.date)} · {loan.officer || "Unassigned"}{loan.reversedAt && ` · Reversed ${dateTime(loan.reversedAt)} ET`}</p>
         <p>Expected {financeMoney(loan.expectedCents)} · Received {financeMoney(loan.receiptsCents)} · Margin {financeMoney(loan.marginCents)}</p>
+        {loan.settlementStatus && <span className="pill">Settlement · {loan.settlementStatus}</span>}
       </li>)}</ul> : <p className="empty-inline">No {query.view.toLowerCase()} financial records match these dates and officer.</p>}
       <div className="loan-application-actions">
         {query.after && <Button size="sm" variant="outline" disabled={busy} onClick={() => setQuery({ ...query, after: undefined })}>First page</Button>}
@@ -216,6 +208,8 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
     {data && "kind" in data && data.kind === "detail" && <section className="record-form" aria-label="Loan financial ledger">
       <div className="section-heading"><h3>{data.loan.borrower}</h3>{!data.loan.reversedAt && <Button size="sm" variant="outline" disabled={busy} onClick={() => openFunding(data.loan.id)}>Open funding record</Button>}</div>
       <p className="muted">Funded {dateLabel(data.loan.date)} · Cycle {data.loan.cycle}{data.loan.reversedAt && ` · Reversed ${dateTime(data.loan.reversedAt)} ET · Archived ledger`}</p>
+      <SettlementReconciliation work={data.settlement} today={data.today} active={!data.loan.reversedAt} busy={busy} save={save}
+        currentPage={!selection?.settlementBefore} onPage={(settlementBefore) => setSelection((current) => current && { ...current, settlementBefore })} />
       <LoanAmounts loan={data.loan} />
       <p className="muted">{data.loan.expenseReviewed ? "Direct expenses reviewed." : "Direct expense review is incomplete."} Estimated margin covers this loan’s direct costs.</p>
       {!data.loan.reversedAt && <FinanceForms key={`${data.loan.id}:${data.loan.cycle}:${data.loan.revision}`} loan={data.loan} today={data.today} busy={busy} save={save} />}

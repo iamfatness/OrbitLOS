@@ -4,6 +4,7 @@ import { easternDate } from "./client-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
+import { readSettlement, saveSettlement, settlementStatuses } from "./settlement-reconciliation";
 
 const pageSize = 20;
 const exportLimit = 1000;
@@ -74,7 +75,11 @@ function financePage(db: Store, input: Extract<FinanceInput, { type: "list" | "e
     count(${margin}) AS marginCount, coalesce(sum(${margin}), 0) AS marginCents ${source.joins} ${where}`)
     .get(...args) as unknown as FinanceTotals;
   const last = loans.at(-1);
-  return { kind: "list", loans, totals: { ...totals }, next: rows.length > limit && last ? { id: last.id, date: last.date, cycle: last.cycle } : null };
+  const settlements = settlementStatuses(db, loans);
+  return { kind: "list", loans: loans.map((loan) => {
+    const settlementStatus = settlements.get(`${loan.id}:${loan.cycle}`);
+    return settlementStatus ? { ...loan, settlementStatus } : loan;
+  }), totals: { ...totals }, next: rows.length > limit && last ? { id: last.id, date: last.date, cycle: last.cycle } : null };
 }
 
 function financeDetail(db: Store, input: Extract<FinanceInput, { type: "detail" }>, today: string): FinanceResult {
@@ -86,7 +91,8 @@ function financeDetail(db: Store, input: Extract<FinanceInput, { type: "detail" 
     WHERE entry.loanId = ? AND entry.cycle = ? ${input.before ? "AND entry.sequence < ?" : ""} ORDER BY entry.sequence DESC LIMIT ?`)
     .all(input.loanId, input.cycle, ...(input.before ? [input.before] : []), pageSize + 1) as unknown as FinanceEntry[];
   const entries = rows.slice(0, pageSize).map((entry) => ({ ...entry }));
-  return { kind: "detail", loan, entries, before: rows.length > pageSize ? entries.at(-1)?.sequence ?? null : null, today };
+  return { kind: "detail", loan, entries, before: rows.length > pageSize ? entries.at(-1)?.sequence ?? null : null, today,
+    settlement: readSettlement(db, loan, input.settlementBefore) };
 }
 
 function saveFinance(db: Store, input: FinanceMutation, staff: WorkspaceStaff, at: string, today: string): FinanceResult {
@@ -149,5 +155,8 @@ export function brokerageFinanceWork(db: Store, input: unknown, staff: Workspace
   const at = now.toISOString();
   if (data.type === "list" || data.type === "export") return financePage(db, data, staff, at);
   if (data.type === "detail") return financeDetail(db, data, today);
+  if (data.type === "settlementAdvice" || data.type === "settlementReceipt" || data.type === "settlementReverse" || data.type === "settlementReview") {
+    return db.transaction(() => saveSettlement(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));
+  }
   return db.transaction(() => saveFinance(db, data, staff, at, today));
 }
