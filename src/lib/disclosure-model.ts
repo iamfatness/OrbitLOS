@@ -14,6 +14,7 @@ export const disclosureResponses = ["Signed", "Declined"] as const;
 const loanId = z.string().min(1).max(100);
 const version = z.number().int().positive();
 const current = { loanId, version, revision: version };
+export const confirmClosingDisclosure = z.object({ type: z.literal("confirmClosingDisclosure"), ...current });
 export const disclosureCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("prepareDisclosurePackage"), loanId, previousVersion: version.nullable(),
     applicationRevision: z.number().int().nonnegative(), runId: loanId, offerId: loanId, feeRevision: version,
@@ -48,6 +49,13 @@ export type DisclosurePackage = DisclosureSource & {
 };
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
+  closingReviews: ClosingDisclosureReview[];
+};
+export type ClosingDisclosureReview = {
+  version: number; revision: number; at: string; actor: string;
+  applicationRevision: number; feeRevision: number; signers: DisclosureSigner[];
+  changeReview: DisclosurePackage["changeReview"];
+  current: boolean;
 };
 export type BorrowerDisclosure = {
   version: number; signBy: string; issuedAt: string; documents: DisclosureDocument[];

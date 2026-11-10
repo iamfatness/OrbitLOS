@@ -189,6 +189,8 @@ A mock decline closes the signing reminder and adds a follow-up in **Today**. Op
 
 Edit the selected quote’s fee worksheet after preparing a package. **Today** shows a review task that opens **Disclosures**, where staff can compare the changed amounts and record an internal review note. The revised package retains who reviewed it and when, closes the task, and starts with pending signers. Earlier documents, fee estimates, and responses remain in the package history.
 
+After each signer has a mock receipt, open **Closing → Sample disclosures for closing** and confirm that version. The assigned processor can review the same 1003 revision, fee worksheet, signer receipts, and change review. After a package changes, the prior confirmation stays in the closing history and the new package has its own confirmation.
+
 ## Rehearse a missing mock lender receipt
 
 On an active fictional loan with a reviewed 1003, open **1003 → Rehearse a missing mock UWM acknowledgment** and simulate the missing receipt. In **Today**, open **Check mock UWM submission receipt**. Select **Check mock UWM for receipt** to recover the original acknowledgment and open its conditions. The receipt stays tied to the reviewed 1003 version, and recovering it closes the task.

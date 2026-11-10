@@ -3,7 +3,7 @@ import { applicationDraft } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate, easternDayStart } from "./client-retention";
 import { disclosureDeclinePrefix, disclosureDeclineTaskTitle, disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
-  type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
+  type ClosingDisclosureReview, type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
   type DisclosureSource, type DisclosureWork } from "./disclosure-model";
 import { quoteFeeWorksheet, quoteSnapshot } from "./quote-worksheet-store";
 import { savedPricingRun, type Store } from "./store";
@@ -40,7 +40,19 @@ function packageRows(db: Store, loanId: string, limit: number) {
 
 export function readDisclosureWork(db: Store, loanId: string): DisclosureWork {
   const current = disclosureSource(db, loanId);
-  return { source: current.source ?? null, unavailable: current.error ?? null, packages: packageRows(db, loanId, 6)
+  const rows = packageRows(db, loanId, 6);
+  const latest = rows[0];
+  const closingReviews = db.prepare(`SELECT review.version, review.revision, review.reviewedAt AS at, review.actor,
+      package.applicationRevision, package.feeRevision, package.signers, package.changeReview
+    FROM closing_disclosure_reviews review
+    JOIN disclosure_packages package ON package.loanId = review.loanId AND package.version = review.version
+    WHERE review.loanId = ? ORDER BY review.version DESC, review.revision DESC LIMIT 4`).all(loanId)
+    .map(({ signers, changeReview, ...row }) => ({
+      ...row, signers: JSON.parse(String(signers)), changeReview: changeReview ? JSON.parse(String(changeReview)) : null,
+      current: !!(latest && current.source && !latest.reviewReason && !latest.supersededAt &&
+        row.version === latest.version && row.revision === latest.revision && matchesSource(latest, current.source)),
+    })) as ClosingDisclosureReview[];
+  return { source: current.source ?? null, unavailable: current.error ?? null, closingReviews, packages: rows
     .map((item) => ({
       version: item.version, revision: item.revision, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision,
       preparedAt: item.preparedAt, issuedAt: item.issuedAt, signBy: item.signBy, supersededAt: item.supersededAt, reviewReason: item.reviewReason,
@@ -89,6 +101,29 @@ function disclosureNames(draft: string): DisclosureSigner[] {
 function activeDisclosureLoan(db: Store, loanId: string) {
   const loan = db.prepare("SELECT disposition, stage FROM loans WHERE id = ?").get(loanId);
   return loan?.disposition === "Active" && loan.stage !== "Funded" && loan.stage !== "Closed";
+}
+
+export function recordClosingDisclosureReview(db: Store, staff: WorkspaceStaff | null, loanId: string, version: number, revision: number, now: string) {
+  if (!canUseSampleDisclosures(staff) || !activeDisclosureLoan(db, loanId)) {
+    return { error: "Open an active fictional loan to review its sample package for closing." } as const;
+  }
+  const [item] = packageRows(db, loanId, 1);
+  const { source } = disclosureSource(db, loanId);
+  if (!item?.issuedAt || item.version !== version || item.revision !== revision || item.reviewReason || item.supersededAt ||
+    !source || !matchesSource(item, source)) {
+    return { error: "Open the current issued sample package before confirming its evidence for closing." } as const;
+  }
+  const signers: DisclosureSigner[] = JSON.parse(item.signers);
+  if (!signers.length || signers.some(({ status, receipt }) => status !== "Signed" || !receipt)) {
+    return { error: "Record each mock signature before confirming the sample package for closing." } as const;
+  }
+  const existing = db.prepare("SELECT 1 FROM closing_disclosure_reviews WHERE loanId = ? AND version = ? AND revision = ?")
+    .get(loanId, version, revision);
+  if (existing) return { message: "This sample package is already confirmed for the closing handoff." } as const;
+  db.prepare("INSERT INTO closing_disclosure_reviews (loanId, version, revision, reviewedAt, actor) VALUES (?, ?, ?, ?, ?)")
+    .run(loanId, version, revision, now, staff?.name ?? "Demo staff");
+  addApplicationActivity(db, loanId, `Confirmed sample disclosure package v${version} for the closing handoff.`, now);
+  return { message: `Sample package v${version} confirmed for the closing handoff.` } as const;
 }
 
 function applyDisclosureResponse(db: Store, item: PackageRow, signers: DisclosureSigner[], signer: DisclosureSigner,

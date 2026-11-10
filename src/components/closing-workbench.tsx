@@ -3,12 +3,57 @@
 import { useRef, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
+import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
 import { closingChecklistTarget, closingWorkbenchTarget, reopenedMockClosingMessage } from "@/lib/loan-workflow";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
+
+function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
+  loan: Loan; work?: DisclosureWork; busy: boolean; save: Save; open: (target: string) => void;
+}) {
+  const item = work?.packages[0];
+  if (!work || !item) return null;
+  const { source, closingReviews } = work;
+  const status = disclosurePackageStatus(item);
+  const sourceCurrent = source && item.applicationRevision === source.applicationRevision && item.feeRevision === source.feeRevision &&
+    item.quote.runId === source.quote.runId && item.quote.offerId === source.quote.offerId;
+  const review = closingReviews.find((entry) => entry.current);
+  const past = closingReviews.filter((entry) => !entry.current);
+  const active = (!loan.disposition || loan.disposition === "Active") && loan.stage !== "Funded" && loan.stage !== "Closed";
+  const signerRows = (signers: ClosingDisclosureReview["signers"]) => <ul>
+    {signers.map(({ role, status, receipt }) => <li key={role}>{role} · {status}{receipt && ` · ${receipt}`}</li>)}
+  </ul>;
+  const reviewSummary = (entry: ClosingDisclosureReview) => <>
+    <p>1003 revision {entry.applicationRevision} · Fee worksheet revision {entry.feeRevision}</p>
+    <p>Confirmed by {entry.actor} · {dateTime(entry.at)} ET</p>
+    {signerRows(entry.signers)}
+    {entry.changeReview && <p>Change review by {entry.changeReview.actor} · {entry.changeReview.reason} · {entry.changeReview.note}</p>}
+  </>;
+  return <section className="document-item" aria-label="Sample disclosures for closing">
+    <div className="document-item-head"><strong>Sample disclosures for closing</strong><span className="pill">Mock evidence</span></div>
+    <p>Package v{item.version} · {review ? "Confirmed for closing handoff" : sourceCurrent ? status : "Review required"}</p>
+    {review ? reviewSummary(review) : <>
+      <p>1003 revision {item.applicationRevision} · Fee worksheet revision {item.feeRevision}</p>
+      {signerRows(item.signers)}
+      {past.length > 0 && <p className="muted">The prior closing review applies to an earlier package or revision.</p>}
+      {active && status === "Mock signing complete" && sourceCurrent && <div>
+        <Button size="sm" disabled={busy} onClick={() => void save({ type: "confirmClosingDisclosure", loanId: loan.id,
+          version: item.version, revision: item.revision })}>Confirm sample package for closing</Button>
+      </div>}
+    </>}
+    <div><Button size="sm" variant="outline" onClick={() => open(disclosureTarget)}>Open disclosure package</Button></div>
+    {past.length > 0 && <details className="document-form">
+      <summary>Previous closing disclosure reviews</summary>
+      {past.map((entry) => <div key={`${entry.version}:${entry.revision}`}>
+        <strong>Package v{entry.version} · Prior evidence</strong>
+        {reviewSummary(entry)}
+      </div>)}
+    </details>}
+  </section>;
+}
 
 function ClosingItemForm({ loan, item, targetDate, busy, save }: {
   loan: Loan; item?: ClosingItem; targetDate?: string; busy: boolean; save: Save;
@@ -144,6 +189,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
         <Button size="sm" type="submit" variant="outline" disabled={busy}>Reverse funding</Button>
       </form>
     </details>}
+    <ClosingDisclosureEvidence loan={loan} work={state.disclosureWork} busy={busy} save={save} open={openCondition} />
     <details className="document-form"><summary>Track disclosure and signature status</summary>
       <form key={progress?.revision ?? 0} onSubmit={(event) => {
         event.preventDefault();

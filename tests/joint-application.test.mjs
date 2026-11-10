@@ -138,6 +138,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(disclosurePackageStatus(work().packages[1]), "Superseded");
   await apply("issueDisclosurePackage", version());
   const response = { type: "respondToSampleDisclosure", version: 2, response: "Signed", confirmedDemo: true };
+  assert.match((await f.run("confirmClosingDisclosure", version())).error, /each mock signature/);
   const initialHandoff = loan().handoffVersion;
   const primaryPackage = () => f.primary({ type: "status" }).statusView.loanStatus.disclosure;
   assert.equal(primaryPackage().signer.status, "Pending");
@@ -160,7 +161,27 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(f.co(response, f.primaryToken).status, 404);
   assert.equal(disclosurePackageStatus(current()), "Mock signing complete");
   assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-signing:")));
+  assert.ok((await f.run("confirmClosingDisclosure", version(), f.outsider)).error);
+  assert.ok((await f.run("confirmClosingDisclosure", version(), f.processor)).error);
+  f.db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
+    VALUES (?, ?, ?, 'In processing', '', ?, 1)`).run(f.loanId, f.processor.email, f.processor.name, f.now);
+  const confirmedVersion = version();
+  const beforeClosingReview = loan().handoffVersion;
+  await apply("confirmClosingDisclosure", confirmedVersion, f.processor);
+  const closing = () => loan().disclosureWork.closingReviews;
+  assert.equal(closing()[0].current, true);
+  assert.equal(closing()[0].actor, f.processor.name);
+  assert.equal(closing()[0].changeReview.note, revisionNote);
+  assert.equal(closing()[0].signers[0].receipt, signature.receipt);
+  assert.notEqual(beforeClosingReview, loan().handoffVersion);
+  assert.deepEqual(loan(f.processor).disclosureWork.closingReviews, closing());
+  assert.match((await apply("confirmClosingDisclosure", confirmedVersion)).message, /already confirmed/);
+  assert.equal(closing().length, 1);
+  assert.ok(!JSON.stringify(primaryPackage()).includes(f.processor.name));
   await apply("prepareDisclosurePackage", prepare(2, 2));
+  assert.equal(closing()[0].current, false);
+  assert.equal(closing()[0].signers[0].receipt, signature.receipt);
+  assert.ok((await f.run("confirmClosingDisclosure", confirmedVersion, f.processor)).error);
   assert.equal(work().packages[1].changeReview.note, revisionNote);
   assert.equal(primaryPackage().state, "Awaiting revision");
   await apply("issueDisclosurePackage", version());
@@ -204,6 +225,16 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(declines().length, 1);
   await apply("prepareDisclosurePackage", prepare(4, 2));
   assert.equal(declines().length, 0);
+  await apply("issueDisclosurePackage", version());
+  for (const signer of ["Borrower", "Co-borrower"]) await apply("respondToDisclosurePackage", { ...version(), signer, response: "Signed" });
+  await apply("confirmClosingDisclosure", version(), f.processor);
+  assert.deepEqual(closing().map(({ version, current }) => [version, current]), [[5, true], [2, false]]);
+  const confirmedLatest = version();
+  await apply("saveFeeWorksheet", { ...choice, feeRevision: 2, worksheet });
+  assert.equal(current().version, confirmedLatest.version);
+  assert.equal(closing()[0].current, false);
+  assert.match((await f.run("confirmClosingDisclosure", confirmedLatest, f.processor)).error, /current issued/);
+  assert.equal(queue().filter(({ id }) => id.startsWith("disclosure-review:")).length, 1);
 });
 
 test("joint borrower links isolate drafts and finalize only after both portions arrive", async (t) => {

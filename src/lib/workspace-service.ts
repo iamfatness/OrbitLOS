@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
-import { disclosureCommand } from "./disclosure-model";
+import { confirmClosingDisclosure, disclosureCommand } from "./disclosure-model";
 import { contactMergeWork } from "./contact-merge";
 import { borrowerCommandResult, coBorrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
@@ -159,7 +159,8 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
   }
   const localScopedLoan = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" && "type" in input &&
     (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" ||
-      input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" || disclosureCommand.safeParse(input).success);
+      input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" ||
+      confirmClosingDisclosure.safeParse(input).success || disclosureCommand.safeParse(input).success);
   const actor = localScopedLoan ? localPilotAdmin : staff;
   return executeCommand(database(), input, actor, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
     scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks", scopedTemplateUpdates: true,
