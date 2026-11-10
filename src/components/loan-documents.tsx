@@ -71,12 +71,12 @@ function availableKinds(existing: readonly LoanDocumentRequest[], recipient: Doc
 }
 
 export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequests, openConditionRequests, replaceableRequests,
-  applicationStarted, applicationSubmitted, customTemplates, officer, processor, openAssignment, localTemplateEditor, joint = false, busy, save, followUp }: {
+  applicationStarted, applicationSubmitted, applicationReviewRevision, customTemplates, officer, processor, openAssignment, localTemplateEditor, joint = false, busy, save, followUp }: {
   loanId: string; brokerageId: string; requests: LoanDocumentRequest[]; inlineRequests: Set<string>; openConditionRequests: Set<string>;
   pilot?: boolean; joint?: boolean;
   replaceableRequests: Set<string>;
   customTemplates: boolean; officer: string; processor?: string | null; openAssignment?: () => void; localTemplateEditor?: boolean;
-  applicationStarted: boolean; applicationSubmitted: boolean; busy: boolean; save: Save; followUp: () => void;
+  applicationStarted: boolean; applicationSubmitted: boolean; applicationReviewRevision: number | null; busy: boolean; save: Save; followUp: () => void;
 }) {
   const standalone = requests.filter((item) => !inlineRequests.has(item.id));
   const waiting = requests.filter((item) => needsBorrowerDocument(item.status)).length;
@@ -93,7 +93,7 @@ export function LoanDocuments({ loanId, brokerageId, pilot, requests, inlineRequ
       applicationStarted ? "Available to the borrower after 1003 submission." : "Start a 1003 to share the checklist."}</p>}
     {available && <DocumentRequestForm loanId={loanId} joint={joint} existing={requests} busy={busy} save={save} />}
     <ApplyDocumentChecklist key={loanId} loanId={loanId} brokerageId={brokerageId} customAvailable={customTemplates} requests={requests}
-      officer={officer} processor={processor} openAssignment={openAssignment} joint={joint} busy={busy} save={save} />
+      applicationReviewRevision={applicationReviewRevision} officer={officer} processor={processor} openAssignment={openAssignment} joint={joint} busy={busy} save={save} />
     {localTemplateEditor && <ManageDocumentTemplates brokerageId={brokerageId} />}
     {standalone.length ? <ul className="document-list">{standalone.map((request) => <li key={request.id}>
       <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot} busy={busy} save={save}
@@ -112,7 +112,8 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
         <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
         {(showRecipient || documentRecipient(request) !== primaryDocumentRecipient) && <small className="muted">For {documentRecipient(request).toLowerCase()}</small>}
         {request.conditionId && !compact && <small className="muted">Linked lender condition</small>}
-        {request.templateTitle && <small className="muted">{request.templateTitle} · Version {request.templateRevision}</small>}
+        {request.templateTitle && <small className="muted">{request.templateTitle} · Version {request.templateRevision}
+          {request.templateApplicationRevision != null && ` · Reviewed 1003 revision ${request.templateApplicationRevision}`}</small>}
         {request.instructions && !compact && <p>{request.instructions}</p>}
         {request.replacementNote && <p><strong>Replacement instructions</strong> · {request.replacementNote}</p>}
         {needsBorrowerDocument(request.status) && <>

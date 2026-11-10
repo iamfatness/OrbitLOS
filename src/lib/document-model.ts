@@ -65,6 +65,7 @@ export interface LoanDocumentRequest extends DocumentRequest {
   recipient?: DocumentRecipient;
   templateRevision?: number | null;
   templateTitle?: string | null;
+  templateApplicationRevision?: number;
   requestedAt: string;
   deadlineRevision: number;
   submissionId: string | null;

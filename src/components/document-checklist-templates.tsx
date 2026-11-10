@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { dateLabel } from "@/lib/client-retention";
 import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds, documentRecipient, documentRecipients, primaryDocumentRecipient,
   type DocumentKind, type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
-import { documentTemplateConfig, documentTemplateDueOn, documentTemplatePurposes, type DocumentTemplate,
-  type DocumentTemplateConfig, type DocumentTemplatePage } from "@/lib/document-template-model";
+import { documentTemplateConfig, documentTemplateDueOn, documentTemplateEmployment, documentTemplateOccupancies, documentTemplatePurposes,
+  documentTemplateRuleLabel, type DocumentTemplate, type DocumentTemplateConfig, type DocumentTemplatePage, type DocumentTemplateRule } from "@/lib/document-template-model";
 import { Button } from "./ui/button";
 
 async function loadTemplates(brokerageId: string, input: object, signal?: AbortSignal): Promise<DocumentTemplatePage> {
@@ -78,7 +78,7 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
 
   return <section className="pipeline relationship-panel" aria-label="Document checklist templates">
     <h2>Document checklist templates</h2>
-    <p className="muted">Set the documents, borrower instructions, and deadline offsets your team can reuse on a loan.</p>
+    <p className="muted">Set reusable document requests, deadlines, and optional rules based on the reviewed 1003.</p>
     <details className="loan-task-create" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
       <summary>Manage document templates</summary>
       {opened && <div className="record-form">
@@ -123,10 +123,12 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
             </select></label>
           </div>
           <p className="muted">Deadline days are calendar days from application of the template. Enter 0 for the same day or leave blank for no due date.</p>
+          <p className="muted">When you set a rule, every selected criterion must match. Employment is checked for the borrower receiving the request.</p>
           {documentKinds.map((kind) => {
             const item = draft.config.items.find((entry) => entry.kind === kind);
             const editItem = (update: Partial<DocumentTemplateConfig["items"][number]>) =>
               change({ items: draft.config.items.map((entry) => entry.kind === kind ? { ...entry, ...update } : entry) });
+            const editRule = (when: DocumentTemplateRule) => editItem({ when: when.occupancy || when.employment ? when : undefined });
             return <div key={kind} className="record-form">
               <label className="demo-confirm"><input type="checkbox" checked={!!item} disabled={busy}
                 onChange={(event) => toggleKind(kind, event.target.checked)} /><span>Include {kind.toLowerCase()}</span></label>
@@ -135,6 +137,16 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
                   onChange={(event) => editItem({ instructions: event.target.value })} /></label>
                 <label className="field">{kind} deadline days<input type="number" min={0} max={90} step={1} value={item.dueDays ?? ""} disabled={busy}
                   onChange={(event) => editItem({ dueDays: event.target.value === "" ? null : event.target.valueAsNumber })} /></label>
+                <label className="field">{kind} occupancy rule<select value={item.when?.occupancy ?? ""} disabled={busy}
+                  onChange={(event) => editRule({ ...item.when, occupancy: (event.target.value || undefined) as DocumentTemplateRule["occupancy"] })}>
+                  <option value="">Any occupancy</option>
+                  {documentTemplateOccupancies.map((option) => <option key={option}>{option}</option>)}
+                </select></label>
+                <label className="field">{kind} employment rule<select value={item.when?.employment ?? ""} disabled={busy}
+                  onChange={(event) => editRule({ ...item.when, employment: (event.target.value || undefined) as DocumentTemplateRule["employment"] })}>
+                  <option value="">Any employment</option>
+                  {documentTemplateEmployment.map((option) => <option key={option}>{option}</option>)}
+                </select></label>
               </div>}
             </div>;
           })}
@@ -148,12 +160,13 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
   </section>;
 }
 
-export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, requests, officer, processor, openAssignment, joint, busy, save }: {
+export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, requests, applicationReviewRevision, officer, processor, openAssignment, joint, busy, save }: {
   brokerageId: string; loanId: string; customAvailable: boolean; requests: LoanDocumentRequest[];
+  applicationReviewRevision: number | null;
   officer: string; processor?: string | null; openAssignment?: () => void; joint: boolean; busy: boolean; save: (input: unknown) => Promise<void>;
 }) {
   const [opened, setOpened] = useState(false);
-  const [page, setPage] = useState<DocumentTemplatePage>();
+  const [loaded, setLoaded] = useState<{ page: DocumentTemplatePage; forRevision: number | null }>();
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string>(checklistPresetNames[0]);
@@ -161,18 +174,23 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
   useEffect(() => {
     if (!opened || !customAvailable) return;
     const controller = new AbortController();
-    void loadTemplates(brokerageId, { type: "loan", loanId }, controller.signal).then((result) => {
-      if (!controller.signal.aborted) { setPage(result); setError(""); }
+    void loadTemplates(brokerageId, { type: "loan", loanId, recipient }, controller.signal).then((result) => {
+      if (!controller.signal.aborted) { setLoaded({ page: result, forRevision: applicationReviewRevision }); setError(""); }
     }).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
-  }, [brokerageId, customAvailable, loanId, opened, refresh]);
+  }, [applicationReviewRevision, brokerageId, customAvailable, loanId, opened, recipient, refresh]);
 
+  const page = loaded?.page;
   const template = customAvailable && page ? page.templates.find(({ id }) => id === selected) : undefined;
   const preset = checklistPresetNames.find((name) => name === selected);
-  const items = template?.items ?? (preset && checklistPresets[preset].map((kind) => ({ kind, instructions: checklistInstructions[kind], dueDays: null })));
+  const rulePreview = !error && loaded?.forRevision === applicationReviewRevision && page?.preview?.recipient === recipient ? page.preview : undefined;
+  const conditional = template?.items.some((item) => item.when);
+  const items: DocumentTemplateConfig["items"] | undefined = template?.items ??
+    (preset ? checklistPresets[preset].map((kind) => ({ kind, instructions: checklistInstructions[kind], dueDays: null })) : undefined);
   const preview = items?.map((item) => ({ ...item, existing: requests.find((request) => request.kind === item.kind && !request.conditionId && documentRecipient(request) === recipient),
+    match: template && item.when ? rulePreview?.matches[template.id]?.[item.kind] ?? "Checking reviewed answers" : "Matches",
     dueOn: page ? documentTemplateDueOn(page.asOf, item.dueDays) : null }));
-  const missing = preview?.filter((item) => !item.existing).length ?? 0;
+  const missing = preview?.filter((item) => !item.existing && item.match === "Matches").length ?? 0;
   return <details className="document-form" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
     <summary>Apply a reusable document checklist</summary>
     {opened && <div className="record-form">
@@ -192,19 +210,23 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
         {error && <p role="alert">{error}</p>}
         {!page && !error && <p role="status">Opening brokerage templates…</p>}
         {page && !page.templates.length && <p className="muted">No brokerage templates match this loan. An admin can publish one from Team.</p>}
-        <div><Button size="sm" variant="ghost" disabled={busy} onClick={() => { setPage(undefined); setError(""); setRefresh((value) => value + 1); }}>
+        <div><Button size="sm" variant="ghost" disabled={busy} onClick={() => { setLoaded(undefined); setError(""); setRefresh((value) => value + 1); }}>
           Reload templates
         </Button></div>
       </>}
+      {conditional && rulePreview?.reviewedRevision != null && <p className="muted">Rules checked against reviewed 1003 revision {rulePreview.reviewedRevision}.</p>}
       {preview && <ul className="document-list" aria-label="Checklist preview">{preview.map((item) => <li key={item.kind} className="document-item">
-        <div className="document-item-head"><strong>{item.kind}</strong><span className="pill">{item.existing ? "Already on checklist" : "Will be requested"}</span></div>
-        {!item.existing && <>
+        <div className="document-item-head"><strong>{item.kind}</strong><span className="pill">
+          {item.existing ? "Already on checklist" : item.match === "Matches" ? "Will be requested" : item.match}</span></div>
+        {item.when && <p className="muted">Rule · {documentTemplateRuleLabel(item.when)}</p>}
+        {!item.existing && item.match === "Matches" && <>
           {item.instructions && <p>{item.instructions}</p>}
           {item.dueOn && <p>Due <time dateTime={item.dueOn}>{dateLabel(item.dueOn)}</time></p>}
         </>}
       </li>)}</ul>}
-      {preview && <div><Button size="sm" disabled={busy || !missing} onClick={() => {
-        if (template && page) void save({ type: "applyDocumentTemplate", loanId, templateId: template.id, revision: template.revision, asOf: page.asOf, recipient });
+      {preview && <div><Button size="sm" disabled={busy || !missing || (conditional && !rulePreview)} onClick={() => {
+        if (template && page) void save({ type: "applyDocumentTemplate", loanId, templateId: template.id, revision: template.revision, asOf: page.asOf, recipient,
+          ...(conditional ? { reviewedRevision: rulePreview?.reviewedRevision } : {}) });
         else if (preset) void save({ type: "applyDocumentPreset", loanId, preset, recipient });
       }}>Add missing requests{missing > 0 ? ` (${missing})` : ""}</Button></div>}
     </div>}

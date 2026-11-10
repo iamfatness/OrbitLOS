@@ -718,6 +718,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "document-checklist" }) : undefined}
         localTemplateEditor={!staff && process.env.NODE_ENV === "development"}
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
+        applicationReviewRevision={application?.reviewedAt && application.submittedAt ? application.revision : null}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
       </>}
       {section === "Activity" && <>

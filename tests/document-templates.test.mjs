@@ -4,8 +4,9 @@ import test from "node:test";
 import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
-const { blankApplication } = await import("../src/lib/application-model.ts");
+const { blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
+const { blankBorrower } = await import("../src/lib/urla.ts");
 const { documentTemplateWork, applyDocumentTemplate } = await import("../src/lib/document-templates.ts");
 const { nameFileExceptions, readFileExceptions } = await import("../src/lib/file-exceptions.ts");
 
@@ -119,4 +120,78 @@ test("a failed batch rolls back every request and its provenance", (t) => {
   }
   db.exec("DROP TRIGGER interrupted_checklist");
   assert.match(apply(id, officer).message, /^Added 3/);
+});
+
+test("conditional checklist items use the selected borrower's reviewed 1003 and reject stale previews", (t) => {
+  const { db, officer, processor, templateId, publish, work, apply, loan } = fixture(t);
+  const { id, token } = loan();
+  const conditional = {
+    title: "Fictional reviewed 1003 needs", purpose: "Purchase", items: [
+      { kind: "Photo ID", instructions: "Use fictional ID.", dueDays: null },
+      { kind: "Pay stub", instructions: "Use a fictional pay statement.", dueDays: 1, when: { employment: "Current wage employment" } },
+      { kind: "Tax form", instructions: "Use a fictional tax form.", dueDays: 3, when: { employment: "Current self-employment" } },
+      { kind: "Bank statement", instructions: "Use a fictional bank statement.", dueDays: 2,
+        when: { occupancy: "Investment property", employment: "Current self-employment" } },
+      { kind: "Homeowners insurance", instructions: "Use fictional insurance.", dueDays: 0, when: { occupancy: "Second home" } },
+    ],
+  };
+  assert.ok(work({ ...publish, config: { ...conditional, items: [{ ...conditional.items[0], when: {} }] } }).error);
+  assert.equal(work({ ...publish, config: conditional }).templates[0].revision, 1);
+  const preview = (recipient = "Primary borrower", actor = officer) => work({ type: "loan", loanId: id, recipient }, actor);
+  assert.ok(preview("Co-borrower").error);
+  assert.ok(preview("Primary borrower", processor).error);
+  assert.equal(preview().preview.reviewedRevision, null);
+  assert.equal(preview().preview.matches[templateId]["Pay stub"], "Needs reviewed 1003");
+  assert.match(apply(id, officer).error, /reviewed 1003 changed/);
+  assert.match(apply(id, officer, { reviewedRevision: null }).message, /^Added 1/);
+
+  const draft = sampleApplication(blankApplication());
+  draft.occupancy = "Investment property";
+  const co = blankBorrower();
+  co.work.fields.hasJobs = "Yes";
+  co.work.groups.jobs = [{ status: "Current", selfEmployed: "Yes" }];
+  draft.urla.additional = [co];
+  db.prepare(`INSERT INTO joint_applications (loanId, token, expiresAt, draft, updatedAt, submittedAt, primarySubmittedAt)
+    VALUES (?, ?, '2099-01-01T00:00:00.000Z', ?, ?, ?, ?)`).run(id, "j".repeat(64), JSON.stringify(co), at, at, at);
+  function review(revision) {
+    const answers = JSON.stringify(draft);
+    db.prepare(`UPDATE applications SET draft = ?, revision = ?, submittedAt = ?, reviewedAt = ?, correctionNote = '' WHERE loanId = ?`)
+      .run(answers, revision, at, at, id);
+    db.prepare("INSERT INTO application_versions (loanId, revision, draft, submittedAt, reviewedAt) VALUES (?, ?, ?, ?, ?)")
+      .run(id, revision, answers, at, at);
+  }
+  review(2);
+  assert.equal(preview().preview.reviewedRevision, 2);
+  assert.deepEqual(preview().preview.matches[templateId], {
+    "Pay stub": "Matches", "Tax form": "Does not match", "Bank statement": "Does not match", "Homeowners insurance": "Does not match",
+  });
+  assert.deepEqual(preview("Co-borrower").preview.matches[templateId], {
+    "Pay stub": "Does not match", "Tax form": "Matches", "Bank statement": "Matches", "Homeowners insurance": "Does not match",
+  });
+  assert.match(apply(id, officer, { reviewedRevision: null }).error, /reviewed 1003 changed/);
+  assert.match(apply(id, officer, { reviewedRevision: 2 }).message, /^Added 1/);
+  assert.match(apply(id, officer, { reviewedRevision: 2, recipient: "Co-borrower" }).message, /^Added 3/);
+  assert.match(apply(id, officer, { reviewedRevision: 2, recipient: "Co-borrower" }).message, /already on the checklist/);
+  const origins = db.prepare(`SELECT request.kind, request.recipient, request.dueOn, origin.applicationRevision FROM document_requests request
+    JOIN document_checklist_origins origin ON origin.requestId = request.id ORDER BY request.recipient, request.kind`).all();
+  assert.deepEqual(origins.map(({ kind, recipient, dueOn, applicationRevision }) => [kind, recipient, dueOn, applicationRevision]), [
+    ["Bank statement", "Co-borrower", "2026-11-11", 2], ["Photo ID", "Co-borrower", null, null], ["Tax form", "Co-borrower", "2026-11-12", 2],
+    ["Pay stub", "Primary borrower", "2026-11-10", 2], ["Photo ID", "Primary borrower", null, null],
+  ]);
+  const { statusView: { loanStatus: { documents } } } = borrowerCommandResult(db, { type: "status", token });
+  assert.ok(documents.every((item) => !("templateApplicationRevision" in item)));
+  assert.deepEqual(documents.map(({ kind }) => kind).sort(), ["Pay stub", "Photo ID"]);
+
+  db.prepare("UPDATE applications SET reviewedAt = NULL, correctionNote = 'Fictional correction' WHERE loanId = ?").run(id);
+  assert.equal(preview().preview.matches[templateId]["Pay stub"], "Needs reviewed 1003");
+  assert.match(apply(id, officer, { reviewedRevision: 2 }).error, /reviewed 1003 changed/);
+  draft.occupancy = "Second home";
+  co.work.groups.jobs[0].selfEmployed = "";
+  review(3);
+  assert.equal(preview("Co-borrower").preview.matches[templateId]["Tax form"], "Missing answer");
+  assert.equal(preview("Co-borrower").preview.matches[templateId]["Bank statement"], "Does not match");
+  assert.match(apply(id, officer, { reviewedRevision: 3, recipient: "Co-borrower" }).message, /^Added 1/);
+  assert.equal(db.prepare(`SELECT applicationRevision FROM document_checklist_origins origin JOIN document_requests request
+    ON request.id = origin.requestId WHERE request.kind = 'Homeowners insurance'`).get().applicationRevision, 3);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM document_checklist_origins WHERE applicationRevision = 2").get().total, 3);
 });

@@ -241,7 +241,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
     CREATE TABLE IF NOT EXISTS document_checklist_origins (
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
-      templateId TEXT NOT NULL, revision INTEGER NOT NULL,
+      templateId TEXT NOT NULL, revision INTEGER NOT NULL, applicationRevision INTEGER,
       FOREIGN KEY(templateId, revision) REFERENCES document_checklist_versions(templateId, revision)
     );
     CREATE TABLE IF NOT EXISTS tasks (
@@ -601,6 +601,9 @@ export function initializeStore(db: Store, seedDemo = true) {
   `);
   db.transaction(() => {
     initializeSettlementSummaries(db);
+    if (!db.prepare("PRAGMA table_info(document_checklist_origins)").all().some(({ name }) => name === "applicationRevision")) {
+      db.exec("ALTER TABLE document_checklist_origins ADD COLUMN applicationRevision INTEGER");
+    }
     if (!db.prepare("PRAGMA table_info(pilot_scenario)").all().some((column) => column.name === "presenter")) {
       db.exec("ALTER TABLE pilot_scenario ADD COLUMN presenter INTEGER NOT NULL DEFAULT 0");
     }
@@ -1363,14 +1366,16 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
     mismoLoans: rows<{ loanId: string }>(db, `SELECT loanId FROM mismo_rehearsals ${where()}`, ...args).map((row) => row.loanId),
     applications: staffApplications(db, loanId),
     documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries">>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
-      failures.failedAt AS uwmDeliveryFailedAt, origin.revision AS templateRevision, json_extract(version.config, '$.title') AS templateTitle, ${pdfColumns()}
+      failures.failedAt AS uwmDeliveryFailedAt, origin.revision AS templateRevision, json_extract(version.config, '$.title') AS templateTitle,
+      origin.applicationRevision AS templateApplicationRevision, ${pdfColumns()}
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
       LEFT JOIN document_files files ON files.requestId = requests.id
       LEFT JOIN mock_delivery_failures failures ON failures.requestId = requests.id AND failures.revision = requests.revision
       LEFT JOIN document_checklist_origins origin ON origin.requestId = requests.id
       LEFT JOIN document_checklist_versions version ON version.templateId = origin.templateId AND version.revision = origin.revision
-      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, ...request }) =>
-      ({ ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}), previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
+      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, templateApplicationRevision, ...request }) =>
+      ({ ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}),
+        ...(templateApplicationRevision !== null ? { templateApplicationRevision } : {}), previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
         FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices" | "incomeReviewCurrent"> &
       { scenario: string; offers: string; notices: string; incomeReviewCurrent: number }>(db, `

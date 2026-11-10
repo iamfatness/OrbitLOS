@@ -1,7 +1,7 @@
 import { addApplicationActivity } from "./applications";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate } from "./client-retention";
-import { documentTemplateChanged, documentTemplateConfig, documentTemplateDueOn, documentTemplateLimit,
+import { documentTemplateApplicationChanged, documentTemplateChanged, documentTemplateConfig, documentTemplateDueOn, documentTemplateLimit,
   documentTemplateRequest, documentTemplatesUnavailable, type applyDocumentTemplateInput, type DocumentTemplate, type DocumentTemplatePage } from "./document-template-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -9,6 +9,7 @@ import { accessEvent, loanAccess } from "./workspace-access";
 import type { z } from "zod";
 import { documentRecipientAvailable } from "./borrower-documents";
 import { primaryDocumentRecipient } from "./document-model";
+import { documentRuleMatch, reviewedDocumentFacts } from "./document-template-rules";
 
 function supported(staff: WorkspaceStaff | null) {
   return !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
@@ -49,9 +50,16 @@ export function documentTemplateWork(db: Store, input: unknown, staff: Workspace
   if (data.type === "loan") {
     const loan = readLoan(db, data.loanId, staff);
     if (!loan) return { error: "Checklists are available on active, unfunded loans you can work." };
+    const recipient = data.recipient ?? primaryDocumentRecipient;
+    if (!documentRecipientAvailable(db, data.loanId, recipient)) return { error: "Set up a separate co-borrower link before previewing their checklist." };
     const rows = db.prepare(`${templateQuery} WHERE template.archived = 0 AND (template.purpose = 'Any loan purpose' OR template.purpose = ?)
       ORDER BY template.title COLLATE NOCASE, template.id LIMIT ?`).all(loan.purpose, documentTemplateLimit);
-    return { templates: rows.map(templateFromRow), asOf, more: false };
+    const templates = rows.map(templateFromRow);
+    const conditional = templates.filter((template) => template.items.some((item) => item.when));
+    const facts = conditional.length ? reviewedDocumentFacts(db, data.loanId, recipient) : null;
+    const matches = Object.fromEntries(conditional.map((template) => [template.id,
+      Object.fromEntries(template.items.filter((item) => item.when).map((item) => [item.kind, documentRuleMatch(item.when, facts)]))]));
+    return { templates, asOf, more: false, preview: { recipient, reviewedRevision: facts?.revision ?? null, matches } };
   }
   if (staff && staff.brokerage.role !== "Admin") return { error: "Only brokerage admins can manage document templates." };
   return db.transaction(() => {
@@ -113,17 +121,21 @@ export function applyDocumentTemplate(db: Store, data: z.infer<typeof applyDocum
   if (template.purpose !== "Any loan purpose" && template.purpose !== loan.purpose) {
     return { error: "Choose a checklist for the current loan purpose." };
   }
+  const conditional = template.items.some((item) => item.when);
+  const facts = conditional ? reviewedDocumentFacts(db, data.loanId, recipient) : null;
+  if (conditional && data.reviewedRevision !== (facts?.revision ?? null)) return { error: documentTemplateApplicationChanged };
+  const matching = template.items.filter((item) => documentRuleMatch(item.when, facts) === "Matches");
   const existing = new Set(db.prepare("SELECT kind FROM document_requests WHERE loanId = ? AND recipient = ? AND conditionId IS NULL")
     .all(data.loanId, recipient).map(({ kind }) => kind));
   const insert = db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, dueOn, recipient) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-  const origin = db.prepare("INSERT INTO document_checklist_origins (requestId, templateId, revision) VALUES (?, ?, ?)");
+  const origin = db.prepare("INSERT INTO document_checklist_origins (requestId, templateId, revision, applicationRevision) VALUES (?, ?, ?, ?)");
   let added = 0;
-  for (const item of template.items) {
+  for (const item of matching) {
     if (existing.has(item.kind)) continue;
     const requestId = crypto.randomUUID();
     const dueOn = documentTemplateDueOn(data.asOf, item.dueDays);
     insert.run(requestId, data.loanId, item.kind, item.instructions, now, dueOn, recipient);
-    origin.run(requestId, template.id, template.revision);
+    origin.run(requestId, template.id, template.revision, item.when ? facts?.revision ?? null : null);
     added++;
   }
   if (added) {
@@ -131,5 +143,6 @@ export function applyDocumentTemplate(db: Store, data: z.infer<typeof applyDocum
     accessEvent(db, staff, "Applied document checklist", data.loanId, now);
   }
   return { message: added ? `Added ${added} document ${added === 1 ? "request" : "requests"} from ${template.title}.` :
-    "Every item from this template is already on the checklist." };
+    !conditional ? "Every item from this template is already on the checklist." :
+      matching.length ? "The matching items are already on the checklist." : "No checklist items match the currently reviewed answers." };
 }
