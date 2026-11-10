@@ -46,7 +46,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | --- | --- | --- |
 | F01 | Hosted paired mock DU/LPA with separate findings and retry history, tied to the submitted 1003 and authorized sample credit | Verify borrower selection, real consent evidence, service contracts, and reconciliation before any provider order. |
 | F02 | Hosted income worksheet with source periods, adjustments, exact accepted evidence, and reviewed income in mock pricing | Verify approved calculation policies and supported evidence before using real files. |
-| F03 | Hosted mock UWM intake and conditions, original receipt recovery, a scoped delivery timeline, manual MISMO export and sample packages, acknowledgment and returns | Verify real lender capabilities and map their ordering, rejection, and replay contracts. |
+| F03 | Hosted mock UWM intake and conditions, original receipt recovery, a scoped delivery timeline, fictional lender profile checks for manual MISMO export and sample packages, acknowledgment and returns | Verify real lender capabilities and map their import, ordering, rejection, and replay contracts. |
 | F04 | Hosted conditional document checklists and per-borrower questions with deadlines, answer review, and clarification | Add reusable question templates and categories. Validate production scan and delivery contracts. |
 | F05 | Hosted versioned sample packages with signer-specific portal responses, receipt history, critical dates, and tasks for fee changes or declines. Revised packages retain the internal change review. | Extend package revisions and approved artifacts through closing. Validate document generation, signing, and applicable rules before live use. |
 | F06 | Hosted 1003 and a borrower action list for corrections, questions, documents, and sample signatures, scoped to each borrower on a joint file | Validate live identity verification and configurable borrower needs in an approved pilot. |
@@ -89,6 +89,8 @@ The demonstrated methods cover staff-entered monthly amounts, totals over a spec
 The mock delivery timeline shows exact acknowledged 1003 revisions, missing and recovered receipts, document deliveries and failures, and recorded condition changes. The mock condition feed keeps a version per condition. It records late and duplicate delivery evidence without changing the current state. The rehearsal proves an older open update cannot undo a newer clearance.
 
 Manual handoffs support reviewed export, acknowledgment, and returns. Remaining work covers the capability matrix, validated provider event identity and ordering, lender rejection reasons, and the workflow for recovering failed or unconfirmed provider handoffs. Keep provider status and internal stage separate. Increments 1–2 with the live integration gate in 5.
+
+The fictional wholesale profile checks the saved borrower and lender fields used by the current XML mapping. A blocker opens the exact lender field or the borrower correction form. Downloads and shared packages enforce the same profile against current application and lender detail revisions. The preparation event records its profile and exact XML digest. A real lender import still needs its implementation guide, field coverage, test files, and acceptance from that lender.
 
 ### F04 — Document and condition lifecycle
 
