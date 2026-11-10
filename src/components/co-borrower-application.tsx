@@ -53,6 +53,9 @@ function CoBorrowerForm({ token }: { token?: string }) {
   const submitted = Boolean(view?.submittedAt);
   const awaitingOtherPortion = submitted && !view?.complete;
   const mockHandoff = view?.documentUploadsMode === "mock";
+  const actions = submitted && view?.complete ? borrowerActions(view) : [];
+  const actionCenter = view?.complete && <BorrowerActionCenter actions={actions}
+    processing={view.documents?.filter((request) => request.pdfStatus === "Processing").length} />;
 
   useEffect(() => {
     if (token === undefined) return;
@@ -149,14 +152,15 @@ function CoBorrowerForm({ token }: { token?: string }) {
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status">Opening your portion…</p>}
-    {submitted ? <div className="borrower-status"><section className="pipeline relationship-panel" aria-label="Joint application progress">
+    {submitted ? <div className="borrower-status">
+      {actions.length > 0 && actionCenter}
+      <section className="pipeline relationship-panel" aria-label="Joint application progress">
       <h2>{view?.closingPause?.label ?? (awaitingOtherPortion ? "Waiting for the primary borrower" : "Joint application ready for review")}</h2>
       <p>{view?.closingPause ? "Lender review is still open. Your loan team will confirm the timing once it clears." :
         awaitingOtherPortion ? "Your loan officer receives the joint 1003 once both portions are submitted." : "Your loan officer can review both portions on the loan."}</p>
       <div><Button variant="outline" size="sm" disabled={busy} onClick={refresh}>Refresh joint status</Button></div>
     </section>
-      {view?.complete && <BorrowerActionCenter actions={borrowerActions(view)}
-        processing={view.documents?.filter((request) => request.pdfStatus === "Processing").length} />}
+      {actions.length === 0 && actionCenter}
       {view?.disclosure && <BorrowerSampleDisclosure key={view.disclosure.version} item={view.disclosure} busy={busy}
         respond={(input) => void perform(input, "Your sample disclosure response was recorded.")} />}
       {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}

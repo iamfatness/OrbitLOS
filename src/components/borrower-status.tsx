@@ -34,14 +34,16 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
   const stage = stageUpdates[status.stage];
   const pause = status.closingPause;
   const actions = borrowerActions(status);
+  const hasActions = actions.length > 0;
   const processing = status.documents.filter((item) => item.pdfStatus === "Processing").length;
   const received = status.documents.filter((item) => item.status === "Received").length;
-  const next = actions.length ? "Open the items in Your next actions to keep the loan moving." : processing > 0
-    ? "Your uploads are processing. The checklist will update when they’re ready." : received > 0
+  const actionCenter = <BorrowerActionCenter actions={actions} processing={processing} />;
+  const next = processing > 0 ? "Your uploads are processing. The checklist will update when they’re ready." : received > 0
     ? "Your loan team will review the documents you attached."
     : status.stage === "Application" && status.reviewed ? "Your loan officer reviewed your application and will post any additional requests here." : stage.next;
 
   return <div className="borrower-status">
+    {hasActions && actionCenter}
     <section className="application-panel application-receipt">
       <div className="document-item-head">
         <CheckCircle2 size={30} className="text-emerald-700" aria-hidden="true" />
@@ -52,11 +54,11 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
       <div className="borrower-next">
         <div className="document-item-head"><strong>What’s next</strong><span className="pill">{pause?.label ?? stage.label}</span></div>
         {pause && <p>Lender review is still open. Your loan team will confirm the timing once it clears.</p>}
-        {(!pause || actions.length > 0 || processing > 0 || received > 0) && <p>{next}</p>}
+        {!hasActions && (!pause || processing > 0 || received > 0) && <p>{next}</p>}
         <small className="muted">{pause ? "Status updated" : "Loan stage updated"} {dateTime(pause?.since ?? status.stageSince)} ET</small>
       </div>
     </section>
-    <BorrowerActionCenter actions={actions} processing={processing} />
+    {!hasActions && actionCenter}
     {status.disclosure && <BorrowerSampleDisclosure key={status.disclosure.version} item={status.disclosure} busy={busy} respond={respondToDisclosure} />}
     {status.quote && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-quote-heading">
       <div className="section-heading"><h2 id="borrower-quote-heading"><Calculator size={19} /> Your shared quote</h2><span className="pill">Sample pricing</span></div>
