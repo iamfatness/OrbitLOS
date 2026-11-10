@@ -373,6 +373,123 @@ test("reporting readiness resumes a bounded legacy backfill and excludes reviewe
   assert.equal(work(query).blockers, 321);
 });
 
+test("quarter review uses a pinned prior ending, shows loan differences, and downloads immutable versions", async (t) => {
+  const { db, admin, officer, loanId, contactId, stageSince } = fundingFixture(t);
+  const checkedAt = new Date("2026-11-08T15:00:00.000Z");
+  const work = (input, actor = admin, brokerage = admin.brokerage.id, now = checkedAt) =>
+    reportingReadinessWork(db, { year: 2026, ...input }, actor, brokerage, now);
+  const read = (quarter) => work({ type: "quarterReview", quarter });
+  const request = (page, note = "") => ({ type: "saveQuarterReview", quarter: page.period.quarter, previousVersion: page.history[0]?.version ?? null,
+    evidenceKey: page.comparison.key, note, requestId: crypto.randomUUID() });
+  const saveFacts = async (id, revision, facts) => {
+    const result = await executeCommand(db, { type: "saveCallReport", loanId: id, revision, facts }, admin);
+    assert.ok(result.state, result.error);
+  };
+  const loan = (id) => insertLoan(db, { id, contactId, partnerId: null, officer: officer.name, officerEmail: officer.email,
+    address: "", amount: 350000, purpose: "Purchase", stage: "Underwriting", stageSince });
+  const base = { ...emptyCallReportFacts, eligibility: "Include", state: "MI", originator: "123456",
+    receivedDate: "2026-09-01", receivedAmount: 350000 };
+  assert.match(work({ type: "quarterReview", quarter: 4 }, officer).error, /brokerage admins/);
+  assert.match(work({ type: "quarterReview", quarter: 4 }, admin, crypto.randomUUID()).error, /brokerage admins/);
+  assert.match(work({ type: "quarterReview", quarter: 4 }, admin, admin.brokerage.id, new Date("2026-09-20T15:00:00Z")).error, /earlier quarter/);
+  assert.match(read(3).unavailable, /reporting exceptions/);
+  loan("later-excluded");
+  loan("late-entry");
+  loan("unchanged");
+  await saveFacts(loanId, 0, base);
+  await saveFacts("later-excluded", 0, { ...base, receivedAmount: 190000 });
+  await saveFacts("late-entry", 0, { ...base, state: "OH", receivedAmount: 240000, receivedDate: "2026-10-05" });
+  await saveFacts("unchanged", 0, { ...base, state: "NY", receivedAmount: 110000 });
+  const prior = read(3);
+  assert.equal(prior.closed, true);
+  assert.equal(prior.comparison.prior, null);
+  assert.equal(prior.comparison.changeCount, null);
+  assert.equal(prior.comparison.count, 3);
+  assert.match(work(request(prior)).error, /Record a review note/);
+  const baselineRequest = request(prior, "First internal baseline.");
+  const baseline = work(baselineRequest);
+  assert.equal(baseline.review.version, 1);
+  assert.deepEqual(work(baselineRequest), baseline);
+  assert.match(work({ ...baselineRequest, note: "Other text" }).error, /already used/);
+  assert.match(work({ ...baselineRequest, quarter: 4 }).error, /already used/);
+  const opening = read(4);
+  assert.deepEqual(opening.comparison.previousEnding, { count: 3, amount: 650000 });
+  assert.deepEqual(opening.comparison.opening, opening.comparison.previousEnding);
+  assert.equal(opening.comparison.changeCount, 0);
+  assert.equal(opening.comparison.needsNote, false);
+  assert.equal(opening.closed, false);
+  assert.equal("ending" in opening.comparison.prior, false);
+  assert.equal(work(request(opening)).review.version, 1);
+  const download = (version, actor = admin) => work({ type: "downloadQuarterReview", quarter: 4, version }, actor);
+  const first = download(1);
+  assert.match(first.csv, /2026 Q3 v1/);
+  assert.match(first.csv, /Quarter in progress/);
+  assert.match(download(1, officer).error, /brokerage admins/);
+
+  await saveFacts(loanId, 1, { ...base, state: "OH", receivedAmount: 355000 });
+  await saveFacts("later-excluded", 1, { ...base, receivedAmount: 190000, eligibility: "Exclude", exclusionReason: "Duplicate file" });
+  await saveFacts("late-entry", 1, { ...base, state: "OH", receivedAmount: 240000, receivedDate: "2026-09-26" });
+  assert.match(work(request(opening)).error, /quarter or its baseline changed/);
+  const amended = read(4);
+  assert.equal(amended.latestCurrent, false);
+  assert.deepEqual(amended.comparison.opening, { count: 3, amount: 705000 });
+  assert.deepEqual(amended.comparison.previousEnding, { count: 3, amount: 650000 });
+  assert.equal(amended.comparison.changeCount, 3);
+  assert.deepEqual(amended.comparison.differences.find(({ loanId: id }) => id === loanId).reasons, ["State changed", "Amount changed"]);
+  assert.equal(amended.comparison.differences.find(({ loanId: id }) => id === "later-excluded").current, null);
+  assert.equal(amended.comparison.differences.find(({ loanId: id }) => id === "late-entry").before, null);
+  assert.deepEqual(amended.comparison.states.find(({ state }) => state === "MI"),
+    { state: "MI", previous: { count: 2, amount: 540000 }, opening: { count: 0, amount: 0 } });
+  assert.match(work(request(amended)).error, /Record a review note/);
+  assert.equal(work(request(amended, "=Review late change")).review.version, 2);
+  assert.equal(read(4).latestCurrent, true);
+  const [header, ...records] = readCsv(download(2).csv);
+  const record = (type, match) => records.find((row) => row[0] === type && match(row));
+  assert.equal(record("Internal review", () => true)[header.indexOf("Internal review note")], "'=Review late change");
+  assert.equal(record("Carryover difference", (row) => row[header.indexOf("Loan ID")] === "later-excluded")
+    [header.indexOf("Opening amount difference")], "-190000");
+  assert.doesNotMatch(download(2).csv, /Fictional Borrower/);
+  const updatedPrior = read(3);
+  assert.equal(work(request(updatedPrior, "Corrected the prior reviewed facts.")).review.version, 2);
+  const current = read(4);
+  assert.equal(current.comparison.prior.version, 2);
+  assert.equal(current.comparison.changeCount, 0);
+  assert.equal(current.latestCurrent, false);
+  assert.deepEqual(download(1), first);
+
+  await saveFacts("unchanged", 1, { ...base, state: "NY", originator: "", receivedAmount: 110000 });
+  assert.match(read(4).unavailable, /reporting exceptions/);
+  assert.deepEqual(download(1), first);
+});
+
+test("an empty or provisional quarter is explicit and a closed snapshot can supersede it across years", (t) => {
+  const { db, admin } = fundingFixture(t);
+  db.exec("DELETE FROM loans");
+  const call = (input, date) => reportingReadinessWork(db, input, admin, admin.brokerage.id, new Date(date));
+  const q4 = { year: 2025, quarter: 4 };
+  const q1 = { year: 2026, quarter: 1 };
+  const inQuarter = "2025-12-20T15:00:00Z";
+  const after = "2026-01-04T15:00:00Z";
+  const open = call({ ...q4, type: "quarterReview" }, inQuarter);
+  assert.equal(open.comparison.count, 0);
+  assert.equal(open.closed, false);
+  assert.equal(call({ ...q4, type: "saveQuarterReview", previousVersion: null, evidenceKey: open.comparison.key,
+    requestId: crypto.randomUUID(), note: "No activity in this working sample." }, inQuarter).review.version, 1);
+  const next = call({ ...q1, type: "quarterReview" }, after);
+  assert.deepEqual(next.priorPeriod, q4);
+  assert.equal(next.comparison.prior.closed, false);
+  assert.equal(next.comparison.needsNote, true);
+  assert.deepEqual(next.comparison.previousEnding, { count: 0, amount: 0 });
+  const completed = call({ ...q4, type: "quarterReview" }, after);
+  assert.equal(completed.closed, true);
+  assert.equal(completed.latestCurrent, false);
+  assert.equal(call({ ...q4, type: "saveQuarterReview", previousVersion: 1, evidenceKey: completed.comparison.key,
+    requestId: crypto.randomUUID(), note: "Fictional quarter ended without activity." }, after).review.version, 2);
+  const refreshed = call({ ...q1, type: "quarterReview" }, after);
+  assert.equal(refreshed.comparison.prior.closed, true);
+  assert.equal(refreshed.comparison.needsNote, false);
+});
+
 test("the finance grant follows the active fictional workspace creator and denies another admin", (t) => {
   const { db, admin, officer } = fundingFixture(t);
   initializeBrokerages(db);

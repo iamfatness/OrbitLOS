@@ -11,6 +11,7 @@ import type { Workspace } from "@/lib/model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { callReportFactsTarget, type ReportingPeriod } from "@/lib/call-report-readiness-model";
 import { ReconciledCallReportExport, ReportingPeriodFields } from "./call-report-readiness";
+import { CallReportQuarterReview } from "./call-report-quarter";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 
@@ -36,12 +37,13 @@ export function CallReportWorkbench({ state, brokerageId, period, setPeriod, ope
   const names = new Map(state.contacts.map((contact) => [contact.id, contact.name]));
   const states = [...new Set(rows.map(({ file }) => file.facts.state).filter(Boolean))].sort();
   const originators = [...new Set(rows.map(({ file }) => file.facts.originator).filter(Boolean))].sort();
+  const changePeriod = (value: ReportingPeriod) => { setPeriod(value); setPropertyState(""); setOriginator(""); };
 
   return <section className="integration record-form manager-panel" aria-label="Mortgage Call Report preparation">
     <div><h2>Mortgage Call Report prep</h2><p>Reconcile quarterly application activity for a wholesale broker and open the files behind the totals.</p></div>
     <p className="muted">Confirm each file’s reporting eligibility and facts. Beginning and ending pipeline amounts use the confirmed application amount at intake. Outcomes use their separately confirmed amounts. It covers selected residential mortgage activity and leaves net amount adjustments, fee and financial data, and filing to separate review.</p>
     <div className="form-grid">
-      <ReportingPeriodFields period={period} maxYear={String(currentYear)} change={(value) => { setPeriod(value); setPropertyState(""); setOriginator(""); }} />
+      <ReportingPeriodFields period={period} maxYear={String(currentYear)} change={changePeriod} />
       <label className="field">Property state filter<select value={propertyState} onChange={(event) => setPropertyState(event.target.value)}>
         <option value="">All states</option><option value="unconfirmed">Unconfirmed state</option>
         {states.map((code) => <option key={code}>{code}</option>)}</select></label>
@@ -57,6 +59,8 @@ export function CallReportWorkbench({ state, brokerageId, period, setPeriod, ope
         }>Download draft review CSV</Button>
       </div>
       <ReconciledCallReportExport key={`${year}:${quarter}`} brokerageId={brokerageId} period={period} openReadiness={openReadiness} />
+      <CallReportQuarterReview key={`quarter:${year}:${quarter}`} brokerageId={brokerageId} period={period} openLoan={openLoan}
+        openReadiness={openReadiness} openPrior={changePeriod} version={state} />
       <div className="loan-application-actions">
         {callReportGroups.map((label) => {
           const items = filtered.filter((item) => item.groups.includes(label));

@@ -1,16 +1,18 @@
-import { callReportActivity, callReportCsv, callReportIssues, quarterlyCallReport, quarterRange } from "./call-report-model";
+import { callReportActivity, callReportCsv, callReportIssues, quarterlyCallReport, quarterRange, type CallReportRow } from "./call-report-model";
 import { reportingReadinessInput, reportingReadinessUnavailable, type ReportingBlocker, type ReportingReadiness } from "./call-report-readiness-model";
 import { callReportFiles } from "./call-report";
 import { easternDate } from "./client-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
+import { initializeQuarterReviews, quarterReviewWork } from "./call-report-quarter";
 
 const pageSize = 20;
 const indexBatch = 160;
 const exportLimit = 1000;
 
 export function initializeCallReportReadiness(db: Store) {
+  initializeQuarterReviews(db);
   db.exec(`CREATE TABLE IF NOT EXISTS call_report_readiness (
     loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, received TEXT NOT NULL, outcomeOn TEXT NOT NULL,
     sortOn TEXT NOT NULL, firstApplication TEXT NOT NULL, fundingDate TEXT NOT NULL, revision INTEGER NOT NULL, issues TEXT NOT NULL, issueCount INTEGER NOT NULL
@@ -74,25 +76,37 @@ const inQuarter = `(report.received BETWEEN ? AND ? OR report.outcomeOn BETWEEN 
 const quarterRows = `FROM call_report_readiness report WHERE ${inQuarter}
   AND NOT EXISTS (SELECT 1 FROM call_report_readiness_dirty dirty WHERE dirty.loanId = report.loanId)`;
 
+function checkedQuarterRows(db: Store, range: ReturnType<typeof quarterRange>, dates: string[], indexing: boolean): { rows: CallReportRow[] } | { error: string } {
+  if (indexing || indexingPending(db)) return { error: "Reporting records are still being checked. Refresh readiness before exporting." };
+  if (db.prepare(`SELECT 1 ${quarterRows} AND report.issueCount > 0 LIMIT 1`).get(...dates)) {
+    return { error: "Resolve the quarter’s reporting exceptions before exporting the reconciled CSV." };
+  }
+  const ids = db.prepare(`SELECT report.loanId ${quarterRows} ORDER BY report.loanId LIMIT ?`).all(...dates, exportLimit + 1);
+  if (ids.length > exportLimit) return { error: "The quarter exceeds the pilot limit of 1,000 report candidates." };
+  const rows = quarterlyCallReport(callReportFiles(db, ids.map(({ loanId }) => String(loanId))), range);
+  if (rows.some(({ issues }) => issues.length)) return { error: "The report changed. Refresh readiness before exporting." };
+  return { rows };
+}
+
 export function reportingReadinessWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): ReportingReadiness {
   if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin") return { error: reportingReadinessUnavailable };
   const parsed = reportingReadinessInput.safeParse(input);
-  if (!parsed.success || parsed.data.year > Number(easternDate(now).slice(0, 4))) return { error: "Choose a valid reporting year and quarter." };
+  const today = easternDate(now);
+  if (!parsed.success || parsed.data.year > Number(today.slice(0, 4))) return { error: "Choose a valid reporting year and quarter." };
   const data = parsed.data;
   const range = quarterRange(data.year, data.quarter);
   const { from, through } = range;
   const dates = [from, through, from, through, from, through, through, from];
-  const indexing = refreshCallReportReadiness(db);
+  const indexing = data.type === "downloadQuarterReview" ? false : refreshCallReportReadiness(db);
+  const checked = () => checkedQuarterRows(db, range, dates, indexing);
+  if (data.type !== "list" && data.type !== "export") {
+    return quarterReviewWork(db, data, staff, range, today, now.toISOString(), checked);
+  }
 
   if (data.type === "export") return db.transaction(() => {
-    if (indexing || indexingPending(db)) return { error: "Reporting records are still being checked. Refresh readiness before exporting." };
-    if (db.prepare(`SELECT 1 ${quarterRows} AND report.issueCount > 0 LIMIT 1`).get(...dates)) {
-      return { error: "Resolve the quarter’s reporting exceptions before exporting the reconciled CSV." };
-    }
-    const ids = db.prepare(`SELECT report.loanId ${quarterRows} ORDER BY report.loanId LIMIT ?`).all(...dates, exportLimit + 1);
-    if (ids.length > exportLimit) return { error: "The quarter exceeds the pilot limit of 1,000 report candidates." };
-    const rows = quarterlyCallReport(callReportFiles(db, ids.map(({ loanId }) => String(loanId))), range);
-    if (rows.some(({ issues }) => issues.length)) return { error: "The report changed. Refresh readiness before exporting." };
+    const result = checked();
+    if ("error" in result) return result;
+    const { rows } = result;
     if (!rows.length) return { error: "There are no report records for this quarter." };
     accessEvent(db, staff, "Exported reconciled call report prep", `${data.year} Q${data.quarter} · ${rows.length} records`, now.toISOString());
     return { kind: "export", count: rows.length, csv: callReportCsv(rows, from, through) };

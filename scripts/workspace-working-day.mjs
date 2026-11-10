@@ -22,6 +22,8 @@ const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exce
 const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
+const { emptyCallReportFacts, quarterRange } = await import("../src/lib/call-report-model.ts");
+const { priorQuarter } = await import("../src/lib/call-report-quarter-model.ts");
 const { closingReviewReady, loanNextAction } = await import("../src/lib/loan-workflow.ts");
 const { manualReturnStatus, manualReturnSteps } = await import("../src/lib/lender-export-model.ts");
 const { emptyPipelineFilters } = await import("../src/lib/pipeline-model.ts");
@@ -96,27 +98,41 @@ try {
     assert.equal(status, 200, result.error ?? path);
     return result;
   }
-  async function action(staff, name, input, scope, expectedBrokerage = brokerage) {
+  async function action(staff, name, input, scope, expectedBrokerage = brokerage, routeBrokerage = brokerage) {
     countRequest(staff.role);
-    const response = await runtime.dispatchFetch(`${origin}/workspace?brokerage=${brokerage}`, {
+    const response = await runtime.dispatchFetch(`${origin}/workspace?brokerage=${routeBrokerage}`, {
       method: "POST", headers: { Origin: origin, "Next-Action": actions[name], Accept: "text/x-component",
         "Content-Type": "text/plain;charset=UTF-8", Cookie: `__Host-orbit-session=${staff.token}` },
       body: JSON.stringify(scope ? [input, expectedBrokerage, scope] : [input, expectedBrokerage]),
     });
     assert.equal(response.status, 200, name);
-    const body = await response.text();
-    const line = body.split("\n").find((row) => row.startsWith("0:"));
-    assert.ok(line, `No action result for ${name}`);
-    const { returnValue } = JSON.parse(line.slice(2));
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const textChunks = new Map();
+    let actionResult;
+    // React text chunks have a byte length and can precede or follow the action result.
+    for (let offset = 0; offset < bytes.length;) {
+      const end = bytes.indexOf(10, offset);
+      assert.notEqual(end, -1, `Incomplete response for ${name}`);
+      const line = bytes.toString("utf8", offset, end);
+      const textHeader = /^([a-f0-9]+):T([a-f0-9]+),/.exec(line);
+      if (textHeader) {
+        const start = offset + textHeader[0].length;
+        offset = start + Number.parseInt(textHeader[2], 16);
+        textChunks.set(textHeader[1], bytes.toString("utf8", start, offset));
+      } else {
+        if (line.startsWith("0:")) actionResult = JSON.parse(line.slice(2));
+        offset = end + 1;
+      }
+    }
+    assert.ok(actionResult, `No action result for ${name}`);
+    const { returnValue } = actionResult;
     assert.equal(returnValue.ok, true, name);
     const data = returnValue.data;
-    // React streams a long XML result as a separate length-prefixed text chunk.
-    const xmlReference = /^\$([a-f0-9]+)$/.exec(data?.mismoXml ?? "");
-    if (xmlReference) {
-      const chunk = new RegExp(`(?:^|\\n)${xmlReference[1]}:T([a-f0-9]+),`).exec(body);
-      assert.ok(chunk, "The MISMO action must include its XML text chunk");
-      const bytes = Buffer.from(body.slice(chunk.index + chunk[0].length));
-      data.mismoXml = bytes.subarray(0, Number.parseInt(chunk[1], 16)).toString("utf8");
+    for (const field of ["mismoXml", "csv"]) {
+      const reference = /^\$([a-f0-9]+)$/.exec(data?.[field] ?? "");
+      if (!reference) continue;
+      assert.ok(textChunks.has(reference[1]), `The ${name} action must include its ${field} text chunk`);
+      data[field] = textChunks.get(reference[1]);
     }
     return data;
   }
@@ -195,6 +211,51 @@ try {
     assert.ok((await action(owner, "saveOwnerReportView", settings)).message);
     assert.deepEqual((await action(owner, "readOwnerReport", { kind: "summary", ...filters })).views,
       [{ id: settings.id, name: settings.name, filters }]);
+  });
+
+  await stage("Quarter reviews keep the original CSV after corrections", async () => {
+    const reportingBrokerage = randomUUID();
+    const workspace = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
+      [owner.email], { type: "create", id: reportingBrokerage, name: "Fictional Reporting Review", pilot: true });
+    assert.equal(workspace.created, reportingBrokerage, workspace.error);
+    const inReporting = (name, input) => action(owner, name, input, undefined, reportingBrokerage, reportingBrokerage);
+    const report = (input) => inReporting("accessReportingReadiness", input);
+    const current = { year: Number(today.slice(0, 4)), quarter: Math.ceil(Number(today.slice(5, 7)) / 3) };
+    const prior = priorQuarter(current);
+    const created = await inReporting("mutate", { type: "loan", contactId: "", borrower: "Fictional Quarter Loan",
+      borrowerEmail: "quarter@example.test", address: "", amount: 350000, purpose: "Purchase", stage: "Lead", officer: owner.name, partnerId: null });
+    assert.ok(created.message, created.error);
+    const loanId = created.loanWork.loanId;
+    const facts = { ...emptyCallReportFacts, eligibility: "Include", state: "MI", originator: "123456",
+      receivedDate: quarterRange(prior.year, prior.quarter).from, receivedAmount: 350000 };
+    assert.ok((await inReporting("mutate", { type: "saveCallReport", loanId, revision: 0, facts })).message);
+    const read = (period) => report({ type: "quarterReview", ...period });
+    const request = (page, note = "") => ({ type: "saveQuarterReview", ...page.period, previousVersion: page.history[0]?.version ?? null,
+      evidenceKey: page.comparison.key, requestId: randomUUID(), note });
+    const download = (version) => report({ type: "downloadQuarterReview", ...current, version });
+    assert.ok((await action(owner, "accessReportingReadiness", { type: "quarterReview", ...prior }, undefined, reportingBrokerage)).error);
+    const baseline = await read(prior);
+    assert.equal(baseline.kind, "quarterReview", baseline.error);
+    assert.equal((await report(request(baseline, "Initial fictional baseline."))).review.version, 1);
+    const matched = await read(current);
+    assert.equal(matched.comparison.prior.version, 1);
+    assert.deepEqual(matched.comparison.opening, { count: 1, amount: 350000 });
+    assert.equal(matched.comparison.changeCount, 0);
+    const firstRequest = request(matched);
+    assert.equal((await report(firstRequest)).review.version, 1);
+    const original = await download(1);
+    assert.equal(original.kind, "quarterReviewDownload", original.error);
+    assert.ok(original.csv.includes("350000"));
+    const stale = request(await read(current), "Old review.");
+    assert.ok((await inReporting("mutate", { type: "saveCallReport", loanId, revision: 1,
+      facts: { ...facts, state: "OH", receivedAmount: 355000 } })).message);
+    assert.ok((await report(stale)).error);
+    const corrected = await read(current);
+    assert.deepEqual(corrected.comparison.differences.map(({ loanId, reasons }) => ({ loanId, reasons })),
+      [{ loanId, reasons: ["State changed", "Amount changed"] }]);
+    assert.equal((await report(request(corrected, "Reviewed the corrected state and amount."))).review.version, 2);
+    assert.equal((await download(1)).csv, original.csv);
+    assert.ok((await download(2)).csv.includes("355000"));
   });
 
   await stage("The initial guide shows when its controls are ready", async () => {

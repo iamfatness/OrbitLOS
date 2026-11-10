@@ -113,16 +113,17 @@ export function callReportAmount(row: CallReportRow, group: CallReportGroup) {
 
 export const applicationDay = (value: string | null) => value ? easternDate(new Date(value)) : "";
 
+export function callReportCsvCell(value: string | number | null) {
+  const string = String(value ?? "");
+  return `"${(typeof value === "string" && /^[\s]*[=+\-@]/.test(string) ? "'" + string : string).replaceAll('"', '""')}"`;
+}
+
 export function callReportCsv(rows: CallReportRow[], from: string, through: string) {
-  const cell = (value: string | number | null) => {
-    const string = String(value ?? "");
-    return `"${(/^[\s]*[=+\-@]/.test(string) ? "'" + string : string).replaceAll('"', '""')}"`;
-  };
   const header = ["Quarter start", "Quarter end", "Loan ID", "State", "Originator NMLS ID", "Review groups", "Received date",
     "Received amount", "Outcome", "Outcome date", "Outcome amount", "Exclusion reason", "Review issues"];
   return [header.join(","), ...rows.map(({ file, groups, issues }) => {
     const { facts } = file;
     return [from, through, file.loanId, facts.state, facts.originator, groups.join(" | "), facts.receivedDate, facts.receivedAmount,
-      facts.outcome, facts.outcomeDate, facts.outcomeAmount, facts.exclusionReason, issues.join(" | ")].map(cell).join(",");
+      facts.outcome, facts.outcomeDate, facts.outcomeAmount, facts.exclusionReason, issues.join(" | ")].map(callReportCsvCell).join(",");
   })].join("\r\n");
 }
