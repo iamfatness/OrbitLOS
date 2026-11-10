@@ -4,7 +4,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
 const pageSize = 20;
-type Candidate = Omit<CampaignManagerRow, "owner" | "overdue" | "archived"> & {
+type Candidate = Omit<CampaignManagerRow, "owner" | "overdue" | "archived" | "sequence"> & {
   officer: string;
   officerEmail: string | null;
   email: string;
@@ -18,6 +18,9 @@ type Candidate = Omit<CampaignManagerRow, "owner" | "overdue" | "archived"> & {
   optedOut: number;
   sequenceDueAt: string | null;
   sequenceTitle: string | null;
+  sequencePosition: number;
+  sequencePaused: number;
+  revision: number;
   callbackDueAt: string | null;
   requestedCallback: number;
 };
@@ -43,6 +46,7 @@ export function readCampaignManager(db: Store, input: unknown, staff: WorkspaceS
       WHERE event.leadId = lead.id AND event.outcome = 'Reply received' AND event.at >= member.joinedAt)) AS replied,
     (member.lastOutcome IS 'Opted out' OR sequence.outcome IS 'Opted out') AS optedOut,
     sequence.dueAt AS sequenceDueAt, json_extract(template.steps, '$[' || sequence.position || '].title') AS sequenceTitle,
+    sequence.position AS sequencePosition, (sequence.outcome IS 'Paused') AS sequencePaused, coalesce(follow.revision, 0) AS revision,
     callback.dueAt AS callbackDueAt, (member.lastOutcome IS 'Requested callback') AS requestedCallback
     FROM call_campaign_members member
     JOIN referral_leads lead ON lead.id = member.leadId
@@ -54,28 +58,36 @@ export function readCampaignManager(db: Store, input: unknown, staff: WorkspaceS
       AND callback.completedAt IS NULL AND callback.dueAt < ?
     WHERE member.campaignId = ?`).all(checkedAt, campaignId) as unknown as Candidate[];
   const suppression = outreachSuppressionKeys(db);
-  const counts = { overdue: 0, replies: 0, conversions: 0, optOuts: 0 };
+  const counts = { overdue: 0, paused: 0, replies: 0, conversions: 0, optOuts: 0 };
   const matching: CampaignManagerRow[] = [];
   for (const row of candidates) {
     const optedOut = Boolean(row.optedOut) || outreachSuppressed(suppression, row);
     const overdue: CampaignManagerRow["overdue"] = [];
-    if (!row.loanId && !row.resolvedAt && !row.heldAt && !optedOut) {
-      if (!row.replyReceivedAt && row.sequenceDueAt && row.sequenceDueAt < checkedAt && row.sequenceTitle) {
-        overdue.push({ title: `New Lead · ${row.sequenceTitle}`, dueAt: row.sequenceDueAt });
+    const open = !row.loanId && !row.resolvedAt && !optedOut;
+    const sequence = open && !row.replyReceivedAt && row.sequenceDueAt && row.sequenceTitle ? {
+      position: row.sequencePosition, title: row.sequenceTitle, dueAt: row.sequenceDueAt,
+      paused: Boolean(row.sequencePaused), revision: row.revision, held: Boolean(row.heldAt),
+    } : undefined;
+    if (open && !row.heldAt) {
+      if (sequence && !sequence.paused && sequence.dueAt < checkedAt) {
+        overdue.push({ title: `New Lead · ${sequence.title}`, dueAt: sequence.dueAt });
       }
       if (row.callbackDueAt && (!row.replyReceivedAt || row.requestedCallback)) {
         overdue.push({ title: row.requestedCallback ? "Campaign callback" : "Campaign call retry", dueAt: row.callbackDueAt });
       }
       overdue.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
     }
-    const includes = { overdue: overdue.length > 0, replies: Boolean(row.replied), conversions: Boolean(row.loanId), optOuts: optedOut };
+    const includes = { overdue: overdue.length > 0, paused: Boolean(sequence?.paused),
+      replies: Boolean(row.replied), conversions: Boolean(row.loanId), optOuts: optedOut };
     counts.overdue += Number(includes.overdue);
+    counts.paused += Number(includes.paused);
     counts.replies += Number(includes.replies);
     counts.conversions += Number(includes.conversions);
     counts.optOuts += Number(includes.optOuts);
     if (includes[view]) {
       matching.push({ leadId: row.leadId, name: row.name, loanId: row.loanId, archived: Boolean(row.archiveToken),
-        owner: row.officerEmail ? row.officer || row.officerEmail : row.loanId ? "Unassigned" : "Shared inbox", overdue });
+        owner: row.officerEmail ? row.officer || row.officerEmail : row.loanId ? "Unassigned" : "Shared inbox", overdue,
+        ...(sequence ? { sequence } : {}) });
     }
   }
   matching.sort((a, b) => (view === "overdue" ? a.overdue[0].dueAt.localeCompare(b.overdue[0].dueAt) : 0) ||

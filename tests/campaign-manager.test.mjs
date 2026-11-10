@@ -61,6 +61,8 @@ test("manager outcomes count distinct campaign leads and list only overdue open 
   add("shared", { shared: true });
   add("future", { sequence: now, callback: now });
   add("held", { held: true });
+  add("held paused", { held: true, outcome: "Paused" });
+  add("paused with callback", { callback: due, callOutcome: "Requested callback", outcome: "Paused" });
   add("archived", { archived: true, replied: true });
   add("converted", { loanId: "loan", replied: true });
   add("reply and promise", { replied: true, callback: due, callOutcome: "Requested callback" });
@@ -74,13 +76,15 @@ test("manager outcomes count distinct campaign leads and list only overdue open 
   add("foreign", { campaign: "other" });
 
   const page = read();
-  assert.deepEqual(page.counts, { overdue: 3, replies: 5, conversions: 1, optOuts: 3 });
-  assert.deepEqual(page.items.map(({ leadId }) => leadId), ["both", "reply and promise", "shared"]);
+  assert.deepEqual(page.counts, { overdue: 4, paused: 2, replies: 5, conversions: 1, optOuts: 3 });
+  assert.deepEqual(page.items.map(({ leadId }) => leadId), ["both", "paused with callback", "reply and promise", "shared"]);
   assert.deepEqual(page.items[0].overdue, [
     { title: "Campaign call retry", dueAt: earlier }, { title: "New Lead · Call the new lead", dueAt: due },
   ]);
   assert.deepEqual(page.items[1].overdue, [{ title: "Campaign callback", dueAt: due }]);
-  assert.equal(page.items[2].owner, "Shared inbox");
+  assert.equal(page.items[3].owner, "Shared inbox");
+  assert.deepEqual(read({ view: "paused" }).items.map(({ leadId, sequence }) => [leadId, sequence.held, sequence.dueAt]),
+    [["held paused", true, due], ["paused with callback", false, due]]);
   assert.equal(read({ view: "replies" }).items[0].archived, true);
   assert.deepEqual(read({ view: "conversions" }).items[0], {
     leadId: "converted", name: "converted", owner: "Current LO", loanId: "loan", archived: false, overdue: [],

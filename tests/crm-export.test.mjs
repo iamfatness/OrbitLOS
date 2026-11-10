@@ -46,6 +46,7 @@ const { readEditableLead } = await import("../src/lib/editable-lead.ts");
 const { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, applyLeadMutation, applyLeadWork } = await import("../src/lib/lead-work-model.ts");
 const { readCampaignCallbackPerformance } = await import("../src/lib/campaign-callback-performance.ts");
 const { readCampaignCallbackExceptions } = await import("../src/lib/campaign-callback-exceptions.ts");
+const { readCampaignManager } = await import("../src/lib/campaign-manager.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -71,7 +72,7 @@ function fixture(t) {
   return { db, staff };
 }
 
-test("new CSV leads keep their attached sequence version and stop on reply, conversion or opt-out", async (t) => {
+test("CSV sequence progress survives a manager pause and retires on reply, conversion, opt-out or archive", async (t) => {
   const { db, staff } = fixture(t);
   const officer = { ...staff, name: "Fictional officer", email: "sequence-officer@example.test", brokerage: { ...staff.brokerage, role: "LO" } };
   const another = { ...officer, email: "another-officer@example.test" };
@@ -109,6 +110,9 @@ test("new CSV leads keep their attached sequence version and stop on reply, conv
   const [newLead] = (await importCsv(csv([4]))).migration.rows.map(({ targetId }) => targetId);
   const queue = (actor = officer, now = new Date()) => readOfficerQueue(db, { horizon: 7 }, actor, staff.brokerage.id, now).items;
   const stepFor = (id, actor, now) => queue(actor, now).find((item) => item.recordId === id && item.kind === "sequence");
+  const revision = (id) => db.prepare("SELECT revision FROM lead_follow_up WHERE leadId = ?").get(id)?.revision ?? 0;
+  const control = (leadId, action) => ({ type: "changeCampaignSequence", campaignId, leadId, action, revision: revision(leadId) });
+  const report = (view) => readCampaignManager(db, { campaignId, view }, staff, staff.brokerage.id, new Date(Date.now() + 1000));
   const callStep = stepFor(replyLead);
   assert.equal(callStep.sequence.version, 1);
   assert.equal(callStep.sequence.channel, "Call");
@@ -118,34 +122,66 @@ test("new CSV leads keep their attached sequence version and stop on reply, conv
   const open = { leadId: replyLead, task: { kind: "sequence", id: callStep.id } };
   const { lead } = readEditableLead(db, open, officer, staff.brokerage.id);
   assert.ok(readEditableLead(db, open, another, staff.brokerage.id).error);
-  await apply({ type: "recordCampaignCall", campaignId, leadId: replyLead, revision: lead.followUp.revision,
-    outcome: "Connected", callbackAt: null, note: "Fictional sequence call" }, officer);
+  const call = { type: "recordCampaignCall", campaignId, leadId: replyLead, revision: lead.followUp.revision,
+    outcome: "Connected", callbackAt: null, note: "Fictional sequence call" };
+  const pause = control(replyLead, "Pause");
+  assert.match((await write(pause, officer)).error, /admin/);
+  assert.ok((await write({ ...pause, campaignId: crypto.randomUUID() })).error);
+  assert.equal((await apply(pause)).leadWork.member.sequence.paused, true);
+  assert.equal(stepFor(replyLead), undefined);
+  assert.ok(!queue().some((item) => item.recordId === replyLead && item.kind === "lead"));
+  assert.ok(readEditableLead(db, open, officer, staff.brokerage.id).error);
+  assert.ok((await write(call, officer)).error);
+  assert.ok(!report("overdue").items.some(({ leadId }) => leadId === replyLead));
+  assert.equal(report("paused").items[0].sequence.dueAt, callStep.dueAt);
+  assert.equal((await apply(control(replyLead, "Resume"))).leadWork.member.sequence.paused, false);
+  assert.ok((await write(pause)).error);
+  assert.equal(stepFor(replyLead).id, callStep.id);
+  assert.equal(stepFor(replyLead).dueAt, callStep.dueAt);
+  await apply({ ...call, revision: revision(replyLead) }, officer);
   assert.ok(readEditableLead(db, open, officer, staff.brokerage.id).error);
   const { version, position, recipient } = stepFor(replyLead).sequence;
   const mock = { type: "recordSequenceMock", leadId: replyLead, version, position, recipient };
   assert.ok((await write(mock, another)).error);
   assert.ok((await write({ ...mock, recipient: "someone-else@example.test" }, officer)).error);
+  const textStep = stepFor(replyLead);
+  await apply(control(replyLead, "Pause"));
+  assert.ok((await write(mock, officer)).error);
+  assert.equal(stepFor(replyLead), undefined);
+  await apply(control(replyLead, "Resume"));
+  assert.equal(stepFor(replyLead).id, textStep.id);
+  assert.equal(stepFor(replyLead).dueAt, textStep.dueAt);
   await apply(mock, officer);
   assert.ok((await write(mock, officer)).error);
   const scheduled = stepFor(replyLead);
   assert.equal(scheduled.sequence.channel, "Email");
   assert.ok(scheduled.dueAt > new Date().toISOString());
   assert.ok((await write({ ...mock, position: scheduled.sequence.position, recipient: scheduled.sequence.recipient }, officer)).error);
+  await apply(control(replyLead, "Pause"));
+  assert.equal(report("paused").items[0].sequence.dueAt, scheduled.dueAt);
   const thread = db.prepare("SELECT id, revision FROM lead_conversations WHERE leadId = ?").get(replyLead);
   assert.ok(changeConversation(db, { ...thread, type: "message", direction: "Inbound", channel: "Email",
     text: "Fictional reply to the mock sequence", eventId: crypto.randomUUID() }, officer, staff.brokerage.id).id);
+  await apply(control(convertedLead, "Pause"));
   await apply({ type: "convertReferral", referralId: convertedLead, contactId: null }, officer);
+  await apply(control(optedLead, "Pause"));
   await apply({ type: "leadOptOut", leadId: optedLead }, officer);
   const ended = db.prepare("SELECT dueAt, outcome FROM campaign_sequence_enrollments WHERE leadId = ?");
   for (const [id, outcome] of [[replyLead, "Reply received"], [convertedLead, "Converted"], [optedLead, "Opted out"]]) {
     assert.deepEqual({ ...ended.get(id) }, { dueAt: null, outcome });
     assert.equal(stepFor(id), undefined);
+    assert.ok((await write(control(id, "Resume"))).error);
   }
+  assert.equal(report("paused").counts.paused, 0);
   assert.equal(db.prepare("SELECT count(*) AS count FROM lead_events WHERE leadId = ? AND text LIKE 'Mock campaign follow-up%'").get(replyLead).count, 1);
   assert.equal((await apply({ ...update, expectedVersion: 2, expectedTemplateVersion: 2, steps: null })).campaignQueue.campaign.newLeadSequence.attachedVersion, null);
   assert.equal(stepFor(newLead).sequence.version, 2);
   const [afterDetach] = (await importCsv(csv([5]))).migration.rows.map(({ targetId }) => targetId);
   assert.equal(stepFor(afterDetach), undefined);
+  await apply(control(newLead, "Pause"));
+  await apply({ type: "dismissReferral", referralId: newLead, revision: revision(newLead) }, officer);
+  assert.deepEqual({ ...ended.get(newLead) }, { dueAt: null, outcome: "Archived" });
+  assert.ok((await write(control(newLead, "Resume"))).error);
 });
 
 test("migration results follow the current lead, loan and exact evidence behind a receipt", async (t) => {

@@ -1371,11 +1371,14 @@ function campaignRows(db: Store, campaignId?: string, includeRouting = true, off
 function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: string | string[]) {
   const scope = typeof leadIds === "string" ? "WHERE member.leadId = ?" : leadIds ? "WHERE member.leadId IN (SELECT value FROM json_each(?))" : "";
   return rows<Omit<CallCampaignMember, "outreachSuppressed"> & { email: string; phone: string; contactId: string | null;
-    runId: string | null; runDueAt: string | null; requestEventId: string | null; promisedDueAt: string | null }>(db,
+    runId: string | null; runDueAt: string | null; requestEventId: string | null; promisedDueAt: string | null;
+    sequencePosition: number; sequenceDueAt: string | null; sequenceTitle: string | null; sequencePaused: number }>(db,
     `SELECT member.campaignId, member.leadId, member.segmentId, segment.name AS segmentName,
       lead.name, lead.resolvedAt, lead.loanId, lead.email, lead.phone, coalesce(loan.contactId, lead.importedContactId) AS contactId,
       member.attempts, member.lastOutcome, member.reachedAt, member.retryExhaustedAt, member.callbackTaskId,
       CASE WHEN task.completedAt IS NULL THEN task.dueAt END AS callbackDueAt,
+      sequence.position AS sequencePosition, sequence.dueAt AS sequenceDueAt, (sequence.outcome IS 'Paused') AS sequencePaused,
+      json_extract(template.steps, '$[' || sequence.position || '].title') AS sequenceTitle,
       CASE WHEN run.status IN ('Failed', 'Paused') THEN run.status END AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt,
       CASE WHEN run.status = 'Completed' AND run.outcome = 'Requested callback' AND run.taskId = task.id
         AND task.completedAt IS NULL AND task.leadId = member.leadId AND lead.resolvedAt IS NULL AND ${openCallbackPromise}
@@ -1384,10 +1387,15 @@ function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: strin
     LEFT JOIN loans loan ON loan.id = lead.loanId
     LEFT JOIN crm_segments segment ON segment.id = member.segmentId
     LEFT JOIN lead_import_tasks task ON task.id = member.callbackTaskId
+    LEFT JOIN campaign_sequence_enrollments sequence ON sequence.leadId = member.leadId AND sequence.dueAt IS NOT NULL
+    LEFT JOIN campaign_sequence_versions template ON template.version = sequence.version
     LEFT JOIN campaign_follow_up_runs run ON run.leadId = lead.id AND run.campaignId = member.campaignId AND run.callNumber = member.attempts
       AND run.outcome = member.lastOutcome
     ${scope} ORDER BY member.joinedAt, member.leadId`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []))
-    .map(({ email, phone, contactId, runId, runDueAt, requestEventId, promisedDueAt, ...member }) => ({ ...member,
+    .map(({ email, phone, contactId, runId, runDueAt, requestEventId, promisedDueAt,
+      sequencePosition, sequenceDueAt, sequenceTitle, sequencePaused, ...member }) => ({ ...member,
+      ...(sequenceDueAt && sequenceTitle ? { sequence: { position: sequencePosition, dueAt: sequenceDueAt, title: sequenceTitle,
+        paused: Boolean(sequencePaused) } } : {}),
       ...(member.followUpRunStatus && runId && runDueAt ? { followUpRun: { id: runId, dueAt: runDueAt } } : {}),
       ...(requestEventId && runDueAt && promisedDueAt ? { callbackPromise: { requestEventId, originalDueAt: runDueAt, dueAt: promisedDueAt } } : {}),
       outreachSuppressed: member.lastOutcome === "Opted out" || outreachSuppressed(suppression, { email, phone, contactId, leadId: member.leadId }) }));

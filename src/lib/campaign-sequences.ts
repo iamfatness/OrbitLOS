@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import { campaignFollowUpRecipient, mockCampaignFollowUpPrefix } from "./call-campaign-model";
-import { sequenceSteps, sequenceTaskId, type CampaignSequenceConfig, type recordSequenceMockInput, type saveCampaignSequenceInput } from "./campaign-sequence-model";
+import { sequenceSteps, sequenceTaskId, type CampaignSequenceConfig, type changeCampaignSequenceInput,
+  type recordSequenceMockInput, type saveCampaignSequenceInput } from "./campaign-sequence-model";
 import { campaignWeekdayAt } from "./campaign-timing";
 import { advanceLeadRevision, leadEvent } from "./lead-inbox";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
@@ -54,12 +55,34 @@ export function stopCampaignSequence(db: Store, leadId: string, reason: string) 
   db.prepare("UPDATE campaign_sequence_enrollments SET dueAt = NULL, outcome = ? WHERE leadId = ? AND dueAt IS NOT NULL").run(reason, leadId);
 }
 
+export function changeCampaignSequence(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof changeCampaignSequenceInput>, now: string) {
+  const changed = "This lead’s sequence changed. Refresh the campaign before trying again.";
+  const run = db.prepare(`SELECT sequence.position, sequence.outcome, lead.email, lead.phone, lead.importedContactId AS contactId,
+    coalesce(follow.revision, 0) AS revision FROM campaign_sequence_enrollments sequence
+    JOIN call_campaign_members member ON member.leadId = sequence.leadId
+    JOIN referral_leads lead ON lead.id = sequence.leadId LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
+    WHERE member.campaignId = ? AND lead.id = ? AND sequence.dueAt IS NOT NULL
+      AND lead.resolvedAt IS NULL AND lead.loanId IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL
+      AND member.lastOutcome IS NOT 'Opted out'`).get(input.campaignId, input.leadId);
+  const pause = input.action === "Pause";
+  const identity = { ...run, leadId: input.leadId };
+  if (!run || run.revision !== input.revision || run.outcome !== (pause ? null : "Paused") ||
+    outreachSuppressed(blockedOutreachKeys(db, [identity]), identity)) return { error: changed };
+  db.prepare("UPDATE campaign_sequence_enrollments SET outcome = ? WHERE leadId = ?").run(pause ? "Paused" : null, input.leadId);
+  advanceLeadRevision(db, input.leadId);
+  const action = pause ? "Paused New Lead sequence" : "Resumed New Lead sequence";
+  leadEvent(db, input.leadId, staff?.name ?? "Demo workspace", now, `${action} at step ${Number(run.position) + 1}.`, "Campaign");
+  accessEvent(db, staff, action, input.leadId, now);
+  return { message: pause ? "Sequence paused. The current step and schedule are saved." : "Sequence resumed from the saved step." };
+}
+
 function currentStep(db: Store, leadId: string, now: string) {
   const run = db.prepare(`SELECT run.version, run.position, template.steps, lead.officerEmail, lead.email, lead.phone,
     lead.importedContactId AS contactId FROM campaign_sequence_enrollments run
     JOIN campaign_sequence_versions template ON template.version = run.version JOIN referral_leads lead ON lead.id = run.leadId
     LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
-    WHERE run.leadId = ? AND run.dueAt <= ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL`).get(leadId, now);
+    WHERE run.leadId = ? AND run.dueAt <= ? AND run.outcome IS NULL
+      AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL`).get(leadId, now);
   if (!run) return null;
   const position = Number(run.position);
   const steps = sequenceSteps.parse(JSON.parse(String(run.steps)));

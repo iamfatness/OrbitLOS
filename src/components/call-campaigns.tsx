@@ -17,7 +17,7 @@ import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 import { CrmSegments } from "./crm-segments";
 import { CampaignAssignments } from "./campaign-assignments";
-import { CampaignSequence } from "./campaign-sequence";
+import { CampaignSequence, CampaignSequenceToggle } from "./campaign-sequence";
 import { CampaignRouting, CampaignRoutingCapacity } from "./campaign-routing";
 import { CampaignResponse } from "./campaign-response";
 import { CampaignCallbackPerformance } from "./campaign-callback-performance";
@@ -222,6 +222,8 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
   const followUp = lead && canWork && (!staff || staff.brokerage.pilot) ? campaignFollowUpSource(lead, member, now) : undefined;
   const optedOut = member.outreachSuppressed;
   const held = !!lead?.heldAt;
+  const sequence = lead && !member.resolvedAt && !optedOut && !lead.followUp.replyReceivedAt ? member.sequence : undefined;
+  const canManageSequence = !staff || (staff.brokerage.pilot && staff.brokerage.role === "Admin");
   const retryExhausted = !!member.retryExhaustedAt && !lead?.followUp.replyReceivedAt;
   const shared = lead && !lead.officerEmail && !member.resolvedAt && !held && !optedOut;
   const directAssignment = allowDirectAssignment && shared && assignableCampaignLead(lead);
@@ -240,6 +242,11 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
       {lead && (lead.officerEmail || shared) && !lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt && !optedOut && !held &&
         ` · First contact due ${dateTime(lead.dueAt)} ET`}
       {!(showCallContext && canWork && !optedOut) && !member.resolvedAt && !held && member.callbackDueAt && ` · ${dateTime(member.callbackDueAt)} ET`}</p>
+    {sequence && lead && <div className="loan-application-actions">
+      <span className="muted">New Lead · {sequence.paused ? "Paused at step" : "Step"} {sequence.position + 1} · {sequence.title} · {dateTime(sequence.dueAt)} ET</span>
+      {canManageSequence && !held && <CampaignSequenceToggle campaignId={campaign.id} leadId={lead.id} revision={lead.followUp.revision}
+        paused={sequence.paused} busy={busy} save={save} />}
+    </div>}
     {directAssignment && lead && <div className="record-form">
       <div><Button size="sm" variant="outline" disabled={busy} aria-expanded={assigning} onClick={() => setAssigning(!assigning)}>
         {assigning ? "Close assignment" : "Assign this lead"}
@@ -576,7 +583,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} campaignId={campaign.id} version={state} />}
         {canReadManagerReports && performance === "manager" && <CampaignManager key={`manager-report:${campaign.id}`}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} campaignId={campaign.id} campaignName={campaign.name}
-          version={state} openRecord={openManagerRecord} />}
+          version={state} busy={busy} save={save} openRecord={openManagerRecord} />}
         {canManage && assignmentOpen && <CampaignAssignments key={`${campaign.id}:${segmentId}:${view}`} campaignId={campaign.id} leads={assignmentLeads} staff={staff} busy={busy} save={save} />}
         {showCapacity && campaign.routing && <CampaignRoutingCapacity key={`routing-capacity:${campaign.id}`} campaignId={campaign.id}
           routing={campaign.routing} leads={routingLeads} staff={staff} busy={busy} save={save} />}

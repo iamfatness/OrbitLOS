@@ -24,11 +24,16 @@ export const recordSequenceMockInput = z.object({
   type: z.literal("recordSequenceMock"), leadId: z.uuid(), version, position: z.number().int().min(0).max(5),
   recipient: z.string().max(320).nullable(),
 });
+export const changeCampaignSequenceInput = z.object({
+  type: z.literal("changeCampaignSequence"), campaignId: z.uuid(), leadId: z.uuid(),
+  action: z.enum(["Pause", "Resume"]), revision: z.number().int().nonnegative(),
+});
 
 export type CampaignSequenceConfig = {
   attachedVersion: number | null;
   latest: { version: number; steps: CampaignSequenceStep[] } | null;
 };
+export type CampaignSequenceProgress = { position: number; title: string; dueAt: string; paused: boolean };
 export type DueSequenceStep = CampaignSequenceStep & { version: number; position: number; recipient: string | null };
 
 export function sequenceTaskId(leadId: string, version: number, position: number) {

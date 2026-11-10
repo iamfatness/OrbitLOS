@@ -231,6 +231,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const showSequences = !calendar && !tasks && !coverage;
   const currentSequenceStep = "json_extract(template.steps, '$[' || run.position || ']')";
   const currentSequenceId = "(run.leadId || ':' || run.version || ':' || run.position)";
+  // A paused first sequence call still replaces its duplicate first-contact reminder.
   const sequenceFirstCall = showSequences ? `AND NOT EXISTS (SELECT 1 FROM campaign_sequence_enrollments run
     JOIN campaign_sequence_versions template ON template.version = run.version
     WHERE run.leadId = lead.id AND run.dueAt <= lead.dueAt AND json_extract(${currentSequenceStep}, '$.channel') = 'Call')` : "";
@@ -287,7 +288,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       FROM campaign_sequence_enrollments run JOIN referral_leads lead ON lead.id = run.leadId
       JOIN call_campaign_members member ON member.leadId = lead.id JOIN campaign_sequence_versions template ON template.version = run.version
       LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
-      WHERE run.dueAt IS NOT NULL AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL`,
+      WHERE run.dueAt IS NOT NULL AND run.outcome IS NULL AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL`,
     currentSequenceId, "run.dueAt", "lead.officerEmail", "lead.officer") : []),
     ...(policy ? [
       ...select("lead-hold", `lead.id, lead.id AS recordId, lead.name, (lead.revisitDate || 'T17:00:00.000Z') AS dueAt,

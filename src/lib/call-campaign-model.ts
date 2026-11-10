@@ -153,6 +153,7 @@ export interface CallCampaignMember {
   callbackPromise?: { requestEventId: string; originalDueAt: string; dueAt: string };
   followUpRunStatus: "Failed" | "Paused" | null;
   followUpRun?: { id: string; dueAt: string };
+  sequence?: import("./campaign-sequence-model").CampaignSequenceProgress;
   outreachSuppressed: boolean;
 }
 

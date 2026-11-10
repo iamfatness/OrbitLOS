@@ -4,6 +4,15 @@ import { useState } from "react";
 import { defaultNewLeadSteps, sequenceChannels, type CampaignSequenceConfig, type CampaignSequenceStep } from "@/lib/campaign-sequence-model";
 import { Button } from "./ui/button";
 
+export function CampaignSequenceToggle({ campaignId, leadId, revision, paused, busy, save }: {
+  campaignId: string; leadId: string; revision: number; paused: boolean; busy: boolean;
+  save: (input: unknown) => Promise<void>;
+}) {
+  return <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
+    type: "changeCampaignSequence", campaignId, leadId, revision, action: paused ? "Resume" : "Pause",
+  })}>{paused ? "Resume sequence" : "Pause sequence"}</Button>;
+}
+
 export function CampaignSequence({ campaignId, config, busy, save }: {
   campaignId: string; config: CampaignSequenceConfig; busy: boolean; save: (input: unknown) => Promise<void>;
 }) {

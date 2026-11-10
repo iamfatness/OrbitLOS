@@ -46,6 +46,7 @@ export default function DemoPage() {
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>
           <li>Open a CSV campaign’s Manager view to see overdue steps, logged replies, 1003 conversions, and opt-outs. Select a count to review the leads behind it.</li>
+          <li>Pause a lead’s follow-up sequence, then find it under Paused sequences and resume the same step.</li>
           <li>Record a post-funding check-in, see its note on the scheduled callback in Tasks, and confirm the original property address when starting a separate refinance.</li>
           <li>Claim an imported lead from the shared queue and open the prefilled 1003 directly from the campaign. The card shows the new loan even in a filtered call queue. Scheduled callbacks follow the loan, and missed deadlines stay visible in reporting.</li>
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
