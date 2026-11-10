@@ -21,8 +21,9 @@ import { activeCoBorrowerLink, jointApplication, staffJointApplications } from "
 import { coBorrowerCommand, coBorrowerSubmissionIssues, jointLinkUnavailable, primaryJointDraft, type CoBorrowerApplication } from "./joint-application-model";
 import { readClosingPauses } from "./processing-conditions";
 import { borrowerChannelActivityPrefix, borrowerChannelBlocked, borrowerChannelMask, borrowerChannels } from "./borrower-channel-model";
-import { linkedChannelLeadIds, readContactChannelBlocks, setContactChannelBlocks } from "./borrower-channels";
-import { reconcileBorrowerSequenceChannels } from "./borrower-sequences";
+import { linkedChannelLeadIds, readBorrowerHours, readContactChannelBlocks, setBorrowerHours, setContactChannelBlocks } from "./borrower-channels";
+import { reconcileBorrowerSequences } from "./borrower-sequences";
+import { borrowerHoursInput, borrowerHoursLabel, sameBorrowerHours } from "./borrower-hours";
 import { loanOutreachSuppressed } from "./outreach-preferences";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
@@ -171,7 +172,8 @@ const borrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
   z.object({ type: z.literal("status"), token }),
   z.strictObject({ type: z.literal("contactPreferences"), token }),
-  z.strictObject({ type: z.literal("saveContactPreferences"), token, expected: borrowerChannelMask, blocked: borrowerChannelMask }),
+  z.strictObject({ type: z.literal("saveContactPreferences"), token, expected: borrowerChannelMask, blocked: borrowerChannelMask,
+    hours: z.strictObject({ expected: borrowerHoursInput.nullable(), value: borrowerHoursInput.nullable() }).optional() }),
   z.object({ type: z.literal("save"), ...write }),
   z.object({ type: z.literal("submit"), ...write }),
   z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision: z.number().int().nonnegative(), statusOnly: z.boolean().optional() }),
@@ -189,18 +191,27 @@ function borrowerContactPreferences(db: Store, data: Extract<z.infer<typeof borr
   const contactId = String(contact.id);
   const blocked = readContactChannelBlocks(db, contactId);
   const optedOut = loanOutreachSuppressed(db, loanId);
-  if (data.type === "contactPreferences") return { preferences: { blocked, optedOut } };
+  const hours = readBorrowerHours(db, contactId);
+  const view = (blocked: number, hours: ReturnType<typeof readBorrowerHours>): BorrowerResult =>
+    ({ preferences: { blocked, optedOut, ...(hours ? { hours } : {}) } });
+  if (data.type === "contactPreferences") return view(blocked, hours);
   if (optedOut) return { status: 409, error: "An outreach opt-out is active. Ask your loan team if you need to change it." };
-  if (blocked === data.blocked) return { preferences: { blocked, optedOut } };
-  if (blocked !== data.expected) return { status: 409, error: "Your contact preferences changed. Refresh preferences and try again." };
-  setContactChannelBlocks(db, contactId, data.blocked);
-  reconcileBorrowerSequenceChannels(db, linkedChannelLeadIds(db, contactId), now);
+  const nextHours = data.hours ? data.hours.value : hours;
+  const hoursChanged = !sameBorrowerHours(hours, nextHours);
+  if (blocked === data.blocked && !hoursChanged) return view(blocked, hours);
+  if (blocked !== data.expected || (data.hours && !sameBorrowerHours(hours, data.hours.expected))) {
+    return { status: 409, error: "Your contact preferences changed. Refresh preferences and try again." };
+  }
+  if (blocked !== data.blocked) setContactChannelBlocks(db, contactId, data.blocked);
+  if (hoursChanged) setBorrowerHours(db, contactId, nextHours);
+  reconcileBorrowerSequences(db, linkedChannelLeadIds(db, contactId), now);
   const labels = { Call: "Calls", Email: "Email", Text: "Texts" };
   const changes = borrowerChannels.filter((channel) => borrowerChannelBlocked(blocked ^ data.blocked, channel))
     .map((channel) => `${labels[channel]} ${borrowerChannelBlocked(data.blocked, channel) ? "blocked" : "allowed"}`);
+  if (hoursChanged) changes.push(nextHours ? `Preferred contact hours ${borrowerHoursLabel(nextHours)}` : "Preferred contact hours cleared");
   db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)")
     .run(`${borrowerChannelActivityPrefix}${crypto.randomUUID()}`, loanId, `Borrower updated contact preferences · ${changes.join(" · ")}`, now);
-  return { preferences: { blocked: data.blocked, optedOut } };
+  return view(data.blocked, nextHours);
 }
 
 function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string): BorrowerLoanStatus | null {

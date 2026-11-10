@@ -9,6 +9,7 @@ import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-ch
 import { observeHandoffChecks } from "@/lib/tab-return";
 import { primaryJointDraft } from "@/lib/joint-application-model";
 import type { BorrowerPortalPreferences } from "@/lib/borrower-channel-model";
+import { sameBorrowerHours, type BorrowerHours } from "@/lib/borrower-hours";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
@@ -55,14 +56,18 @@ async function requestApplication<Result = BorrowerApplication>(token: string, i
 function PortalContactPreferences({ token }: { token: string }) {
   const [saved, setSaved] = useState<BorrowerPortalPreferences>();
   const [draft, setDraft] = useState(0);
+  const [hours, setHours] = useState<BorrowerHours | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => pending.current?.abort(), []);
+  const savedHours = saved?.hours ?? null;
+  const changed = !!saved && (draft !== saved.blocked || !sameBorrowerHours(hours, savedHours));
+  const invalidHours = hours && (!hours.start || !hours.end || hours.start >= hours.end);
 
   async function update(save: boolean) {
-    if (pending.current || (save && (!saved || saved.optedOut || draft === saved.blocked))) return;
+    if (pending.current || (save && (!saved || saved.optedOut || !changed || invalidHours))) return;
     const controller = new AbortController();
     const { signal } = controller;
     pending.current = controller;
@@ -70,11 +75,13 @@ function PortalContactPreferences({ token }: { token: string }) {
     setError("");
     setNotice("");
     try {
-      const input = save && saved ? { type: "saveContactPreferences", expected: saved.blocked, blocked: draft } : { type: "contactPreferences" };
+      const input = save && saved ? { type: "saveContactPreferences", expected: saved.blocked, blocked: draft,
+        hours: { expected: savedHours, value: hours } } : { type: "contactPreferences" };
       const preferences = await requestApplication<BorrowerPortalPreferences>(token, input, signal);
       if (signal.aborted) return;
       setSaved(preferences);
       setDraft(preferences.blocked);
+      setHours(preferences.hours ?? null);
       if (save) {
         setNotice("Contact preferences saved.");
         void announceBorrowerChange(token);
@@ -99,9 +106,25 @@ function PortalContactPreferences({ token }: { token: string }) {
       {saved && <>
         {saved.optedOut && <p>An outreach opt-out is active. Ask your loan team if you need to change it.</p>}
         <BorrowerChannelOptions blocked={draft} optedOut={saved.optedOut} busy={busy} onChange={setDraft} />
+        <fieldset className="borrower-hours-options" disabled={busy || saved.optedOut}>
+          <legend>Preferred contact hours</legend>
+          <label className="demo-confirm"><input type="checkbox" checked={!!hours} onChange={(event) => setHours(event.target.checked ?
+            (savedHours ?? { start: "09:00", end: "17:00", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" }) : null)} />
+            Set preferred contact hours</label>
+          {hours && <div className="form-grid">
+            <label className="field">Start time<input type="time" value={hours.start} required onChange={(event) => setHours({ ...hours, start: event.target.value })} /></label>
+            <label className="field">End time<input type="time" value={hours.end} required onChange={(event) => setHours({ ...hours, end: event.target.value })} /></label>
+            <label className="field">Time zone<select value={hours.timeZone} onChange={(event) => setHours({ ...hours, timeZone: event.target.value })}>
+              {[...new Set(["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Phoenix", "UTC",
+                hours.timeZone, ...Intl.supportedValuesOf("timeZone")])].map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}
+            </select></label>
+          </div>}
+          <p className="muted">{invalidHours ? "Enter an end time later than the start time." :
+            "This window applies every day in your selected time zone. Follow-up sequences wait until it opens."}</p>
+        </fieldset>
       </>}
       <div className="loan-application-actions">
-        {saved && !saved.optedOut && <Button size="sm" type="submit" disabled={busy || draft === saved.blocked}>Save contact preferences</Button>}
+        {saved && !saved.optedOut && <Button size="sm" type="submit" disabled={busy || !changed || !!invalidHours}>Save contact preferences</Button>}
         {error && <Button size="sm" variant="outline" onClick={() => void update(false)} disabled={busy}>Refresh preferences</Button>}
       </div>
     </form>

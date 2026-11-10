@@ -8,7 +8,8 @@ import { currentConversationContact, readOwnedConversationReplies } from "./conv
 import { campaignFollowUpRecipient } from "./call-campaign-model";
 import { sequenceStep } from "./campaign-sequence-model";
 import { borrowerChannelBits } from "./borrower-channel-model";
-import { leadChannelBlocksSql } from "./borrower-channels";
+import { leadBorrowerHoursSql, leadChannelBlocksSql, storedBorrowerHours } from "./borrower-channels";
+import { nextBorrowerContactTime } from "./borrower-hours";
 import { reviewTarget } from "./loan-review-model";
 import { closingChecklistTarget, loanTaskTarget } from "./loan-workflow";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
@@ -35,7 +36,7 @@ const campaignCallbackSource = (join: "JOIN" | "CROSS JOIN" = "JOIN") => `FROM r
 type Candidate = Omit<CalendarItem, "overdue" | "target" | "owner"> & {
   owner: string | null;
   email?: string; phone?: string; contactId?: string; leadId?: string; purpose?: string; optedOut?: number; reason?: string;
-  sequenceStep?: string; sequenceVersion?: number; sequencePosition?: number;
+  sequenceStep?: string; sequenceVersion?: number; sequencePosition?: number; sequenceHours?: string | null;
 };
 type CampaignCallbackCandidate = Omit<CampaignCallbackPage["items"][number], "requested" | "loanId"> & {
   requested: number | null; loanId: string | null; email: string; phone: string; contactId: string | null;
@@ -239,7 +240,8 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const sequenceFirstCall = showSequences ? `AND NOT EXISTS (SELECT 1 FROM campaign_sequence_enrollments run
     JOIN campaign_sequence_versions template ON template.version = run.version
     WHERE run.leadId = lead.id AND (template.kind <> 'New Lead' OR
-      (run.dueAt <= lead.dueAt AND json_extract(${currentSequenceStep}, '$.channel') = 'Call')))` : "";
+      ((run.dueAt <= lead.dueAt OR (run.dueAt IS NOT NULL AND ${leadBorrowerHoursSql} IS NOT NULL))
+        AND json_extract(${currentSequenceStep}, '$.channel') = 'Call')))` : "";
   const receivedDocumentAt = "coalesce(request.submittedAt, request.requestedAt)";
   const fundingTask = `(task.id GLOB '${fundingTaskPrefix}borrower:*' OR task.id GLOB '${fundingTaskPrefix}realtor:*')`;
   const lastOutreach = `coalesce((SELECT event.at FROM lead_events event WHERE event.leadId = lead.id AND event.outcome IS NOT NULL
@@ -291,6 +293,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     ...(showSequences ? select("sequence", `${currentSequenceId} AS id, lead.id AS recordId, lead.id AS leadId, lead.name, run.dueAt,
       lead.email, lead.phone, lead.importedContactId AS contactId, member.campaignId, 'Prospecting' AS purpose,
       template.kind || ' · ' || json_extract(${currentSequenceStep}, '$.title') AS title, ${currentSequenceStep} AS sequenceStep,
+      ${leadBorrowerHoursSql} AS sequenceHours,
       run.version AS sequenceVersion, run.position AS sequencePosition
       FROM campaign_sequence_enrollments run JOIN referral_leads lead ON lead.id = run.leadId
       JOIN call_campaign_members member ON member.leadId = lead.id JOIN campaign_sequence_versions template ON template.version = run.version
@@ -476,8 +479,10 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     if (blocked && !completed) continue;
     const { kind, id, recordId, name, title, dueAt, campaignId, owner, reason } = row;
     const step = row.sequenceStep ? sequenceStep.parse(JSON.parse(row.sequenceStep)) : undefined;
+    const available = step && row.sequenceHours && dueAt <= checkedAt ? nextBorrowerContactTime(checkedAt, storedBorrowerHours(row.sequenceHours)) : checkedAt;
     const sequence = step && row.sequenceVersion !== undefined && row.sequencePosition !== undefined ? {
       ...step, version: row.sequenceVersion, position: row.sequencePosition,
+      ...(available > checkedAt ? { waitUntil: available } : {}),
       recipient: step.channel === "Call" ? null : campaignFollowUpRecipient(step.channel, { email: row.email ?? "", phone: row.phone ?? "" }) || null,
     } : undefined;
     const target = kind === "handoff" || kind === "playbook-handoff" ? "processing-handoff" : kind === "review" ? reviewTarget(id) :

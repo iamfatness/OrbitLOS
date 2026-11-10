@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { z } from "zod";
-import { linkedChannelLeadIds, readContactChannelBlocks, setContactChannelBlocks } from "./borrower-channels";
-import { reconcileBorrowerSequenceChannels } from "./borrower-sequences";
+import { linkedChannelLeadIds, readBorrowerHours, readContactChannelBlocks, setBorrowerHours, setContactChannelBlocks } from "./borrower-channels";
+import { reconcileBorrowerSequences } from "./borrower-sequences";
 import { contactMatchFields, contactMergeInput, contactMergeUnavailable, type ContactMergeCursor, type ContactMergeHistory,
   type ContactMergeHistoryRow, type ContactMergePreview, type ContactMergeResult, type ContactUndoPreview } from "./contact-merge-model";
 import type { Contact } from "./model";
@@ -47,6 +47,9 @@ function undoBaseline(db: Store, targetId: string, mergeId: string) {
     const rows = db.prepare(`SELECT * FROM ${table} WHERE ${column} IN (SELECT value FROM json_each(?))
       ${clause} ORDER BY rowid LIMIT ?`).all(JSON.stringify(values), remaining + 1);
     remaining -= rows.length;
+    if (table === "lead_follow_up") for (const row of rows) {
+      if (row.baseNextAt === null) delete row.baseNextAt;
+    }
     digest.update(JSON.stringify([table, column, rows]));
     return rows;
   }
@@ -55,6 +58,8 @@ function undoBaseline(db: Store, targetId: string, mergeId: string) {
   read("contacts", "id", target);
   const channelBlocks = readContactChannelBlocks(db, targetId);
   if (channelBlocks) digest.update(JSON.stringify(["borrower_contact_channels", channelBlocks]));
+  const hours = readBorrowerHours(db, targetId);
+  if (hours) digest.update(JSON.stringify(["borrower_contact_hours", hours]));
   const direct = links.map(([table, column]) => read(table, column, target));
   const loanIds = ids([...direct[0], ...direct[1]]);
   const leadIds = ids([...direct[2], ...direct[3]]);
@@ -146,6 +151,11 @@ function undoContactMerge(db: Store, request: Extract<z.infer<typeof contactMerg
     setContactChannelBlocks(db, source.id, source.outreachChannelBlocks ?? 0);
     setContactChannelBlocks(db, target.id, target.outreachChannelBlocks ?? 0);
   }
+  const hadHours = source.outreachHours || target.outreachHours;
+  if (hadHours) {
+    setBorrowerHours(db, source.id, source.outreachHours ?? null);
+    setBorrowerHours(db, target.id, target.outreachHours ?? null);
+  }
   for (const [table, column, key, label] of links) {
     const original = snapshot.affected.find((link) => link.label === label)?.ids;
     if (!original?.length) continue;
@@ -154,6 +164,7 @@ function undoContactMerge(db: Store, request: Extract<z.infer<typeof contactMerg
     db.prepare(`UPDATE ${table} SET ${column} = ?${revision}
       WHERE ${column} = ? AND ${key} IN (SELECT value FROM json_each(?))`).run(source.id, target.id, JSON.stringify(currentIds));
   }
+  if (hadHours) reconcileBorrowerSequences(db, [...linkedChannelLeadIds(db, source.id), ...linkedChannelLeadIds(db, target.id)], now);
   if (snapshot.imports.length) db.prepare(`UPDATE migration_records SET targetId = ? WHERE targetId = ? AND EXISTS (
     SELECT 1 FROM json_each(?) link WHERE json_extract(link.value, '$.origin') = migration_records.origin
       AND json_extract(link.value, '$.recordKey') = migration_records.recordKey
@@ -171,7 +182,8 @@ function contact(db: Store, id: string) {
   const row = db.prepare("SELECT id, name, email, phone, role, addedBy FROM contacts WHERE id = ?").get(id) as Contact | undefined;
   if (!row || row.role === "Realtor") return row;
   const blocked = readContactChannelBlocks(db, id);
-  return blocked ? { ...row, outreachChannelBlocks: blocked } : row;
+  const hours = readBorrowerHours(db, id);
+  return { ...row, ...(blocked ? { outreachChannelBlocks: blocked } : {}), ...(hours ? { outreachHours: hours } : {}) };
 }
 
 function mergePreview(db: Store, sourceId: string, targetId: string) {
@@ -274,10 +286,10 @@ export function contactMergeWork(db: Store, input: unknown, staff: WorkspaceStaf
     db.prepare("DELETE FROM contacts WHERE id = ?").run(sourceId);
     if (optedOut) closeSuppressedOutreach(db, now);
     const channelBlocks = (source.outreachChannelBlocks ?? 0) | (plan.snapshot.target.outreachChannelBlocks ?? 0);
-    if (channelBlocks) {
-      setContactChannelBlocks(db, targetId, channelBlocks);
-      reconcileBorrowerSequenceChannels(db, linkedChannelLeadIds(db, targetId), now);
-    }
+    if (channelBlocks) setContactChannelBlocks(db, targetId, channelBlocks);
+    const hours = plan.snapshot.target.outreachHours ?? source.outreachHours;
+    if (hours) setBorrowerHours(db, targetId, hours);
+    if (channelBlocks || hours) reconcileBorrowerSequences(db, linkedChannelLeadIds(db, targetId), now);
     const digest = !optedOut && aliases.length <= linkLimit ? undoBaseline(db, targetId, request.operationId) : null;
     const undo: MergeSnapshot["undo"] = digest ? { digest, aliases } : {
       blocker: optedOut ? "Undo is blocked to preserve an outreach opt-out." : "This merge has too much linked work for an interactive undo.",

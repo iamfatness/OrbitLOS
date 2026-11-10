@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BorrowerHours } from "./borrower-hours";
 
 export const borrowerChannels = ["Call", "Email", "Text"] as const;
 export type BorrowerChannel = (typeof borrowerChannels)[number];
@@ -6,7 +7,7 @@ export const borrowerChannelBits = { Call: 1, Email: 2, Text: 4 } satisfies Reco
 export const borrowerChannelMask = z.number().int().min(0).max(7);
 export const borrowerChannelActivityPrefix = "borrower-channel:";
 
-export type BorrowerPortalPreferences = { blocked: number; optedOut: boolean };
+export type BorrowerPortalPreferences = { blocked: number; optedOut: boolean; hours?: BorrowerHours };
 
 export function borrowerChannelBlocked(blocked: number | undefined, channel: BorrowerChannel) {
   return Boolean((blocked ?? 0) & borrowerChannelBits[channel]);

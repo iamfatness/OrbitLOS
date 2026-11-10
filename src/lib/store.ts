@@ -26,7 +26,7 @@ import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
 import { readPlaybook } from "./playbooks";
 import { assignableCampaignLead, defaultCampaignRules, type CallCampaign, type CallCampaignMember, type CampaignLeadOption, type CampaignQueueFile } from "./call-campaign-model";
 import { campaignSequenceConfig } from "./campaign-sequences";
-import { initializeBorrowerChannels, leadChannelBlocksSql } from "./borrower-channels";
+import { initializeBorrowerChannels, leadBorrowerHoursSql, leadChannelBlocksSql, storedBorrowerHours } from "./borrower-channels";
 import { blockedOutreachKeys, indexPendingContactOutreach, initializeContactOutreachIndex, initializeLeadReplyIndex, initializeRealtorReplyIndex,
   migrateCampaignOptOuts, openCallbackPromise, outreachIdentityKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import { initializeContactDuplicateQueue } from "./contact-duplicate-queue";
@@ -1332,19 +1332,24 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
   };
 }
 
-type InboxLeadRow = Omit<InboxLead, "followUp" | "matches" | "restrictedMatch" | "importedTasks" | "outreachSuppressed">;
+type InboxLeadRow = Omit<InboxLead, "followUp" | "matches" | "restrictedMatch" | "importedTasks" | "outreachSuppressed" | "outreachHours">;
 
 function inboxLeadRows(db: Store, leadIds?: string | string[]) {
   const scope = typeof leadIds === "string" ? "AND lead.id = ?" : leadIds ? "AND lead.id IN (SELECT value FROM json_each(?))" : "";
-  return rows<InboxLeadRow>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
+  return rows<InboxLeadRow & { contactHours: string | null }>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
       lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.importedContactId,
       lead.heldAt, lead.holdReason, lead.revisitDate, ${leadChannelBlocksSql} AS outreachChannelBlocks,
+      ${leadBorrowerHoursSql} AS contactHours,
       coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
       member.campaignId, member.callbackTaskId AS campaignTaskId, coalesce(member.lastOutcome = 'Opted out', 0) AS campaignOptedOut
     FROM referral_leads lead LEFT JOIN contacts ON contacts.id = lead.realtorId
     LEFT JOIN call_campaign_members member ON member.leadId = lead.id
     WHERE lead.resolvedAt IS NULL ${scope}
-    ORDER BY lead.dueAt, lead.id`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []));
+    ORDER BY lead.dueAt, lead.id`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []))
+    .map(({ contactHours, ...lead }) => {
+      const outreachHours = storedBorrowerHours(contactHours);
+      return outreachHours ? { ...lead, outreachHours } : lead;
+    });
 }
 
 function inboxLeadDetails(db: Store, lead: InboxLeadRow, suppression: Set<string>, contacts: Contact[]): InboxLead {
@@ -1384,13 +1389,15 @@ function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: strin
   const scope = typeof leadIds === "string" ? "WHERE member.leadId = ?" : leadIds ? "WHERE member.leadId IN (SELECT value FROM json_each(?))" : "";
   return rows<Omit<CallCampaignMember, "outreachSuppressed"> & { email: string; phone: string; contactId: string | null;
     runId: string | null; runDueAt: string | null; requestEventId: string | null; promisedDueAt: string | null;
-    sequencePosition: number; sequenceDueAt: string | null; sequenceTitle: string | null; sequencePaused: number }>(db,
+    sequencePosition: number; sequenceDueAt: string | null; sequenceTitle: string | null; sequencePaused: number;
+    sequenceChannel: NonNullable<CallCampaignMember["sequence"]>["channel"] }>(db,
     `SELECT member.campaignId, member.leadId, member.segmentId, segment.name AS segmentName,
       lead.name, lead.resolvedAt, lead.loanId, lead.email, lead.phone, coalesce(loan.contactId, lead.importedContactId) AS contactId,
       member.attempts, member.lastOutcome, member.reachedAt, member.retryExhaustedAt, member.callbackTaskId,
       CASE WHEN task.completedAt IS NULL THEN task.dueAt END AS callbackDueAt,
       template.kind AS sequenceKind, sequence.position AS sequencePosition, sequence.dueAt AS sequenceDueAt, (sequence.outcome IS 'Paused') AS sequencePaused,
       json_extract(template.steps, '$[' || sequence.position || '].title') AS sequenceTitle,
+      json_extract(template.steps, '$[' || sequence.position || '].channel') AS sequenceChannel,
       CASE WHEN run.status IN ('Failed', 'Paused') THEN run.status END AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt,
       CASE WHEN run.status = 'Completed' AND run.outcome = 'Requested callback' AND run.taskId = task.id
         AND task.completedAt IS NULL AND task.leadId = member.leadId AND lead.resolvedAt IS NULL AND ${openCallbackPromise}
@@ -1405,10 +1412,10 @@ function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: strin
       AND run.outcome = member.lastOutcome
     ${scope} ORDER BY member.joinedAt, member.leadId`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []))
     .map(({ email, phone, contactId, runId, runDueAt, requestEventId, promisedDueAt,
-      sequenceKind, sequencePosition, sequenceDueAt, sequenceTitle, sequencePaused, ...member }) => ({ ...member,
+      sequenceKind, sequencePosition, sequenceDueAt, sequenceTitle, sequencePaused, sequenceChannel, ...member }) => ({ ...member,
       ...(sequenceKind ? { sequenceKind } : {}),
       ...(sequenceDueAt && sequenceTitle ? { sequence: { position: sequencePosition, dueAt: sequenceDueAt, title: sequenceTitle,
-        paused: Boolean(sequencePaused) } } : {}),
+        paused: Boolean(sequencePaused), channel: sequenceChannel } } : {}),
       ...(member.followUpRunStatus && runId && runDueAt ? { followUpRun: { id: runId, dueAt: runDueAt } } : {}),
       ...(requestEventId && runDueAt && promisedDueAt ? { callbackPromise: { requestEventId, originalDueAt: runDueAt, dueAt: promisedDueAt } } : {}),
       outreachSuppressed: member.lastOutcome === "Opted out" || outreachSuppressed(suppression, { email, phone, contactId, leadId: member.leadId }) }));

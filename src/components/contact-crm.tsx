@@ -8,6 +8,7 @@ import { contactUnavailable, type ContactRecord } from "@/lib/contact-directory-
 import { parseContactCsv, type ContactImportRow } from "@/lib/contact-csv";
 import { activityKinds, contactOutcomes, followUpOutcomes, prospectingBlocked, type ActivityKind, type Contact, type ContactActivity, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
+import { borrowerHoursLabel } from "@/lib/borrower-hours";
 import { earliestCallbackDate, easternDate } from "@/lib/client-retention";
 import { fundingCheckInActivityTitle } from "@/lib/playbook-model";
 import { Button } from "./ui/button";
@@ -254,6 +255,7 @@ export function ContactHistory({ contact, state, brokerageId, open, openLead, op
       {optOut && !contact.outreachSuppressed && <div><Button size="sm" variant="outline" disabled={busy} onClick={optOut}>Record outreach opt-out</Button></div>}
       {save && <BorrowerChannelPreferences target="contact" recordId={contact.id} blocked={contact.outreachChannelBlocks}
         optedOut={contact.outreachSuppressed} busy={busy} save={save} />}
+      {contact.outreachHours && <p className="muted">Preferred contact hours · {borrowerHoursLabel(contact.outreachHours)}</p>}
     </div>}
     {loans.length ? <ul>{loans.map((loan) => <li key={loan.id}><button className="name-link" onClick={() => open(loan.id)}>
       {loan.purpose} · {loan.address || "Property pending"} · {loan.disposition === "Active" ? loan.stage : loan.disposition || loan.stage}

@@ -17,14 +17,10 @@ import { leadWorkUnavailable } from "@/lib/lead-work-model";
 import { QuoteIntakeEditor } from "./quote-intake-settings";
 import { LeadDocumentChecklist } from "./lead-document-checklist";
 import { BorrowerChannelPreferences } from "./borrower-channel-preferences";
+import { borrowerHoursLabel, nextBorrowerContactTime } from "@/lib/borrower-hours";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void) => void;
-
-function stepDue(lead: InboxLead, now: number) {
-  return !lead.heldAt && !lead.outreachSuppressed && !lead.campaignId && lead.followUp.status === "Active" &&
-    !!lead.followUp.nextAt && Date.parse(lead.followUp.nextAt) <= now;
-}
 
 function OwnerOptions({ members }: { members: BrokerageMember[] }) {
   return <>{members.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}</>;
@@ -108,6 +104,9 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
   const isAdmin = !staff || staff.brokerage.role === "Admin";
   const canWork = isAdmin || lead.officerEmail === staff?.email;
   const followUp = lead.followUp;
+  const checkedAt = new Date(now).toISOString();
+  const nextWindow = nextBorrowerContactTime(checkedAt, lead.outreachHours);
+  const nextEmailAt = followUp.nextAt && (nextWindow > checkedAt && nextWindow > followUp.nextAt ? nextWindow : followUp.nextAt);
   const flagged = !lead.importedContactId && (lead.matches.length > 0 || lead.restrictedMatch);
   const chosen = lead.matches.find((item) => item.id === match);
   const canCreate = !flagged || (match === "new" && !lead.restrictedMatch);
@@ -172,13 +171,13 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         </div> : <><div className="work-queue">
           <div className="section-heading"><h4>Mock email follow-up sequence</h4><span className="pill">{followUp.status}</span></div>
           {step && (followUp.status === "Active" || followUp.status === "Paused") && <div>
-            <p><strong>{step.title}</strong>{followUp.nextAt && followUp.status === "Active" && ` · Due ${dateTime(followUp.nextAt)} ET`}</p>
+            <p><strong>{step.title}</strong>{nextEmailAt && followUp.status === "Active" && ` · Due ${dateTime(nextEmailAt)} ET`}</p>
             <p>{step.body}</p>
           </div>}
           <div className="loan-application-actions">
             {followUp.status === "Not started" && <Button size="sm" variant="outline" disabled={busy} onClick={() => sequence("Start")}>Start mock sequence</Button>}
             {followUp.status === "Active" && <>
-              <Button size="sm" variant="outline" disabled={busy || !stepDue(lead, now)} onClick={() => sequence("Mock send")}>Record mock send</Button>
+              <Button size="sm" variant="outline" disabled={busy || !nextEmailAt || Date.parse(nextEmailAt) > now} onClick={() => sequence("Mock send")}>Record mock send</Button>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => sequence("Pause")}>Pause sequence</Button>
             </>}
             {followUp.status === "Paused" && <Button size="sm" variant="outline" disabled={busy} onClick={() => sequence("Resume")}>Resume sequence</Button>}
@@ -203,6 +202,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         </form></>)}
         <BorrowerChannelPreferences target="lead" recordId={lead.id} blocked={lead.outreachChannelBlocks}
           optedOut={lead.outreachSuppressed} busy={busy} save={save} />
+        {lead.outreachHours && <p className="muted">Preferred contact hours · {borrowerHoursLabel(lead.outreachHours)}</p>}
         {!lead.outreachSuppressed && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => {
           if (window.confirm(`Record ${lead.name}’s outreach opt-out across this brokerage? This stops mock sequences and campaign callbacks for matching records.`)) {
             void save({ type: "leadOptOut", leadId: lead.id });

@@ -8,6 +8,7 @@ import type { RealtorClaimPolicy } from "./realtor-claim-model";
 import type { LoanProcessing } from "./processing-model";
 import type { FeeWorksheet } from "./quote-worksheet";
 import type { SharedPreapprovalLetter } from "./preapproval-model";
+import type { BorrowerHours } from "./borrower-hours";
 
 export const stages = [
   "Lead", "Pre-qual", "Application", "Processing", "Underwriting", "Clear to Close", "Funded", "Closed",
@@ -29,6 +30,7 @@ export interface Contact {
   addedBy?: string | null;
   outreachSuppressed?: boolean;
   outreachChannelBlocks?: number;
+  outreachHours?: BorrowerHours;
 }
 
 export interface Loan {
@@ -245,6 +247,7 @@ export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName
   campaignOptedOut: boolean;
   outreachSuppressed: boolean;
   outreachChannelBlocks?: number;
+  outreachHours?: BorrowerHours;
   heldAt: string | null;
   holdReason: string | null;
   revisitDate: string | null;

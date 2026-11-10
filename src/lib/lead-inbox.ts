@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import { borrowerChannelBits, borrowerChannelBlocked } from "./borrower-channel-model";
-import { leadChannelBlocksSql } from "./borrower-channels";
+import { leadBorrowerHoursSql, leadChannelBlocksSql, storedBorrowerHours } from "./borrower-channels";
+import { nextBorrowerContactTime, scheduledBorrowerContactTime } from "./borrower-hours";
 import { demoBrokerageId, portalToken, type BrokerageMember } from "./brokerage-model";
 import { isOpenOverdueCallbackPromise } from "./campaign-callback-exceptions";
 import { callbackExceptionChanged, callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
@@ -15,6 +16,8 @@ import { beginCampaignAssignment, recordCampaignFirstOutreach } from "./campaign
 import { easternDate } from "./client-retention";
 import { canClaimSharedRealtor, sharedRealtorQueueUnavailable } from "./realtor-claim-model";
 import { readRealtorClaimPolicy } from "./realtor-claim-queue";
+import { campaignSequenceCallWait } from "./campaign-sequences";
+import { dateTime } from "./utils";
 
 const hour = 3_600_000;
 const after = (at: string, hours: number) => new Date(Date.parse(at) + hours * hour).toISOString();
@@ -90,12 +93,21 @@ export function advanceLeadRevision(db: Store, leadId: string) {
     ON CONFLICT (leadId) DO UPDATE SET revision = revision + 1`).run(leadId);
 }
 
-export function skipBlockedInboxEmail(db: Store, leadId: string, now: string) {
-  const row = db.prepare(`SELECT follow.nextStep FROM lead_follow_up follow JOIN referral_leads lead ON lead.id = follow.leadId
+export function reconcileInboxSequence(db: Store, leadId: string, now: string) {
+  const row = db.prepare(`SELECT follow.nextStep, follow.nextAt, follow.baseNextAt, ${leadBorrowerHoursSql} AS hours,
+    (${leadChannelBlocksSql} & ${borrowerChannelBits.Email}) AS blocked
+    FROM lead_follow_up follow JOIN referral_leads lead ON lead.id = follow.leadId
     WHERE lead.id = ? AND lead.resolvedAt IS NULL AND follow.status = 'Active' AND follow.replyReceivedAt IS NULL
-      AND (${leadChannelBlocksSql} & ${borrowerChannelBits.Email}) <> 0`).get(leadId);
+      AND follow.nextAt IS NOT NULL`).get(leadId);
   if (!row) return 0;
-  db.prepare(`UPDATE lead_follow_up SET status = 'Completed', nextStep = ?, nextAt = NULL, pausedAt = NULL, revision = revision + 1
+  if (!row.blocked) {
+    const base = String(row.baseNextAt ?? row.nextAt);
+    const next = scheduledBorrowerContactTime(base, now, storedBorrowerHours(row.hours));
+    if (next !== row.nextAt) db.prepare("UPDATE lead_follow_up SET nextAt = ?, baseNextAt = ?, revision = revision + 1 WHERE leadId = ?")
+      .run(next, next === base ? null : base, leadId);
+    return 0;
+  }
+  db.prepare(`UPDATE lead_follow_up SET status = 'Completed', nextStep = ?, nextAt = NULL, baseNextAt = NULL, pausedAt = NULL, revision = revision + 1
     WHERE leadId = ?`).run(leadSequenceSteps.length, leadId);
   leadEvent(db, leadId, "Orbit", now, "Skipped the remaining mock email steps because the borrower blocks email.");
   return leadSequenceSteps.length - Number(row.nextStep);
@@ -247,7 +259,7 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
     if (!isOpenOverdueCallbackPromise(db, callbackPromiseId, data.leadId, now)) return { error: callbackExceptionChanged };
   }
   const lead = db.prepare(`SELECT officerEmail, realtorId, resolvedAt, heldAt, email, phone, importedContactId AS contactId,
-    ${leadChannelBlocksSql} AS blocked FROM referral_leads lead WHERE id = ?`).get(data.leadId);
+    ${leadChannelBlocksSql} AS blocked, ${leadBorrowerHoursSql} AS hours FROM referral_leads lead WHERE id = ?`).get(data.leadId);
   if (!lead || lead.resolvedAt || staff?.brokerage.role === "Processor") return { error: "This lead is no longer available." };
   const isOfficer = staff?.brokerage.role === "LO";
   const selfClaim = data.type === "assignInboxLead" && data.previousEmail === null && data.email === staff?.email;
@@ -324,6 +336,10 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
     if (data.outcome !== "Reply received" && data.outcome !== "Opted out" && borrowerChannelBlocked(Number(lead.blocked), data.channel)) {
       return { error: `The borrower blocks ${data.channel.toLowerCase()} outreach.` };
     }
+    if (campaignCall && lead.hours && data.outcome !== "Opted out") {
+      const wait = campaignSequenceCallWait(db, data.leadId, now);
+      if (wait) return { error: wait };
+    }
     if (!row.firstContactAt && campaign && campaignCall) recordCampaignFirstOutreach(db, data.leadId, now);
     row.firstContactAt ??= now;
     if (row.status !== "Completed" && (data.outcome === "Connected" || data.outcome === "Reply received" || data.outcome === "Opted out")) stop();
@@ -342,13 +358,15 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
         row.pausedAt = now;
         event = "Paused the mock sequence.";
         break;
-      case "Resume":
+      case "Resume": {
         if (row.status !== "Paused" || !row.pausedAt || !row.nextAt) return { error: "Only a paused sequence can be resumed." };
-        row.nextAt = new Date(Date.parse(now) + Math.max(0, Date.parse(row.nextAt) - Date.parse(row.pausedAt))).toISOString();
+        const base = db.prepare("SELECT baseNextAt FROM lead_follow_up WHERE leadId = ?").get(data.leadId)?.baseNextAt;
+        row.nextAt = new Date(Date.parse(now) + Math.max(0, Date.parse(String(base ?? row.nextAt)) - Date.parse(row.pausedAt))).toISOString();
         row.pausedAt = null;
         row.status = "Active";
         event = "Resumed the mock sequence.";
         break;
+      }
       case "Stop":
         if (row.status !== "Active" && row.status !== "Paused") return { error: "This sequence has no scheduled steps." };
         stop();
@@ -358,6 +376,8 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
         if (borrowerChannelBlocked(Number(lead.blocked), "Email")) return { error: "The borrower blocks email outreach." };
         const step = leadSequenceSteps[row.nextStep];
         if (row.status !== "Active" || !row.nextAt || row.nextAt > now || !step) return { error: "This mock step is not due." };
+        const available = nextBorrowerContactTime(now, storedBorrowerHours(lead.hours));
+        if (available > now) return { error: `The borrower’s next preferred contact window starts ${dateTime(available)} ET.` };
         event = `Mock delivery recorded · ${step.title}`;
         row.nextStep++;
         const timing = leadRouting(db);
@@ -375,8 +395,11 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
   }
   db.prepare(`INSERT INTO lead_follow_up (leadId, status, revision, nextStep, nextAt, pausedAt, firstContactAt) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (leadId) DO UPDATE SET status = excluded.status, revision = excluded.revision, nextStep = excluded.nextStep,
-    nextAt = excluded.nextAt, pausedAt = excluded.pausedAt, firstContactAt = excluded.firstContactAt`)
-    .run(data.leadId, row.status, row.revision + 1, row.nextStep, row.nextAt, row.pausedAt, row.firstContactAt);
+    nextAt = excluded.nextAt, pausedAt = excluded.pausedAt, firstContactAt = excluded.firstContactAt,
+    baseNextAt = CASE WHEN excluded.nextAt IS NOT NULL AND NOT ? THEN lead_follow_up.baseNextAt END`)
+    .run(data.leadId, row.status, row.revision + 1, row.nextStep, row.nextAt, row.pausedAt, row.firstContactAt,
+      Number(data.type === "leadSequence" && data.action !== "Pause"));
+  if (data.type === "leadSequence" && row.status === "Active" && lead.hours) reconcileInboxSequence(db, data.leadId, now);
   const eventId = leadEvent(db, data.leadId, actor, now, event, data.type === "leadContact" ? data.channel : "Note",
     data.type === "leadContact" ? data.outcome : null);
   return { message: event, eventId };

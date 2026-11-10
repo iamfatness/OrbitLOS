@@ -3,7 +3,7 @@ import { contactCsvDuplicateKeys, contactCsvHeader, contactCsvKeys, contactCsvLi
 import { contactDirectoryInput, contactsUnavailable, contactUnavailable, type ContactDirectoryResult,
   type ContactRecord, type ContactRow } from "./contact-directory-model";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
-import { readContactChannelBlocks } from "./borrower-channels";
+import { readBorrowerHours, readContactChannelBlocks } from "./borrower-channels";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
@@ -131,8 +131,9 @@ export function readContactRecord(db: Store, staff: WorkspaceStaff | null, id: s
   const last = linked[loanLimit - 1];
   const nextLoan = linked.length > loanLimit ? { id: String(last.id), createdAt: String(last.createdAt) } : null;
   const blocked = contact.role === "Realtor" ? 0 : readContactChannelBlocks(db, contact.id);
+  const hours = contact.role === "Realtor" ? null : readBorrowerHours(db, contact.id);
   return { kind: "contact", contact: { ...contact, outreachSuppressed: optedOut,
-    ...(blocked ? { outreachChannelBlocks: blocked } : {}) },
+    ...(blocked ? { outreachChannelBlocks: blocked } : {}), ...(hours ? { outreachHours: hours } : {}) },
     assignedOnly: !fullAccess, loans, nextLoan };
 }
 

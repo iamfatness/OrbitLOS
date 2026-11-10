@@ -85,11 +85,12 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
       {page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
         const deadline = item.handoffDueAt ?? item.dueAt;
         const step = item.sequence;
-        const due = deadline <= page.checkedAt;
+        const due = deadline <= page.checkedAt && !step?.waitUntil;
         return <li className={step ? "loan-task sequence-task" : "loan-task"} key={`${item.kind}:${item.id}`}>
           <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.name}</span>
             {step && <span>Step {step.position + 1} · {step.channel}</span>}
-            <span>{item.overdue ? "Overdue" : "Due"} · {deadline.length === 10 ? dateLabel(deadline) : `${dateTime(deadline)} ET`}</span></div>
+            {step?.waitUntil ? <span>Outside preferred hours · Available {dateTime(step.waitUntil)} ET</span> :
+              <span>{item.overdue ? "Overdue" : "Due"} · {deadline.length === 10 ? dateLabel(deadline) : `${dateTime(deadline)} ET`}</span>}</div>
           {step && step.channel !== "Call" ? <details className="document-form">
             <summary>Preview mock {step.channel.toLowerCase()}</summary>
             {step.recipient ? <><p className="muted">To {step.recipient}</p><p className="relationship-note">{step.body}</p></> :

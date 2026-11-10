@@ -2,9 +2,11 @@ import type { z } from "zod";
 import type { saveBorrowerChannelsInput } from "./borrower-channel-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
+import type { BorrowerHours } from "./borrower-hours";
 
 export const leadChannelBlocksSql = `(coalesce((SELECT blocked FROM borrower_lead_channels WHERE leadId = lead.id), 0) |
   coalesce((SELECT blocked FROM borrower_contact_channels WHERE contactId = lead.importedContactId), 0))`;
+export const leadBorrowerHoursSql = `(SELECT hours FROM borrower_contact_hours WHERE contactId = lead.importedContactId)`;
 
 export function initializeBorrowerChannels(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS borrower_contact_channels (
@@ -14,7 +16,31 @@ export function initializeBorrowerChannels(db: Store) {
   CREATE TABLE IF NOT EXISTS borrower_lead_channels (
     leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
     blocked INTEGER NOT NULL CHECK (blocked BETWEEN 0 AND 7)
+  );
+  CREATE TABLE IF NOT EXISTS borrower_contact_hours (
+    contactId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
+    hours TEXT NOT NULL
   );`);
+  if (!db.prepare("PRAGMA table_info(campaign_sequence_enrollments)").all().some(({ name }) => name === "baseDueAt")) {
+    db.exec("ALTER TABLE campaign_sequence_enrollments ADD COLUMN baseDueAt TEXT");
+  }
+  if (!db.prepare("PRAGMA table_info(lead_follow_up)").all().some(({ name }) => name === "baseNextAt")) {
+    db.exec("ALTER TABLE lead_follow_up ADD COLUMN baseNextAt TEXT");
+  }
+}
+
+export function storedBorrowerHours(value: unknown): BorrowerHours | null {
+  return typeof value === "string" ? JSON.parse(value) as BorrowerHours : null;
+}
+
+export function readBorrowerHours(db: Store, contactId: string) {
+  return storedBorrowerHours(db.prepare("SELECT hours FROM borrower_contact_hours WHERE contactId = ?").get(contactId)?.hours);
+}
+
+export function setBorrowerHours(db: Store, contactId: string, hours: BorrowerHours | null) {
+  if (hours) db.prepare(`INSERT INTO borrower_contact_hours (contactId, hours) VALUES (?, ?)
+    ON CONFLICT (contactId) DO UPDATE SET hours = excluded.hours`).run(contactId, JSON.stringify(hours));
+  else db.prepare("DELETE FROM borrower_contact_hours WHERE contactId = ?").run(contactId);
 }
 
 export function readContactChannelBlocks(db: Store, contactId: string) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { saveBorrowerChannelsInput } from "./borrower-channel-model";
 import { carryLeadChannelBlocks, linkedChannelLeadIds, saveBorrowerChannels } from "./borrower-channels";
-import { reconcileBorrowerSequenceChannels } from "./borrower-sequences";
+import { reconcileBorrowerSequences } from "./borrower-sequences";
 import { campaignWorkPatch, crmSegmentRows, insertContact, insertLoan, insertSubmission, leadContactCandidates, leadWorkRecord, loanWorkRecords,
   readCampaignNavigation, readCampaignQueue, readWorkspace, savedPricingRun, workspace, type SqlValue, type Store } from "./store";
 import { activityKinds, contactOutcomes, disclosureStatuses, dispositions, draftMilestones, followUpOutcomes, followUpPurposes,
@@ -705,7 +705,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if ("error" in result) throw new WorkspaceError(result.error);
           let skipped = 0;
           if (result.changed) {
-            skipped = reconcileBorrowerSequenceChannels(db, result.leadIds, now);
+            skipped = reconcileBorrowerSequences(db, result.leadIds, now);
             accessEvent(db, staff, "Updated borrower contact preferences", result.contactId ?? data.recordId, now);
             if (data.target === "lead") leadEvent(db, data.recordId, staff?.name ?? "Demo workspace", now, "Updated borrower contact preferences.");
           }
@@ -1201,7 +1201,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (carriedDocuments === null) throw new WorkspaceError("A sample PDF is still processing. Wait for the upload to finish before converting the lead.");
           stopCampaignFollowUp(db, staff, data.referralId, now, "1003 started", true);
           if (carryLeadChannelBlocks(db, data.referralId, contact.id)) {
-            reconcileBorrowerSequenceChannels(db, linkedChannelLeadIds(db, contact.id).filter((leadId) => leadId !== data.referralId), now);
+            reconcileBorrowerSequences(db, linkedChannelLeadIds(db, contact.id).filter((leadId) => leadId !== data.referralId), now);
           }
           const firstContactAt = carryLeadHistory(db, data.referralId, loanId);
           carryLeadConversation(db, data.referralId, loanId, contact.id, now);

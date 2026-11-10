@@ -55,8 +55,8 @@ export type CampaignSequenceConfig = {
   attachedKind: CampaignSequenceKind | null;
   latest: Partial<Record<CampaignSequenceKind, CampaignSequenceVersion>>;
 };
-export type CampaignSequenceProgress = { position: number; title: string; dueAt: string; paused: boolean };
-export type DueSequenceStep = CampaignSequenceStep & { version: number; position: number; recipient: string | null };
+export type CampaignSequenceProgress = { position: number; title: string; dueAt: string; paused: boolean; channel?: CampaignSequenceStep["channel"] };
+export type DueSequenceStep = CampaignSequenceStep & { version: number; position: number; recipient: string | null; waitUntil?: string };
 
 export function sequenceTaskId(leadId: string, version: number, position: number) {
   return `${leadId}:${version}:${position}`;

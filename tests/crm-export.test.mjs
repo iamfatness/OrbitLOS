@@ -24,7 +24,10 @@ const { migrationFile, mappedMigrationRows, migrationFileByteLimit } = await imp
 const { optOutContact, optOutLead, outreachSuppressionKeys, prospectiveOptOutKeys } = await import("../src/lib/outreach-preferences.ts");
 const { campaignCallNote, campaignCallQueues, campaignFollowUpRecipient, campaignFollowUpSource, campaignOrigin, campaignRehearsalCsv,
   nextCampaignCallId, parseCampaignLeadCsv, renderCampaignFollowUp } = await import("../src/lib/call-campaign-model.ts");
-const { recordCampaignCall } = await import("../src/lib/call-campaigns.ts");
+const { linkCampaignLead, recordCampaignCall } = await import("../src/lib/call-campaigns.ts");
+const { enrollCampaignSequence, isCurrentSequenceCall, recordSequenceMock } = await import("../src/lib/campaign-sequences.ts");
+const { updateInboxLead } = await import("../src/lib/lead-inbox.ts");
+const { nextBorrowerContactTime } = await import("../src/lib/borrower-hours.ts");
 const { campaignOptOutPlans } = await import("../src/lib/campaign-routing.ts");
 const { borrowerCommandResult, startApplication } = await import("../src/lib/applications.ts");
 const { sampleApplication } = await import("../src/lib/application-model.ts");
@@ -339,6 +342,94 @@ test("the borrower portal updates only its contact, skips linked outreach, and r
   db.prepare("UPDATE applications SET expiresAt = ? WHERE loanId = ?").run(now, another.loanId);
   assert.equal(command(preferences).status, 404);
   assert.equal(command({ ...save(0, 7), token: another.token }).status, 404);
+});
+
+test("preferred contact hours use local time across DST gaps, repeated hours, and half-hour offsets", () => {
+  const pacific = { start: "09:00", end: "17:00", timeZone: "America/Los_Angeles" };
+  assert.equal(nextBorrowerContactTime("2026-03-07T17:00:00.000Z", pacific), "2026-03-07T17:00:00.000Z");
+  assert.equal(nextBorrowerContactTime("2026-03-08T01:00:00.000Z", pacific), "2026-03-08T16:00:00.000Z");
+  const spring = { ...pacific, start: "02:30", end: "03:30" };
+  assert.equal(nextBorrowerContactTime("2026-03-08T09:30:00.000Z", spring), "2026-03-08T10:00:00.000Z");
+  assert.equal(nextBorrowerContactTime("2026-03-08T09:30:00.000Z", { ...spring, end: "02:50" }), "2026-03-09T09:30:00.000Z");
+  assert.equal(nextBorrowerContactTime("2026-11-01T08:50:00.000Z", { ...pacific, start: "01:15", end: "01:45" }),
+    "2026-11-01T09:15:00.000Z");
+  assert.equal(nextBorrowerContactTime("2026-06-01T02:00:00.000Z", { ...pacific, timeZone: "Asia/Kolkata" }), "2026-06-01T03:30:00.000Z");
+});
+
+test("portal contact hours defer campaign calls and mock email and text, even after a window closes", async (t) => {
+  const { db, staff } = fixture(t);
+  const contactId = crypto.randomUUID();
+  const loanId = crypto.randomUUID();
+  const campaignId = crypto.randomUUID();
+  const at = "2099-07-06T12:00:00.000Z";
+  const contact = { id: contactId, name: "Fictional local hours", email: "local-hours@example.test", phone: "2485550185", role: "Borrower" };
+  insertContact(db, contact);
+  insertLoan(db, { id: loanId, contactId, partnerId: null, officer: staff.name, officerEmail: staff.email,
+    stage: "Lead", stageSince: at, amount: 250000, purpose: "Purchase", address: "" });
+  assert.ok(startApplication(db, loanId, new Date().toISOString(), staff.brokerage.id));
+  const { token } = db.prepare("SELECT token FROM applications WHERE loanId = ?").get(loanId);
+  const hours = { start: "16:00", end: "18:00", timeZone: "America/Los_Angeles" };
+  const save = (expected, value) => borrowerCommandResult(db, { type: "saveContactPreferences", token, expected: 0, blocked: 0,
+    hours: { expected, value } });
+  const steps = [{ channel: "Call", title: "Call at local time", delay: 0, body: "" },
+    { channel: "Text", title: "Text at local time", delay: 1, body: "Fictional text" }];
+  assert.ok(!(await executeCommand(db, { type: "createCallCampaign", id: campaignId, name: "Fictional preferred hours" }, staff)).error);
+  assert.ok(!(await executeCommand(db, { type: "saveCampaignSequence", campaignId, expectedVersion: null,
+    expectedTemplateVersion: null, steps }, staff)).error);
+  const addLead = () => {
+    const id = crypto.randomUUID();
+    db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, importedContactId)
+      VALUES (?, ?, ?, ?, ?, 'Purchase', ?, ?, ?, ?, ?)`)
+      .run(id, id, contact.name, contact.email, contact.phone, staff.name, staff.email, at, at, contactId);
+    return id;
+  };
+  const campaignLead = addLead();
+  assert.ok(!linkCampaignLead(db, campaignId, campaignLead, at).error);
+  const template = { kind: "New Lead", version: 1, steps };
+  enrollCampaignSequence(db, campaignLead, template, at);
+  const queue = (when) => readOfficerQueue(db, { horizon: 7 }, staff, staff.brokerage.id, new Date(when)).items;
+  const step = (when, lead = campaignLead) => queue(when).find(({ kind, recordId }) => kind === "sequence" && recordId === lead);
+  const revision = (id) => db.prepare("SELECT revision FROM lead_follow_up WHERE leadId = ?").get(id)?.revision ?? 0;
+  const opened = "2099-07-06T23:00:00.000Z";
+  assert.equal(step(at).dueAt, at);
+  assert.equal(save(null, { ...hours, timeZone: "+01:00" }).status, 400);
+  assert.equal(save(null, { ...hours, start: "19:00" }).status, 400);
+  assert.deepEqual(save(null, hours).preferences.hours, hours);
+  assert.equal(step(at).dueAt, opened);
+  assert.ok(!queue(at).some(({ kind, recordId }) => kind === "lead" && recordId === campaignLead));
+  assert.equal(save(null, { ...hours, end: "19:00" }).status, 409);
+  assert.deepEqual(save(hours, null).preferences, { blocked: 0, optedOut: false });
+  assert.equal(step(at).dueAt, at);
+  assert.deepEqual(save(null, hours).preferences.hours, hours);
+  assert.equal(step(at).dueAt, opened);
+  assert.ok(readRecordHistory(db, staff, { record: "contact", id: contactId }).events.some(({ text }) =>
+    text === "Borrower updated contact preferences · Preferred contact hours 16:00–18:00 (America/Los Angeles)"));
+
+  const enrolled = addLead();
+  assert.ok(!linkCampaignLead(db, campaignId, enrolled, at).error);
+  enrollCampaignSequence(db, enrolled, template, at);
+  assert.equal(step(at, enrolled).dueAt, opened);
+  const call = { campaignId, leadId: campaignLead, revision: revision(campaignLead), outcome: "Connected", note: "", callbackAt: null };
+  assert.equal(isCurrentSequenceCall(db, campaignLead, step(at).id, at), false);
+  assert.match(recordCampaignCall(db, staff, call, at).error, /preferred hours/);
+  assert.equal(isCurrentSequenceCall(db, campaignLead, step(opened).id, opened), true);
+  assert.ok(!recordCampaignCall(db, staff, call, opened).error);
+  const textAt = "2099-07-07T23:00:00.000Z";
+  assert.equal(step(opened).dueAt, textAt);
+  const missed = "2099-07-08T01:00:00.000Z";
+  const resumedAt = "2099-07-08T23:00:00.000Z";
+  const text = step(missed).sequence;
+  assert.equal(text.waitUntil, resumedAt);
+  const mock = { leadId: campaignLead, position: text.position, version: text.version, recipient: text.recipient };
+  assert.match(recordSequenceMock(db, staff, mock, missed).error, /preferred contact window/);
+  assert.ok(!recordSequenceMock(db, staff, mock, resumedAt).error);
+
+  const inboxLead = addLead();
+  const inbox = (action, time) => updateInboxLead(db, staff, { type: "leadSequence", leadId: inboxLead, revision: revision(inboxLead), action }, [], time);
+  assert.ok(!inbox("Start", at).error);
+  assert.equal(db.prepare("SELECT nextAt FROM lead_follow_up WHERE leadId = ?").get(inboxLead).nextAt, opened);
+  assert.match(inbox("Mock send", "2099-07-07T01:00:00.000Z").error, /preferred contact window/);
+  assert.ok(!inbox("Mock send", textAt).error);
 });
 
 test("reusable reactivation and past-client sequences enroll the right audiences and keep their versions in Today", async (t) => {

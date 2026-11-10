@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { borrowerChannelBlocked } from "@/lib/borrower-channel-model";
+import { scheduledBorrowerContactTime } from "@/lib/borrower-hours";
 import { Phone, RefreshCw, Upload } from "lucide-react";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignFollowUpSource, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv, sequenceReplacesFirstContact,
@@ -224,6 +225,9 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
   const optedOut = member.outreachSuppressed;
   const held = !!lead?.heldAt;
   const sequence = lead && !member.resolvedAt && !optedOut && !lead.followUp.replyReceivedAt ? member.sequence : undefined;
+  const sequenceCallAt = lead?.outreachHours && sequence?.channel === "Call" && !sequence.paused ?
+    scheduledBorrowerContactTime(sequence.dueAt, new Date(now).toISOString(), lead.outreachHours) : null;
+  const callWait = sequenceCallAt && Date.parse(sequenceCallAt) > now ? sequenceCallAt : null;
   const canManageSequence = !staff || (staff.brokerage.pilot && staff.brokerage.role === "Admin");
   const retryExhausted = !!member.retryExhaustedAt && !lead?.followUp.replyReceivedAt;
   const shared = lead && !lead.officerEmail && !member.resolvedAt && !held && !optedOut;
@@ -246,6 +250,7 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
       {!(showCallContext && canWork && !optedOut) && !member.resolvedAt && !held && member.callbackDueAt && ` · ${dateTime(member.callbackDueAt)} ET`}</p>
     {sequence && lead && <div className="loan-application-actions">
       <span className="muted">{member.sequenceKind} · {sequence.paused ? "Paused at step" : "Step"} {sequence.position + 1} · {sequence.title} · {dateTime(sequence.dueAt)} ET</span>
+      {callWait && <span className="muted">Sequence call available {dateTime(callWait)} ET within preferred hours.</span>}
       {canManageSequence && !held && <CampaignSequenceToggle campaignId={campaign.id} leadId={lead.id} revision={lead.followUp.revision}
         paused={sequence.paused} busy={busy} save={save} />}
     </div>}
@@ -301,7 +306,7 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
           {rehearseFailure && <details className="document-form"><summary>Rehearse campaign recovery</summary>
             <label className="demo-confirm"><input type="checkbox" name="simulateFollowUpFailure" /> Simulate a follow-up failure for this call</label>
           </details>}
-          <div><Button size="sm" type="submit" variant="outline" disabled={busy}><Phone /> Log call outcome</Button></div>
+          <div><Button size="sm" type="submit" variant="outline" disabled={busy || (!!callWait && outcome !== "Opted out")}><Phone /> Log call outcome</Button></div>
         </form>}
         {followUp && <CampaignFollowUp key={JSON.stringify([followUp.callEventId, followUp.callbackAt, lead.email, lead.phone, lead.officerEmail])}
           campaignId={campaign.id} lead={lead} source={followUp} busy={busy} save={save} openConversation={openConversation} />}
