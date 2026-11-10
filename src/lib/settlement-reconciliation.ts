@@ -1,4 +1,5 @@
-import type { FinanceLoan, FinanceResult, SettlementEntry, SettlementMutation, SettlementWork } from "./brokerage-finance-model";
+import type { FinanceLoan, FinanceResult, SettlementEntry, SettlementMutation, SettlementQueuePage, SettlementQueueQuery,
+  SettlementQueueRow, SettlementWork } from "./brokerage-finance-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -7,8 +8,48 @@ const pageSize = 20;
 const balanceLimit = 50_000_000_000;
 type SettlementLoan = Pick<FinanceLoan, "id" | "cycle" | "date">;
 type EvidenceRow = { revision: number; id: string; at: string; actorName: string; request: string; amountCents: number | null; reversed: number };
+type SettlementSummary = { revision: number; expectedCents: number | null; receivedCents: number; receiptCount: number; reviewFundingDate: string | null };
 const expectedProceeds = (advice: NonNullable<SettlementWork["advice"]>) => advice.grossCents - advice.feesCents + advice.adjustmentCents;
 const receiptKey = (reference: string) => reference.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+
+export function initializeSettlementSummaries(db: Store) {
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settlement_cycle_summary'").get()) return;
+  db.exec(`
+    CREATE TABLE settlement_cycle_summary (
+      loanId TEXT NOT NULL, cycle INTEGER NOT NULL, revision INTEGER NOT NULL,
+      expectedCents INTEGER, receivedCents INTEGER NOT NULL, receiptCount INTEGER NOT NULL,
+      reviewFundingDate TEXT, changedAt TEXT NOT NULL, PRIMARY KEY (loanId, cycle),
+      FOREIGN KEY (loanId, cycle) REFERENCES loan_financials(loanId, cycle) ON DELETE CASCADE
+    );
+    CREATE INDEX settlement_summary_by_change ON settlement_cycle_summary(changedAt DESC, loanId DESC, cycle DESC);
+    INSERT INTO settlement_cycle_summary (loanId, cycle, revision, expectedCents, receivedCents, receiptCount, reviewFundingDate, changedAt)
+    WITH totals AS (
+      SELECT loanId, cycle, max(revision) AS latest, max(CASE WHEN kind = 'settlementAdvice' THEN revision END) AS advice,
+        sum(CASE WHEN kind IN ('settlementReceipt', 'settlementReverse') THEN amountCents ELSE 0 END) AS received,
+        sum(CASE kind WHEN 'settlementReceipt' THEN 1 WHEN 'settlementReverse' THEN -1 ELSE 0 END) AS count
+      FROM settlement_events GROUP BY loanId, cycle
+    )
+    SELECT totals.loanId, totals.cycle, totals.latest, advice.amountCents, totals.received, totals.count,
+      CASE WHEN latest.kind = 'settlementReview' THEN json_extract(latest.request, '$.fundingDate') END, latest.at
+    FROM totals JOIN settlement_events latest ON latest.loanId = totals.loanId AND latest.cycle = totals.cycle AND latest.revision = totals.latest
+    LEFT JOIN settlement_events advice ON advice.loanId = totals.loanId AND advice.cycle = totals.cycle AND advice.revision = totals.advice;
+    CREATE TRIGGER settlement_cycle_event_insert AFTER INSERT ON settlement_events BEGIN
+      INSERT INTO settlement_cycle_summary (loanId, cycle, revision, expectedCents, receivedCents, receiptCount, reviewFundingDate, changedAt)
+      VALUES (NEW.loanId, NEW.cycle, NEW.revision,
+        CASE WHEN NEW.kind = 'settlementAdvice' THEN NEW.amountCents END,
+        CASE WHEN NEW.kind IN ('settlementReceipt', 'settlementReverse') THEN NEW.amountCents ELSE 0 END,
+        CASE NEW.kind WHEN 'settlementReceipt' THEN 1 WHEN 'settlementReverse' THEN -1 ELSE 0 END,
+        CASE WHEN NEW.kind = 'settlementReview' THEN json_extract(NEW.request, '$.fundingDate') END, NEW.at)
+      ON CONFLICT (loanId, cycle) DO UPDATE SET
+        revision = excluded.revision,
+        expectedCents = coalesce(excluded.expectedCents, settlement_cycle_summary.expectedCents),
+        receivedCents = settlement_cycle_summary.receivedCents + excluded.receivedCents,
+        receiptCount = settlement_cycle_summary.receiptCount + excluded.receiptCount,
+        reviewFundingDate = excluded.reviewFundingDate,
+        changedAt = excluded.changedAt;
+    END;
+  `);
+}
 
 function settlementStatus(expected: number | null, received: number, count: number, reviewed: boolean): SettlementWork["status"] {
   if (expected === null) return "Awaiting advice";
@@ -18,44 +59,60 @@ function settlementStatus(expected: number | null, received: number, count: numb
 }
 
 function settlementTotals(db: Store, loan: SettlementLoan) {
-  const latest = db.prepare(`SELECT revision, kind, request FROM settlement_events
-    WHERE loanId = ? AND cycle = ? ORDER BY revision DESC LIMIT 1`).get(loan.id, loan.cycle);
-  const latestAdvice = db.prepare(`SELECT request FROM settlement_events WHERE loanId = ? AND cycle = ? AND kind = 'settlementAdvice'
+  const summary = db.prepare(`SELECT revision, expectedCents, receivedCents, receiptCount, reviewFundingDate
+    FROM settlement_cycle_summary WHERE loanId = ? AND cycle = ?`).get(loan.id, loan.cycle) as SettlementSummary | undefined;
+  const latestAdvice = summary?.expectedCents != null && db.prepare(`SELECT request FROM settlement_events WHERE loanId = ? AND cycle = ? AND kind = 'settlementAdvice'
     ORDER BY revision DESC LIMIT 1`).get(loan.id, loan.cycle);
-  const { receivedCents, receiptCount } = db.prepare(`SELECT coalesce(sum(amountCents), 0) AS receivedCents,
-    coalesce(sum(CASE kind WHEN 'settlementReceipt' THEN 1 ELSE -1 END), 0) AS receiptCount
-    FROM settlement_events WHERE loanId = ? AND cycle = ? AND kind IN ('settlementReceipt', 'settlementReverse')`)
-    .get(loan.id, loan.cycle) as { receivedCents: number; receiptCount: number };
   const advice: SettlementWork["advice"] = latestAdvice ? JSON.parse(String(latestAdvice.request)) : null;
-  const expectedCents = advice ? expectedProceeds(advice) : null;
+  const expectedCents = summary?.expectedCents ?? null;
+  const receivedCents = summary?.receivedCents ?? 0;
+  const receiptCount = summary?.receiptCount ?? 0;
   const differenceCents = expectedCents === null ? null : expectedCents - receivedCents;
-  const reviewed = latest?.kind === "settlementReview" && JSON.parse(String(latest.request)).fundingDate === loan.date;
+  const reviewed = summary?.reviewFundingDate === loan.date;
   const status = settlementStatus(expectedCents, receivedCents, receiptCount, reviewed);
-  return { revision: Number(latest?.revision ?? 0), advice, expectedCents, receivedCents, differenceCents, receiptCount, reviewed, status };
+  return { revision: summary?.revision ?? 0, advice, expectedCents, receivedCents, differenceCents, receiptCount, reviewed, status };
 }
 
 export function settlementStatuses(db: Store, loans: FinanceLoan[]) {
   if (!loans.length) return new Map<string, SettlementWork["status"]>();
-  const rows = db.prepare(`WITH selected AS (
-      SELECT json_extract(value, '$.id') AS loanId, json_extract(value, '$.cycle') AS cycle, json_extract(value, '$.date') AS date
-      FROM json_each(?)
-    ), totals AS (
-      SELECT event.loanId, event.cycle, selected.date, max(event.revision) AS latest,
-        max(CASE WHEN event.kind = 'settlementAdvice' THEN event.revision END) AS advice,
-        sum(CASE WHEN event.kind IN ('settlementReceipt', 'settlementReverse') THEN event.amountCents ELSE 0 END) AS received,
-        sum(CASE event.kind WHEN 'settlementReceipt' THEN 1 WHEN 'settlementReverse' THEN -1 ELSE 0 END) AS count
-      FROM selected JOIN settlement_events event ON event.loanId = selected.loanId AND event.cycle = selected.cycle
-      GROUP BY event.loanId, event.cycle
-    )
-    SELECT totals.loanId, totals.cycle, totals.received, totals.count, advice.amountCents AS expected,
-      latest.kind = 'settlementReview' AND json_extract(latest.request, '$.fundingDate') = totals.date AS reviewed
-    FROM totals JOIN settlement_events latest ON latest.loanId = totals.loanId AND latest.cycle = totals.cycle AND latest.revision = totals.latest
-    LEFT JOIN settlement_events advice ON advice.loanId = totals.loanId AND advice.cycle = totals.cycle AND advice.revision = totals.advice`)
-    .all(JSON.stringify(loans.map(({ id, cycle, date }) => ({ id, cycle, date })))) as unknown as {
-      loanId: string; cycle: number; received: number; count: number; expected: number | null; reviewed: number;
-    }[];
-  return new Map(rows.map(({ loanId, cycle, expected, received, count, reviewed }) =>
-    [`${loanId}:${cycle}`, settlementStatus(expected, received, count, Boolean(reviewed))]));
+  const rows = db.prepare(`SELECT summary.loanId, summary.cycle, summary.expectedCents, summary.receivedCents, summary.receiptCount,
+      summary.reviewFundingDate = json_extract(selection.value, '$.date') AS reviewed
+    FROM json_each(?) selection JOIN settlement_cycle_summary summary
+      ON summary.loanId = json_extract(selection.value, '$.id') AND summary.cycle = json_extract(selection.value, '$.cycle')`)
+    .all(JSON.stringify(loans.map(({ id, cycle, date }) => ({ id, cycle, date })))) as unknown as
+    (Pick<SettlementSummary, "expectedCents" | "receivedCents" | "receiptCount"> & { loanId: string; cycle: number; reviewed: number | null })[];
+  return new Map(rows.map(({ loanId, cycle, expectedCents, receivedCents, receiptCount, reviewed }) =>
+    [`${loanId}:${cycle}`, settlementStatus(expectedCents, receivedCents, receiptCount, Boolean(reviewed))]));
+}
+
+export function readSettlementQueue(db: Store, { view, after }: SettlementQueueQuery): SettlementQueuePage {
+  const source = `FROM settlement_cycle_summary summary JOIN closing_progress progress
+    ON progress.loanId = summary.loanId AND progress.fundingCycle = summary.cycle`;
+  const reviewed = "coalesce(summary.reviewFundingDate = progress.fundingDate, 0)";
+  const category = `CASE
+    WHEN summary.expectedCents IS NULL OR summary.receiptCount = 0 THEN 'Missing evidence'
+    WHEN summary.expectedCents = summary.receivedCents THEN CASE WHEN NOT ${reviewed} THEN 'Matches to confirm' END
+    WHEN ${reviewed} THEN 'Reviewed differences'
+    ELSE 'Differences' END`;
+  const counts: SettlementQueuePage["counts"] = { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 0 };
+  const totals = db.prepare(`SELECT ${category} AS view, count(*) AS count ${source} WHERE progress.fundingDate IS NOT NULL GROUP BY view`)
+    .all() as { view: SettlementQueueQuery["view"] | null; count: number }[];
+  for (const total of totals) if (total.view) counts[total.view] = total.count;
+  const cursor = after ? "AND (summary.changedAt, summary.loanId, summary.cycle) < (?, ?, ?)" : "";
+  const records = db.prepare(`SELECT summary.loanId AS id, summary.cycle, summary.changedAt,
+      contact.name AS borrower, loan.officer, progress.fundingDate AS date, summary.expectedCents, summary.receivedCents,
+      summary.expectedCents - summary.receivedCents AS differenceCents, summary.receiptCount, ${reviewed} AS reviewed
+    ${source} JOIN loans loan ON loan.id = summary.loanId JOIN contacts contact ON contact.id = loan.contactId
+    WHERE progress.fundingDate IS NOT NULL AND (${category}) = ? ${cursor}
+    ORDER BY summary.changedAt DESC, summary.loanId DESC, summary.cycle DESC LIMIT ?`)
+    .all(view, ...(after ? [after.changedAt, after.id, after.cycle] : []), pageSize + 1) as unknown as
+    (Omit<SettlementQueueRow, "status"> & { receiptCount: number; reviewed: number })[];
+  const rows = records.slice(0, pageSize).map(({ receiptCount, reviewed, ...row }) => ({
+    ...row, status: settlementStatus(row.expectedCents, row.receivedCents, receiptCount, Boolean(reviewed)),
+  }));
+  const last = rows.at(-1);
+  return { kind: "settlementQueue", rows, counts,
+    next: records.length > pageSize && last ? { id: last.id, cycle: last.cycle, changedAt: last.changedAt } : null };
 }
 
 export function readSettlement(db: Store, loan: SettlementLoan, before?: number): SettlementWork {

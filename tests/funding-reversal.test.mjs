@@ -88,44 +88,63 @@ test("fictional settlement matches partial receipts, preserves corrections, and 
     return result;
   };
   const list = (view = "Funded") => finance({ type: "list", from: day(-10), through: day(1), owner: "", view });
+  const queue = (view = "Differences") => finance({ type: "settlementQueue", view });
   await apply({ type: "recordClosing", closingDate: closing, revision: 0 });
   await apply({ type: "recordFunding", fundingDate: initialFunding, revision: 0 });
   assert.equal(detail().settlement.status, "Awaiting advice");
+  assert.deepEqual(queue("Missing evidence").rows, []);
   assert.match(finance({ type: "detail" }, officer).error, /workspace owner/);
   assert.match(finance({ type: "detail" }, admin).error, /workspace owner/);
   assert.match(finance({ type: "detail" }, owner, crypto.randomUUID()).error, /workspace owner/);
+  for (const actor of [null, officer, admin]) assert.match(finance({ type: "settlementQueue", view: "Differences" }, actor).error, /workspace owner/);
+  assert.match(finance({ type: "settlementQueue", view: "Differences" }, owner, crypto.randomUUID()).error, /workspace owner/);
   const advice = write("settlementAdvice", { reference: "Fictional advice 01", occurredOn: closing, grossCents: 35_000_000,
     feesCents: 125_000, adjustmentCents: -5_000, note: "" });
   save(advice);
   assert.equal(detail().settlement.expectedCents, 34_870_000);
   assert.equal(detail().settlement.status, "Awaiting receipts");
+  assert.equal(queue("Missing evidence").rows[0].status, "Awaiting receipts");
   const first = write("settlementReceipt", { reference: "DEMO-RECEIPT 01", occurredOn: initialFunding, amountCents: 34_820_000, note: "" });
   save(first);
   save(first);
   assert.equal(detail().settlement.receiptCount, 1);
   assert.equal(detail().settlement.differenceCents, 50_000);
   assert.equal(list().loans[0].settlementStatus, "Difference to review");
+  assert.deepEqual(queue().rows.map(({ id, cycle, expectedCents, receivedCents, differenceCents }) =>
+    ({ id, cycle, expectedCents, receivedCents, differenceCents })), [
+    { id: loanId, cycle: 1, expectedCents: 34_870_000, receivedCents: 34_820_000, differenceCents: 50_000 },
+  ]);
   assert.match(finance(write("settlementReceipt", { reference: "demo-receipt   01", occurredOn: initialFunding, amountCents: 50_000, note: "" })).error,
     /reference is already recorded/);
   assert.match(finance(write("settlementReview", { note: "" })).error, /Record why/);
   save(write("settlementReview", { note: "Fictional second receipt is still pending." }));
   assert.equal(detail().settlement.status, "Difference reviewed");
   assert.equal(detail().settlement.entries[0].amountCents, 50_000);
+  assert.deepEqual(queue().counts, { Differences: 0, "Matches to confirm": 0, "Missing evidence": 0, "Reviewed differences": 1 });
+  const beforeUpgrade = queue("Reviewed differences");
+  db.exec("DROP TRIGGER settlement_cycle_event_insert; DROP TABLE settlement_cycle_summary");
+  initializeStore(db, false);
+  initializeStore(db, false);
+  assert.deepEqual(queue("Reviewed differences"), beforeUpgrade);
   const second = write("settlementReceipt", { reference: "DEMO-RECEIPT 02", occurredOn: initialFunding, amountCents: 50_000, note: "" });
   save(second);
   assert.equal(detail().settlement.status, "Ready to confirm");
+  assert.equal(queue("Matches to confirm").rows[0].id, loanId);
   assert.match(finance(write("settlementReview", { revision: second.revision, note: "" })).error, /evidence changed/);
   save(write("settlementReview", { note: "" }));
   assert.equal(detail().settlement.status, "Reconciled");
+  assert.equal(Object.values(queue().counts).reduce((total, count) => total + count), 0);
   const correction = write("settlementAdvice", { reference: advice.reference, occurredOn: closing, grossCents: advice.grossCents,
     feesCents: 175_000, adjustmentCents: advice.adjustmentCents, note: "Fictional settlement fee was corrected." });
   save(correction);
   assert.equal(detail().settlement.differenceCents, -50_000);
   assert.equal(detail().settlement.status, "Difference to review");
+  assert.equal(queue().rows[0].differenceCents, -50_000);
   assert.match(finance(write("settlementReverse", { originalId: second.entryId, occurredOn: closing, note: "Too early" })).error, /on or after/);
   save(write("settlementReverse", { originalId: second.entryId, occurredOn: initialFunding, note: "Fictional duplicate installment reversed." }));
   assert.equal(detail().settlement.entries.find(({ id }) => id === second.entryId).reversed, true);
   assert.equal(detail().settlement.status, "Ready to confirm");
+  assert.equal(queue("Matches to confirm").rows[0].differenceCents, 0);
   assert.match(finance(write("settlementReverse", { originalId: second.entryId, occurredOn: initialFunding, note: "Already reversed" })).error, /unreversed/);
   save(write("settlementReview", { note: "Corrected fictional proceeds match." }));
   assert.equal(detail().loan.receiptsCents, 0);
@@ -141,6 +160,49 @@ test("fictional settlement matches partial receipts, preserves corrections, and 
   assert.equal(detail(2).settlement.status, "Awaiting advice");
   assert.equal(detail(2).settlement.receivedCents, 0);
   assert.equal(detail().settlement.status, "Reconciled");
+  assert.deepEqual(queue("Missing evidence").rows, []);
+});
+
+test("settlement exceptions page across tied timestamps and reopen only the current funding cycle", async (t) => {
+  const { db, admin, officer, contactId, closing, initialFunding, correctedFunding, stageSince } = fundingFixture(t);
+  const owner = { ...admin, brokerage: { ...admin.brokerage, financeAccess: true } };
+  const now = new Date();
+  const finance = (input) => brokerageFinanceWork(db, input, owner, owner.brokerage.id, now);
+  const ids = Array.from({ length: 23 }, (_, index) => `fixture-loan-${String(index).padStart(2, "0")}`);
+  for (const [index, loanId] of ids.entries()) {
+    insertLoan(db, { id: loanId, contactId, partnerId: null, officer: officer.name, officerEmail: officer.email, address: "", amount: 350000,
+      purpose: "Purchase", stage: "Underwriting", stageSince });
+    for (const input of [{ type: "recordClosing", closingDate: closing }, { type: "recordFunding", fundingDate: initialFunding }]) {
+      const result = await executeCommand(db, { loanId, revision: 0, ...input }, owner);
+      assert.ok(result.state, result.error);
+    }
+    const evidence = { loanId, cycle: 1, fundingDate: initialFunding, occurredOn: initialFunding, note: "" };
+    assert.equal(finance({ ...evidence, type: "settlementAdvice", revision: 0, entryId: crypto.randomUUID(),
+      reference: "Sample advice", grossCents: 100_000, feesCents: 0, adjustmentCents: 0 }).kind, "saved");
+    if (index === 22) continue;
+    assert.equal(finance({ ...evidence, type: "settlementReceipt", revision: 1, entryId: crypto.randomUUID(),
+      reference: "Sample receipt", amountCents: 90_000 }).kind, "saved");
+  }
+  const query = { type: "settlementQueue", view: "Differences" };
+  const first = finance(query);
+  const second = finance({ ...query, after: first.next });
+  assert.deepEqual(first.rows.map(({ id }) => id), ids.slice(2, 22).reverse());
+  assert.deepEqual(second.rows.map(({ id }) => id), ids.slice(0, 2).reverse());
+  assert.equal(second.next, null);
+  assert.deepEqual(second.counts, { Differences: 22, "Matches to confirm": 0, "Missing evidence": 1, "Reviewed differences": 0 });
+
+  const loanId = ids[0];
+  assert.equal(finance({ type: "settlementReview", loanId, cycle: 1, fundingDate: initialFunding, revision: 2,
+    entryId: crypto.randomUUID(), note: "Fictional shortfall reviewed." }).kind, "saved");
+  assert.equal(finance({ ...query, view: "Reviewed differences" }).rows[0].date, initialFunding);
+  const correct = await executeCommand(db, { loanId, type: "recordFunding", fundingDate: correctedFunding, revision: 1 }, owner);
+  assert.ok(correct.state, correct.error);
+  assert.equal(finance(query).counts.Differences, 22);
+  assert.equal(finance({ ...query, view: "Reviewed differences" }).rows.length, 0);
+  const reversal = await executeCommand(db, { loanId, type: "reverseFunding", fundingDate: correctedFunding, revision: 2, reason: "Sample reversal." }, owner);
+  assert.ok(reversal.state, reversal.error);
+  assert.equal(finance(query).counts.Differences, 21);
+  assert.equal(finance({ type: "detail", loanId, cycle: 1 }).settlement.differenceCents, 10_000);
 });
 
 test("reporting readiness and reconciled export share blockers, including a funding correction across quarters", async (t) => {

@@ -4,7 +4,7 @@ import { easternDate } from "./client-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
-import { readSettlement, saveSettlement, settlementStatuses } from "./settlement-reconciliation";
+import { readSettlement, readSettlementQueue, saveSettlement, settlementStatuses } from "./settlement-reconciliation";
 
 const pageSize = 20;
 const exportLimit = 1000;
@@ -155,6 +155,7 @@ export function brokerageFinanceWork(db: Store, input: unknown, staff: Workspace
   const at = now.toISOString();
   if (data.type === "list" || data.type === "export") return financePage(db, data, staff, at);
   if (data.type === "detail") return financeDetail(db, data, today);
+  if (data.type === "settlementQueue") return readSettlementQueue(db, data);
   if (data.type === "settlementAdvice" || data.type === "settlementReceipt" || data.type === "settlementReverse" || data.type === "settlementReview") {
     return db.transaction(() => saveSettlement(db, data, financeRecord(db, data.loanId, data.cycle), staff, at, today));
   }

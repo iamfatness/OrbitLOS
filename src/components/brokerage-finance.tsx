@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessBrokerageFinance } from "@/app/actions";
 import { financeInputCents as cents, financeMoney, inputDollars, type FinanceEntry, type FinanceInput, type FinanceListQuery, type FinanceLoan,
-  type FinanceMutation, type FinanceResult, type SettlementChange } from "@/lib/brokerage-finance-model";
+  type FinanceMutation, type FinanceResult, type SettlementChange, type SettlementQueueQuery } from "@/lib/brokerage-finance-model";
 import { dateLabel } from "@/lib/client-retention";
 import type { Loan, Workspace } from "@/lib/model";
 import { currentReportMonth } from "@/lib/report-date-range";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
+import { SettlementExceptionQueue } from "./settlement-exception-queue";
 import { SettlementReconciliation } from "./settlement-reconciliation";
 import { Button } from "./ui/button";
 
@@ -104,6 +105,8 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   brokerageId: string; loans: Loan[]; fundingVersion: Workspace["closingProgress"]; openFunding: (id: string) => void;
 }) {
   const [query, setQuery] = useState<FinanceListQuery>(() => ({ type: "list", ...currentReportMonth(), view: "Funded", owner: "" }));
+  const [showExceptions, setShowExceptions] = useState(false);
+  const [exceptionView, setExceptionView] = useState<SettlementQueueQuery["view"]>("Differences");
   const [selection, setSelection] = useState<{ loanId: string; cycle: number; before?: number; settlementBefore?: number }>();
   const [version, setVersion] = useState(0);
   const [list, setList] = useState<{ query: FinanceListQuery; data: List | { error: string } }>();
@@ -118,11 +121,11 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
     if (selection) void accessBrokerageFinance({ type: "detail", ...selection }, brokerageId).then((data) => {
       if (current) setDetail({ selection, data: "error" in data || data.kind === "detail" ? data : failure });
     }, () => { if (current) setDetail({ selection, data: failure }); });
-    else void accessBrokerageFinance(query, brokerageId).then((data) => {
+    else if (!showExceptions) void accessBrokerageFinance(query, brokerageId).then((data) => {
       if (current) setList({ query, data: "error" in data || data.kind === "list" ? data : failure });
     }, () => { if (current) setList({ query, data: failure }); });
     return () => { current = false; };
-  }, [brokerageId, fundingVersion, query, selection, version]);
+  }, [brokerageId, fundingVersion, query, selection, showExceptions, version]);
 
   async function act(input: FinanceInput, after?: () => void) {
     if (pending.current) return;
@@ -145,7 +148,8 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
     finally { pending.current = false; setBusy(false); setVersion((current) => current + 1); }
   }
 
-  const data = selection ? detail?.selection === selection ? detail?.data : undefined : list?.query === query ? list.data : undefined;
+  const showingQueue = showExceptions && !selection;
+  const data = selection ? detail?.selection === selection ? detail?.data : undefined : !showingQueue && list?.query === query ? list.data : undefined;
   const owners = [...new Map(loans.filter(({ officer }) => officer).map((loan) => [loan.officerEmail ? `email:${loan.officerEmail}` : `name:${loan.officer}`, loan.officer])).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
   const save = (change: Change | SettlementChange, after?: () => void) => {
@@ -160,9 +164,17 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
   return <section className="integration record-form manager-panel" aria-label="Brokerage financials">
     <div className="section-heading"><h2>Brokerage financials</h2><span className="pill">Owner only · Fictional pilot</span></div>
     {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
+    {!selection && <div className="loan-application-actions" role="group" aria-label="Financial views">
+      <Button size="sm" variant={showExceptions ? "outline" : "default"} aria-pressed={!showExceptions}
+        onClick={() => { setShowExceptions(false); setFeedback(undefined); }}>Funded and reversed</Button>
+      <Button size="sm" variant={showExceptions ? "default" : "outline"} aria-pressed={showExceptions}
+        onClick={() => { setShowExceptions(true); setFeedback(undefined); }}>Settlement exceptions</Button>
+    </div>}
     {selection ? <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy} onClick={() => {
       setSelection(undefined); setFeedback(undefined);
-    }}>Back to financials</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setVersion((value) => value + 1)}>Refresh ledger</Button></div> : <>
+    }}>{showExceptions ? "Back to settlement exceptions" : "Back to financials"}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setVersion((value) => value + 1)}>Refresh ledger</Button></div>
+      : showingQueue ? <SettlementExceptionQueue brokerageId={brokerageId} fundingVersion={fundingVersion} view={exceptionView} selectView={setExceptionView}
+        open={(loanId, cycle) => { setFeedback(undefined); setSelection({ loanId, cycle }); }} /> : <>
       <form className="record-form" key={`${query.from}:${query.through}:${query.view}:${query.owner}`} onSubmit={(event) => {
         event.preventDefault();
         const fields = new FormData(event.currentTarget);
@@ -181,7 +193,7 @@ export function BrokerageFinance({ brokerageId, loans, fundingVersion, openFundi
           <Button size="sm" type="button" variant="ghost" disabled={busy || !data || "error" in data} onClick={() => void act({ ...query, type: "export" })}>Export financial summary CSV</Button></div>
       </form>
     </>}
-    {!data && <p role="status" className="muted">Loading financial records…</p>}
+    {!showingQueue && !data && <p role="status" className="muted">Loading financial records…</p>}
     {data && "error" in data && <p role="alert">{data.error}</p>}
     {data && "kind" in data && data.kind === "list" && <>
       <dl className="metrics finance-metrics">

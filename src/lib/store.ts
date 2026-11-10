@@ -3,6 +3,7 @@ import { carriedCallbacks } from "./carried-campaign-callback";
 import { contactCompletionSql } from "./record-history";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
+import { initializeSettlementSummaries } from "./settlement-reconciliation";
 import { disclosureDeclinePrefix, disclosureDeclineTaskTitle } from "./disclosure-model";
 import { closeReviewedApplicationFollowUps, createApplicationFollowUps } from "./tasks";
 import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
@@ -589,6 +590,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
   `);
   db.transaction(() => {
+    initializeSettlementSummaries(db);
     if (!db.prepare("PRAGMA table_info(pilot_scenario)").all().some((column) => column.name === "presenter")) {
       db.exec("ALTER TABLE pilot_scenario ADD COLUMN presenter INTEGER NOT NULL DEFAULT 0");
     }
