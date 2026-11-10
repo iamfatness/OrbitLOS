@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { readSidebarActionCounts } from "@/app/actions";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 
-type Counts = { today: number; leads: number };
+type Counts = { today: number; leads: number; exceptions?: number };
 
 export function useActionCounts(brokerageId: string, email: string | undefined, enabled: boolean, version: object) {
   const [result, setResult] = useState<{ brokerageId: string; email: string | undefined; counts: Counts }>();

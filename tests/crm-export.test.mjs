@@ -2152,6 +2152,7 @@ test("manager exceptions combine intake source and campaign without losing other
   const at = "2026-11-08T15:00:00.000Z";
   const future = "2026-11-10T15:00:00.000Z";
   const now = Date.parse("2026-11-09T15:00:00.000Z");
+  t.mock.timers.enable({ apis: ["Date"], now });
   const campaign = crypto.randomUUID();
   const realtor = crypto.randomUUID();
   const add = db.prepare(`INSERT INTO referral_leads

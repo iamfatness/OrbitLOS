@@ -116,7 +116,7 @@ In the campaign guide, run mock credit and choose **Price with mock score** from
 
 An admin can enable **Require second 1003 approval before handoff and mock UWM submission** in Playbooks. The processing panel, 1003, and saved quote link to the review when approval is pending. A corrected submission needs a decision on its new revision. Manual MISMO export remains available from the reviewed application.
 
-In **Playbooks → File exceptions**, choose **Required 1003 approvals** to see files waiting for a reviewer, decision, or resubmission. The queue shows the current revision and who can act. Open the row to assign a reviewer or work the exact review. Approval of the current revision clears the row.
+Brokerage admins can open **Exceptions** from the sidebar. Its badge counts open file exceptions across the brokerage and opens the matching queue. Filter for unassigned handoffs, reopened conditions, changed sample disclosures, or other file work. Open an item to act on the loan, then close the loan to return to the same filter. In **Required 1003 approvals**, the queue shows the current revision and who can act. Approval of the current revision clears the row.
 
 After reviewing the campaign 1003, open **Optional processor handoff** to assign the selected file. The LO sends it from the loan record. Use the **Processor task link** in the processor’s signed-in session to accept from My Tasks, work the file, and return it with a note. The LO can complete the handoff from the guide.
 

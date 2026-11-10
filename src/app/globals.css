@@ -658,6 +658,9 @@ button:disabled { cursor: default; }
 .rate-task-context { color: #52368c; font-size: 12px; font-weight: 650; }
 .playbook-filter { width: min(100%, 230px); }
 .playbook-exceptions { display: grid; gap: 9px; }
+.file-exception-panel .section-heading { flex-wrap: wrap; }
+.file-exception-panel .document-item { overflow-wrap: anywhere; }
+.file-exception-panel select { width: 100%; }
 .playbook-exceptions .brokerage-form { padding-top: 7px; border-top: 1px solid var(--line); }
 .playbook-settings { margin-top: 12px; }
 .campaign-workspace { max-width: 1080px; }

@@ -39,7 +39,7 @@ test("sidebar counts follow staff scope and deduplicate incoming application wor
   db.prepare("INSERT INTO lead_follow_up (leadId, replyReceivedAt) VALUES (?, ?)").run(replied, at);
   db.prepare("INSERT INTO outreach_opt_outs VALUES ('fixture', ?, NULL, ?)").run(`lead:${optedOut}`, at);
   assert.deepEqual(counts(lo), { today: 0, leads: 1 });
-  assert.deepEqual(counts(admin), { today: 0, leads: 3 });
+  assert.deepEqual(counts(admin), { today: 0, leads: 3, exceptions: 0 });
   assert.deepEqual(readLeadInbox(db, { type: "list", view: leadAttentionView }, lo, now).leads.map(({ id }) => id), [mine]);
   assert.deepEqual(new Set(readLeadInbox(db, { type: "list", view: leadAttentionView }, admin, now).leads.map(({ id }) => id)),
     new Set([mine, shared, theirs]));
@@ -62,7 +62,7 @@ test("sidebar counts follow staff scope and deduplicate incoming application wor
   db.prepare(`INSERT INTO contact_conversations (id, contactId, ownerEmail, ownerName, status, unread, updatedAt)
     VALUES (?, ?, ?, ?, 'Needs reply', 1, ?)`).run(randomUUID(), contactId, lo.email, lo.name, at);
   assert.deepEqual(counts(lo), { today: 4, leads: 1 });
-  assert.deepEqual(counts(admin), { today: 0, leads: 3 });
+  assert.deepEqual(counts(admin), { today: 0, leads: 3, exceptions: 0 });
   assert.deepEqual(counts(other), { today: 0, leads: 1 });
   db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ?").run(at, feeTask);
   db.prepare("INSERT INTO lead_follow_up (leadId, firstContactAt) VALUES (?, ?)").run(mine, at);

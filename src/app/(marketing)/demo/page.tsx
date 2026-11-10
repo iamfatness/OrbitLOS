@@ -48,6 +48,7 @@ export default function DemoPage() {
           <li>Open file preflight, jump to the exact missing sample fee or lender condition, and assign a review of the current evidence. Changes to the file flag an earlier approval as out of date.</li>
           <li>Configure separate closing and funding checks, then open the exact evidence from a manager hold. Resolve the issue or record an admin override with a reason.</li>
           <li>Open a settlement exception on the exact funding cycle. Review the difference between sample purchase advice and receipts, and keep corrections in the cycle history.</li>
+          <li>Open Exceptions as a brokerage owner. Assign a processor, review a changed sample disclosure, or jump to a reopened mock lender condition.</li>
           <li>Compare a sample settlement fee statement with the confirmed disclosure. Open itemized fee differences directly from the settlement exception queue.</li>
           <li>Recover a missing mock UWM receipt from Today. Open the mock UWM delivery timeline to see which 1003 revision arrived and why older or duplicate updates left a cleared condition in place.</li>
           <li>Issue a fictional preapproval PDF from the reviewed purchase 1003. Share the current version separately with the borrower and their realtor.</li>

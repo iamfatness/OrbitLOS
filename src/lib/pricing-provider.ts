@@ -75,7 +75,7 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
   if (env.ORBIT_PRICING_MODE !== "uwm-stage") return mockPricing;
   return {
     async quote(scenario) {
-      if (scenario.nonAgency) return mockPricing.quote(scenario);
+      if (scenario.nonAgency) throw new PricingError(`UWM stage pricing does not yet support ${scenario.nonAgency.program}. Use a manual lender quote for this scenario.`);
       if (!env.UWM_EQ_CLIENT_ID || !env.UWM_EQ_CLIENT_SECRET) {
         throw new PricingError("UWM stage pricing needs an EQ client ID and secret.");
       }

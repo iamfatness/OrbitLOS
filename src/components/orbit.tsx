@@ -68,6 +68,8 @@ import { DemoGuide, type GuideTrack } from "./demo-guide";
 import { UwmAlertQueue } from "./uwm-alert-queue";
 import { workspaceIcons } from "./workspace-icons";
 import { BrokeragePlaybooks, type ManagerExceptionView } from "./brokerage-playbooks";
+import { FileExceptions } from "./file-exceptions";
+import type { FileException } from "@/lib/file-exception-model";
 import { CallCampaigns } from "./call-campaigns";
 import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { fundingMilestones, fundingTaskAudience, playbookWork, reversedFundingTaskPrefix, type PlaybookWork } from "@/lib/playbook-model";
@@ -92,9 +94,9 @@ import { staffQuestionTarget } from "@/lib/borrower-question-model";
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
 const CustomReports = lazy(async () => ({ default: (await import("./custom-reports")).CustomReports }));
 
-type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
+type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Exceptions" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
-  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration"]);
+  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration", "Exceptions"]);
 const reportTabs = ["Owner scorecard", "Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report", "Custom reports"] as const;
 const [localOfficer] = localCampaignOfficers;
 const demoOfficer = localOfficer.name;
@@ -107,6 +109,7 @@ const navigation = [
     { label: "Coverage", icon: workspaceIcons.coverage },
     { label: "Pipeline", icon: workspaceIcons.pipeline },
     { label: "Processing", icon: workspaceIcons.processing },
+    { label: "Exceptions", icon: workspaceIcons.exceptions },
     { label: "Reviews", icon: workspaceIcons.reviews },
     { label: "Lead Inbox", icon: workspaceIcons.intake },
     { label: "Call Campaigns", icon: workspaceIcons.calls },
@@ -193,6 +196,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const pipelineQuery = useMemo<PipelineQuery>(() => ({ view, search: query.trim().slice(0, 200), filters }), [view, query, filters]);
   const pipeline = usePipeline(staff?.brokerage.id ?? demoBrokerageId, section === "Pipeline", pipelineQuery, state);
   const [modal, setModal] = useState<Modal | null>(null);
+  const exceptionTrigger = useRef<HTMLButtonElement>(null);
   const [detailedTasks, setDetailedTasks] = useState(processorTaskEntry);
   const [focusContactTask, setFocusContactTask] = useState<string>();
   const pagedTasks = !!staff && !detailedTasks;
@@ -669,6 +673,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     expected?: { kind: "task" | "document" | "retention" | "alert"; id: string } | { kind: "stalled" | "brokerage-stalled" } |
       { kind: "promised-callback"; id: string; dueAt: string; source?: "personal" | "manager" } |
       { kind: "guide-conditions"; submissionId: string; conditionId?: string } |
+      { kind: "file-exception"; item: FileException } |
       { kind: "manual-return-work"; submissionId: string; eventId?: string; personal: boolean } |
       { kind: "incoming-loan-work"; item: IncomingLoanWorkItem; view: IncomingLoanWorkQuery["view"] }) {
     if (pending.current) return;
@@ -748,6 +753,21 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         if (!inQueue || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
           setReviewVersion((version) => version + 1);
           setError("This item changed. Check the updated incoming work list.");
+          return;
+        }
+      }
+      if (expected?.kind === "file-exception") {
+        const { item } = expected;
+        const loan = result.loans[0];
+        const application = result.applications[0];
+        const current = item.kind === "Unassigned handoffs" ?
+          application?.submittedAt && application.reviewedAt && !application.correctionNote && !result.loanProcessing[0]?.processorEmail :
+          item.kind === "Disclosure reviews" ? result.tasks.some(({ id, completedAt }) => id === item.id && !completedAt) :
+            result.submissions.some(({ id, conditions }) => id === item.parentId &&
+              conditions.some((condition: Submission["conditions"][number]) => condition.id === item.id && !condition.satisfiedAt));
+        if (!canReport || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
+          setReviewVersion((version) => version + 1);
+          setError("This exception changed. Check the refreshed queue.");
           return;
         }
       }
@@ -1058,6 +1078,16 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     item.kind === "funding" ? { kind: "task", id: item.id } : undefined);
   }
 
+  function openFileException(item: FileException, trigger?: HTMLButtonElement) {
+    if (pending.current) return;
+    exceptionTrigger.current = trigger ?? null;
+    void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
+      item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
+        item.kind === "Manual lender returns" ? { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: false } :
+          staff && (item.kind === "Unassigned handoffs" || item.kind === "Disclosure reviews" || item.kind === "Reopened conditions") ?
+            { kind: "file-exception", item } : undefined);
+  }
+
   function openUwmAlert(alert: UwmAlert) {
     const submission = state.submissions.find((item) => item.id === alert.submissionId);
     const condition = submission?.conditions.find((item) => item.id === alert.conditionId);
@@ -1078,6 +1108,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     setLoanWork(undefined);
     setSearchContact(undefined);
     setModal(null);
+    const trigger = exceptionTrigger.current;
+    exceptionTrigger.current = null;
+    if (trigger && section === "Exceptions") requestAnimationFrame(() => {
+      (trigger.isConnected ? trigger : document.getElementById("owner-exception-filter"))?.focus({ preventScroll: true });
+    });
   }
 
   function drop(event: DragEvent, stage: Stage) {
@@ -1116,20 +1151,22 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button" disabled={!controlsReady}
           aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
           {mobileNavOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />} Menu
-          {!!(actionCounts?.today || actionCounts?.leads) && !mobileNavOpen && <span className="nav-attention-dot" aria-label="Actions waiting" />}
+          {!!(actionCounts?.today || actionCounts?.leads || (canReport && actionCounts?.exceptions)) && !mobileNavOpen && <span className="nav-attention-dot" aria-label="Actions waiting" />}
         </Button>
         <nav id="workspace-navigation" aria-label="Workspace navigation" data-expanded={mobileNavOpen}>
           {navigation.map(({ title, items }) => (
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
-              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
-                const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads : undefined;
+              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
+                const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads :
+                  label === "Exceptions" ? actionCounts?.exceptions : undefined;
                 const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
                 const reason = label === "Today" ? (attention === 1 ? "action due or ready" : "actions due or ready") :
-                  (attention === 1 ? "lead needs first contact" : "leads need first contact");
+                  label === "Exceptions" ? (attention === 1 ? "open file exception" : "open file exceptions") :
+                    (attention === 1 ? "lead needs first contact" : "leads need first contact");
                 return <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
                   aria-label={count ? `${label}, ${count} ${reason}` : undefined}
-                  disabled={!controlsReady} onClick={() => navigate(label, true, undefined, Boolean(attention))}>
+                  disabled={!controlsReady} onClick={() => navigate(label, true, undefined, Boolean(attention) && label !== "Exceptions")}>
                   <Icon size={20} aria-hidden="true" /><span>{label}</span>
                   {count && <small className="nav-count" aria-hidden="true">{count}</small>}
                   {label === "Tasks" && workspaceStatus === "ready" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
@@ -1552,6 +1589,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             save={(input, after, announce) => save(input, after, announce, "migration")} brokerageId={staff.brokerage.id} version={state}
             openRecord={openMigrationDestination}
             openLinkedLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })} />}
+          {section === "Exceptions" && canReport && <FileExceptions brokerageId={staff.brokerage.id} version={queueVersion} busy={busy}
+            standalone open={openFileException} assign={(loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn })} />}
           {section === "Playbooks" && admin && <LoanStageEditSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           {section === "Playbooks" && admin && <ManageClosingGates brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           {section === "Playbooks" && admin && (!staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) &&
@@ -1571,9 +1610,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               void openQueueLoan({ kind: "details", loanId: loanTask.loanId, target: searchTaskTarget(loanTask.taskId) },
                 { kind: "promised-callback", id: loanTask.taskId, dueAt: loanTask.dueAt, source: "manager" }) :
               void openScopedLead({ leadId, callbackPromiseId: id })}
-            fileVersion={queueVersion} openFile={(item) => void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
-              item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
-                item.kind === "Manual lender returns" ? { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: false } : undefined)}
+            fileVersion={queueVersion} openFile={(item) => openFileException(item)}
             view={managerExceptionView} setView={setManagerExceptionView} filters={managerExceptionFilters} setFilters={setManagerExceptionFilters}
             reporting={{ period: reportingPeriod, setPeriod: setReportingPeriod,
               openLoan: (loanId) => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget }),

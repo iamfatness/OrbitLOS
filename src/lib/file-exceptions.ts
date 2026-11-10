@@ -2,8 +2,10 @@ import type { BrokerageRole, VersionedBrokerageMember } from "./brokerage-model"
 import { closingGateLabels, closingGateRules, type ClosingGateRule } from "./closing-gate-model";
 import { closingGateFileJoins, closingGateSources, closingGateTarget, currentClosingGatePolicy } from "./closing-gates";
 import { easternDate } from "./client-retention";
+import { disclosureReviewPrefix, disclosureTarget } from "./disclosure-model";
+import { canUseSampleDisclosures } from "./disclosures";
 import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
-  type FileException, type FileExceptionPage } from "./file-exception-model";
+  type FileException, type FileExceptionPage, type FileExceptionQuery } from "./file-exception-model";
 import { loanReviewsTarget, reviewTarget } from "./loan-review-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -19,6 +21,7 @@ const activePipeline = `${active} AND loan.stage NOT IN ('Funded', 'Closed')`;
 const loanColumns = "loan.id AS loanId, contact.name AS borrower, loan.officerEmail, processing.processorEmail";
 const loanJoins = `JOIN contacts contact ON contact.id = loan.contactId LEFT JOIN loan_processing processing ON processing.loanId = loan.id`;
 type Base = Omit<FileException, "target" | "action" | "evidence" | "owner" | "ownerAvailable" | "overdue" | "escalated" | "returnEventId" | "returnFollowUp"> & {
+  rank: number;
   ownerName: string | null; ownerEmail: string | null; officerEmail: string | null; processorEmail: string | null;
   reviewerRole: BrokerageRole | null; reviewerAccessRevision: number | null; escalated: number;
   version: number | null; changed: number; requestStatus: string | null;
@@ -26,25 +29,24 @@ type Base = Omit<FileException, "target" | "action" | "evidence" | "owner" | "ow
 };
 type Candidates = { rows: Base[]; next: FileExceptionPage["next"]; today: string; checkedAt: string };
 
-export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): Candidates | { error: string } {
-  if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin") return { error: fileExceptionsUnavailable };
-  const parsed = fileExceptionQuery.safeParse(input);
-  if (!parsed.success) return { error: "Choose a valid file exception view." };
-  const { filter, after } = parsed.data;
+function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, staff: WorkspaceStaff, now: Date, countCap?: number) {
   const today = easternDate(now);
   const checkedAt = now.toISOString();
   const overdueReturns = filter === overdueManualReturnFilter || filter === unattendedManualReturnFilter;
-  const requireApproval = readPlaybook(db).requireSecondReview;
+  const { requireSecondReview: requireApproval, handoffHours } = readPlaybook(db);
   const showCheckpoint = (filter === "All file exceptions" || filter === "Required 1003 approvals") && requireApproval;
-  const parts: string[] = [];
-  const args: SqlValue[] = [];
+  const parts: { sql: string; args: SqlValue[] }[] = [];
   function add(kind: FileException["kind"], select: string, sort: string, parent: string, id: string, params: SqlValue[] = [], returnEvent = "NULL") {
     if (filter !== "All file exceptions" && filter !== kind && !(overdueReturns && kind === "Manual lender returns")) return;
+    if (countCap !== undefined) {
+      parts.push({ sql: `SELECT count(*) AS total FROM (SELECT ${select} LIMIT ?)`, args: params });
+      return;
+    }
     const rank = fileExceptionKinds.indexOf(kind);
-    parts.push(`SELECT * FROM (SELECT '${kind}' AS kind, ${rank} AS rank, ${sort} AS sortOn, ${parent} AS parentId, ${id} AS id, ${returnEvent} AS returnEventId, ${select}
+    parts.push({ sql: `SELECT '${kind}' AS kind, ${rank} AS rank, ${sort} AS sortOn, ${parent} AS parentId, ${id} AS id, ${returnEvent} AS returnEventId, ${select}
       ${after ? `AND (${sort}, ${rank}, ${parent}, ${id}) > (?, ?, ?, ?)` : ""}
-      ORDER BY ${sort}, ${parent}, ${id} LIMIT ?)`);
-    args.push(...params, ...(after ? [after.sortOn, fileExceptionKinds.indexOf(after.kind), after.parentId, after.id] : []), limit + 1);
+      ORDER BY ${sort}, ${parent}, ${id} LIMIT ?`,
+      args: [...params, ...(after ? [after.sortOn, fileExceptionKinds.indexOf(after.kind), after.parentId, after.id] : []), limit + 1] });
   }
   const reviewChanged = `review.category = '1003 second review' AND review.applicationRevision IS NOT CASE WHEN app.submittedAt IS NOT NULL THEN app.revision END`;
   const requesterActs = `review.status = 'Changes requested' OR (${reviewChanged})`;
@@ -90,6 +92,26 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
     FROM processing_open_conditions item JOIN submissions file ON file.id = item.submissionId JOIN loans loan ON loan.id = file.loanId ${loanJoins}
     LEFT JOIN document_requests request ON request.submissionId = item.submissionId AND request.conditionId = item.conditionId
     WHERE ${activePipeline} AND item.reopenedAt IS NOT NULL`, "substr(item.reopenedAt, 1, 10)", "item.submissionId", "item.conditionId");
+
+  add("Unassigned handoffs", `${loanColumns}, 'Assign a processor' AS title, 'Processor needed' AS status,
+    NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty, loan.officer AS ownerName, loan.officerEmail AS ownerEmail,
+    NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, NULL AS version, 0 AS changed, NULL AS requestStatus
+    FROM applications app JOIN loans loan ON loan.id = app.loanId ${loanJoins}
+    WHERE ${activePipeline} AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL
+      AND coalesce(app.correctionNote, '') = '' AND processing.processorEmail IS NULL`,
+  `strftime('%Y-%m-%dT%H:%M:%fZ', app.reviewedAt, '+${handoffHours} hours')`, "loan.id", "loan.id");
+
+  if (canUseSampleDisclosures(staff)) {
+    add("Disclosure reviews", `${loanColumns}, 'Sample disclosure v' || package.version AS title, package.reviewReason AS status,
+      NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty, loan.officer AS ownerName, loan.officerEmail AS ownerEmail,
+      NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, NULL AS version, 0 AS changed, NULL AS requestStatus
+      FROM tasks task JOIN loans loan ON loan.id = task.loanId ${loanJoins}
+      JOIN disclosure_packages package ON package.loanId = loan.id
+        AND package.version = (SELECT max(latest.version) FROM disclosure_packages latest WHERE latest.loanId = loan.id)
+        AND task.id = '${disclosureReviewPrefix}' || loan.id || ':' || package.version
+      WHERE ${activePipeline} AND task.completedAt IS NULL AND task.id GLOB '${disclosureReviewPrefix}*'
+        AND package.reviewReason IS NOT NULL AND package.supersededAt IS NULL`, "task.dueAt", "loan.id", "task.id");
+  }
 
   add("Manual lender returns", `${loanColumns}, 'Manual lender return' AS title, ${manualReturnPhase(requireApproval)} AS status,
     NULL AS dueOn, returnEntry.createdAt AS reopenedAt, returnFile.lender || ' · ' || returnFile.externalId AS nextParty,
@@ -142,10 +164,32 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
     }
   }
 
-  if (!parts.length) return { rows: [], next: null, today, checkedAt };
-  const all = db.prepare(`WITH page AS (${parts.join(" UNION ALL ")} ORDER BY sortOn, rank, parentId, id LIMIT ?)
-    SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY sortOn, rank, parentId, id`)
-    .all(...args, limit + 1) as unknown as Base[];
+  return { parts, today, checkedAt };
+}
+
+export function countFileExceptions(db: Store, staff: WorkspaceStaff, brokerageId: string, now: Date, cap: number) {
+  if (staff.brokerage.role !== "Admin" || staff.brokerage.id !== brokerageId) return undefined;
+  const { parts } = selectFileExceptions(db, { filter: "All file exceptions" }, staff, now, cap);
+  let count = 0;
+  for (const { sql, args } of parts) {
+    count += Number(db.prepare(sql).get(...args, cap - count)?.total ?? 0);
+    if (count >= cap) break;
+  }
+  return count;
+}
+
+// Dates and generated record keys use binary order, matching the SQL cursor.
+const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+
+export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): Candidates | { error: string } {
+  if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin") return { error: fileExceptionsUnavailable };
+  const parsed = fileExceptionQuery.safeParse(input);
+  if (!parsed.success) return { error: "Choose a valid file exception view." };
+  const { parts, today, checkedAt } = selectFileExceptions(db, parsed.data, staff, now);
+  // Keep each read bounded and within the hosted SQLite compound-query limit.
+  const all = parts.flatMap(({ sql, args }) => db.prepare(`SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp
+    FROM (${sql}) page`).all(...args) as unknown as Base[])
+    .sort((a, b) => compare(a.sortOn, b.sortOn) || a.rank - b.rank || compare(a.parentId, b.parentId) || compare(a.id, b.id));
   const rows = all.slice(0, limit);
   const last = rows.at(-1);
   return { rows, next: all.length > limit && last ? { sortOn: last.sortOn, kind: last.kind, parentId: last.parentId, id: last.id } : null, today, checkedAt };
@@ -167,9 +211,13 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const internalReview = kind === "Internal reviews" || required;
     const manual = kind === "Manual lender returns" ? manualReturnSteps[status as ManualReturnStatus] : undefined;
     const gate = kind === "Closing and funding holds" ? requestStatus as ClosingGateRule : undefined;
-    const target = gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
+    const handoff = kind === "Unassigned handoffs";
+    const disclosure = kind === "Disclosure reviews";
+    const dueAt = handoff || disclosure ? sortOn : undefined;
+    const target = handoff ? "processing-handoff" : disclosure ? disclosureTarget : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
-    const action = gate ? closingGateLabels[gate] : manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
+    const action = handoff ? "Reviewed 1003 is ready for a processor" : disclosure ? "Review the change and prepare an updated sample package" :
+      gate ? closingGateLabels[gate] : manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
       internalReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign a second reviewer for the current 1003" :
         changed ? "Resubmit the review for the current 1003" : status === "Changes requested" ? "Respond to requested changes" :
         available ? "Record a review decision" : "Reassign the reviewer") :
@@ -179,8 +227,9 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
       ...(returnEventId ? { returnEventId, returnDueAt: sortOn } : {}),
+      ...(dueAt ? { dueAt } : {}),
       ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}),
-      ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: returnEventId ? sortOn < checkedAt : !!dueOn && dueOn < today,
+      ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: returnEventId || dueAt ? sortOn < checkedAt : !!dueOn && dueOn < today,
       escalated: Boolean(escalated) };
   });
   return { items, next, today };

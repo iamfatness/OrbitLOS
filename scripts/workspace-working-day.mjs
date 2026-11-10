@@ -157,6 +157,9 @@ try {
   };
   const workspace = async (staff) => (await write(staff, { type: "refreshWorkspace" })).state;
   const queue = (staff) => action(staff, "readMyTasksToday", { horizon: 7 });
+  const sidebar = (staff) => action(staff, "readSidebarActionCounts", brokerage);
+  const fileExceptions = (filter, staff = owner, expected = brokerage) =>
+    action(staff, "readManagerFileExceptions", { filter }, undefined, expected);
   const incoming = (staff, view) => action(staff, "readIncomingLoanWork", { view });
   async function measureHandoff(direction, send, receiver, view, loanId) {
     assert.ok(!(await incoming(receiver, view)).items.some(({ kind, id }) => kind === "handoff" && id === loanId));
@@ -281,8 +284,11 @@ try {
   const campaignCallbackAt = new Date(now + 86_400_000).toISOString();
   const callbackPerformance = (staff = owner) => action(staff, "readCampaignCallbackPerformance", { campaignId });
   const leadId = await stage("Owner imports and routes CRM work", async () => {
-    const sidebar = (staff) => action(staff, "readSidebarActionCounts", brokerage);
     const ownerBefore = await sidebar(owner), officerBefore = await sidebar(officer);
+    assert.equal(officerBefore.exceptions, undefined);
+    assert.ok((await fileExceptions("All file exceptions", officer)).error);
+    assert.ok((await fileExceptions("All file exceptions", processor)).error);
+    assert.ok((await fileExceptions("All file exceptions", owner, randomUUID())).error);
     assert.ok((await sidebar(processor)).error);
     assert.ok((await action(owner, "readSidebarActionCounts", randomUUID())).error);
     await write(owner, { type: "createCallCampaign", id: campaignId, name: "Fictional migrated pipeline" });
@@ -746,6 +752,15 @@ try {
     const assignment = (await action(owner, "readManagerExceptions", unassigned)).rows.find(({ item }) => item.recordId === loanId && item.kind === "assign");
     assert.ok(assignment);
     assert.equal(assignment.otherOwner, officer.email);
+    const handoffExceptions = await fileExceptions("Unassigned handoffs");
+    const handoffException = handoffExceptions.items.find((item) => item.loanId === loanId);
+    assert.equal(handoffException.target, "processing-handoff");
+    assert.equal(handoffException.owner, officer.name);
+    assert.equal(handoffException.dueAt, assignment.item.dueAt);
+    const beforeAssignment = (await sidebar(owner)).exceptions;
+    const allBeforeAssignment = await fileExceptions("All file exceptions");
+    assert.equal(allBeforeAssignment.next, null);
+    assert.equal(beforeAssignment, allBeforeAssignment.items.length);
     const request = { view: "loan-assignment", loanId };
     const readAssignment = async () => {
       const response = await readTeam(owner, request);
@@ -763,6 +778,8 @@ try {
     assert.equal((await readTeam(owner, request, randomUUID())).status, 403);
     await team(owner, { type: "assignProcessor", email: processor.email, loanId, revision: scoped.processing?.revision ?? 0 });
     assert.equal((await readAssignment()).processing.processorEmail, processor.email);
+    assert.ok(!(await fileExceptions("Unassigned handoffs")).items.some((item) => item.loanId === loanId));
+    assert.equal((await sidebar(owner)).exceptions, beforeAssignment - 1);
     assert.ok(!(await action(owner, "readManagerExceptions", unassigned)).rows.some(({ item }) => item.id === assignment.item.id));
     const history = (await (await readTeam(owner)).json()).history;
     assert.ok(history.some((event) => event.subject === loanId && event.loanName === imported.name && event.action === "Assigned shared processor"));
@@ -1204,16 +1221,26 @@ try {
     const stageOverride = { revision: 1, stage, reason: "Reviewed the revised fictional settlement fee." };
     assert.match((await action(officer, "mutate", { type: "saveFeeWorksheet", loanId, ...feeEdit })).error, /locked at/);
     assert.match((await action(officer, "mutate", { type: "saveFeeWorksheet", loanId, ...feeEdit, stageOverride })).error, /Only a brokerage admin/);
+    const beforeFeeReview = (await sidebar(owner)).exceptions;
     assert.ok(!(await action(owner, "mutate", { type: "saveFeeWorksheet", loanId, ...feeEdit, stageOverride })).error);
     const affected = await file(officer, loanId);
     assert.equal(affected.disclosureWork.packages[0].reviewReason, "Fees changed");
     assert.ok(affected.tasks.some(({ title, completedAt }) => title === "Review disclosure package · Fees changed" && !completedAt));
+    const feeException = (await fileExceptions("Disclosure reviews")).items.find((item) => item.loanId === loanId);
+    assert.equal(feeException.target, "loan-disclosures");
+    assert.equal(feeException.status, "Fees changed");
+    assert.equal((await sidebar(owner)).exceptions, beforeFeeReview + 1);
     const audit = await action(officer, "mutate", { type: "loadLoanAudit", loanId });
     assert.equal(audit.loanAudit.filter(({ action }) => action === "Admin stage override · Saved fee worksheet").length, 1);
     assert.ok(audit.loanAudit.some(({ changes }) => changes.some(({ after }) => after === stageOverride.reason)));
     assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /revised fictional settlement fee/);
     assert.equal((await stageEdits(owner, { ...policy, revision: 1, rules: { application: [], fees: [] },
       reason: "Restore the default rules for other rehearsals." })).revision, 2);
+    await loanAction(officer, loanId, "prepareDisclosurePackage", { ...prepare(affected.disclosureWork.suggestedDeadline, 2, 2),
+      feeRevision: controlledFee.revision + 1, reviewedPackageRevision: affected.disclosureWork.packages[0].revision,
+      revisionNote: "Reviewed the revised sample settlement fee." });
+    assert.ok(!(await fileExceptions("Disclosure reviews")).items.some((item) => item.loanId === loanId));
+    assert.equal((await sidebar(owner)).exceptions, beforeFeeReview);
   });
 
   const repeatFile = await stage("LO closes, funds, and opens the repeat application", async () => {
@@ -1228,6 +1255,7 @@ try {
     assert.equal(loanNextAction(ready.loans[0], { ...ready, playbook: defaultPlaybook }, officer.role).title, "Review closing readiness");
     const submission = ready.submissions[0];
     const condition = submission.conditions.find(({ category }) => category === "Income");
+    const beforeReopen = (await sidebar(owner)).exceptions;
     await loanAction(owner, loanId, "reopenMockUwmCondition", { submissionId: submission.id, conditionId: condition.id,
       expectedSatisfiedAt: condition.satisfiedAt, expectedReopenedAt: condition.mockReopenedAt ?? null });
     assert.match((await action(officer, "mutate", markClosing)).error, /reopened mock UWM condition/i);
@@ -1244,12 +1272,17 @@ try {
     const lenderWork = await action(officer, "readTaskWork", { type: "list", view: "Open", scope: "Mine", group: "Lender updates" });
     assert.ok(reopenedAlert && lenderWork.items.some(({ id, recordId, title }) =>
       id === reopenedAlert.id && recordId === loanId && title.startsWith("Reopened · ")));
+    const conditionException = (await fileExceptions("Reopened conditions")).items.find((item) => item.id === condition.id);
+    assert.equal(conditionException.target, `lender-condition-${submission.id}:${condition.id}`);
+    assert.equal((await sidebar(owner)).exceptions, beforeReopen + 1);
     const request = reopened.documentRequests.find(({ conditionId }) => conditionId === condition.id);
     await borrower(token, { type: "attachSample", requestId: request.id, revision: request.revision });
     const replacement = (await file(officer, loanId)).documentRequests.find(({ id }) => id === request.id);
     await loanAction(officer, loanId, "reviewDocument", { requestId: replacement.id, revision: replacement.revision,
       decision: "Accepted", replacementNote: "", sendToMockUwm: true });
     await loanAction(officer, loanId, "refreshMockUwmClearance", { submissionId: submission.id });
+    assert.ok(!(await fileExceptions("Reopened conditions")).items.some((item) => item.id === condition.id));
+    assert.equal((await sidebar(owner)).exceptions, beforeReopen);
     const marked = await write(officer, markClosing);
     assert.equal(marked.loanWork.loans[0].stage, "Clear to Close");
     await write(officer, markClosing);

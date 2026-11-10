@@ -1,4 +1,5 @@
 import { readIncomingLoanWorkPage } from "./incoming-loan-work";
+import { countFileExceptions } from "./file-exceptions";
 import { countLeadAttention } from "./lead-inbox-query";
 import { readOfficerQueue } from "./officer-queue";
 import type { OfficerQueueQuery } from "./officer-queue-model";
@@ -31,5 +32,7 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
     for (const { id } of page.replies.items) actions.add(`conversation:${id}`);
     after = page.next ?? undefined;
   } while (after);
-  return { today: Math.min(actions.size, countLimit), leads: countLeadAttention(db, staff, countLimit) };
+  const exceptions = countFileExceptions(db, staff, brokerageId, now, countLimit);
+  return { today: Math.min(actions.size, countLimit), leads: countLeadAttention(db, staff, countLimit),
+    ...(exceptions === undefined ? {} : { exceptions }) };
 }
