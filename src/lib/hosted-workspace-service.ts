@@ -211,6 +211,10 @@ export async function loadEditableLoan(input: unknown, staff: WorkspaceStaff | n
   return staffWorkspace(staff).editableLoan(input, staff);
 }
 
+export async function loadClosingPacket(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).closingPacket(input, staff) : null;
+}
+
 export async function loadLoanHandoff(loanId: string, knownVersion: string, staff: WorkspaceStaff) {
   return staffWorkspace(staff).loanHandoff(loanId, knownVersion, staff);
 }

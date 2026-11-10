@@ -15,6 +15,8 @@ import { searchTaskTarget } from "./workspace-search-model";
 import { readManualReturnWork } from "./manual-lender-work";
 import { processingActivityPrefix } from "./processing-model";
 import { canUseSampleDisclosures, readDisclosureWork } from "./disclosures";
+import { readClosingPackets } from "./closing-packets";
+import { closingPacketChecklistLimit } from "./closing-packet-model";
 
 export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 
@@ -33,8 +35,17 @@ function loanHandoffVersion(db: Store, loanId: string) {
   const disclosure = db.prepare("SELECT version, revision FROM disclosure_packages WHERE loanId = ? ORDER BY version DESC LIMIT 1").get(loanId);
   const closingDisclosure = disclosure && db.prepare(`SELECT version, revision, reviewedAt FROM closing_disclosure_reviews
     WHERE loanId = ? ORDER BY version DESC, revision DESC LIMIT 1`).get(loanId);
+  const packet = closingDisclosure && db.prepare("SELECT version FROM closing_packets WHERE loanId = ? ORDER BY version DESC LIMIT 1").get(loanId);
+  const closingDates = packet && db.prepare(`SELECT loan.address, loan.officer, contact.name, plan.targetDate, past.closingDate, progress.fundingDate
+    FROM loans loan JOIN contacts contact ON contact.id = loan.contactId
+    LEFT JOIN closing_plans plan ON plan.loanId = loan.id LEFT JOIN past_client_profiles past ON past.loanId = loan.id
+    LEFT JOIN closing_progress progress ON progress.loanId = loan.id WHERE loan.id = ?`).get(loanId);
+  const checklist = packet && db.prepare("SELECT id, revision FROM closing_items WHERE loanId = ? ORDER BY dueDate, id LIMIT ?")
+    .all(loanId, closingPacketChecklistLimit + 1);
   const uwmAcceptance = db.prepare("SELECT revision, reconciledAt FROM mock_uwm_acceptances WHERE loanId = ? ORDER BY revision DESC LIMIT 1").get(loanId);
-  return createHash("sha256").update(JSON.stringify([application, documents, joint, processing, disclosure, closingDisclosure, uwmAcceptance])).digest("hex");
+  return createHash("sha256").update(JSON.stringify([
+    application, documents, joint, processing, disclosure, closingDisclosure, packet, closingDates, checklist, uwmAcceptance,
+  ])).digest("hex");
 }
 
 export function readLoanHandoff(db: Store, loanId: unknown, knownVersion: unknown, staff: WorkspaceStaff | null, brokerageId: string) {
@@ -90,9 +101,11 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   const application = records.applications[0];
   const manualReturn = staff.brokerage.role !== "Processor" && application?.lastManualSubmissionId && !application.manualHandoff?.submissionId ?
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
+  const disclosureWork = canUseSampleDisclosures(staff) ? readDisclosureWork(db, loanId) : undefined;
   return {
     ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
-    ...(canUseSampleDisclosures(staff) ? { disclosureWork: readDisclosureWork(db, loanId) } : {}),
+    ...(disclosureWork ? { disclosureWork } : {}),
+    ...(disclosureWork?.packages.length ? { closingPacketWork: readClosingPackets(db, loanId, disclosureWork) } : {}),
     applications: scopeJointLinks(records.applications, staff),
     repeatOption,
     ...(manualReturn ? { manualReturn } : {}),

@@ -541,7 +541,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   appointmentChanged: () => void;
   reviewChanged: () => void;
   markDraftChanged: (editor: Node) => void;
-  openDisclosure: () => void;
+  openDisclosure: (destination?: string) => void;
 }) {
   const processor = staff?.brokerage.role === "Processor";
   const canOpenReviews = Boolean(staff) || process.env.NODE_ENV === "development";
@@ -591,7 +591,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const checklistLinks = borrowerChecklistLinks(application);
   const joint = !!application?.joint;
   const open = (destination: string) => {
-    if (destination === disclosureTarget && !state.disclosureWork) openDisclosure();
+    if (!state.disclosureWork && (destination === disclosureTarget || !staff && canOpenDisclosures && loanSection(destination) === "Closing")) {
+      openDisclosure(destination);
+    }
     else show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
   };
   const openPricing = (useMockScore?: boolean, reviewedIncome?: ReviewedIncomeSource) =>
@@ -670,6 +672,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           save={save} open={open} refresh={openDisclosure} />}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
+        brokerageId={staff?.brokerage.id ?? demoBrokerageId}
         reopenedCondition={reopenedClosing} openCondition={open}
         advanceDemoToFunding={(campaignLender || linkedManual) && (!staff || staff.brokerage.pilot) ? () => open("loan-funding") : undefined}
         canMarkClearToClose={!processor && loan.stage !== "Clear to Close" && closingReviewReady(loan, state)}
@@ -1018,7 +1021,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           save={save} show={show} target={target} campaignLender={campaignLender} openConversation={openConversation}
           openRateWatchRefinance={openRateWatchRefinance}
           appointmentChanged={appointmentChanged} reviewChanged={reviewChanged} markDraftChanged={markDraftChanged}
-          openDisclosure={() => openContactLoan(loan.id, disclosureTarget)} />}
+          openDisclosure={(destination = disclosureTarget) => openContactLoan(loan.id, destination)} />}
         {modal.kind === "assignment" && staff?.brokerage.role === "Admin" && <LoanAssignmentEditor key={modal.loanId}
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
           manualReturn={modal.manualReturn}

@@ -39,6 +39,7 @@ import { explorationInput, loadExplorationExamples } from "./lib/pilot-explorati
 import { loanScenarioWork } from "./lib/loan-scenarios";
 import { incomeWorksheetWork } from "./lib/income-review";
 import { workOnPreapprovalLetters } from "./lib/preapproval-letters";
+import { readClosingPacket } from "./lib/closing-packets";
 import { sharedPreapprovalDownload } from "./lib/preapproval-sharing";
 import { sharedPreapprovalUnavailable } from "./lib/preapproval-model";
 import { confirmLenderPackagePdf, lenderPackageAccess, lenderShareWork } from "./lib/lender-handoff-share";
@@ -361,6 +362,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   editableLoan(input: unknown, staff: WorkspaceStaff) {
     return readEditableLoan(this.#store, input, staff, this.#id);
+  }
+
+  closingPacket(input: unknown, staff: WorkspaceStaff) {
+    return readClosingPacket(this.#store, input, staff, this.#id);
   }
 
   loanHandoff(loanId: string, knownVersion: string, staff: WorkspaceStaff) {

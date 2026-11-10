@@ -60,6 +60,8 @@ import { quoteSelection, saveFeeWorksheetInput, type QuoteOption } from "./quote
 import { archiveSharedQuote, quoteSnapshot, saveFeeWorksheet } from "./quote-worksheet-store";
 import { confirmClosingDisclosure, disclosureCommand, disclosureTask } from "./disclosure-model";
 import { flagDisclosureReview, recordClosingDisclosureReview, updateDisclosurePackage } from "./disclosures";
+import { prepareClosingPacketInput } from "./closing-packet-model";
+import { prepareClosingPacket } from "./closing-packets";
 
 import { migrationInput, undoMigrationInput, type MigrationReport } from "./pipeline-migration-model";
 import { migratePipeline } from "./pipeline-migration";
@@ -294,6 +296,7 @@ const command = z.discriminatedUnion("type", [
   saveFeeWorksheetInput,
   ...disclosureCommand.options,
   confirmClosingDisclosure,
+  prepareClosingPacketInput,
   z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id, feeRevision: z.number().int().nonnegative().default(0),
     alternatives: z.array(quoteSelection).max(2).default([]) }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
@@ -352,7 +355,8 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
       "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
       "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
-      "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "confirmClosingDisclosure", "saveManualCondition", "recordManualDelivery", "recordManualClearance", "updateProcessing"];
+      "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "confirmClosingDisclosure", "prepareClosingPacket",
+      "saveManualCondition", "recordManualDelivery", "recordManualClearance", "updateProcessing"];
     if (!permitted.includes(data.type)) denied();
   }
   if ("loanId" in data && !access(data.loanId)) denied();
@@ -467,6 +471,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "completeClosingItem":
     case "prepareClosingHandoff":
     case "confirmClosingDisclosure":
+    case "prepareClosingPacket":
     case "requestDocument":
     case "enableJointApplication":
     case "revokeJointLink":
@@ -1087,6 +1092,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "confirmClosingDisclosure": {
           const result = recordClosingDisclosureReview(db, staff, data.loanId, data.version, data.revision, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
+        case "prepareClosingPacket": {
+          const result = prepareClosingPacket(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;

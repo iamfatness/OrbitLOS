@@ -3,6 +3,8 @@ import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
 import { confirmClosingDisclosure, disclosureCommand } from "./disclosure-model";
+import { prepareClosingPacketInput } from "./closing-packet-model";
+import { readClosingPacket } from "./closing-packets";
 import { contactMergeWork } from "./contact-merge";
 import { borrowerCommandResult, coBorrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
@@ -160,7 +162,8 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
   const localScopedLoan = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" && "type" in input &&
     (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" ||
       input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" ||
-      confirmClosingDisclosure.safeParse(input).success || disclosureCommand.safeParse(input).success);
+      input.type === "prepareClosingHandoff" || input.type === "saveClosingTarget" || input.type === "saveClosingItem" || input.type === "completeClosingItem" ||
+      confirmClosingDisclosure.safeParse(input).success || disclosureCommand.safeParse(input).success || prepareClosingPacketInput.safeParse(input).success);
   const actor = localScopedLoan ? localPilotAdmin : staff;
   return executeCommand(database(), input, actor, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
     scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks", scopedTemplateUpdates: true,
@@ -319,6 +322,11 @@ export async function updateProcessingView(input: unknown, staff: WorkspaceStaff
 
 export async function loadEditableLoan(input: unknown, staff: WorkspaceStaff | null) {
   return readEditableLoan(database(), input, staff ?? localAdmin, demoBrokerageId, staff ? undefined : localAdmin.name);
+}
+
+export async function loadClosingPacket(input: unknown, staff: WorkspaceStaff | null) {
+  const viewer = staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null);
+  return readClosingPacket(database(), input, viewer, demoBrokerageId);
 }
 
 export async function loadLoanHandoff(loanId: string, knownVersion: string, staff: WorkspaceStaff) {

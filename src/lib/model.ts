@@ -295,6 +295,7 @@ export interface Workspace {
   closingItems: ClosingItem[];
   closingProgress: ClosingProgress[];
   disclosureWork?: import("./disclosure-model").DisclosureWork;
+  closingPacketWork?: import("./closing-packet-model").ClosingPacketWork;
   returningClientLoans: { fundedLoanId: string; loanId: string }[];
   loanProcessing: LoanProcessing[];
   processingActivity?: Pick<Activity, "id" | "text" | "createdAt">[];

@@ -16,6 +16,8 @@ const { readEditableLoan, readLoanHandoff } = await import("../src/lib/editable-
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { beginDocumentUpload, finishDocumentUpload, failDocumentUpload, issueDocumentCode, verifyDocumentCode } = await import("../src/lib/document-files.ts");
 const { checkDocumentReminders, documentReminderPage } = await import("../src/lib/document-reminder-runs.ts");
+const { readClosingPacket } = await import("../src/lib/closing-packets.ts");
+const { closingPacketPdf } = await import("../src/lib/closing-packet-pdf.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -178,10 +180,51 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.match((await apply("confirmClosingDisclosure", confirmedVersion)).message, /already confirmed/);
   assert.equal(closing().length, 1);
   assert.ok(!JSON.stringify(primaryPackage()).includes(f.processor.name));
+  const checklist = { itemId: crypto.randomUUID(), title: "Confirm fictional title checklist", owner: f.processor.name, dueDate: easternDate() };
+  await apply("saveClosingItem", { ...checklist, revision: 0 });
+  const packet = { previousVersion: null, disclosureVersion: confirmedVersion.version, disclosureRevision: confirmedVersion.revision };
+  assert.ok((await f.run("prepareClosingPacket", packet, f.outsider)).error);
+  await apply("prepareClosingPacket", packet, f.processor);
+  const loadPacket = (version, actor = f.officer, brokerageId = f.brokerage.id) =>
+    readClosingPacket(f.db, { loanId: f.loanId, version }, actor, brokerageId);
+  const firstPacket = loadPacket(1, f.processor);
+  assert.equal(firstPacket.preparedBy, f.processor.name);
+  assert.equal(firstPacket.snapshot.disclosure.signers[0].receipt, signature.receipt);
+  assert.equal(firstPacket.snapshot.disclosure.changeReview.note, revisionNote);
+  assert.equal(firstPacket.snapshot.checklist[0].completedAt, null);
+  assert.equal(loan().closingPacketWork.packets[0].current, true);
+  assert.equal(loadPacket(1, f.outsider), null);
+  assert.equal(loadPacket(1, null), null);
+  assert.equal(loadPacket(1, f.officer, crypto.randomUUID()), null);
+  assert.match((await apply("prepareClosingPacket", packet)).message, /already prepared/);
+  const firstPdf = firstPacket.pdf;
+  assert.equal(firstPdf, closingPacketPdf(firstPacket));
+  const text = [...firstPdf.matchAll(/<([\da-f]+)> Tj/g)].map(([, hex]) => Buffer.from(hex, "hex").toString("latin1")).join("\n");
+  assert.match(text, /FICTIONAL CLOSING REHEARSAL/);
+  assert.match(text, /Confirm fictional title checklist/);
+  assert.ok(text.includes(signature.receipt));
+  const manyRows = Array.from({ length: 80 }, (_, index) => ({
+    ...firstPacket.snapshot.checklist[0], title: `Fictional checklist item ${index + 1}`, owner: "Fictional processor (QA)",
+  }));
+  const pagedPdf = closingPacketPdf({ ...firstPacket, snapshot: { ...firstPacket.snapshot, checklist: manyRows } });
+  assert.ok(Number(pagedPdf.match(/\/Count (\d+) \/Kids/)[1]) > 1);
+  assert.ok(pagedPdf.includes(Buffer.from("80. Fictional checklist item 80").toString("hex")));
+  const beforeChecklist = loan().handoffVersion;
+  await apply("completeClosingItem", { itemId: checklist.itemId, revision: 1, completed: true }, f.processor);
+  assert.notEqual(loan().handoffVersion, beforeChecklist);
+  assert.equal(loan().closingPacketWork.packets[0].current, false);
+  assert.match((await f.run("prepareClosingPacket", packet)).error, /closing packet changed/);
+  await apply("prepareClosingPacket", { ...packet, previousVersion: 1 }, f.processor);
+  assert.equal(loadPacket(1).snapshot.checklist[0].completedAt, null);
+  assert.ok(loadPacket(2).snapshot.checklist[0].completedAt);
+  assert.equal(loadPacket(1).pdf, firstPdf);
+  assert.ok(!JSON.stringify(primaryPackage()).includes(checklist.title));
   await apply("prepareDisclosurePackage", prepare(2, 2));
   assert.equal(closing()[0].current, false);
   assert.equal(closing()[0].signers[0].receipt, signature.receipt);
   assert.ok((await f.run("confirmClosingDisclosure", confirmedVersion, f.processor)).error);
+  assert.match((await f.run("prepareClosingPacket", { ...packet, previousVersion: 2 }, f.processor)).error, /Confirm the current/);
+  assert.equal(loadPacket(2).snapshot.disclosure.version, 2);
   assert.equal(work().packages[1].changeReview.note, revisionNote);
   assert.equal(primaryPackage().state, "Awaiting revision");
   await apply("issueDisclosurePackage", version());

@@ -257,6 +257,11 @@ export function initializeStore(db: Store, seedDemo = true) {
       PRIMARY KEY (loanId, version, revision),
       FOREIGN KEY (loanId, version) REFERENCES disclosure_packages(loanId, version) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS closing_packets (
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL, preparedAt TEXT NOT NULL, preparedBy TEXT NOT NULL, snapshot TEXT NOT NULL, pdf TEXT,
+      PRIMARY KEY (loanId, version)
+    );
     CREATE TABLE IF NOT EXISTS communication_drafts (${communicationDraftColumns});
     CREATE TABLE IF NOT EXISTS past_client_profiles (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
@@ -992,6 +997,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "changeReview")) {
       db.exec("ALTER TABLE disclosure_packages ADD COLUMN changeReview TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(closing_packets)").all().some(({ name }) => name === "pdf")) {
+      db.exec("ALTER TABLE closing_packets ADD COLUMN pdf TEXT");
     }
     const pricingColumns = new Set(db.prepare("PRAGMA table_info(pricing_runs)").all().map(({ name }) => name));
     for (const column of ["applicationRevision", "incomeReviewRevision"]) {

@@ -1,33 +1,6 @@
 import { dateLabel } from "./client-retention";
-import { pdfDocument } from "./pdf-document";
+import { pdfDocument, pdfText, pdfWrappedLines } from "./pdf-document";
 import { preapprovalAmount, preapprovalDemoLabel } from "./preapproval-model";
-
-const winAnsi = "€\u0000‚ƒ„…†‡ˆ‰Š‹Œ\u0000Ž\u0000\u0000‘’“”•–—˜™š›œ\u0000žŸ";
-function pdfText(value: string) {
-  const characters = [...value.normalize("NFC").replace(/[‐-―]/g, "-")];
-  return characters.map((character) => {
-    const code = character.codePointAt(0)!;
-    if ((code >= 32 && code <= 126) || (code >= 160 && code <= 255)) return code.toString(16).padStart(2, "0");
-    const index = winAnsi.indexOf(character);
-    if (index < 0 || code === 0) throw new Error("Use Latin-script fictional names and addresses for this sample PDF.");
-    return (128 + index).toString(16);
-  }).join("");
-}
-
-// Use conservative widths with the built-in Helvetica fonts to fit long names and addresses.
-function lines(value: string, limit: number) {
-  const result: string[] = [];
-  let line = "";
-  for (const word of value.trim().split(/\s+/)) {
-    if (line.length + word.length + 1 <= limit) { line = line ? `${line} ${word}` : word; continue; }
-    if (line) result.push(line);
-    let rest = word;
-    while (rest.length > limit) { result.push(rest.slice(0, limit)); rest = rest.slice(limit); }
-    line = rest;
-  }
-  if (line) result.push(line);
-  return result;
-}
 
 export function preapprovalLetterPdf(data: {
   names: string[]; property: string | null; version: number; issuedOn: string; expiresOn: string;
@@ -56,7 +29,7 @@ export function preapprovalLetterPdf(data: {
     { label: "FICTIONAL BORROWERS", values: data.names },
     { label: "PROPERTY SCOPE", values: [data.property ?? "Property search - no address specified"] },
     { label: "PREPARED FOR THE DEMO BY", values: [data.issuer, data.brokerage] },
-  ].map(({ label, values }) => ({ label, values: values.flatMap((value) => lines(value, 55)) }));
+  ].map(({ label, values }) => ({ label, values: values.flatMap((value) => pdfWrappedLines(value, 55)) }));
   const count = groups.reduce((total, group) => total + group.values.length, 0);
   const leading = count > 23 ? 11 : 13;
   for (const { label, values } of groups) {

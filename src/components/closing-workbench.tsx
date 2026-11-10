@@ -3,6 +3,7 @@
 import { useRef, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
+import type { ClosingPacketWork } from "@/lib/closing-packet-model";
 import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
 import { closingChecklistTarget, closingWorkbenchTarget, reopenedMockClosingMessage } from "@/lib/loan-workflow";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
@@ -10,6 +11,34 @@ import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
+
+function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy, save }: {
+  loanId: string; brokerageId: string; packets?: ClosingPacketWork; disclosures?: DisclosureWork; busy: boolean; save: Save;
+}) {
+  if (!packets || (!packets.canPrepare && !packets.packets.length)) return null;
+  const confirmation = disclosures?.closingReviews.find(({ current }) => current);
+  const [latest, ...prior] = packets.packets;
+  const download = (packet: NonNullable<typeof latest>) => <div>
+    <p>Packet v{packet.version} · Disclosure v{packet.disclosureVersion} · {packet.current ? "Current snapshot" : "Prior snapshot"}</p>
+    <p className="muted">Prepared by {packet.preparedBy} · {dateTime(packet.preparedAt)} ET</p>
+    <Button size="sm" variant="outline" asChild><a href={`/api/closing-packet?${new URLSearchParams({
+      brokerage: brokerageId, loanId, version: String(packet.version),
+    })}`} download>Download sample closing packet v{packet.version}</a></Button>
+  </div>;
+  return <section className="document-item" aria-label="Sample closing packets">
+    <div className="document-item-head"><strong>Sample closing packet</strong><span className="pill">Internal PDF</span></div>
+    <p className="muted">Save the confirmed mock receipts, critical dates, and closing checklist as a versioned staff copy.</p>
+    {confirmation && !latest?.current && <div><Button size="sm" disabled={busy} onClick={() => void save({
+      type: "prepareClosingPacket", loanId, previousVersion: latest?.version ?? null,
+      disclosureVersion: confirmation.version, disclosureRevision: confirmation.revision,
+    })}>{latest ? "Prepare updated sample closing packet" : "Prepare sample closing packet"}</Button></div>}
+    {latest && download(latest)}
+    {prior.length > 0 && <details className="document-form">
+      <summary>Earlier sample closing packets</summary>
+      {prior.map((packet) => <div key={packet.version}>{download(packet)}</div>)}
+    </details>}
+  </section>;
+}
 
 function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
   loan: Loan; work?: DisclosureWork; busy: boolean; save: Save; open: (target: string) => void;
@@ -85,8 +114,9 @@ function ClosingItemForm({ loan, item, targetDate, busy, save }: {
 }
 
 export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, manualClearance, borrowerCheckIn,
-  advanceDemoToFunding, reopenedCondition, openCondition }: {
+  advanceDemoToFunding, reopenedCondition, openCondition, brokerageId }: {
   loan: Loan; state: Workspace; busy: boolean; save: Save; preview: (audience: DraftAudience, draftId: string) => void;
+  brokerageId: string;
   canReverseFunding: boolean; canRehearseFailure: boolean; canMarkClearToClose: boolean;
   manualClearance: boolean;
   borrowerCheckIn?: { dueAt: string; open: () => void };
@@ -190,6 +220,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
       </form>
     </details>}
     <ClosingDisclosureEvidence loan={loan} work={state.disclosureWork} busy={busy} save={save} open={openCondition} />
+    <ClosingPacketExports loanId={loan.id} brokerageId={brokerageId} packets={state.closingPacketWork} disclosures={state.disclosureWork} busy={busy} save={save} />
     <details className="document-form"><summary>Track disclosure and signature status</summary>
       <form key={progress?.revision ?? 0} onSubmit={(event) => {
         event.preventDefault();
