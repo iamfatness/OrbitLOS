@@ -34,7 +34,7 @@ test("the EQ sandbox adapter maps conventional quotes and reports provider failu
     zip: "48067", creditScore: 750, monthlyIncome: 7500, occupancy: "Primary residence", propertyType: "Single family", firstTimeBuyer: true });
   let quoteFailure;
   const fetch = t.mock.method(globalThis, "fetch", async (url, options) => {
-    assert.equal(options.redirect, "error");
+    assert.equal(options.redirect, "manual");
     if (url === "https://sso.uwm.com/adfs/oauth2/token") {
       assert.equal(options.body.get("scope"), "https://api.uwm.com/loanorigination-stg");
       return Response.json({ access_token: "synthetic-token" });
@@ -68,6 +68,7 @@ test("the EQ sandbox adapter maps conventional quotes and reports provider failu
     }],
   });
   for (const [response, code] of [
+    [new Response(null, { status: 302, headers: { Location: "https://redirect.example.test/" } }), "unavailable"],
     [new Response(null, { status: 403 }), "authentication"],
     [new Response(null, { status: 429 }), "throttled"],
     [new Response("invalid JSON"), "invalid-response"],
