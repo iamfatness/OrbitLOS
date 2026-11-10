@@ -23,6 +23,8 @@ import { disclosureTemplateUnavailable } from "@/lib/disclosure-template-model";
 import { questionSetsUnavailable } from "@/lib/borrower-question-set-model";
 import { workOnBorrowerQuestionSets } from "@/lib/workspace-service";
 import { stageEditUnavailable } from "@/lib/loan-stage-edit-model";
+import { closingGateUnavailable } from "@/lib/closing-gate-model";
+import { workOnClosingGates } from "@/lib/workspace-service";
 import { conversationsUnavailable } from "@/lib/conversation-model";
 import { inboundReplyUnavailable } from "@/lib/inbound-replies-model";
 import { appointmentsUnavailable } from "@/lib/appointment-model";
@@ -356,6 +358,12 @@ export async function accessLoanStageEdits(input: unknown, expectedBrokerage: st
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: stageEditUnavailable };
   return workOnLoanStageEdits(input, staff);
+}
+
+export async function accessClosingGates(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: closingGateUnavailable };
+  return workOnClosingGates(input, staff);
 }
 
 export async function saveSalesSetting(input: unknown, expectedBrokerage: string) {

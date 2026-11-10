@@ -3,6 +3,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
+import type { ClosingGatePhase } from "@/lib/closing-gate-model";
 import type { ClosingPacketWork } from "@/lib/closing-packet-model";
 import { closingServiceEvidenceLimit, type ClosingServiceEvidence } from "@/lib/closing-service-evidence-model";
 import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
@@ -13,6 +14,7 @@ import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
 import { feeAllocationLabel, feeLabels } from "@/lib/quote-worksheet";
 import { dateTime } from "@/lib/utils";
+import { ClosingGateEvidence, useLoanClosingGates } from "./closing-gates";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
@@ -214,8 +216,32 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   const realtorDraft = drafts.find((draft) => draft.audience === "Realtor" && draft.contactId === loan.partnerId);
   const today = easternDate();
   const outstanding = items.filter((item) => !item.completedAt).length;
-  const closingBlocked = !!reopenedCondition && !actual;
-  const fundingBlocked = !!reopenedCondition && !progress?.fundingDate;
+  const gates = useLoanClosingGates(brokerageId, loan.id, state);
+  const [overrides, setOverrides] = useState<Partial<Record<ClosingGatePhase, { key: string; reason: string }>>>({});
+  const closingCheck = !actual ? gates.work?.closing : undefined;
+  const fundingCheck = actual && !progress?.fundingDate ? gates.work?.funding : undefined;
+  const closingReason = overrideFor("closing");
+  const fundingReason = overrideFor("funding");
+  const closingBlocked = !actual && (Boolean(reopenedCondition) || (!!closingCheck?.blockers.length && !closingReason));
+  const fundingBlocked = !progress?.fundingDate && (Boolean(reopenedCondition) || (!!fundingCheck?.blockers.length && !fundingReason));
+
+  function overrideFor(phase: ClosingGatePhase) {
+    const draft = overrides[phase];
+    if (!reopenedCondition && gates.work?.canOverride && draft && draft.key === gates.work[phase].key && draft.reason.trim().length >= 8) return draft;
+  }
+
+  function overrideField(phase: ClosingGatePhase) {
+    const key = gates.work?.[phase].key;
+    if (!key || !gates.work?.canOverride || reopenedCondition) return null;
+    const draft = overrides[phase];
+    return <details className="document-form" key={key}>
+      <summary>Admin override for {phase}</summary>
+      <p className="muted">Orbit records the reason and current evidence in the loan audit when you save.</p>
+      <label className="field">Reason for {phase} override<textarea rows={2} minLength={8} maxLength={300}
+        disabled={busy} value={draft?.key === key ? draft.reason : ""}
+        onChange={(event) => { const reason = event.currentTarget.value; setOverrides((current) => ({ ...current, [phase]: { key, reason } })); }} /></label>
+    </details>;
+  }
 
   function fillToday(input: HTMLInputElement | null) {
     if (!input) return;
@@ -230,6 +256,12 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
       <strong>Reopened {reopenedCondition.category.toLowerCase()} condition</strong>
       <p>{reopenedMockClosingMessage}</p>
       <div><Button size="sm" variant="outline" onClick={() => openCondition(reopenedCondition.target)}>Open reopened condition</Button></div>
+    </div>}
+    {closingCheck && <ClosingGateEvidence phase="closing" check={closingCheck} open={openCondition} />}
+    {fundingCheck && <ClosingGateEvidence phase="funding" check={fundingCheck} open={openCondition} />}
+    {(gates.error || !!gates.work?.revision) && <div className="loan-application-actions">
+      {gates.error && <p role="status">{gates.error}</p>}
+      <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={gates.reload}>Refresh required checks</Button>
     </div>}
     {canMarkClearToClose && <div className="work-queue">
       <p className="muted">{manualClearance ? "Manual lender clearance recorded." : "Mock UWM conditions cleared."}{loan.partnerId && " Confirming updates the realtor milestone."}</p>
@@ -248,9 +280,11 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
         event.preventDefault();
         if (closingBlocked) return;
         const data = new FormData(event.currentTarget);
-        void save({ type: "recordClosing", loanId: loan.id, closingDate: data.get("closingDate"), revision: profile?.revision ?? 0 },
+        void save({ type: "recordClosing", loanId: loan.id, closingDate: data.get("closingDate"), revision: profile?.revision ?? 0,
+          gateOverride: closingReason },
           actual ? undefined : advanceDemoToFunding);
       }}>
+        {!actual && overrideField("closing")}
         <label className="field">Actual closing date<input ref={actualInput} type="date" name="closingDate" required max={today}
           defaultValue={actual ?? undefined} disabled={closingBlocked} /></label>
         <div className="loan-application-actions">
@@ -264,8 +298,9 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
         if (fundingBlocked) return;
         const data = new FormData(event.currentTarget);
         void save({ type: "recordFunding", loanId: loan.id, fundingDate: data.get("fundingDate"), revision: progress?.revision ?? 0,
-          simulateFollowUpFailure: data.has("simulateFollowUpFailure") });
+          simulateFollowUpFailure: data.has("simulateFollowUpFailure"), gateOverride: fundingReason });
       }}>
+        {!progress?.fundingDate && overrideField("funding")}
         <label className="field">Funding date<input ref={fundingInput} name="fundingDate" type="date" required min={actual} max={today}
           defaultValue={progress?.fundingDate ?? ""} disabled={fundingBlocked} /></label>
         <div className="loan-application-actions">

@@ -96,6 +96,7 @@ import { disclosureCalendarWork } from "./lib/disclosure-calendar";
 import { disclosureTemplateWork } from "./lib/disclosure-templates";
 import { borrowerQuestionSetWork } from "./lib/borrower-question-sets";
 import { loanStageEditWork } from "./lib/loan-stage-edits";
+import { closingGateWork } from "./lib/closing-gates";
 import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
 import { conversationInput } from "./lib/conversation-model";
@@ -430,6 +431,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   loanStageEdits(input: unknown, staff: WorkspaceStaff) {
     return loanStageEditWork(this.#store, input, staff, this.#id);
+  }
+
+  closingGates(input: unknown, staff: WorkspaceStaff) {
+    return closingGateWork(this.#store, input, staff, this.#id);
   }
 
   salesSettings(input: unknown, staff: WorkspaceStaff) {

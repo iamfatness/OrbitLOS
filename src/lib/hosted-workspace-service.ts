@@ -12,6 +12,7 @@ import { disclosureCalendarUnavailable } from "./disclosure-calendar-model";
 import { disclosureTemplateUnavailable } from "./disclosure-template-model";
 import { questionSetsUnavailable } from "./borrower-question-set-model";
 import { stageEditUnavailable } from "./loan-stage-edit-model";
+import { closingGateUnavailable } from "./closing-gate-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
 import { campaignManagerUnavailable } from "./campaign-manager-model";
@@ -297,6 +298,10 @@ export async function workOnBorrowerQuestionSets(input: unknown, staff: Workspac
 
 export async function workOnLoanStageEdits(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).loanStageEdits(input, staff) : { error: stageEditUnavailable };
+}
+
+export async function workOnClosingGates(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).closingGates(input, staff) : { error: closingGateUnavailable };
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {

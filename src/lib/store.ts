@@ -305,6 +305,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS loan_stage_edit_versions (
       revision INTEGER PRIMARY KEY, rules TEXT NOT NULL, reason TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS closing_gate_versions (
+      revision INTEGER PRIMARY KEY, rules TEXT NOT NULL, reason TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS mock_uwm_acceptances (
       loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       revision INTEGER NOT NULL, attemptedAt TEXT NOT NULL, reference TEXT NOT NULL, receipt TEXT NOT NULL,
@@ -340,6 +343,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, owner TEXT NOT NULL, dueDate TEXT NOT NULL, completedAt TEXT, revision INTEGER NOT NULL DEFAULT 1
     );
+    CREATE INDEX IF NOT EXISTS closing_gate_open_items ON closing_items(loanId, dueDate, id) WHERE completedAt IS NULL;
     CREATE TABLE IF NOT EXISTS closing_progress (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
       fundingDate TEXT, disclosureStatus TEXT NOT NULL DEFAULT 'Not started', disclosureDate TEXT,

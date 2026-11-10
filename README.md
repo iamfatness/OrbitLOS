@@ -227,6 +227,8 @@ Preview the template’s documents before preparing the package. The package kee
 
 In **Playbooks → Loan stage edit policy**, an admin can choose the stages that require an override to reopen a submitted 1003, save lender details, change the selected quote, or save a fee worksheet. Publishing requires a reason. The default policy has no locked stages.
 
+In **Playbooks → Closing and funding policy**, an admin can separately require a reviewed 1003, cleared lender conditions, or a complete closing checklist before staff record closing or funding. The default has no additional checks. In **File Exceptions → Closing and funding holds**, managers can open the evidence for a loan with a scheduled closing or an upcoming closing or funding milestone. Staff can resolve the evidence from Closing. An admin can record an override with a reason for the current checks, and the loan audit preserves the policy version and evidence. A reopened mock UWM condition still needs clearance.
+
 On a locked loan, an admin can enter an internal reason to make one change. The loan audit records the actor, stage, policy version, and reason. The policy is checked again when the change is saved. Borrower submission and correction responses, staff review, and mock signing continue through their existing steps. A fee override still creates the disclosure review task when the saved fees affect a package.
 
 ## Rehearse a missing mock lender receipt

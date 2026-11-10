@@ -1,4 +1,6 @@
 import type { BrokerageRole, VersionedBrokerageMember } from "./brokerage-model";
+import { closingGateLabels, closingGateRules, type ClosingGateRule } from "./closing-gate-model";
+import { closingGateFileJoins, closingGateSources, closingGateTarget, currentClosingGatePolicy } from "./closing-gates";
 import { easternDate } from "./client-retention";
 import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
   type FileException, type FileExceptionPage } from "./file-exception-model";
@@ -118,6 +120,28 @@ export function readFileExceptions(db: Store, input: unknown, staff: WorkspaceSt
     "coalesce(review.dueOn, route.dueOn, substr(app.reviewedAt, 1, 10))", "loan.id", "coalesce(review.id, CAST(app.revision AS TEXT))");
   }
 
+  if (filter === "All file exceptions" || filter === "Closing and funding holds") {
+    const { rules } = currentClosingGatePolicy(db);
+    for (const rule of closingGateRules) {
+      const closing = rules.closing.includes(rule);
+      const funding = rules.funding.includes(rule);
+      if (!closing && !funding) continue;
+      const source = closingGateSources[rule];
+      const assignedProcessor = `(${source.processor}) AND processing.processorEmail IS NOT NULL`;
+      const phase = closing && funding ? "1" : `profile.closingDate IS ${closing ? "" : "NOT "}NULL`;
+      add("Closing and funding holds", `${loanColumns}, ${source.title} AS title,
+        CASE WHEN profile.closingDate IS NULL THEN 'Before closing' ELSE 'Before funding' END AS status,
+        ${source.due} AS dueOn, NULL AS reopenedAt, NULL AS nextParty,
+        CASE WHEN ${assignedProcessor} THEN processing.processorName ELSE loan.officer END AS ownerName,
+        CASE WHEN ${assignedProcessor} THEN processing.processorEmail ELSE loan.officerEmail END AS ownerEmail,
+        NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, NULL AS version, 0 AS changed, '${rule}' AS requestStatus
+        FROM loans loan ${loanJoins} ${closingGateFileJoins} ${source.joins}
+        WHERE ${activePipeline} AND progress.fundingDate IS NULL AND (${phase}) AND (${source.match})
+          AND (loan.stage = 'Clear to Close' OR plan.targetDate IS NOT NULL OR profile.closingDate IS NOT NULL)`,
+      `coalesce(${source.due}, substr(loan.stageSince, 1, 10))`, source.parent, source.id);
+    }
+  }
+
   if (!parts.length) return { rows: [], next: null, today, checkedAt };
   const all = db.prepare(`WITH page AS (${parts.join(" UNION ALL ")} ORDER BY sortOn, rank, parentId, id LIMIT ?)
     SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY sortOn, rank, parentId, id`)
@@ -142,9 +166,10 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const required = kind === "Required 1003 approvals";
     const internalReview = kind === "Internal reviews" || required;
     const manual = kind === "Manual lender returns" ? manualReturnSteps[status as ManualReturnStatus] : undefined;
-    const target = manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
+    const gate = kind === "Closing and funding holds" ? requestStatus as ClosingGateRule : undefined;
+    const target = gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
-    const action = manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
+    const action = gate ? closingGateLabels[gate] : manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
       internalReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign a second reviewer for the current 1003" :
         changed ? "Resubmit the review for the current 1003" : status === "Changes requested" ? "Respond to requested changes" :
         available ? "Record a review decision" : "Reassign the reviewer") :

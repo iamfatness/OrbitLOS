@@ -66,6 +66,7 @@ import { disclosureCalendarWork } from "./disclosure-calendar";
 import { disclosureTemplateWork } from "./disclosure-templates";
 import { borrowerQuestionSetWork } from "./borrower-question-sets";
 import { loanStageEditWork } from "./loan-stage-edits";
+import { closingGateWork } from "./closing-gates";
 import { changeConversation, readConversations } from "./conversations";
 import { changeInboundReply, readInboundReplies } from "./inbound-replies";
 import { workOnAppointment } from "./appointments";
@@ -413,6 +414,10 @@ export async function workOnBorrowerQuestionSets(input: unknown, staff: Workspac
 
 export async function workOnLoanStageEdits(input: unknown, staff: WorkspaceStaff | null) {
   return loanStageEditWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+}
+
+export async function workOnClosingGates(input: unknown, staff: WorkspaceStaff | null) {
+  return closingGateWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {

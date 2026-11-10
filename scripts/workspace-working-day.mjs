@@ -2493,6 +2493,43 @@ try {
     assert.ok((await reportWork(processor, download)).error);
     assert.equal((await reportWork(officer, download)).count, 1);
   });
+  await stage("Brokerage policy sends closing and funding holds to their exact evidence", async () => {
+    const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional gated closing",
+      borrowerEmail: "working-day-closing-gates@example.test", partnerId: null, officer: officer.name,
+      address: "", amount: 360000, purpose: "Purchase", stage: "Lead" });
+    const loanId = created.loanWork.loanId;
+    const policy = (staff, input) => action(staff, "accessClosingGates", input);
+    const read = { type: "loan", loanId };
+    const items = async () => (await action(owner, "readManagerFileExceptions", { filter: "Closing and funding holds" })).items.filter((item) => item.loanId === loanId);
+    await loanAction(officer, loanId, "saveClosingTarget", { targetDate: today, previous: null });
+    const checklist = { itemId: randomUUID(), revision: 0, title: "Fictional funding evidence", owner: "Loan officer", dueDate: today };
+    await loanAction(officer, loanId, "saveClosingItem", checklist);
+    const publish = { type: "publish", revision: 0, rules: { closing: ["checklist"], funding: ["1003"] },
+      reason: "Rehearse distinct closing and funding evidence." };
+    assert.ok((await policy(officer, publish)).error);
+    assert.ok((await action(owner, "accessClosingGates", publish, undefined, randomUUID())).error);
+    assert.equal((await policy(owner, publish)).revision, 1);
+    assert.ok((await policy(competingOfficer, read)).error);
+    const close = { type: "recordClosing", loanId, revision: 0, closingDate: today };
+    assert.match((await action(officer, "mutate", close)).error, /before recording closing/);
+    assert.deepEqual((await items()).map(({ status, target, dueOn }) => [status, target, dueOn]),
+      [["Before closing", `closing-checklist-${checklist.itemId}`, today]]);
+    await loanAction(officer, loanId, "completeClosingItem", { itemId: checklist.itemId, revision: 1, completed: true });
+    await write(officer, close);
+    assert.deepEqual((await items()).map(({ status, target }) => [status, target]), [["Before funding", "loan-application"]]);
+    const reason = "Approved the sample funding override for this test.";
+    const { funding } = await policy(owner, read);
+    const fund = { type: "recordFunding", loanId, revision: 0, fundingDate: today, gateOverride: { key: funding.key, reason } };
+    assert.match((await action(officer, "mutate", fund)).error, /Only a brokerage admin/);
+    await write(owner, fund);
+    await write(owner, fund);
+    assert.deepEqual(await items(), []);
+    const audit = (await action(owner, "mutate", { type: "loadLoanAudit", loanId })).loanAudit;
+    const overrides = audit.filter(({ action }) => action === "Overrode required funding checks");
+    assert.equal(overrides.length, 1);
+    assert.ok(overrides[0].changes.some(({ field, after }) => field === "Reason" && after === reason));
+    assert.equal((await policy(owner, { ...publish, revision: 1, rules: { closing: [], funding: [] } })).revision, 2);
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

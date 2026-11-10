@@ -113,6 +113,8 @@ import { changeBorrowerQuestion } from "./borrower-questions";
 import { changeJointApplicationLink, jointApplication, reopenJointBorrower } from "./joint-application";
 import { jointLinkCommand } from "./joint-application-model";
 import { closingReviewReady, mockClearanceClosingStages, reopenedMockClosingMessage } from "./loan-workflow";
+import { closingGateOverride } from "./closing-gate-model";
+import { checkClosingGate, fundingStageGate } from "./closing-gates";
 import { routeSecondApplicationReview } from "./loan-reviews";
 
 const label = z.string().trim().min(1, "Fill in the required fields.").max(160);
@@ -188,8 +190,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("saveClosingItem"), loanId: id, itemId: id, revision: z.number().int().nonnegative(),
     title: z.string().trim().min(1).max(120), owner: z.string().trim().min(1).max(120), dueDate: z.iso.date() }),
   z.object({ type: z.literal("completeClosingItem"), loanId: id, itemId: id, revision: z.number().int().positive(), completed: z.boolean() }),
-  z.object({ type: z.literal("recordClosing"), loanId: id, revision: z.number().int().nonnegative(), closingDate: z.iso.date() }),
-  z.object({ type: z.literal("recordFunding"), loanId: id, revision: z.number().int().nonnegative(), fundingDate: z.iso.date(), simulateFollowUpFailure: z.boolean().optional() }),
+  z.object({ type: z.literal("recordClosing"), loanId: id, revision: z.number().int().nonnegative(), closingDate: z.iso.date(), gateOverride: closingGateOverride.optional() }),
+  z.object({ type: z.literal("recordFunding"), loanId: id, revision: z.number().int().nonnegative(), fundingDate: z.iso.date(),
+    simulateFollowUpFailure: z.boolean().optional(), gateOverride: closingGateOverride.optional() }),
   z.object({ type: z.literal("recordFundingCheckIn"), loanId: id, eventId: z.uuid(), fundingRevision: z.number().int().nonnegative(),
     kind: z.enum(["Call", "Email", "Text"]), outcome: z.enum(contactOutcomes), note: z.string().trim().max(500),
     followUp: z.iso.date().nullable(), purpose: z.enum(followUpPurposes).default("Loan service"),
@@ -981,6 +984,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           if (profile?.closingDate !== data.closingDate) {
             if (Number(profile?.revision ?? 0) !== data.revision) throw new WorkspaceError("The closing date changed. Refresh the loan before recording it.");
+            if (!profile?.closingDate) {
+              const blocked = checkClosingGate(db, data.loanId, "closing", staff, data.gateOverride, now);
+              if (blocked) throw new WorkspaceError(blocked);
+            }
             clearPendingAnniversaries(db, data.loanId);
             db.prepare(`INSERT INTO past_client_profiles (loanId, closingDate, revision) VALUES (?, ?, 1)
               ON CONFLICT(loanId) DO UPDATE SET closingDate = excluded.closingDate, revision = revision + 1`).run(data.loanId, data.closingDate);
@@ -1007,6 +1014,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const revision = Number(previous?.revision ?? 0);
           if (dateChanged) {
             if (revision !== data.revision) throw new WorkspaceError("Funding status changed. Refresh the loan first.");
+            if (!previous?.fundingDate) {
+              const blocked = checkClosingGate(db, data.loanId, "funding", staff, data.gateOverride, now);
+              if (blocked) throw new WorkspaceError(blocked);
+            }
             const entersFunded = loan.stage !== "Funded" && loan.stage !== "Closed";
             db.prepare(`INSERT INTO closing_progress (loanId, fundingDate, preFundingStage, preFundingStageSince, revision)
               VALUES (?, ?, ?, ?, 1) ON CONFLICT(loanId) DO UPDATE SET fundingDate = excluded.fundingDate, revision = revision + 1,
@@ -2025,6 +2036,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const current = data.id ? db.prepare("SELECT contactId, stage, stageSince, officer, officerEmail, disposition FROM loans WHERE id = ?").get(data.id) : undefined;
           if (data.id && !current) throw new WorkspaceError("This loan no longer exists.");
           if (current && current.stage !== data.stage && current.disposition !== "Active") throw new WorkspaceError("Reopen the loan before changing its stage.");
+          if (current?.stage !== data.stage && (data.stage === "Funded" || data.stage === "Closed")) {
+            const blocked = fundingStageGate(db, data.id);
+            if (blocked) throw new WorkspaceError(blocked);
+          }
           if (data.id && data.start1003) throw new WorkspaceError("Start the 1003 from the loan’s application panel.");
           if (data.id && current?.contactId !== data.contactId && getApplication(db, data.id)) {
             throw new WorkspaceError("This loan’s 1003 link belongs to its current borrower. Create a separate loan for another borrower.");
@@ -2109,6 +2124,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           if (loan.stage !== stage) {
             if (loan.disposition !== "Active") throw new WorkspaceError("Reopen the loan before changing its stage.");
+            if (stage === "Funded" || stage === "Closed") {
+              const blocked = fundingStageGate(db, loanId);
+              if (blocked) throw new WorkspaceError(blocked);
+            }
             db.prepare("UPDATE loans SET stage = ?, stageSince = ? WHERE id = ?").run(stage, now, loanId);
             createMilestoneDrafts(db, loanId, stage, now);
             addApplicationActivity(db, loanId, `Moved from ${loan.stage} to ${stage}.`, now);

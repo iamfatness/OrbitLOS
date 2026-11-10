@@ -11,7 +11,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 
-const { initializeStore, insertContact, insertLoan, workspace } = await import("../src/lib/store.ts");
+const { initializeStore, insertContact, insertLoan, insertSubmission, workspace } = await import("../src/lib/store.ts");
 const { borrowerCommandResult, startApplication } = await import("../src/lib/applications.ts");
 const { sampleApplication } = await import("../src/lib/application-model.ts");
 const { realtorReferrals } = await import("../src/lib/realtor-portal.ts");
@@ -29,6 +29,7 @@ const { readPlaybook } = await import("../src/lib/playbooks.ts");
 const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
 const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { loanStageEditWork } = await import("../src/lib/loan-stage-edits.ts");
+const { closingGateWork } = await import("../src/lib/closing-gates.ts");
 const { disclosureTemplatesForLoan, disclosureTemplateWork } = await import("../src/lib/disclosure-templates.ts");
 const { blankLenderDetails } = await import("../src/lib/urla.ts");
 const at = "2026-11-08T15:00:00.000Z";
@@ -61,6 +62,79 @@ function fixture(t) {
     reviewerEmail: processor.email, dueOn: today, note: "Fictional internal instructions", ...fields });
   return { db, id, admin, officer, outsider, processor, nextProcessor, roster, work, create };
 }
+
+test("closing and funding policies link to current evidence and audit only a successful admin override", async (t) => {
+  const { db, id, admin, officer, outsider, processor, roster } = fixture(t);
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(at) });
+  const loanId = "loan";
+  const read = { type: "loan", loanId };
+  const work = (input, actor = admin, tenant = id) => closingGateWork(db, input, actor, tenant, at);
+  const change = (type, fields = {}, actor = officer) => executeCommand(db, { type, loanId, ...fields }, actor, undefined, roster);
+  const ok = async (type, fields, actor) => {
+    const result = await change(type, fields, actor);
+    assert.ok(!result.error, result.error);
+    return result.state;
+  };
+  const exceptions = (filter = "Closing and funding holds") =>
+    nameFileExceptions(readFileExceptions(db, { filter }, admin, id, new Date(at)), roster).items;
+  const closing = { revision: 0, closingDate: today };
+  const funding = { revision: 0, fundingDate: today };
+  const publish = { type: "publish", revision: 0, rules: { closing: ["1003", "checklist"], funding: ["conditions"] },
+    reason: "Check current evidence before recording milestones." };
+  assert.deepEqual(work(read, officer).closing.blockers, []);
+  assert.ok(work(publish, officer).error);
+  assert.ok(work(publish, admin, crypto.randomUUID()).error);
+  assert.equal(work(publish).revision, 1);
+  assert.equal(work(publish).revision, 1);
+  assert.match(work({ ...publish, rules: { closing: [], funding: [] } }).error, /changed/);
+  assert.ok(work(read, outsider).error);
+  assert.equal(work(read, processor).canOverride, false);
+  assert.ok(readFileExceptions(db, { filter: "Closing and funding holds" }, officer, id).error);
+
+  await ok("saveClosingTarget", { previous: null, targetDate: today });
+  const checklist = { itemId: crypto.randomUUID(), revision: 0, title: "Review fictional escrow statement", owner: "Processor", dueDate: today };
+  await ok("saveClosingItem", checklist);
+  assert.deepEqual(exceptions().map(({ target, owner, dueOn }) => [target, owner, dueOn]).sort(), [
+    [`closing-checklist-${checklist.itemId}`, processor.name, today], ["loan-application", officer.name, today],
+  ].sort());
+  assert.equal(exceptions("All file exceptions").filter(({ kind }) => kind === "Closing and funding holds").length, 2);
+  assert.match((await change("recordClosing", closing)).error, /before recording closing/);
+  assert.match((await change("move", { id: loanId, stage: "Funded" })).error, /record the funding date/i);
+  const reason = "Reviewed the outstanding fictional evidence.";
+  const closingOverride = { reason, key: work(read).closing.key };
+  assert.match((await change("recordClosing", { ...closing, gateOverride: closingOverride })).error, /Only a brokerage admin/);
+  const { token } = (await ok("startApplication")).applications[0];
+  const borrower = (input) => borrowerCommandResult(db, { token, ...input });
+  const initial = borrower({ type: "read" }).application;
+  const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+  const submitted = borrower({ type: "submit", revision: initial.revision, step: 9, draft }).application;
+  await ok("reviewApplication", { revision: submitted.revision });
+  assert.deepEqual(exceptions().map(({ target }) => target), [`closing-checklist-${checklist.itemId}`]);
+  assert.match((await change("recordClosing", { ...closing, gateOverride: closingOverride }, admin)).error, /checks changed/);
+  await ok("completeClosingItem", { itemId: checklist.itemId, revision: 1, completed: true }, processor);
+  await ok("recordClosing", closing);
+
+  const condition = { id: "title", category: "Title", group: null, description: "Fictional pending title review", uploaded: false, satisfiedAt: null };
+  insertSubmission(db, { id: "mock-lender-file", loanId, lender: "UWM", externalId: "DEMO-title", status: "Open", conditions: [condition], syncedAt: at });
+  assert.deepEqual(exceptions().map(({ status, target }) => [status, target]), [["Before funding", "lender-condition-mock-lender-file:title"]]);
+  assert.match((await change("recordFunding", funding)).error, /before recording funding/);
+  const openCondition = (changes) => db.prepare("UPDATE submissions SET conditions = ? WHERE id = 'mock-lender-file'").run(JSON.stringify([{ ...condition, ...changes }]));
+  openCondition({ mockReopenedAt: at });
+  const overrideFunding = () => ({ ...funding, gateOverride: { reason, key: work(read).funding.key } });
+  assert.match((await change("recordFunding", overrideFunding(), admin)).error, /reopened/i);
+  const staleFunding = overrideFunding();
+  openCondition({ description: "Fictional title evidence changed" });
+  assert.match((await change("recordFunding", staleFunding, admin)).error, /checks changed/);
+  const fundingOverride = overrideFunding();
+  await ok("recordFunding", fundingOverride, admin);
+  await ok("recordFunding", fundingOverride, admin);
+  assert.deepEqual(exceptions(), []);
+  const audits = db.prepare("SELECT actor, action, changes FROM loan_audit WHERE action LIKE 'Overrode required %'").all();
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].actor, admin.email);
+  assert.equal(audits[0].action, "Overrode required funding checks");
+  assert.ok(JSON.parse(audits[0].changes).some(({ field, after }) => field === "Reason" && after === reason));
+});
 
 test("stage policy locks staff edits, audits only successful overrides, and keeps mock borrower work open", async (t) => {
   const { db, id, admin, officer, outsider, processor, roster } = fixture(t);

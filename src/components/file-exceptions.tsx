@@ -18,6 +18,7 @@ function fileExceptionAction(item: FileException) {
     case "Internal reviews": return "Open internal review";
     case "Required 1003 approvals": return item.status === "Reviewer needed" ? "Assign second reviewer" : "Open second review";
     case "Manual lender returns": return item.action;
+    case "Closing and funding holds": return "Open required evidence";
     default: return "Open lender condition";
   }
 }
@@ -52,7 +53,7 @@ export function FileExceptions({ brokerageId, version, busy, open, assign }: {
   return <section className="record-form" aria-label="File exceptions">
     <div className="section-heading"><h3>File exceptions</h3>
       <Button size="sm" variant="outline" onClick={() => setQuery({ ...query, after: undefined })}><RefreshCw /> Refresh file exceptions</Button></div>
-    <p className="muted">Work outstanding evidence, required 1003 approvals, internal reviews, and lender returns or reopened conditions.</p>
+    <p className="muted">Work outstanding evidence, required 1003 approvals, internal reviews, lender returns, and closing or funding holds.</p>
     <label className="field playbook-filter">File exception type<select value={query.filter} onChange={(event) => setQuery({ filter: event.target.value as FileExceptionQuery["filter"] })}>
       {fileExceptionFilters.map((filter) => <option key={filter}>{filter}</option>)}
     </select></label>
