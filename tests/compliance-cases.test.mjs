@@ -95,6 +95,68 @@ test("existing files and new fictional cases have separate scope, history and un
   assert.ok(open(addLoan({ nonAgency: { program: "DSCR" } })).error);
 });
 
+test("owner inventory backfills bounded batches, resumes after initialization and pages exact categories", (t) => {
+  const { addLoan, work, db, officer, processor, admin, brokerageId } = fixture(t);
+  const get = (bucket, after) => work({ type: "inventory", bucket, after });
+  const scan = (revision) => work({ type: "advanceInventory", revision });
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'compliance_inventory'").get(), undefined);
+  assert.deepEqual(work({ type: "inventory" }, officer), unavailable);
+  assert.deepEqual(work({ type: "advanceInventory", revision: 0 }, processor), unavailable);
+  assert.deepEqual(work({ type: "inventory" }, admin, undefined, `${brokerageId}-other`), unavailable);
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'compliance_inventory'").get(), undefined);
+  assert.equal(get().state, "Not started");
+  assert.equal(get().scanned, null);
+  const sampleReviewNeeded = Array.from({ length: 27 }, () => addLoan());
+  addLoan({ state: "" });
+  addLoan({ state: "OH" });
+  addLoan({ mode: "stage" });
+  const reviewed = addLoan();
+  db.prepare("INSERT INTO closing_disclosure_reviews VALUES (?, 1, 1, ?, ?)").run(reviewed, at, admin.email);
+  const initial = scan(0);
+  assert.equal(initial.state, "Scanning");
+  assert.equal(initial.scanned, 25);
+  assert.equal(scan(0).scanned, 25);
+  initializeStore(db, false);
+  const complete = scan(initial.revision);
+  assert.equal(complete.state, "Complete");
+  assert.equal(complete.scanned, 31);
+  assert.deepEqual(complete.counts.map(({ count }) => count), [1, 1, 1, 27, 1]);
+  assert.equal(complete.asOf, at);
+  const first = get("Sample review needed");
+  const second = get("Sample review needed", first.next);
+  assert.equal(first.files.length, 25);
+  assert.equal(second.next, null);
+  assert.deepEqual([...first.files, ...second.files].map(({ loanId }) => loanId), sampleReviewNeeded.sort());
+  assert.equal(get("Sample review available").files[0].loanId, reviewed);
+  assert.equal(scan(complete.revision).revision, complete.revision);
+  assert.deepEqual(work({ type: "list" }).counts, { cases: 0, files: 0 });
+  assert.equal(work({ type: "list" }).coverage.state, "Not evaluated");
+});
+
+test("source changes invalidate inventory during and after scanning, including files before the cursor", (t) => {
+  const { addLoan, addPackage, work, db } = fixture(t);
+  const loans = Array.from({ length: 26 }, () => addLoan()).sort();
+  const scan = (revision) => work({ type: "advanceInventory", revision });
+  const get = () => work({ type: "inventory" });
+  const first = scan(0);
+  db.prepare("UPDATE applications SET draft = json_set(draft, '$.unrelated', 'new') WHERE loanId = ?").run(loans[0]);
+  assert.equal(get().revision, first.revision);
+  db.prepare("UPDATE applications SET draft = json_set(draft, '$.propertyLocation.state', 'OH') WHERE loanId = ?").run(loans[0]);
+  const stale = scan(first.revision);
+  assert.equal(stale.state, "Stale");
+  assert.equal(stale.scanned, null);
+  assert.ok(stale.counts.every(({ count }) => count === 0));
+  const rebuilt = scan(stale.revision);
+  const completed = scan(rebuilt.revision);
+  assert.equal(completed.scanned, 26);
+  assert.deepEqual(completed.counts.map(({ count }) => count), [0, 1, 0, 25, 0]);
+  addPackage(loans[1], 2);
+  assert.equal(get().state, "Stale");
+  assert.match(work({ type: "inventory", bucket: "Sample review needed", after: {
+    revision: completed.revision, bucket: "Sample review needed", loanId: loans[0],
+  } }).error, /inventory changed/);
+});
+
 test("tenant, current roster, file assignment and confidentiality restrict detail and counts", (t) => {
   const { addLoan, open, work, read, edit, staff, roster, db, admin, officer, processor, unrelated, brokerageId } = fixture(t);
   const loanId = addLoan();

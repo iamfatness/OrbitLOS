@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+import { cloudflareClientAssets } from "./cloudflare-client-assets.mjs";
 
 const version = process.argv[2];
 const live = version === "--live";
@@ -9,14 +11,11 @@ if (!live && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(version ?? "
 }
 const headers = live ? undefined : { "Cloudflare-Workers-Version-Overrides": `orbit-crm-demo="${version}"` };
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const groups = [{ directory: "chunks", extension: ".js", type: "javascript" }, { directory: "css", extension: ".css", type: "text/css" }];
 const client = new URL("../dist/client/", import.meta.url);
-const assets = (await Promise.all(groups.map(async ({ directory, extension, type }) => {
-  const path = `_next/static/${directory}/`;
-  const names = (await readdir(new URL(path, client))).filter((name) => name.endsWith(extension));
-  if (!names.length) throw new Error(`No built assets found in ${path}. Run the production build first.`);
-  return Promise.all(names.map(async (name) => ({ path: path + name, type, hash: digest(await readFile(new URL(path + name, client))) })));
-}))).flat();
+const paths = await cloudflareClientAssets(fileURLToPath(client));
+const assets = await Promise.all(paths.map(async (path) => ({
+  path, type: path.endsWith(".js") ? "javascript" : "text/css", hash: digest(await readFile(new URL(path, client))),
+})));
 
 async function check(asset) {
   try {
@@ -32,7 +31,10 @@ async function check(asset) {
 let clean = 0;
 const attempts = live ? 3 : 15;
 for (let attempt = 1; attempt <= attempts; attempt++) {
-  const failures = (await Promise.all(assets.map(check))).filter(Boolean);
+  const failures = [];
+  for (let start = 0; start < assets.length; start += 12) {
+    failures.push(...(await Promise.all(assets.slice(start, start + 12).map(check))).filter(Boolean));
+  }
   clean = failures.length ? 0 : clean + 1;
   console.log(`${live ? "Live" : "Staged"} asset check ${attempt} · ${assets.length - failures.length}/${assets.length} matched · ${clean}/2 clean passes`);
   for (const failure of failures) console.log(failure);
