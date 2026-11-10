@@ -42,7 +42,7 @@ The November 9, 2026 timed browser run used a fresh fictional campaign pilot on 
 | Post-funding callback saved and the distinct refinance opened | 2:50 |
 | Rate-watch refinance opened with its own confirmed address | 3:32 |
 
-The browser download event for **Download rehearsal CSV** timed out. The prepared fictional CSV uploaded successfully. Keep that CSV ready before opening the guide. No browser runtime errors were reported in the staff tab.
+**Download rehearsal CSV** saved a file in Downloads even though the browser automation event timed out. The downloaded and prepared files contained the same two rows. The timed upload used the prepared copy. No browser runtime errors were reported in the staff tab.
 
 ## Live interaction baseline
 
