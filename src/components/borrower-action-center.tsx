@@ -11,7 +11,7 @@ export function BorrowerActionCenter({ actions, correction, processing = 0 }: {
   const today = easternDate();
   return <section className="application-panel application-receipt borrower-action-center" aria-labelledby="borrower-actions-heading">
     <div className="document-item-head">
-      <h2 id="borrower-actions-heading"><ListChecks size={19} aria-hidden="true" /> Your next actions</h2>
+      <h2 id="borrower-actions-heading" tabIndex={-1}><ListChecks size={19} aria-hidden="true" /> Your next actions</h2>
       <span className="pill" role="status">{actions.length} to do</span>
     </div>
     {correction && <div className="borrower-next">

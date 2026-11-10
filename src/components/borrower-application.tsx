@@ -158,6 +158,8 @@ function BorrowerApplication({ token }: { token: string | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const errorSummary = useRef<HTMLDivElement>(null);
+  const [lastAction, setLastAction] = useState<HTMLElement | null>(null);
   const pending = useRef<AbortController | null>(null);
   const statusRead = useRef<AbortController | null>(null);
   const queuedStatusRead = useRef<(() => void) | null>(null);
@@ -165,6 +167,10 @@ function BorrowerApplication({ token }: { token: string | null }) {
   const submitted = !!view && "kind" in view;
   const jointWaiting = submitted && view.kind === "joint-waiting";
   const mockHandoff = view?.documentUploadsMode === "mock";
+
+  useEffect(() => {
+    if (error) errorSummary.current?.focus();
+  }, [error]);
 
   useEffect(() => {
     if (token === null) return;
@@ -221,6 +227,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
 
   async function perform(input: BorrowerAction, onSuccess: (next: ApplicationView) => void) {
     if (!token || pending.current) return;
+    setLastAction(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     statusRead.current?.abort();
     const controller = new AbortController();
     pending.current = controller;
@@ -267,9 +274,14 @@ function BorrowerApplication({ token }: { token: string | null }) {
     });
   }
 
+  function completeAction(message: string) {
+    setNotice(message);
+    requestAnimationFrame(() => document.getElementById("borrower-actions-heading")?.focus());
+  }
+
   function attach(request: DocumentRequest) {
     void perform({ type: "attachSample", requestId: request.id, revision: request.revision, statusOnly: true }, () => {
-      setNotice(`Sample attached for ${request.kind.toLowerCase()}.`);
+      completeAction(`Sample attached for ${request.kind.toLowerCase()}.`);
     });
   }
 
@@ -290,7 +302,9 @@ function BorrowerApplication({ token }: { token: string | null }) {
     if (!application) return;
     const missing = applicationIssues(application.draft, application.separateJoint);
     if (missing.length) {
+      setLastAction(document.activeElement instanceof HTMLElement ? document.activeElement : null);
       setError(`Complete these items before submitting: ${missing.join("; ")}.`);
+      requestAnimationFrame(() => errorSummary.current?.focus());
       return;
     }
     void save("submit", step);
@@ -305,7 +319,10 @@ function BorrowerApplication({ token }: { token: string | null }) {
     {!jointWaiting && <aside className="application-warning">{view?.submittedAt ? (view.documentUploadsMode === "mock" ? "Use sample files. Verification and scanning are simulated." : view.documentUploadsMode === "live" ? "Use fictional PDFs when testing uploads." : "Use the built-in sample documents.") : "Fictional information only. Use a test tax ID such as 000-00-1234. Leave real tax IDs, account numbers, and documents out of the demo."}</aside>}
     {application?.correctionNote && <BorrowerActionCenter actions={borrowerActions({ correction: application.correctionNote })}
       correction={application.correctionNote} />}
-    {error && <p className="application-message banner-error" role="alert">{error}</p>}
+    {error && <div ref={errorSummary} tabIndex={-1} className="application-message banner-error borrower-error-summary" role="alert">
+      <p>{error}</p>
+      {lastAction && <Button size="sm" variant="outline" onClick={() => lastAction.focus()}>Return to your last action</Button>}
+    </div>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status" className="application-message">Opening your application…</p>}
     {view && token && <PortalContactPreferences token={token} />}
@@ -315,8 +332,8 @@ function BorrowerApplication({ token }: { token: string | null }) {
       <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void perform({ type: "status" }, () => setNotice("Joint application progress refreshed."))}>Refresh joint status</Button></div>
     </section> : view?.submittedAt && "loanStatus" in view ? token && view.loanStatus && <BorrowerStatus token={token} status={view.loanStatus} submittedAt={view.submittedAt}
       busy={busy} attach={attach} uploadsMode={view.documentUploadsMode} refresh={() => void perform({ type: "status" }, () => setNotice("Loan status refreshed."))}
-      answerQuestion={(input) => void perform(input, () => setNotice("Your answer was sent to the loan team."))}
-      respondToDisclosure={(input) => void perform(input, () => setNotice("Your sample disclosure response was recorded."))} />
+      answerQuestion={(input) => void perform(input, () => completeAction("Your answer was sent to the loan team."))}
+      respondToDisclosure={(input) => void perform(input, () => completeAction("Your sample disclosure response was recorded."))} />
       : application && <section className="application-panel application-editor" aria-label="1003 application"
         id={borrowerCorrectionTarget} tabIndex={-1} data-borrower-action-target>
       <div className="application-steps">

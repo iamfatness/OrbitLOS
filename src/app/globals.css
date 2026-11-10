@@ -385,6 +385,34 @@ button:disabled { cursor: default; }
 .pilot-walkthrough { display: grid; gap: 5px; list-style: decimal; padding-inline-start: 22px; }
 .referral-portal { width: min(100% - 24px, 790px); margin: 24px auto; font-size: 16px; line-height: 1.5; }
 .referral-portal-help { margin-top: 12px; }
+.referral-intake { padding: 0 16px 16px; }
+.referral-intake:not([open]) { padding-bottom: 0; }
+.referral-intake > summary { padding-block: 16px; min-height: 52px; font-weight: 600; cursor: pointer; }
+.referral-intake .referral-intake-form { margin-top: 12px; }
+.referral-updates > .section-heading { padding: 16px; }
+.referral-updates h2 { font-size: 20px; }
+.referral-updates h2:focus, .borrower-error-summary:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
+.referral-date-label { display: none; }
+.borrower-error-summary { display: grid; gap: 8px; scroll-margin-top: 78px; }
+.borrower-error-summary > button { justify-self: start; }
+#borrower-actions-heading { scroll-margin-top: 78px; }
+#borrower-actions-heading:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
+.quote-terms dd small { display: block; margin-top: 2px; }
+.pricing-navigation { display: flex; gap: 8px; flex-wrap: wrap; }
+.pricing-navigation > button { min-height: 44px; }
+.pricing-panel :is(.pricing-form, .pricing-results, .quote-saved) { scroll-margin-top: 76px; }
+.pricing-panel :is(.pricing-form, .pricing-results, .quote-saved):focus { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .referral-table, .referral-table tbody, .referral-table tr, .referral-table td { display: block; min-width: 0; width: auto; }
+  .referral-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .referral-table tr { padding: 12px 16px; border-top: 1px solid var(--line); }
+  .referral-table td { padding: 3px 0; border: 0; white-space: normal; overflow-wrap: anywhere; }
+  .referral-table td:first-child { font-weight: 600; }
+  .referral-table td:last-child { color: var(--muted); font-size: 13px; }
+  .referral-date-label { display: inline; }
+  .referral-portal :is(button, input, select) { min-height: 44px; }
+  .referral-portal input[type="checkbox"] { min-height: auto; }
+}
 .referral-intake-form { display: grid; gap: 12px; }
 .record-form .field textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
 .record-dialog-wide { max-width: min(660px, 100vw); }

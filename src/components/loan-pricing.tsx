@@ -189,11 +189,14 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const amountInput = useRef<HTMLInputElement>(null);
   const savedQuoteSection = useRef<HTMLElement>(null);
   const lenderComparison = useRef<HTMLElement>(null);
-  const focusRun = useRef<string | undefined>(undefined);
+  const pricingForm = useRef<HTMLFormElement>(null);
+  const pricingResults = useRef<HTMLElement>(null);
+  const focusRun = useRef<{ id: string; manual: boolean } | undefined>(undefined);
   useEffect(() => {
-    if (current?.id && focusRun.current === current.id) {
+    if (current?.id && focusRun.current?.id === current.id) {
+      const destination = focusRun.current.manual ? lenderComparison.current : pricingResults.current;
       focusRun.current = undefined;
-      focusComparison(lenderComparison.current);
+      focusComparison(destination);
     }
   }, [current?.id]);
   const [alternativeKeys, setAlternativeKeys] = useState(() =>
@@ -258,7 +261,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         simulateUnsupportedEq: rehearse ? true : undefined, sampleOnly: sample ? true : undefined,
         manualLender: manual ? true : undefined }, ({ state: updated }) => {
         const result = updated.pricingRuns.find(({ loanId }) => loanId === loan.id);
-        if (result?.mode === "manual" || result?.outcome === "unsupported") focusRun.current = result.id;
+        if (result) focusRun.current = { id: result.id, manual: result.mode === "manual" || result.outcome === "unsupported" };
         setResultsRunId(undefined);
       });
     }
@@ -268,7 +271,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   function openManualOffers(run: PricingRun) {
     if (current?.id === run.id) focusComparison(lenderComparison.current);
     else {
-      focusRun.current = run.id;
+      focusRun.current = { id: run.id, manual: true };
       setResultsRunId(run.id);
     }
   }
@@ -308,6 +311,11 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <span className="pill">{canRehearseUnsupported && <FlaskConical size={13} />} {current?.mode === "stage" ? "UWM stage" :
         current?.mode === "manual" || !canRehearseUnsupported ? "Manual lender" : current ? "Sample pricing" : "Pricing"}</span>
     </header>
+    <nav className="pricing-navigation" aria-label="Pricing sections">
+      <Button size="sm" variant="outline" onClick={() => focusComparison(pricingForm.current)}>Scenario inputs</Button>
+      {saved && selected && <Button size="sm" variant="outline" onClick={() => focusComparison(savedQuoteSection.current)}>Saved quote</Button>}
+      {current && <Button size="sm" variant="outline" onClick={() => focusComparison(pricingResults.current)}>Pricing results</Button>}
+    </nav>
     <LoanStageEditNotice area="fees" control={feeEdits} busy={busy} />
     {published?.reviewReason && <section className="quote-saved" aria-label="Shared quote review">
       <div className="section-heading"><h3>Review shared sample quote</h3><span className="pill">Needs review</span></div>
@@ -343,7 +351,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
           </Button>}
       </> : <p className="quote-disclaimer">This pricing option is no longer in the current results. Run pricing again to continue.</p>}
     </section>}
-    <form className="pricing-form" onSubmit={(event) => void price(event)}>
+    <form className="pricing-form" ref={pricingForm} tabIndex={-1} aria-label="Pricing scenario inputs" onSubmit={(event) => void price(event)}>
       {quoteAmountIssue && <div className="document-item">
         <p>{quoteAmountIssue}</p>
         {canUse1003Amount &&
@@ -450,7 +458,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       {saved.incomeReviewRevision && <p className="muted">Income worksheet v{saved.incomeReviewRevision} · {cash(saved.scenario.monthlyIncome ?? null)} monthly</p>}
       {saved.incomeReviewRevision && openIncome && <div><Button size="sm" variant="outline" type="button" disabled={busy}
         onClick={() => openIncome(saved.incomeReviewRevision ?? undefined)}>View quote worksheet v{saved.incomeReviewRevision}</Button></div>}
-      {(saved.id !== current?.id || selected.manual) && handoffAction}
+      {handoffAction}
       {savedNeedsReprice ? <p className="quote-disclaimer">{savedManualExpired ? "This manual offer expired. Enter and choose a current offer before sharing or exporting." : application?.correctionNote
         ? "Wait for the borrower to submit the corrected 1003 before sharing or locking a quote."
         : saved.incomeReviewCurrent === false ? repriceIncomeMessage : "This quote needs to be repriced from the current 1003 before sharing or locking."}</p>
@@ -544,7 +552,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         })}</tbody>
       </table></div>
     </details>}
-    {current && <section className="pricing-results" aria-label="Pricing results">
+    {current && <section className="pricing-results" ref={pricingResults} tabIndex={-1} aria-label="Pricing results">
       <div className="section-heading"><h3>{current.mode === "manual" ? "Lender offers" : "Pricing options"}</h3><span className="pill">
         {current.mode === "manual" ? `${current.offers.length} entered` : current.outcome === "unsupported" ? "EQ unsupported" :
           `${current.offers.filter(({ manual }) => !manual).length} returned`}</span></div>
@@ -559,10 +567,10 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         const isSaved = saved?.id === current.id && saved.selectedId === offer.id;
         return <article className="pricing-option" key={offer.id}>
           <div className="section-heading"><h3>{offer.product}</h3><Button size="sm" variant="outline" disabled={busy || isSaved || !isCurrent(current) || feeEdits.blocked}
-            onClick={() => void feeEdits.save({ type: "selectOffer", loanId: loan.id, runId: current.id, offerId: offer.id })}>{isSaved ? "Saved" : "Save quote"}</Button></div>
+            onClick={() => void feeEdits.save({ type: "selectOffer", loanId: loan.id, runId: current.id, offerId: offer.id },
+              () => requestAnimationFrame(() => focusComparison(savedQuoteSection.current)))}>{isSaved ? "Saved" : "Save quote"}</Button></div>
           <Terms offer={offer} />
           <SampleMetrics scenario={current.scenario} offer={offer} />
-          {isSaved && handoffAction}
         </article>;
       })}
       {current.outcome !== "unsupported" && current.notices.length > 0 && <details className="pricing-disclosures"><summary>Pricing disclosures</summary>
