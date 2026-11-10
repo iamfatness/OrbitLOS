@@ -6,13 +6,14 @@ import { complianceCaseKinds, complianceCaseStatuses, complianceCaseTarget, comp
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { ComplianceInventory } from "./compliance-inventory";
 
 type Queue = Extract<ComplianceCaseResult, { kind: "list" }>;
 type Query = { type: "list"; loanId?: string; kind?: Queue["items"][number]["kind"]; status?: Queue["items"][number]["status"]; after?: NonNullable<Queue["next"]> };
 
 export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, openLoan, openDisclosures }: {
   brokerageId: string; admin: boolean; loanId?: string; initialCaseId?: string;
-  openLoan?: (loanId: string, caseId: string) => void; openDisclosures?: () => void;
+  openLoan?: (loanId: string, caseId?: string) => void; openDisclosures?: () => void;
 }) {
   const id = useId();
   const [query, setQuery] = useState<Query>({ type: "list", loanId });
@@ -81,7 +82,8 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
     <div className="section-heading"><Heading id={`${id}-heading`} ref={heading} tabIndex={-1}>{title}</Heading>
       {caseId ? <Button size="sm" variant="outline" disabled={pending} onClick={() => open()}>Back to cases</Button> :
         <Button size="sm" variant="outline" disabled={pending} onClick={() => { setQuery({ ...query, after: undefined }); setMessage(undefined); }}>Refresh cases</Button>}</div>
-    <div className="document-item compliance-coverage"><strong>Coverage not evaluated</strong><p>Fictional cases only. The eligible file population is unknown.</p></div>
+    <div className="document-item compliance-coverage"><strong>Coverage not evaluated</strong><p>Fictional cases and sample evidence only.</p></div>
+    {admin && !loanId && !caseId && openLoan && <ComplianceInventory key={brokerageId} brokerageId={brokerageId} openLoan={openLoan} />}
     {!data && <p role="status" className="muted">Loading compliance work…</p>}
     {data && "error" in data && <div className="loan-application-actions"><p role="alert">{data.error}</p>
       <Button size="sm" variant="outline" onClick={() => { setQuery({ ...query, after: undefined }); refresh((value) => value + 1); }}>Reload</Button></div>}

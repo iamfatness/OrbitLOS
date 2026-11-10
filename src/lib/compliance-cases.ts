@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import { complianceCaseKinds as kinds, complianceCaseStatuses as statuses, complianceWorkUnavailable } from "./compliance-case-model";
+import { advanceInventory, currentPackage, inventoryAdvance, inventoryRead, readInventory, samplePackage, sampleWorkbenchReview } from "./compliance-inventory";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { loanAccess } from "./workspace-access";
@@ -16,6 +17,8 @@ const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("assign"), ...change, ownerEmail: z.email() }),
   z.strictObject({ type: z.literal("updateStatus"), ...change, status: z.enum(statuses) }),
   z.strictObject({ type: z.literal("recordSampleReview"), ...change, packageRevision: revision }),
+  inventoryRead,
+  inventoryAdvance,
 ]);
 
 type ComplianceRequest = z.infer<typeof request>;
@@ -58,24 +61,6 @@ function projection(db: Store, staff: WorkspaceStaff, roster: readonly Member[],
 function findCase(db: Store, brokerageId: string, caseId: string) {
   return db.prepare(`SELECT ${columns} FROM compliance_cases WHERE brokerageId = ? AND id = ? AND confidentiality = 'General'`)
     .get(brokerageId, caseId) as Case | undefined;
-}
-
-function currentPackage(db: Store, loanId: string) {
-  return db.prepare(`SELECT version, revision, supersededAt, runId, reviewReason FROM disclosure_packages WHERE loanId = ? ORDER BY version DESC LIMIT 1`).get(loanId);
-}
-
-function samplePackage(db: Store, loanId: string) {
-  const loan = db.prepare(`SELECT loan.officerEmail FROM loans loan JOIN applications app ON app.loanId = loan.id
-    WHERE loan.id = ? AND loan.purpose = 'Purchase' AND json_extract(app.draft, '$.propertyLocation.state') = 'MI'`).get(loanId);
-  const packageRow = currentPackage(db, loanId);
-  if (!loan || !packageRow || packageRow.supersededAt || packageRow.reviewReason || !db.prepare(`SELECT 1 FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'
-      AND json_extract(scenario, '$.purpose') = 'Purchase' AND json_type(scenario, '$.nonAgency') IS NULL`).get(packageRow.runId, loanId)) return null;
-  return { version: Number(packageRow.version), revision: Number(packageRow.revision), officerEmail: loan.officerEmail };
-}
-
-function sampleWorkbenchReview(db: Store, loanId: string, version: number, revision: SqlValue) {
-  return db.prepare(`SELECT reviewedAt, actor FROM closing_disclosure_reviews WHERE loanId = ? AND version = ? AND revision = ?`)
-    .get(loanId, version, revision);
 }
 
 function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], item: Case) {
@@ -173,6 +158,10 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   if (!parsed.success) return unavailable;
   const data = parsed.data;
   return db.transaction(() => {
+    if (data.type === "inventory" || data.type === "advanceInventory") {
+      if (staff.brokerage.role !== "Admin") return unavailable;
+      return data.type === "inventory" ? readInventory(db, brokerageId, data) : advanceInventory(db, brokerageId, data.revision, now);
+    }
     if (data.type === "list") return list(db, staff, roster, data);
     if (data.type === "openFixture") return openFixture(db, staff, roster, data, now);
     const item = findCase(db, brokerageId, data.caseId);

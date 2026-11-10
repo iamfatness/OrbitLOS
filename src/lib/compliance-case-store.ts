@@ -24,4 +24,36 @@ export function initializeComplianceCases(db: Store) {
       FOREIGN KEY (brokerageId, caseId) REFERENCES compliance_cases(brokerageId, id)
     );
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS compliance_inventory (
+      brokerageId TEXT PRIMARY KEY, generation TEXT NOT NULL, revision INTEGER NOT NULL,
+      lastLoanId TEXT NOT NULL, scanned INTEGER NOT NULL, counts TEXT NOT NULL, complete INTEGER NOT NULL,
+      stale INTEGER NOT NULL DEFAULT 0, asOf TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS compliance_inventory_files (
+      brokerageId TEXT NOT NULL, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      generation TEXT NOT NULL, bucket TEXT NOT NULL, PRIMARY KEY (brokerageId, loanId)
+    );
+    CREATE INDEX IF NOT EXISTS compliance_inventory_by_bucket ON compliance_inventory_files(brokerageId, generation, bucket, loanId);
+    CREATE INDEX IF NOT EXISTS disclosure_packages_by_pricing_run ON disclosure_packages(runId);
+  `);
+  // A current scan is invalidated in the same transaction as a relevant source edit.
+  const inputs = {
+    loans: ["INSERT", "DELETE", "UPDATE OF purpose"],
+    applications: ["INSERT", "DELETE", "UPDATE OF draft"],
+    disclosure_packages: ["INSERT", "DELETE", "UPDATE OF revision, supersededAt, reviewReason, runId"],
+    closing_disclosure_reviews: ["INSERT", "DELETE", "UPDATE"],
+    pricing_runs: ["INSERT", "DELETE", "UPDATE OF mode, scenario"],
+  };
+  for (const [table, events] of Object.entries(inputs)) {
+    for (const event of events) {
+      const operation = event.split(" ")[0].toLowerCase();
+      const state = (row: "OLD" | "NEW") => `(CASE WHEN json_valid(${row}.draft) THEN json_extract(${row}.draft, '$.propertyLocation.state') END)`;
+      const relevant = table === "applications" && operation === "update" ? ` WHEN ${state("OLD")} IS NOT ${state("NEW")}` :
+        table === "loans" && operation === "update" ? " WHEN OLD.purpose IS NOT NEW.purpose" :
+          table === "pricing_runs" ? ` WHEN EXISTS (SELECT 1 FROM disclosure_packages WHERE runId = ${operation === "delete" ? "OLD" : "NEW"}.id)` : "";
+      db.exec(`CREATE TRIGGER IF NOT EXISTS compliance_inventory_${table}_${operation} AFTER ${event} ON ${table}${relevant}
+        BEGIN UPDATE compliance_inventory SET stale = 1, revision = revision + 1 WHERE stale = 0; END;`);
+    }
+  }
 }

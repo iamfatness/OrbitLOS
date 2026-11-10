@@ -39,7 +39,7 @@ import { OfficerToday } from "./officer-today";
 import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
 import { DisclosureCalendar } from "./disclosure-calendar";
 import { ComplianceQueue } from "./compliance-queue";
-import { complianceCaseTarget } from "@/lib/compliance-case-model";
+import { complianceCaseTarget, complianceTarget } from "@/lib/compliance-case-model";
 import { LoanStageEditSettings } from "./loan-stage-edits";
 import { ManageClosingGates } from "./closing-gates";
 import { DisclosureTemplateSettings } from "./disclosure-templates";
@@ -1389,7 +1389,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           {section === "Reviews" && canOpenCalendar && <LoanReviewQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
             version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
           {section === "Compliance" && admin && staff?.brokerage.pilot && <ComplianceQueue brokerageId={staff.brokerage.id} admin
-            openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: complianceCaseTarget(caseId) })} />}
+            openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}

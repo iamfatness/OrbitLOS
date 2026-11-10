@@ -702,6 +702,7 @@ button:disabled { cursor: default; }
 .compliance-work .section-heading { flex-wrap: wrap; gap: 8px; }
 .compliance-work .calendar-filters { align-items: end; }
 .compliance-work .compliance-coverage { gap: 4px; }
+.compliance-inventory > summary { width: 100%; min-height: 44px; padding-block: 11px; font-size: 14px; }
 .compliance-work .compliance-row { align-items: center; }
 .compliance-work .loan-task-copy span { font-size: 13px; }
 @media (max-width: 540px) {
