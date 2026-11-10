@@ -4,7 +4,7 @@ The [product north star](PRODUCT-NORTH-STAR.md) defines the shared outcome: a si
 
 OrbitLOS is a one-stop loan origination system (LOS) and customer relationship manager (CRM) for independent wholesale mortgage brokers. A loan officer should be able to take a referral, collect a 1003, work with lenders, close the loan, and keep the relationship in one workspace. The loan record connects borrower and realtor activity to tasks, lender actions, and next steps.
 
-ARIVE is the benchmark for origination. Salesforce is the benchmark for the relationship and sales workflows a brokerage depends on. Start with UWM-heavy independent wholesale brokers and small teams, including teams that place some loans with other lenders. Calyx is a reference for migrating legacy loan files.
+ARIVE and LendingPad Broker are the benchmarks for origination and processing. Salesforce is the benchmark for the relationship and sales workflows a brokerage depends on. Start with UWM-heavy independent wholesale brokers and small teams, including teams that place some loans with other lenders. Calyx is a reference for migrating legacy loan files. [Product roadmap](PRODUCT-ROADMAP.md)
 
 ## Brokerage replacement criteria
 

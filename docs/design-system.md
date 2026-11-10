@@ -66,6 +66,12 @@ Do not make users read instructions to compensate for unclear controls. Remove p
 
 Retain information that changes a decision: required format, deadline/timezone, who receives a message, what a destructive action removes, conflicting changes, and whether an outcome is simulated. Keep demo disclosure visible at workspace level and on consequential simulated outputs, without repeating the same disclaimer on every card. Do not remove necessary consent or material limitations for visual minimalism.
 
+## Design gate for each release
+
+Before implementation, document the job, primary action, and next handoff for the LO and owner. Include processors, borrowers, and realtors when they touch the workflow. Compare the current layout with the existing Orbit components, then apply the relevant Impeccable and UI UX Pro Max review guidance. Use 21st.dev as a focused reference for new patterns. [Reference review](brand-ux-review.md)
+
+Verify the rendered candidate on desktop, 900 × 1200 portrait, and 390 × 844 phone widths. Walk through the applicable empty, loading, successful, blocked, stale, and error states with keyboard and touch behavior. On returning to a queue, verify the prior filters and meaningful focus remain. Compare the role views for terminology, count definitions, status and action hierarchy. Log before and after evidence, the decision it changed, and any limitation with the release. [Product roadmap design gate](../PRODUCT-ROADMAP.md#design-and-usability-gate-for-every-release)
+
 ## Final visual acceptance
 
 Apply this standard to owner dashboards, LO Today/pipeline/drawer, processor conditions, communication/calendar/search, finance, migration, and borrower/realtor portals. Review desktop and narrow screens plus keyboard, loading, empty, error, and conflict states. Verify icons together as a set and in their actual controls. The font change requires clipping/wrapping, number alignment, zoom, and fallback checks.

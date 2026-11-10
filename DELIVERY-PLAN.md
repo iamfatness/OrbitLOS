@@ -12,7 +12,7 @@ Use local SQLite for development, rehearsals, and load checks with fictional dat
 
 ## Authority and responsibilities
 
-The [product north star](PRODUCT-NORTH-STAR.md) defines the outcome and three pillars: Capacity, Security, Features. This document owns the release sequence and gates. The roadmap summarizes it; the product brief defines scope. Resolve conflicting older sequences in favor of this plan.
+The [product north star](PRODUCT-NORTH-STAR.md) defines the outcome and the capacity, security, and feature pillars. The [product roadmap](PRODUCT-ROADMAP.md#product-release-sequence) owns the current product build order. This document owns release gates, evidence requirements, and scale decisions. Map each product release to the relevant delivery increments. The product brief defines scope.
 
 Assign a named accountable person to each role before its release gate: product owner (scope and value), engineering owner (architecture and delivery), security owner (access and data handling), pilot owner (broker evidence), and operations owner (recovery and support). One person may cover multiple roles initially. These are responsibilities to assign, not staffing commitments or assignments to additional agents.
 
