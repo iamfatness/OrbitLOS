@@ -2560,6 +2560,13 @@ try {
     assert.match(result.mismoXml, /<LoanAmortizationPeriodCount>240<\/LoanAmortizationPeriodCount>/);
     const acknowledge = { type: "recordManualHandoff", ...base, eventId: randomUUID(), outcome: "Acknowledged", note: "",
       lenderFile: { lender: details.lender, externalId: "HARBOR-ACK-102" } };
+    assert.match((await action(officer, "mutate", acknowledge)).error, /approved second review/i);
+    const review = (input) => action(owner, "workOnLoanReview", { loanId, ...input });
+    const [pending] = (await review({ type: "loan" })).reviews;
+    const { review: currentReview } = await review({ type: "detail", id: pending.id });
+    const approval = await review({ type: "decide", id: pending.id, revision: currentReview.revision, eventId: randomUUID(),
+      decision: "Approved", note: "Verified the fictional lender handoff application." });
+    assert.equal(approval.kind, "saved", approval.error);
     await write(officer, acknowledge);
     const [saved] = (await file(officer, loanId)).applications;
     assert.equal(saved.manualHandoff.acknowledgedQuote.reference, details.reference);
