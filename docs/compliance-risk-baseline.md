@@ -117,3 +117,13 @@ From **Playbooks → Compliance reviews** or the overview's **Awaiting review** 
 Application source `c2b6cfc` serves 100% on Worker `bc8077fa-30c1-43ec-8592-5519fbf420e7`. Backend source `d22e507`, Worker `8d2e2777-6fe9-475d-ae94-1874fea08cc9`, remains available for rollback. Both versions retain the same 284 checked browser assets. The temporary signed-in QA route was removed before promotion.
 
 All 401 tests, lint, typecheck and the Cloudflare build passed. Local browser acceptance used separate LO and admin accounts and covered both decisions, resubmission, the exact case history and desktop, portrait and phone widths. The hosted fictional QA workspace used its signed-in admin to exercise both sides. Hosted staging verified a return and resubmission from Today. The ordinary live URL verified acceptance, both reasons and revision references in history, and the updated manager and owner queues. Public routes, the login boundary, the font and two live asset checks passed.
+
+## Versioned sample receipt evidence check
+
+A pilot admin or current finding owner can run **Sample receipt evidence check** on a current sample disclosure package. The check compares the review in the disclosure workbench with the review recorded on the finding. Each result records the check version, sample package version and revision, and the reviewer and times from each source. A repeat with the same inputs reuses the existing event. Changes to either source mark the previous result out of date. The prior result and the evidence it used remain in case history.
+
+The check is limited to the fictional Michigan conventional purchase sample. It records a comparison of sample evidence and leaves the finding's workflow status intact. Compliance coverage and deadlines remain unevaluated.
+
+Application source `93c6b39` serves 100% on Worker `6d71a284-52ef-4fcc-82a0-941babe14ffa`. Compatible backend source `677c1a2`, Worker `33578587-8b76-44e4-8f4a-79a489c37cac`, remains available for rollback. Both versions retain all 330 checked browser assets. The temporary QA route was removed before promotion.
+
+All 402 tests, lint, typecheck and the Cloudflare build passed. Local browser acceptance used separate LO and admin sessions and covered keyboard access, repeated inputs, stale and matching results, historical evidence, and three viewport widths. Hosted staging verified the missing case evidence and stale result after the reviewer recorded the sample evidence. The ordinary live URL verified the matching result, original missing-evidence snapshot and unchanged in-progress status. Public routes, login boundary, font and two live asset checks passed.
