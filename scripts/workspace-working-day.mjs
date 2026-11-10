@@ -2536,9 +2536,9 @@ try {
       address: "", amount: 0, purpose: "Purchase", stage: "Lead" });
     const loanId = created.loanWork.loanId;
     const { token } = (await file(officer, loanId)).applications[0];
-    const { application } = await borrower(token, { type: "read" });
+    const application = await borrower(token, { type: "read" });
     const draft = { ...sampleApplication(application.draft), confirmedDemo: true };
-    const submitted = (await borrower(token, { type: "submit", revision: application.revision, step: 9, draft, confirmedDemo: true })).application;
+    const submitted = await borrower(token, { type: "submit", revision: application.revision, step: applicationSteps.length - 1, draft });
     await loanAction(officer, loanId, "reviewApplication", { revision: submitted.revision });
     const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
       zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
