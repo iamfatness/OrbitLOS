@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, Bell, CircleCheck, List, LogOut, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, X,
 } from "lucide-react";
 import { checkLoanHandoff, mutate, readContactsWork, readLeadForWork, readLoanForWork, searchWorkspace } from "@/app/actions";
 import { prospectingBlocked, stages, type Contact, type Loan, type LoanTask, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { compactMoney, dateTime, initials, money, requestedMoney, stageDays } from "@/lib/utils";
-import { RecordDialog, type Modal } from "./record-dialog";
+import type { Modal } from "./record-dialog";
 import { Button } from "./ui/button";
 import { LoanTaskRow } from "./loan-task";
 import { BorrowerCallbackReschedule, ContactFollowUpAssignment, ContactFollowUpCheckIn, ContactFollowUpCompletion, ContactFollowUpResult, ContactImport } from "./contact-crm";
@@ -81,6 +81,8 @@ import { disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { staffQuestionTarget } from "@/lib/borrower-question-model";
+
+const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
 
 type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
@@ -1589,7 +1591,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           </>}
         </div>
       </main>
-      {modal && (!waitingForWorkspace || modal.kind === "assignment") && <RecordDialog modal={modal} state={loanWork && "loanId" in modal && modal.loanId === loanWork.loanId ? {
+      {modal && (!waitingForWorkspace || modal.kind === "assignment") && <Suspense fallback={<p className="muted" role="status">Opening record…</p>}>
+        <RecordDialog modal={modal} state={loanWork && "loanId" in modal && modal.loanId === loanWork.loanId ? {
         ...state, ...loanWork,
         loans: [...loanWork.loans, ...state.loans.filter((loan) => loan.id !== loanWork.loanId)],
         contacts: [...loanWork.contacts, ...state.contacts.filter((contact) => !loanWork.contacts.some((item) => item.id === contact.id))],
@@ -1611,7 +1614,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         openConversation={(subject) => { close(); openConversation(subject); }}
         openContactConversation={(contactId) => { close(); openConversation({ contactId }); }}
         openConversationThread={(id) => { close(); openConversation({ id }); }}
-        openLead={(id) => { close(); navigate("Lead Inbox"); setFocusLeadId(id); }} />}
+        openLead={(id) => { close(); navigate("Lead Inbox"); setFocusLeadId(id); }} />
+      </Suspense>}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import { z } from "zod";
 const inbox = z.email().max(254).safeParse(process.env.ORBIT_DEMO_INBOX?.trim());
 if (!inbox.success) throw new Error("Set ORBIT_DEMO_INBOX to the verified demo recipient before deploying.");
 const output = new URL("../dist/server/", import.meta.url);
+const args = process.argv.slice(2);
+const uploadOnly = args.includes("--upload-only");
 const config = JSON.parse(readFileSync(new URL("wrangler.json", output), "utf8"));
 const email = config.send_email?.find(({ name }) => name === "DEMO_EMAIL");
 if (!email) throw new Error("The build is missing the DEMO_EMAIL binding.");
@@ -28,7 +30,9 @@ const configPath = fileURLToPath(new URL(`wrangler.release-${randomUUID()}.json`
 const wrangler = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
 writeFileSync(configPath, JSON.stringify(config), { flag: "wx" });
 try {
-  const result = spawnSync(process.execPath, [wrangler, "deploy", "--config", configPath, ...provenance(), ...process.argv.slice(2)], { stdio: "inherit" });
+  const command = uploadOnly ? ["versions", "upload"] : ["deploy"];
+  const result = spawnSync(process.execPath, [wrangler, ...command, "--config", configPath, ...provenance(),
+    ...args.filter((arg) => arg !== "--upload-only")], { stdio: "inherit" });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {
