@@ -143,6 +143,7 @@ export interface BorrowerQuote {
   principalAndInterest: number;
   quotedAt: string;
   publishedAt: string;
+  expiresOn?: string | null;
   presentation?: QuotePresentation | null;
 }
 
@@ -150,6 +151,8 @@ export interface PublishedQuote extends BorrowerQuote {
   loanId: string;
   runId: string;
   offerId: string;
+  reviewReason?: string | null;
+  reviewRevision?: number;
 }
 export interface SharedQuoteEvent extends PublishedQuote {
   endedAt: string;

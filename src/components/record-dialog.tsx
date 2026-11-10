@@ -37,6 +37,7 @@ import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@
 import { ClosingWorkbench } from "./closing-workbench";
 import { DisclosureWorkbench } from "./disclosure-workbench";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
+import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
@@ -84,7 +85,7 @@ export type Modal =
   | { kind: "documentFollowUp"; loanId: string }
   | { kind: "returningClient"; loanId: string; fromRateWatch?: true }
   | { kind: "fundingCheckIn"; loanId: string; returnToLoan?: boolean; campaignLender?: CampaignLenderPath }
-  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean; sourceQuote?: ScenarioQuoteSource; reviewedIncome?: ReviewedIncomeSource }
+  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean; sourceQuote?: ScenarioQuoteSource; reviewedIncome?: ReviewedIncomeSource; reviewSharedQuote?: boolean }
   | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
@@ -469,7 +470,7 @@ function loanSection(target?: string) {
   if (target === "loan-application" || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
     target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-")) return "Conditions";
-  if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet") return "Pricing & credit";
+  if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet" || target === sharedQuoteReviewTarget) return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
   if (["loan-activity", "loan-tasks", "loan-retention", "loan-communications", loanReviewsTarget].includes(target) ||
@@ -652,7 +653,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         brokerageId={staff?.brokerage.id ?? demoBrokerageId} sampleAllowed={!staff || staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot)}
         markDraftChanged={markDraftChanged} openPricing={(sourceQuote) => show({ kind: "pricing", loanId: loan.id, campaignLender, sourceQuote })} />}
       {section === "Pricing & credit" && <>
-      <section className="details-section" id="loan-pricing" tabIndex={-1} aria-label="Loan pricing">
+      <section className="details-section" id={target === sharedQuoteReviewTarget ? sharedQuoteReviewTarget : "loan-pricing"} tabIndex={-1} aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
           {!processor && <Button size="sm" variant="outline" onClick={() => openPricing()}>Price loan</Button>}
         </div>
@@ -745,8 +746,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
             blocked={prospectingBlocked(task.purpose, borrower?.outreachSuppressed)}
             context={task.id === `rate-watch:${loan.id}` ? rateContext : undefined}
             action={task.id === checkInTask?.id ? <Button size="sm" variant="outline" disabled={busy} onClick={() => open(fundingCheckInTarget)}>Record check-in</Button> :
-              disclosureTask(task.id) ? <Button size="sm" variant="outline" disabled={busy} onClick={() => open(disclosureTarget)}>Open disclosures</Button> : undefined}
-            onChange={task.campaignCallback || disclosureTask(task.id) || task.id.startsWith(reversedFundingTaskPrefix) ||
+              disclosureTask(task.id) ? <Button size="sm" variant="outline" disabled={busy} onClick={() => open(disclosureTarget)}>Open disclosures</Button> :
+              isSharedQuoteReview(task.id) && !processor ? <Button size="sm" variant="outline" disabled={busy}
+                onClick={() => show({ kind: "pricing", loanId: loan.id, reviewSharedQuote: true })}>Open quote review</Button> : undefined}
+            onChange={task.campaignCallback || disclosureTask(task.id) || isSharedQuoteReview(task.id) || task.id.startsWith(reversedFundingTaskPrefix) ||
               task.id.startsWith(mockUwmReceiptTaskPrefix) ? undefined :
               () => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })}>
             {task.id === `rate-watch:${loan.id}` && !task.completedAt && canStartRateRefinance &&
@@ -1056,7 +1059,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?
             () => show({ kind: "details", loanId: loan.id, campaignLender, target: "income-worksheet" }) : undefined}
-          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} />}
+          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} reviewSharedQuote={modal.reviewSharedQuote} />}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({
             type: "saveRetention", loanId: loan.id, revision: retention?.revision ?? 0, closingDate: text(data, "closingDate"),

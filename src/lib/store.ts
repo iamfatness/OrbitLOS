@@ -589,13 +589,14 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS published_quotes (
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
-      rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL, presentation TEXT
+      rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL, presentation TEXT,
+      expiresOn TEXT, reviewReason TEXT, reviewRevision INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS shared_quote_history (
       loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
       rate REAL NOT NULL, principalAndInterest REAL NOT NULL, quotedAt TEXT NOT NULL, publishedAt TEXT NOT NULL,
-      endedAt TEXT NOT NULL, outcome TEXT NOT NULL, presentation TEXT
+      endedAt TEXT NOT NULL, outcome TEXT NOT NULL, presentation TEXT, expiresOn TEXT
     );
     CREATE TABLE IF NOT EXISTS mock_uwm_rates (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
@@ -1045,7 +1046,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       if (!pricingColumns.has(column)) db.exec(`ALTER TABLE pricing_runs ADD COLUMN ${column} INTEGER`);
     }
     for (const table of ["published_quotes", "shared_quote_history"]) {
-      if (!db.prepare(`PRAGMA table_info(${table})`).all().some((column) => column.name === "presentation")) db.exec(`ALTER TABLE ${table} ADD COLUMN presentation TEXT`);
+      const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(({ name }) => name));
+      if (!columns.has("presentation")) db.exec(`ALTER TABLE ${table} ADD COLUMN presentation TEXT`);
+      if (!columns.has("expiresOn")) db.exec(`ALTER TABLE ${table} ADD COLUMN expiresOn TEXT`);
+      if (table === "published_quotes" && !columns.has("reviewReason")) {
+        db.exec("ALTER TABLE published_quotes ADD COLUMN reviewReason TEXT; ALTER TABLE published_quotes ADD COLUMN reviewRevision INTEGER NOT NULL DEFAULT 0");
+      }
     }
     db.exec(`CREATE TABLE IF NOT EXISTS application_versions (
       loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,

@@ -6,6 +6,7 @@ import { createApplicationFollowUps } from "./tasks";
 import { createMilestoneDrafts } from "./communications";
 import { borrowerDetailsSchema, lenderDetailsSchema, normalizeBorrowerDetails, normalizeUrla, type BorrowerDetails } from "./urla";
 import { coBorrowerDocumentRecipient, needsBorrowerDocument, primaryDocumentRecipient, type BorrowerLoanStatus, type DocumentRecipient, type DocumentRequest } from "./document-model";
+import { sharedQuoteExpired } from "./shared-quote-model";
 import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
 import type { BorrowerQuote } from "./pricing-model";
@@ -235,7 +236,7 @@ function borrowerContactPreferences(db: Store, data: Extract<z.infer<typeof borr
 function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string, sampleSigning: boolean): BorrowerLoanStatus | null {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
   const published = loan && !row.correctionNote && db.prepare(`SELECT quote.product, quote.rate, quote.principalAndInterest,
-    quote.quotedAt, quote.publishedAt, quote.presentation FROM published_quotes quote
+    quote.quotedAt, quote.publishedAt, quote.presentation, quote.expiresOn FROM published_quotes quote
     JOIN pricing_runs run ON run.id = quote.runId AND run.loanId = quote.loanId
     WHERE quote.loanId = ? AND run.applicationRevision = ?
       AND (run.incomeReviewRevision IS NULL OR EXISTS (${approvedIncomeSql("run.loanId", "run.incomeReviewRevision")}))`).get(row.loanId, row.revision);
@@ -249,11 +250,14 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
   const closingPause = loan?.stage === "Clear to Close" ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
   const disclosure = loan && sampleSigning ? readBorrowerDisclosure(db, row.loanId, "Borrower") : undefined;
   const questions = loan && sampleSigning ? borrowerQuestions(db, row.loanId, primaryDocumentRecipient) : [];
+  const expiresOn = published && typeof published.expiresOn === "string" ? published.expiresOn : null;
+  const expired = currentAlternatives && sharedQuoteExpired(expiresOn, new Date(now));
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: borrowerDocuments(db, row.loanId, primaryDocumentRecipient),
     ...(questions.length ? { questions } : {}),
-    quote: published && currentAlternatives ? { ...published, presentation: borrowerQuotePresentation(presentation) } as unknown as BorrowerQuote : null,
+    quote: published && currentAlternatives && !expired ? { ...published, presentation: borrowerQuotePresentation(presentation) } as unknown as BorrowerQuote : null,
+    ...(expired && expiresOn ? { quoteExpiredOn: expiresOn } : {}),
     ...(preapproval ? { preapproval } : {}),
     ...(closingPause ? { closingPause } : {}),
     ...(disclosure ? { disclosure } : {}),

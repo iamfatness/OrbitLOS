@@ -57,7 +57,8 @@ import { carryLeadConversation } from "./conversations";
 import { updateProcessingInput } from "./processing-model";
 import { updateProcessing } from "./loan-processing";
 import { quoteSelection, saveFeeWorksheetInput, type QuoteOption } from "./quote-worksheet";
-import { archiveSharedQuote, quoteSnapshot, saveFeeWorksheet } from "./quote-worksheet-store";
+import { archiveSharedQuote, finishSharedQuoteReview, flagSharedQuoteReview, quoteSnapshot, saveFeeWorksheet } from "./quote-worksheet-store";
+import { isSharedQuoteReview, sharedQuoteExpiry } from "./shared-quote-model";
 import { confirmClosingDisclosure, disclosureCommand, disclosureTask } from "./disclosure-model";
 import { flagDisclosureReview, recordClosingDisclosureReview, updateDisclosurePackage } from "./disclosures";
 import { prepareClosingPacketInput } from "./closing-packet-model";
@@ -304,6 +305,12 @@ const command = z.discriminatedUnion("type", [
   prepareClosingPacketInput,
   z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id, feeRevision: z.number().int().nonnegative().default(0),
     alternatives: z.array(quoteSelection).max(2).default([]) }),
+  z.object({ type: z.literal("publishDatedQuote"), loanId: id, ...quoteSelection.shape,
+    alternatives: z.array(quoteSelection).max(2), expiresOn: z.iso.date(),
+    previousPublishedAt: z.iso.datetime().nullable(), reviewRevision: z.number().int().nonnegative(),
+    reviewNote: z.string().trim().max(500) }),
+  z.object({ type: z.literal("keepSharedQuote"), loanId: id, publishedAt: z.iso.datetime(),
+    reviewRevision: z.number().int().positive(), reviewNote: z.string().trim().min(1).max(500) }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
   reviewApplicationInput,
   z.object({ type: z.literal("useReviewedLoanAmount"), loanId: id, revision: z.number().int().nonnegative(),
@@ -407,7 +414,7 @@ export function staffCampaignOptOutTarget(db: Store, staff: WorkspaceStaff, inpu
 }
 
 const pilotLoanActions: Partial<Record<z.infer<typeof command>["type"], string>> = {
-  reviewApplication: "Reviewed 1003", selectOffer: "Saved quote", publishQuote: "Shared sample quote",
+  reviewApplication: "Reviewed 1003", selectOffer: "Saved quote", publishQuote: "Shared sample quote", publishDatedQuote: "Shared sample quote",
   requestDocument: "Requested document", requestSuggestedUwmDocuments: "Requested suggested condition documents", reviewDocument: "Reviewed document",
   sendConditionDocument: "Recorded mock UWM delivery", refreshMockUwmClearance: "Checked mock UWM clearance",
 };
@@ -491,6 +498,8 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "runMockPairedAus":
     case "retryMockCreditAus":
     case "saveFeeWorksheet":
+    case "publishDatedQuote":
+    case "keepSharedQuote":
     case "prepareDisclosurePackage":
     case "issueDisclosurePackage":
     case "respondToDisclosurePackage":
@@ -1538,6 +1547,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const task = db.prepare("SELECT loanId, title, completedAt, purpose FROM tasks WHERE id = ?").get(data.id);
           if (!task) throw new WorkspaceError("This task no longer exists.");
           if (disclosureTask(data.id)) throw new WorkspaceError("Open the disclosure workbench to resolve this task.");
+          if (isSharedQuoteReview(data.id)) throw new WorkspaceError("Open the shared quote review to resolve this task.");
           if (data.id.startsWith(mockUwmReceiptTaskPrefix)) throw new WorkspaceError("Check mock UWM for the missing receipt to resolve this task.");
           if (data.id.startsWith(reversedFundingTaskPrefix)) throw new WorkspaceError("This completed task belongs to a reversed funding entry.");
           message = data.completed ? "Task completed." : "Task reopened.";
@@ -1569,6 +1579,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (lastSaved?.id !== data.runId || lastSaved.selectedId !== offer.id) {
             db.prepare("UPDATE pricing_runs SET selectedId = ?, selectedAt = ? WHERE id = ?").run(offer.id, now, data.runId);
             flagDisclosureReview(db, data.loanId, "Selected quote changed", now);
+            flagSharedQuoteReview(db, data.loanId, "Selected offer changed", now, { runId: data.runId, offerId: offer.id, change: "selection" });
             addApplicationActivity(db, data.loanId, `Saved ${run.mode === "mock" ? "sample" : "stage"} quote · ${offer.product} at ${offer.rate.toFixed(3)}%`, now);
           }
           message = "Quote saved on the loan.";
@@ -1591,8 +1602,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "saveFeeWorksheet": {
           const result = saveFeeWorksheet(db, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
-          if (result.revision !== undefined) flagDisclosureReview(db, data.loanId, "Fees changed", now,
-            { runId: data.runId, offerId: data.offerId, feeRevision: result.revision });
+          if (result.revision !== undefined) {
+            flagDisclosureReview(db, data.loanId, "Fees changed", now,
+              { runId: data.runId, offerId: data.offerId, feeRevision: result.revision });
+            flagSharedQuoteReview(db, data.loanId, "Fee worksheet changed on a shared offer", now,
+              { runId: data.runId, offerId: data.offerId, change: "fees" });
+          }
           message = result.message;
           break;
         }
@@ -1605,7 +1620,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = result.message;
           break;
         }
-        case "publishQuote": {
+        case "publishQuote":
+        case "publishDatedQuote": {
           const application = getApplication(db, data.loanId);
           if (!application?.submittedAt) throw new WorkspaceError("The borrower must submit their 1003 before you can share a quote.");
           const run = savedPricingRun(db, data.loanId);
@@ -1626,17 +1642,49 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const [primary, ...alternatives] = options;
           if (alternatives.some((option) => option.purpose !== primary.purpose)) throw new WorkspaceError("Compare quotes for the same loan purpose.");
           const presentation = JSON.stringify({ primary, alternatives });
-          const previous = db.prepare("SELECT runId, offerId, presentation FROM published_quotes WHERE loanId = ?").get(data.loanId);
-          if (previous?.runId !== data.runId || previous.offerId !== data.offerId || previous.presentation !== presentation) {
+          const previous = db.prepare("SELECT runId, offerId, presentation, publishedAt, expiresOn, reviewReason, reviewRevision FROM published_quotes WHERE loanId = ?").get(data.loanId);
+          const expiresOn = data.type === "publishDatedQuote" ? data.expiresOn : null;
+          const identical = previous?.runId === data.runId && previous.offerId === data.offerId &&
+            previous.presentation === presentation && previous.expiresOn === expiresOn;
+          if (data.type === "publishDatedQuote") {
+            const { today, latest } = sharedQuoteExpiry(new Date(now));
+            if (data.expiresOn < today || data.expiresOn > latest) throw new WorkspaceError("Choose a quote expiration from today through the next 30 days.");
+            if (!identical || previous?.reviewReason) {
+              if ((previous?.publishedAt ?? null) !== data.previousPublishedAt || Number(previous?.reviewRevision ?? 0) !== data.reviewRevision) {
+                throw new WorkspaceError("The shared quote or its review changed. Refresh pricing before publishing.");
+              }
+              if (previous?.reviewReason && !data.reviewNote) throw new WorkspaceError("Record a review note before replacing this sample quote.");
+            }
+          } else if (previous?.expiresOn || previous?.reviewReason) {
+            throw new WorkspaceError("Refresh pricing to replace this shared quote with an expiration and review.");
+          }
+          if (!identical) {
             archiveSharedQuote(db, data.loanId, now, "Replaced");
-            db.prepare(`INSERT INTO published_quotes (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt, presentation)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId) DO UPDATE SET runId = excluded.runId, offerId = excluded.offerId,
+            const publishedAt = previous && String(previous.publishedAt) >= now
+              ? new Date(Date.parse(String(previous.publishedAt)) + 1).toISOString() : now;
+            db.prepare(`INSERT INTO published_quotes (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt, presentation, expiresOn)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(loanId) DO UPDATE SET runId = excluded.runId, offerId = excluded.offerId,
               product = excluded.product, rate = excluded.rate, principalAndInterest = excluded.principalAndInterest,
-              quotedAt = excluded.quotedAt, publishedAt = excluded.publishedAt, presentation = excluded.presentation`)
-              .run(data.loanId, data.runId, offer.id, offer.product, offer.rate, offer.principalAndInterest, run.quotedAt, now, presentation);
+              quotedAt = excluded.quotedAt, publishedAt = excluded.publishedAt, presentation = excluded.presentation, expiresOn = excluded.expiresOn,
+              reviewReason = NULL, reviewRevision = 0`)
+              .run(data.loanId, data.runId, offer.id, offer.product, offer.rate, offer.principalAndInterest, run.quotedAt, publishedAt, presentation, expiresOn);
             addApplicationActivity(db, data.loanId, "Sample quote published to borrower status.", now);
           }
+          if (previous?.reviewReason && data.type === "publishDatedQuote" && !identical) {
+            finishSharedQuoteReview(db, data.loanId, now);
+            addApplicationActivity(db, data.loanId, `Reviewed and replaced shared sample quote · ${staff?.name || "Demo workspace"} · ${data.reviewNote}`, now);
+          }
           message = "Sample quote published to borrower status.";
+          break;
+        }
+        case "keepSharedQuote": {
+          const kept = db.prepare(`UPDATE published_quotes SET reviewReason = NULL WHERE loanId = ? AND publishedAt = ?
+            AND reviewRevision = ? AND reviewReason IS NOT NULL RETURNING loanId`)
+            .get(data.loanId, data.publishedAt, data.reviewRevision);
+          if (!kept) throw new WorkspaceError("The shared quote review changed. Refresh pricing before recording your decision.");
+          finishSharedQuoteReview(db, data.loanId, now);
+          addApplicationActivity(db, data.loanId, `Reviewed and kept shared sample quote · ${staff?.name || "Demo workspace"} · ${data.reviewNote}`, now);
+          message = "Review recorded. The shared version and its expiration were kept.";
           break;
         }
         case "withdrawQuote": {
@@ -1645,6 +1693,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (previous) {
             archiveSharedQuote(db, data.loanId, now, "Removed");
             db.prepare("DELETE FROM published_quotes WHERE loanId = ?").run(data.loanId);
+            finishSharedQuoteReview(db, data.loanId, now);
             addApplicationActivity(db, data.loanId, "Sample quote removed from borrower status.", now);
           }
           message = "Sample quote removed from borrower status.";
@@ -1724,6 +1773,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             revision = revision + 1, step = ?, updatedAt = ? WHERE loanId = ?`)
             .run(coBorrower ? "Co-borrower corrections requested." : data.note, coBorrower ? application.step : 0, now, data.loanId);
           flagDisclosureReview(db, data.loanId, "1003 reopened for correction", now);
+          flagSharedQuoteReview(db, data.loanId, "1003 reopened for correction", now);
           db.prepare(`UPDATE tasks SET completedAt = ? WHERE loanId = ? AND completedAt IS NULL
             AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
           addApplicationActivity(db, data.loanId, coBorrower ? "Loan officer requested co-borrower corrections." : "Loan officer requested 1003 corrections.", now);

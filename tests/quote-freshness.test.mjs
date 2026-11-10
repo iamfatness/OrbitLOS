@@ -24,6 +24,16 @@ const { zipCityState } = await import("../src/lib/zip-city-state.ts");
 const { blankLenderDetails } = await import("../src/lib/urla.ts");
 const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 const { compareQuoteCosts } = await import("../src/lib/quote-cost-comparison.ts");
+const { sharedQuoteExpired, sharedQuoteExpiry, sharedQuoteReviewId } = await import("../src/lib/shared-quote-model.ts");
+
+test("a shared quote remains available through the selected Eastern date", () => {
+  assert.equal(sharedQuoteExpired("2026-11-07", new Date("2026-11-08T04:59:59.999Z")), false);
+  assert.equal(sharedQuoteExpired("2026-11-07", new Date("2026-11-08T05:00:00.000Z")), true);
+  assert.equal(sharedQuoteExpired("2026-07-07", new Date("2026-07-08T04:00:00.000Z")), true);
+  assert.equal(sharedQuoteExpired(null, new Date("2026-11-08T05:00:00.000Z")), false);
+  assert.deepEqual(sharedQuoteExpiry(new Date("2026-11-08T04:59:59.999Z")),
+    { today: "2026-11-07", suggested: "2026-11-14", latest: "2026-12-07" });
+});
 
 test("sample application answers preserve the property ZIP and its locality from intake", () => {
   const draft = blankApplication();
@@ -200,7 +210,14 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   const alternativeChoice = { runId: fresh.id, offerId: fresh.offers[1].id };
   await apply("saveFeeWorksheet", { ...selection(fresh), feeRevision: 0, worksheet });
   await apply("saveFeeWorksheet", { ...alternativeChoice, feeRevision: 0, worksheet });
-  await apply("publishQuote", { ...selection(fresh), feeRevision: 1, alternatives: [{ ...alternativeChoice, feeRevision: 1 }] });
+  const priorQuote = db.prepare("SELECT publishedAt, reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId);
+  const dated = { ...selection(fresh), feeRevision: 1, alternatives: [{ ...alternativeChoice, feeRevision: 1 }],
+    expiresOn: sharedQuoteExpiry().suggested, previousPublishedAt: priorQuote.publishedAt, reviewRevision: priorQuote.reviewRevision,
+    reviewNote: "Repriced the corrected 1003." };
+  await apply("publishDatedQuote", dated);
+  const shared = db.prepare("SELECT publishedAt, reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId);
+  await apply("publishDatedQuote", dated);
+  assert.deepEqual(db.prepare("SELECT publishedAt, reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId), shared);
   const presentation = read().loanStatus.quote.presentation;
   const publishedCosts = compareQuoteCosts(presentation);
   assert.equal(presentation.primary.loanAmount, 340000);
@@ -209,6 +226,27 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   await apply("saveFeeWorksheet", { ...alternativeChoice, feeRevision: 1,
     worksheet: { ...worksheet, fees: { ...worksheet.fees, appraisal: 70000 } } });
   assert.deepEqual(compareQuoteCosts(read().loanStatus.quote.presentation), publishedCosts);
+  assert.equal(status().loanStatus.quote.expiresOn, dated.expiresOn);
+  assert.equal(status().loanStatus.quote.reviewReason, undefined);
+  const reviewId = sharedQuoteReviewId(loanId);
+  assert.equal(queued().length, 0);
+  const currentTask = () => readOfficerQueue(db, { horizon: 7 }, staff, staff.brokerage.id).items.find(({ id }) => id === reviewId);
+  assert.equal(currentTask().target, "shared-quote-review");
+  assert.match((await command("completeTask", { id: reviewId, completed: true })).error, /shared quote review/);
+  const updatedDated = { ...dated, alternatives: [{ ...alternativeChoice, feeRevision: 2 }],
+    previousPublishedAt: shared.publishedAt, reviewRevision: 1 };
+  assert.match((await command("publishDatedQuote", { ...updatedDated, reviewNote: "" })).error, /record a review note/i);
+  assert.match((await command("keepSharedQuote", { publishedAt: shared.publishedAt, reviewRevision: 2, reviewNote: "Stale revision" })).error, /changed/);
+  const keep = { type: "keepSharedQuote", loanId, publishedAt: shared.publishedAt, reviewRevision: 1, reviewNote: "Keep the originally shared sample." };
+  const unrelated = { ...staff, email: "another@example.test" };
+  assert.match((await executeCommand(db, keep, unrelated)).error, /access/);
+  await apply("keepSharedQuote", keep);
+  assert.equal(currentTask(), undefined);
+  assert.deepEqual(compareQuoteCosts(read().loanStatus.quote.presentation), publishedCosts);
+  db.prepare("UPDATE published_quotes SET expiresOn = ? WHERE loanId = ?").run("2000-01-01", loanId);
+  assert.equal(status().loanStatus.quote, null);
+  assert.equal(status().loanStatus.quoteExpiredOn, "2000-01-01");
+  db.prepare("UPDATE published_quotes SET expiresOn = ? WHERE loanId = ?").run(dated.expiresOn, loanId);
   assert.deepEqual(status(), { kind: "status", submittedAt: corrected.submittedAt, loanStatus: read().loanStatus });
   await apply("selectOffer", selection(alternative));
   const mismatchedRate = /\$340,000\.01 and the 1003 requests \$340,000.*before floating or locking/;

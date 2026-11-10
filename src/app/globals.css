@@ -193,6 +193,7 @@ button:disabled { cursor: default; }
 .quote-cost-comparison { display: grid; gap: 8px; }
 .quote-cost-comparison > h4, .quote-cost-comparison > p { margin: 0; }
 .quote-cost-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 8px; }
+.quote-cost-option { align-content: start; }
 .quote-cost-option > p { margin: 0; }
 .quote-cost-metrics { display: grid; gap: 4px; margin: 0; font-size: 13px; }
 .quote-cost-metrics > div { display: flex; justify-content: space-between; gap: 8px; }

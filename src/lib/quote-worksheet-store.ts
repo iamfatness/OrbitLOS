@@ -5,7 +5,9 @@ import { feeTemplateChanged } from "./fee-template-model";
 import { feeOriginForQuote } from "./fee-templates";
 import { pricingInputError } from "./income-review-freshness";
 import type { PricingApplication, PricingOffer, PricingScenario } from "./pricing-model";
-import { estimateFees, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type quoteSelection, type saveFeeWorksheetInput } from "./quote-worksheet";
+import { estimateFees, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuotePresentation,
+  type quoteSelection, type saveFeeWorksheetInput } from "./quote-worksheet";
+import { sharedQuoteReviewId } from "./shared-quote-model";
 import type { Store } from "./store";
 
 function priceOption(db: Store, loanId: string, runId: string, offerId: string) {
@@ -62,7 +64,29 @@ export function quoteSnapshot(db: Store, loanId: string, choice: z.infer<typeof 
 }
 
 export function archiveSharedQuote(db: Store, loanId: string, now: string, outcome: "Replaced" | "Removed") {
-  db.prepare(`INSERT INTO shared_quote_history (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt, endedAt, outcome, presentation)
-    SELECT loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt, ?, ?, presentation
+  db.prepare(`INSERT INTO shared_quote_history (loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt, endedAt, outcome, presentation, expiresOn)
+    SELECT loanId, runId, offerId, product, rate, principalAndInterest, quotedAt, publishedAt, ?, ?, presentation, expiresOn
     FROM published_quotes WHERE loanId = ?`).run(now, outcome, loanId);
+}
+
+export function flagSharedQuoteReview(db: Store, loanId: string, reason: string, now: string,
+  source?: { runId: string; offerId: string; change: "selection" | "fees" }) {
+  const shared = db.prepare("SELECT runId, offerId, presentation FROM published_quotes WHERE loanId = ?").get(loanId);
+  if (!shared) return;
+  if (source) {
+    const samePrimary = shared.runId === source.runId && shared.offerId === source.offerId;
+    const presentation = shared.presentation ? JSON.parse(String(shared.presentation)) as QuotePresentation : null;
+    if (source.change === "selection" && samePrimary) return;
+    if (source.change === "fees" && !samePrimary && !presentation?.alternatives.some((option) =>
+      option.runId === source.runId && option.offerId === source.offerId)) return;
+  }
+  db.prepare("UPDATE published_quotes SET reviewReason = ?, reviewRevision = reviewRevision + 1 WHERE loanId = ?").run(reason, loanId);
+  db.prepare(`INSERT INTO tasks (id, loanId, title, dueAt) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET
+    title = excluded.title, dueAt = CASE WHEN tasks.completedAt IS NOT NULL THEN excluded.dueAt ELSE tasks.dueAt END, completedAt = NULL`)
+    .run(sharedQuoteReviewId(loanId), loanId, "Review shared sample quote", now);
+  addApplicationActivity(db, loanId, `Shared sample quote needs review · ${reason}.`, now);
+}
+
+export function finishSharedQuoteReview(db: Store, loanId: string, now: string) {
+  db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ? AND completedAt IS NULL").run(now, sharedQuoteReviewId(loanId));
 }

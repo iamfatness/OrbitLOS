@@ -64,6 +64,10 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
     {!hasActions && actionCenter}
     {status.disclosure && <BorrowerSampleDisclosure key={status.disclosure.version} item={status.disclosure} busy={busy} respond={respondToDisclosure} />}
     <BorrowerQuestionCards questions={status.questions} busy={busy} answer={answerQuestion} />
+    {status.quoteExpiredOn && <section className="application-panel application-receipt document-section" aria-label="Expired sample quote">
+      <h2><Calculator size={19} /> Your sample quote expired</h2>
+      <p>The sample quote was available through {dateLabel(status.quoteExpiredOn)} Eastern. Your loan officer can share an updated comparison.</p>
+    </section>}
     {status.quote && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-quote-heading">
       <div className="section-heading"><h2 id="borrower-quote-heading"><Calculator size={19} /> Your shared quote</h2><span className="pill">Sample pricing</span></div>
       <div className="borrower-next">
@@ -73,6 +77,7 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
           <div><dt>Monthly principal and interest</dt><dd>{usd.format(status.quote.principalAndInterest)}</dd></div>
         </dl>}
         <small className="muted">Quoted {dateTime(status.quote.quotedAt)} ET · Demo estimate</small>
+        {status.quote.expiresOn && <small className="muted">Available through {dateLabel(status.quote.expiresOn)} Eastern</small>}
       </div>
     </section>}
     {status.preapproval && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-letter-heading">

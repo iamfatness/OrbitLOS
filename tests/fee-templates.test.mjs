@@ -9,6 +9,7 @@ const { blankApplication } = await import("../src/lib/application-model.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { feeTemplateWork } = await import("../src/lib/fee-templates.ts");
 const { blankFees, estimateFees, missingFees } = await import("../src/lib/quote-worksheet.ts");
+const { sharedQuoteExpiry } = await import("../src/lib/shared-quote-model.ts");
 
 test("fee templates scope use and preserve the original fee and source snapshot", async (t) => {
   const sqlite = new DatabaseSync(":memory:");
@@ -82,7 +83,11 @@ test("fee templates scope use and preserve the original fee and source snapshot"
   assert.equal(edit.loanWork.feeWorksheets[0].origin.fees.appraisal, 65000);
   assert.deepEqual(edit.loanWork.publishedQuotes[0].presentation, first);
   assert.match((await send(share)).error, /changed/);
-  const replacement = (await send({ ...share, feeRevision: 2 })).state;
+  assert.match((await send({ ...share, feeRevision: 2 })).error, /refresh pricing/i);
+  const pending = edit.loanWork.publishedQuotes[0];
+  const replacement = (await send({ ...share, type: "publishDatedQuote", feeRevision: 2, alternatives: [],
+    expiresOn: sharedQuoteExpiry().suggested, previousPublishedAt: pending.publishedAt, reviewRevision: pending.reviewRevision,
+    reviewNote: "Confirmed the revised appraisal fee." })).loanWork;
   assert.deepEqual(replacement.sharedQuoteHistory[0].presentation, first);
   assert.equal(replacement.publishedQuotes[0].presentation.primary.estimate.inputs.fees.appraisal, 67500);
   assert.equal(replacement.publishedQuotes[0].presentation.primary.feeOrigin.revision, 1);

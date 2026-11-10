@@ -74,7 +74,8 @@ import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type Inc
 import { leadDocumentsUnavailable, type LeadDocumentLocation } from "@/lib/lead-document-model";
 import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
-import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
+import { disclosureTask } from "@/lib/disclosure-model";
+import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { staffQuestionTarget } from "@/lib/borrower-question-model";
 
@@ -612,6 +613,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     setModal(next.kind === "details" && next.target === fundingCheckInTarget ? {
       kind: "fundingCheckIn", loanId: next.loanId, campaignLender: next.campaignLender,
       returnToLoan: modal?.kind === "details" && modal.loanId === next.loanId,
+    } : next.kind === "details" && next.target === sharedQuoteReviewTarget && !processor ? {
+      kind: "pricing", loanId: next.loanId, campaignLender: next.campaignLender, reviewSharedQuote: true,
     } : next);
   }
 
@@ -787,7 +790,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       const condition = submission?.conditions.find(({ id }) => id === alert?.conditionId);
       const target = alert ? submission ? condition ? conditionTarget(submission.id, condition.id) : submissionTarget(submission.id) :
         "lender-submissions" : result.workTarget;
-      show(next.kind === "details" && target ? { ...next, target } : next);
+      show(next.kind === "details" && target && next.target !== sharedQuoteReviewTarget ? { ...next, target } : next);
     } catch (failure) {
       if (openingRecord.current) setError(staff && failure instanceof Error && failure.message === staffSignInRequired
         ? staffSignInRequired : "Could not open the loan. Please try again.");
@@ -1404,9 +1407,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
                 return <LoanTaskRow key={task.id} task={task} officer={loan.officer} borrower={borrowers(loan)} busy={busy}
                   blocked={loanTaskBlocked(task)}
                   context={task.id.startsWith("rate-watch:") ? rateFollowUpContext(state.pastClients.find((profile) => profile.loanId === loan.id)) : undefined}
-                  openLoan={() => disclosureTask(task.id) ? void openQueueLoan({ kind: "details", loanId: loan.id, target: disclosureTarget }) :
+                  openLoan={() => disclosureTask(task.id) || isSharedQuoteReview(task.id) ?
+                    void openQueueLoan({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id, processor) }) :
                     show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id, processor || Boolean(task.completedAt)) })}
-                  onChange={disclosureTask(task.id) || task.id.startsWith(mockUwmReceiptTaskPrefix) || task.id.startsWith(reversedFundingTaskPrefix) ||
+                  onChange={disclosureTask(task.id) || isSharedQuoteReview(task.id) || task.id.startsWith(mockUwmReceiptTaskPrefix) || task.id.startsWith(reversedFundingTaskPrefix) ||
                     (task.completedAt && isApplicationReviewTask(task.id)) ? undefined :
                     () => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}

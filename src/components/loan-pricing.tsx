@@ -4,6 +4,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
 import { submittedRequestedLoanAmount, type ApplicationDraft } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import { dateLabel } from "@/lib/client-retention";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { repriceIncomeMessage, type ReviewedIncomeSource } from "@/lib/income-review-model";
 import type { Loan, Workspace } from "@/lib/model";
@@ -12,8 +13,9 @@ import { latestSelectedPricingRun, mockUwmQuoteAmountIssue, pricingPrograms, pri
 import { dateTime, money, requestedMoney } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { UwmRateLock } from "./uwm-rate-lock";
-import { quoteOption } from "@/lib/quote-worksheet";
-import { FeeWorksheetEditor, SampleQuotePresentation } from "./quote-worksheet";
+import { feeKeys, feeLabels, quoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
+import { sharedQuoteExpired, sharedQuoteExpiry } from "@/lib/shared-quote-model";
+import { FeeWorksheetEditor, formatFee, SampleQuotePresentation } from "./quote-worksheet";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const cash = (amount: number | null) => amount === null ? "—" : dollars.format(amount);
@@ -107,9 +109,27 @@ function Terms({ offer }: { offer: PricingOffer }) {
   </dl>;
 }
 
-export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication }: {
+function SharedQuoteChanges({ shared, proposed }: { shared: QuotePresentation; proposed: QuotePresentation | null }) {
+  const options = proposed ? [proposed.primary, ...proposed.alternatives] : [];
+  return [shared.primary, ...shared.alternatives].map((before) => {
+    const after = options.find((option) => before.runId === option.runId && before.offerId === option.offerId);
+    if (!after) return null;
+    const fees = feeKeys.filter((key) => (before.estimate?.inputs.fees[key] ?? null) !== (after.estimate?.inputs.fees[key] ?? null));
+    const showFee = (amount?: number | null) => amount == null ? "Unknown" : formatFee(amount);
+    if (!fees.length) return null;
+    return <div key={`${before.runId}/${before.offerId}`}>
+      <strong>{before.product} at {percentage(before.rate)}</strong>
+      <ul className="loan-task-list">{fees.map((key) => <li key={key}>
+        {feeLabels[key]} · Shared {showFee(before.estimate?.inputs.fees[key])} · Proposed {showFee(after.estimate?.inputs.fees[key])}
+      </li>)}</ul>
+    </div>;
+  });
+}
+
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
+  reviewSharedQuote?: boolean;
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
@@ -130,6 +150,13 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const mockScore = credit?.result.status === "Report ready" && mockRunMatchesApplication(credit, submittedApplicationRevision(application))
     ? String(credit.result.score) : "";
   const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
+  const expiryRange = sharedQuoteExpiry();
+  const expired = sharedQuoteExpired(published?.expiresOn);
+  const [expiresOn, setExpiresOn] = useState(published?.expiresOn && !expired ? published.expiresOn : expiryRange.suggested);
+  const expiryValid = expiresOn >= expiryRange.today && expiresOn <= expiryRange.latest;
+  const reviewKey = `${published?.publishedAt}/${published?.reviewRevision}`;
+  const [review, setReview] = useState({ key: "", note: "" });
+  const reviewNote = review.key === reviewKey ? review.note.trim() : "";
   const publishedRun = runs.find((run) => run.id === published?.runId);
   const sharedHistory = state.sharedQuoteHistory.filter((quote) => quote.loanId === loan.id);
   const initialRun = sourceRun ?? current;
@@ -143,9 +170,10 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   });
   const [formRevision, setFormRevision] = useState(reviewedIncome?.applicationRevision ?? (initialRun ? initialRun.applicationRevision : application?.revision ?? null));
   const [incomeRevision, setIncomeRevision] = useState(reviewedIncome?.revision ?? initialRun?.incomeReviewRevision ?? undefined);
-  const [preview, setPreview] = useState(Boolean(sourceIsSaved));
+  const [preview, setPreview] = useState(Boolean(sourceIsSaved || reviewSharedQuote));
   const [pricing, setPricing] = useState(false);
   const amountInput = useRef<HTMLInputElement>(null);
+  const savedQuoteSection = useRef<HTMLElement>(null);
   const [alternativeKeys, setAlternativeKeys] = useState(() =>
     published?.presentation?.alternatives.map((item) => `${item.runId}/${item.offerId}`) ?? []);
   const change = (name: keyof typeof form, value: string | boolean) => setForm((last) => ({ ...last, [name]: value }));
@@ -187,7 +215,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const alternatives = comparable.filter((item) => alternativeKeys.includes(item.key)).slice(0, 2);
   const presentation = primary ? { primary: primary.view, alternatives: alternatives.map((item) => item.view) } : null;
   const alreadyShared = published?.runId === saved?.id && published?.offerId === selected?.id &&
-    JSON.stringify(published?.presentation ?? null) === JSON.stringify(presentation);
+    published?.expiresOn === expiresOn && JSON.stringify(published?.presentation ?? null) === JSON.stringify(presentation);
 
   async function price(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -231,6 +259,27 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <div><h3><Calculator size={18} /> UWM Easy Qualifier</h3><p>Conventional, DSCR, and bank statement scenarios.</p></div>
       <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : "Mock pricing"}</span>
     </header>
+    {published?.reviewReason && <section className="quote-saved" aria-label="Shared quote review">
+      <div className="section-heading"><h3>Review shared sample quote</h3><span className="pill">Needs review</span></div>
+      <p>{published.reviewReason}. {publishedNeedsReprice ? "Share a new quote from the current loan inputs to restore borrower access."
+        : expired ? "The original quote has expired." : "The borrower still sees the original shared version."}</p>
+      <dl className="quote-terms">
+        <div><dt>Shared rate and monthly P&amp;I</dt><dd>{percentage(published.rate)} · {cash(published.principalAndInterest)}</dd></div>
+        {selected && <div><dt>Saved rate and monthly P&amp;I</dt><dd>{percentage(selected.rate)} · {cash(selected.principalAndInterest)}</dd></div>}
+      </dl>
+      {published.presentation && <SharedQuoteChanges shared={published.presentation} proposed={presentation} />}
+      <label className="field"><span>Internal quote review note</span><textarea rows={2} maxLength={500} value={review.key === reviewKey ? review.note : ""}
+        onChange={(event) => setReview({ key: reviewKey, note: event.target.value })} /></label>
+      <div className="pricing-actions">
+        <Button size="sm" variant="outline" disabled={busy || !reviewNote} onClick={() => void save({
+          type: "keepSharedQuote", loanId: loan.id, publishedAt: published.publishedAt, reviewRevision: published.reviewRevision, reviewNote,
+        })}>Keep shared version</Button>
+        {saved && selected && <Button size="sm" variant="outline" onClick={() => {
+          setPreview(true);
+          savedQuoteSection.current?.focus();
+        }}>Open saved quote preview</Button>}
+      </div>
+    </section>}
     {sourceQuote && <section className="quote-saved" aria-label="Pricing option from loan scenarios">
       <h3>Pricing option from loan scenarios</h3>
       {sourceRun && sourceOffer ? <>
@@ -318,7 +367,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>
         <Button type="submit" disabled={busy || formOutdated || incomeOutdated}><Calculator /> {pricing ? "Pricing…" : "Run pricing"}</Button></div>
     </form>
-    {saved && selected && <section className="quote-saved">
+    {saved && selected && <section className="quote-saved" ref={savedQuoteSection} tabIndex={-1} aria-label="Saved quote">
       <div className="section-heading"><h3><BadgeCheck size={17} /> Saved quote</h3>
         <Button size="sm" variant="outline" aria-expanded={preview} onClick={() => setPreview(!preview)}><Eye /> {preview ? "Hide preview" : "Preview borrower quote"}</Button>
       </div>
@@ -360,10 +409,14 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
           <SampleMetrics scenario={saved.scenario} offer={selected} />
         </> : <><Terms offer={selected} /><SampleMetrics scenario={saved.scenario} offer={selected} /></>}
         {saved.notices.map((notice, index) => <p key={index} className="quote-disclaimer">{notice}</p>)}
-        {saved.mode === "mock" && (application?.submittedAt ? <div className="pricing-actions">
-          <Button size="sm" disabled={busy || alreadyShared || savedNeedsReprice} onClick={() => void save({
-            type: "publishQuote", loanId: loan.id, runId: saved.id, offerId: selected.id, feeRevision: primary?.worksheet?.revision ?? 0,
+        {saved.mode === "mock" && (application?.submittedAt ? <div className="document-section">
+          <label className="field"><span>Share through (Eastern)</span><input type="date" value={expiresOn} min={expiryRange.today}
+            max={expiryRange.latest} disabled={busy} onChange={(event) => setExpiresOn(event.target.value)} /></label>
+          {published?.reviewReason && !reviewNote && <p className="muted">Record an internal quote review note before replacing the shared version.</p>}
+          <Button size="sm" className="justify-self-start" disabled={busy || alreadyShared || savedNeedsReprice || !expiryValid || (!!published?.reviewReason && !reviewNote)} onClick={() => void save({
+            type: "publishDatedQuote", loanId: loan.id, runId: saved.id, offerId: selected.id, feeRevision: primary?.worksheet?.revision ?? 0,
             alternatives: alternatives.map((item) => ({ runId: item.run.id, offerId: item.offer.id, feeRevision: item.worksheet?.revision ?? 0 })),
+            expiresOn, previousPublishedAt: published?.publishedAt ?? null, reviewRevision: published?.reviewRevision ?? 0, reviewNote,
           })}>
             {alreadyShared ? "Published to borrower" : published ? "Replace shared sample quote" : presentation?.alternatives.length ? "Publish sample comparison" : "Publish sample quote"}
           </Button>
@@ -379,13 +432,15 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>
       <p>{published.product} · {percentage(published.rate)} · {cash(published.principalAndInterest)} monthly P&amp;I</p>
       <p className="muted timestamp">Sample quote · Shared {dateTime(published.publishedAt)} ET</p>
+      {published.expiresOn && <p className="muted">{expired ? "Expired" : "Available through"} {dateLabel(published.expiresOn)} Eastern</p>}
       {published.presentation && <details className="document-form"><summary>View exact shared quote</summary><SampleQuotePresentation quote={published.presentation} /></details>}
       {publishedNeedsReprice ? <p className="quote-disclaimer">Hidden from the borrower until you share a quote from the current 1003 and income inputs.</p>
-        : publishedAssumptionsChanged && <p className="quote-disclaimer">The borrower still sees these terms. Review them against your latest pricing assumptions.</p>}
+        : !expired && publishedAssumptionsChanged && <p className="quote-disclaimer">The borrower still sees these terms. Review them against your latest pricing assumptions.</p>}
     </section>}
     {sharedHistory.length > 0 && <details className="quote-saved"><summary>Previously shared quotes</summary>
       <ul className="loan-task-list">{sharedHistory.map((quote, index) => <li key={`${quote.runId}:${quote.offerId}:${quote.publishedAt}:${index}`}>
         {quote.product} · {percentage(quote.rate)} · {cash(quote.principalAndInterest)} monthly P&amp;I · Shared {dateTime(quote.publishedAt)} ET · {quote.outcome} {dateTime(quote.endedAt)} ET
+        {quote.expiresOn && ` · Available through ${dateLabel(quote.expiresOn)} Eastern`}
         {quote.presentation && <details className="document-form"><summary>View shared terms and fees</summary><SampleQuotePresentation quote={quote.presentation} /></details>}
       </li>)}</ul>
     </details>}

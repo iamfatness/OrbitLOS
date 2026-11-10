@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { LeadWorkRecord } from "./lead-work-model";
 import type { ContactRecord } from "./contact-directory-model";
+import { isSharedQuoteReview, sharedQuoteReviewTarget } from "./shared-quote-model";
 
 export const searchUnavailable = "Workspace search is unavailable in this brokerage.";
 export const searchRecordUnavailable = "This search result is no longer available in your workspace.";
@@ -22,4 +23,4 @@ export type SearchPage = { kind: "results"; rows: SearchRecord[]; next: z.infer<
 export type SearchContact = ContactRecord;
 export type SearchResult = SearchPage | SearchContact | ({ kind: "lead" } & LeadWorkRecord) | { error: string };
 
-export const searchTaskTarget = (id: string) => `loan-task-${id}`;
+export const searchTaskTarget = (id: string) => isSharedQuoteReview(id) ? sharedQuoteReviewTarget : `loan-task-${id}`;

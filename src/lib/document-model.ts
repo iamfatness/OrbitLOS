@@ -84,6 +84,7 @@ export interface BorrowerLoanStatus {
   documents: DocumentRequest[];
   questions?: import("./borrower-question-model").BorrowerQuestion[];
   quote: BorrowerQuote | null;
+  quoteExpiredOn?: string;
   preapproval?: SharedPreapprovalLetter;
   disclosure?: import("./disclosure-model").BorrowerDisclosure;
 }
