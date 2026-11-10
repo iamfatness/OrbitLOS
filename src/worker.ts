@@ -1047,8 +1047,12 @@ export default {
       return app.fetch(new Request(url, { method: request.method }), env, context);
     }
     // Build assets are shared by the public site and the workspace.
-    if (reading && /^\/_next\/static\/(?:css|chunks)\/[\w.-]+\.(?:js|css)$/.test(url.pathname)) {
-      return env.ASSETS.fetch(request);
+    if (reading && /^(?:\/_orbit-assets\/[a-f0-9]{12})?\/_next\/static\/(?:chunks\/[\w-]+\.js|css\/[\w-]+\.css)$/.test(url.pathname)) {
+      const asset = await env.ASSETS.fetch(request);
+      if (asset.status < 400) return asset;
+      const failure = new Response(asset.body, asset);
+      failure.headers.set("Cache-Control", "no-store");
+      return failure;
     }
     const google = googleSettings(env);
     const demoPassword = runtimeSetting(env, "DEMO_PASSWORD");
