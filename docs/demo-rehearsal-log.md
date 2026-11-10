@@ -783,3 +783,11 @@ On November 10, 2026, Worker `ab6b9303-d213-4cca-9026-b7ed9e2f3c0b` from `83e846
 Refinance v3 changed the question while a borrower tab had v2 open. The stale submission loaded the current question, preserved contact details, and cleared the earlier answer and consent. The original accepted lead still showed the v2 question and answer. Staff converted the v3 inquiry, confirmed the borrower details in the prefilled refinance 1003, and saw the v3 question and answer in loan Activity. At 390 px the borrower form fit its contents.
 
 SQLite and the built Worker verified stale and cross-profile submission rejection, retired profiles falling back to General, authorization, and offboarding a profile owner. All 343 tests, lint, typecheck, the production Worker build, and the working-day and concurrency rehearsals passed. Public Product and Demo returned 200 with the updated copy. The executive workspace was left available for the separate walkthrough.
+
+## Conditional quote intake and reviewed 1003 prefill
+
+On November 10, 2026, Worker `0d06b6e1-53ba-4099-a106-093e0409ae31` from `bf12a73` published Refinance v4 in the isolated fictional QA brokerage. A yes-or-no rental question revealed required occupancy and requested loan amount fields only after Yes. The local Chrome run also confirmed that hiding the follow-ups cleared their previous answers. At a 390 px override, the live borrower form had no horizontal overflow.
+
+Staff saw the accepted profile version and answers in Lead Inbox. They selected occupancy and created the 1003. The live borrower draft showed Investment property and left the requested amount empty. Loan Activity showed the original sample amount, the accepted profile version, and the staff member's prefill decision.
+
+All 344 tests, lint, typecheck, the production Worker build, and the working-day and concurrency rehearsals passed. The built Worker rejected an unassigned officer's conversion and preserved the accepted receipt after profile retirement. Public Product and Demo returned 200 with the new copy. The executive brokerage was outside this rehearsal, and provider actions remained mocked.
