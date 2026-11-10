@@ -33,6 +33,8 @@ The first R1 release is the owner Exceptions workflow, aligned with Today and Pr
 
 R1 is live. The owner sidebar opens file exceptions, the handoff preserves drafts and identifies the next staff member, and the Processing badge opens incoming work. The full fictional working day passed against the built Worker. Hosted verification covered the signed-in owner and the public pages. R2 starts with the conventional purchase and rate-and-term refinance file paths and their manual MISMO fallback. [Exceptions evidence](docs/demo-rehearsal-log.md#hosted-owner-exceptions) · [Handoff evidence](docs/demo-rehearsal-log.md#staff-handoff-draft-recovery) · [Working-day evidence](docs/demo-rehearsal-log.md#processing-attention-and-working-day-acceptance)
 
+R2's first release verifies manual lender readiness against the current 1003, lender details and selected quote. The fictional conventional purchase and no-cash-out refinance completed through funding on the local Worker. Next, cover a lender rejection before acknowledgment and run the refinance through simulated UWM. Joint and Non-QM file acceptance remain in R2. [Release evidence](docs/demo-rehearsal-log.md#manual-lender-terms-through-closing)
+
 ### R1 execution plan
 
 | Slice | Work | Release evidence |

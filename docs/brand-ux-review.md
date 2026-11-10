@@ -50,6 +50,10 @@ The earlier handoff listed assigned staff and the status. The updated panel puts
 
 Processing uses the same sidebar count and mobile menu indicator as the other queues. The badge opens the incoming items it counts, including when an owner had selected Ready to accept. The 390 px touch check found the timestamp squeezing the heading into three lines. The revised heading wraps the timestamp below the title at that width. The desktop owner and portrait LO sessions also fit without horizontal overflow. [Working-day evidence](demo-rehearsal-log.md#processing-attention-and-working-day-acceptance)
 
+### Manual lender closing
+
+The previous Closing view could leave a manual quote file without a clear way to advance. Closing now links to the exact export or acknowledgment step when the terms change, using the existing hold pattern. Desktop and portrait sessions verified the hold. The 390 px check moved the export heading below the sticky drawer header and kept the selected quote and previous checklist reachable. The browser verified the revised download, acknowledgment and removal of the hold. [Release evidence](demo-rehearsal-log.md#manual-lender-terms-through-closing)
+
 Release `2d3265d0-ec1e-486b-b0eb-8f5661b38e23` keeps **Refresh requested documents** available on the lender submission with one replacement outstanding. In a local built-Worker processor session, the pay stub was the only request still waiting. After the borrower attached the replacement, the control brought both received documents into review. The 320 px drawer had no horizontal overflow with the fixture's Inter request returning 404.
 
 At 320 px, the funded check-in fields stack so the selected outcome stays legible. The required callback date retains focus on validation. **Save check-in** returned to the loan, and **Save & start repeat 1003** saved the check-in and focused the loan-purpose field. Search showed the existing funded purchase, a distinct refinance draft, and the same contact. The shortcut is absent for No response and does not replace the standard save.

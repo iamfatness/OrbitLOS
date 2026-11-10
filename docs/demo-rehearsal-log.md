@@ -979,3 +979,13 @@ Separate local Chrome sessions tested the owner at 1440 Ã— 1000, the LO at 900 Ã
 The local built Worker took the same fictional file from imported lead and submitted 1003 through review, mock pricing, original-receipt recovery, two-way staff handoff, mock conditions, closing, funding and post-funding follow-up. It blocked a second submission during uncertainty, denied an unrelated LO's recovery attempt, and reconciled repeated recovery to the same receipt and one lender file. The send and return writes took 9 ms and 7 ms, with the first queue read taking 4 ms in each direction. These are immediate local requests, separate from browser polling and network latency.
 
 All 369 tests, source lint, typecheck, production build, and working-day and concurrency rehearsals passed. The EQ tests used synthetic responses. Hosted provider activity remained simulated. [Lender sandbox acceptance](lender-sandbox-acceptance.md)
+
+## Manual lender terms through closing
+
+On November 10, 2026, Worker `ed579dbd-b5b4-418a-a4af-4605c8685ebe` from `c0d6440` showed the existing fictional Harbor acknowledgment as Ready in the live file preflight. The evidence named file `HARBOR-QA-FILE-201`, quote `HARBOR-DEMO-201` and its 5.625% note rate. The hosted check read the isolated fictional workspace. The public landing, Product, and Demo returned HTTP 200, both feature descriptions matched, and all 44 staged assets matched the build twice.
+
+The built Worker completed a conventional purchase and a no-cash-out refinance through the fictional registration profile, reviewed 1003, selected quote, manual acknowledgment, evidence delivery, clearance, closing and funding. The XML matched the loan purpose and rate and included the refinance cash-out determination for the refinance. Changing the selection before closing required the revised export and acknowledgment. Changing the selection after closing blocked funding until the current terms were acknowledged. Re-acknowledgment reused the original lender file and retained the conditions.
+
+Playwright checked the owner's desktop and the LO's portrait and phone views. The LO opened the required export from Closing, downloaded the revised XML with a 6.125% purchase rate, recorded the acknowledgment and saw Clear to Close become available. The phone check led to a scroll offset that keeps the export heading visible below the sticky drawer header. [Design evidence](brand-ux-review.md#manual-lender-closing)
+
+All 369 tests, source lint, typecheck, the production build, and the working-day and concurrency rehearsals passed. The MISMO checks used fictional lender requirements and synthetic files. Hosted provider activity remained simulated.
