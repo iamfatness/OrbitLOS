@@ -13,9 +13,12 @@ import { ManageDocumentTemplates } from "./document-checklist-templates";
 import { ManageFeeTemplates } from "./fee-templates";
 import { BrokerageBranches } from "./brokerage-branches";
 
-export function BrokerageTeam({ staff, version, refresh, openLoan, openDepartureWork }: {
+const teamPanels = ["Staff access", "Branches", "Loan settings", "Workspaces", "Pilot tools", "Access history"] as const;
+export type TeamPanel = (typeof teamPanels)[number];
+
+export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLoan, openDepartureWork }: {
   staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string) => void;
-  openDepartureWork: (item: DepartureItem) => void;
+  openDepartureWork: (item: DepartureItem) => void; panel: TeamPanel; setPanel: (panel: TeamPanel) => void;
 }) {
   const endpoint = `/api/brokerages?brokerage=${staff.brokerage.id}`;
   const [settings, setSettings] = useState<BrokerageSettings | null>(null);
@@ -32,6 +35,9 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
   const measurementAttempt = useRef<{ id: string; fields: string } | null>(null);
   const admin = staff.brokerage.role === "Admin";
   const pilot = staff.brokerage.pilot;
+  const canUseSampleTools = pilot || staff.brokerage.id === demoBrokerageId;
+  const panels = teamPanels.filter((item) => (item !== "Branches" && item !== "Pilot tools") || canUseSampleTools);
+  const activePanel = panels.includes(panel) ? panel : "Staff access";
   const activeMembers = settings?.members.filter((member) => member.status === "Active") ?? [];
   const scenarioOwners = activeMembers.filter((member) => member.role !== "Processor");
   const explorationOwners = settings?.members.filter(member => member.role !== "Processor" &&
@@ -112,12 +118,21 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
   async function copyWorkspace() {
     try {
       await navigator.clipboard.writeText(new URL(brokerageUrl(staff.brokerage.id), window.location.origin).href);
-      setCopyStatus("Pilot workspace link copied.");
-    } catch { setCopyStatus("Copy the pilot workspace address from your browser."); }
+      setCopyStatus("Workspace link copied.");
+    } catch { setCopyStatus("Copy the workspace address from your browser."); }
   }
 
   return <div className="relationship-stack">
-    <section className="pipeline relationship-panel" aria-label="Brokerage workspaces">
+    {admin && <nav className="loan-application-actions team-panel-nav" aria-label="Team views">
+      {panels.map((item) => <Button key={item} size="sm" variant={activePanel === item ? "default" : "outline"}
+        aria-current={activePanel === item ? "page" : undefined} disabled={busy} onClick={() => {
+          setPanel(item);
+          setConfirmingReset(false);
+          setCopyStatus("");
+        }}>{item}</Button>)}
+    </nav>}
+    {!settings && !error && <p className="muted" role="status">Loading team…</p>}
+    {(!admin || activePanel === "Workspaces") && <section className="pipeline relationship-panel" aria-label="Brokerage workspaces">
       <div className="section-heading"><h2>{staff.brokerage.name}</h2><span className="pill">{pilot ? "Pilot · " : ""}{staff.brokerage.role}</span></div>
       <div className="loan-application-actions">{settings?.brokerages.filter((item) => item.id !== staff.brokerage.id).map((item) =>
         <Button key={item.id} asChild size="sm" variant="outline"><a href={brokerageUrl(item.id)}>Open {item.name}</a></Button>)}</div>
@@ -126,12 +141,18 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
         <label className="demo-confirm"><input name="pilot" type="checkbox" /> Create as a fictional pilot workspace</label>
         <Button type="submit" size="sm" disabled={busy}>Create workspace</Button>
       </form></details>}
-    </section>
-    {error && <p role="alert" className="application-message banner-error">{error}</p>}
+    </section>}
+    {error && <div className="loan-application-actions">
+      <p role="alert" className="application-message banner-error">{error}</p>
+      {!settings && <Button size="sm" variant="outline" onClick={() => {
+        setError("");
+        void reloadTeam().catch((failure: Error) => setError(failure.message));
+      }}>Retry loading team</Button>}
+    </div>}
     {message && <p role="status" className="application-message">{message}</p>}
-    {admin && settings && (pilot || staff.brokerage.id === demoBrokerageId) && <BrokerageBranches key={`branches-${staff.brokerage.id}`} endpoint={endpoint}
+    {admin && settings && activePanel === "Branches" && canUseSampleTools && <BrokerageBranches key={`branches-${staff.brokerage.id}`} endpoint={endpoint}
       members={settings.members} refreshHistory={reloadTeam} />}
-    {admin && settings && (pilot || staff.brokerage.id === demoBrokerageId) && <section className="pipeline relationship-panel" aria-label="Demo examples">
+    {admin && settings && activePanel === "Pilot tools" && canUseSampleTools && <section className="pipeline relationship-panel" aria-label="Demo examples">
         <details className="document-form"><summary>Self-guided demo examples</summary>
           <p className="muted">Populate Today, Calendar, Lead Inbox, and the daily workspace with linked fictional records.</p>
           <form className="brokerage-form" onSubmit={(event) => {
@@ -151,7 +172,7 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
           </form>
         </details>
     </section>}
-    {pilot && <section className="pipeline relationship-panel" aria-label="Pilot scenario">
+    {pilot && (!admin || activePanel === "Pilot tools") && <section className="pipeline relationship-panel" aria-label="Pilot scenario">
       <h2>Pilot scenario</h2>
       <p className="muted">Use fictional borrowers and built-in files. UWM, verification email, and scanning are simulated here.</p>
       {admin && settings && <>
@@ -182,7 +203,7 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
         <li>Accept the clean PDF, record mock delivery, and check UWM clearance from the checklist.</li>
       </ol>
     </section>}
-    {pilot && admin && settings && <section className="pipeline relationship-panel" aria-label="Pilot measurements">
+    {pilot && admin && settings && activePanel === "Pilot tools" && <section className="pipeline relationship-panel" aria-label="Pilot measurements">
       <h2>Pilot measurements</h2>
       <ul>{settings.pilotMetrics?.map((item) => <li key={item.label}>{item.label} · {item.minutes === null ? "No completed samples" :
         `${item.minutes.toFixed(1)} min average across ${item.count} completed samples`}</li>)}</ul>
@@ -216,7 +237,7 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
         </tr>)}</tbody>
       </table></div>}
     </section>}
-    {pilot && <section className="pipeline relationship-panel" aria-label="Pilot feedback">
+    {pilot && (!admin || activePanel === "Pilot tools") && <section className="pipeline relationship-panel" aria-label="Pilot feedback">
       <h2>Pilot feedback</h2>
       <p className="muted">Describe the workflow and what happened using fictional examples. Keep application answers, links, and documents out of feedback.</p>
       <form className="record-form" onSubmit={sendFeedback}>
@@ -247,9 +268,12 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
         </details>
       </li>)}</ul> : <p className="muted">Staff feedback will appear here.</p>)}
     </section>}
-    {admin && settings && <>
-      <section className="pipeline relationship-panel" aria-label="Staff access">
-        <h2>Staff access</h2><p className="muted">Invite by Google email, then share the workspace link. The invite activates when that account signs in.</p>
+    {admin && settings && activePanel === "Staff access" &&
+      <section className="pipeline relationship-panel team-access-panel" aria-label="Staff access">
+        <div className="section-heading team-access-heading"><h2>Staff access</h2>
+          <Button size="sm" variant="outline" onClick={() => void copyWorkspace()}>Copy workspace link</Button></div>
+        <p className="muted">Invite by Google email, then share the workspace link. The invite activates when that account signs in.</p>
+        {copyStatus && <p className="muted" role="status">{copyStatus}</p>}
         <form className="brokerage-form" onSubmit={(event) => {
           event.preventDefault();
           const form = event.currentTarget;
@@ -280,12 +304,15 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
               void Promise.all([reloadTeam(), refresh()]).catch((failure: Error) => setError(failure.message));
             }} />}
         </li>)}</ul>
-      </section>
-      {(pilot || staff.brokerage.id === demoBrokerageId) && <ManageDocumentTemplates key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
-      <ManageFeeTemplates key={`fees-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
+      </section>}
+    {admin && settings && activePanel === "Loan settings" && <>
       <TeamLoanAssignment brokerageId={staff.brokerage.id} version={version} openLoan={openLoan} onChanged={() => {
         void Promise.all([refresh(), reloadTeam()]).catch(() => setError("Assignment saved. Refresh Team to see the latest access history."));
       }} />
+      {canUseSampleTools && <ManageDocumentTemplates key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
+      <ManageFeeTemplates key={`fees-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
+    </>}
+    {admin && settings && activePanel === "Access history" &&
       <section className="pipeline relationship-panel" aria-label={pilot ? "Pilot activity and access history" : "Access history"}>
         <h2>{pilot ? "Pilot activity and access history" : "Access history"}</h2>
         <ul className="document-list">{settings.history.map((event) => <li className="document-item" key={event.id}>
@@ -294,7 +321,6 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
             <small className="muted">{event.actor} · {dateTime(event.createdAt)} ET</small>
           </li>)}</ul>
         {!settings.history.length && <p className="muted">Staff and link changes will appear here.</p>}
-      </section>
-    </>}
+      </section>}
   </div>;
 }

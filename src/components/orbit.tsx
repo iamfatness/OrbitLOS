@@ -57,7 +57,8 @@ import type { CalendarQuery, OfficerQueueItem } from "@/lib/officer-queue-model"
 import { stalledLoanUnavailable } from "@/lib/officer-dashboard-model";
 import { StalledLoans } from "./officer-dashboard";
 import { MigrationWorkspace } from "./migration-workspace";
-import { BrokerageTeam } from "./brokerage-team";
+import { BrokerageTeam, type TeamPanel } from "./brokerage-team";
+import { BrokerageOverview, brokerageReports, type BrokerageQueue, type BrokerageReport } from "./brokerage-overview";
 import { CommunicationQueue } from "./loan-communications";
 import { ConversationQueue } from "./conversation-queue";
 import { InboundReplyQueue } from "./inbound-reply-queue";
@@ -99,9 +100,9 @@ import { staleProcessingHandoff } from "@/lib/processing-model";
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
 const CustomReports = lazy(async () => ({ default: (await import("./custom-reports")).CustomReports }));
 
-type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Exceptions" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns" | "Compliance";
+type Section = "Brokerage" | "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Exceptions" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns" | "Compliance";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
-  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration", "Exceptions", "Compliance"]);
+  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration", "Exceptions", "Compliance", "Brokerage"]);
 const reportTabs = ["Owner scorecard", "Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report", "Custom reports"] as const;
 const [localOfficer] = localCampaignOfficers;
 const demoOfficer = localOfficer.name;
@@ -109,6 +110,7 @@ const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as 
 type TaskView = (typeof taskViews)[number];
 const navigation = [
   { title: "Loan operations", items: [
+    { label: "Brokerage", icon: workspaceIcons.brokerage },
     { label: "Today", icon: workspaceIcons.today },
     { label: "Calendar", icon: workspaceIcons.calendar },
     { label: "Coverage", icon: workspaceIcons.coverage },
@@ -136,6 +138,7 @@ const navigation = [
     { label: "Team", icon: workspaceIcons.team },
   ] },
 ] as const;
+const brokerageQueueSections: Record<BrokerageQueue, Section> = { exceptions: "Exceptions", leads: "Lead Inbox", processing: "Processing" };
 
 const stageColors = ["lavender", "blue", "peach", "gold", "rose", "mint", "green", "slate"];
 const taskOwner = (item: Pick<Loan, "officer" | "officerEmail">) => item.officerEmail ? `account:${item.officerEmail}` : `name:${item.officer}`;
@@ -177,7 +180,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const [workspaceStatus, setWorkspaceStatus] = useState<"cold" | "loading" | "failed" | "ready">(deferredWorkspace ? "cold" : "ready");
   const [reviewVersion, setReviewVersion] = useState(0);
   const queueVersion = useMemo(() => ({ state, reviewVersion }), [state, reviewVersion]);
-  const actionCounts = useActionCounts(staff?.brokerage.id ?? demoBrokerageId, staff?.email,
+  const { counts: actionCounts, unavailable: countsUnavailable, refresh: refreshCounts } = useActionCounts(staff?.brokerage.id ?? demoBrokerageId, staff?.email,
     controlsReady && (canOpenToday || canOpenProcessing), queueVersion);
   const [attentionVisit, setAttentionVisit] = useState<{ section: Section; visit: number }>();
   const [searchSelection, setSearchSelection] = useState<SearchSelection>({ query: "", filter: "All records" });
@@ -185,13 +188,22 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const [contactToolsOpen, setContactToolsOpen] = useState(false);
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
   const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff && staff.brokerage.role !== "Admin" ? "Custom reports" : "Owner scorecard");
+  const [teamPanel, setTeamPanel] = useState<TeamPanel>("Staff access");
   const [scorecardFilters, setScorecardFilters] = useState<OwnerScorecardFilters>(() => ({ ...currentReportMonth(), owner: "" }));
   const [reportingPeriod, setReportingPeriod] = useState(currentReportingPeriod);
   const [managerExceptionView, setManagerExceptionView] = useState<ManagerExceptionView>("files");
   const [managerExceptionFilters, setManagerExceptionFilters] = useState(defaultManagerExceptionFilters);
   const [salesSelection, setSalesSelection] = useState<SalesSelection>(() => ({ filters: { ...currentReportMonth(), channel: "Campaigns", owner: "", windowDays: 0 } }));
   const [section, setSection] = useState<Section>(processorTaskEntry ? "Tasks" : initialGuide && !processor ? "Demo Guide" :
-    processor ? "Processing" : staff ? "Today" : "Pipeline");
+    processor ? "Processing" : staff?.brokerage.role === "Admin" ? "Brokerage" : staff ? "Today" : "Pipeline");
+  const sectionHeading = useRef<HTMLHeadingElement>(null);
+  const focusSection = useRef(false);
+  useEffect(() => {
+    if (!focusSection.current) return;
+    sectionHeading.current?.focus({ preventScroll: true });
+    sectionHeading.current?.scrollIntoView({ block: "start" });
+    focusSection.current = false;
+  }, [section]);
   const reviewInbox = useReviewInbox(staff?.brokerage.id ?? demoBrokerageId, canOpenCalendar, section === "Review Inbox", reviewVersion);
   const [guideTrack, setGuideTrack] = useState<GuideTrack>(initialGuide ?? "referral");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -207,7 +219,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const [focusContactTask, setFocusContactTask] = useState<string>();
   const pagedTasks = !!staff && !detailedTasks;
   const showDetailedTaskLists = section === "Tasks" && !pagedTasks;
-  const scopedReport = section === "Reports" && reportTab === "Custom reports";
+  const scopedReport = section === "Reports" && (reportTab === "Custom reports" ||
+    brokerageReports.some((tab) => tab !== "Funding dashboard" && tab === reportTab));
   const waitingForWorkspace = workspaceStatus !== "ready" && ((!scopedSections.has(section) && !scopedReport) || (section === "Tasks" && !pagedTasks) ||
     modal?.kind === "contactDuplicates");
   const [loanWork, setLoanWork] = useState<EditableLoan>();
@@ -241,6 +254,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const admin = !staff || staff.brokerage.role === "Admin";
   const canReviewReplies = admin && (staff ? staff.brokerage.pilot === true : process.env.NODE_ENV === "development");
   const canReport = staff?.brokerage.role === "Admin";
+  const sectionTitle = section === "Brokerage" ? "Brokerage overview" : section === "Pipeline" ? "Loan pipeline" : section;
   const canOpenManagerReports = canReport || (!staff && process.env.NODE_ENV === "development");
   const canOpenReports = canOpenManagerReports || !!staff;
   const canOpenFinance = canManageFinance(staff) || (!staff && process.env.NODE_ENV === "development");
@@ -635,6 +649,16 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
         reportTab !== "Pipeline workload" && reportTab !== "Sales conversion" && reportTab !== "Referral queue" && reportTab !== "Custom reports"))) {
       void save({ type: "refreshWorkspace" }, undefined, false);
     }
+  }
+
+  function openBrokerageView(next: Section, attention = false) {
+    focusSection.current = true;
+    navigate(next, false, undefined, attention);
+  }
+
+  function openBrokerageReport(report: BrokerageReport) {
+    setReportTab(report);
+    openBrokerageView("Reports");
   }
 
   function show(next: Modal) {
@@ -1169,8 +1193,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           mobileMenu.current?.focus();
         }
       }}>
-        <button type="button" className="brand w-fit rounded-lg hover:text-[var(--orbit-lilac)]" aria-label="OrbitLOS home, back to Pipeline" disabled={!controlsReady}
-          onClick={() => navigate("Pipeline")}>
+        <button type="button" className="brand w-fit rounded-lg hover:text-[var(--orbit-lilac)]" aria-label={canReport ? "OrbitLOS home, brokerage overview" : "OrbitLOS home, back to Pipeline"} disabled={!controlsReady}
+          onClick={() => navigate(canReport ? "Brokerage" : "Pipeline")}>
           <span className="brand-icon"><OrbitIcon size={22} aria-hidden="true" /></span><span>OrbitLOS</span>
         </button>
         <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button" disabled={!controlsReady}
@@ -1182,7 +1206,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           {navigation.map(({ title, items }) => (
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
-              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (label !== "Compliance" || (admin && staff?.brokerage.pilot)) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
+              {items.filter(({ label }) => (label !== "Brokerage" || canReport) && (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (label !== "Compliance" || (admin && staff?.brokerage.pilot)) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
                 const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads :
                   label === "Exceptions" ? actionCounts?.exceptions : label === "Processing" ? actionCounts?.processing : undefined;
                 const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
@@ -1192,7 +1216,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
                     (attention === 1 ? "lead needs first contact" : "leads need first contact");
                 return <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
                   aria-label={count ? `${label}, ${count} ${reason}` : undefined}
-                  disabled={!controlsReady} onClick={() => navigate(label, true, undefined, Boolean(attention) && label !== "Exceptions")}>
+                  disabled={!controlsReady} onClick={() => {
+                    if (label === "Team") setTeamPanel("Staff access");
+                    navigate(label, true, undefined, Boolean(attention) && label !== "Exceptions");
+                  }}>
                   <Icon size={20} aria-hidden="true" /><span>{label}</span>
                   {count && <small className="nav-count" aria-hidden="true">{count}</small>}
                   {label === "Tasks" && workspaceStatus === "ready" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
@@ -1211,7 +1238,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
       </aside>
       <main className="main">
         <header className="topbar">
-          <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section}</strong></span>
+          <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section === "Brokerage" ? "Brokerage overview" : section}</strong></span>
           <div className="topbar-actions">
             {canOpenCalendar && <Button className="workspace-search-trigger" type="button" size="sm" variant="ghost" data-tooltip="Search workspace"
               aria-label="Search workspace" aria-current={section === "Search" ? "page" : undefined} disabled={!controlsReady}
@@ -1244,9 +1271,12 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
               <div><dt>Open lender conditions</dt><dd data-outstanding={(pipeline.page?.metrics.openConditions ?? 0) > 0}>{pipeline.page?.metrics.openConditions ?? "—"}</dd><dd className="metric-context">Across linked lender files</dd></div>
             </dl>
           </section> : <div className="page-heading">
-            <h1>{section === "Pipeline" ? "Loan pipeline" : section}</h1>
+            <div><h1 ref={sectionHeading} tabIndex={-1}>{sectionTitle}</h1>
+              {(section === "Brokerage" || section === "Team") && staff && <p className="muted">{staff.brokerage.name}</p>}
+            </div>
             {section === "Demo Guide" && !controlsReady && <p className="muted" role="status">Getting the walkthrough ready…</p>}
             {!waitingForWorkspace && <div className="heading-actions">
+              {section === "Brokerage" && canReport && <Button disabled={busy || !controlsReady} onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}
               {section === "Contacts" && admin && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && staff && <Button variant="outline" disabled={busy}
                 onClick={() => { setDetailedTasks(pagedTasks); setFocusContactTask(undefined); }}>
@@ -1371,6 +1401,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             {admin && <CrmFieldSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           </>}
 
+          {section === "Brokerage" && canReport && <BrokerageOverview counts={actionCounts} unavailable={countsUnavailable} busy={busy || !controlsReady}
+            pilot={Boolean(staff.brokerage.pilot)} hasBranches={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId} refresh={refreshCounts}
+            openQueue={(queue) => openBrokerageView(brokerageQueueSections[queue], queue !== "exceptions")} openReport={openBrokerageReport}
+            openTeam={(panel) => { setTeamPanel(panel); openBrokerageView("Team"); }}
+            openCompliance={() => openBrokerageView("Compliance")} openToday={() => openBrokerageView("Today")} />}
           {section === "Today" && canOpenToday && <OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             complianceWork={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
@@ -1659,7 +1694,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             openLoan={(loanId, processing) => void openQueueLoan({ kind: "details", loanId, target: processing ? "processing-handoff" : undefined })}
             openAssignment={canReport ? (loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn }) : undefined} />}
 
-          {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} refresh={async () => invalidateWorkspace()}
+          {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
             openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
             openDepartureWork={(item) => {
               if (item.kind === "Lead") return openLeadWork(item.recordId, item.campaignId);

@@ -1,9 +1,10 @@
 import {
   ArrowDownUp, CalendarClock, CalendarDays, ChartNoAxesCombined, CircleAlert, Clock3, Columns3, Compass, ContactRound,
-  Files, Handshake, HeartHandshake, Inbox, ListTodo, MessagesSquare, Phone, Plug, ShieldCheck, ShieldQuestionMark, UsersRound, Workflow,
+  Files, Handshake, HeartHandshake, Inbox, LayoutDashboard, ListTodo, MessagesSquare, Phone, Plug, ShieldCheck, ShieldQuestionMark, UsersRound, Workflow,
 } from "lucide-react";
 
 export const workspaceIcons = {
+  brokerage: LayoutDashboard,
   today: Clock3,
   calendar: CalendarDays,
   coverage: CalendarClock,

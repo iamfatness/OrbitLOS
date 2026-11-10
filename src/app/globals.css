@@ -646,7 +646,8 @@ button:disabled { cursor: default; }
 .loan-section-nav button { min-height: 40px; padding: 4px 8px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #544b63; }
 .loan-section-nav button:hover { background: #efe7fa; }
 .loan-section-nav button[aria-current] { background: #e8dcfb; color: #482b81; }
-.condition, .document-item, .details-section, .details-body [tabindex="-1"], #manual-lender-export { scroll-margin-top: 73px; }
+.condition, .document-item, .details-section, .details-body [tabindex="-1"], #manual-lender-export { scroll-margin-top: var(--record-scroll-offset, 73px); }
+.loan-section-picker { display: none; }
 .condition .document-item { margin: 7px 0; }
 .condition .loan-application-actions { margin-block: 6px; }
 .condition:focus { outline: 2px solid #856cdb; outline-offset: 4px; border-radius: 6px; background: #f4effd; }
@@ -706,6 +707,35 @@ button:disabled { cursor: default; }
 .compliance-work .compliance-row { align-items: center; }
 .compliance-work .loan-task-copy span { font-size: 13px; }
 .compliance-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 8px; }
+.brokerage-overview { max-width: 1100px; container-type: inline-size; }
+.brokerage-overview .integration { max-width: none; min-width: 0; }
+.brokerage-overview .section-heading { margin-bottom: 0; flex-wrap: wrap; }
+.brokerage-overview h2 { display: flex; align-items: center; gap: 8px; }
+.brokerage-queue-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.brokerage-queue-card {
+  display: grid; grid-template-rows: subgrid; grid-row: span 3; gap: 9px;
+  min-width: 0; padding: 14px; text-align: start; background: var(--background);
+  border: 1px solid var(--line); border-radius: 12px; color: inherit; cursor: pointer;
+}
+.brokerage-queue-card:hover { border-color: var(--accent); background: white; }
+.brokerage-queue-card:disabled { cursor: default; opacity: .7; }
+.brokerage-queue-label { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; font-weight: 650; }
+.brokerage-queue-label svg { color: #503b91; flex-shrink: 0; }
+.brokerage-queue-count { font-size: 30px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.brokerage-queue-action { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #503b91; font-size: 13px; font-weight: 650; }
+.brokerage-queue-action svg { flex-shrink: 0; }
+.brokerage-overview-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.brokerage-link-list { display: grid; gap: 2px; }
+.brokerage-link-list button { width: 100%; justify-content: space-between; min-height: 40px; }
+.team-access-heading { flex-wrap: wrap; }
+.team-access-panel .document-item-head strong { overflow-wrap: anywhere; }
+@container (max-width: 570px) {
+  .brokerage-queue-grid, .brokerage-overview-links { grid-template-columns: minmax(0, 1fr); }
+  .brokerage-queue-card { grid-row: auto; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 6px 12px; align-items: center; }
+  .brokerage-queue-count { grid-column: 2; grid-row: 1 / 3; font-size: 26px; }
+  .brokerage-queue-action { justify-content: flex-start; }
+  .brokerage-overview button { min-height: 44px; }
+}
 @media (max-width: 540px) {
   .compliance-work .compliance-row { align-items: stretch; flex-direction: column; }
   .compliance-work button { min-height: 44px; }
@@ -770,3 +800,11 @@ button:disabled { cursor: default; }
 .record-dialog-scenarios { max-width: min(1160px, 100vw); }
 .record-dialog-scenarios .loan-section-nav { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 @media (max-width: 640px) { .record-dialog-scenarios .loan-section-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+  .record-dialog-details { scroll-padding-block-start: 124px; --record-scroll-offset: 11px; }
+  .record-dialog-details .loan-section-nav { display: none; }
+  .loan-section-picker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px;
+    padding: 6px 13px; border-bottom: 1px solid var(--line); background: var(--background); color: var(--ink); font-weight: 650; }
+  .loan-section-picker select { min-width: 0; min-height: 44px; padding: 5px 8px; border: 1px solid var(--control-line);
+    border-radius: 8px; background: #fff; color: var(--ink); font-size: 16px; font-weight: 500; }
+}

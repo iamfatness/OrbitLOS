@@ -498,6 +498,15 @@ const loanSections = [
   ["Pricing & credit", "loan-pricing"], ["Disclosures", disclosureTarget], ["Compliance", complianceTarget], ["Closing", "closing-workbench"], ["Activity", "loan-activity"],
 ] as const;
 
+function hasDisclosures(staff: WorkspaceStaff | null) {
+  return staff ? staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId : process.env.NODE_ENV === "development";
+}
+
+function visibleLoanSections(staff: WorkspaceStaff | null) {
+  return loanSections.filter(([name]) => (name !== "Scenarios" || staff || process.env.NODE_ENV === "development") &&
+    (name !== "Disclosures" || hasDisclosures(staff)) && (name !== "Compliance" || staff?.brokerage.pilot));
+}
+
 function loanSection(target?: string) {
   if (!target) return "Overview";
   if (target === "loan-scenarios") return "Scenarios";
@@ -513,6 +522,12 @@ function loanSection(target?: string) {
   if (["loan-activity", "loan-tasks", "loan-retention", "loan-communications", loanReviewsTarget, filePreflightRequestTarget].includes(target) ||
     target.startsWith(appointmentTargetPrefix) || target.startsWith(searchTaskTarget("")) || target.startsWith(reviewTarget(""))) return "Activity";
   return "Overview";
+}
+
+function needsScopedLoan(destination: string, state: Workspace, staff: WorkspaceStaff | null) {
+  const section = loanSection(destination);
+  return (!state.disclosureWork && (destination === disclosureTarget || (!staff && hasDisclosures(staff) && section === "Closing"))) ||
+    (!staff && state.closingServiceEvidence === undefined && ["Conditions", "Closing"].includes(section));
 }
 
 function CarriedCallbackForm({ loanId, taskId, dueAt, busy, save }: {
@@ -587,7 +602,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const processor = staff?.brokerage.role === "Processor";
   const fictionalUwm = !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
   const canOpenReviews = Boolean(staff) || process.env.NODE_ENV === "development";
-  const canOpenDisclosures = staff ? staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId : process.env.NODE_ENV === "development";
+  const canOpenDisclosures = hasDisclosures(staff);
   const sharedProcessor = processor && loan.officerEmail !== staff.email;
   const [activityKind, setActivityKind] = useState<ActivityKind>("Note");
   const activityAttempt = useRef<{ key: string; id: string } | null>(null);
@@ -641,10 +656,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       }
       destination = "loan-pricing";
     }
-    const needsDisclosures = !state.disclosureWork &&
-      (destination === disclosureTarget || !staff && canOpenDisclosures && loanSection(destination) === "Closing");
-    const needsServiceOrders = !staff && state.closingServiceEvidence === undefined && ["Conditions", "Closing"].includes(loanSection(destination));
-    if (needsDisclosures || needsServiceOrders) {
+    if (needsScopedLoan(destination, state, staff)) {
       openScopedLoan(destination);
     }
     else show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
@@ -679,8 +691,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         </div>
         <Button size="sm" onClick={() => open(action.target)}>Open next action <ArrowRight aria-hidden="true" /></Button>
       </div>
-      <nav className="loan-section-nav" aria-label="Loan sections">{loanSections.filter(([name]) =>
-        (name !== "Scenarios" || canOpenReviews) && (name !== "Disclosures" || canOpenDisclosures) && (name !== "Compliance" || staff?.brokerage.pilot)).map(([name, destination]) =>
+      <nav className="loan-section-nav" aria-label="Loan sections">{visibleLoanSections(staff).map(([name, destination]) =>
         <button key={name} type="button" aria-current={section === name ? "page" : undefined} onClick={() => open(destination)}>{name}</button>)}
       </nav>
       {section === "Overview" && <>
@@ -1085,7 +1096,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     },
   } : undefined;
   return (
-    <dialog ref={dialog} className={(modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog") + (modal.kind === "details" && modal.target === "loan-scenarios" ? " record-dialog-scenarios" : "")} aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
+    <dialog ref={dialog} className={(modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog") +
+      (modal.kind === "details" ? " record-dialog-details" : "") + (modal.kind === "details" && modal.target === "loan-scenarios" ? " record-dialog-scenarios" : "")}
+      aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
       <div className="dialog-top">
         <div className="dialog-head">
           {modal.kind === "assignment" && modal.returnTo && <Button variant="ghost" size="icon"
@@ -1097,6 +1110,16 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           {refreshLoan && <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setRefreshDeferred(null); refreshLoan(); }}><RefreshCw /> Refresh loan</Button>}
           <Button variant="ghost" size="icon" aria-label="Close dialog" onClick={close}><X /></Button>
         </div>
+        {modal.kind === "details" && loan && <label className="loan-section-picker">
+          <span>Loan section</span><select value={visibleLoanSections(staff).find(([name]) => name === returnSection)?.[1] ?? "loan-workflow"}
+            onChange={(event) => {
+              const destination = event.target.value;
+              if (needsScopedLoan(destination, state, staff)) openContactLoan(loan.id, destination);
+              else show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
+            }}>
+            {visibleLoanSections(staff).map(([name, destination]) => <option key={name} value={destination}>{name}</option>)}
+          </select>
+        </label>}
         {error && <p className="dialog-error" role="alert">{error}</p>}
         {refreshDeferred === modal && <p className="dialog-refresh-notice muted" role="status">Automatic refresh paused for your edits. Finish editing before refreshing the loan.</p>}
       </div>
