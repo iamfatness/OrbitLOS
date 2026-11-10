@@ -1412,6 +1412,22 @@ try {
     assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /Fictional state purchase template|templateBasis/i);
     assert.equal((await preflight()).preflight.checks.find(({ id }) => id === "disclosures").target, "closing-disclosure-review");
     await loanAction(officer, loanId, "confirmClosingDisclosure", await version());
+    const compliance = (staff, input, expected = brokerage) => action(staff, "accessComplianceCases", input, undefined, expected);
+    assert.equal((await compliance(owner, { type: "list", loanId })).coverage.state, "Not evaluated");
+    assert.ok((await compliance(competingOfficer, { type: "list", loanId })).error);
+    assert.ok((await compliance(owner, { type: "list" }, randomUUID())).error);
+    const sampleCase = { type: "openFixture", loanId, packageVersion: pinned.version };
+    assert.ok((await compliance(officer, sampleCase)).error);
+    const finding = await compliance(owner, sampleCase);
+    assert.equal(finding.item.packageVersion, pinned.version);
+    assert.equal((await compliance(owner, { type: "list" })).counts.files, 1);
+    assert.equal((await compliance(processor, { type: "read", loanId, caseId: finding.item.id })).item.parentCaseId, null);
+    const evidence = { type: "recordSampleReview", caseId: finding.item.id, expectedRevision: finding.item.revision,
+      requestId: randomUUID(), packageRevision: (await version()).revision };
+    assert.ok((await compliance(officer, evidence)).error);
+    const recorded = await compliance(owner, evidence);
+    assert.equal(recorded.sampleReview.mode, "Sample workbench review");
+    assert.equal(recorded.item.status, "Open");
     const ready = (await preflight()).preflight;
     assert.ok(ready.checks.every(({ state }) => state === "Ready"), JSON.stringify(ready.checks));
     assert.equal((await review(officer, { type: "resubmit", id: reviewId, revision: 1, eventId: randomUUID(),

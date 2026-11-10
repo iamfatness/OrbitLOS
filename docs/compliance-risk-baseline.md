@@ -27,6 +27,21 @@ Use a fictional Michigan conventional purchase with a single brokerage, assigned
 
 RG-0 still needs named brokerage and legal reviewers, an agreed operational scope, and approved evidence and responsibility assignments. The fixture and design can progress while those decisions remain open.
 
+## RG-1 foundation
+
+The service in `src/lib/compliance-cases.ts` uses the existing workspace SQLite store. Its three case types have independent workflow status, ownership, optimistic revision checks, and append-only application history. The server caller must supply the authenticated staff session, its actual brokerage store and ID, and the directory's current roster. Brokerage admins see general workspace cases. LOs and processors can read findings for their assigned loans, and only a current case owner or admin can change workflow status. Restricted case rows are excluded before detail, counts, links, and paging. If the stored owner loses access, the projection routes work to an active admin or shows it needs assignment.
+
+The only case creation path is an explicit pilot-admin fixture for a fictional Michigan conventional purchase with a current sample disclosure package. Opening the same version reuses its case and shared review/gap. A new package version can open a distinct finding. The sample workbench review must match the latest package version and revision. Its provenance is retained separately from case workflow status and current coverage. Manual disclosure status and task completion provide no sample review. Both new and existing stores begin with coverage **Not evaluated**, with the eligible population unknown.
+
+RG-1 acceptance here covers foundational role and tenant scope, visibility, idempotent changes, stale queue pages, sample evidence and owner fallback. The remaining work includes a bounded inventory and backfill with health reporting, organization and rule scope, and delegated reviewer capabilities. Keep legal approval, rule evaluation, operational evidence, and action enforcement for their gated stages.
+
+## Fictional pilot queue
+
+- A signed-in pilot owner can open **Workspace → Compliance** for case counts, filters and detail. **Open file finding** returns to the specific loan and case. The case owner or admin can move workflow status. Only admins can assign active staff or record an exact-version sample workbench review.
+- An assigned LO or processor opens **Loan details → Compliance** to see only findings for that file. The page distinguishes a missing review, current sample review, and a changed or superseded package. Coverage remains **Not evaluated** in each view.
+- Start on a fictional Michigan conventional purchase. Submit and review its 1003, run sample pricing, select an offer, and prepare a sample disclosure package. With UWM stage configured, **Run sample pricing** selects Orbit's fictional quote generator for that request and makes no UWM call. In **Loan details → Compliance**, the owner opens the finding for the current sample package. Mock signing and the closing disclosure review make the exact workbench review available to record in the case.
+- Browser rehearsal uses separate signed-in owner, LO and processor fixtures at 1440 × 900, 900 × 1200 and 390 × 844. The queue keeps the issue, status and owner together with its action. Narrow rows stack, filters survive opening a case, and keyboard focus returns to the originating row. The code scan and responsive review use Orbit's existing components and spacing. [Impeccable detector](https://impeccable.style/docs/detector/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) · [21st.dev dashboard patterns](https://21st.dev/community/components/explore/dashboard-component)
+
 ## UX acceptance for the first queue
 
 - Owner opens **Review needed** and sees the same population in the filtered queue. Each row shows the issue, owner, timing, and next action. Coverage distinguishes waiting for evaluation, current results, and a failed or stale evaluation. [21st.dev dashboard patterns](https://21st.dev/community/components/explore/dashboard-component)

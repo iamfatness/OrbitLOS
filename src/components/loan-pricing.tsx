@@ -135,12 +135,13 @@ function SharedQuoteChanges({ shared, proposed }: { shared: QuotePresentation; p
   });
 }
 
-export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote, focusFees, canRehearseUnsupported }: {
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote, focusFees, canRehearseUnsupported, canRunSamplePricing }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
   reviewSharedQuote?: boolean;
   focusFees?: string;
   canRehearseUnsupported: boolean;
+  canRunSamplePricing?: boolean;
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
@@ -246,14 +247,16 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   async function price(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (formOutdated || incomeOutdated || (bank && !form.selfEmployed)) return;
-    const action = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
-    const manual = !canRehearseUnsupported || action === "manual";
-    const rehearse = !manual && action === "unsupported";
+    const selectedMode = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+    const manual = !canRehearseUnsupported || selectedMode === "manual";
+    const rehearse = !manual && selectedMode === "unsupported";
+    const sample = !manual && selectedMode === "sample";
     setPricing(true);
     setPreview(false);
     try {
       await save({ type: "runPricing", loanId: loan.id, scenario, applicationRevision: formRevision, incomeReviewRevision: useIncomeRevision,
-        simulateUnsupportedEq: rehearse ? true : undefined, manualLender: manual ? true : undefined }, ({ state: updated }) => {
+        simulateUnsupportedEq: rehearse ? true : undefined, sampleOnly: sample ? true : undefined,
+        manualLender: manual ? true : undefined }, ({ state: updated }) => {
         const result = updated.pricingRuns.find(({ loanId }) => loanId === loan.id);
         if (result?.mode === "manual" || result?.outcome === "unsupported") focusRun.current = result.id;
         setResultsRunId(undefined);
@@ -414,6 +417,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         {canRehearseUnsupported && <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>}
         <Button type="submit" disabled={busy || formOutdated || incomeOutdated}><Calculator /> {pricing ? "Saving…" :
           canRehearseUnsupported ? "Run pricing" : "Start manual quote"}</Button>
+        {canRunSamplePricing && form.program === "Conventional" && form.purpose === "Purchase" &&
+          <Button type="submit" value="sample" size="sm" variant="outline" disabled={busy || formOutdated || incomeOutdated}>Run sample pricing</Button>}
         {canRehearseUnsupported && <Button type="submit" value="manual" size="sm" variant="outline"
           disabled={busy || formOutdated || incomeOutdated}>Start manual quote</Button>}
         {canRehearseUnsupported && (dscr || bank) && <Button type="submit" value="unsupported" size="sm" variant="outline"

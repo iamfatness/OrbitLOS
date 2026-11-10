@@ -103,7 +103,7 @@ test("hosted pilot pricing uses provided server credentials and saves stage offe
   insertLoan(db, { id: loanId, contactId, partnerId: null, officer: "Admin", officerEmail: staff.email,
     address: "", amount: 300000, purpose: "Purchase", stage: "Application", stageSince: new Date().toISOString() });
   let tokenCalls = 0;
-  t.mock.method(globalThis, "fetch", async (url, init) => {
+  const fetch = t.mock.method(globalThis, "fetch", async (url, init) => {
     if (String(url).includes("oauth2/token")) {
       tokenCalls++;
       assert.equal(init.body.get("client_id"), "public-id");
@@ -115,16 +115,24 @@ test("hosted pilot pricing uses provided server credentials and saves stage offe
       : Response.json({ validQuoteItems: [{ mortgageProductId: 1, mortgageProductName: "UWM test product", actualTermYears: 30,
         quotePricePoints: [{ interestRate: { value: 6 }, principalAndInterest: { value: 1800 } }] }], obfuscatedScenarioId: 123 });
   });
-  const result = await executeCommand(db, { type: "runPricing", loanId, applicationRevision: null,
+  const request = { type: "runPricing", loanId, applicationRevision: null,
     scenario: { purpose: "Purchase", loanAmount: 300000, propertyValue: 400000, purchasePrice: 400000,
-      zip: "48326", creditScore: 780, monthlyIncome: 12000, occupancy: "Primary residence", propertyType: "Single family", firstTimeBuyer: false } },
-    staff, undefined, [], { uwmEnvironment: { ORBIT_PRICING_MODE: "uwm-stage", UWM_CLIENT_ID: "public-id", UWM_CLIENT_SECRET: "secret" } });
+      zip: "48326", creditScore: 780, monthlyIncome: 12000, occupancy: "Primary residence", propertyType: "Single family", firstTimeBuyer: false } };
+  const execution = { uwmEnvironment: { ORBIT_PRICING_MODE: "uwm-stage", UWM_CLIENT_ID: "public-id", UWM_CLIENT_SECRET: "secret" } };
+  const run = (input, actor = staff) => executeCommand(db, input, actor, undefined, [], execution);
+  const result = await run(request);
   assert.equal(result.error, undefined);
   assert.equal(tokenCalls, 1);
   const saved = sqlite.prepare("SELECT mode, offers, reference FROM pricing_runs WHERE loanId = ?").get(loanId);
   assert.equal(saved.mode, "stage");
   assert.equal(saved.reference, "123");
   assert.equal(JSON.parse(saved.offers)[0].product, "UWM test product");
+  const calls = fetch.mock.callCount();
+  assert.match((await run({ ...request, sampleOnly: true, manualLender: true })).error, /one pricing mode/);
+  assert.match((await run({ ...request, sampleOnly: true }, { ...staff, brokerage: { ...staff.brokerage, pilot: false } })).error, /fictional pilot/);
+  assert.equal((await run({ ...request, sampleOnly: true })).error, undefined);
+  assert.equal(fetch.mock.callCount(), calls);
+  assert.equal(sqlite.prepare("SELECT mode FROM pricing_runs WHERE loanId = ? ORDER BY rowid DESC LIMIT 1").get(loanId).mode, "mock");
 });
 
 test("operational workspaces reject stage quotes and simulated writes regardless of mapping", async t => {

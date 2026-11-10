@@ -1,6 +1,6 @@
 import {
   ArrowDownUp, CalendarClock, CalendarDays, ChartNoAxesCombined, CircleAlert, Clock3, Columns3, Compass, ContactRound,
-  Files, Handshake, HeartHandshake, Inbox, ListTodo, MessagesSquare, Phone, Plug, ShieldCheck, UsersRound, Workflow,
+  Files, Handshake, HeartHandshake, Inbox, ListTodo, MessagesSquare, Phone, Plug, ShieldCheck, ShieldQuestionMark, UsersRound, Workflow,
 } from "lucide-react";
 
 export const workspaceIcons = {
@@ -21,6 +21,7 @@ export const workspaceIcons = {
   demo: Compass,
   reports: ChartNoAxesCombined,
   playbooks: Workflow,
+  compliance: ShieldQuestionMark,
   integrations: Plug,
   migration: ArrowDownUp,
   team: UsersRound,

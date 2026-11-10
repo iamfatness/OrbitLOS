@@ -97,6 +97,8 @@ import { customReportWork } from "./lib/custom-reports";
 import { crmFieldWork } from "./lib/crm-fields";
 import { disclosureCalendarWork } from "./lib/disclosure-calendar";
 import { disclosureTemplateWork } from "./lib/disclosure-templates";
+import { complianceCaseWork } from "./lib/compliance-cases";
+import { complianceWorkUnavailable } from "./lib/compliance-case-model";
 import { borrowerQuestionSetWork } from "./lib/borrower-question-sets";
 import { loanStageEditWork } from "./lib/loan-stage-edits";
 import { closingGateWork } from "./lib/closing-gates";
@@ -430,6 +432,18 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   disclosureTemplates(input: unknown, staff: WorkspaceStaff) {
     return disclosureTemplateWork(this.#store, input, staff, this.#id);
+  }
+
+  async complianceCases(input: unknown, staff: WorkspaceStaff) {
+    if (!this.#accepts(staff) || !staff.brokerage.pilot) return { error: complianceWorkUnavailable };
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    try {
+      const roster = await directory.complianceRoster(staff, emails);
+      return roster ? complianceCaseWork(this.#store, input, staff, this.#id, roster) : { error: complianceWorkUnavailable };
+    } catch {
+      return { error: complianceWorkUnavailable };
+    }
   }
 
   borrowerQuestionSets(input: unknown, staff: WorkspaceStaff) {
@@ -777,6 +791,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   team(staff: WorkspaceStaff, emails: string[]) {
     const members = this.teamMembers(staff, emails);
     return members ? { members, history: brokerageHistory(this.#store, staff.brokerage.id) } : { members: [], history: [] };
+  }
+  complianceRoster(staff: WorkspaceStaff, emails: string[]): VersionedBrokerageMember[] | null {
+    if (this.#id !== demoBrokerageId) return null;
+    const active = activeBrokerages(this.#store, staff.email, emails).find(({ id }) => id === staff.brokerage.id);
+    return active?.pilot && active.role === staff.brokerage.role && active.accessRevision === staff.brokerage.accessRevision
+      ? brokerageMembers(this.#store, active.id, emails).filter(({ status }) => status === "Active") : null;
   }
   coverageRoster(staff: WorkspaceStaff, bootstrapEmails: string[], selected: string[] | null): VersionedBrokerageMember[] | null {
     if (this.#id !== demoBrokerageId) return null;

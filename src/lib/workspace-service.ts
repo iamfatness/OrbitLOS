@@ -69,6 +69,8 @@ import { customReportWork } from "./custom-reports";
 import { crmFieldWork } from "./crm-fields";
 import { disclosureCalendarWork } from "./disclosure-calendar";
 import { disclosureTemplateWork } from "./disclosure-templates";
+import { complianceWorkUnavailable } from "./compliance-case-model";
+import type { ComplianceCaseResult } from "./compliance-cases";
 import { borrowerQuestionSetWork } from "./borrower-question-sets";
 import { loanStageEditWork } from "./loan-stage-edits";
 import { closingGateWork } from "./closing-gates";
@@ -417,6 +419,9 @@ export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceS
 export async function workOnDisclosureTemplates(input: unknown, staff: WorkspaceStaff | null) {
   return disclosureTemplateWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
 }
+
+export const workOnComplianceCases: (input: unknown, staff: WorkspaceStaff) => Promise<ComplianceCaseResult> =
+  async () => ({ error: complianceWorkUnavailable });
 
 export async function workOnBorrowerQuestionSets(input: unknown, staff: WorkspaceStaff | null) {
   return borrowerQuestionSetWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
