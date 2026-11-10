@@ -1047,6 +1047,10 @@ export default {
       return app.fetch(new Request(url, { method: request.method }), env, context);
     }
     // Build assets are shared by the public site and the workspace.
+    // The build also applies its prefix to the public font URL in CSS.
+    if (reading && /^\/_orbit-assets\/[a-f0-9]{12}\/_next\/static\/fonts\/InterVariable\.woff2$/.test(url.pathname)) {
+      return env.ASSETS.fetch(new Request(new URL("/fonts/InterVariable.woff2", url), request));
+    }
     if (reading && /^(?:\/_orbit-assets\/[a-f0-9]{12})?\/_next\/static\/(?:chunks\/[\w-]+\.js|css\/[\w-]+\.css)$/.test(url.pathname)) {
       const asset = await env.ASSETS.fetch(request);
       if (asset.status < 400) return asset;
