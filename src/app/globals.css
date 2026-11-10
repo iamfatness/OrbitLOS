@@ -288,6 +288,8 @@ button:disabled { cursor: default; }
 .details-section { border-top: 1px solid var(--line); padding-top: 11px; }
 .section-heading, .submission-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 7px; }
 .section-heading h3 { display: flex; gap: 8px; align-items: center; font-size: 18px; font-weight: 600; }
+#processing-handoff { display: grid; gap: 8px; overflow-wrap: anywhere; }
+#processing-handoff > .section-heading, #processing-handoff .application-message { margin: 0; }
 .submission { background: #faf9fd; border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 7px; }
 .submission-head div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .submission-head p, .timestamp { font-size: 12px; color: var(--muted); }

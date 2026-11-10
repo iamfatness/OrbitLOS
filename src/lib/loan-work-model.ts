@@ -1,6 +1,7 @@
 import type { readEditableLoan } from "./editable-loan";
 import type { Workspace } from "./model";
 
+export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 export type EditableLoan = Exclude<ReturnType<typeof readEditableLoan>, { error: string }>;
 export type LoanMutationResult = { loanWork: EditableLoan; message: string; loanFormSaved?: true; applicationToken?: string; applicationLoanId?: string };
 

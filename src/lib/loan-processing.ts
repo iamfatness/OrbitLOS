@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { BrokerageMember } from "./brokerage-model";
-import { availableProcessingActions, processingActivityPrefix, type LoanProcessing, type ProcessingAction, type ProcessingStatus, type updateProcessingInput } from "./processing-model";
+import { availableProcessingActions, processingActivityPrefix, staleProcessingHandoff, type LoanProcessing, type ProcessingAction, type ProcessingStatus, type updateProcessingInput } from "./processing-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -64,14 +64,19 @@ export function assignProcessor(db: Store, staff: WorkspaceStaff,
 }
 
 export function updateProcessing(db: Store, staff: WorkspaceStaff | null, data: z.infer<typeof updateProcessingInput>, now: string): Result {
-  const row = db.prepare(`SELECT processing.*, loan.disposition FROM loan_processing processing JOIN loans loan ON loan.id = processing.loanId
+  const row = db.prepare(`SELECT processing.*, loan.disposition, loan.stage FROM loan_processing processing JOIN loans loan ON loan.id = processing.loanId
     WHERE processing.loanId = ? AND processing.processorEmail IS NOT NULL`).get(data.loanId) as unknown as
-    (LoanProcessing & { disposition: string }) | undefined;
-  if (!row || row.revision !== data.revision) return { error: "The processing handoff changed. Refresh the loan before continuing." };
+    (LoanProcessing & { disposition: string; stage: string }) | undefined;
+  if (!row || row.revision !== data.revision) return { error: staleProcessingHandoff };
   const role = staff?.brokerage.role ?? "Admin";
   if (role === "Processor" && row.processorEmail !== staff?.email) return { error: "This handoff belongs to another processor." };
   if (row.disposition !== "Active") return { error: "Reopen the loan before changing its processing handoff." };
+  if (row.stage === "Funded" || row.stage === "Closed") return { error: "Processing handoff is complete for this file." };
   if (!availableProcessingActions(row.status, role).includes(data.action)) return { error: "This handoff action is unavailable at the current step." };
+  if (data.applicationRevision !== undefined &&
+    (db.prepare("SELECT revision FROM applications WHERE loanId = ?").get(data.loanId)?.revision ?? null) !== data.applicationRevision) {
+    return { error: staleProcessingHandoff };
+  }
   if (data.action === "Send to processing" || data.action === "Accept handoff") {
     const checkpoint = handoffCheckpointError(db, data.loanId);
     if (checkpoint) return { error: checkpoint };
@@ -81,8 +86,9 @@ export function updateProcessing(db: Store, staff: WorkspaceStaff | null, data: 
     }
   }
   const status = nextStatus[data.action];
+  const note = data.action === "Accept handoff" && !data.note ? row.note : data.note;
   db.prepare("UPDATE loan_processing SET status = ?, note = ?, updatedAt = ?, revision = revision + 1 WHERE loanId = ?")
-    .run(status, data.note, now, data.loanId);
+    .run(status, note, now, data.loanId);
   const actor = staff?.name || "Demo workspace";
   const text = `${processingActivityPrefix}${status} · ${actor}${data.note ? ` · ${data.note}` : ""}`;
   db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), data.loanId, text, now);

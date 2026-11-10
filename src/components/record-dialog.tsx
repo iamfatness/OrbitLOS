@@ -672,7 +672,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       <LoanWorkflow key={loan.dispositionRevision} loan={loan} busy={busy} readOnly={processor} save={(input) => void save(input)} />
       <ProcessingHandoff loan={loan} assignment={assignment} history={state.processingActivity}
         application={application} documents={requests} requireSecondReview={state.playbook.requireSecondReview} staff={staff}
-        busy={busy} save={(input) => void save(input)} open={open} openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined}
+        busy={busy} save={(input, after) => void save(input, after)} open={open} openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined}
         openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "processing-handoff" }) : undefined} />
       {canOpenReviews && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
       <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>
@@ -932,9 +932,11 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   }, [modal, target]);
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
   const returnSection = modal.kind === "details" ? loanSection(target) : undefined;
-  const processingHandoff = modal.kind === "details" && target === "processing-handoff";
+  const processingHandoff = modal.kind === "details" && returnSection === "Overview" &&
+    (target === "processing-handoff" || state.loanProcessing.some((item) => item.loanId === loan?.id && item.processorEmail));
+  const closing = returnSection === "Closing";
   const returnLoanId = refreshLoanOnReturn && (processingHandoff || returnSection === "1003" || returnSection === "Conditions" ||
-    returnSection === "Disclosures") ? loan?.id : undefined;
+    returnSection === "Disclosures" || closing) ? loan?.id : undefined;
   const returnApplication = returnLoanId ? state.applications.find((application) => application.loanId === returnLoanId) : undefined;
   const returnToken = returnApplication?.token;
   const returnJointToken = returnApplication?.joint?.token;
@@ -957,7 +959,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     await refreshLoanOnReturn?.(loanId, canApply, periodic);
   });
   useEffect(() => {
-    if (!returnLoanId || (!returnToken && !processingHandoff)) return;
+    if (!returnLoanId || (!returnToken && !processingHandoff && !closing)) return;
     let active = true;
     const stopChanges = returnToken && observeBorrowerChange(returnToken, "changed", () => void refreshReturnedLoan(returnLoanId, () => active));
     const stopJointChanges = returnJointToken && observeBorrowerChange(returnJointToken, "changed", () => void refreshReturnedLoan(returnLoanId, () => active));
@@ -968,14 +970,14 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       if (stopJointChanges) stopJointChanges();
       stopChecks();
     };
-  }, [mockHandoff, modal, processingHandoff, returnLoanId, returnToken, returnJointToken, returnBrokerageId, returnEmail, returnRole]);
+  }, [mockHandoff, modal, processingHandoff, closing, returnLoanId, returnToken, returnJointToken, returnBrokerageId, returnEmail, returnRole]);
   function markDraftChanged(editor: Node) {
     if (returnLoanId) dirtyEditors.current.add(editor);
   }
   function trackDraftInput(event: FormEvent<HTMLDivElement>) {
     const field = event.target;
     if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement) {
-      markDraftChanged(field);
+      if (!field.hasAttribute("data-retain-on-loan-refresh")) markDraftChanged(field);
     }
   }
   const campaignLender = "campaignLender" in modal ? modal.campaignLender : undefined;

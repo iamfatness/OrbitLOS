@@ -5,6 +5,7 @@ export type ProcessingStatus = (typeof processingStatuses)[number];
 export const processingActions = ["Send to processing", "Accept handoff", "Return to LO", "Complete handoff"] as const;
 export type ProcessingAction = (typeof processingActions)[number];
 export const processingActivityPrefix = "Processing · ";
+export const staleProcessingHandoff = "The processing handoff changed. Review the current handoff before continuing.";
 
 export interface LoanProcessing {
   loanId: string;
@@ -18,6 +19,7 @@ export interface LoanProcessing {
 
 export const updateProcessingInput = z.object({
   type: z.literal("updateProcessing"), loanId: z.string().min(1).max(100), revision: z.number().int().positive(),
+  applicationRevision: z.number().int().nonnegative().nullable().optional(),
   action: z.enum(processingActions), note: z.string().trim().max(500),
 });
 

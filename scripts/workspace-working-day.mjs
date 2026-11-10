@@ -964,8 +964,14 @@ try {
 
   await stage("Processor clears two mock conditions and returns the file", async () => {
     const beforeAcceptance = await file(officer, loanId);
+    const priorHandoff = beforeAcceptance.loanProcessing[0];
+    const staleAccept = { type: "updateProcessing", loanId, revision: priorHandoff.revision,
+      applicationRevision: beforeAcceptance.applications[0].revision - 1, action: "Accept handoff", note: "Old 1003 note." };
+    assert.match((await action(processor, "mutate", staleAccept)).error, /processing handoff changed/i);
+    assert.deepEqual((await file(processor, loanId)).loanProcessing[0], priorHandoff);
     const accepted = await processing(processor, "Accept handoff");
     assert.equal(accepted.state, undefined);
+    assert.equal(accepted.loanWork.loanProcessing[0].note, "Review the mock lender evidence.");
     assert.match(accepted.loanWork.processingActivity[0].text, /In processing/);
     assert.match(accepted.loanWork.processingActivity[1].text, /Review the mock lender evidence/);
     const observedAcceptance = await action(officer, "checkLoanHandoff", loanId, beforeAcceptance.handoffVersion);
@@ -1096,6 +1102,9 @@ try {
     assert.ok(cleared.documentRequests.every(({ status, uwmReceipt }) => status === "Accepted" && uwmReceipt));
     assert.ok(cleared.communicationDrafts.some(({ audience, milestone }) => audience === "Realtor" && milestone === "Lender review complete"));
     const beforeReturn = await file(officer, loanId);
+    const independentItemId = randomUUID();
+    await loanAction(owner, loanId, "saveClosingItem", { itemId: independentItemId, revision: 0,
+      title: "Independent fictional closing check", owner: owner.name, dueDate: today });
     const returnedWork = await measureHandoff("Processor to LO", () => loanAction(processor, loanId, "updateProcessing", {
       action: "Return to LO", revision: cleared.loanProcessing[0].revision, note: "Internal note: mock lender evidence cleared.",
     }), officer, "today", loanId);
@@ -1106,6 +1115,12 @@ try {
     assert.equal(observedReturn.loanProcessing[0].status, "Returned to LO");
     assert.equal(observedReturn.loanProcessing[0].note, returnedWork.note);
     assert.equal(observedReturn.loanProcessing[0].revision, returnedWork.revision);
+    assert.ok(observedReturn.closingItems.some(({ id }) => id === independentItemId));
+    assert.match((await action(owner, "mutate", { ...staleAccept, revision: beforeReturn.loanProcessing[0].revision,
+      action: "Return to LO" })).error, /processing handoff changed/i);
+    assert.equal((await file(owner, loanId)).loanProcessing[0].note, returnedWork.note);
+    const independent = observedReturn.closingItems.find(({ id }) => id === independentItemId);
+    await loanAction(owner, loanId, "completeClosingItem", { itemId: independentItemId, revision: independent.revision, completed: true });
     assert.ok((await action(competingOfficer, "checkLoanHandoff", loanId, beforeReturn.handoffVersion)).error);
     assert.ok(!(await incoming(competingOfficer, "today")).items.some(({ id }) => id === loanId));
     assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /Internal note/);
@@ -1296,8 +1311,13 @@ try {
     await loanAction(officer, loanId, "completeClosingItem", { itemId, revision: closingItem.revision, completed: true });
     await loanAction(officer, loanId, "recordClosing", { revision: 0, closingDate: today });
     const assets = closingReady.submissions[0].conditions.find(({ category }) => category === "Assets");
+    const openClosing = await file(officer, loanId);
     await loanAction(owner, loanId, "reopenMockUwmCondition", { submissionId: submission.id, conditionId: assets.id,
       expectedSatisfiedAt: assets.satisfiedAt, expectedReopenedAt: assets.mockReopenedAt ?? null });
+    const changedClosing = await action(officer, "checkLoanHandoff", loanId, openClosing.handoffVersion);
+    const hold = loanNextAction(changedClosing.loans[0], changedClosing, officer.role);
+    assert.equal(hold.blocker, "Funding on hold");
+    assert.equal(hold.target, `lender-condition-${submission.id}:${assets.id}`);
     assert.match((await action(officer, "mutate", { type: "recordFunding", loanId, revision: 0, fundingDate: today })).error,
       /reopened mock UWM condition/i);
     const fundingBlocked = await file(officer, loanId);

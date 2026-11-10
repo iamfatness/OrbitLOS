@@ -20,8 +20,7 @@ import { closingPacketChecklistLimit } from "./closing-packet-model";
 import { staffBorrowerQuestions } from "./borrower-questions";
 import { canUseServiceOrders, loanServiceOrders } from "./service-orders";
 import { closingServiceEvidence } from "./closing-service-evidence";
-
-export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
+import { loanWorkUnavailable } from "./loan-work-model";
 
 function loanHandoffVersion(db: Store, loanId: string) {
   const application = db.prepare(`SELECT revision, updatedAt, submittedAt, reviewedAt, revokedAt, expiresAt, uwmReference,
@@ -35,21 +34,29 @@ function loanHandoffVersion(db: Store, loanId: string) {
     WHERE requests.loanId = ? ORDER BY requests.requestedAt, requests.id`).all(loanId);
   const joint = db.prepare("SELECT submittedAt, primarySubmittedAt, revokedAt, expiresAt FROM joint_applications WHERE loanId = ?").get(loanId);
   const processing = db.prepare("SELECT revision FROM loan_processing WHERE loanId = ?").get(loanId);
+  const phase = db.prepare(`SELECT loan.stage, loan.stageSince, loan.dispositionRevision, loan.officer, loan.officerEmail,
+    plan.targetDate, profile.closingDate, progress.revision AS closingRevision
+    FROM loans loan LEFT JOIN closing_plans plan ON plan.loanId = loan.id
+    LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id
+    LEFT JOIN closing_progress progress ON progress.loanId = loan.id WHERE loan.id = ?`).get(loanId);
+  const conditions = db.prepare(`SELECT file.id, file.status, file.syncedAt, item.conditionId, item.title, item.reopenedAt, item.manualOwner
+    FROM submissions file LEFT JOIN processing_open_conditions item ON item.submissionId = file.id
+    WHERE file.loanId = ? ORDER BY file.id, item.conditionId`).all(loanId);
   const disclosure = db.prepare("SELECT version, revision FROM disclosure_packages WHERE loanId = ? ORDER BY version DESC LIMIT 1").get(loanId);
   const closingDisclosure = disclosure && db.prepare(`SELECT version, revision, reviewedAt FROM closing_disclosure_reviews
     WHERE loanId = ? ORDER BY version DESC, revision DESC LIMIT 1`).get(loanId);
   const packet = closingDisclosure && db.prepare("SELECT version FROM closing_packets WHERE loanId = ? ORDER BY version DESC LIMIT 1").get(loanId);
-  const closingDates = packet && db.prepare(`SELECT loan.address, loan.officer, contact.name, plan.targetDate, past.closingDate, progress.fundingDate
+  const packetIdentity = packet && db.prepare(`SELECT loan.address, contact.name
     FROM loans loan JOIN contacts contact ON contact.id = loan.contactId
-    LEFT JOIN closing_plans plan ON plan.loanId = loan.id LEFT JOIN past_client_profiles past ON past.loanId = loan.id
-    LEFT JOIN closing_progress progress ON progress.loanId = loan.id WHERE loan.id = ?`).get(loanId);
-  const checklist = packet && db.prepare("SELECT id, revision FROM closing_items WHERE loanId = ? ORDER BY dueDate, id LIMIT ?")
+    WHERE loan.id = ?`).get(loanId);
+  const checklist = (phase?.targetDate || phase?.closingDate || phase?.stage === "Clear to Close" || packet) &&
+    db.prepare("SELECT id, revision FROM closing_items WHERE loanId = ? ORDER BY dueDate, id LIMIT ?")
     .all(loanId, closingPacketChecklistLimit + 1);
   const uwmAcceptance = db.prepare("SELECT revision, reconciledAt FROM mock_uwm_acceptances WHERE loanId = ? ORDER BY revision DESC LIMIT 1").get(loanId);
   const questions = db.prepare("SELECT id, revision FROM borrower_questions WHERE loanId = ? ORDER BY id").all(loanId);
   const orders = db.prepare("SELECT id, revision FROM service_orders WHERE loanId = ? ORDER BY id").all(loanId);
   return createHash("sha256").update(JSON.stringify([
-    application, documents, joint, processing, disclosure, closingDisclosure, packet, closingDates, checklist, uwmAcceptance, questions, orders,
+    application, documents, joint, processing, phase, conditions, disclosure, closingDisclosure, packet, packetIdentity, checklist, uwmAcceptance, questions, orders,
   ])).digest("hex");
 }
 

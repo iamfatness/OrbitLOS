@@ -117,6 +117,11 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     (item.id !== borrowerCheckIn || (funding && role !== "Processor")));
   const pastClient = loan.stage === "Funded" || loan.stage === "Closed";
   const processing = state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail);
+  const closingHold = !funding && (loan.stage === "Clear to Close" || actualClosing) && reopenedMockClosingCondition(loan.id, state.submissions);
+  if (closingHold) return {
+    title: `Work reopened ${closingHold.category.toLowerCase()} condition`, target: closingHold.target, dueAt: null,
+    blocker: actualClosing ? "Funding on hold" : "Closing on hold",
+  };
   if (application?.joint && !application.submittedAt && !pastClient) return {
     title: application.correctionNote ? "Follow up on joint 1003 correction" : "Follow up on joint 1003",
     target: "loan-application", dueAt: null, blocker: application.joint.primarySubmittedAt ? "Waiting on co-borrower" :
@@ -126,7 +131,8 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     title: "Follow up on corrected 1003", target: "loan-application", dueAt: null, blocker: "Waiting on borrower",
   };
   if (application?.submittedAt && !application.reviewedAt) return {
-    title: "Review submitted 1003", target: "loan-application", dueAt: afterHours(application.submittedAt, state.playbook.reviewHours), blocker: null,
+    title: role === "Processor" ? "Await loan officer review" : "Review submitted 1003",
+    target: "loan-application", dueAt: afterHours(application.submittedAt, state.playbook.reviewHours), blocker: role === "Processor" ? loan.officer : null,
   };
   if (!pastClient && application?.uwmPendingReceipt) return {
     title: role === "Processor" ? "Await mock UWM receipt review" : "Check mock UWM submission receipt",
@@ -145,8 +151,8 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     title: role === "Processor" ? "Await updated 1003 handoff" : "Send current 1003 to mock UWM",
     target: "loan-application", dueAt: null, blocker: role === "Processor" ? loan.officer : null,
   };
-  if (processing && application?.reviewedAt && !pastClient && !actualClosing) {
-    const dueAt = afterHours(processing.status === "Assigned" ? application.reviewedAt : processing.updatedAt, state.playbook.handoffHours);
+  if (processing && !checkpoint && !pastClient && !actualClosing) {
+    const dueAt = afterHours(processing.status === "Assigned" ? application?.reviewedAt || processing.updatedAt : processing.updatedAt, state.playbook.handoffHours);
     if (processing.status === "Ready for processing") return {
       title: role === "Processor" ? "Accept processing handoff" : "Await processor acceptance", target: "processing-handoff", dueAt,
       blocker: role === "Processor" ? null : processing.processorName,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { availableProcessingActions, processingActivityPrefix, type LoanProcessing, type ProcessingAction } from "@/lib/processing-model";
 import type { Loan, Workspace } from "@/lib/model";
 import { secondReviewBlocker, type StaffApplication } from "@/lib/application-model";
@@ -21,17 +22,27 @@ export function SecondReviewCheckpoint({ blocker, revision, busy, openReviews }:
 export function ProcessingHandoff({ loan, assignment, application, documents, history, requireSecondReview, staff, busy, save, open, openReviews, openAssignment }: {
   loan: Loan; assignment?: LoanProcessing; application?: StaffApplication; documents: LoanDocumentRequest[]; history?: Workspace["processingActivity"];
   requireSecondReview: boolean; staff: WorkspaceStaff | null; busy: boolean;
-  save: (input: unknown) => void; open: (target: string) => void; openReviews?: () => void; openAssignment?: () => void;
+  save: (input: unknown, after: () => void) => void; open: (target: string) => void; openReviews?: () => void; openAssignment?: () => void;
 }) {
+  const section = useRef<HTMLElement>(null);
+  const noteField = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState<{ note: string; revision: number; applicationRevision: number | null }>();
   const role = staff?.brokerage.role ?? "Admin";
-  const paused = pausedLoan(loan);
-  const actions = assignment && !paused ? availableProcessingActions(assignment.status, role) : [];
+  const paused = pausedLoan(loan) || loan.stage === "Funded" || loan.stage === "Closed";
+  const actions = assignment?.processorEmail && !paused ? availableProcessingActions(assignment.status, role) : [];
+  const applicationRevision = application?.revision ?? null;
+  const changed = Boolean(draft && (draft.revision !== assignment?.revision || draft.applicationRevision !== applicationRevision));
   const needsReview = !!application?.correctionNote || (!!application?.submittedAt && !application.reviewedAt);
   const blocker = secondReviewBlocker(requireSecondReview, application);
   const blocked = (action: ProcessingAction) => Boolean(needsReview || blocker) && (action === "Send to processing" || action === "Accept handoff");
-  return <section className="details-section" id="processing-handoff" tabIndex={-1} aria-label="Processing handoff">
+  const processorTurn = assignment?.status === "In processing" || assignment?.status === "Ready for processing";
+  const nextOwner = !assignment?.processorEmail ? "Brokerage admin" :
+    needsReview ? loan.officer || "Loan officer" : blocker && assignment.status !== "Returned to LO" ? "1003 review team" :
+      processorTurn ? assignment.processorName || "Processor" : loan.officer || "Loan officer";
+  return <section ref={section} className="details-section" id="processing-handoff" tabIndex={-1} aria-label="Processing handoff">
     <div className="section-heading"><h3>Processing handoff</h3><span className="pill">{assignment?.status ?? "Unassigned"}</span></div>
     <p>Loan owner {loan.officer || "Unassigned"} · Processor {assignment?.processorName || "Unassigned"}</p>
+    {!paused && assignment?.status !== "Complete" && <p><strong>Next with</strong> · {nextOwner}</p>}
     {openAssignment && <div><Button size="sm" variant="outline" disabled={busy} onClick={openAssignment}>Manage assignment</Button></div>}
     {requireSecondReview && <SecondReviewCheckpoint blocker={blocker} revision={application?.revision} busy={busy} openReviews={openReviews} />}
     {(application?.submittedAt || needsReview || assignment?.processorEmail) && <div className="loan-application-box">
@@ -44,21 +55,37 @@ export function ProcessingHandoff({ loan, assignment, application, documents, hi
       </li>)}</ul> : <p className="muted">No document requests on this file.</p>}
     </div>}
     {assignment?.processorEmail ? <>
-      {paused && <p className="muted">The processing handoff resumes when the loan is reopened.</p>}
+      {pausedLoan(loan) && <p className="muted">The processing handoff resumes when the loan is reopened.</p>}
       <p className="muted">Updated {dateTime(assignment.updatedAt)} ET</p>
-      {assignment.note && <p>{assignment.note}</p>}
-      {actions.length > 0 && <form className="record-form" key={assignment.revision} onSubmit={(event) => {
+      {assignment.note && <p><strong>Latest staff note</strong> · {assignment.note}</p>}
+    </> : !openAssignment && <p className="muted">A brokerage admin can add a processor. The current loan owner keeps access.</p>}
+    {(actions.length > 0 || draft) && <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget, (event.nativeEvent as SubmitEvent).submitter);
         const action = actions.find((item) => item === data.get("action")) ?? actions.find((item) => !blocked(item));
-        if (!action || busy || blocked(action)) return;
-        save({ type: "updateProcessing", loanId: loan.id, revision: assignment.revision, action, note: data.get("note") });
+        if (!assignment || !action || busy || changed || blocked(action)) return;
+        save({ type: "updateProcessing", loanId: loan.id, revision: assignment.revision, applicationRevision, action, note: draft?.note ?? "" }, () => {
+          setDraft(undefined);
+          requestAnimationFrame(() => section.current?.focus({ preventScroll: true }));
+        });
       }}>
-        <label className="field">Handoff note<textarea name="note" rows={2} maxLength={500} /></label>
+        {changed && <p className="application-message" role="status" id="handoff-draft-changed">
+          The handoff changed. Your draft is still here. {actions.length > 0 ? "Review the current handoff before using it." : "You can copy it for later."}
+        </p>}
+        <label className="field">Handoff note<textarea ref={noteField} name="note" rows={2} maxLength={500}
+          data-retain-on-loan-refresh="" value={draft?.note ?? ""} readOnly={actions.length === 0}
+          aria-describedby={changed ? "handoff-draft-changed" : undefined} onChange={(event) => {
+            const note = event.target.value;
+            if (!assignment || !note) setDraft(undefined);
+            else setDraft({ note, revision: draft?.revision ?? assignment.revision, applicationRevision: draft ? draft.applicationRevision : applicationRevision });
+          }} /></label>
+        {changed && assignment && actions.length > 0 && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => {
+          setDraft((current) => current && { ...current, revision: assignment.revision, applicationRevision });
+          noteField.current?.focus();
+        }}>Use draft with current handoff</Button>}
         <div className="loan-application-actions">{actions.map((action) => <Button key={action} size="sm" type="submit" name="action" value={action}
-          disabled={busy || blocked(action)}>{action}</Button>)}</div>
+          disabled={busy || changed || blocked(action)}>{action}</Button>)}</div>
       </form>}
-    </> : !openAssignment && <p className="muted">A brokerage admin can add a processor. The current loan owner keeps access.</p>}
     {history && history.length > 0 && <details className="document-form" key={assignment?.revision}
       open={assignment?.status === "In processing" || assignment?.status === "Complete"}>
       <summary>Recent handoff history</summary>

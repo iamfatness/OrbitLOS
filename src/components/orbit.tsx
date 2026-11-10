@@ -79,7 +79,7 @@ import { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, app
 import type { WorkspaceMutationScope, WorkspaceMutationSuccess } from "@/lib/commands";
 import type { LeadInboxMutation } from "@/lib/lead-inbox-model";
 import type { QuotePrefillSelection } from "@/lib/quote-intake-questions";
-import { applyLoanMutation, type EditableLoan } from "@/lib/loan-work-model";
+import { applyLoanMutation, loanWorkUnavailable, type EditableLoan } from "@/lib/loan-work-model";
 import { announceBorrowerChange, borrowerChecklistTokens, borrowerDisclosureTokens } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
@@ -90,6 +90,7 @@ import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { staffQuestionTarget } from "@/lib/borrower-question-model";
+import { staleProcessingHandoff } from "@/lib/processing-model";
 
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
 const CustomReports = lazy(async () => ({ default: (await import("./custom-reports")).CustomReports }));
@@ -398,7 +399,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       } else result = await mutate(input, staff?.brokerage.id ?? demoBrokerageId, scope);
       if ("error" in result) {
         setError(result.error);
-        if (result.error === reopenedMockClosingMessage && modal?.kind === "details" && writeVersion === loanReadVersion.current) {
+        if ((result.error === reopenedMockClosingMessage || result.error === staleProcessingHandoff) &&
+          modal?.kind === "details" && writeVersion === loanReadVersion.current) {
           const currentLoan = await readLoanForWork(modal.loanId, staff?.brokerage.id ?? demoBrokerageId).catch(() => null);
           if (currentLoan && !("error" in currentLoan) && writeVersion === loanReadVersion.current) {
             setLoanWork(currentLoan);
@@ -849,7 +851,15 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     try {
       const knownVersion = periodic && loanWork?.loanId === loanId ? loanWork.handoffVersion : undefined;
       const result = knownVersion ? await checkLoanHandoff(loanId, staff.brokerage.id, knownVersion) : await readLoanForWork(loanId, staff.brokerage.id);
-      if (version !== loanReadVersion.current || pending.current || "error" in result || "unchanged" in result || !canApply()) return;
+      if (version !== loanReadVersion.current || pending.current || "unchanged" in result || !canApply()) return;
+      if ("error" in result) {
+        if (result.error === loanWorkUnavailable) {
+          close();
+          setError(result.error);
+          setReviewVersion((value) => value + 1);
+        }
+        return;
+      }
       setLoanWork(result);
       setState((current) => applyLoanMutation(current, result));
     } catch {
