@@ -1,7 +1,23 @@
+import { createHash } from "node:crypto";
 import { cutoverCallbackItem, cutoverCallbackStatuses, cutoverItems, type CutoverReview, type MigrationCutover } from "./migration-cutover-model";
 
 type Evidence = NonNullable<MigrationCutover["evidence"]>;
 type Fact = readonly [string, string | number];
+type ReviewProof = { loanId: string; item: string; applicationFingerprint: string | null; fileFingerprint: string | null };
+
+export function cutoverReviewReference(evidence: Evidence, proofs: readonly ReviewProof[] = []) {
+  const reviewRecords = (reviews: CutoverReview[]) => reviews.map(({ item, decision, revision, updatedAt, updatedBy,
+    applicationCurrent, fileCurrent, callbackCurrent }) => JSON.stringify([item, decision, revision, updatedAt, updatedBy,
+    applicationCurrent, fileCurrent, callbackCurrent])).sort();
+  const files = evidence.drafts.map(({ id, readiness, reviews }) => JSON.stringify([id, readiness, reviewRecords(reviews)])).sort();
+  const recordedProofs = proofs.map(({ loanId, item, applicationFingerprint, fileFingerprint }) =>
+    JSON.stringify([loanId, item, applicationFingerprint, fileFingerprint])).sort();
+  const { origin, basis, batch, links, byType, undone, draftCount, callbacks, reviews } = evidence;
+  const parts = ["orbit-cutover-review-v1", origin, basis, batch, links, byType, undone, draftCount, callbacks.fingerprint,
+    reviewRecords(reviews), files, recordedProofs];
+  const digest = createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 24).toUpperCase();
+  return [digest.slice(0, 8), digest.slice(8, 16), digest.slice(16)].join("-");
+}
 
 function escapeHtml(value: string | number) {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
@@ -41,7 +57,7 @@ function reportFilename(origin: string, checkedAt: string) {
   return `orbitlos-cutover-${source}-${instant}.html`;
 }
 
-export function renderCutoverHandoff(evidence: Evidence, checkedAt: string): { html: string; filename: string } {
+export function renderCutoverHandoff(evidence: Evidence, checkedAt: string, reviewReference = cutoverReviewReference(evidence)): { html: string; filename: string } {
   const { origin, basis, batch, links, byType, undone, draftCount, drafts, reviews, callbacks, readiness } = evidence;
   const scopeChecks = Object.entries(cutoverItems);
   const sourceChecks = scopeChecks.map(([item, { label }]) => {
@@ -76,7 +92,7 @@ export function renderCutoverHandoff(evidence: Evidence, checkedAt: string): { h
     main { max-width: 64rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); background: #fff; }
     header, section { margin-bottom: 2rem; }
     h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
-    p { margin: .4rem 0 0; }
+    p { margin: .4rem 0 0; text-wrap: pretty; }
     .eyebrow, dt, .record { color: #3c4b62; }
     .eyebrow { font-weight: 700; margin: 0 0 .35rem; }
     .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .7rem; margin: .9rem 0; }
@@ -112,12 +128,14 @@ export function renderCutoverHandoff(evidence: Evidence, checkedAt: string): { h
   <header>
     <p class="eyebrow">OrbitLOS · Fictional migration evidence</p>
     <h1>Cutover handoff</h1>
-    <p>A point-in-time record of the cutover checks. Review notes and underlying file details stay in Orbit.</p>
+    <p>Cutover checks at export time. Review notes and underlying file details stay in Orbit.</p>
     <dl class="facts">
       <div><dt>Migration source</dt><dd><code>${escapeHtml(origin)}</code></dd></div>
       <div><dt>Exact source basis</dt><dd><code>${escapeHtml(basis)}</code></dd></div>
+      <div><dt>Review reference</dt><dd><code>${escapeHtml(reviewReference)}</code></dd></div>
       <div><dt>Checked at (UTC)</dt><dd>${timestamp(checkedAt)}</dd></div>
     </dl>
+    <p>Use the review reference to compare source coverage and recorded decisions across reports.</p>
   </header>
 
   <section aria-labelledby="import-coverage">

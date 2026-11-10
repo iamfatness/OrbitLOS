@@ -4,7 +4,7 @@ import { readCutoverCallbackEvidence } from "./cutover-callback-evidence";
 import { readFileComparison } from "./cutover-file-comparison";
 import { applyCutoverOpenWork, planCutoverOpenWork } from "./cutover-open-work";
 import { cutoverFileComparisonUnavailable, cutoverFileSource, cutoverFileSourceSection, type CutoverFileItem, type CutoverFileSource } from "./cutover-file-model";
-import { renderCutoverHandoff } from "./cutover-handoff";
+import { cutoverReviewReference, renderCutoverHandoff } from "./cutover-handoff";
 import { cutoverApplicationQuery, cutoverCallbackItem, cutoverFileInventoryInput, cutoverFileLookupQuery, cutoverHandoffQuery, cutoverItems,
   cutoverReadinessLimit, cutoverReviewInput, cutoverSourceInput, cutoverUnavailable, type CutoverApplicationQuery, type CutoverCallbackEvidence,
   type CutoverDraft, type CutoverDraftItem, type CutoverDraftReadiness, type CutoverFileInventory, type CutoverFileLookup, type CutoverHandoff, type CutoverReadiness, type CutoverReview,
@@ -274,11 +274,11 @@ export function exportCutoverHandoff(db: Store, staff: WorkspaceStaff | null, br
   if (!parsed.success) return { error: "Choose a valid migration source and snapshot for the handoff." };
   const snapshot = readCutoverSnapshot(db, { origin: parsed.data.origin }, activeOwners, parsed.data.basis);
   if ("error" in snapshot) return snapshot;
-  return snapshot.evidence ? renderCutoverHandoff(snapshot.evidence, checkedAt) : { error: changedSource };
+  return snapshot.evidence ? renderCutoverHandoff(snapshot.evidence, checkedAt, snapshot.reviewReference) : { error: changedSource };
 }
 
 function readCutoverSnapshot(db: Store, input: ReturnType<typeof cutoverSourceInput.parse>, activeOwners: ReadonlySet<string>,
-  handoffBasis?: string): MigrationCutover | { error: string } {
+  handoffBasis?: string): (MigrationCutover & { reviewReference?: string }) | { error: string } {
   return db.transaction(() => {
     const recent = db.prepare(`SELECT origin FROM (SELECT origin FROM migration_imports ORDER BY importedAt DESC, id DESC LIMIT 100)
       UNION ALL SELECT origin FROM (SELECT origin FROM migration_batches ORDER BY rowid DESC LIMIT 100)`).all();
@@ -338,9 +338,11 @@ function readCutoverSnapshot(db: Store, input: ReturnType<typeof cutoverSourceIn
         ...row,
         callbackCurrent: callbackFingerprint === callbacks.fingerprint && completeBatch(batch) && callbacksReady(callbacks),
       } : row) as unknown as CutoverReview[];
-    return { sources: sources.includes(origin) ? sources : [origin, ...sources.slice(0, 19)],
-      evidence: { origin, basis, batch, links: Number(linkedRecords?.total ?? 0), byType, undone, draftCount, draftNext, drafts, reviews, callbacks,
-        readiness: { counts, limit: cutoverReadinessLimit } } };
+    const evidence = { origin, basis, batch, links: Number(linkedRecords?.total ?? 0), byType, undone, draftCount, draftNext, drafts, reviews, callbacks,
+      readiness: { counts, limit: cutoverReadinessLimit } };
+    const reviewReference = handoffBasis ? cutoverReviewReference(evidence, [...reviewsByLoan.values()].flatMap((file) => [...file.values()])) : undefined;
+    return { sources: sources.includes(origin) ? sources : [origin, ...sources.slice(0, 19)], evidence,
+      ...(reviewReference ? { reviewReference } : {}) };
   });
 }
 

@@ -5,6 +5,8 @@ import { createRequire, registerHooks } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+import { readActionResult } from "./action-flight.mjs";
+import { recordFictionalReplacement } from "./cutover-replacement-fixture.mjs";
 
 registerHooks({ resolve(specifier, context, next) {
   try { return next(specifier, context); }
@@ -110,36 +112,7 @@ try {
       body: JSON.stringify(scope ? [input, expectedBrokerage, scope] : [input, expectedBrokerage]),
     });
     assert.equal(response.status, 200, name);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    const textChunks = new Map();
-    let actionResult;
-    // React text chunks have a byte length and can precede or follow the action result.
-    for (let offset = 0; offset < bytes.length;) {
-      const end = bytes.indexOf(10, offset);
-      assert.notEqual(end, -1, `Incomplete response for ${name}`);
-      const line = bytes.toString("utf8", offset, end);
-      const textHeader = /^([a-f0-9]+):T([a-f0-9]+),/.exec(line);
-      if (textHeader) {
-        const start = offset + textHeader[0].length;
-        offset = start + Number.parseInt(textHeader[2], 16);
-        textChunks.set(textHeader[1], bytes.toString("utf8", start, offset));
-      } else {
-        if (line.startsWith("0:")) actionResult = JSON.parse(line.slice(2));
-        offset = end + 1;
-      }
-    }
-    assert.ok(actionResult, `No action result for ${name}`);
-    const { returnValue } = actionResult;
-    assert.equal(returnValue.ok, true, name);
-    const data = returnValue.data;
-    for (const [record, field] of [[data, "mismoXml"], [data, "csv"], ...(data?.batches ?? []).map((batch) => [batch, "csv"])]) {
-      const reference = /^\$([a-f0-9]+)$/.exec(record?.[field] ?? "");
-      if (reference) {
-        assert.ok(textChunks.has(reference[1]), `The ${name} action must include its ${field} text chunk`);
-        record[field] = textChunks.get(reference[1]);
-      }
-    }
-    return data;
+    return readActionResult(response, name);
   }
   async function write(staff, input) {
     const result = await action(staff, "mutate", input);
@@ -386,44 +359,12 @@ try {
       const submitted = await borrower(token, { type: "submit", revision: initial.revision, step,
         draft: { ...sampleApplication(initial.draft), confirmedDemo: true } });
       assert.ok(submitted.submittedAt, submitted.error);
-      const currentFile = () => inBrokerage(receiving, processor, "readLoanForWork", loanId);
-      const getDocument = async () => (await currentFile()).documentRequests.find(({ conditionId }) => conditionId === condition.id);
-      const getCondition = async () => (await currentFile()).submissions[0].conditions[0];
-      const receiveSample = async () => {
-        const current = await getDocument();
-        const result = await borrower(token, { type: "attachSample", statusOnly: true, requestId: current.id, revision: current.revision });
-        assert.equal(result.error, undefined);
-        const receivedDoc = await getDocument();
-        assert.equal(receivedDoc.status, "Received");
-        const reviewed = await followUp(processor, { type: "reviewDocument", requestId: receivedDoc.id, revision: receivedDoc.revision,
-          decision: "Accepted", replacementNote: "" });
-        assert.ok(reviewed.message, reviewed.error);
-        return getDocument();
-      };
-      const conditionTarget = { submissionId: lenderFile.id, conditionId: condition.id };
-      const recordDelivery = async (document, reference) => {
-        const delivery = await followUp(processor, { type: "recordManualDelivery", ...conditionTarget, revision: (await getCondition()).manual.revision,
-          documentRevision: document.revision, reference });
-        assert.ok(delivery.message, delivery.error);
-      };
-      const prior = await receiveSample();
-      await recordDelivery(prior, "CUTOVER-PRIOR-RECEIPT");
-      const replacement = await followUp(processor, { type: "reviewDocument", requestId: prior.id, revision: prior.revision,
-        decision: "Needs replacement", replacementNote: "Use the newer fictional pay stub." });
-      assert.ok(replacement.message, replacement.error);
-      const current = await receiveSample();
-      await recordDelivery(current, "CUTOVER-CURRENT-RECEIPT");
-      const cleared = await followUp(processor, { type: "recordManualClearance", ...conditionTarget,
-        revision: (await getCondition()).manual.revision, cleared: true, confirmation: "CUTOVER-CLEARANCE" });
-      assert.ok(cleared.message, cleared.error);
-
-      const documentedLender = { ...sourceInventory.lenderFiles[0], conditions: [{ ...sourceInventory.lenderFiles[0].conditions[0], status: "Cleared",
-        evidence: { receipts: [{ reference: "CUTOVER-PRIOR-RECEIPT", documentRevision: prior.revision, state: "Prior" },
-          { reference: "CUTOVER-CURRENT-RECEIPT", documentRevision: current.revision, state: "Current" }],
-        clearance: { at: (await getCondition()).satisfiedAt, reference: "CUTOVER-CLEARANCE" } } }] };
-      const documentedSource = { version: 1, documents: [sourceInventory.documents[0], { kind: current.kind, instructions: current.instructions,
-        status: "Accepted", dueOn: current.dueOn, evidence: { revision: current.revision, acceptedRevisions: [prior.revision, current.revision] } }],
-        lenderFiles: [documentedLender] };
+      const replacement = await recordFictionalReplacement({
+        read: () => inBrokerage(receiving, processor, "readLoanForWork", loanId), write: (input) => followUp(processor, input),
+        borrower: (input) => borrower(token, input), submissionId: lenderFile.id, conditionId: condition.id,
+      });
+      const documentedSource = { version: 1, documents: [sourceInventory.documents[0], replacement.document],
+        lenderFiles: [{ ...sourceInventory.lenderFiles[0], conditions: [replacement.condition] }] };
       const wrongReceipt = structuredClone(documentedSource);
       wrongReceipt.lenderFiles[0].conditions[0].evidence.receipts[0].reference = "CUTOVER-UNAVAILABLE-RECEIPT";
       const saveSource = (source, revision) => action(owner, "saveCutoverFileInventory", receiving, undefined,

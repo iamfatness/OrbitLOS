@@ -10,7 +10,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 
-const { renderCutoverHandoff } = await import("../src/lib/cutover-handoff.ts");
+const { cutoverReviewReference, renderCutoverHandoff } = await import("../src/lib/cutover-handoff.ts");
 const checkedAt = "2026-11-09T20:15:30.000Z";
 const reviewedAt = "2026-11-09T19:10:22.000Z";
 const privateNote = "PRIVATE-REVIEW-NOTE";
@@ -66,6 +66,7 @@ test("cutover handoff prints exact source, whole-file decisions, prior review co
   assert.ok(html.includes(current.origin));
   assert.ok(html.includes(current.basis));
   assert.ok(html.includes(`<time datetime="${checkedAt}">${checkedAt}</time>`));
+  assert.match(html, /<dt>Review reference<\/dt><dd><code>[0-9A-F]{8}(?:-[0-9A-F]{8}){2}<\/code>/);
   assert.match(html, /Complete numbered receipt · 3 of 3 batches received/);
   for (const [label, total] of [["Skipped source records", 2], ["Suppressed source records", 4], ["Undone source records", 6],
     ["Total links", 27], ["Contacts", 10], ["Leads", 7], ["Notes", 3], ["Tasks", 2], ["Callback history links", 5],
@@ -96,6 +97,26 @@ test("cutover handoff prints exact source, whole-file decisions, prior review co
   for (const privateValue of [privateNote, borrowerName, borrowerAddress, borrowerAmount, callbackDetail, sourceXml, privateDocument, reviewerEmail]) {
     assert.ok(!html.includes(String(privateValue)), `The handoff exposed ${privateValue}`);
   }
+});
+
+test("handoff review reference survives re-export and ordering changes but follows signed evidence", () => {
+  const current = evidence();
+  const proof = { loanId: current.drafts[0].id, item: "documents", applicationFingerprint: null, fileFingerprint: "d".repeat(64) };
+  const reference = cutoverReviewReference(current, [proof]);
+  const later = "2026-11-10T10:00:00.000Z";
+  for (const at of [checkedAt, later]) {
+    const { html } = renderCutoverHandoff(current, at, reference);
+    assert.ok(html.includes(`<dt>Review reference</dt><dd><code>${reference}</code>`));
+    assert.ok(!html.includes(proof.fileFingerprint));
+  }
+  const reordered = { ...current, drafts: [...current.drafts].reverse(), reviews: [...current.reviews].reverse() };
+  assert.equal(cutoverReviewReference(reordered, [proof]), reference);
+  assert.notEqual(cutoverReviewReference(current, [{ ...proof, fileFingerprint: "e".repeat(64) }]), reference);
+  const nextReview = structuredClone(current);
+  nextReview.drafts[0].reviews[0].revision++;
+  nextReview.drafts[0].reviews[0].updatedAt = later;
+  assert.notEqual(cutoverReviewReference(nextReview, [proof]), reference);
+  assert.notEqual(cutoverReviewReference({ ...current, links: current.links + 1 }, [proof]), reference);
 });
 
 test("cutover handoff escapes dynamic text and produces a safe filename", () => {

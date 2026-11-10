@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { copyFile, cp, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { createRequire, registerHooks } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
+import { readActionResult } from "./action-flight.mjs";
+import { recordFictionalReplacement } from "./cutover-replacement-fixture.mjs";
+
+registerHooks({ resolve(specifier, context, next) {
+  try { return next(specifier, context); }
+  catch (error) {
+    if (error.code !== "ERR_MODULE_NOT_FOUND" || !specifier.startsWith("./")) throw error;
+    return next(`${specifier}.ts`, context);
+  }
+} });
+const { applicationSteps, sampleApplication } = await import("../src/lib/application-model.ts");
 
 const { Miniflare, convertV4MiniflareOptions } = createRequire(import.meta.resolve("wrangler"))("miniflare");
 const server = fileURLToPath(new URL("../dist/server/", import.meta.url));
@@ -135,34 +146,39 @@ function openJournal() {
   db.exec(`CREATE TABLE IF NOT EXISTS receipts (
     sequence INTEGER PRIMARY KEY, brokerageId TEXT NOT NULL, scenarioId TEXT NOT NULL,
     payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending'
-      CHECK (status IN ('pending', 'acknowledged', 'reconciled', 'rejected'))
+      CHECK (status IN ('pending', 'acknowledged', 'reconciled', 'rejected')), proof TEXT
   ) STRICT`);
   return db;
 }
 
 function recordIntent(db, tenant, input) {
-  assert.equal(input.type, "saveClosingItem", "This rehearsal stores only fictional checklist changes");
-  assert.equal(input.loanId, tenant.loan);
+  if (input.type === "saveClosingItem") assert.equal(input.loanId, tenant.loan);
+  else {
+    assert.equal(input.type, "saveCutoverReview", "This journal accepts only the generated fixture's checklist edits and lender review");
+    assert.deepEqual({ loanId: input.loanId, origin: input.origin, basis: input.basis }, tenant.cutover);
+    assert.equal(input.item, "lender");
+    assert.equal(input.decision, "Reconciled");
+  }
   return db.prepare("INSERT INTO receipts (brokerageId, scenarioId, payload) VALUES (?, ?, ?) RETURNING sequence")
     .get(tenant.id, tenant.scenario, JSON.stringify(input)).sequence;
 }
 
-function settleReceipt(db, tenant, sequence, status) {
-  const result = db.prepare("UPDATE receipts SET status = ? WHERE brokerageId = ? AND scenarioId = ? AND sequence = ? AND status = 'pending'")
-    .run(status, tenant.id, tenant.scenario, sequence);
+function settleReceipt(db, tenant, sequence, status, proof = null) {
+  const result = db.prepare("UPDATE receipts SET status = ?, proof = ? WHERE brokerageId = ? AND scenarioId = ? AND sequence = ? AND status = 'pending'")
+    .run(status, proof && JSON.stringify(proof), tenant.id, tenant.scenario, sequence);
   assert.equal(result.changes, 1);
 }
 
 function readReceipts(db, tenant, checkpoint) {
-  return db.prepare(`SELECT sequence, payload, status FROM receipts WHERE brokerageId = ? AND scenarioId = ?
+  return db.prepare(`SELECT sequence, payload, status, proof FROM receipts WHERE brokerageId = ? AND scenarioId = ?
     AND sequence > ? ORDER BY sequence`).all(tenant.id, tenant.scenario, checkpoint)
-    .map(({ payload, ...row }) => ({ ...row, input: JSON.parse(payload) }));
+    .map(({ payload, proof, ...row }) => ({ ...row, input: JSON.parse(payload), proof: proof && JSON.parse(proof) }));
 }
 
 function replayableReceipts(db, tenant, checkpoint) {
   const receipts = readReceipts(db, tenant, checkpoint);
   assert.ok(!receipts.some(({ status }) => status === "pending"), "Unresolved receipt. Keep staged recovery closed.");
-  return receipts.filter(({ status }) => status !== "rejected").map(({ input }) => input);
+  return receipts.filter(({ status }) => status !== "rejected");
 }
 
 let runtime;
@@ -189,18 +205,14 @@ try {
         "Content-Type": "text/plain;charset=UTF-8", Cookie: `__Host-orbit-session=${actor.token}` },
       body: JSON.stringify(args),
     });
-    const body = await response.text();
-    if (response.status !== 200) return { status: response.status, body };
-    const row = body.split("\n").find((line) => line.startsWith("0:"));
-    assert.ok(row, `No action result for ${action}`);
-    const { returnValue } = JSON.parse(row.slice(2));
-    assert.equal(returnValue.ok, true, `Action protocol error for ${action}`);
-    return returnValue.data;
+    if (response.status !== 200) return { status: response.status, body: await response.text() };
+    return readActionResult(response, action);
   }
   async function write(tenant, input, actor) {
     const result = await request(tenant, "mutate", input, actor);
     assert.equal(result.error, undefined);
     assert.ok(result.message, `Write was not acknowledged for ${input.type}`);
+    return result;
   }
   const migrationOrigin = `orbit-${randomUUID()}`;
   const migrationAt = new Date(Date.now() - 3_600_000).toISOString();
@@ -224,6 +236,33 @@ try {
     return result.migration;
   }
   const cutover = () => request(a, "readCutoverChecklist", migrationOrigin, a.staff.admin, [a.id, migrationOrigin]);
+  const cutoverAction = (name, input, tenant = a, actor = tenant.staff.admin) => request(tenant, name, input, actor, [tenant.id, input]);
+  const fileInventory = () => cutoverAction("readCutoverFileInventory", a.cutover);
+  const cutoverReview = (input) => cutoverAction("saveCutoverReview", input);
+  const cutoverDraft = async () => (await cutover()).evidence.drafts.find(({ id }) => id === a.cutover.loanId);
+  const lenderReview = async () => (await cutoverDraft()).reviews.find(({ item }) => item === "lender");
+  const cutoverLoan = (actor = a.staff.processor) => request(a, "readLoanForWork", a.cutover.loanId, actor);
+  async function handoff() {
+    const result = await cutoverAction("downloadCutoverHandoff", { origin: a.cutover.origin, basis: a.cutover.basis });
+    assert.ok(result.html, result.error);
+    const reference = /<dt>Review reference<\/dt><dd><code>([0-9A-F]{8}(?:-[0-9A-F]{8}){2})<\/code>/.exec(result.html)?.[1];
+    assert.ok(reference, "The handoff must identify the exact reviewed state");
+    assert.doesNotMatch(result.html, /CUTOVER-(?:PRIOR|CURRENT)-RECEIPT|CUTOVER-CLEARANCE|upgrade-borrower@example\.test/);
+    return { reference, html: result.html };
+  }
+  async function replayReceipt({ input, proof }) {
+    if (input.type === "saveClosingItem") return write(a, input);
+    assert.equal(input.type, "saveCutoverReview");
+    assert.ok(proof?.review.fileCurrent);
+    const evidence = await fileInventory();
+    assert.equal(evidence.lender.fingerprint, input.fileFingerprint, "The original lender evidence must match before recording a new review");
+    const result = await cutoverReview(input);
+    assert.ok(result.message, result.error);
+    const { updatedAt, ...review } = await lenderReview();
+    const { updatedAt: originalTime, ...original } = proof.review;
+    assert.deepEqual(review, original);
+    assert.ok(Date.parse(updatedAt) >= Date.parse(originalTime));
+  }
   const imports = () => request(a, "readMigrationRecovery", undefined, a.staff.admin, [a.id]);
   const file = (tenant, actor) => request(tenant, "readLoanForWork", tenant.loan, actor);
   const title = (tenant, work) => work.closingItems.find(({ id }) => id === `${tenant.loan}:title`);
@@ -250,6 +289,13 @@ try {
       headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ type: "read", token }) });
     await result.arrayBuffer();
     return result.status;
+  }
+  async function borrowerAction(token, input) {
+    const response = await runtime.dispatchFetch(`${origin}/api/demo-application`, { method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ token, ...input }) });
+    const result = await response.json();
+    assert.equal(response.status, 200, result.error);
+    return result;
   }
 
   await boot(live);
@@ -293,10 +339,52 @@ try {
   const checkpoint = recordIntent(journal, a, checkpointEdit);
   await write(a, checkpointEdit);
   settleReceipt(journal, a, checkpoint, "acknowledged");
-  assert.equal((await importBatch(firstImport)).batch.nextPart, 2);
+  const firstBatch = await importBatch(firstImport);
+  assert.equal(firstBatch.batch.nextPart, 2);
+  const { applicationLoanId } = await write(a, { type: "importMismo", requestId: randomUUID(), fictional: true, extraBorrowers: 0,
+    existingContactId: firstBatch.rows.find(({ key }) => key === "Contact:migration-contact").targetId,
+    fields: { firstName: "Upgrade Fixture", lastName: "Borrower", amount: "275000", purpose: "Purchase", occupancy: "Primary residence",
+      street: "16 Fictional Way", unit: "", city: "Troy", state: "MI", zip: "48084" } }, a.staff.admin);
+  a.cutover = { loanId: applicationLoanId, origin: migrationOrigin, basis: firstImport.batch.snapshot };
+  const target = { loanId: applicationLoanId };
+  const adminWrite = (input) => write(a, { ...input, ...target }, a.staff.admin);
+  const processorWrite = (input) => write(a, { ...input, ...target }, a.staff.processor);
+  const shared = await ns.getByName(a.id).shareProcessing(a.staff.admin, { ...target, revision: 0,
+    member: { email: a.staff.processor.email, name: a.staff.processor.name, role: "Processor", status: "Active" } });
+  assert.ok(shared.message, shared.error);
+  const lender = { lender: "Fictional Wholesale", reference: "RECOVERY-CUTOVER-01", status: "In underwriting" };
+  await adminWrite({ type: "submission", lender: lender.lender, externalId: lender.reference, status: lender.status });
+  const submissionId = (await cutoverLoan()).submissions[0].id;
+  const conditionId = randomUUID();
+  const description = "Review the fictional recovery income document.";
+  await processorWrite({ type: "saveManualCondition", submissionId, conditionId, revision: 0,
+    category: "Income", description, owner: a.staff.processor.name });
+  await processorWrite({ type: "requestDocument", kind: "Pay stub", instructions: description, condition: { submissionId, conditionId } });
+  const token = (await cutoverLoan(a.staff.admin)).applications[0].token;
+  const initial = await borrowerAction(token, { type: "read" });
+  const application = await borrowerAction(token, { type: "submit", revision: initial.revision, step: applicationSteps.length - 1,
+    draft: { ...sampleApplication(initial.draft), confirmedDemo: true } });
+  assert.ok(application.submittedAt, application.error);
+  const replacement = await recordFictionalReplacement({ read: cutoverLoan, write: processorWrite,
+    borrower: (input) => borrowerAction(token, input), submissionId, conditionId });
+  const sourceInventory = { version: 1, documents: [replacement.document], lenderFiles: [{ ...lender, conditions: [replacement.condition] }] };
+  assert.ok((await cutoverAction("saveCutoverFileInventory", { ...a.cutover, revision: 0, fictional: true, source: sourceInventory })).message);
+  const beforeInventory = await fileInventory();
+  assert.ok(beforeInventory.documents.rows.every(({ status }) => status === "Matched"));
+  assert.ok(beforeInventory.lender.rows.every(({ status }) => status === "Matched"));
+  const signoff = (item, revision, note) => ({ ...a.cutover, item, revision, decision: "Reconciled", note, fileFingerprint: beforeInventory[item].fingerprint });
+  for (const item of ["documents", "lender"]) {
+    const saved = await cutoverReview(signoff(item, 0, "Compared the accepted fictional revisions and the lender receipts."));
+    assert.ok(saved.message, saved.error);
+  }
   const beforeCutover = (await cutover()).evidence;
   assert.equal(beforeCutover.batch.received, 1);
   assert.equal(beforeCutover.links, 3);
+  const beforeDraft = await cutoverDraft();
+  assert.ok(beforeDraft.reviews.every(({ fileCurrent }) => fileCurrent === true));
+  const beforeHandoff = await handoff();
+  assert.match(beforeHandoff.html, /Borrower documents<\/th>\s*<td><strong>Reconciled/);
+  assert.match(beforeHandoff.html, /Lender status and conditions<\/th>\s*<td><strong>Reconciled/);
   const beforeImports = (await imports()).imports;
   assert.equal(beforeImports.length, 1);
   const before = await file(a);
@@ -343,6 +431,12 @@ try {
   const receiptSequence = recordIntent(journal, a, receipt);
   await write(a, receipt);
   settleReceipt(journal, a, receiptSequence, "acknowledged");
+  const laterSignoff = { ...signoff("lender", 1, "Owner rechecked both fictional receipts after the snapshot."), type: "saveCutoverReview" };
+  const laterSequence = recordIntent(journal, a, laterSignoff);
+  assert.ok((await cutoverReview(laterSignoff)).message);
+  const laterHandoff = await handoff();
+  assert.notEqual(laterHandoff.reference, beforeHandoff.reference);
+  settleReceipt(journal, a, laterSequence, "acknowledged", { review: await lenderReview(), reference: laterHandoff.reference });
   recordIntent(journal, a, interrupted);
   await write(a, interrupted);
   // Simulate a crash after the app commits but before the caller settles the receipt.
@@ -444,6 +538,15 @@ try {
   assert.deepEqual((await queue(a)).items, repairedQueue);
   assert.deepEqual((await funding(a)).periods.selected, beforeFunding);
   assert.deepEqual((await cutover()).evidence, beforeCutover);
+  assert.deepEqual(await cutoverDraft(), beforeDraft);
+  assert.deepEqual(await fileInventory(), beforeInventory);
+  assert.equal((await handoff()).reference, beforeHandoff.reference);
+  assert.equal((await cutoverLoan()).submissions[0].conditions[0].satisfiedAt, replacement.condition.evidence.clearance.at);
+  assert.match((await cutoverAction("readCutoverFileInventory", a.cutover, a, a.staff.processor)).error, /unavailable/i);
+  assert.ok((await cutoverAction("readCutoverFileInventory", a.cutover, b)).error);
+  const staleReview = await cutoverReview({ ...laterSignoff, fileFingerprint: "0".repeat(64) });
+  assert.match(staleReview.error, /comparison changed/i);
+  assert.equal((await handoff()).reference, beforeHandoff.reference);
   assert.deepEqual((await imports()).imports, beforeImports);
   assert.equal((await importBatch(firstImport)).batch.nextPart, 2);
   assert.deepEqual((await imports()).imports, beforeImports);
@@ -453,29 +556,41 @@ try {
   assert.equal(title(b, await file(b)).title, otherWrite.title);
   journal = openJournal();
   const replay = replayableReceipts(journal, a, checkpoint);
-  assert.equal(replay.length, 2);
-  for (const input of replay) await write(a, input);
+  assert.equal(replay.length, 3);
+  assert.equal(replay.find(({ input }) => input.type === "saveCutoverReview").proof.reference, laterHandoff.reference);
+  for (const entry of replay) await replayReceipt(entry);
+  const signedAfterRestore = await lenderReview();
+  const handoffAfterRestore = await handoff();
   await runtime.dispose();
   runtime = undefined;
   journal.close();
   journal = undefined;
   await boot(staged);
   journal = openJournal();
-  for (const input of replayableReceipts(journal, a, checkpoint)) await write(a, input);
+  for (const entry of replayableReceipts(journal, a, checkpoint)) await replayReceipt(entry);
   const after = await file(a);
   const afterHistory = await history(a);
-  for (const input of replay) {
+  for (const { input } of replay.filter(({ input }) => input.type === "saveClosingItem")) {
     const item = after.closingItems.find(({ id }) => id === input.itemId);
     assert.equal(item.revision, input.revision + 1);
     assert.equal(item.title, input.title);
     assert.equal(afterHistory.events.filter((event) => JSON.stringify(event).includes(input.title)).length, 1);
   }
+  assert.deepEqual(await lenderReview(), signedAfterRestore);
+  assert.equal((await handoff()).reference, handoffAfterRestore.reference);
+  const clearedCondition = (await cutoverLoan()).submissions[0].conditions[0];
+  await processorWrite({ type: "recordManualClearance", submissionId, conditionId, revision: clearedCondition.manual.revision,
+    cleared: false, confirmation: "Fictional lender reopened the condition." });
+  assert.equal((await lenderReview()).fileCurrent, false);
+  assert.notEqual((await handoff()).reference, handoffAfterRestore.reference);
+  await assert.rejects(() => replayReceipt(replay.find(({ input }) => input.type === "saveCutoverReview")), /evidence must match/i);
+  assert.equal(title(b, await file(b)).title, otherWrite.title);
   assert.equal(afterHistory.events.some((event) => JSON.stringify(event).includes(rejected.title)), false);
   console.log(JSON.stringify({ snapshotBytes: (await stat(snapshot)).size, backupMs, restoreAndVerifyMs: Math.round(performance.now() - restoreStarted),
-    restored: ["loan", "document deadline", "open work", "history", "funding totals", "processor access"],
+    restored: ["loan", "document deadline", "open work", "history", "funding totals", "processor access", "accepted revisions", "lender receipts", "cutover sign-offs", "handoff review reference"],
     preserved: ["other brokerage write", "staff revocation", "explicit revocation, link replacement, and reset retirement"],
     schemaUpgrade: "Interrupted a populated SQLite migration, verified rollback, restarted, and resumed a two-part CRM import",
-    rollForward: "Restarted from disk, blocked on a pending receipt, reconciled the lost response, and replayed two edits exactly once" }, null, 2));
+    rollForward: "Restarted from disk, replayed two verified edits exactly once, re-reviewed matching lender evidence, and blocked a review after the condition reopened" }, null, 2));
 } finally {
   try { await runtime?.dispose(); }
   finally {
