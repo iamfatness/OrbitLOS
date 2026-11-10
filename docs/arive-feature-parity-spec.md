@@ -45,9 +45,9 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | Group | Release baseline | Next evidence |
 | --- | --- | --- |
 | F01 | Hosted paired mock DU/LPA with separate findings and retry history, tied to the submitted 1003 and authorized sample credit | Verify borrower selection, real consent evidence, service contracts, and reconciliation before any provider order. |
-| F02 | Hosted income worksheet with source periods, adjustments, exact accepted evidence, and reviewed income in mock pricing | Verify approved calculation policies and supported evidence before using real files. |
+| F02 | Hosted income worksheet with source periods, adjustments, exact accepted documents and verification returns, and reviewed income in mock pricing. A mock quote opens its exact worksheet revision. | Verify approved calculation policies and supported evidence before using real files. |
 | F03 | Hosted mock UWM intake and conditions, original receipt recovery, a scoped delivery timeline, fictional lender profile checks for manual MISMO export and sample packages, acknowledgment and returns | Verify real lender capabilities and map their import, ordering, rejection, and replay contracts. |
-| F04 | Hosted conditional checklists, reusable per-borrower question sets, selected document batches, same-loan reuse of accepted evidence, and borrower-specific mock verification orders and returns. | Make accepted verification returns selectable in the income worksheet and validate production scan and delivery contracts. |
+| F04 | Hosted conditional checklists, reusable per-borrower question sets, selected document batches, same-loan reuse of accepted evidence, and borrower-specific mock verification orders and returns. | Validate production scan and delivery contracts and expand conditional request criteria. |
 | F05 | Hosted versioned sample packages with signer-specific portal responses, receipt history, configurable internal deadline calendars, reusable templates matched by purpose and property state, and tasks for fee changes or declines. Drafts flag moved calendar targets and issued packages retain their original dates. Stage policy guards 1003 reopening, lender details, selected quotes, and fee edits, with a reason recorded for an admin override. | Validate document generation, signing, and applicable timing policies before live use. |
 | F06 | Hosted 1003 and a borrower action list for corrections, questions, documents, and sample signatures, scoped to each borrower on a joint file | Validate live identity verification and configurable borrower needs in an approved pilot. |
 | F07 | Versioned general, purchase, and refinance intake profiles with a mobile preview, conditional questions, staff-selected 1003 prefill, branded themes, and campaign, branch ZIP, or direct LO routing | Verify allowed LO editing, configurable consent references, and branch setup with a design partner. |
@@ -84,6 +84,8 @@ An assigned processor can prepare a sample worksheet for the primary or separate
 
 The demonstrated methods cover staff-entered monthly amounts, totals over a specified number of months, and gross amounts per pay period. Underwriting eligibility, calculation policies, additional borrower structures, and live pricing still need qualified review and provider validation.
 
+Accepted mock employment and income verification returns can be cited by borrower, order revision, and return receipt. The worksheet keeps the original review attribution and sample PDF. The amount and source periods are entered by staff and approved before pricing. A saved quote can reopen the exact worksheet even after a later version requires repricing. [Hosted quote evidence rehearsal](demo-rehearsal-log.md#hosted-income-verification-behind-a-mock-quote)
+
 ### F03 — Lender submission and updates
 
 The mock delivery timeline shows exact acknowledged 1003 revisions, missing and recovered receipts, document deliveries and failures, and recorded condition changes. The mock condition feed keeps a version per condition. It records late and duplicate delivery evidence without changing the current state. The rehearsal proves an older open update cannot undo a newer clearance.
@@ -108,7 +110,7 @@ Staff can link a directly accepted document to another open condition on the sam
 
 The processor queue also tracks sample employment, income, and asset verification for each borrower. Open and returned orders link to the exact staff record. Accepted returns carry the borrower role and receipt into the closing checklist and sample packet. [Hosted verification rehearsal](demo-rehearsal-log.md#hosted-borrower-verification-service-orders)
 
-Remaining scope covers additional request criteria, reviewed verification evidence in the income worksheet, and production scan and delivery. Track requested, received, scan-pending, blocked, reviewed, replacement-needed, delivered and lender-confirmed outcomes distinctly. Verify that replacement requests require fresh review, uploads recover, and lender confirmation alone establishes lender clearance. Reuse private storage and scan adapters. Increments 1–3.
+Remaining scope covers additional request criteria and production scan and delivery. Track requested, received, scan-pending, blocked, reviewed, replacement-needed, delivered and lender-confirmed outcomes distinctly. Verify that replacement requests require fresh review, uploads recover, and lender confirmation alone establishes lender clearance. Reuse private storage and scan adapters. Increments 1–3.
 
 ### F05 — Disclosure and signature workspace
 
