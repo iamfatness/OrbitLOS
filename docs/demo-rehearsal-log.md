@@ -723,3 +723,9 @@ On November 10, 2026, Worker `7b90120d-7559-46fc-a9e4-61151ab85a6a` from `8ae5cf
 Worker `b210aef7-b1df-4049-ac45-159684dfff80` from `bd4aadb` hides the question controls when a workspace is still returning a pre-feature payload during a rollout. On that release, the same borrower submitted No and the owner marked it reviewed from the queue. The loan retained Yes under **Earlier answers**, the borrower saw **Reviewed** with zero to do, and the queue entry cleared. The first hosted attempt before the workspace adopted the feature was rejected and created no question.
 
 SQLite checks cover separate primary and co-borrower links, assigned processor and unrelated staff access, repeat submissions, invalid answers, clarification, current revision checks, and staff-only answer history. All 329 tests, lint, typecheck, the production Worker build, both local Worker rehearsals, and the local browser check passed. The public Product and Demo pages returned 200 with the updated copy.
+
+## Five-year costs in a shared borrower comparison
+
+On November 10, 2026, Worker `7def5fee-6aed-47e2-bbf3-75bbcac97e37` from `1517ca1` showed a fictional $360,000 purchase at 6.125% par and 5.875% with points. The published preview and borrower portal agreed on $110,132.86 and $109,226.09 of estimated five-year borrowing cost. The higher-upfront offer broke even in month 48. After staff raised the alternative's appraisal from $650 to $700, the preview increased its modeled cost by $50 and offered to replace the shared quote. The borrower still saw the earlier costs and the original month 48 after reloading the private link.
+
+The hosted 390 px check stacked both cost cards without page or card overflow. All 332 tests, lint, typecheck, the production Worker build, both local Worker rehearsals, and the local browser publication passed. The public Product and Demo pages returned 200 with the updated copy. All pricing in this rehearsal was mocked.
