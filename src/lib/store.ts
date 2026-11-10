@@ -280,12 +280,18 @@ export function initializeStore(db: Store, seedDemo = true) {
       version INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, applicationRevision INTEGER NOT NULL, feeRevision INTEGER NOT NULL,
       quote TEXT NOT NULL, documents TEXT NOT NULL, signers TEXT NOT NULL, preparedAt TEXT NOT NULL, signBy TEXT NOT NULL,
-      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT, changeReview TEXT, deadlineBasis TEXT,
+      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT, changeReview TEXT, deadlineBasis TEXT, templateBasis TEXT,
       PRIMARY KEY (loanId, version)
     );
     CREATE TABLE IF NOT EXISTS disclosure_calendar_versions (
       version INTEGER PRIMARY KEY, rules TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL, note TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS brokerage_disclosure_templates (
+      id TEXT PRIMARY KEY, revision INTEGER NOT NULL, title TEXT NOT NULL, purpose TEXT NOT NULL, propertyState TEXT NOT NULL,
+      config TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS active_disclosure_template_titles
+      ON brokerage_disclosure_templates(title COLLATE NOCASE) WHERE archived = 0;
     CREATE TABLE IF NOT EXISTS loan_stage_edit_versions (
       revision INTEGER PRIMARY KEY, rules TEXT NOT NULL, reason TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL
     );
@@ -1148,6 +1154,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "deadlineBasis")) {
       db.exec("ALTER TABLE disclosure_packages ADD COLUMN deadlineBasis TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "templateBasis")) {
+      db.exec("ALTER TABLE disclosure_packages ADD COLUMN templateBasis TEXT");
     }
     db.exec(`CREATE INDEX IF NOT EXISTS disclosure_targets_for_calendar ON disclosure_packages(signBy, loanId)
       WHERE supersededAt IS NULL AND reviewReason IS NULL AND deadlineBasis IS NOT NULL`);

@@ -38,6 +38,7 @@ import { OfficerToday } from "./officer-today";
 import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
 import { DisclosureCalendar } from "./disclosure-calendar";
 import { LoanStageEditSettings } from "./loan-stage-edits";
+import { DisclosureTemplateSettings } from "./disclosure-templates";
 import { StaffCoverage } from "./staff-coverage";
 import { LoanReviewQueue } from "./loan-reviews";
 import { ReviewInboxPanel, useReviewInbox } from "./review-inbox";
@@ -1535,6 +1536,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             openRecord={openMigrationDestination}
             openLinkedLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })} />}
           {section === "Playbooks" && admin && <LoanStageEditSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
+          {section === "Playbooks" && admin && (!staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) &&
+            <DisclosureTemplateSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           {section === "Playbooks" && admin && <BrokeragePlaybooks staff={staff} busy={busy}
             save={(input, after) => save(input, after, true,
               input && typeof input === "object" && "type" in input && input.type === "assignInboxLead" ? "inbox" : "tasks")}

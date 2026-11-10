@@ -4,7 +4,7 @@ import { ClipboardList } from "lucide-react";
 import { useState } from "react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { DisclosureDeadline } from "@/lib/disclosure-calendar-model";
-import { disclosurePackageStatus, disclosureResponses, disclosureTarget, sampleDisclosureDocuments,
+import { disclosurePackageStatus, disclosureResponses, disclosureTarget,
   type DisclosurePackage, type DisclosureSource } from "@/lib/disclosure-model";
 import type { Loan, Workspace } from "@/lib/model";
 import { latestSelectedPricingRun, pricingInputsMatch } from "@/lib/pricing-model";
@@ -13,6 +13,7 @@ import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { FeeWorksheetEditor } from "./quote-worksheet";
 import { LoanStageEditNotice, useLoanStageEdit } from "./loan-stage-edits";
+import { DisclosurePackageDocuments } from "./disclosure-templates";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -71,6 +72,8 @@ function PackagePreview({ item }: { item: DisclosurePackage }) {
     <summary>Preview sample package v{item.version}</summary>
     <div className="record-form">
       <p>Reviewed 1003 revision {item.applicationRevision} · Fee worksheet revision {item.feeRevision}</p>
+      {item.templateBasis && <p><strong>{item.templateBasis.title} · Template v{item.templateBasis.revision}</strong> · {item.templateBasis.purpose}
+        {" · "}{item.templateBasis.propertyState || "Any property state"}</p>}
       <p>Sample signing target {dateLabel(item.signBy)} · {item.deadlineBasis ? `Brokerage calendar v${item.deadlineBasis.version}` : "Manual date"}</p>
       {item.deadlineBasis && <p className="muted">{item.deadlineBasis.days} open days after {dateLabel(item.deadlineBasis.anchorOn)}.
         {item.deadlineBasis.skipped.length > 0 && ` Skipped ${item.deadlineBasis.skipped.map(({ on, label }) => `${dateLabel(on)} · ${label}`).join(", ")}.`}</p>}
@@ -203,18 +206,19 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
         event.preventDefault();
         const data = new FormData(event.currentTarget);
         const suggestion = data.get("dateBasis") === "calendar" ? work.suggestedDeadline : undefined;
+        const templateKey = String(data.get("disclosureTemplate") ?? "");
+        const [id, revision] = templateKey.split(":");
         void save({ type: "prepareDisclosurePackage", loanId: loan.id, previousVersion: current?.version ?? null,
           applicationRevision: source.applicationRevision, feeRevision: source.feeRevision, runId: source.quote.runId,
           offerId: source.quote.offerId, documents: data.getAll("documents"), signBy: data.get("signBy"),
+          ...(templateKey ? { template: { id, revision: Number(revision) } } : {}),
           ...(suggestion ? { deadlineCalendar: { version: suggestion.version, anchorOn: suggestion.anchorOn } } : {}),
           ...(needsChangeNote ? { reviewedPackageRevision: current?.revision, revisionNote: data.get("revisionNote") } : {}) });
       }}>
         <p>Reviewed 1003 revision {source.applicationRevision} · Fee worksheet revision {source.feeRevision} · {source.quote.product}</p>
         {needsChangeNote && <label className="field">Internal change-review note<textarea name="revisionNote" rows={2} required maxLength={500} /></label>}
         <SigningTarget current={current} suggestion={work.suggestedDeadline} today={today} busy={busy} refresh={refresh} />
-        <fieldset disabled={busy}><legend>Package documents</legend>{sampleDisclosureDocuments.map((document) =>
-          <label className="disclosure-document-choice" key={document}><input name="documents" type="checkbox" value={document}
-            defaultChecked={!current || current.documents.includes(document)} />{document}</label>)}</fieldset>
+        <DisclosurePackageDocuments options={work.templateOptions} current={current} busy={busy} />
         <Button size="sm" type="submit" disabled={busy}>{current ? "Prepare revised package" : "Prepare sample package"}</Button>
       </form>
     </details>}

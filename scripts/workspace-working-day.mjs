@@ -1101,9 +1101,21 @@ try {
     const calendar = await disclosureCalendar(owner, { type: "read" });
     assert.equal(calendar.current.version, 0);
     assert.ok((await disclosureCalendar(officer, { type: "read" })).error);
-    const prepare = ({ version, anchorOn, signBy }, previousVersion = null) => ({ ...selection, feeRevision: fee.revision + 1,
-      previousVersion, applicationRevision: app.revision, documents: sampleDisclosureDocuments, signBy, deadlineCalendar: { version, anchorOn } });
-    const before = (await file(officer, loanId)).disclosureWork.suggestedDeadline;
+    const templates = (staff, input) => action(staff, "accessDisclosureTemplates", input);
+    const templateId = randomUUID();
+    const templateConfig = { title: "Fictional state purchase template", purpose: app.draft.purpose,
+      propertyState: app.draft.propertyLocation.state, documents: sampleDisclosureDocuments };
+    const publishTemplate = { type: "publish", id: templateId, revision: 0, config: templateConfig };
+    assert.ok((await templates(officer, publishTemplate)).error);
+    assert.ok((await action(owner, "accessDisclosureTemplates", publishTemplate, undefined, randomUUID())).error);
+    assert.equal((await templates(owner, publishTemplate)).templates.find(({ id }) => id === templateId).revision, 1);
+    const prepare = ({ version, anchorOn, signBy }, previousVersion = null, templateRevision = 1) => ({
+      ...selection, feeRevision: fee.revision + 1, previousVersion, applicationRevision: app.revision,
+      documents: sampleDisclosureDocuments, signBy, deadlineCalendar: { version, anchorOn }, template: { id: templateId, revision: templateRevision },
+    });
+    const firstWork = (await file(officer, loanId)).disclosureWork;
+    assert.equal(firstWork.templateOptions.recommendedId, templateId);
+    const before = firstWork.suggestedDeadline;
     await loanAction(officer, loanId, "prepareDisclosurePackage", prepare(before));
     const version = async () => {
       const [{ version, revision }] = (await file(officer, loanId)).disclosureWork.packages;
@@ -1120,12 +1132,17 @@ try {
     assert.match((await action(officer, "mutate", { type: "issueDisclosurePackage", loanId, ...await version() })).error, /moved this draft/);
     const after = (await file(officer, loanId)).disclosureWork.suggestedDeadline;
     assert.equal(after.signBy, moved.after.signBy);
-    await loanAction(officer, loanId, "prepareDisclosurePackage", prepare(after, 1));
+    assert.equal((await templates(owner, { ...publishTemplate, revision: 1,
+      config: { ...templateConfig, title: "Revised fictional state purchase template" } })).templates.find(({ id }) => id === templateId).revision, 2);
+    assert.match((await action(officer, "mutate", { type: "prepareDisclosurePackage", loanId, ...prepare(after, 1) })).error, /template changed/);
+    await loanAction(officer, loanId, "prepareDisclosurePackage", prepare(after, 1, 2));
     await loanAction(officer, loanId, "issueDisclosurePackage", await version());
     const issued = await file(officer, loanId);
     const pinned = issued.disclosureWork.packages[0];
     const reminder = `disclosure-signing:${loanId}:2`;
     assert.equal(pinned.deadlineBasis.version, 1);
+    assert.equal(pinned.templateBasis.revision, 2);
+    assert.equal(issued.disclosureWork.packages[1].templateBasis.title, templateConfig.title);
     assert.equal(issued.tasks.find(({ id }) => id === reminder).dueAt, easternDayStart(after.signBy));
     const longer = { ...rules, signingDays: 4 };
     assert.equal((await disclosureCalendar(owner, { ...preview, version: 1, rules: longer })).affected.find((item) => item.loanId === loanId).state, "Issued");
@@ -1134,6 +1151,7 @@ try {
     assert.equal(afterPublish.disclosureWork.packages[0].signBy, after.signBy);
     assert.equal(afterPublish.tasks.find(({ id }) => id === reminder).dueAt, easternDayStart(after.signBy));
     await loanAction(officer, loanId, "respondToDisclosurePackage", { ...await version(), signer: "Borrower", response: "Signed" });
+    assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /Fictional state purchase template|templateBasis/i);
     assert.equal((await preflight()).preflight.checks.find(({ id }) => id === "disclosures").target, "closing-disclosure-review");
     await loanAction(officer, loanId, "confirmClosingDisclosure", await version());
     const ready = (await preflight()).preflight;

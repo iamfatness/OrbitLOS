@@ -215,6 +215,12 @@ In a fictional pilot, the finance owner can open a funded loan in **Financials**
 
 Confirm the signed sample disclosure in **Closing** before funding. In **Financials → Sample settlement fee comparison**, record the itemized gross fees, borrower shares, and payees. **Use confirmed fee figures** starts a fictional comparison with the disclosed figures. The first statement pins that confirmed disclosure for the funding cycle. **Settlement exceptions → Fee differences** opens the exact comparison for review. A corrected statement keeps earlier amounts and notes in history. Blank figures stay visible as missing. Sample purchase advice and wire receipts have their own reconciliation.
 
+### Reuse a sample disclosure template
+
+In **Playbooks → Sample disclosure templates**, an admin can publish a document list for purchase, refinance, or either purpose. Enter a subject-property state to narrow the match. In **Disclosures**, Orbit matches the reviewed 1003 and suggests the single most-specific template. State and purpose together take precedence, then state alone, then purpose alone, then a general template. If several templates tie, select one explicitly or use **Manual document selection**.
+
+Preview the template’s documents before preparing the package. The package keeps its template version and document list through issue, mock signing, and later revisions. Publishing or archiving a template changes future selection. Select a new template version explicitly when preparing a revision of an older package.
+
 ### Configure loan stage edit controls
 
 In **Playbooks → Loan stage edit policy**, an admin can choose the stages that require an override to reopen a submitted 1003, save lender details, change the selected quote, or save a fee worksheet. Publishing requires a reason. The default policy has no locked stages.

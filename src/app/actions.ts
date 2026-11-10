@@ -15,10 +15,11 @@ import { officerDashboardUnavailable } from "@/lib/officer-dashboard-model";
 import { processorQueueUnavailable } from "@/lib/processor-queue-model";
 import { salesDashboardUnavailable } from "@/lib/sales-dashboard-model";
 import { ownerScorecardUnavailable } from "@/lib/owner-scorecard-model";
-import { loadOwnerScorecard, updateOwnerScorecard, workOnCrmFields, workOnCustomReport, workOnDisclosureCalendar, workOnLoanStageEdits } from "@/lib/workspace-service";
+import { loadOwnerScorecard, updateOwnerScorecard, workOnCrmFields, workOnCustomReport, workOnDisclosureCalendar, workOnDisclosureTemplates, workOnLoanStageEdits } from "@/lib/workspace-service";
 import { crmFieldUnavailable } from "@/lib/crm-field-model";
 import { customReportUnavailable } from "@/lib/custom-report-model";
 import { disclosureCalendarUnavailable } from "@/lib/disclosure-calendar-model";
+import { disclosureTemplateUnavailable } from "@/lib/disclosure-template-model";
 import { stageEditUnavailable } from "@/lib/loan-stage-edit-model";
 import { conversationsUnavailable } from "@/lib/conversation-model";
 import { inboundReplyUnavailable } from "@/lib/inbound-replies-model";
@@ -335,6 +336,12 @@ export async function accessDisclosureCalendar(input: unknown, expectedBrokerage
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: disclosureCalendarUnavailable };
   return workOnDisclosureCalendar(input, staff);
+}
+
+export async function accessDisclosureTemplates(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: disclosureTemplateUnavailable };
+  return workOnDisclosureTemplates(input, staff);
 }
 
 export async function accessLoanStageEdits(input: unknown, expectedBrokerage: string) {

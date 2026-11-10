@@ -1,9 +1,11 @@
 import { addApplicationActivity, getApplication } from "./applications";
-import { applicationDraft } from "./application-model";
+import { applicationDraft, type ApplicationDraft } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate, easternDayStart } from "./client-retention";
 import { changedDisclosureTarget, currentDisclosureCalendar } from "./disclosure-calendar";
 import { disclosureSigningDeadline, storedDisclosureCalendarBasis, type DisclosureCalendarBasis } from "./disclosure-calendar-model";
+import { disclosureTemplateChanged, disclosureTemplateMatch, type DisclosureTemplateBasis } from "./disclosure-template-model";
+import { disclosureTemplatesForLoan, selectedDisclosureTemplate } from "./disclosure-templates";
 import { disclosureDeclinePrefix, disclosureDeclineTaskTitle, disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
   type ClosingDisclosureReview, type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
   type DisclosureSource, type DisclosureWork } from "./disclosure-model";
@@ -30,11 +32,12 @@ function disclosureSource(db: Store, loanId: string) {
   return { source, draft: app.draft } as const;
 }
 
-type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp" | "changeReview" | "deadlineBasis"> & {
+type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp" | "changeReview" | "deadlineBasis" | "templateBasis"> & {
   loanId: string; runId: string; offerId: string; documents: string; signers: string; quote: string;
   declineFollowUp: string | null;
   changeReview: string | null;
   deadlineBasis: string | null;
+  templateBasis: string | null;
 };
 
 function packageRows(db: Store, loanId: string, limit: number) {
@@ -44,6 +47,8 @@ function packageRows(db: Store, loanId: string, limit: number) {
 
 export function readDisclosureWork(db: Store, loanId: string, now = new Date()): DisclosureWork {
   const current = disclosureSource(db, loanId);
+  const templateOptions = current.source ?
+    disclosureTemplatesForLoan(db, disclosureTemplateMatch(applicationDraft.parse(JSON.parse(current.draft)))) : undefined;
   const rows = packageRows(db, loanId, 6);
   const latest = rows[0];
   const calendar = currentDisclosureCalendar(db);
@@ -65,12 +70,13 @@ export function readDisclosureWork(db: Store, loanId: string, now = new Date()):
           row.version === latest.version && row.revision === latest.revision && matchesSource(latest, current.source)),
       };
     }) as ClosingDisclosureReview[];
-  return { source: current.source ?? null, unavailable: current.error ?? null, closingReviews, suggestedDeadline, draftTargetChanged, packages: rows
+  return { source: current.source ?? null, unavailable: current.error ?? null, closingReviews, suggestedDeadline, draftTargetChanged, templateOptions, packages: rows
     .map((item) => ({
       version: item.version, revision: item.revision, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision,
       preparedAt: item.preparedAt, issuedAt: item.issuedAt, signBy: item.signBy, supersededAt: item.supersededAt, reviewReason: item.reviewReason,
       documents: JSON.parse(item.documents), signers: JSON.parse(item.signers), quote: JSON.parse(item.quote),
       deadlineBasis: storedDisclosureCalendarBasis(item.deadlineBasis),
+      ...(item.templateBasis ? { templateBasis: JSON.parse(item.templateBasis) as DisclosureTemplateBasis } : {}),
       declineFollowUp: item.declineFollowUp ? JSON.parse(item.declineFollowUp) : null,
       changeReview: item.changeReview ? JSON.parse(item.changeReview) : null,
     })) };
@@ -105,8 +111,7 @@ function matchesSource(item: PackageRow, source: DisclosureSource) {
     item.runId === source.quote.runId && item.offerId === source.quote.offerId;
 }
 
-function disclosureNames(draft: string): DisclosureSigner[] {
-  const application = applicationDraft.parse(JSON.parse(draft));
+function disclosureNames(application: ApplicationDraft): DisclosureSigner[] {
   const primary: DisclosureSigner = { role: "Borrower", name: application.borrowerName, status: "Pending", actedAt: null, receipt: null };
   const joint = application.urla.additional[0]?.identity.fields.name?.trim();
   return joint ? [primary, { ...primary, role: "Co-borrower", name: joint }] : [primary];
@@ -233,6 +238,12 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
     const { quote, applicationRevision, feeRevision } = source.source;
     if (data.applicationRevision !== applicationRevision || data.feeRevision !== feeRevision ||
       data.runId !== quote.runId || data.offerId !== quote.offerId) return { error: "The application, quote, or fee worksheet changed. Refresh the loan first." } as const;
+    const draft = applicationDraft.parse(JSON.parse(source.draft));
+    const template = data.template ? selectedDisclosureTemplate(db, data.template, disclosureTemplateMatch(draft)) : undefined;
+    if (data.template && !template) return { error: disclosureTemplateChanged } as const;
+    if (template && (template.documents.length !== data.documents.length || template.documents.some((item) => !data.documents.includes(item)))) {
+      return { error: "The document selection differs from this template. Choose the template again or use manual selection." } as const;
+    }
     let changeReview: DisclosurePackage["changeReview"] = null;
     if (latest && (latest.reviewReason || !matchesSource(latest, source.source))) {
       if (!data.revisionNote) return { error: "Record an internal change-review note before preparing the revised package." } as const;
@@ -249,13 +260,14 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
       completeTask(db, disclosureDeclinePrefix, latest, now);
     }
     db.prepare(`INSERT INTO disclosure_packages (loanId, version, runId, offerId, applicationRevision, feeRevision,
-      quote, documents, signers, preparedAt, signBy, changeReview, deadlineBasis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      quote, documents, signers, preparedAt, signBy, changeReview, deadlineBasis, templateBasis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(data.loanId, version, quote.runId, quote.offerId, applicationRevision, feeRevision, JSON.stringify(quote),
-        JSON.stringify(data.documents), JSON.stringify(disclosureNames(source.draft)), now, data.signBy,
-        changeReview ? JSON.stringify(changeReview) : null, deadlineBasis ? JSON.stringify(deadlineBasis) : null);
+        JSON.stringify(template?.documents ?? data.documents), JSON.stringify(disclosureNames(draft)), now, data.signBy,
+        changeReview ? JSON.stringify(changeReview) : null, deadlineBasis ? JSON.stringify(deadlineBasis) : null,
+        template ? JSON.stringify(template.basis) : null);
     if (changeReview) addApplicationActivity(db, data.loanId, `Reviewed sample disclosure changes from v${changeReview.fromVersion} for v${version} · ${changeReview.reason}.`, now);
     addApplicationActivity(db, data.loanId, `Prepared sample disclosure package v${version} · Fee worksheet v${feeRevision} · Signing target ${data.signBy} (${deadlineBasis
-      ? `calendar v${deadlineBasis.version}` : "manual"}).`, now);
+      ? `calendar v${deadlineBasis.version}` : "manual"})${template ? ` · ${template.basis.title} v${template.basis.revision}` : ""}.`, now);
     return { message: `Sample disclosure package v${version} prepared.` } as const;
   }
   if (!latest || latest.version !== data.version || latest.revision !== data.revision) {

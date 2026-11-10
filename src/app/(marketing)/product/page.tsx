@@ -24,6 +24,7 @@ const tools = [
   {icon:Workflow,title:"Campaign manager view",text:"See which sequence steps have logged replies and where leads are stalled. Open the leads behind each count, or pause and resume an individual sequence at its saved step."},
   {icon:CalendarDays,title:"Calendar and team coverage",text:"Keep callbacks and deadlines moving while a teammate is away. Give a backup the work due during coverage."},
   {icon:CalendarDays,title:"Disclosure deadline calendar",text:"Set office closures and open days for mock signing follow-up. Preview the loans with changed draft dates and keep the calendar version with each issued sample package."},
+  {icon:ListChecks,title:"Reusable disclosure templates",text:"Choose sample documents by the reviewed loan purpose and property state. Each prepared package keeps the exact template version and document list."},
   {icon:ShieldCheck,title:"Loan stage edit controls",text:"Require an admin to reopen a submitted 1003 or change lender details, selected quotes, or fees at stages you choose. Keep the reason in the loan audit."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},
   {icon:ShieldCheck,title:"File preflight and reviews",text:"Check the reviewed 1003, sample fees, disclosures, and lender evidence before closing. Open the fee or condition that needs attention and assign a teammate to review the current evidence. Their decision stays in the history when the file changes."},

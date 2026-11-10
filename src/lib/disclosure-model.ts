@@ -2,6 +2,7 @@ import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
 import type { AllocatedFeeLine, FeeInputs, QuoteOption } from "./quote-worksheet";
 import { disclosureCalendarReference, type DisclosureCalendarBasis, type DisclosureDeadline } from "./disclosure-calendar-model";
+import type { DisclosureTemplateBasis, DisclosureTemplateOptions } from "./disclosure-template-model";
 
 export const disclosureTarget = "loan-disclosures";
 export const disclosureReviewPrefix = "disclosure-review:";
@@ -9,18 +10,20 @@ export const disclosureSigningPrefix = "disclosure-signing:";
 export const disclosureDeclinePrefix = "disclosure-decline:";
 export const disclosureDeclineTaskTitle = "Follow up on declined sample disclosure";
 export const sampleDisclosureDocuments = ["Sample loan terms", "Sample fee summary", "Sample borrower acknowledgment"] as const;
+export const disclosureDocuments = z.array(z.enum(sampleDisclosureDocuments)).min(1, "Choose at least one sample document.").max(sampleDisclosureDocuments.length)
+  .refine((items) => new Set(items).size === items.length, "Choose each sample document once.");
 export const disclosureSigners = ["Borrower", "Co-borrower"] as const;
 export const disclosureResponses = ["Signed", "Declined"] as const;
 
 const loanId = z.string().min(1).max(100);
 const version = z.number().int().positive();
 const current = { loanId, version, revision: version };
+export const disclosureTemplateChoice = z.object({ id: z.uuid(), revision: version });
 export const confirmClosingDisclosure = z.object({ type: z.literal("confirmClosingDisclosure"), ...current });
 export const disclosureCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("prepareDisclosurePackage"), loanId, previousVersion: version.nullable(),
     applicationRevision: z.number().int().nonnegative(), runId: loanId, offerId: loanId, feeRevision: version,
-    documents: z.array(z.enum(sampleDisclosureDocuments)).min(1, "Choose at least one sample document.").max(sampleDisclosureDocuments.length)
-      .refine((items) => new Set(items).size === items.length, "Choose each sample document once."),
+    documents: disclosureDocuments, template: disclosureTemplateChoice.optional(),
     signBy: z.iso.date(), deadlineCalendar: disclosureCalendarReference.optional(),
     reviewedPackageRevision: version.optional(), revisionNote: z.string().trim().min(1).max(500).optional() }),
   z.object({ type: z.literal("issueDisclosurePackage"), ...current }),
@@ -46,6 +49,7 @@ export type DisclosurePackage = DisclosureSource & {
   version: number; revision: number; documents: DisclosureDocument[]; signers: DisclosureSigner[];
   preparedAt: string; signBy: string; issuedAt: string | null; supersededAt: string | null;
   deadlineBasis: DisclosureCalendarBasis | null;
+  templateBasis?: DisclosureTemplateBasis | null;
   reviewReason: string | null;
   declineFollowUp: { at: string; actor: string; note: string } | null;
   changeReview: { fromVersion: number; reason: string; at: string; actor: string; note: string } | null;
@@ -54,6 +58,7 @@ export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
   closingReviews: ClosingDisclosureReview[];
   suggestedDeadline?: DisclosureDeadline;
+  templateOptions?: DisclosureTemplateOptions;
   draftTargetChanged?: { version: number; signBy: string } | null;
 };
 export type ClosingDisclosureReview = {

@@ -29,6 +29,7 @@ const { readPlaybook } = await import("../src/lib/playbooks.ts");
 const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
 const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { loanStageEditWork } = await import("../src/lib/loan-stage-edits.ts");
+const { disclosureTemplatesForLoan, disclosureTemplateWork } = await import("../src/lib/disclosure-templates.ts");
 const { blankLenderDetails } = await import("../src/lib/urla.ts");
 const at = "2026-11-08T15:00:00.000Z";
 const today = "2026-11-08";
@@ -144,6 +145,95 @@ test("stage policy locks staff edits, audits only successful overrides, and keep
   assert.equal(work({ ...publish, revision: 1, rules: { application: [], fees: [] }, reason: "Restore the usual staff edit access." }).revision, 2);
   assert.match((await change("saveLenderDetails", { ...supplement, revision: 1, stageOverride }, admin)).error, /changed/);
   await apply("saveLenderDetails", { ...supplement, revision: 1 }, processor);
+});
+
+test("matching disclosure templates pin documents and provenance through edits, signing, and fee review", async (t) => {
+  const { db, id, admin, officer, roster } = fixture(t);
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(at) });
+  const pilot = (actor) => ({ ...actor, brokerage: { ...actor.brokerage, pilot: true } });
+  const loanId = "loan";
+  const manage = (input, actor = admin, tenant = id) => disclosureTemplateWork(db, input, pilot(actor), tenant, at);
+  const publish = (title, purpose, propertyState, documents) => ({ type: "publish", id: crypto.randomUUID(), revision: 0,
+    config: { title, purpose, propertyState, documents } });
+  const exact = publish("Michigan purchase package", "Purchase", "mi", [sampleDisclosureDocuments[0], sampleDisclosureDocuments[2]]);
+  const regional = publish("Michigan all loans", "Any loan purpose", "MI", [...sampleDisclosureDocuments]);
+  const generic = publish("General sample package", "Any loan purpose", "", [...sampleDisclosureDocuments]);
+  const incompatible = publish("Ohio purchases", "Purchase", "OH", [...sampleDisclosureDocuments]);
+  const refinance = publish("Michigan refinance", "Refinance", "MI", [...sampleDisclosureDocuments]);
+  assert.ok(manage(exact, officer).error);
+  assert.ok(manage(exact, admin, "other-brokerage").error);
+  assert.ok(manage({ ...exact, config: { ...exact.config, propertyState: "XX" } }).error);
+  for (const request of [generic, regional, incompatible, refinance, exact, exact]) assert.ok(!manage(request).error);
+  assert.equal(manage({ type: "list" }).templates.find(({ id }) => id === exact.id).revision, 1);
+  const michigan = { purpose: "Purchase", propertyState: "MI" };
+  assert.deepEqual(disclosureTemplatesForLoan(db, michigan).templates.map(({ id }) => id), [exact.id, regional.id, generic.id]);
+  assert.equal(disclosureTemplatesForLoan(db, michigan).recommendedId, exact.id);
+  assert.deepEqual(disclosureTemplatesForLoan(db, { ...michigan, propertyState: "" }).templates.map(({ id }) => id), [generic.id]);
+  const tied = publish("Michigan purchase alternative", "Purchase", "MI", [...sampleDisclosureDocuments]);
+  assert.ok(!manage(tied).error);
+  assert.equal(disclosureTemplatesForLoan(db, michigan).recommendedId, null);
+  assert.ok(!manage({ type: "archive", id: tied.id, revision: 1, archived: true }).error);
+  assert.equal(disclosureTemplatesForLoan(db, michigan).recommendedId, exact.id);
+
+  const command = (type, fields = {}) => executeCommand(db, { type, loanId, ...fields }, pilot(officer), undefined, roster);
+  const apply = async (type, fields) => {
+    const result = await command(type, fields);
+    assert.ok(!result.error, result.error);
+    return result.state;
+  };
+  const { token } = (await apply("startApplication")).applications[0];
+  const borrower = (input) => borrowerCommandResult(db, { token, ...input });
+  const initial = borrower({ type: "read" }).application;
+  const demo = sampleApplication(initial.draft);
+  const draft = { ...demo, confirmedDemo: true, currentLocation: { ...demo.currentLocation, city: "Columbus", state: "OH", zip: "43215" } };
+  const submitted = borrower({ type: "submit", revision: initial.revision, step: 9, draft }).application;
+  assert.ok(submitted?.submittedAt);
+  await apply("reviewApplication", { revision: submitted.revision });
+  const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
+    zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+    propertyType: "Single family", firstTimeBuyer: false };
+  const [run] = (await apply("runPricing", { scenario, applicationRevision: submitted.revision })).pricingRuns;
+  const choice = { runId: run.id, offerId: run.offers[0].id };
+  await apply("selectOffer", choice);
+  const fees = { origination: 95_000, appraisal: 65_000, creditReport: 0, settlement: 100_000, government: 0, prepaid: 0, escrow: 0, other: 0 };
+  const worksheet = { fees, purchasePrice: 45_000_000, payoffs: null, deposit: 0, sellerCredits: 0, otherCredits: 0 };
+  await apply("saveFeeWorksheet", { ...choice, feeRevision: 0, worksheet });
+  const read = () => readDisclosureWork(db, loanId);
+  assert.equal(read().templateOptions.propertyState, "MI");
+  assert.equal(read().templateOptions.recommendedId, exact.id);
+  const prepare = { ...choice, feeRevision: 1, applicationRevision: submitted.revision, previousVersion: null,
+    documents: exact.config.documents, signBy: today, template: { id: exact.id, revision: 1 } };
+  assert.match((await command("prepareDisclosurePackage", { ...prepare, template: { id: incompatible.id, revision: 1 } })).error, /no longer matches/);
+  assert.match((await command("prepareDisclosurePackage", { ...prepare, documents: [...sampleDisclosureDocuments] })).error, /differs from this template/);
+  await apply("prepareDisclosurePackage", prepare);
+  const original = read().packages[0];
+  assert.deepEqual(original.templateBasis, { id: exact.id, revision: 1, title: exact.config.title, purpose: "Purchase", propertyState: "MI" });
+
+  const nextConfig = { ...exact.config, title: "Updated Michigan purchase", documents: [...sampleDisclosureDocuments] };
+  assert.ok(!manage({ ...exact, revision: 1, config: nextConfig }).error);
+  assert.match((await command("prepareDisclosurePackage", { ...prepare, previousVersion: 1 })).error, /template changed/);
+  await apply("issueDisclosurePackage", { version: 1, revision: original.revision });
+  const response = borrower({ type: "respondToSampleDisclosure", version: 1, response: "Signed", confirmedDemo: true });
+  assert.ok(response.statusView, response.error);
+  assert.doesNotMatch(JSON.stringify(response), /Michigan purchase package|templateBasis/);
+  const signed = read().packages[0].signers[0];
+  assert.ok(signed.receipt);
+  assert.deepEqual(read().packages[0].documents, exact.config.documents);
+  await apply("saveFeeWorksheet", { ...choice, feeRevision: 1, worksheet: { ...worksheet, fees: { ...fees, appraisal: 67_500 } } });
+  const reviewedPackageRevision = read().packages[0].revision;
+  await apply("prepareDisclosurePackage", { ...prepare, previousVersion: 1, feeRevision: 2, documents: nextConfig.documents,
+    template: { id: exact.id, revision: 2 }, reviewedPackageRevision, revisionNote: "Checked the new fictional fee and template." });
+  const [revised, previous] = read().packages;
+  assert.equal(revised.templateBasis.revision, 2);
+  assert.deepEqual(revised.documents, nextConfig.documents);
+  assert.equal(revised.signers[0].status, "Pending");
+  assert.deepEqual(previous.templateBasis, original.templateBasis);
+  assert.deepEqual(previous.signers[0], signed);
+  assert.ok(!manage({ type: "archive", id: exact.id, revision: 2, archived: true }).error);
+  assert.equal(read().templateOptions.recommendedId, regional.id);
+  await apply("prepareDisclosurePackage", { ...prepare, previousVersion: 2, feeRevision: 2, template: undefined });
+  assert.equal(read().packages[0].templateBasis, undefined);
+  assert.equal(read().packages[1].templateBasis.revision, 2);
 });
 
 const reviewTime = "2026-11-09T03:30:00.000Z";

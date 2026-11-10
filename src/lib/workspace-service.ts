@@ -63,6 +63,7 @@ import { changeOwnerScorecardSettings, readOwnerScorecard } from "./owner-scorec
 import { customReportWork } from "./custom-reports";
 import { crmFieldWork } from "./crm-fields";
 import { disclosureCalendarWork } from "./disclosure-calendar";
+import { disclosureTemplateWork } from "./disclosure-templates";
 import { loanStageEditWork } from "./loan-stage-edits";
 import { changeConversation, readConversations } from "./conversations";
 import { changeInboundReply, readInboundReplies } from "./inbound-replies";
@@ -399,6 +400,10 @@ export async function workOnCrmFields(input: unknown, staff: WorkspaceStaff | nu
 
 export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceStaff | null) {
   return disclosureCalendarWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+}
+
+export async function workOnDisclosureTemplates(input: unknown, staff: WorkspaceStaff | null) {
+  return disclosureTemplateWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
 }
 
 export async function workOnLoanStageEdits(input: unknown, staff: WorkspaceStaff | null) {

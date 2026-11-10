@@ -25,11 +25,12 @@ export type AddressStreet = "currentAddress" | "priorAddress" | "propertyAddress
 export type AddressDetails = "currentLocation" | "priorLocation" | "propertyLocation";
 export const usZip = /^\d{5}(?:-\d{4})?$/;
 const usStates = new Set("AL AK AS AZ AR CA CO CT DE DC FL GA GU HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MP MT NE NV NH NJ NM NY NC ND OH OK OR PA PR RI SC SD TN TX UT VT VA VI WA WV WI WY AA AE AP FM MH PW".split(" "));
+export const isUsStateCode = (value: string) => usStates.has(value.trim().toUpperCase());
 const blankLocation = (): AddressLocation => ({ unit: "", city: "", state: "", zip: "" });
 
 export function splitLegacyAddress(value: string): { street: string; location: AddressLocation } {
   const match = /^(?:(.+),\s*)?([^,]+),\s*([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?$/i.exec(value.trim());
-  if (!match || !usStates.has(match[3].toUpperCase()) || match[2].trim().length > 100) {
+  if (!match || !isUsStateCode(match[3]) || match[2].trim().length > 100) {
     return { street: value, location: blankLocation() };
   }
   return {
@@ -151,7 +152,7 @@ export function sampleApplication(current: ApplicationDraft): ApplicationDraft {
 
 function completeAddress(street: string, { city, state, zip, country }: AddressLocation, usOnly = false) {
   const domestic = usOnly || !country || /^(US|USA|United States)$/i.test(country.trim());
-  return !!street.trim() && !!city.trim() && (!domestic || (usStates.has(state.trim().toUpperCase()) && usZip.test(zip.trim())));
+  return !!street.trim() && !!city.trim() && (!domestic || (isUsStateCode(state) && usZip.test(zip.trim())));
 }
 
 export function applicationIssues(draft: ApplicationDraft, separateJoint = false) {
