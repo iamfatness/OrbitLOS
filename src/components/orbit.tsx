@@ -173,7 +173,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [reviewVersion, setReviewVersion] = useState(0);
   const queueVersion = useMemo(() => ({ state, reviewVersion }), [state, reviewVersion]);
   const actionCounts = useActionCounts(staff?.brokerage.id ?? demoBrokerageId, staff?.email,
-    controlsReady && canOpenToday, queueVersion);
+    controlsReady && (canOpenToday || canOpenProcessing), queueVersion);
   const [attentionVisit, setAttentionVisit] = useState<{ section: Section; visit: number }>();
   const [searchSelection, setSearchSelection] = useState<SearchSelection>({ query: "", filter: "All records" });
   const [searchContact, setSearchContact] = useState<SearchContact>();
@@ -1161,7 +1161,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button" disabled={!controlsReady}
           aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
           {mobileNavOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />} Menu
-          {!!(actionCounts?.today || actionCounts?.leads || (canReport && actionCounts?.exceptions)) && !mobileNavOpen && <span className="nav-attention-dot" aria-label="Actions waiting" />}
+          {!!(actionCounts?.today || actionCounts?.leads || actionCounts?.processing || (canReport && actionCounts?.exceptions)) && !mobileNavOpen && <span className="nav-attention-dot" aria-label="Actions waiting" />}
         </Button>
         <nav id="workspace-navigation" aria-label="Workspace navigation" data-expanded={mobileNavOpen}>
           {navigation.map(({ title, items }) => (
@@ -1169,10 +1169,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               <p className="workspace-label">{title}</p>
               {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
                 const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads :
-                  label === "Exceptions" ? actionCounts?.exceptions : undefined;
+                  label === "Exceptions" ? actionCounts?.exceptions : label === "Processing" ? actionCounts?.processing : undefined;
                 const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
                 const reason = label === "Today" ? (attention === 1 ? "action due or ready" : "actions due or ready") :
                   label === "Exceptions" ? (attention === 1 ? "open file exception" : "open file exceptions") :
+                    label === "Processing" ? (attention === 1 ? "incoming item" : "incoming items") :
                     (attention === 1 ? "lead needs first contact" : "leads need first contact");
                 return <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
                   aria-label={count ? `${label}, ${count} ${reason}` : undefined}
@@ -1379,7 +1380,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
-          {section === "Processing" && canOpenProcessing && <ProcessorQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor}
+          {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}
+            brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor}
             mockServices={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
             reviewingLoan={!!modal || busy} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "processing")}
             version={state} openTasks={() => navigate("Tasks")} openReply={(id) => openConversation({ id })}

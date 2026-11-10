@@ -5,7 +5,16 @@ export interface PricingProvider {
   quote(scenario: PricingScenario): Promise<PricingResult>;
 }
 
-export class PricingError extends Error {}
+export type PricingFailure = "configuration" | "unsupported" | "authentication" | "throttled" | "unavailable" | "invalid-response" | "rejected";
+
+export class PricingError extends Error {
+  readonly code: PricingFailure;
+
+  constructor(code: PricingFailure, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
 
 const providerName = "UWM Easy Qualifier";
 const mockNotice = "Sample pricing for demonstration. Principal and interest exclude taxes, insurance and other costs. Rates and prices are illustrative.";
@@ -65,31 +74,45 @@ const eqStage = "https://stg.api.uwm.com";
 const occupancyCodes = { "Primary residence": "1", "Investment property": "2", "Second home": "3" };
 
 async function readEq(response: Response) {
-  if (response.status === 429) throw new PricingError("UWM is limiting pricing requests. Try again in a minute.");
-  if (response.status === 401 || response.status === 403) throw new PricingError("UWM stage denied access. Check the EQ credentials and permissions.");
-  if (!response.ok) throw new PricingError("UWM stage could not return pricing for this scenario.");
-  return response.json();
+  if (response.status === 429) throw new PricingError("throttled", "UWM is limiting pricing requests. Try again in a minute.");
+  if (response.status === 401 || response.status === 403) throw new PricingError("authentication", "UWM stage denied access. Check the EQ credentials and permissions.");
+  if (!response.ok) throw new PricingError("unavailable", "UWM stage could not return pricing for this scenario.");
+  try {
+    return await response.json();
+  } catch {
+    throw new PricingError("invalid-response", "UWM stage returned a pricing response Orbit could not read.");
+  }
+}
+
+async function requestEq(url: string, init: RequestInit) {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new PricingError("unavailable", "Orbit could not reach UWM stage. Try pricing again.");
+  }
 }
 
 export function pricingProvider(env: Record<string, string | undefined> = process.env): PricingProvider {
-  if (env.ORBIT_PRICING_MODE !== "uwm-stage") return mockPricing;
+  const mode = env.ORBIT_PRICING_MODE;
+  if (!mode || mode === "mock") return mockPricing;
+  if (mode !== "uwm-stage") throw new PricingError("configuration", "Pricing mode is unavailable. Check the workspace configuration.");
   return {
     async quote(scenario) {
-      if (scenario.nonAgency) throw new PricingError(`UWM stage pricing does not yet support ${scenario.nonAgency.program}. Use a manual lender quote for this scenario.`);
+      if (scenario.nonAgency) throw new PricingError("unsupported", `UWM stage pricing is unavailable for ${scenario.nonAgency.program}. Use a manual lender quote for this scenario.`);
       if (!env.UWM_EQ_CLIENT_ID || !env.UWM_EQ_CLIENT_SECRET) {
-        throw new PricingError("UWM stage pricing needs an EQ client ID and secret.");
+        throw new PricingError("configuration", "UWM stage pricing needs an EQ client ID and secret.");
       }
-      const token = eqToken.safeParse(await readEq(await fetch("https://sso.uwm.com/adfs/oauth2/token", {
+      const token = eqToken.safeParse(await readEq(await requestEq("https://sso.uwm.com/adfs/oauth2/token", {
         method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
         body: new URLSearchParams({
           grant_type: "client-credentials", client_id: env.UWM_EQ_CLIENT_ID,
           client_secret: env.UWM_EQ_CLIENT_SECRET, scope: "https://api.uwm.com/loanorigination-stg",
         }),
       })));
-      if (!token.success) throw new PricingError("UWM stage returned an invalid token response.");
+      if (!token.success) throw new PricingError("invalid-response", "UWM stage returned an invalid token response.");
       const headers = { Authorization: `Bearer ${token.data.access_token}`, "Content-Type": "application/json" };
       const [quoteResponse, disclaimerResponse] = await Promise.all([
-        fetch(`${eqStage}/public/products/v1/mortgage-price-quotes`, {
+        requestEq(`${eqStage}/public/products/v1/mortgage-price-quotes`, {
           method: "POST", headers, redirect: "error", signal: AbortSignal.timeout(15_000),
           body: JSON.stringify({
             brokerAlias: env.UWM_EQ_BROKER_ALIAS || undefined, loanOfficer: env.UWM_EQ_LO_EMAIL || undefined,
@@ -103,13 +126,13 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
             firstTimeHomeBuyer: scenario.purpose === "Purchase" ? scenario.firstTimeBuyer : undefined,
           }),
         }),
-        fetch(`${eqStage}/public/products/v1/disclaimers`, { headers, redirect: "error", signal: AbortSignal.timeout(10_000) }),
+        requestEq(`${eqStage}/public/products/v1/disclaimers`, { headers, redirect: "error", signal: AbortSignal.timeout(10_000) }),
       ]);
       const quotes = eqQuotes.safeParse(await readEq(quoteResponse));
-      if (!quotes.success) throw new PricingError("UWM stage returned a pricing response Orbit could not read.");
-      if (quotes.data.errorMessages?.length) throw new PricingError("UWM stage could not price these inputs. Review the scenario before retrying.");
+      if (!quotes.success) throw new PricingError("invalid-response", "UWM stage returned a pricing response Orbit could not read.");
+      if (quotes.data.errorMessages?.length) throw new PricingError("rejected", "UWM stage could not price these inputs. Review the scenario before retrying.");
       const disclaimers = eqDisclaimers.safeParse(await readEq(disclaimerResponse));
-      if (!disclaimers.success || !disclaimers.data.length) throw new PricingError("UWM stage pricing disclosures could not be loaded.");
+      if (!disclaimers.success || !disclaimers.data.length) throw new PricingError("invalid-response", "UWM stage pricing disclosures could not be loaded.");
       const offers = quotes.data.validQuoteItems.flatMap((product, productIndex) =>
         product.quotePricePoints.flatMap((item, pointIndex) => {
           const parsed = eqPoint.safeParse(item);

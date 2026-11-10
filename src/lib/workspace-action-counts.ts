@@ -10,9 +10,13 @@ export const actionCountsUnavailable = "Workspace action counts are unavailable.
 const countLimit = 100;
 
 export function readActionCounts(db: Store, staff: WorkspaceStaff | null, brokerageId: string, now = new Date(), localName?: string) {
-  if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role === "Processor") {
+  if (!staff || staff.brokerage.id !== brokerageId) {
     return { error: actionCountsUnavailable };
   }
+  const processing = staff.brokerage.role === "LO" ? undefined :
+    readIncomingLoanWorkPage(db, { view: "processing" }, staff, brokerageId, localName, now, countLimit);
+  if (processing && "error" in processing) return { error: actionCountsUnavailable };
+  if (staff.brokerage.role === "Processor") return { processing: processing?.items.length ?? 0 };
   const incoming = readIncomingLoanWorkPage(db, { view: "today" }, staff, brokerageId, localName, now, countLimit);
   if ("error" in incoming) return { error: actionCountsUnavailable };
   const actions = new Set(incoming.items.map(({ kind, id }) => `${kind}:${id}`));
@@ -34,5 +38,5 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
   } while (after);
   const exceptions = countFileExceptions(db, staff, brokerageId, now, countLimit);
   return { today: Math.min(actions.size, countLimit), leads: countLeadAttention(db, staff, countLimit),
-    ...(exceptions === undefined ? {} : { exceptions }) };
+    ...(exceptions === undefined ? {} : { exceptions }), ...(processing ? { processing: processing.items.length } : {}) };
 }

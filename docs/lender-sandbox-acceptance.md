@@ -1,0 +1,29 @@
+# Lender connector sandbox acceptance
+
+Orbit's hosted workspace uses simulated pricing, submission, status, documents, and rate locks. The EQ stage adapter has offline contract tests. The remaining UWM mappings below are candidates for validation with the technical owner and an enrolled fictional brokerage.
+
+## Provider capabilities and evidence
+
+| Action | Orbit source | UWM sandbox proof | Fallback |
+| --- | --- | --- | --- |
+| Price before submission | Validated conventional purchase or rate-and-term refinance scenario. Save the quote and terms with its provider mode and current input evidence. | EQ authenticates, returns the selected product and price point with its disclosure, and maps the scenario reference. Confirm permissions and accepted field codes. Verify empty eligibility, authentication failure, throttling, and a malformed response. DSCR and bank statement have an explicit unsupported result in stage. | Record a manual lender quote. |
+| Submit or update a loan | Reviewed 1003 revision, approval where required, MISMO 3.4 export, selected lender and authorized branch. Preserve the exact artifact and digest. | Create an import transaction, upload the exact XML, scan and review validation issues, and commit. An HTTP acknowledgment marks the request as pending. The correlated result establishes the lender file number and outcome. An update keeps the same lender file and records a new source revision. | Export the reviewed MISMO package and record the lender portal acknowledgment. |
+| Recover a receipt | Stored intent, immutable source revision, attempt and known transaction ID. | Simulate a dropped commit response. Match the original import result to the attempt and record the original receipt. Verify wrong transaction, wrong brokerage, duplicate, late, and conflicting result cases. Confirm a supported status lookup or escalation path with UWM. | Keep the submission pending and record authorized portal evidence against the original attempt. |
+| Read status and conditions | Authorized lender file reference and last accepted update for that file. | Validate webhook authentication and the update identifier. Reconcile a cleared, reopened, duplicate, and out-of-order condition against a current lender read. Persist a safe cursor or watermark for replay and recovery. | Enter verified manual status or condition evidence on the lender file. |
+| Deliver condition evidence | Current accepted document revision, target condition, lender file, and consent and scan prerequisites. | Verify temporary holding, attachment, and submission as separate operations. Recover uncertainty at each boundary using provider evidence. Confirm clearance through a subsequent lender read or event. | Record portal delivery and clearance with the original document revision and reviewer. |
+| Float, lock, extend or cancel | Current lender file and eligible saved product, exact terms, and actor. | Confirm available actions, loan status prerequisites and entitlements. Record the actual terms and expiry from the provider. Recover an uncertain lock before submitting another request. | Record the lender's confirmation and due date as manual evidence. |
+
+The partner reference describes distinct transaction and loan identifiers and distinct document upload and attachment steps. Confirm supported scopes, identifiers, limits and acknowledgment behavior before enabling a connection. [UWM origination](https://developers.uwm.com/portal/loan-origination/docs/34) · [Import result](https://developers.uwm.com/portal/loan-origination/docs/91) · [Conditions](https://developers.uwm.com/portal/condition/docs/72) · [Products and pricing](https://developers.uwm.com/portal/products-and-pricing/docs/46)
+
+## Submission receipt contract
+
+- **Intent** carries the brokerage, provider, environment, action, source record and revision, artifact digest, actor, and stable correlation key. Store it before an outbound request. A later revision needs a new intent. Provider transaction IDs and permanent lender file references occupy separate fields.
+- **Attempt** records the idempotency key when supported, the start time, known provider references, and a redacted outcome. A transport timeout or request acknowledgment leaves the attempt pending. A business rejection supplies evidence and the fields staff need to correct.
+- **Receipt** is evidence matched to the original brokerage, provider, environment, operation, and attempt. Persist the accepted result and resolve its task in the same local transaction. Replay returns the original result. Quarantine unmatched or contradictory evidence for operator review.
+- **Recovery** checks for the original result before a retry. Start a new attempt only when the provider confirms no acceptance or its idempotency contract makes a replay safe. Keep the manual evidence path available when the provider's state cannot be confirmed.
+
+The mock workflow already creates a revision-specific Today item, prevents a second send while pending, and recovers the original receipt. Its database record is a simulation of a provider result. The actual import transaction and event receiver need sandbox validation. [Mock receipt storage](../src/lib/uwm-handoff-recovery.ts) · [Working-day acceptance](working-day-rehearsal.md)
+
+## Activation gate
+
+Record the provider technical owner, sandbox broker and contact mapping, granted scopes, server-side credential references, test identities, expected response samples, verification method, and quota limits. Run one purchase and one rate-and-term refinance with synthetic records. Verify positive and negative results, isolate both the sandbox and brokerage scope, and exercise rotation, disablement and manual recovery. Record evidence before promoting each capability. Use a separate approved enrollment and credential configuration for production.

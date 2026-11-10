@@ -163,7 +163,7 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
       setAssignmentResult({ brokerageId, error: "Could not confirm the assignment. Refresh the queue before trying again." });
     } finally { setAssigning(false); }
   }
-  return <section className="integration record-form manager-panel" aria-label="Processing queue">
+  return <section className="integration record-form manager-panel processing-panel" aria-label="Processing queue">
     <div className="section-heading"><h2>{team ? "Team processing queue" : "My processing queue"}</h2>
       {page && <span className="pill">Checked {dateTime(page.checkedAt)} ET</span>}</div>
     <p className="muted">{serviceOrders ? "Review mock property services and employment, income, and asset verifications. Earliest due dates appear first." :

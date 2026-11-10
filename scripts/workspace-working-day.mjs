@@ -289,7 +289,8 @@ try {
     assert.ok((await fileExceptions("All file exceptions", officer)).error);
     assert.ok((await fileExceptions("All file exceptions", processor)).error);
     assert.ok((await fileExceptions("All file exceptions", owner, randomUUID())).error);
-    assert.ok((await sidebar(processor)).error);
+    assert.deepEqual(await sidebar(processor), { processing: 0 });
+    assert.ok((await action(processor, "readSidebarActionCounts", randomUUID())).error);
     assert.ok((await action(owner, "readSidebarActionCounts", randomUUID())).error);
     await write(owner, { type: "createCallCampaign", id: campaignId, name: "Fictional migrated pipeline" });
     await write(owner, { type: "saveCampaignRules", campaignId, revision: 0, voicemailDays: 1, noResponseDays: 2, maxAttempts: 3, retryTime: "15:30" });
@@ -939,9 +940,23 @@ try {
     assert.ok(!("draft" in status));
     assert.match((await action(officer, "mutate", { type: "sendApplication", loanId, revision: corrected.revision,
       quote: { runId: run.id, offerId: run.offers[1].id } })).error, /saved mock quote changed/i);
-    await loanAction(officer, loanId, "sendApplication", { revision: corrected.revision, quote: { runId: run.id, offerId: offer.id } });
+    const submissionIntent = { revision: corrected.revision, quote: { runId: run.id, offerId: offer.id } };
+    await loanAction(officer, loanId, "simulateMissingUwmReceipt", submissionIntent);
+    const pendingReceiptFile = await file(officer, loanId);
+    assert.equal(pendingReceiptFile.applications[0].uwmPendingReceipt.revision, corrected.revision);
+    assert.equal(pendingReceiptFile.submissions.length, 0);
+    const receiptTask = (await queue(officer)).items.find(({ id }) => id === `uwm-receipt:${loanId}:${corrected.revision}`);
+    assert.equal(receiptTask.target, "loan-application");
+    assert.match((await action(officer, "mutate", { type: "sendApplication", loanId, ...submissionIntent })).error, /missing submission receipt/);
+    assert.ok((await action(competingOfficer, "mutate", { type: "reconcileMockUwmReceipt", loanId, revision: corrected.revision })).error);
+    await loanAction(officer, loanId, "reconcileMockUwmReceipt", { revision: corrected.revision });
     const handedOff = await file(officer, loanId);
-    assert.ok(handedOff.applications[0].versions.find((version) => version.revision === corrected.revision).uwmReceipt);
+    const receipt = handedOff.applications[0].versions.find((version) => version.revision === corrected.revision).uwmReceipt;
+    assert.ok(receipt);
+    const replayedReceipt = await loanAction(officer, loanId, "reconcileMockUwmReceipt", { revision: corrected.revision });
+    assert.deepEqual(replayedReceipt.loanWork.applications[0].versions.find((version) => version.revision === corrected.revision).uwmReceipt, receipt);
+    assert.equal(replayedReceipt.loanWork.submissions.length, 1);
+    assert.ok(!(await queue(officer)).items.some(({ id }) => id === receiptTask.id));
   });
 
   const processing = async (staff, actionName, note = "") => {
@@ -956,6 +971,11 @@ try {
     }), processor, "processing", loanId);
     const ready = await action(processor, "readProcessingWork", { readyOnly: true });
     assert.ok(ready.files.some(({ id, status }) => id === loanId && status === "Ready for processing"));
+    const processorInbox = await incoming(processor, "processing");
+    assert.equal(processorInbox.next, null);
+    assert.deepEqual(await sidebar(processor), { processing: processorInbox.items.length });
+    assert.equal((await sidebar(owner)).processing, (await incoming(owner, "processing")).items.length);
+    assert.equal((await sidebar(officer)).processing, undefined);
     const active = await file(officer, loanId);
     assert.equal(offered?.note, "Review the mock lender evidence.");
     assert.equal(offered?.revision, active.loanProcessing[0].revision);
@@ -979,6 +999,7 @@ try {
     assert.match(observedAcceptance.processingActivity[1].text, /Review the mock lender evidence/);
     assert.deepEqual(await action(officer, "checkLoanHandoff", loanId, observedAcceptance.handoffVersion), { unchanged: true });
     assert.ok(!(await incoming(processor, "processing")).items.some(({ kind, id }) => kind === "handoff" && id === loanId));
+    assert.deepEqual(await sidebar(processor), { processing: 0 });
     const current = await file(processor, loanId);
     const submission = current.submissions.find(({ lender }) => lender === "UWM");
     const conditionIds = submission.conditions.filter(({ satisfiedAt }) => !satisfiedAt).map(({ id }) => id);

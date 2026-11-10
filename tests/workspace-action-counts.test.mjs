@@ -39,11 +39,12 @@ test("sidebar counts follow staff scope and deduplicate incoming application wor
   db.prepare("INSERT INTO lead_follow_up (leadId, replyReceivedAt) VALUES (?, ?)").run(replied, at);
   db.prepare("INSERT INTO outreach_opt_outs VALUES ('fixture', ?, NULL, ?)").run(`lead:${optedOut}`, at);
   assert.deepEqual(counts(lo), { today: 0, leads: 1 });
-  assert.deepEqual(counts(admin), { today: 0, leads: 3, exceptions: 0 });
+  assert.deepEqual(counts(admin), { today: 0, leads: 3, exceptions: 0, processing: 0 });
   assert.deepEqual(readLeadInbox(db, { type: "list", view: leadAttentionView }, lo, now).leads.map(({ id }) => id), [mine]);
   assert.deepEqual(new Set(readLeadInbox(db, { type: "list", view: leadAttentionView }, admin, now).leads.map(({ id }) => id)),
     new Set([mine, shared, theirs]));
-  assert.ok(counts(processor).error);
+  assert.deepEqual(counts(processor), { processing: 0 });
+  assert.ok(counts(processor, randomUUID()).error);
   assert.ok(counts(lo, randomUUID()).error);
 
   const loanId = randomUUID(), contactId = randomUUID();
@@ -62,7 +63,7 @@ test("sidebar counts follow staff scope and deduplicate incoming application wor
   db.prepare(`INSERT INTO contact_conversations (id, contactId, ownerEmail, ownerName, status, unread, updatedAt)
     VALUES (?, ?, ?, ?, 'Needs reply', 1, ?)`).run(randomUUID(), contactId, lo.email, lo.name, at);
   assert.deepEqual(counts(lo), { today: 4, leads: 1 });
-  assert.deepEqual(counts(admin), { today: 0, leads: 3, exceptions: 0 });
+  assert.deepEqual(counts(admin), { today: 0, leads: 3, exceptions: 0, processing: 0 });
   assert.deepEqual(counts(other), { today: 0, leads: 1 });
   db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ?").run(at, feeTask);
   db.prepare("INSERT INTO lead_follow_up (leadId, firstContactAt) VALUES (?, ?)").run(mine, at);
@@ -72,4 +73,16 @@ test("sidebar counts follow staff scope and deduplicate incoming application wor
     task.run(randomUUID(), loanId, `Fictional task ${index}`, at);
   }
   assert.deepEqual(counts(lo), { today: 100, leads: 100 });
+
+  db.prepare("UPDATE applications SET reviewedAt = ? WHERE loanId = ?").run(at, loanId);
+  db.prepare("INSERT INTO loan_processing VALUES (?, ?, ?, 'Ready for processing', '', ?, 2)")
+    .run(loanId, processor.email, processor.name, at);
+  assert.equal(counts(admin).processing, 2, "Team processing includes the ready handoff and the received document");
+  assert.deepEqual(counts(processor), { processing: 2 });
+  assert.deepEqual(counts(staff("other-processor", "Processor")), { processing: 0 });
+  assert.equal(counts(lo).processing, undefined);
+  db.prepare("UPDATE loan_processing SET status = 'In processing' WHERE loanId = ?").run(loanId);
+  assert.deepEqual(counts(processor), { processing: 1 });
+  db.prepare("UPDATE document_requests SET status = 'Accepted' WHERE loanId = ?").run(loanId);
+  assert.deepEqual(counts(processor), { processing: 0 });
 });

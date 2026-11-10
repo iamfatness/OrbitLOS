@@ -69,7 +69,7 @@ export default function DemoPage() {
           <li>Keep alternative quotes for comparison. If the saved quote differs from the reviewed 1003, load the 1003 amount in pricing before sending to mock UWM.</li>
           <li>Float and lock a matching mock quote after the linked UWM file receives the current 1003. See the amount and 1003 revision on the confirmation while pricing another quote.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
-          <li>Send a file to an assigned processor. See who acts next, keep a draft when the handoff changes, and pick the file back up from Today after mock lender clearance.</li>
+          <li>Send a file to an assigned processor. The Processing badge opens incoming work. See who acts next, keep a draft when the handoff changes, and pick the file back up from Today after mock lender clearance.</li>
           <li>Track mock appraisal, title, homeowners insurance, flood, and mortgage insurance orders in Processing. Review the returned PDFs and link accepted evidence to the closing checklist.</li>
           <li>Track mock employment, income, and asset verification separately for each borrower. Open the exact return from the processor queue and keep its review with the loan.</li>
           <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. If staff try to record closing or funding from an older view, the open loan shows the condition that needs attention. Replace its evidence and continue when it clears.</li>

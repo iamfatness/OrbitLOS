@@ -131,7 +131,7 @@ export async function loadOfficerQueue(input: unknown, staff: WorkspaceStaff | n
 }
 
 export async function loadActionCounts(staff: WorkspaceStaff | null) {
-  if (!staff || staff.brokerage.role === "Processor") return { error: actionCountsUnavailable };
+  if (!staff) return { error: actionCountsUnavailable };
   return staffWorkspace(staff).actionCounts(staff);
 }
 
