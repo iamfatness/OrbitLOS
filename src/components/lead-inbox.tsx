@@ -233,7 +233,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         {lead.officerEmail && (staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&
           <LeadDocumentChecklist key={focusDocumentId ?? "lead-documents"} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             leadId={lead.id} busy={busy} focusRequestId={focusDocumentId} />}
-        {lead.importedContactId && <p className="muted">The migration review linked this lead to its borrower contact.</p>}
+        {lead.importedContactId && <p className="muted">This lead is linked to the borrower’s existing contact.</p>}
         {flagged && lead.restrictedMatch && <p className="muted">A possible match needs brokerage admin review.</p>}
         {flagged && (lead.matches.length > 0 || !lead.restrictedMatch) && <label className="field">Contact to use
           <select value={match} onChange={(event) => setMatch(event.target.value)}>
