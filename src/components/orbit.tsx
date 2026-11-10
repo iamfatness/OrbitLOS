@@ -1253,7 +1253,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
       </aside>
       <main className="main">
         <header className="topbar">
-          <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section === "Brokerage" ? "Brokerage overview" : section}</strong></span>
+          <span><span className="muted">Workspace</span><span className="slash">/</span><strong>{section}</strong></span>
           <div className="topbar-actions">
             {canOpenCalendar && <Button className="workspace-search-trigger" type="button" size="sm" variant="ghost" data-tooltip="Search workspace"
               aria-label="Search workspace" aria-current={section === "Search" ? "page" : undefined} disabled={!controlsReady}
@@ -1291,7 +1291,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             </div>
             {section === "Demo Guide" && !controlsReady && <p className="muted" role="status">Getting the walkthrough ready…</p>}
             {!waitingForWorkspace && <div className="heading-actions">
-              {section === "Brokerage" && canReport && <Button disabled={busy || !controlsReady} onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}
+              {section === "Brokerage" && canReport && <>
+                <Button disabled={busy || !controlsReady} onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>
+                <Button variant="outline" disabled={busy || !controlsReady} onClick={() => openBrokerageView("Today")}>My work today</Button>
+              </>}
               {section === "Contacts" && admin && <Button onClick={() => show({ kind: "contact" })}><Plus /> New contact</Button>}
               {section === "Tasks" && staff && <Button variant="outline" disabled={busy}
                 onClick={() => { setDetailedTasks(pagedTasks); setFocusContactTask(undefined); }}>
@@ -1420,7 +1423,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             pilot={Boolean(staff.brokerage.pilot)} hasBranches={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId} refresh={refreshCounts}
             openQueue={(queue) => openBrokerageView(brokerageQueueSections[queue], queue !== "exceptions")} openReport={openBrokerageReport}
             openTeam={(panel) => { setTeamPanel(panel); openBrokerageView("Team"); }}
-            openCompliance={() => openBrokerageView("Compliance")} openToday={() => openBrokerageView("Today")} />}
+            openCompliance={() => openBrokerageView("Compliance")} />}
           {section === "Today" && canOpenToday && <OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             complianceWork={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}

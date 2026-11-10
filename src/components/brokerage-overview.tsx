@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, BarChart3, ClipboardList, Inbox, ListChecks, ShieldCheck, UsersRound } from "lucide-react";
+import { ArrowRight, BarChart3, Inbox, ListChecks, ShieldCheck, UsersRound } from "lucide-react";
 import type { ActionCounts } from "./use-action-counts";
 import { Button } from "./ui/button";
 
@@ -17,10 +17,10 @@ function actionCount(count?: number) {
   return count === undefined ? "—" : count >= 100 ? "100+" : String(count);
 }
 
-export function BrokerageOverview({ counts, unavailable, busy, pilot, hasBranches, refresh, openQueue, openReport, openTeam, openCompliance, openToday }: {
+export function BrokerageOverview({ counts, unavailable, busy, pilot, hasBranches, refresh, openQueue, openReport, openTeam, openCompliance }: {
   counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean; hasBranches: boolean;
   refresh: () => void; openQueue: (queue: BrokerageQueue) => void; openReport: (report: BrokerageReport) => void;
-  openTeam: (panel: "Staff access" | "Branches" | "Loan settings") => void; openCompliance: () => void; openToday: () => void;
+  openTeam: (panel: "Staff access" | "Branches" | "Loan settings") => void; openCompliance: () => void;
 }) {
   return <div className="brokerage-overview record-form">
     <section className="integration record-form" aria-labelledby="brokerage-attention-heading">
@@ -56,10 +56,6 @@ export function BrokerageOverview({ counts, unavailable, busy, pilot, hasBranche
           {pilot && <li><Button size="sm" variant="ghost" disabled={busy} onClick={openCompliance}>Compliance overview<ArrowRight size={16} aria-hidden="true" /></Button></li>}
         </ul>
       </section>
-    </div>
-    <div>
-      <Button size="sm" variant="outline" disabled={busy} onClick={openToday}><ClipboardList size={16} aria-hidden="true" />
-        My work today{typeof counts?.today === "number" ? ` · ${actionCount(counts.today)}` : ""}</Button>
     </div>
   </div>;
 }
