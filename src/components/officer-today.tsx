@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { readConversationWork, readMyTasksToday } from "@/app/actions";
 import type { ConversationResult } from "@/lib/conversation-model";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
@@ -16,12 +16,12 @@ import { Button } from "./ui/button";
 
 const todayViews = ["My Tasks", "Stalled loans", "My production", "Past-client opportunities"] as const;
 
-export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients }: {
+export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients, complianceWork }: {
   brokerageId: string; version: object; busy: boolean; openWork: (item: OfficerQueueItem) => void; openTasks: () => void;
   save: (input: unknown) => Promise<void>;
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
   openReply: (id: string) => void; openFunding: (id: string) => void; openOpportunity: (item: RetentionOpportunity) => void;
-  openPastClients: () => void; openStalled: (id: string) => void; refreshStalled: () => void;
+  openPastClients: () => void; openStalled: (id: string) => void; refreshStalled: () => void; complianceWork?: ReactNode;
 }) {
   const [view, setView] = useState<(typeof todayViews)[number]>("My Tasks");
   const [query, setQuery] = useState<OfficerQueueQuery>({ horizon: 1 });
@@ -67,6 +67,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
     <p className="muted">Open replies, first contacts, callbacks, lead and loan deadlines, and files returned by processing or a lender.</p>
     <IncomingLoanWorkQueue brokerageId={brokerageId} view="today" paused={busy || reviewingLoan} version={version} open={openIncomingLoanWork}
       onLeadDocumentChange={() => setDeadlineRefresh((count) => count + 1)} />
+    {complianceWork}
     {replyResult && "error" in replyResult && <p role="alert">{replyResult.error}</p>}
     {replies && <ConversationReplies page={replies} today={today} after={query.replyAfter} open={openReply}
       onPage={(replyAfter) => setQuery((last) => ({ ...last, replyAfter }))} />}

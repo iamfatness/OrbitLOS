@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { readManagerExceptions } from "@/app/actions";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { dateLabel } from "@/lib/client-retention";
@@ -21,10 +21,10 @@ import type { ReportingPeriod } from "@/lib/call-report-readiness-model";
 import { ReportingReadinessPanel } from "./call-report-readiness";
 import { ManagerCallbackExceptions } from "./manager-callback-exceptions";
 
-export type ManagerExceptionView = "files" | "owners" | "reporting" | "callbacks";
+export type ManagerExceptionView = "files" | "owners" | "reporting" | "callbacks" | "compliance";
 const reminderTimingOptions = Array.from({ length: 2 * documentReminderTimingLimit + 1 }, (_, index) => index - documentReminderTimingLimit);
 
-export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead, openCampaignRun, openCallbackPromise, openContactFollowUp, openLoan, openAssignment, openFunding, openDocument, fileVersion, openFile, view, setView, filters, setFilters, reporting }: {
+export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead, openCampaignRun, openCallbackPromise, openContactFollowUp, openLoan, openAssignment, openFunding, openDocument, fileVersion, openFile, view, setView, filters, setFilters, reporting, complianceReviews }: {
   staff: WorkspaceStaff | null; busy: boolean;
   save: (input: unknown, after?: () => void) => Promise<void>; refresh: () => Promise<void>; open: (item: PlaybookWork) => void;
   openLead: (id: string, preferInbox?: boolean) => void; openCampaignRun: (leadId: string, campaignId: string) => void;
@@ -40,6 +40,7 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
   setView: (view: ManagerExceptionView) => void;
   filters: ManagerExceptionFilters;
   setFilters: (filters: ManagerExceptionFilters) => void;
+  complianceReviews?: ReactNode;
   reporting: { period: ReportingPeriod; setPeriod: (period: ReportingPeriod) => void; openLoan: (id: string) => void; openReport: () => void };
 }) {
   const brokerageId = staff?.brokerage.id ?? demoBrokerageId;
@@ -166,11 +167,14 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
           }}>Campaign recovery</Button>}
         {canReviewCallbacks && <Button size="sm" variant={view === "callbacks" ? "default" : "outline"}
           aria-pressed={view === "callbacks"} onClick={() => setView("callbacks")}>Overdue callbacks</Button>}
+        {complianceReviews && <Button size="sm" variant={view === "compliance" ? "default" : "outline"}
+          aria-pressed={view === "compliance"} onClick={() => setView("compliance")}>Compliance reviews</Button>}
         <Button size="sm" variant={view === "reporting" ? "default" : "outline"} aria-pressed={view === "reporting"} onClick={() => setView("reporting")}>Reporting readiness</Button>
       </div>
       {settingsError && <p role="alert" className="application-error">{settingsError}</p>}
       {view === "files" ? <FileExceptions brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={fileVersion} busy={busy}
         open={openFile} assign={openAssignment} /> :
+      view === "compliance" ? complianceReviews :
       view === "callbacks" && canReviewCallbacks ? <ManagerCallbackExceptions brokerageId={brokerageId} campaigns={campaigns} officers={officers}
         teamLoaded={members !== null} version={fileVersion} busy={busy} save={save} open={openCallbackPromise} openAssignment={openAssignment}
         reviewRecovery={(id) => runHistory.current?.reviewCampaignRun(id)} /> :

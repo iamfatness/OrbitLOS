@@ -318,6 +318,74 @@ test("manual status and older sample evidence cannot resolve or review another p
   assert.deepEqual(work({ type: "list", kind: "Operational finding" }).counts, { cases: 2, files: 1 });
 });
 
+test("daily findings follow the current owner and hand off a revision-bound review request to the manager", (t) => {
+  const { db, brokerageId, addLoan, open, work, read, edit, staff, admin, officer, processor, unrelated, roster } = fixture(t);
+  const loanId = addLoan();
+  const finding = open(loanId).item;
+  const mine = { type: "daily", view: "mine" };
+  const review = { type: "daily", view: "review" };
+  assert.deepEqual(work(mine, officer).counts, { cases: 1, files: 1 });
+  assert.equal(work(mine, officer).items[0].id, finding.id);
+  assert.equal(work(mine, officer).items[0].borrower, "Fictional Borrower");
+  assert.equal("dueAt" in work(mine, officer).items[0], false);
+  assert.deepEqual(work(mine, processor).counts, { cases: 0, files: 0 });
+  assert.deepEqual(work(mine, unrelated).counts, { cases: 0, files: 0 });
+  assert.deepEqual(work(review, officer), unavailable);
+  assert.deepEqual(work(review, processor), unavailable);
+  assert.deepEqual(work(mine, admin, roster, `${brokerageId}-other`), unavailable);
+  const operational = staff(admin);
+  operational.brokerage.pilot = false;
+  assert.deepEqual(complianceCaseWork(db, review, operational, brokerageId, roster, at), unavailable);
+
+  const assigned = edit(finding, { type: "assign", ownerEmail: processor.email }).item;
+  assert.deepEqual(work(mine, officer).counts, { cases: 0, files: 0 });
+  assert.equal(work(mine, processor).items[0].id, finding.id);
+  const retired = roster.map((member) => member.email === processor.email ? { ...member, accessRevision: 2 } : member);
+  assert.deepEqual(work(mine, processor, retired), unavailable);
+  assert.equal(work(mine, admin, retired).items[0].ownerState, "Backup review");
+  assert.deepEqual(work(mine, { ...processor, accessRevision: 2 }, retired).counts, { cases: 0, files: 0 });
+
+  const request = { type: "submitForReview", caseId: finding.id, expectedRevision: assigned.revision, packageRevision: 1,
+    requestId: crypto.randomUUID(), note: "Review the sample delivery details." };
+  assert.deepEqual(work(request, officer), unavailable);
+  assert.match(work({ ...request, packageRevision: 2 }, processor).error, /package changed/);
+  const submitted = work(request, processor);
+  assert.equal(submitted.item.status, "Awaiting review");
+  assert.equal(submitted.sampleReview, null);
+  assert.equal(submitted.coverage.state, "Not evaluated");
+  assert.equal(work(request, processor).history.length, submitted.history.length);
+  assert.match(work({ ...request, expectedRevision: submitted.item.revision, requestId: crypto.randomUUID() }, processor).error, /changed/);
+  assert.deepEqual(work(mine, processor).counts, { cases: 0, files: 0 });
+  assert.deepEqual(work(review).counts, { cases: 1, files: 1 });
+  assert.equal(work(review).items[0].id, finding.id);
+  assert.equal(read(finding.id).reviewSubmission.note, request.note);
+  const returned = edit(submitted.item, { type: "updateStatus", status: "Awaiting evidence" });
+  assert.equal(returned.reviewSubmission, null);
+  assert.equal(returned.history.find(({ action }) => action === "submitForReview").reviewNote, request.note);
+  assert.deepEqual(work(review).counts, { cases: 0, files: 0 });
+  assert.equal(work(mine, processor).items[0].id, finding.id);
+});
+
+test("daily pages exclude restricted findings and refresh when assigned work changes", (t) => {
+  const { db, brokerageId, addLoan, open, edit, work, admin, officer } = fixture(t);
+  const mine = { type: "daily", view: "mine" };
+  for (let i = 0; i < 21; i++) open(addLoan());
+  const original = work(mine, officer);
+  const restricted = original.items.at(0);
+  db.prepare("UPDATE compliance_cases SET confidentiality = 'Restricted' WHERE brokerageId = ? AND id = ?").run(brokerageId, restricted.id);
+  assert.deepEqual(work(mine, officer).counts, { cases: 20, files: 20 });
+  assert.deepEqual(work({ type: "read", caseId: restricted.id }), unavailable);
+  assert.match(work({ ...mine, after: original.next }, officer).error, /changed/);
+  open(addLoan());
+  const first = work(mine, officer);
+  const next = work({ ...mine, after: first.next }, officer);
+  assert.equal(next.items.length, 1);
+  assert.equal(new Set([...first.items, ...next.items].map(({ id }) => id)).size, 21);
+  assert.match(work({ ...mine, after: first.next }, admin).error, /changed/);
+  edit(first.items[0], { type: "assign", ownerEmail: admin.email });
+  assert.match(work({ ...mine, after: first.next }, officer).error, /changed/);
+});
+
 test("queue pages use stable ties, reject changed filters or revisions, and reconcile counts", (t) => {
   const { addLoan, open, edit, work } = fixture(t);
   for (let i = 0; i < 21; i++) open(addLoan());

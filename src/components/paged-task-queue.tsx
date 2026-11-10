@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { readTaskWork } from "@/app/actions";
 import { dateLabel } from "@/lib/client-retention";
 import { fundingCheckInTarget } from "@/lib/loan-workflow";
@@ -16,9 +16,10 @@ import { useLeadOwners } from "./use-lead-owners";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
 
-export function PagedTaskQueue({ staff, version, busy, focusContact, openWork, openHistory, save }: {
+export function PagedTaskQueue({ staff, version, busy, focusContact, openWork, openHistory, save, complianceWork }: {
   staff: WorkspaceStaff; version: object; busy: boolean; focusContact?: string;
   openWork: (item: CalendarItem) => void; openHistory: (id: string, realtor: boolean) => void; save: Save;
+  complianceWork?: ReactNode;
 }) {
   const { id: brokerageId, role } = staff.brokerage;
   const [query, setQuery] = useState<WorkspaceTaskList>({
@@ -76,6 +77,7 @@ export function PagedTaskQueue({ staff, version, busy, focusContact, openWork, o
   return <section className="pipeline" aria-label="Task queue">
     <div className="pipeline-heading"><div><h2>Follow-up queue</h2>
       <p>Find follow-ups by deadline or review completed work and open the linked record.</p></div></div>
+    {query.view === "Open" && query.group === "All work" && complianceWork}
     <div className="filter-row">
       <Button size="sm" variant={query.scope === "Mine" ? "default" : "outline"} aria-pressed={query.scope === "Mine"}
         onClick={() => change({ scope: "Mine" })}>My Tasks</Button>

@@ -128,9 +128,26 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
             onClick={() => void save({ type: "recordSampleReview", packageRevision: detail.sampleReviewRevision }, "Sample workbench review recorded.")}>Record sample review</Button>}
         </div>
       </div>}
+      {detail.reviewSubmission && <div className="document-item record-form">
+        <strong>Submitted for review</strong>
+        <p>{detail.reviewSubmission.note}</p>
+        <p className="muted">{detail.reviewSubmission.actor} · {dateTime(detail.reviewSubmission.at)} ET</p>
+      </div>}
+      {typeof detail.submitPackageRevision === "number" && <form className="document-item record-form" key={`submit-${detail.item.id}`} onSubmit={(event) => {
+        event.preventDefault();
+        const note = new FormData(event.currentTarget).get("note");
+        if (typeof note === "string" && note.trim()) void save({
+          type: "submitForReview", note, packageRevision: detail.submitPackageRevision,
+        }, "Fictional finding submitted for review.");
+      }}>
+        <label className="field">What should the reviewer check?
+          <textarea name="note" required maxLength={1000} rows={3} disabled={pending} />
+        </label>
+        <div><Button size="sm" variant="outline" type="submit" disabled={pending}>Submit for review</Button></div>
+      </form>}
       {detail.canUpdateStatus && <form className="calendar-filters" key={`status-${detail.item.id}`}
         onSubmit={(event) => submit(event, "updateStatus", "status", "Workflow status saved.")}>
-        <label className="field">Workflow status<select name="status" defaultValue={detail.item.status} disabled={pending}>{complianceCaseStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
+        <label className="field">Workflow status<select name="status" key={detail.item.status} defaultValue={detail.item.status} disabled={pending}>{complianceCaseStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
         <Button size="sm" variant="outline" type="submit" disabled={pending}>Save status</Button>
       </form>}
       {detail.assignableOwners.length > 0 && <form className="calendar-filters" key={`owner-${detail.item.id}`}
@@ -141,8 +158,8 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
       </form>}
       {!loanId && detail.item.parentCaseId && <Button size="sm" variant="outline" disabled={pending} onClick={() => open(detail.item.parentCaseId ?? undefined)}>Open related case</Button>}
       <details className="document-form"><summary>Case history</summary><ul className="loan-task-list">{detail.history.map((event) => <li key={event.revision} className="loan-task compliance-row">
-        <div className="loan-task-copy"><strong>{({ recordSampleReview: "Recorded sample workbench review", assign: "Changed case owner", updateStatus: "Changed workflow status" })[event.action] ?? event.action}</strong>
-          <span>{event.actor} · {dateTime(event.at)} ET · Revision {event.revision}</span></div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
+        <div className="loan-task-copy"><strong>{({ recordSampleReview: "Recorded sample workbench review", submitForReview: "Submitted for review", assign: "Changed case owner", updateStatus: "Changed workflow status" })[event.action] ?? event.action}</strong>
+          <span>{event.actor} · {dateTime(event.at)} ET · Revision {event.revision}</span>{event.reviewNote && <span>{event.reviewNote}</span>}</div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
     </>}
     {message && <p role={message.error ? "alert" : "status"}>{message.text}</p>}
     {message?.error && detail && <Button size="sm" variant="outline" disabled={pending} onClick={() => { setMessage(undefined); refresh((value) => value + 1); }}>Reload case</Button>}

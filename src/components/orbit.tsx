@@ -39,6 +39,7 @@ import { OfficerToday } from "./officer-today";
 import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
 import { DisclosureCalendar } from "./disclosure-calendar";
 import { ComplianceQueue } from "./compliance-queue";
+import { ComplianceDailyWork } from "./compliance-daily-work";
 import { complianceCaseTarget, complianceTarget } from "@/lib/compliance-case-model";
 import { LoanStageEditSettings } from "./loan-stage-edits";
 import { ManageClosingGates } from "./closing-gates";
@@ -975,6 +976,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }
 
+  function openComplianceFinding(loanId: string, caseId: string) {
+    void openQueueLoan({ kind: "details", loanId, target: complianceCaseTarget(caseId) });
+  }
+
   async function openLeadDocumentWork(leadId: string, requestId: string) {
     if (pending.current) return;
     pending.current = true;
@@ -1368,6 +1373,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
 
           {section === "Today" && canOpenToday && <OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            complianceWork={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+              version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
             version={queueVersion} busy={busy} openWork={openTodayWork} save={save} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
             openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}
@@ -1395,6 +1402,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor}
+            complianceWork={staff?.brokerage.pilot && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+              version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             mockServices={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
             reviewingLoan={!!modal || busy} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "processing")}
             version={state} openTasks={() => navigate("Tasks")} openReply={(id) => openConversation({ id })}
@@ -1402,6 +1411,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             onAssignment={canReport ? invalidateWorkspace : undefined}
             openAssignment={canReport ? (loanId) => show({ kind: "assignment", loanId }) : undefined} />}
           {section === "Tasks" && staff && pagedTasks && <PagedTaskQueue staff={staff} version={queueVersion} busy={busy}
+            complianceWork={staff.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+              version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             focusContact={focusContactTask} openWork={openActiveTask} openHistory={(id, realtor) => void openContactRecord(id, false, realtor ? "partner" : "contact")}
             save={(input, after) => save(input, after, true, "tasks")} />}
 
@@ -1623,6 +1634,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           {section === "Playbooks" && admin && (!staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) &&
             <ManageBorrowerQuestionSets brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           {section === "Playbooks" && admin && <BrokeragePlaybooks staff={staff} busy={busy}
+            complianceReviews={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id} view="review"
+              version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             save={(input, after) => save(input, after, true,
               input && typeof input === "object" && "type" in input && input.type === "assignInboxLead" ? "inbox" : "tasks")}
             refresh={async () => invalidateWorkspace()} open={openPlaybook}

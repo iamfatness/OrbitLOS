@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { readProcessingWork, saveProcessingView } from "@/app/actions";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import type { IncomingLoanWorkItem } from "@/lib/incoming-loan-work-model";
@@ -65,13 +65,14 @@ function QueueProcessorForm({ endpoint, file, busy, save, cancel }: {
   </form>;
 }
 
-export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mockServices, openIncomingLoanWork, openLoan, openReply, openTasks, openAssignment, onAssignment }: {
+export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mockServices, openIncomingLoanWork, openLoan, openReply, openTasks, openAssignment, onAssignment, complianceWork }: {
   brokerageId: string; version: object; team: boolean; openLoan: (id: string, target: string) => void; openTasks: () => void;
   mockServices: boolean;
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
   openReply: (id: string) => void;
   openAssignment?: (id: string) => void;
   onAssignment?: (processing: LoanProcessing) => void;
+  complianceWork?: ReactNode;
 }) {
   const [query, setQuery] = useState<ProcessorQueueQuery>({ readyOnly: false });
   const [data, setData] = useState<{ version: object; query: ProcessorQueueQuery; result: ProcessorQueuePage | { error: string } }>();
@@ -170,8 +171,11 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
       workload ? "Compare active processing files by target closing date. Closing recorded shows active files with an actual closing date." : exception ? descriptions[exception] :
       "Oldest handoff updates appear first."}
       {page?.handoffHours && ` Current deadline: ${page.handoffHours} hours.`}</p>
-    {!readyOnly && !exception && !workload && !serviceOrders && <IncomingLoanWorkQueue brokerageId={brokerageId} view="processing"
-      paused={reviewingLoan || controlsBusy || Boolean(assignmentLoanId)} version={version} open={openIncomingLoanWork} />}
+    {!readyOnly && !exception && !workload && !serviceOrders && <>
+      <IncomingLoanWorkQueue brokerageId={brokerageId} view="processing"
+        paused={reviewingLoan || controlsBusy || Boolean(assignmentLoanId)} version={version} open={openIncomingLoanWork} />
+      {complianceWork}
+    </>}
     <div className="loan-application-actions" role="group" aria-label="Processing queue filter">
       <Button size="sm" variant={!readyOnly && !exception && !workload && !serviceOrders ? "default" : "outline"} disabled={controlsBusy} aria-pressed={!readyOnly && !exception && !workload && !serviceOrders} onClick={() => switchFilter({ readyOnly: false })}>Assigned files</Button>
       <Button size="sm" variant={readyOnly ? "default" : "outline"} disabled={controlsBusy} aria-pressed={readyOnly} onClick={() => switchFilter({ readyOnly: true })}>Ready to accept</Button>
