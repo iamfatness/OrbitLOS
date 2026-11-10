@@ -2,7 +2,7 @@ import { addApplicationActivity } from "./applications";
 import { borrowerQuestionLimit, needsBorrowerAnswer, type BorrowerQuestion, type BorrowerQuestionResponse,
   type StaffBorrowerQuestion, type StaffQuestionCommand } from "./borrower-question-model";
 import { easternDate } from "./client-retention";
-import { coBorrowerDocumentRecipient, type DocumentRecipient } from "./document-model";
+import { coBorrowerDocumentRecipient, documentRecipients, type DocumentRecipient } from "./document-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { isDemoStaff, loanAccess } from "./workspace-access";
@@ -16,12 +16,16 @@ export function borrowerQuestions(db: Store, loanId: string, recipient: Document
 }
 
 export function staffBorrowerQuestions(db: Store, loanId: string): StaffBorrowerQuestion[] {
-  const records = db.prepare(`SELECT ${borrowerFields}, loanId, recipient, requestedAt, askedBy, reviewedAt, reviewedBy
-    FROM borrower_questions WHERE loanId = ? ${sort} LIMIT ?`).all(loanId, borrowerQuestionLimit) as unknown as
-    Omit<StaffBorrowerQuestion, "previousAnswers">[];
+  const records = db.prepare(`SELECT ${borrowerFields}, loanId, recipient, requestedAt, askedBy, reviewedAt, reviewedBy, batch.setTitle, batch.setRevision
+    FROM borrower_questions question LEFT JOIN (SELECT id AS batchId, title AS setTitle, setRevision FROM borrower_question_set_batches) batch
+      ON batch.batchId = question.setBatchId
+    WHERE loanId = ? ${sort} LIMIT ?`).all(loanId, borrowerQuestionLimit) as unknown as
+    (Omit<StaffBorrowerQuestion, "previousAnswers"> & { setTitle: string | null; setRevision: number | null })[];
   const history = db.prepare(`SELECT revision, answer, at FROM borrower_question_answers WHERE questionId = ?
     ORDER BY revision DESC LIMIT 5`);
-  return records.map((item) => ({ ...item, previousAnswers: history.all(item.id) as StaffBorrowerQuestion["previousAnswers"] }));
+  return records.map(({ setTitle, setRevision, ...item }) => ({ ...item,
+    ...(setTitle && setRevision ? { setBasis: { title: setTitle, revision: setRevision } } : {}),
+    previousAnswers: history.all(item.id) as StaffBorrowerQuestion["previousAnswers"] }));
 }
 
 function question(db: Store, loanId: string, questionId: string) {
@@ -29,8 +33,36 @@ function question(db: Store, loanId: string, questionId: string) {
     .get(loanId, questionId) as (BorrowerQuestion & { recipient: DocumentRecipient }) | undefined;
 }
 
+export function canWorkBorrowerQuestions(db: Store, loanId: string, staff: WorkspaceStaff | null) {
+  return (isDemoStaff(staff) || staff?.brokerage.pilot) && (!staff || Boolean(loanAccess(db, staff, loanId)));
+}
+
+export function borrowerQuestionFile(db: Store, loanId: string, at: string) {
+  const row = db.prepare(`SELECT app.revision, app.revokedAt IS NULL AND app.expiresAt > ? AS primaryAvailable,
+      joint.submittedAt IS NOT NULL AND joint.revokedAt IS NULL AND joint.expiresAt > ? AS jointAvailable
+    FROM loans loan JOIN applications app ON app.loanId = loan.id LEFT JOIN joint_applications joint ON joint.loanId = loan.id
+    WHERE loan.id = ? AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed') AND app.submittedAt IS NOT NULL`)
+    .get(at, at, loanId);
+  return row ? { applicationRevision: Number(row.revision),
+    recipients: documentRecipients.filter((recipient) => recipient === coBorrowerDocumentRecipient ? row.jointAvailable : row.primaryAvailable) } : null;
+}
+
+export function borrowerQuestionSlots(db: Store, loanId: string) {
+  return borrowerQuestionLimit - Number(db.prepare("SELECT count(*) AS total FROM borrower_questions WHERE loanId = ?").get(loanId)?.total);
+}
+
+export function validBorrowerQuestionDueDate(dueOn: string | null, today: string) {
+  return dueOn === null || (dueOn >= today && dueOn <= "2199-12-31");
+}
+
+export function insertBorrowerQuestion(db: Store, input: Omit<Extract<StaffQuestionCommand, { type: "requestBorrowerQuestion" }>, "type">,
+  actor: string, at: string, setBatchId: string | null = null) {
+  db.prepare(`INSERT INTO borrower_questions (id, loanId, recipient, prompt, kind, dueOn, requestedAt, askedBy, setBatchId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.questionId, input.loanId, input.recipient, input.prompt, input.kind, input.dueOn, at, actor, setBatchId);
+}
+
 export function changeBorrowerQuestion(db: Store, data: StaffQuestionCommand, staff: WorkspaceStaff | null, at: string) {
-  if ((!isDemoStaff(staff) && !staff?.brokerage.pilot) || (staff && !loanAccess(db, staff, data.loanId))) {
+  if (!canWorkBorrowerQuestions(db, data.loanId, staff)) {
     return { error: "Borrower questions are available on assigned files in fictional workspaces." } as const;
   }
   const { loanId, questionId } = data;
@@ -40,21 +72,18 @@ export function changeBorrowerQuestion(db: Store, data: StaffQuestionCommand, st
     const { recipient, prompt, kind, dueOn } = data;
     if (current) return current.recipient === recipient && current.prompt === prompt && current.kind === kind && current.dueOn === dueOn
       ? { message: "Borrower question already added." } : { error: "That question identifier was already used." };
-    if (!db.prepare(`SELECT 1 FROM loans loan JOIN applications app ON app.loanId = loan.id WHERE loan.id = ? AND
-      loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed') AND app.submittedAt IS NOT NULL
-      AND (? = 'Co-borrower' OR (app.revokedAt IS NULL AND app.expiresAt > ?))`).get(loanId, recipient, at)) {
+    const file = borrowerQuestionFile(db, loanId, at);
+    if (!file || (recipient !== coBorrowerDocumentRecipient && !file.recipients.includes(recipient))) {
       return { error: "Open an active loan with a submitted 1003 to add a borrower question." } as const;
     }
-    if (recipient === coBorrowerDocumentRecipient && !db.prepare(`SELECT 1 FROM joint_applications
-      WHERE loanId = ? AND submittedAt IS NOT NULL AND revokedAt IS NULL AND expiresAt > ?`).get(loanId, at)) {
+    if (!file.recipients.includes(recipient)) {
       return { error: "The co-borrower needs an active link and a submitted portion." } as const;
     }
-    if (dueOn && (dueOn < easternDate(new Date(at)) || dueOn > "2199-12-31")) return { error: "Choose a due date of today or later." } as const;
-    if (Number(db.prepare("SELECT count(*) AS total FROM borrower_questions WHERE loanId = ?").get(loanId)?.total) >= borrowerQuestionLimit) {
+    if (!validBorrowerQuestionDueDate(dueOn, easternDate(new Date(at)))) return { error: "Choose a due date of today or later." } as const;
+    if (borrowerQuestionSlots(db, loanId) <= 0) {
       return { error: `This sample loan already has ${borrowerQuestionLimit} borrower questions.` } as const;
     }
-    db.prepare(`INSERT INTO borrower_questions (id, loanId, recipient, prompt, kind, dueOn, requestedAt, askedBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(questionId, loanId, recipient, prompt, kind, dueOn, at, actor);
+    insertBorrowerQuestion(db, data, actor, at);
     addApplicationActivity(db, loanId, `Added a borrower question · ${recipient}`, at);
     return { message: "Borrower question added to the portal." } as const;
   }

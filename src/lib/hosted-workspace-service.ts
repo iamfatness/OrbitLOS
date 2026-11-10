@@ -10,6 +10,7 @@ import { customReportUnavailable } from "./custom-report-model";
 import { crmFieldUnavailable } from "./crm-field-model";
 import { disclosureCalendarUnavailable } from "./disclosure-calendar-model";
 import { disclosureTemplateUnavailable } from "./disclosure-template-model";
+import { questionSetsUnavailable } from "./borrower-question-set-model";
 import { stageEditUnavailable } from "./loan-stage-edit-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
@@ -288,6 +289,10 @@ export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceS
 
 export async function workOnDisclosureTemplates(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).disclosureTemplates(input, staff) : { error: disclosureTemplateUnavailable };
+}
+
+export async function workOnBorrowerQuestionSets(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).borrowerQuestionSets(input, staff) : { error: questionSetsUnavailable };
 }
 
 export async function workOnLoanStageEdits(input: unknown, staff: WorkspaceStaff | null) {

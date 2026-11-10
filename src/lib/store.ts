@@ -241,13 +241,23 @@ export function initializeStore(db: Store, seedDemo = true) {
       details TEXT NOT NULL, revision INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS document_requests (${documentRequestColumns});
+    CREATE TABLE IF NOT EXISTS borrower_question_sets (
+      id TEXT PRIMARY KEY, revision INTEGER NOT NULL, title TEXT NOT NULL, config TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS active_borrower_question_set_titles ON borrower_question_sets(title COLLATE NOCASE) WHERE archived = 0;
+    CREATE TABLE IF NOT EXISTS borrower_question_set_batches (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      setId TEXT NOT NULL REFERENCES borrower_question_sets(id), setRevision INTEGER NOT NULL, title TEXT NOT NULL,
+      applicationRevision INTEGER NOT NULL, selection TEXT NOT NULL, appliedAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS borrower_questions (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       recipient TEXT NOT NULL CHECK(recipient IN ('Primary borrower', 'Co-borrower')),
       prompt TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('Short answer', 'Yes or no')), dueOn TEXT,
       status TEXT NOT NULL DEFAULT 'Requested' CHECK(status IN ('Requested', 'Answered', 'Needs clarification', 'Reviewed', 'Cancelled')),
       revision INTEGER NOT NULL DEFAULT 0, requestedAt TEXT NOT NULL, askedBy TEXT NOT NULL,
-      answer TEXT, answeredAt TEXT, clarification TEXT NOT NULL DEFAULT '', reviewedAt TEXT, reviewedBy TEXT
+      answer TEXT, answeredAt TEXT, clarification TEXT NOT NULL DEFAULT '', reviewedAt TEXT, reviewedBy TEXT,
+      setBatchId TEXT REFERENCES borrower_question_set_batches(id) ON DELETE SET NULL
     );
     CREATE INDEX IF NOT EXISTS borrower_questions_by_loan ON borrower_questions(loanId, recipient);
     CREATE INDEX IF NOT EXISTS answered_borrower_questions ON borrower_questions(answeredAt DESC, id DESC, loanId) WHERE status = 'Answered';
@@ -1157,6 +1167,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "templateBasis")) {
       db.exec("ALTER TABLE disclosure_packages ADD COLUMN templateBasis TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(borrower_questions)").all().some(({ name }) => name === "setBatchId")) {
+      db.exec("ALTER TABLE borrower_questions ADD COLUMN setBatchId TEXT REFERENCES borrower_question_set_batches(id) ON DELETE SET NULL");
     }
     db.exec(`CREATE INDEX IF NOT EXISTS disclosure_targets_for_calendar ON disclosure_packages(signBy, loanId)
       WHERE supersededAt IS NULL AND reviewReason IS NULL AND deadlineBasis IS NOT NULL`);

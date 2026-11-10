@@ -1,10 +1,11 @@
 import type { StaffApplication } from "./application-model";
 import { coBorrowerDocumentRecipient, documentRecipient, primaryDocumentRecipient, type LoanDocumentRequest } from "./document-model";
 import type { StaffBorrowerQuestion } from "./borrower-question-model";
+import { applyBorrowerQuestionSetInput } from "./borrower-question-set-model";
 
 const checklistWrites = new Set([
   "requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline",
-  "reviewDocument", "reopenMockUwmCondition", "requestBorrowerQuestion", "reviewBorrowerQuestion",
+  "reviewDocument", "reopenMockUwmCondition", "requestBorrowerQuestion", "applyBorrowerQuestionSet", "reviewBorrowerQuestion",
 ]);
 const disclosureWrites = new Set(["prepareDisclosurePackage", "issueDisclosurePackage", "respondToDisclosurePackage",
   "saveFeeWorksheet", "saveAllocatedFeeWorksheet", "selectOffer", "requestApplicationCorrection"]);
@@ -23,6 +24,13 @@ export function borrowerChecklistTokens(input: unknown, applications: readonly S
     !checklistWrites.has(input.type) || !("loanId" in input) || typeof input.loanId !== "string") return [];
   const app = applications.find((application) => application.loanId === input.loanId && application.submittedAt);
   const joint = app?.joint;
+  if (input.type === "applyBorrowerQuestionSet") {
+    const { data } = applyBorrowerQuestionSetInput.safeParse(input);
+    if (!data) return [];
+    const recipients = new Set(data.items.map(({ recipient }) => recipient));
+    return [...(app && !app.revokedAt && recipients.has(primaryDocumentRecipient) ? [app.token] : []),
+      ...(joint?.token && joint.submittedAt && !joint.revokedAt && recipients.has(coBorrowerDocumentRecipient) ? [joint.token] : [])];
+  }
   const request = "requestId" in input ? requests.find((item) => item.id === input.requestId && item.loanId === app?.loanId)
     : "conditionId" in input && "submissionId" in input ? requests.find((item) =>
       item.conditionId === input.conditionId && item.submissionId === input.submissionId && item.loanId === app?.loanId) : undefined;

@@ -5,6 +5,7 @@ import { DemoCTA } from "../demo-cta";
 import { BuyerFAQ } from "../buyer-faq";
 export const metadata: Metadata = { title: "Product · OrbitLOS", alternates: { canonical: "https://orbitlos.com/product" }, description: "Explore mortgage CRM, borrower applications, processing, dashboards, financials, and daily team workflows in OrbitLOS." };
 const tools = [
+  {icon:MessagesSquare,title:"Reusable borrower question sets",text:"Preview a saved set, choose which questions to ask, and set the recipient and due date for each. Borrowers see their own requests and staff can review the answers from Incoming loan work."},
   {icon:ListChecks,title:"Website quote intake",text:"Publish separate purchase and refinance forms with conditional questions. Preview branch ZIP routing and campaign or LO defaults. Staff can see the original assignment and choose which answers prefill the 1003."},
   {icon:ListChecks,title:"Borrower next actions",text:"Open the exact correction, question, document request, or pending mock signature from one prioritized list. On joint files, each borrower sees their own actions. Staff can preview checklist rules and review answers from Incoming loan work."},
   {icon:ListChecks,title:"Documents before the 1003",text:"Review sample uploads from My Tasks and adjust deadlines from Calendar. Managers can reassign leads with open document requests. Files and review history carry into the loan."},

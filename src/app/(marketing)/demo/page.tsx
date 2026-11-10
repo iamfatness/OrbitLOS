@@ -41,6 +41,7 @@ export default function DemoPage() {
           <li>Lock 1003 and fee edits by pipeline stage. Record an admin override and see the reason in the loan audit and the fee-review task in Today.</li>
           <li>From Your next actions, borrowers open their own corrections, outstanding documents, and mock signatures. Dated requests appear first, and the list updates when an item is complete.</li>
           <li>Ask a borrower a question from the loan. Review their answer from Incoming loan work, or send it back to their private action list for clarification.</li>
+          <li>Apply a reusable question set to a submitted 1003. Choose the prompts, borrower, and deadline for each request before adding them to the portal.</li>
           <li>Confirm the signed sample package from Closing. A replacement leaves the earlier confirmation and receipts in history.</li>
           <li>Download a versioned sample closing packet with the confirmed disclosure, mock signer receipts, and the checklist as it stood at preparation.</li>
           <li>Open file preflight, jump to the exact missing sample fee or lender condition, and assign a review of the current evidence. Changes to the file flag an earlier approval as out of date.</li>

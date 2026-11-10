@@ -94,6 +94,7 @@ import { customReportWork } from "./lib/custom-reports";
 import { crmFieldWork } from "./lib/crm-fields";
 import { disclosureCalendarWork } from "./lib/disclosure-calendar";
 import { disclosureTemplateWork } from "./lib/disclosure-templates";
+import { borrowerQuestionSetWork } from "./lib/borrower-question-sets";
 import { loanStageEditWork } from "./lib/loan-stage-edits";
 import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
@@ -421,6 +422,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   disclosureTemplates(input: unknown, staff: WorkspaceStaff) {
     return disclosureTemplateWork(this.#store, input, staff, this.#id);
+  }
+
+  borrowerQuestionSets(input: unknown, staff: WorkspaceStaff) {
+    return borrowerQuestionSetWork(this.#store, input, staff, this.#id);
   }
 
   loanStageEdits(input: unknown, staff: WorkspaceStaff) {

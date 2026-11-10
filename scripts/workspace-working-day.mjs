@@ -2033,6 +2033,37 @@ try {
     assert.equal(revised.reviewedAt, null);
     return { loanId, primaryToken, coToken: replacement };
   });
+  await stage("A reusable question set adds selected questions to separate borrower portals", async () => {
+    const { loanId, primaryToken, coToken } = jointFile;
+    const setId = randomUUID();
+    const title = "Fictional joint processing review";
+    const primaryPrompt = "Is the sample address current?";
+    const coPrompt = "When can we review your fictional income?";
+    const skippedPrompt = "Is the sample purchase price current?";
+    const publish = { type: "publish", id: setId, revision: 0, config: { title, category: "Processing", items: [
+      { prompt: primaryPrompt, kind: "Yes or no", dueDays: 0 },
+      { prompt: coPrompt, kind: "Short answer", dueDays: null },
+      { prompt: skippedPrompt, kind: "Yes or no", dueDays: null },
+    ] } };
+    const sets = (staff, input) => action(staff, "accessBorrowerQuestionSets", input);
+    assert.ok((await sets(officer, publish)).error);
+    assert.equal((await sets(owner, publish)).sets.find(({ id }) => id === setId).revision, 1);
+    const { asOf, applicationRevision, recipients } = await sets(officer, { type: "preview", loanId });
+    assert.deepEqual(recipients, ["Primary borrower", "Co-borrower"]);
+    const selection = { batchId: randomUUID(), setId, revision: 1, asOf, applicationRevision, items: [
+      { position: 0, recipient: "Primary borrower", dueOn: asOf },
+      { position: 1, recipient: "Co-borrower", dueOn: null },
+    ] };
+    const send = () => loanAction(officer, loanId, "applyBorrowerQuestionSet", selection);
+    assert.match((await send()).message, /2 borrower questions added/);
+    assert.match((await send()).message, /already added/);
+    const primary = (await borrower(primaryToken, { type: "status" })).loanStatus.questions;
+    const co = (await post("/api/joint-application", { type: "read", token: coToken })).questions;
+    assert.deepEqual(primary.map(({ prompt, dueOn }) => [prompt, dueOn]), [[primaryPrompt, asOf]]);
+    assert.deepEqual(co.map(({ prompt, dueOn }) => [prompt, dueOn]), [[coPrompt, null]]);
+    assert.doesNotMatch(JSON.stringify([primary, co]), /setBasis|Fictional joint processing review/);
+    assert.ok((await file(officer, loanId)).borrowerQuestions.every(({ setBasis }) => setBasis?.title === title && setBasis.revision === 1));
+  });
   await stage("Both borrowers verify and upload only their assigned joint evidence", async () => {
     const { loanId, primaryToken, coToken } = jointFile;
     const primaryNote = "Fictional primary ID request.";

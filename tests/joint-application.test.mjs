@@ -20,6 +20,9 @@ const { beginDocumentUpload, finishDocumentUpload, failDocumentUpload, issueDocu
 const { checkDocumentReminders, documentReminderPage } = await import("../src/lib/document-reminder-runs.ts");
 const { readClosingPacket } = await import("../src/lib/closing-packets.ts");
 const { closingPacketPdf } = await import("../src/lib/closing-packet-pdf.ts");
+const { borrowerQuestionSetWork } = await import("../src/lib/borrower-question-sets.ts");
+const { questionSetDueDate } = await import("../src/lib/borrower-question-set-model.ts");
+const { borrowerChecklistTokens } = await import("../src/lib/borrower-change-signal.ts");
 
 test("borrower actions use the earliest dates and exclude completed or processing work", () => {
   const document = { kind: "Pay stub", instructions: "", status: "Requested", replacementNote: "",
@@ -96,6 +99,81 @@ test("borrower questions stay with their own link and create one current answer 
   assert.equal(primaryStatus().questions[0].status, "Reviewed");
   assert.equal(f.co(answer(coQuestion, "Tuesday after noon.")).value.questions[0].status, "Answered");
   assert.equal(queue()[0].title, "Co-borrower answer");
+});
+
+test("a question set sends only selected prompts to the chosen borrower and keeps the original request on retry", async (t) => {
+  const f = fixture(t);
+  const admin = { ...f.officer, email: "question-admin@example.test", brokerage: { ...f.brokerage, role: "Admin" } };
+  const access = (input, actor = admin, tenant = f.brokerage.id) => borrowerQuestionSetWork(f.db, input, actor, tenant, f.now);
+  const config = { title: "Fictional processing follow-up", category: "Processing", items: [
+    { prompt: "Has your fictional employment changed?", kind: "Yes or no", dueDays: 2 },
+    { prompt: "Which fictional address should we review?", kind: "Short answer", dueDays: null },
+    { prompt: "When can we review your fictional income?", kind: "Short answer", dueDays: 4 },
+  ] };
+  const publish = { type: "publish", id: crypto.randomUUID(), revision: 0, config };
+  const preview = { type: "preview", loanId: f.loanId };
+  assert.ok(access(publish, f.officer).error);
+  assert.ok(access(publish, admin, "another-brokerage").error);
+  assert.ok(access(preview, f.officer).error);
+  assert.equal(access(publish).sets[0].revision, 1);
+  assert.equal(access(publish).sets[0].revision, 1);
+  assert.ok(access({ ...publish, id: crypto.randomUUID(), config: { ...config, items: [...config.items, config.items[0]] } }).error);
+  await f.enable();
+  const primary = f.primary().application;
+  const co = f.co().value;
+  f.primary(f.primaryWrite(f.primarySample(primary.draft), primary.revision));
+  f.co(f.coWrite(f.coSample(co.draft), co.revision));
+  f.db.prepare("INSERT INTO loan_processing VALUES (?, ?, ?, 'In processing', '', ?, 1)")
+    .run(f.loanId, f.processor.email, f.processor.name, f.now);
+  assert.ok(access(preview, f.outsider).error);
+  const proposed = access(preview, f.processor);
+  assert.deepEqual(proposed.recipients, ["Primary borrower", "Co-borrower"]);
+  assert.equal(proposed.remaining, 24);
+  const firstDue = questionSetDueDate(proposed.asOf, 2);
+  const secondDue = questionSetDueDate(proposed.asOf, 5);
+  const selection = { batchId: crypto.randomUUID(), setId: publish.id, revision: 1,
+    applicationRevision: proposed.applicationRevision, asOf: proposed.asOf,
+    items: [{ position: 0, recipient: "Primary borrower", dueOn: firstDue }, { position: 2, recipient: "Co-borrower", dueOn: secondDue }] };
+  const send = (input = selection, actor = f.processor) => f.run("applyBorrowerQuestionSet", input, actor, { scopedLoanUpdates: true });
+  assert.ok((await send(selection, f.outsider)).error);
+  assert.match((await send({ ...selection, applicationRevision: selection.applicationRevision + 1 })).error, /1003 changed/);
+  assert.match((await send({ ...selection, items: [selection.items[0], { ...selection.items[1], dueOn: "2020-01-01" }] })).error, /due dates/);
+  f.db.prepare("UPDATE joint_applications SET revokedAt = ? WHERE loanId = ?").run(f.now, f.loanId);
+  assert.match((await send()).error, /Co-borrower needs an active link/);
+  assert.equal(f.count("borrower_questions"), 0);
+  assert.equal(f.count("borrower_question_set_batches"), 0);
+  f.db.prepare("UPDATE joint_applications SET revokedAt = NULL WHERE loanId = ?").run(f.loanId);
+  const added = await send();
+  assert.match(added.message, /2 borrower questions added/);
+  assert.equal(f.count("borrower_questions"), 2);
+  assert.equal(f.count("borrower_question_set_batches"), 1);
+  assert.ok(added.loanWork.borrowerQuestions.every(({ setBasis }) => setBasis.title === config.title && setBasis.revision === 1));
+  assert.match((await send({ ...selection, batchId: crypto.randomUUID() })).error, /already open/);
+  assert.match((await send({ ...selection, items: [selection.items[0]] })).error, /send attempt was already used/);
+  const current = staffApplications(f.db, f.loanId);
+  const signal = (items) => borrowerChecklistTokens({ type: "applyBorrowerQuestionSet", loanId: f.loanId, ...selection, items }, current);
+  assert.deepEqual(signal([selection.items[0]]), [f.primaryToken]);
+  assert.deepEqual(signal([selection.items[1]]), [jointApplication(f.db, f.loanId).token]);
+  assert.equal(signal(selection.items).length, 2);
+  assert.equal(access({ ...publish, revision: 1, config: { ...config, title: "Revised fictional processing questions" } }).sets[0].revision, 2);
+  assert.match((await send()).message, /already added/);
+  assert.match((await send({ ...selection, batchId: crypto.randomUUID() })).error, /set changed/);
+  assert.equal(f.count("borrower_questions"), 2);
+
+  const primaryQuestion = f.primary({ type: "status" }).statusView.loanStatus.questions;
+  const jointQuestion = f.co().value.questions;
+  assert.deepEqual(primaryQuestion.map(({ prompt, dueOn }) => [prompt, dueOn]), [[config.items[0].prompt, firstDue]]);
+  assert.deepEqual(jointQuestion.map(({ prompt, dueOn }) => [prompt, dueOn]), [[config.items[2].prompt, secondDue]]);
+  assert.doesNotMatch(JSON.stringify([primaryQuestion, jointQuestion]), /setBasis|Fictional processing follow-up/);
+  assert.equal(f.primary({ type: "answerBorrowerQuestion", questionId: jointQuestion[0].id, revision: 0, answer: "Today." }).status, 404);
+  assert.equal(f.co({ type: "answerBorrowerQuestion", questionId: jointQuestion[0].id, revision: 0, answer: "Tomorrow morning." })
+    .value.questions[0].status, "Answered");
+  const queue = readIncomingLoanWorkPage(f.db, { view: "processing" }, f.processor, f.brokerage.id);
+  assert.ok(queue.items.some(({ kind, id }) => kind === "question" && id === jointQuestion[0].id));
+  const reviewed = await f.run("reviewBorrowerQuestion", { questionId: jointQuestion[0].id, revision: 1, decision: "Reviewed", clarification: "" },
+    f.processor, { scopedLoanUpdates: true });
+  assert.equal(reviewed.loanWork.borrowerQuestions.find(({ id }) => id === jointQuestion[0].id).setBasis.title, config.title);
+  assert.deepEqual(f.db.prepare("PRAGMA foreign_key_check").all(), []);
 });
 
 function fixture(t) {

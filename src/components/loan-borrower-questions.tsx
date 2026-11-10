@@ -4,9 +4,10 @@ import { dateLabel, easternDate } from "@/lib/client-retention";
 import { documentRecipients, primaryDocumentRecipient, type DocumentRecipient } from "@/lib/document-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { LoanBorrowerQuestionSet } from "./borrower-question-sets";
 
-export function LoanBorrowerQuestions({ loanId, questions, canRequest, joint, busy, save }: {
-  loanId: string; questions: StaffBorrowerQuestion[]; canRequest: boolean; joint: boolean;
+export function LoanBorrowerQuestions({ loanId, brokerageId, questions, canRequest, joint, busy, save }: {
+  loanId: string; brokerageId: string; questions: StaffBorrowerQuestion[]; canRequest: boolean; joint: boolean;
   busy: boolean; save: (input: unknown, after?: () => void) => Promise<void>;
 }) {
   const attempt = useRef<{ id: string; payload: string } | null>(null);
@@ -14,6 +15,7 @@ export function LoanBorrowerQuestions({ loanId, questions, canRequest, joint, bu
     <div className="section-heading"><h3 id="loan-questions-heading">Borrower questions</h3>
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({ type: "refreshBorrowerQuestions", loanId })}>Refresh questions</Button>
     </div>
+    {canRequest && <LoanBorrowerQuestionSet loanId={loanId} brokerageId={brokerageId} busy={busy} save={save} />}
     {canRequest ? <details className="document-form"><summary>Ask a borrower question</summary>
       <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
@@ -39,6 +41,7 @@ export function LoanBorrowerQuestions({ loanId, questions, canRequest, joint, bu
       return <li key={item.id} id={staffQuestionTarget(item.id)} tabIndex={-1} className="document-item">
         <div className="document-item-head"><strong>{item.prompt}</strong><span className="pill">{item.status}</span></div>
         <p className="muted">{item.recipient} · {item.kind} · Asked by {item.askedBy}{item.dueOn && ` · Due ${dateLabel(item.dueOn)}`}</p>
+        {item.setBasis && <p className="muted">Question set · {item.setBasis.title} · v{item.setBasis.revision}</p>}
         {item.answer && <p><strong>Borrower answer</strong> · {item.answer}{item.answeredAt && ` · ${dateTime(item.answeredAt)} ET`}</p>}
         {item.clarification && <p><strong>Clarification requested</strong> · {item.clarification}</p>}
         {item.reviewedAt && <small className="muted">{item.reviewedBy} · {dateTime(item.reviewedAt)} ET</small>}

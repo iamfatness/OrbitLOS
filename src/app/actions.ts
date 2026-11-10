@@ -20,6 +20,8 @@ import { crmFieldUnavailable } from "@/lib/crm-field-model";
 import { customReportUnavailable } from "@/lib/custom-report-model";
 import { disclosureCalendarUnavailable } from "@/lib/disclosure-calendar-model";
 import { disclosureTemplateUnavailable } from "@/lib/disclosure-template-model";
+import { questionSetsUnavailable } from "@/lib/borrower-question-set-model";
+import { workOnBorrowerQuestionSets } from "@/lib/workspace-service";
 import { stageEditUnavailable } from "@/lib/loan-stage-edit-model";
 import { conversationsUnavailable } from "@/lib/conversation-model";
 import { inboundReplyUnavailable } from "@/lib/inbound-replies-model";
@@ -342,6 +344,12 @@ export async function accessDisclosureTemplates(input: unknown, expectedBrokerag
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: disclosureTemplateUnavailable };
   return workOnDisclosureTemplates(input, staff);
+}
+
+export async function accessBorrowerQuestionSets(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: questionSetsUnavailable };
+  return workOnBorrowerQuestionSets(input, staff);
 }
 
 export async function accessLoanStageEdits(input: unknown, expectedBrokerage: string) {

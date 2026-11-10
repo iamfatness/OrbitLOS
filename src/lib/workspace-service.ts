@@ -64,6 +64,7 @@ import { customReportWork } from "./custom-reports";
 import { crmFieldWork } from "./crm-fields";
 import { disclosureCalendarWork } from "./disclosure-calendar";
 import { disclosureTemplateWork } from "./disclosure-templates";
+import { borrowerQuestionSetWork } from "./borrower-question-sets";
 import { loanStageEditWork } from "./loan-stage-edits";
 import { changeConversation, readConversations } from "./conversations";
 import { changeInboundReply, readInboundReplies } from "./inbound-replies";
@@ -170,7 +171,7 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
     (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" || input.type === "saveAllocatedFeeWorksheet" ||
       input.type === "saveLenderDetails" || input.type === "requestApplicationCorrection" || input.type === "selectOffer" ||
       input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" ||
-      input.type === "requestBorrowerQuestion" || input.type === "reviewBorrowerQuestion" || input.type === "refreshBorrowerQuestions" ||
+      input.type === "requestBorrowerQuestion" || input.type === "applyBorrowerQuestionSet" || input.type === "reviewBorrowerQuestion" || input.type === "refreshBorrowerQuestions" ||
       input.type === "createServiceOrder" || input.type === "updateServiceOrder" || input.type === "setClosingServiceEvidence" ||
       input.type === "prepareClosingHandoff" || input.type === "saveClosingTarget" || input.type === "saveClosingItem" || input.type === "completeClosingItem" ||
       confirmClosingDisclosure.safeParse(input).success || disclosureCommand.safeParse(input).success || prepareClosingPacketInput.safeParse(input).success);
@@ -404,6 +405,10 @@ export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceS
 
 export async function workOnDisclosureTemplates(input: unknown, staff: WorkspaceStaff | null) {
   return disclosureTemplateWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+}
+
+export async function workOnBorrowerQuestionSets(input: unknown, staff: WorkspaceStaff | null) {
+  return borrowerQuestionSetWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
 }
 
 export async function workOnLoanStageEdits(input: unknown, staff: WorkspaceStaff | null) {

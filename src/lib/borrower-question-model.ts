@@ -3,13 +3,14 @@ import { portalTokenPattern } from "./brokerage-model";
 import { documentRecipients, type DocumentRecipient } from "./document-model";
 
 export const borrowerQuestionKinds = ["Short answer", "Yes or no"] as const;
+export const borrowerQuestionPrompt = z.string().trim().min(5).max(240);
 export const borrowerQuestionLimit = 24;
 const questionId = z.uuid();
 const loanId = z.string().min(1).max(100);
 const revision = z.number().int().nonnegative();
 export const requestBorrowerQuestion = z.strictObject({
   type: z.literal("requestBorrowerQuestion"), questionId, loanId, recipient: z.enum(documentRecipients),
-  prompt: z.string().trim().min(5).max(240), kind: z.enum(borrowerQuestionKinds), dueOn: z.iso.date().nullable(),
+  prompt: borrowerQuestionPrompt, kind: z.enum(borrowerQuestionKinds), dueOn: z.iso.date().nullable(),
 });
 export const reviewBorrowerQuestion = z.strictObject({
   type: z.literal("reviewBorrowerQuestion"), questionId, loanId, revision,
@@ -31,6 +32,7 @@ export type BorrowerQuestion = {
 export type StaffBorrowerQuestion = BorrowerQuestion & {
   loanId: string; recipient: DocumentRecipient; requestedAt: string; askedBy: string; reviewedAt: string | null;
   reviewedBy: string | null; previousAnswers: { revision: number; answer: string; at: string }[];
+  setBasis?: { title: string; revision: number };
 };
 
 export const borrowerQuestionTarget = (id: string) => `borrower-question-${id}`;
