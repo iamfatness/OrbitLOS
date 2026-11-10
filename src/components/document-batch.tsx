@@ -22,14 +22,13 @@ export function DocumentBatch({ loanId, requests, submissions, brokerageId, busy
   const choices = documentBatchActions.map((key) => ({ key, items: rows.filter(({ request, openMock }) => documentBatchEligible(key, request, openMock)) }));
   const choice = choices.find(({ key }) => key === action) ?? choices.find(({ items }) => items.length);
   if (!choice) return null;
-  return <details className="document-form" aria-label="Document batch actions">
+  return <details className="document-form document-batch" aria-label="Document batch actions">
     <summary><FileCheck2 size={16} /> Work documents in bulk</summary>
     <div className="record-form">
       <p className="muted">Review evidence and select the exact documents to update. Mock delivery and clearance are separate actions.</p>
-      <div className="loan-application-actions" role="group" aria-label="Choose a document batch action">
-        {choices.map(({ key, items }) => <Button key={key} type="button" size="sm" variant={key === choice.key ? "default" : "outline"}
-          disabled={busy} aria-pressed={key === choice.key} onClick={() => setAction(key)}>{documentBatchLabels[key]} ({items.length})</Button>)}
-      </div>
+      <label className="field">Batch action<select disabled={busy} value={choice.key} onChange={(event) => setAction(event.target.value as DocumentBatchAction)}>
+        {choices.map(({ key, items }) => <option key={key} value={key}>{documentBatchLabels[key]} ({items.length})</option>)}
+      </select></label>
       <DocumentBatchSelection key={`${loanId}:${choice.key}`} loanId={loanId} brokerageId={brokerageId} action={choice.key}
         rows={choice.items} busy={busy} save={save} open={open} />
     </div>
@@ -78,7 +77,7 @@ function DocumentBatchSelection({ loanId, brokerageId, action, rows, busy, save,
       return <li key={request.id} className="document-item">
         <label className="demo-confirm"><input type="checkbox" checked={checked} disabled={busy || (!checked && selection.length >= documentWorkBatchLimit)}
           aria-label={`Select ${item}`} onChange={(event) => update(event.target.checked ? [...selection, key] : selection.filter((value) => value !== key))} />
-          <strong>{request.kind}</strong> · {recipient}</label>
+          <span><strong>{request.kind}</strong> · {recipient}</span></label>
         <p className="muted">{condition ? `${submission?.lender} · ${condition.category}` : "Standalone document"}
           {request.dueOn && ` · Due ${dateLabel(request.dueOn)}`}{request.uwmDeliveryFailedAt && !request.uwmReceipt && " · Mock retry available"}</p>
         <div className="loan-application-actions">

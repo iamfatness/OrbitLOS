@@ -488,6 +488,9 @@ button:disabled { cursor: default; }
 .document-form form, .document-form label, .document-review { display: grid; justify-items: start; gap: 6px; }
 .document-form form { margin-top: 7px; }
 .document-form label { width: 100%; font-size: 12px; font-weight: 650; }
+.document-batch > .record-form { margin-block: 8px; }
+.document-batch .demo-confirm { display: flex; align-items: flex-start; }
+.document-batch .field select { max-width: 100%; }
 .document-form .disclosure-document-choice { display: flex; align-items: center; min-height: 34px; }
 .disclosure-document-choice input { accent-color: var(--accent); }
 .borrower-channel-options { column-gap: 16px; }
