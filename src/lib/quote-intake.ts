@@ -2,60 +2,100 @@ import { demoBrokerageId } from "./brokerage-model";
 import { readCampaignRouting, distributeCampaignLeads } from "./campaign-routing";
 import { linkCampaignLead } from "./call-campaigns";
 import { firstContactDue, leadEvent, leadRouting, startLeadFollowUp } from "./lead-inbox";
-import { defaultQuoteIntakeConfig, quoteFormChanged, quoteFormUnavailable, quoteIntakeConfig, quoteIntakeSettingsRequest,
-  quotePortalRequest, quoteResponseIssue, quoteSettingsUnavailable, type PublicQuoteForm, type QuoteFormVersion, type QuoteIntakeSettings } from "./quote-intake-model";
+import { defaultQuoteIntakeConfig, quoteFormChanged, quoteFormUnavailable, quoteIntakeConfig, quoteIntakeSettingsRequest, quoteProfiles,
+  quotePortalRequest, quoteResponseIssue, quoteSettingsUnavailable, type PublicQuoteForm, type QuoteFormVersion, type QuoteIntakeSettings,
+  type QuoteProfile, type QuotePurpose } from "./quote-intake-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
 
 type QuotePortalResult = { value: PublicQuoteForm | { received: true } } | { status: number; error: string };
 
-function currentQuoteForm(db: Store): QuoteFormVersion {
-  const row = db.prepare("SELECT revision, config FROM quote_intake_versions ORDER BY revision DESC LIMIT 1").get();
-  return row ? { revision: Number(row.revision), config: quoteIntakeConfig.parse(JSON.parse(String(row.config))) } :
-    { revision: 0, config: defaultQuoteIntakeConfig };
+function storedQuoteForm(db: Store, profile: QuoteProfile) {
+  const row = db.prepare("SELECT revision, config, active FROM quote_intake_versions WHERE profile = ? ORDER BY revision DESC LIMIT 1").get(profile);
+  return row ? { profile, revision: Number(row.revision), active: Boolean(row.active),
+    config: quoteIntakeConfig.parse(JSON.parse(String(row.config))) } :
+    { profile, revision: 0, active: profile === "General", config: defaultQuoteIntakeConfig };
+}
+
+function currentQuoteForm(db: Store, purpose?: QuotePurpose): QuoteFormVersion {
+  const selected = storedQuoteForm(db, purpose ?? "General");
+  return selected.active ? selected : storedQuoteForm(db, "General");
+}
+
+function writeQuoteVersion(db: Store, profile: QuoteProfile, config: QuoteFormVersion["config"], active: boolean, staff: WorkspaceStaff, now: string) {
+  const next = db.prepare("SELECT coalesce(max(revision), 0) + 1 AS revision FROM quote_intake_versions").get();
+  const revision = Number(next?.revision);
+  db.prepare("INSERT INTO quote_intake_versions (revision, config, publishedAt, publishedBy, profile, active) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(revision, JSON.stringify(config), now, staff.email, profile, Number(active));
+  accessEvent(db, staff, active ? "Published quote intake form" : "Retired quote intake profile", `${profile} · v${revision}`, now);
+  return { profile, revision, active, config };
+}
+
+export function quoteIntakeOwnerRoutes(db: Store, email: string) {
+  return quoteProfiles.map((profile) => storedQuoteForm(db, profile)).filter(({ active, config }) => active && config.ownerEmail === email);
+}
+
+// Offboarding checks the replacement against the active roster and owns the transaction.
+export function transferQuoteIntakeOwner(db: Store, profile: QuoteProfile, revision: number, previousEmail: string,
+  ownerEmail: string | null, staff: WorkspaceStaff, now: string) {
+  const form = storedQuoteForm(db, profile);
+  if (!form.active || form.revision !== revision || form.config.ownerEmail !== previousEmail) {
+    return { error: "Intake routing changed. Refresh the offboarding preview." };
+  }
+  writeQuoteVersion(db, profile, { ...form.config, ownerEmail }, true, staff, now);
+  return { message: "Future leads will use the updated intake route." };
 }
 
 export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  now = new Date().toISOString()): QuoteIntakeSettings | { error: string } {
+  now = new Date().toISOString(), eligibleOwner?: StaffIdentity | null): QuoteIntakeSettings | { error: string } {
   if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin" ||
       (brokerageId !== demoBrokerageId && !staff.brokerage.pilot)) return { error: quoteSettingsUnavailable };
   const parsed = quoteIntakeSettingsRequest.safeParse(input);
   if (!parsed.success) return { error: "Check the form text, required fields, and campaign selection." };
   const data = parsed.data;
   return db.transaction(() => {
-    let form = currentQuoteForm(db);
-    if (data.type === "publish") {
+    const { profile } = data;
+    let form = storedQuoteForm(db, profile);
+    if (data.type !== "read") {
       if (form.revision !== data.revision) return { error: "The form changed. Reload the published settings before saving." };
-      if (data.config.campaignId && !db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(data.config.campaignId)) {
-        return { error: "Choose an available call campaign." };
+      if (data.type === "publish") {
+        if (data.config.campaignId && !db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(data.config.campaignId)) {
+          return { error: "Choose an available call campaign." };
+        }
+        if (data.config.ownerEmail && data.config.ownerEmail !== eligibleOwner?.email) {
+          return { error: "Choose an active loan officer or admin in this brokerage." };
+        }
       }
-      if (JSON.stringify(form.config) !== JSON.stringify(data.config)) {
-        form = { revision: form.revision + 1, config: data.config };
-        db.prepare("INSERT INTO quote_intake_versions (revision, config, publishedAt, publishedBy) VALUES (?, ?, ?, ?)")
-          .run(form.revision, JSON.stringify(form.config), now, staff.email);
-        accessEvent(db, staff, "Published quote intake form", String(form.revision), now);
+      const active = data.type === "publish";
+      const config = active ? data.config : form.config;
+      if (active !== form.active || JSON.stringify(form.config) !== JSON.stringify(config)) {
+        form = writeQuoteVersion(db, profile, config, active, staff, now);
       }
     }
+    const effective = form.active ? form : storedQuoteForm(db, "General");
     const search = data.type === "read" ? data.search : "";
     const campaigns = db.prepare(`SELECT id, name FROM call_campaigns WHERE instr(lower(name), lower(?)) > 0
       ORDER BY name COLLATE NOCASE, id LIMIT 20`).all(search) as QuoteIntakeSettings["campaigns"];
-    if (form.config.campaignId && !campaigns.some(({ id }) => id === form.config.campaignId)) {
-      const selected = db.prepare("SELECT id, name FROM call_campaigns WHERE id = ?").get(form.config.campaignId) as QuoteIntakeSettings["campaigns"][number] | undefined;
+    if (effective.config.campaignId && !campaigns.some(({ id }) => id === effective.config.campaignId)) {
+      const selected = db.prepare("SELECT id, name FROM call_campaigns WHERE id = ?").get(effective.config.campaignId) as QuoteIntakeSettings["campaigns"][number] | undefined;
       if (selected) campaigns.unshift(selected);
     }
-    return { ...form, campaigns };
+    const history = db.prepare("SELECT revision, publishedAt, active FROM quote_intake_versions WHERE profile = ? ORDER BY revision DESC LIMIT 8").all(profile)
+      .map(({ revision, publishedAt, active }) => ({ revision: Number(revision), publishedAt: String(publishedAt), active: Boolean(active) }));
+    return { ...form, config: effective.config, effectiveRevision: effective.revision, campaigns, history };
   });
 }
 
-export function quoteIntakeRouting(db: Store) {
+export function quoteIntakeRouting(db: Store, purpose?: QuotePurpose) {
   const routing = leadRouting(db);
-  const form = currentQuoteForm(db);
+  const form = currentQuoteForm(db, purpose);
   const campaign = form.config.campaignId ? readCampaignRouting(db, form.config.campaignId) : undefined;
-  return { routing, form, campaign };
+  const ownerEmail = form.config.ownerEmail === undefined ? routing.websiteOwner : form.config.ownerEmail;
+  return { routing, form, campaign, ownerEmail };
 }
 
-export function receiveQuoteLead(db: Store, input: unknown, snapshot = quoteIntakeRouting(db), members: StaffIdentity[] = [],
+export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnType<typeof quoteIntakeRouting>, members: StaffIdentity[] = [],
   now = new Date().toISOString()): QuotePortalResult {
   const parsed = quotePortalRequest.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Enter a name, an email or phone, a valid ZIP if provided, and permission to follow up." };
@@ -63,14 +103,17 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot = quoteInta
   return db.transaction(() => {
     const current = leadRouting(db);
     if (!current.quoteToken || data.token !== current.quoteToken) return { status: 404, error: quoteFormUnavailable };
-    const form = currentQuoteForm(db);
     if (data.type === "read") {
+      const form = currentQuoteForm(db, data.purpose);
       const { title, introduction, theme, contact, zip, timing, question } = form.config;
-      return { value: { revision: form.revision, config: { title, introduction, theme, contact, zip, timing, question } } };
+      return { value: { profile: form.profile, revision: form.revision, config: { title, introduction, theme, contact, zip, timing, question } } };
     }
     if (db.prepare("SELECT 1 FROM referral_leads WHERE realtorId IS NULL AND requestId = ?").get(data.requestId)) return { value: { received: true } };
+    const effective = quoteIntakeRouting(db, data.purpose);
+    const { form } = effective;
+    const captured = snapshot ?? effective;
     if (form.revision !== data.formRevision) return { status: 409, error: quoteFormChanged };
-    if (current.revision !== snapshot.routing.revision || form.revision !== snapshot.form.revision) {
+    if (current.revision !== captured.routing.revision || form.revision !== captured.form.revision) {
       return { status: 409, error: "Routing changed. Submit your request again." };
     }
     const issue = quoteResponseIssue(form.config, data);
@@ -79,7 +122,7 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot = quoteInta
     const count = db.prepare("SELECT count(*) AS total FROM referral_leads WHERE realtorId IS NULL AND createdAt > ?").get(lastHour);
     if (Number(count?.total) >= 30) return { status: 429, error: "This form has reached its hourly limit. Try again later." };
     const id = crypto.randomUUID();
-    const fallback = members.find(({ email }) => email === current.websiteOwner);
+    const fallback = members.find(({ email }) => email === effective.ownerEmail);
     const { campaignId } = form.config;
     const wantsCampaign = !!campaignId && !!data.phone;
     const owner = wantsCampaign ? undefined : fallback;
@@ -96,15 +139,17 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot = quoteInta
       const linked = linkCampaignLead(db, campaignId, id, now);
       if ("added" in linked) {
         enrolled = campaignId;
-        const active = readCampaignRouting(db, campaignId);
-        if (active?.enabled && active.revision === snapshot.campaign?.revision) distributeCampaignLeads(db, null, campaignId, members, now, [id]);
+        if (effective.campaign?.enabled && effective.campaign.revision === captured.campaign?.revision) {
+          distributeCampaignLeads(db, null, campaignId, members, now, [id]);
+        }
       } else if (fallback) {
         db.prepare("UPDATE referral_leads SET officer = ?, officerEmail = ? WHERE id = ?").run(fallback.name.slice(0, 160), fallback.email, id);
       }
     }
-    db.prepare("INSERT INTO quote_intake_receipts (leadId, formRevision, timing, answer, campaignId) VALUES (?, ?, ?, ?, ?)")
-      .run(id, form.revision, timing, answer, enrolled);
+    db.prepare("INSERT INTO quote_intake_receipts (leadId, formRevision, timing, answer, campaignId, profile) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, form.revision, timing, answer, enrolled, form.profile);
     const intake = [`Website quote request · Form version ${form.revision}`,
+      form.profile !== "General" && `${form.profile} profile`,
       timing && `Timeline · ${timing}`, answer && form.config.question && `${form.config.question.prompt} · ${answer}`].filter(Boolean);
     leadEvent(db, id, "Quote form", now, intake.join(" · "));
     return { value: { received: true } };

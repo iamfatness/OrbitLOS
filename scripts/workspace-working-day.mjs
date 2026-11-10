@@ -1581,6 +1581,37 @@ try {
     assert.deepEqual(leads.map(({ officerEmail }) => officerEmail), [officer.email, competingOfficer.email, null, owner.email]);
     assert.deepEqual(leads.map((lead) => lead.campaignId ?? null), [campaignId, campaignId, campaignId, null]);
     assert.ok(leads.every(({ source, zip }) => source === "Website quote request" && zip === "48304"));
+    const purchaseProfile = { type: "publish", profile: "Purchase", revision: 0,
+      config: { ...config, title: "Fictional purchase intake", ownerEmail: null } };
+    const refinanceProfile = { type: "publish", profile: "Refinance", revision: 0, config: {
+      ...config, title: "Fictional refinance intake", campaignId: null, ownerEmail: competingOfficer.email, zip: "Hidden",
+      contact: "Email required", question: { prompt: "What would you change?", required: true },
+    } };
+    assert.equal((await postResponse(settingsPath, { ...refinanceProfile, config: { ...refinanceProfile.config, ownerEmail: processor.email } }, owner)).status, 409);
+    await post(settingsPath, purchaseProfile, owner);
+    const savedRefinance = await post(settingsPath, refinanceProfile, owner);
+    const purchaseForm = await quote({ type: "read", purpose: "Purchase" });
+    const refinanceForm = await quote({ type: "read", purpose: "Refinance" });
+    assert.equal(purchaseForm.profile, "Purchase");
+    assert.equal(refinanceForm.profile, "Refinance");
+    assert.equal(refinanceForm.revision, savedRefinance.revision);
+    assert.doesNotMatch(JSON.stringify(refinanceForm), /ownerEmail|campaignId/);
+    const qualifiedBuyer = { ...submission(5), formRevision: purchaseForm.revision, name: "Profile Purchase Fictional" };
+    const refinanceLead = { ...submission(6, ""), formRevision: refinanceForm.revision, purpose: "Refinance", name: "Profile Refinance Fictional",
+      answer: "Reduce the fictional payment." };
+    assert.equal((await postResponse("/api/quote-requests", { ...refinanceLead, token: quoteToken, formRevision: purchaseForm.revision })).status, 409);
+    assert.deepEqual(await quote(qualifiedBuyer), { received: true });
+    assert.deepEqual(await quote(refinanceLead), { received: true });
+    const profiled = (await workspace(owner)).inboxLeads.filter(({ name }) => name.startsWith("Profile "));
+    assert.equal(profiled.find(({ name }) => name === qualifiedBuyer.name).campaignId, campaignId);
+    const routed = profiled.find(({ name }) => name === refinanceLead.name);
+    assert.equal(routed.officerEmail, competingOfficer.email);
+    assert.equal(routed.zip, "");
+    assert.match(JSON.stringify(routed.followUp.events), /Refinance profile.*What would you change/);
+    const retired = await post(settingsPath, { type: "retire", profile: "Refinance", revision: savedRefinance.revision }, owner);
+    assert.equal(retired.active, false);
+    assert.equal((await quote({ type: "read", purpose: "Refinance" })).profile, "General");
+    assert.deepEqual(await quote(refinanceLead), { received: true });
     const [first, , shared] = leads;
     const staffDocuments = `/api/lead-documents?brokerage=${brokerage}`;
     const publicDocuments = "/api/shared-lead-documents";

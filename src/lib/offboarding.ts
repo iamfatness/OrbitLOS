@@ -7,6 +7,8 @@ import { assignProcessor } from "./loan-processing";
 import { loanReviewWork } from "./loan-reviews";
 import { departureKinds, offboardingUnavailable, type DepartureItem, type DepartureKind, type DeparturePage,
   type DepartureRoster, type OffboardingInput } from "./offboarding-model";
+import { quoteProfile } from "./quote-intake-model";
+import { quoteIntakeOwnerRoutes, transferQuoteIntakeOwner } from "./quote-intake";
 import { saveRealtorLinkOwner } from "./realtor-portal";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -92,13 +94,20 @@ function rowsFor(db: Store, kind: DepartureKind, email: string, now: Date, limit
     ({ due: null, dueLabel: "Due", campaignId: null, loanOfficer: null, processor: null, otherReviewer: null, ...row, kind });
   if (kind === "Intake route") {
     const routing = leadRouting(db);
-    const routes = [
-      { id: "quote", title: "Website quote form", applies: routing.quoteToken !== null && routing.websiteOwner === email },
-      { id: "realtor", title: "Brokerage-wide realtor routing", applies: routing.realtorRoute === "Assigned officer" && routing.realtorOwner === email },
-    ];
-    return routes.filter((route) => route.applies && (!key || (key.exact ? route.id === key.id : route.id > key.id))).slice(0, limit)
-      .map(({ id, title }) => item({ id, recordId: id, title, revision: routing.revision,
-        detail: id === "quote" ? "Applies to new quote requests" : "Applies to new realtor referrals" }));
+    const routes: ReturnType<typeof item>[] = [];
+    if (routing.quoteToken) {
+      if (routing.websiteOwner === email) routes.push(item({ id: "quote", recordId: "quote", title: "Website quote form",
+        revision: routing.revision, detail: "Applies to new quote requests" }));
+      for (const { profile, revision } of quoteIntakeOwnerRoutes(db, email)) {
+        const id = `quote:${profile}`;
+        routes.push(item({ id, recordId: id, title: `${profile} quote profile`, revision, detail: "Direct routing or campaign fallback" }));
+      }
+    }
+    if (routing.realtorRoute === "Assigned officer" && routing.realtorOwner === email) {
+      routes.push(item({ id: "realtor", recordId: "realtor", title: "Brokerage-wide realtor routing",
+        revision: routing.revision, detail: "Applies to new realtor referrals" }));
+    }
+    return routes.filter((route) => !key || (key.exact ? route.id === key.id : route.id > key.id)).slice(0, limit);
   }
   const source = sources[kind];
   const args: SqlValue[] = kind === "Coverage" ? [email, email, easternDate(now)] : kind === "Realtor link" ? [email, now.toISOString()] : [email];
@@ -156,9 +165,14 @@ export function departureWork(db: Store, input: Exclude<OffboardingInput, { type
           }
           return saveRealtorLinkOwner(db, { realtorId: row.recordId, token: current.token, revision: row.revision }, replacement, staff, at);
         }
+        const email = replacement?.email ?? null;
+        if (row.id.startsWith("quote:")) {
+          const profile = quoteProfile.safeParse(row.id.slice("quote:".length));
+          return profile.success ? transferQuoteIntakeOwner(db, profile.data, row.revision, member.email, email, staff, at) :
+            { error: "This quote profile is unavailable." };
+        }
         const routing = leadRouting(db);
         if (routing.revision !== row.revision) return { error: "Intake routing changed. Refresh the offboarding preview." };
-        const email = replacement?.email ?? null;
         if (row.id === "quote") {
           writeLeadRouting(db, { ...routing, websiteOwner: email });
         } else {

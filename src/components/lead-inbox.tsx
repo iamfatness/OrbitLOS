@@ -15,6 +15,8 @@ import { SharedRealtorPolicyForm, SharedRealtorQueueView } from "./shared-realto
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { leadWorkUnavailable } from "@/lib/lead-work-model";
 import { QuoteIntakeEditor } from "./quote-intake-settings";
+import { quoteRequestPath } from "@/lib/quote-intake-model";
+import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { LeadDocumentChecklist } from "./lead-document-checklist";
 import { BorrowerChannelPreferences } from "./borrower-channel-preferences";
 import { borrowerHoursLabel, nextBorrowerContactTime } from "@/lib/borrower-hours";
@@ -31,7 +33,7 @@ function RoutingForm({ routing, staff, members, busy, save }: {
 }) {
   const [realtorRoute, setRealtorRoute] = useState(routing.realtorRoute);
   const [copyStatus, setCopyStatus] = useState("");
-  const quotePath = routing.quoteToken ? `/quote#${routing.quoteToken}` : "";
+  const quotePath = routing.quoteToken ? quoteRequestPath(routing.quoteToken) : "";
   const mayPublish = !staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId;
   return <details className="loan-task-create">
     <summary>Lead routing and quote form</summary>
@@ -75,7 +77,9 @@ function RoutingForm({ routing, staff, members, busy, save }: {
       }}>Copy quote form link</Button>
       {copyStatus && <span role="status">{copyStatus}</span>}
     </div>}
-    {mayPublish && <QuoteIntakeEditor brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
+    {mayPublish && <QuoteIntakeEditor brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+      members={staff ? members : localCampaignOfficers.map((member) => ({ ...member, status: "Active", role: "LO" }))}
+      quoteToken={routing.quoteToken} />}
   </details>;
 }
 

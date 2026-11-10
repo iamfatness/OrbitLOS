@@ -43,13 +43,13 @@ function fixture(t) {
   saveCampaignRouting(db, admin, { campaignId, revision: 0, enabled: true, officers }, members, now);
   const config = { ...defaultQuoteIntakeConfig, title: "Fictional home quote", theme: "Evergreen", zip: "Required",
     timing: "Required", question: { prompt: "What is your goal?", required: true }, campaignId };
-  const settings = (input, staff = admin, brokerage = admin.brokerage.id) => workOnQuoteSettings(db, input, staff, brokerage, now);
+  const settings = (input, staff = admin, brokerage = admin.brokerage.id, eligibleOwner) => workOnQuoteSettings(db, input, staff, brokerage, now, eligibleOwner);
   const receive = (input, snapshot, roster = members) => receiveQuoteLead(db, { token, ...input }, snapshot, roster, now);
   const request = (index, overrides = {}) => ({ requestId: crypto.randomUUID(), formRevision: 1, name: `Fictional Borrower ${index}`,
     purpose: "Purchase", email: `quote-${index}@example.test`, phone: `248-555-016${index}`, zip: "48304", timing: "Just exploring",
     answer: "Fictional first home", consent: true, ...overrides });
   const lead = (data) => db.prepare(`SELECT lead.id, lead.officerEmail, lead.dueAt, lead.zip, lead.importSource,
-    receipt.formRevision, receipt.answer, receipt.timing, receipt.campaignId FROM referral_leads lead
+    receipt.formRevision, receipt.answer, receipt.timing, receipt.campaignId, receipt.profile FROM referral_leads lead
     JOIN quote_intake_receipts receipt ON receipt.leadId = lead.id WHERE lead.requestId = ?`).get(data.requestId);
   return { db, now, token, admin, officer, fallback, members, campaignId, officers, config, settings, receive, request, lead };
 }
@@ -120,4 +120,45 @@ test("a campaign rule change during directory lookup keeps the website lead unas
   const directoryUnavailable = request(2);
   assert.deepEqual(receive(directoryUnavailable, undefined, []).value, { received: true });
   assert.equal(lead(directoryUnavailable).officerEmail, null);
+});
+
+test("purpose profiles preserve versioned questions, route separately and reject stale submissions", (t) => {
+  const { db, admin, officer, campaignId, config, settings, receive, request, lead } = fixture(t);
+  const read = (purpose) => receive({ type: "read", purpose }).value;
+  const save = (profile, revision, config, eligibleOwner) =>
+    settings({ type: "publish", profile, revision, config }, admin, admin.brokerage.id, eligibleOwner);
+  const general = save("General", 0, defaultQuoteIntakeConfig);
+  assert.equal(general.revision, 0);
+  assert.equal(read("Refinance").profile, "General");
+  const purchase = save("Purchase", 0, config);
+  assert.equal(purchase.revision, 1);
+  assert.equal(read("Purchase").profile, "Purchase");
+  const refiConfig = { ...defaultQuoteIntakeConfig, title: "Fictional refinance", ownerEmail: officer.email,
+    contact: "Email required", zip: "Hidden", question: { prompt: "What would you like to change?", required: true } };
+  assert.match(save("Refinance", 0, refiConfig).error, /active loan officer/);
+  const refi = save("Refinance", 0, refiConfig, officer);
+  assert.equal(refi.revision, 2);
+  assert.equal(read("Refinance").config.question.prompt, refiConfig.question.prompt);
+  assert.doesNotMatch(JSON.stringify(read("Refinance")), /ownerEmail|campaignId|officer@example/);
+  const buyer = request(1, { formRevision: purchase.revision });
+  const borrower = request(2, { formRevision: refi.revision, purpose: "Refinance", phone: "", answer: "Lower the sample payment" });
+  assert.equal(receive({ ...buyer, formRevision: refi.revision }).status, 409);
+  assert.equal(receive({ ...borrower, formRevision: purchase.revision }).status, 409);
+  assert.equal(receive({ ...borrower, answer: "" }).status, 400);
+  assert.deepEqual(receive(buyer).value, { received: true });
+  assert.deepEqual(receive(borrower).value, { received: true });
+  assert.deepEqual([lead(buyer).profile, lead(buyer).campaignId], ["Purchase", campaignId]);
+  assert.deepEqual([lead(borrower).profile, lead(borrower).officerEmail, lead(borrower).zip, lead(borrower).campaignId],
+    ["Refinance", officer.email, "", null]);
+  assert.match(JSON.stringify(leadFollowUp(db, lead(borrower).id).events), /Form version 2.*Refinance profile.*What would you like to change/);
+
+  const retired = settings({ type: "retire", profile: "Refinance", revision: refi.revision });
+  assert.equal(retired.active, false);
+  assert.deepEqual(retired.history.map(({ active }) => active), [false, true]);
+  assert.equal(read("Refinance").profile, "General");
+  assert.equal(read("Purchase").revision, purchase.revision);
+  assert.equal(receive({ ...borrower, requestId: crypto.randomUUID() }).status, 409);
+  assert.deepEqual(receive(borrower).value, { received: true });
+  assert.equal(lead(borrower).answer, borrower.answer);
+  assert.equal(lead(borrower).formRevision, refi.revision);
 });

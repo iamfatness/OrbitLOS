@@ -54,7 +54,7 @@ import { campaignOptOutPlans, campaignReleaseRouting, type CampaignOptOutRoster,
 import { enrollCrmSegmentInput } from "./lib/crm-segment-model";
 import { assignInboxLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
 import { leadRouting, readLeadArchive } from "./lib/lead-inbox";
-import { quoteLeadInput } from "./lib/quote-intake-model";
+import { quoteIntakeSettingsRequest, quoteLeadInput } from "./lib/quote-intake-model";
 import { quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
 import { documentTemplateWork } from "./lib/document-templates";
 import { feeTemplateWork } from "./lib/fee-templates";
@@ -883,12 +883,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return realtorReferrals(this.#store, input, undefined, pilot, { revision: routing.revision, linkRevision, owner });
   }
   async quoteLead(input: unknown, emails: string[]) {
-    const snapshot = quoteIntakeRouting(this.#store);
     const parsed = quoteLeadInput.safeParse(input);
+    if (!parsed.success) return receiveQuoteLead(this.#store, input);
+    const snapshot = quoteIntakeRouting(this.#store, parsed.data.purpose);
     let members: StaffIdentity[] = [];
-    if (parsed.success && snapshot.routing.quoteToken === parsed.data.token && snapshot.form.revision === parsed.data.formRevision) {
+    if (snapshot.routing.quoteToken === parsed.data.token && snapshot.form.revision === parsed.data.formRevision) {
       const campaign = parsed.data.phone && snapshot.campaign?.enabled ? snapshot.campaign.officers.map(({ email }) => email) : [];
-      const selected = [...new Set([...(snapshot.routing.websiteOwner ? [snapshot.routing.websiteOwner] : []), ...campaign])];
+      const selected = [...new Set([...(snapshot.ownerEmail ? [snapshot.ownerEmail] : []), ...campaign])];
       if (selected.length) {
         const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
         try { members = await directory.quoteIntakeRoster(this.#id, selected, emails); }
@@ -897,9 +898,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     }
     return receiveQuoteLead(this.#store, input, snapshot, members);
   }
-  quoteIntakeSettings(staff: WorkspaceStaff, input: unknown) {
-    if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
-    return workOnQuoteSettings(this.#store, input, staff, this.#id);
+  async quoteIntakeSettings(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: "Workspace access denied." } as const;
+    const parsed = quoteIntakeSettingsRequest.safeParse(input);
+    const ownerEmail = parsed.success && parsed.data.type === "publish" ? parsed.data.config.ownerEmail : null;
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const eligibleOwner = ownerEmail ? await this.#resolveLeadOwner(ownerEmail, emails, staff.email) : null;
+    return workOnQuoteSettings(this.#store, input, staff, this.#id, undefined, eligibleOwner);
   }
 
   documentTemplates(staff: WorkspaceStaff, input: unknown) {

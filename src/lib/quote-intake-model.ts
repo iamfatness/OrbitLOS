@@ -10,25 +10,36 @@ const revision = z.number().int().nonnegative();
 const campaign = z.string().min(1).max(100);
 const token = z.string().regex(portalTokenPattern);
 
+export const quotePurpose = leadContactFields.purpose;
+export type QuotePurpose = z.infer<typeof quotePurpose>;
+export const quoteProfiles = ["General", ...quotePurpose.options] as const;
+export const quoteProfile = z.enum(quoteProfiles);
+export type QuoteProfile = z.infer<typeof quoteProfile>;
+
 export const quoteIntakeConfig = z.object({
   title: z.string().trim().min(4).max(90), introduction: z.string().trim().max(240),
   theme: z.enum(quoteThemes), contact: z.enum(quoteContactOptions),
   zip: z.enum(quoteFieldModes), timing: z.enum(quoteFieldModes),
   question: z.object({ prompt: z.string().trim().min(3).max(120), required: z.boolean() }).nullable(),
-  campaignId: campaign.nullable(),
+  campaignId: campaign.nullable(), ownerEmail: z.email().max(254).toLowerCase().nullable().optional(),
 });
 export type QuoteIntakeConfig = z.infer<typeof quoteIntakeConfig>;
-export type QuoteFormVersion = { revision: number; config: QuoteIntakeConfig };
-export type PublicQuoteForm = { revision: number; config: Omit<QuoteIntakeConfig, "campaignId"> };
-export type QuoteIntakeSettings = QuoteFormVersion & { campaigns: { id: string; name: string }[] };
+export type QuoteFormVersion = { profile: QuoteProfile; revision: number; config: QuoteIntakeConfig };
+export type PublicQuoteForm = Omit<QuoteFormVersion, "config"> & { config: Omit<QuoteIntakeConfig, "campaignId" | "ownerEmail"> };
+export type QuoteIntakeSettings = QuoteFormVersion & {
+  active: boolean; effectiveRevision: number;
+  campaigns: { id: string; name: string }[];
+  history: { revision: number; publishedAt: string; active: boolean }[];
+};
 
 export const defaultQuoteIntakeConfig: QuoteIntakeConfig = {
   title: "Request a mortgage quote", introduction: "Tell the loan team how to reach you and what you’re looking for.",
   theme: "Orbit", contact: "Email or phone", zip: "Optional", timing: "Hidden", question: null, campaignId: null,
 };
 export const quoteIntakeSettingsRequest = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("read"), search: z.string().trim().max(100).default("") }),
-  z.object({ type: z.literal("publish"), revision, config: quoteIntakeConfig }),
+  z.object({ type: z.literal("read"), profile: quoteProfile.default("General"), search: z.string().trim().max(100).default("") }),
+  z.object({ type: z.literal("publish"), profile: quoteProfile.default("General"), revision, config: quoteIntakeConfig }),
+  z.object({ type: z.literal("retire"), profile: quotePurpose, revision }),
 ]);
 
 export const quoteLeadInput = z.object({
@@ -36,10 +47,14 @@ export const quoteLeadInput = z.object({
   zip: z.string().trim().regex(/^\d{5}$|^$/).default(""), timing: z.enum(["", ...quoteTimelines]).default(""),
   answer: z.string().trim().max(200).default(""), consent: z.literal(true), website: z.literal("").optional(),
 }).refine((value) => !!(value.email || value.phone));
-export const quotePortalRequest = z.union([z.object({ type: z.literal("read"), token }), quoteLeadInput]);
+export const quotePortalRequest = z.union([z.object({ type: z.literal("read"), token, purpose: quotePurpose.optional() }), quoteLeadInput]);
 export const quoteFormUnavailable = "This quote request link is unavailable.";
 export const quoteSettingsUnavailable = "Quote form settings are available to demo and pilot admins.";
 export const quoteFormChanged = "The quote form changed. Review the updated questions and submit again.";
+
+export function quoteRequestPath(token: string, purpose?: QuotePurpose) {
+  return `/quote${purpose ? `?purpose=${purpose}` : ""}#${token}`;
+}
 
 export function quoteResponseIssue(config: PublicQuoteForm["config"], data: Record<"email" | "phone" | "zip" | "timing" | "answer", string>) {
   if (config.contact === "Email required" && !data.email) return "Enter your email address.";

@@ -911,11 +911,12 @@ export function initializeStore(db: Store, seedDemo = true) {
     db.exec(`CREATE INDEX IF NOT EXISTS migration_undo_by_source ON migration_undone_records(origin, recordKey);
       CREATE UNIQUE INDEX IF NOT EXISTS website_request_id ON referral_leads(requestId) WHERE realtorId IS NULL;
     CREATE TABLE IF NOT EXISTS quote_intake_versions (
-      revision INTEGER PRIMARY KEY, config TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL
+      revision INTEGER PRIMARY KEY, config TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL,
+      profile TEXT NOT NULL DEFAULT 'General', active INTEGER NOT NULL DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS quote_intake_receipts (
       leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE, formRevision INTEGER NOT NULL,
-      timing TEXT NOT NULL, answer TEXT NOT NULL, campaignId TEXT
+      timing TEXT NOT NULL, answer TEXT NOT NULL, campaignId TEXT, profile TEXT NOT NULL DEFAULT 'General'
     );
     CREATE TABLE IF NOT EXISTS lead_follow_up (
         leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
@@ -927,6 +928,13 @@ export function initializeStore(db: Store, seedDemo = true) {
         at TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT, text TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS lead_events_by_lead ON lead_events(leadId, at);`);
+    const quoteVersionColumns = new Set(db.prepare("PRAGMA table_info(quote_intake_versions)").all().map(({ name }) => name));
+    if (!quoteVersionColumns.has("profile")) db.exec("ALTER TABLE quote_intake_versions ADD COLUMN profile TEXT NOT NULL DEFAULT 'General'");
+    if (!quoteVersionColumns.has("active")) db.exec("ALTER TABLE quote_intake_versions ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
+    if (!db.prepare("PRAGMA table_info(quote_intake_receipts)").all().some(({ name }) => name === "profile")) {
+      db.exec("ALTER TABLE quote_intake_receipts ADD COLUMN profile TEXT NOT NULL DEFAULT 'General'");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS quote_intake_versions_by_profile ON quote_intake_versions(profile, revision DESC)");
     if (!db.prepare("PRAGMA table_info(lead_follow_up)").all().some((column) => column.name === "replyReceivedAt")) {
       db.exec(`ALTER TABLE lead_follow_up ADD COLUMN replyReceivedAt TEXT;
         INSERT INTO lead_follow_up (leadId, status, revision, replyReceivedAt)

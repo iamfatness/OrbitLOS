@@ -22,6 +22,8 @@ const { changeInboundReply, readInboundReplies } = await import("../src/lib/inbo
 const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 const { defaultLeadRouting } = await import("../src/lib/lead-inbox-model.ts");
 const { leadRouting, writeLeadRouting } = await import("../src/lib/lead-inbox.ts");
+const { quoteIntakeRouting, workOnQuoteSettings } = await import("../src/lib/quote-intake.ts");
+const { defaultQuoteIntakeConfig } = await import("../src/lib/quote-intake-model.ts");
 
 const at = "2026-11-08T15:00:00.000Z";
 const now = new Date(at);
@@ -105,6 +107,25 @@ test("recovers a departing officer’s realtor and quote routes with original li
     { token, expiresAt: expiry, officerEmail: admin.email });
   assert.deepEqual(leadRouting(db), { ...defaultLeadRouting, revision: 3, websiteOwner: admin.email, quoteToken,
     realtorRoute: "Shared inbox", realtorOwner: null, firstContactHours: 6 });
+});
+
+test("reassigns a purpose profile during offboarding without rotating its public link", (t) => {
+  const { db, id, admin, officer, processor, preview, move } = fixture(t);
+  const token = "c".repeat(64);
+  writeLeadRouting(db, { ...defaultLeadRouting, quoteToken: token });
+  const config = { ...defaultQuoteIntakeConfig, ownerEmail: officer.email, title: "Fictional refinance intake" };
+  const published = workOnQuoteSettings(db, { type: "publish", profile: "Refinance", revision: 0, config }, admin, id, at, officer);
+  const [route] = preview(officer, "Intake route").items;
+  assert.equal(route.id, "quote:Refinance");
+  assert.equal(route.revision, published.revision);
+  assert.match(move(officer, route, processor).error, /active loan officer/);
+  assert.ok(move(officer, route, admin).message);
+  assert.deepEqual(preview(officer, "Intake route").items, []);
+  const current = quoteIntakeRouting(db, "Refinance");
+  assert.equal(current.routing.quoteToken, token);
+  assert.equal(current.ownerEmail, admin.email);
+  assert.equal(current.form.config.title, config.title);
+  assert.equal(current.form.revision, published.revision + 1);
 });
 
 test("hands off a lead callback, file, contact follow-up, and coverage with deadlines and history intact", (t) => {
