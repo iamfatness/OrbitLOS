@@ -223,8 +223,8 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.equal(presentation.primary.loanAmount, 340000);
   assert.ok(publishedCosts.every(({ borrowingCost }) => borrowingCost > 0));
   assert.match(publishedCosts[1].breakEven, /breaks even in month/);
-  await apply("saveFeeWorksheet", { ...alternativeChoice, feeRevision: 1,
-    worksheet: { ...worksheet, fees: { ...worksheet.fees, appraisal: 70000 } } });
+  await apply("saveAllocatedFeeWorksheet", { ...alternativeChoice, feeRevision: 1,
+    worksheet: { ...worksheet, allocations: { appraisal: { payee: "Fictional Appraisal Co", seller: 0, lender: 0, other: 0 } } } });
   assert.deepEqual(compareQuoteCosts(read().loanStatus.quote.presentation), publishedCosts);
   assert.equal(status().loanStatus.quote.expiresOn, dated.expiresOn);
   assert.equal(status().loanStatus.quote.reviewReason, undefined);

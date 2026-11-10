@@ -8,8 +8,40 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { blankApplication } = await import("../src/lib/application-model.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { feeTemplateWork } = await import("../src/lib/fee-templates.ts");
-const { blankFees, estimateFees, missingFees } = await import("../src/lib/quote-worksheet.ts");
+const { blankFees, borrowerFee, estimateFees, missingFees, sampleFeeLabel, saveAllocatedFeeWorksheetInput } = await import("../src/lib/quote-worksheet.ts");
 const { sharedQuoteExpiry } = await import("../src/lib/shared-quote-model.ts");
+const { compareQuoteCosts } = await import("../src/lib/quote-cost-comparison.ts");
+const { fixedLoanSchedule } = await import("../src/lib/loan-amortization.ts");
+
+test("direct fee contributions change borrower cost once and retain the gross fee and payee", () => {
+  const scenario = { purpose: "Purchase", loanAmount: 360000 };
+  const { payment } = fixedLoanSchedule({ loanAmount: 36_000_000, rate: 6.125, years: 30, upfrontCost: 0 });
+  const offer = { product: "Fictional 30-year fixed", rate: 6.125, years: 30, principalAndInterest: payment / 100, pricingAmount: -50 };
+  const worksheet = { fees: { origination: 50000, appraisal: 65000, creditReport: 0, settlement: 140000, government: 0, prepaid: 30000, escrow: 0, other: 0 },
+    purchasePrice: 45_000_000, payoffs: null, deposit: 0, sellerCredits: 10000, otherCredits: 5000,
+    allocations: { appraisal: { payee: " Fictional Valuation Co ", seller: 20000, lender: 10000, other: 5000 } } };
+  const save = { type: "saveAllocatedFeeWorksheet", loanId: "loan", runId: "run", offerId: "offer", feeRevision: 0, worksheet };
+  const parsed = saveAllocatedFeeWorksheetInput.parse(save).worksheet;
+  const estimate = estimateFees(scenario, offer, parsed);
+  assert.equal(parsed.fees.appraisal, 65000);
+  assert.equal(borrowerFee(parsed, "appraisal"), 30000);
+  assert.equal(estimate.closingCosts, 245000);
+  assert.equal(estimate.cashToClose, 9_230_000);
+  assert.equal(sampleFeeLabel(parsed, "appraisal"), "$650.00 · Borrower $300.00 · Seller $200.00 · Lender $100.00 · Other party $50.00 · Paid to Fictional Valuation Co");
+  const option = { ...offer, loanAmount: scenario.loanAmount, purpose: scenario.purpose, estimate };
+  assert.equal(compareQuoteCosts({ primary: option, alternatives: [] })[0].cost, 215000);
+  const over = structuredClone(save);
+  over.worksheet.allocations.appraisal.seller = 65001;
+  assert.match(saveAllocatedFeeWorksheetInput.safeParse(over).error.issues[0].message, /exceed/);
+  const unknown = structuredClone(save);
+  unknown.worksheet.fees.appraisal = null;
+  assert.match(saveAllocatedFeeWorksheetInput.safeParse(unknown).error.issues[0].message, /positive appraisal/);
+  const refi = structuredClone(save);
+  refi.worksheet.purchasePrice = null;
+  refi.worksheet.payoffs = 35_000_000;
+  assert.match(saveAllocatedFeeWorksheetInput.safeParse(refi).error.issues[0].message, /seller-paid/);
+  assert.equal(saveAllocatedFeeWorksheetInput.parse({ ...save, worksheet: { ...worksheet, allocations: {} } }).worksheet.allocations, undefined);
+});
 
 test("fee templates scope use and preserve the original fee and source snapshot", async (t) => {
   const sqlite = new DatabaseSync(":memory:");

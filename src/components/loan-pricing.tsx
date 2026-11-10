@@ -13,9 +13,9 @@ import { latestSelectedPricingRun, mockUwmQuoteAmountIssue, pricingPrograms, pri
 import { dateTime, money, requestedMoney } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { UwmRateLock } from "./uwm-rate-lock";
-import { feeKeys, feeLabels, quoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
+import { feeKeys, feeLabels, quoteOption, sampleFeeLabel, type QuotePresentation } from "@/lib/quote-worksheet";
 import { sharedQuoteExpired, sharedQuoteExpiry } from "@/lib/shared-quote-model";
-import { FeeWorksheetEditor, formatFee, SampleQuotePresentation } from "./quote-worksheet";
+import { FeeWorksheetEditor, SampleQuotePresentation } from "./quote-worksheet";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const cash = (amount: number | null) => amount === null ? "—" : dollars.format(amount);
@@ -114,13 +114,13 @@ function SharedQuoteChanges({ shared, proposed }: { shared: QuotePresentation; p
   return [shared.primary, ...shared.alternatives].map((before) => {
     const after = options.find((option) => before.runId === option.runId && before.offerId === option.offerId);
     if (!after) return null;
-    const fees = feeKeys.filter((key) => (before.estimate?.inputs.fees[key] ?? null) !== (after.estimate?.inputs.fees[key] ?? null));
-    const showFee = (amount?: number | null) => amount == null ? "Unknown" : formatFee(amount);
+    const fees = feeKeys.map((key) => ({ key, shared: sampleFeeLabel(before.estimate?.inputs, key), proposed: sampleFeeLabel(after.estimate?.inputs, key) }))
+      .filter((line) => line.shared !== line.proposed);
     if (!fees.length) return null;
     return <div key={`${before.runId}/${before.offerId}`}>
       <strong>{before.product} at {percentage(before.rate)}</strong>
-      <ul className="loan-task-list">{fees.map((key) => <li key={key}>
-        {feeLabels[key]} · Shared {showFee(before.estimate?.inputs.fees[key])} · Proposed {showFee(after.estimate?.inputs.fees[key])}
+      <ul className="loan-task-list">{fees.map(({ key, shared, proposed }) => <li key={key}>
+        {feeLabels[key]} · Shared {shared} · Proposed {proposed}
       </li>)}</ul>
     </div>;
   });

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FileCheck2 } from "lucide-react";
 import { dateLabel } from "@/lib/client-retention";
 import type { BorrowerDisclosure, BorrowerDisclosureResponse } from "@/lib/disclosure-model";
-import { feeKeys, feeLabels } from "@/lib/quote-worksheet";
+import { feeKeys, feeLabels, sampleFeeLabel } from "@/lib/quote-worksheet";
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { borrowerDisclosureTarget } from "@/lib/borrower-action-model";
@@ -37,7 +37,7 @@ export function BorrowerSampleDisclosure({ item, busy, respond }: {
         {item.documents.includes("Sample loan terms") && <p>{terms.product} · {terms.rate.toFixed(3)}% · {money(terms.loanAmount)}</p>}
         {fees && <>
           <p>Estimated closing costs {dollars.format(fees.closingCosts / 100)} · Estimated cash to close {dollars.format(fees.cashToClose / 100)}</p>
-          <ul>{feeKeys.map((key) => <li key={key}>{feeLabels[key]} · {fees.items[key] === null ? "Not entered" : dollars.format(fees.items[key] / 100)}</li>)}</ul>
+          <ul>{feeKeys.map((key) => <li key={key}>{feeLabels[key]} · {sampleFeeLabel({ fees: fees.items, allocations: fees.allocations }, key)}</li>)}</ul>
         </>}
       </div>
     </details>

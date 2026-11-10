@@ -33,11 +33,11 @@ function packetSnapshot(db: Store, loanId: string, work: DisclosureWork): Closin
     const serviceEvidence = links.filter(({ itemId }) => itemId === id);
     return serviceEvidence.length ? { ...item, serviceEvidence } : item;
   });
-  const { version, revision, at, actor, applicationRevision, feeRevision, signers, changeReview } = review;
+  const { version, revision, at, actor, applicationRevision, feeRevision, signers, changeReview, feeAllocations } = review;
   const { documents, issuedAt, signBy, quote } = packageRow;
   return { ...loan, disclosure: { version, revision, at, actor, applicationRevision, feeRevision, signers, changeReview,
     documents, issuedAt, signBy, loanAmount: quote.loanAmount, product: quote.product, rate: quote.rate,
-    cashToClose: quote.estimate?.cashToClose ?? null }, checklist };
+    cashToClose: quote.estimate?.cashToClose ?? null, ...(feeAllocations?.length ? { feeAllocations } : {}) }, checklist };
 }
 
 function packetRows(db: Store, loanId: string, limit: number) {

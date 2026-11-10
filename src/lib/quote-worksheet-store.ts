@@ -5,8 +5,8 @@ import { feeTemplateChanged } from "./fee-template-model";
 import { feeOriginForQuote } from "./fee-templates";
 import { pricingInputError } from "./income-review-freshness";
 import type { PricingApplication, PricingOffer, PricingScenario } from "./pricing-model";
-import { estimateFees, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuotePresentation,
-  type quoteSelection, type saveFeeWorksheetInput } from "./quote-worksheet";
+import { estimateFees, feeAllocationIssue, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuotePresentation,
+  type quoteSelection, type SaveFeeWorksheet } from "./quote-worksheet";
 import { sharedQuoteReviewId } from "./shared-quote-model";
 import type { Store } from "./store";
 
@@ -24,17 +24,22 @@ export function quoteFeeWorksheet(db: Store, loanId: string, runId: string, offe
     ...(row.origin ? { origin: JSON.parse(String(row.origin)) as FeeTemplateOrigin } : {}) } : undefined;
 }
 
-export function saveFeeWorksheet(db: Store, data: z.infer<typeof saveFeeWorksheetInput>, now: string) {
+export function saveFeeWorksheet(db: Store, data: SaveFeeWorksheet, now: string) {
   const { loanId, runId, offerId, feeRevision, worksheet, template } = data;
   const option = priceOption(db, loanId, runId, offerId);
   if (!option) return { error: "Choose a sample pricing option on this loan." };
   const app = db.prepare("SELECT revision, correctionNote FROM applications WHERE loanId = ?").get(loanId);
   const freshness = pricingInputError(db, loanId, option, app ? { revision: Number(app.revision), correctionNote: String(app.correctionNote ?? "") } : undefined);
   if (freshness) return { error: freshness };
+  const allocationIssue = feeAllocationIssue(worksheet, option.scenario.purpose === "Purchase");
+  if (allocationIssue) return { error: allocationIssue };
   if (!estimateFees(option.scenario, option.offer, worksheet)) {
     return { error: option.scenario.purpose === "Purchase" ? "Enter a purchase price at or above the loan amount." : "Enter estimated refinance payoffs, including zero if applicable." };
   }
   const before = quoteFeeWorksheet(db, loanId, runId, offerId);
+  if (data.type === "saveFeeWorksheet" && (before?.inputs.allocations || worksheet.allocations)) {
+    return { error: "Refresh pricing before editing payer and payee details on this worksheet." };
+  }
   let origin = template === null ? undefined : before?.origin;
   if (template && (template.id !== origin?.id || template.revision !== origin.revision)) {
     origin = feeOriginForQuote(db, template, option.scenario, easternDate(new Date(now)));

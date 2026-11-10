@@ -6,6 +6,7 @@ import { disclosureDeclinePrefix, disclosureDeclineTaskTitle, disclosureReviewPr
   type ClosingDisclosureReview, type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
   type DisclosureSource, type DisclosureWork } from "./disclosure-model";
 import { quoteFeeWorksheet, quoteSnapshot } from "./quote-worksheet-store";
+import { allocatedFeeLines } from "./quote-worksheet";
 import { savedPricingRun, type Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 
@@ -43,15 +44,20 @@ export function readDisclosureWork(db: Store, loanId: string): DisclosureWork {
   const rows = packageRows(db, loanId, 6);
   const latest = rows[0];
   const closingReviews = db.prepare(`SELECT review.version, review.revision, review.reviewedAt AS at, review.actor,
-      package.applicationRevision, package.feeRevision, package.signers, package.changeReview
+      package.applicationRevision, package.feeRevision, package.signers, package.changeReview, package.quote
     FROM closing_disclosure_reviews review
     JOIN disclosure_packages package ON package.loanId = review.loanId AND package.version = review.version
     WHERE review.loanId = ? ORDER BY review.version DESC, review.revision DESC LIMIT 4`).all(loanId)
-    .map(({ signers, changeReview, ...row }) => ({
-      ...row, signers: JSON.parse(String(signers)), changeReview: changeReview ? JSON.parse(String(changeReview)) : null,
-      current: !!(latest && current.source && !latest.reviewReason && !latest.supersededAt &&
-        row.version === latest.version && row.revision === latest.revision && matchesSource(latest, current.source)),
-    })) as ClosingDisclosureReview[];
+    .map(({ signers, changeReview, quote, ...row }) => {
+      const source = JSON.parse(String(quote)) as DisclosurePackage["quote"];
+      const feeAllocations = allocatedFeeLines(source.estimate?.inputs);
+      return {
+        ...row, signers: JSON.parse(String(signers)), changeReview: changeReview ? JSON.parse(String(changeReview)) : null,
+        ...(feeAllocations.length ? { feeAllocations } : {}),
+        current: !!(latest && current.source && !latest.reviewReason && !latest.supersededAt &&
+          row.version === latest.version && row.revision === latest.revision && matchesSource(latest, current.source)),
+      };
+    }) as ClosingDisclosureReview[];
   return { source: current.source ?? null, unavailable: current.error ?? null, closingReviews, packages: rows
     .map((item) => ({
       version: item.version, revision: item.revision, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision,
@@ -156,7 +162,8 @@ export function readBorrowerDisclosure(db: Store, loanId: string, role: Disclosu
     signer: { status: signer.status, actedAt: signer.actedAt, receipt: signer.receipt },
     terms: { product, rate, loanAmount },
     fees: estimate && documents.includes("Sample fee summary") ?
-      { closingCosts: estimate.closingCosts, cashToClose: estimate.cashToClose, items: estimate.inputs.fees } : null,
+      { closingCosts: estimate.closingCosts, cashToClose: estimate.cashToClose, items: estimate.inputs.fees,
+        ...(estimate.inputs.allocations ? { allocations: estimate.inputs.allocations } : {}) } : null,
   };
 }
 

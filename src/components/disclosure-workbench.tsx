@@ -6,7 +6,7 @@ import { disclosurePackageStatus, disclosureResponses, disclosureTarget, sampleD
   type DisclosurePackage, type DisclosureSource } from "@/lib/disclosure-model";
 import type { Loan, Workspace } from "@/lib/model";
 import { latestSelectedPricingRun, pricingInputsMatch } from "@/lib/pricing-model";
-import { feeKeys, feeLabels, type QuoteOption } from "@/lib/quote-worksheet";
+import { feeKeys, feeLabels, sampleFeeLabel, type QuoteOption } from "@/lib/quote-worksheet";
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { FeeWorksheetEditor } from "./quote-worksheet";
@@ -29,7 +29,7 @@ function QuoteDetails({ quote }: { quote: QuoteOption }) {
     <p>{quote.product} · {quote.rate.toFixed(3)}% · {money(quote.loanAmount)}</p>
     {quote.estimate && <>
       <p>Estimated closing costs {cents(quote.estimate.closingCosts)} · Estimated cash to close {cents(quote.estimate.cashToClose)}</p>
-      <ul>{feeKeys.map((key) => <li key={key}>{feeLabels[key]} · {cents(quote.estimate?.inputs.fees[key])}</li>)}</ul>
+      <ul>{feeKeys.map((key) => <li key={key}>{feeLabels[key]} · {sampleFeeLabel(quote.estimate?.inputs, key)}</li>)}</ul>
     </>}
   </>;
 }
@@ -41,7 +41,7 @@ function ChangedTerms({ previous, current }: { previous: DisclosurePackage; curr
       "Reviewed 1003 revision": String(applicationRevision),
       "Product": quote.product, "Term": `${quote.years} years`, "Rate": `${quote.rate.toFixed(3)}%`,
       "Loan amount": usd.format(quote.loanAmount), "Monthly principal and interest": usd.format(quote.principalAndInterest),
-      ...Object.fromEntries(feeKeys.map((key) => [feeLabels[key], cents(estimate?.inputs.fees[key])])),
+      ...Object.fromEntries(feeKeys.map((key) => [feeLabels[key], sampleFeeLabel(estimate?.inputs, key)])),
       "Points": cents(estimate?.points), "Lender credit": cents(estimate?.lenderCredit),
       "Estimated closing costs": cents(estimate?.closingCosts), "Estimated cash to close": cents(estimate?.cashToClose),
     } as Record<string, string>;

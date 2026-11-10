@@ -7,7 +7,7 @@ const checklistWrites = new Set([
   "reviewDocument", "reopenMockUwmCondition", "requestBorrowerQuestion", "reviewBorrowerQuestion",
 ]);
 const disclosureWrites = new Set(["prepareDisclosurePackage", "issueDisclosurePackage", "respondToDisclosurePackage",
-  "saveFeeWorksheet", "selectOffer", "requestApplicationCorrection"]);
+  "saveFeeWorksheet", "saveAllocatedFeeWorksheet", "selectOffer", "requestApplicationCorrection"]);
 
 export function borrowerDisclosureTokens(input: unknown, applications: readonly StaffApplication[]) {
   if (!input || typeof input !== "object" || !("type" in input) || typeof input.type !== "string" ||

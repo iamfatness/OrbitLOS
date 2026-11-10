@@ -1,5 +1,5 @@
 import { fixedLoanSchedule, sustainedCostBreakEven } from "./loan-amortization";
-import type { QuoteOption, QuotePresentation } from "./quote-worksheet";
+import { borrowerFee, type QuoteOption, type QuotePresentation } from "./quote-worksheet";
 
 const includedFees = ["origination", "appraisal", "creditReport", "settlement", "government", "other"] as const;
 export const quoteComparisonMonths = 60;
@@ -9,7 +9,7 @@ function upfrontCost(option: QuoteOption) {
   if (!estimate) return { reason: "Fee worksheet pending." };
   let cost = estimate.points - estimate.lenderCredit;
   for (const key of includedFees) {
-    const fee = estimate.inputs.fees[key];
+    const fee = borrowerFee(estimate.inputs, key);
     if (fee == null) return { reason: "Complete the included fees to estimate cost." };
     cost += fee;
   }

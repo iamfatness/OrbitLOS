@@ -56,7 +56,7 @@ import { carryLeadDocuments } from "./lead-documents";
 import { carryLeadConversation } from "./conversations";
 import { updateProcessingInput } from "./processing-model";
 import { updateProcessing } from "./loan-processing";
-import { quoteSelection, saveFeeWorksheetInput, type QuoteOption } from "./quote-worksheet";
+import { quoteSelection, saveAllocatedFeeWorksheetInput, saveFeeWorksheetInput, type QuoteOption } from "./quote-worksheet";
 import { archiveSharedQuote, finishSharedQuoteReview, flagSharedQuoteReview, quoteSnapshot, saveFeeWorksheet } from "./quote-worksheet-store";
 import { isSharedQuoteReview, sharedQuoteExpiry } from "./shared-quote-model";
 import { confirmClosingDisclosure, disclosureCommand, disclosureTask } from "./disclosure-model";
@@ -307,6 +307,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("extendMockLock"), ...lockChange, days: z.literal(mockLockExtensionPeriods) }),
   z.object({ type: z.literal("cancelMockLock"), ...lockChange }),
   saveFeeWorksheetInput,
+  saveAllocatedFeeWorksheetInput,
   ...disclosureCommand.options,
   confirmClosingDisclosure,
   prepareClosingPacketInput,
@@ -506,6 +507,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "runMockPairedAus":
     case "retryMockCreditAus":
     case "saveFeeWorksheet":
+    case "saveAllocatedFeeWorksheet":
     case "publishDatedQuote":
     case "keepSharedQuote":
     case "prepareDisclosurePackage":
@@ -1623,7 +1625,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = result.message;
           break;
         }
-        case "saveFeeWorksheet": {
+        case "saveFeeWorksheet":
+        case "saveAllocatedFeeWorksheet": {
           const result = saveFeeWorksheet(db, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           if (result.revision !== undefined) {

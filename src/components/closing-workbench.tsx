@@ -10,6 +10,7 @@ import { closingChecklistListTarget, closingChecklistTarget, closingWorkbenchTar
 import { serviceOrderSlug, serviceOrderTarget, type ServiceOrder } from "@/lib/service-order-model";
 import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
+import { feeAllocationLabel, feeLabels } from "@/lib/quote-worksheet";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
@@ -83,6 +84,9 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
     <p>1003 revision {entry.applicationRevision} · Fee worksheet revision {entry.feeRevision}</p>
     <p>Confirmed by {entry.actor} · {dateTime(entry.at)} ET</p>
     {signerRows(entry.signers)}
+    {!!entry.feeAllocations?.length && <ul aria-label="Sample fee allocations">
+      {entry.feeAllocations.map((line) => <li key={line.key}>{feeLabels[line.key]} · {feeAllocationLabel(line)}</li>)}
+    </ul>}
     {entry.changeReview && <p>Change review by {entry.changeReview.actor} · {entry.changeReview.reason} · {entry.changeReview.note}</p>}
   </>;
   return <section className="document-item" aria-label="Sample disclosures for closing">

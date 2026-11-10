@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
-import type { FeeInputs, QuoteOption } from "./quote-worksheet";
+import type { AllocatedFeeLine, FeeInputs, QuoteOption } from "./quote-worksheet";
 
 export const disclosureTarget = "loan-disclosures";
 export const disclosureReviewPrefix = "disclosure-review:";
@@ -54,6 +54,7 @@ export type DisclosureWork = {
 export type ClosingDisclosureReview = {
   version: number; revision: number; at: string; actor: string;
   applicationRevision: number; feeRevision: number; signers: DisclosureSigner[];
+  feeAllocations?: AllocatedFeeLine[];
   changeReview: DisclosurePackage["changeReview"];
   current: boolean;
 };
@@ -62,7 +63,7 @@ export type BorrowerDisclosure = {
   state: "Available" | "Awaiting revision" | "Closed";
   signer: Pick<DisclosureSigner, "status" | "actedAt" | "receipt">;
   terms: Pick<QuoteOption, "product" | "rate" | "loanAmount">;
-  fees: { closingCosts: number; cashToClose: number; items: FeeInputs["fees"] } | null;
+  fees: { closingCosts: number; cashToClose: number; items: FeeInputs["fees"]; allocations?: FeeInputs["allocations"] } | null;
 };
 
 export function disclosurePackageStatus(item: DisclosurePackage) {

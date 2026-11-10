@@ -192,9 +192,11 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
 
   await apply("saveFeeWorksheet", { runId: run.id, offerId: run.offers[1].id, feeRevision: 0, worksheet });
   assert.equal(current().reviewReason, null);
-  const changedFees = { ...worksheet, fees: { ...worksheet.fees, settlement: 125_000 } };
-  await apply("saveFeeWorksheet", { ...choice, feeRevision: 1, worksheet: changedFees });
-  await apply("saveFeeWorksheet", { ...choice, feeRevision: 1, worksheet: changedFees });
+  const settlement = { payee: "Fictional Title Co", seller: 25_000, lender: 0, other: 0 };
+  const changedFees = { ...worksheet, fees: { ...worksheet.fees, settlement: 125_000 }, allocations: { settlement } };
+  await apply("saveAllocatedFeeWorksheet", { ...choice, feeRevision: 1, worksheet: changedFees });
+  await apply("saveAllocatedFeeWorksheet", { ...choice, feeRevision: 1, worksheet: changedFees });
+  assert.match((await f.run("saveFeeWorksheet", { ...choice, feeRevision: 2, worksheet })).error, /refresh pricing/i);
   assert.equal(disclosurePackageStatus(current()), "Review required");
   assert.equal(current().quote.estimate.inputs.fees.settlement, 100_000);
   assert.equal(work().source.quote.estimate.inputs.fees.settlement, 125_000);
@@ -228,6 +230,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(primaryActions()[0].target, borrowerDisclosureTarget);
   assert.equal(jointActions()[0].target, borrowerDisclosureTarget);
   assert.equal(primaryPackage().fees.items.settlement, 125_000);
+  assert.deepEqual(primaryPackage().fees.allocations.settlement, settlement);
   assert.ok(!JSON.stringify(primaryPackage()).includes(revisionNote));
   assert.doesNotMatch(JSON.stringify(primaryPackage()), /Co-borrower|applicationRevision|runId|feeOrigin|joint-borrower@example/);
   assert.equal(f.primary({ ...response, version: 1 }).status, 409);
@@ -277,6 +280,8 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(firstPacket.preparedBy, f.processor.name);
   assert.equal(firstPacket.snapshot.disclosure.signers[0].receipt, signature.receipt);
   assert.equal(firstPacket.snapshot.disclosure.changeReview.note, revisionNote);
+  assert.equal(firstPacket.snapshot.disclosure.feeAllocations[0].payee, settlement.payee);
+  assert.equal(firstPacket.snapshot.disclosure.feeAllocations[0].borrower, 100_000);
   assert.equal(firstPacket.snapshot.checklist[0].completedAt, null);
   assert.equal(loan().closingPacketWork.packets[0].current, true);
   assert.equal(loadPacket(1, f.outsider), null);
@@ -288,6 +293,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   const text = [...firstPdf.matchAll(/<([\da-f]+)> Tj/g)].map(([, hex]) => Buffer.from(hex, "hex").toString("latin1")).join("\n");
   assert.match(text, /FICTIONAL CLOSING REHEARSAL/);
   assert.match(text, /Confirm fictional title checklist/);
+  assert.match(text, /Borrower \$1,000.00 · Seller \$250.00 · Paid to Fictional Title Co/);
   assert.ok(text.includes(signature.receipt));
   const manyRows = Array.from({ length: 80 }, (_, index) => ({
     ...firstPacket.snapshot.checklist[0], title: `Fictional checklist item ${index + 1}`, owner: "Fictional processor (QA)",
@@ -383,7 +389,11 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   await apply("confirmClosingDisclosure", version(), f.processor);
   assert.deepEqual(closing().map(({ version, current }) => [version, current]), [[5, true], [2, false]]);
   const confirmedLatest = version();
-  await apply("saveFeeWorksheet", { ...choice, feeRevision: 2, worksheet });
+  const renamed = { ...changedFees, allocations: { settlement: { ...settlement, payee: "Replacement Title Co" } } };
+  const previousCash = work().source.quote.estimate.cashToClose;
+  await apply("saveAllocatedFeeWorksheet", { ...choice, feeRevision: 2, worksheet: renamed });
+  assert.equal(work().source.quote.estimate.cashToClose, previousCash);
+  assert.equal(current().quote.estimate.inputs.allocations.settlement.payee, settlement.payee);
   assert.equal(current().version, confirmedLatest.version);
   assert.equal(closing()[0].current, false);
   assert.match((await f.run("confirmClosingDisclosure", confirmedLatest, f.processor)).error, /current issued/);

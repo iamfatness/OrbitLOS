@@ -3,8 +3,9 @@
 import { useState } from "react";
 import type { PricingOffer, PricingRun } from "@/lib/pricing-model";
 import { compareQuoteCosts } from "@/lib/quote-cost-comparison";
-import { blankFees, estimateFees, feeKeys, feeLabels, missingFees,
-  type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
+import { allocatedFeeLine, blankFees, estimateFees, feeAllocationIssue, feeAllocationLabel, feeAllocations, feeContributionKeys,
+  feeContributionLabels, feeKeys, feeLabels, missingFees,
+  type FeeInputs, type FeeKey, type FeeTemplateOrigin, type FeeWorksheet, type QuoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
 import { FeeTemplatePicker } from "./fee-templates";
 import { Button } from "./ui/button";
 
@@ -14,8 +15,10 @@ const toCents = (value: string) => Math.round(Number(value) * 100);
 const amountText = (value: number | null) => value === null ? "" : String(value / 100);
 const additionalFields = {
   purchasePrice: "Purchase price", payoffs: "Estimated refinance payoffs", deposit: "Deposit already paid",
-  sellerCredits: "Seller credits", otherCredits: "Other credits",
+  sellerCredits: "Additional seller credits", otherCredits: "Additional other credits",
 } as const;
+const emptyAllocation = { payee: "", seller: "", lender: "", other: "" };
+type AllocationDraft = Partial<Record<FeeKey, typeof emptyAllocation>>;
 
 function cashLabel(option: Pick<QuoteOption, "estimate" | "purpose">) {
   if ((option.estimate?.cashToClose ?? 0) >= 0) return "Estimated cash to close";
@@ -37,6 +40,12 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
 }) {
   const purchase = run.scenario.purpose === "Purchase";
   const [origin, setOrigin] = useState<FeeTemplateOrigin | undefined>(saved?.origin);
+  const [allocations, setAllocations] = useState<AllocationDraft>(() => Object.fromEntries(
+    Object.entries(saved?.inputs.allocations ?? {}).map(([key, split]) => [key, {
+      payee: split.payee, seller: split.seller ? amountText(split.seller) : "", lender: split.lender ? amountText(split.lender) : "",
+      other: split.other ? amountText(split.other) : "",
+    }]),
+  ));
   const [fields, setFields] = useState<Record<string, string>>(() => {
     const fees = saved?.inputs.fees ?? blankFees();
     return {
@@ -48,15 +57,27 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
   });
   const fees = blankFees();
   for (const key of feeKeys) fees[key] = fields[key] === "" ? null : toCents(fields[key]);
+  const splits = Object.fromEntries(feeKeys.flatMap((key) => {
+    const draft = allocations[key];
+    return draft ? [[key, { payee: draft.payee.trim(), seller: toCents(draft.seller),
+      lender: toCents(draft.lender), other: toCents(draft.other) }]] : [];
+  }));
+  const checkedSplits = feeAllocations.safeParse(splits);
   const inputs: FeeInputs = {
     fees, purchasePrice: purchase && fields.purchasePrice ? toCents(fields.purchasePrice) : null,
     payoffs: !purchase && fields.payoffs ? toCents(fields.payoffs) : null,
     deposit: purchase ? toCents(fields.deposit) : 0, sellerCredits: purchase ? toCents(fields.sellerCredits) : 0, otherCredits: toCents(fields.otherCredits),
+    ...(checkedSplits.success ? { allocations: checkedSplits.data } : {}),
   };
-  const estimate = estimateFees(run.scenario, offer, inputs);
+  const allocationIssue = checkedSplits.success ? feeAllocationIssue(inputs, purchase) : checkedSplits.error.issues[0]?.message ?? "Check the fee contributions.";
+  const estimate = allocationIssue ? null : estimateFees(run.scenario, offer, inputs);
   const missing = missingFees(fees);
   const valid = Object.values(fields).every((value) => value === "" || (Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 25_000_000));
   const label = `${offer.product} at ${offer.rate.toFixed(3)}%`;
+  const editableFeeKeys = feeKeys.filter((key) => (fees[key] ?? 0) > 0 || allocations[key]);
+  function changeAllocation(key: FeeKey, field: keyof typeof emptyAllocation, value: string) {
+    setAllocations((current) => ({ ...current, [key]: { ...(current[key] ?? emptyAllocation), [field]: value } }));
+  }
   function field(name: string, caption: string, required = false) {
     return <label className="field" key={name}>{caption}<input type="number" min={0} max={25_000_000} step="0.01"
       name={name} required={required} disabled={!current || busy} value={fields[name]} onChange={(event) => setFields({ ...fields, [name]: event.target.value })} /></label>;
@@ -75,7 +96,7 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
     {!current && <p className="muted">Reprice the current 1003 before editing this worksheet.</p>}
     <form className="record-form" onSubmit={(event) => {
       event.preventDefault();
-      if (estimate && valid && current) void save({ type: "saveFeeWorksheet", loanId: run.loanId, runId: run.id, offerId: offer.id,
+      if (estimate && valid && current) void save({ type: "saveAllocatedFeeWorksheet", loanId: run.loanId, runId: run.id, offerId: offer.id,
         feeRevision: saved?.revision ?? 0, worksheet: inputs, template: origin ? { id: origin.id, revision: origin.revision } : null });
     }}>
       {current && <FeeTemplatePicker brokerageId={brokerageId} loanId={run.loanId} runId={run.id} disabled={busy} onLoad={(template) => {
@@ -90,9 +111,38 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
         {purchase && field("sellerCredits", additionalFields.sellerCredits)}
         {field("otherCredits", additionalFields.otherCredits)}
       </div>
+      {editableFeeKeys.length > 0 && <details className="document-form">
+        <summary>Payer and payee details</summary>
+        <p className="muted">Use fictional company names. Enter amounts each party pays directly. The borrower pays the remaining share. Record general credits in the credit fields above.</p>
+        {editableFeeKeys.map((key) => {
+          const draft = allocations[key] ?? emptyAllocation;
+          const line = allocatedFeeLine(inputs, key);
+          return <details className="document-form" key={key}>
+            <summary>{feeLabels[key]} payment details{line && (line.payee || line.seller || line.lender || line.other) ? " · Allocated" : ""}</summary>
+            <div className="form-grid">
+              <label className="field">{feeLabels[key]} payee
+                <input maxLength={80} value={draft.payee} disabled={!current || busy} onChange={(event) => changeAllocation(key, "payee", event.target.value)} />
+              </label>
+              {feeContributionKeys.filter((party) => purchase || party !== "seller").map((party) => <label className="field" key={party}>
+                {feeLabels[key]} {feeContributionLabels[party].toLowerCase()} amount
+                <input type="number" min={0} max={25_000_000} step="0.01" value={draft[party]} disabled={!current || busy}
+                  onChange={(event) => changeAllocation(key, party, event.target.value)} />
+              </label>)}
+            </div>
+            <p>Borrower share {line && line.borrower >= 0 ? formatFee(line.borrower) : allocations[key] ? "Check the allocation" : formatFee(fees[key] ?? 0)}</p>
+            {allocations[key] && <Button size="sm" variant="outline" type="button" disabled={!current || busy}
+              onClick={() => setAllocations((last) => {
+                const next = { ...last };
+                delete next[key];
+                return next;
+              })}>Clear {feeLabels[key].toLowerCase()} allocation</Button>}
+          </details>;
+        })}
+      </details>}
+      {allocationIssue && <p role="alert">{allocationIssue}</p>}
       {valid && estimate && <p>Estimated closing costs {formatFee(estimate.closingCosts)} · {cashLabel({ estimate, purpose: run.scenario.purpose })} {formatFee(Math.abs(estimate.cashToClose))}
         {missing.length > 0 && " · Known fees only"}</p>}
-      {valid && !estimate && <p className="muted">{purchase ? "Enter a purchase price at or above the loan amount." : "Enter estimated payoffs, including zero if applicable."}</p>}
+      {valid && !estimate && !allocationIssue && <p className="muted">{purchase ? "Enter a purchase price at or above the loan amount." : "Enter estimated payoffs, including zero if applicable."}</p>}
       <div className="loan-application-actions">
         <Button size="sm" variant="outline" type="button" onClick={loadSample} disabled={busy || !current}>Load sample fees</Button>
         <Button size="sm" type="submit" disabled={busy || !current || !estimate || !valid}>Save fee worksheet</Button>
@@ -113,15 +163,17 @@ function ItemizedFees({ option }: { option: QuoteOption }) {
     <div><dt>{option.purpose === "Purchase" ? "Purchase price" : "Estimated refinance payoffs"}</dt><dd>{formatFee(input.purchasePrice ?? input.payoffs ?? 0)}</dd></div>
     {feeKeys.map((key) => {
       const amount = input.fees[key];
-      return amount !== null && amount > 0 ? <div key={key}><dt>{feeLabels[key]}</dt><dd>{formatFee(amount)}</dd></div> : null;
+      const allocation = allocatedFeeLine(input, key);
+      return amount !== null && amount > 0 ? <div key={key}><dt>{feeLabels[key]}</dt><dd>{formatFee(amount)}
+        {allocation && <span className="quote-fee-allocation">{feeAllocationLabel(allocation)}</span>}</dd></div> : null;
     })}
     {estimate.points > 0 && <div><dt>Discount points</dt><dd>{formatFee(estimate.points)}</dd></div>}
     {estimate.lenderCredit > 0 && <div><dt>Lender credit</dt><dd>{formatFee(-estimate.lenderCredit)}</dd></div>}
     <div><dt>Estimated closing costs</dt><dd>{formatFee(estimate.closingCosts)}</dd></div>
     {estimate.downPayment !== null && <div><dt>Down payment</dt><dd>{formatFee(estimate.downPayment)}</dd></div>}
     {input.deposit > 0 && <div><dt>Deposit already paid</dt><dd>{formatFee(-input.deposit)}</dd></div>}
-    {input.sellerCredits > 0 && <div><dt>Seller credits</dt><dd>{formatFee(-input.sellerCredits)}</dd></div>}
-    {input.otherCredits > 0 && <div><dt>Other credits</dt><dd>{formatFee(-input.otherCredits)}</dd></div>}
+    {input.sellerCredits > 0 && <div><dt>{additionalFields.sellerCredits}</dt><dd>{formatFee(-input.sellerCredits)}</dd></div>}
+    {input.otherCredits > 0 && <div><dt>{additionalFields.otherCredits}</dt><dd>{formatFee(-input.otherCredits)}</dd></div>}
     <div><dt>{cashLabel(option)}</dt><dd>{formatFee(Math.abs(estimate.cashToClose))}</dd></div>
   </dl></>;
 }
@@ -173,7 +225,7 @@ export function SampleQuotePresentation({ quote }: { quote: QuotePresentation })
               </article>;
             })}
           </div>
-          <p className="muted">Sample borrowing cost includes interest, points, and itemized fees after lender credits. It excludes principal, escrow, prepaids, seller and other credits, mortgage insurance, and ongoing property costs.</p>
+          <p className="muted">Sample borrowing cost includes interest, points, and the borrower’s share of itemized fees after lender credits. It excludes principal, escrow, prepaids, additional seller and other credits, mortgage insurance, and ongoing property costs.</p>
           <p className="muted">Break-even is the first month when the higher-upfront offer’s cumulative cost reaches or falls below the other offer’s and stays at or below it through payoff.</p>
         </section>
       </>}

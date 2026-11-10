@@ -1,6 +1,7 @@
 import { dateLabel } from "./client-retention";
 import type { ClosingPacket } from "./closing-packet-model";
 import { pdfDocument, pdfSafeBodyText, pdfText, pdfWrappedLines } from "./pdf-document";
+import { feeAllocationLabel, feeLabels } from "./quote-worksheet";
 import { dateTime, requestedMoney } from "./utils";
 
 const ink = "0.15 0.11 0.22";
@@ -84,6 +85,13 @@ export function closingPacketPdf({ version, preparedAt, preparedBy, snapshot }: 
     const review = disclosure.changeReview;
     rows([`Change review from v${review.fromVersion}: ${review.reason}`,
       `${review.actor} on ${stamp(review.at)}`, review.note], 12);
+  }
+  if (disclosure.feeAllocations?.length) {
+    y -= 7;
+    heading("Sample fee allocations");
+    for (const line of disclosure.feeAllocations) {
+      rows([`${feeLabels[line.key]}: ${cents.format(line.amount / 100)}`, feeAllocationLabel(line)], 12);
+    }
   }
   y -= 7;
   heading("Closing checklist at preparation");

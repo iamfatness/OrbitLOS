@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { fixedLoanSchedule, sustainedCostBreakEven } from "./loan-amortization";
 import type { PricingOffer, PricingRun } from "./pricing-model";
-import { missingFees, quoteSelection, type FeeInputs } from "./quote-worksheet";
+import { borrowerFee, feeKeys, missingFees, quoteSelection, type FeeInputs } from "./quote-worksheet";
 
 export const scenarioGoals = ["Lower monthly payment", "Less cash upfront", "Lower borrowing cost"] as const;
 const money = z.number().int().min(0).max(2_500_000_000);
@@ -88,11 +88,12 @@ export function scenarioPricingTerms(run: Pick<PricingRun, "scenario">, offer: P
 export function pricingScenarioOption(run: PricingRun, offer: PricingOffer, worksheet: FeeInputs | undefined, name: string,
   baseline?: LoanScenarioOption): LoanScenarioOption {
   const terms = scenarioPricingTerms(run, offer);
-  const fees = worksheet?.fees && !missingFees(worksheet.fees).length ? worksheet.fees : undefined;
+  const fees = worksheet && !missingFees(worksheet.fees).length ? worksheet : undefined;
   const expenses = run.scenario.nonAgency;
   return { ...blankScenarioOption(terms.loanAmount, name), ...terms, program: offer.product.slice(0, 60),
-    fees: fees ? (fees.origination ?? 0) + (fees.appraisal ?? 0) + (fees.creditReport ?? 0) + (fees.settlement ?? 0) + (fees.government ?? 0) + (fees.other ?? 0) : baseline?.fees ?? 0,
-    prepaids: fees?.prepaid ?? baseline?.prepaids ?? 0, escrow: fees?.escrow ?? baseline?.escrow ?? 0,
+    fees: fees ? feeKeys.reduce((total, key) => key === "prepaid" || key === "escrow" ? total : total + (borrowerFee(fees, key) ?? 0), 0) : baseline?.fees ?? 0,
+    prepaids: fees ? borrowerFee(fees, "prepaid") ?? 0 : baseline?.prepaids ?? 0,
+    escrow: fees ? borrowerFee(fees, "escrow") ?? 0 : baseline?.escrow ?? 0,
     monthlyTaxes: expenses ? Math.round(expenses.monthlyTaxes * 100) : baseline?.monthlyTaxes ?? 0,
     monthlyInsurance: expenses ? Math.round(expenses.monthlyInsurance * 100) : baseline?.monthlyInsurance ?? 0,
     monthlyHoa: expenses ? Math.round(expenses.monthlyHoa * 100) : baseline?.monthlyHoa ?? 0,

@@ -161,7 +161,7 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
     });
   }
   const localScopedLoan = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" && "type" in input &&
-    (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" ||
+    (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" || input.type === "saveAllocatedFeeWorksheet" ||
       input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" ||
       input.type === "requestBorrowerQuestion" || input.type === "reviewBorrowerQuestion" || input.type === "refreshBorrowerQuestions" ||
       input.type === "createServiceOrder" || input.type === "updateServiceOrder" || input.type === "setClosingServiceEvidence" ||
