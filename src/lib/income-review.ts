@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { addApplicationActivity } from "./applications";
 import { easternDate } from "./client-retention";
 import { documentRecipients, primaryDocumentRecipient, type DocumentRecipient } from "./document-model";
-import { incomeEvidenceMatchesSql } from "./income-review-freshness";
-import { incomeCompletionIssue, incomeReviewUnavailable, incomeWorksheetMethod, incomeWorksheetRequest, monthlyWorksheetTotal,
+import { acceptedIncomeVerificationSql, incomeEvidenceMatchesSql } from "./income-review-freshness";
+import { incomeCompletionIssue, incomeEvidenceKey, incomeReviewUnavailable, incomeWorksheetMethod, incomeWorksheetRequest, monthlyWorksheetTotal, sameIncomeEvidence,
   type IncomeEvidence, type IncomeStage, type IncomeWorksheetPage, type IncomeWorksheetRecord } from "./income-review-model";
+import { serviceOrderLimit } from "./service-order-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
@@ -39,6 +40,24 @@ function evidenceFromRow(row: Row): IncomeEvidence {
     recipient: (row.recipient ?? primaryDocumentRecipient) as DocumentRecipient };
 }
 
+function verificationEvidence(db: Store, loanId: string): IncomeEvidence[] {
+  return db.prepare(`SELECT service.id, service.revision, service.kind, service.recipient,
+    json_extract(receipt.value, '$.reference') AS returnReference, json_extract(receipt.value, '$.returnedAt') AS returnedAt,
+    json_extract(receipt.value, '$.review.at') AS acceptedAt, json_extract(receipt.value, '$.review.actor') AS acceptedBy
+    FROM service_orders service JOIN json_each(service.returns) receipt
+    WHERE service.loanId = ? AND service.recipient IS NOT NULL AND ${acceptedIncomeVerificationSql}
+    ORDER BY service.kind, returnedAt DESC, service.id LIMIT ?`).all(loanId, serviceOrderLimit).map((row) => ({
+    ...evidenceFromRow(row), returnReference: String(row.returnReference), verification: {
+      kind: row.kind as NonNullable<IncomeEvidence["verification"]>["kind"],
+      returnedAt: String(row.returnedAt), acceptedAt: String(row.acceptedAt), acceptedBy: String(row.acceptedBy),
+    },
+  }));
+}
+
+function worksheetRecord(row: Row): IncomeWorksheetRecord {
+  return { ...snapshot(row), sources: JSON.parse(String(row.sources)), evidence: JSON.parse(String(row.evidence)) };
+}
+
 function validEvidence(db: Store, loanId: string, revision: number) {
   return Boolean(db.prepare(`SELECT 1 FROM loan_income_worksheets income WHERE income.loanId = ? AND income.revision = ?
     AND ${incomeEvidenceMatchesSql("income.loanId", "income.evidence")}`).get(loanId, revision));
@@ -47,17 +66,20 @@ function validEvidence(db: Store, loanId: string, revision: number) {
 function readWorksheet(db: Store, loanId: string, currentFile: Row, staff: WorkspaceStaff, asOf: string): IncomeWorksheetPage {
   const applicationRevision = currentApplication(currentFile);
   const rows = db.prepare(`SELECT ${metadata} FROM loan_income_worksheets WHERE loanId = ? ORDER BY revision DESC LIMIT 13`).all(loanId);
-  const head = rows[0];
-  const payload = head && db.prepare("SELECT sources, evidence FROM loan_income_worksheets WHERE loanId = ? AND revision = ?").get(loanId, head.revision);
-  const record = head && payload ? { ...snapshot(head), sources: JSON.parse(String(payload.sources)), evidence: JSON.parse(String(payload.evidence)) } : null;
+  const head = rows[0] && db.prepare(`SELECT ${metadata}, sources, evidence FROM loan_income_worksheets WHERE loanId = ? AND revision = ?`)
+    .get(loanId, rows[0].revision);
+  const record = head ? worksheetRecord(head) : null;
   const stale = record && (record.applicationRevision !== applicationRevision || record.stage === "Approved" && !currentFile.reviewedAt
     ? "1003 changed" : !validEvidence(db, loanId, record.revision) ? "Evidence changed" : null);
   const declared = documentRecipients.slice(0, currentFile.joint || currentFile.coIncome ? 2 : 1).map((recipient, index) => {
     const value = index ? currentFile.coIncome : currentFile.primaryIncome;
     return { recipient, amount: typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) : null };
   });
-  const eligible = applicationRevision === null ? [] : db.prepare(`SELECT id, revision, kind, recipient FROM document_requests
-    WHERE loanId = ? AND ${acceptableEvidence} ORDER BY kind, requestedAt DESC, id LIMIT 60`).all(loanId).map(evidenceFromRow);
+  const eligible = applicationRevision === null ? [] : [
+    ...db.prepare(`SELECT id, revision, kind, recipient FROM document_requests
+      WHERE loanId = ? AND ${acceptableEvidence} ORDER BY kind, requestedAt DESC, id LIMIT 60`).all(loanId).map(evidenceFromRow),
+    ...verificationEvidence(db, loanId),
+  ];
   return { applicationRevision, reviewed: Boolean(currentFile.reviewedAt), canEdit: Boolean(currentFile.active) && applicationRevision !== null,
     canApprove: staff.brokerage.role !== "Processor", asOf, recipients: documentRecipients.slice(0, currentFile.joint ? 2 : 1),
     declared, eligible, record, stale, history: rows.slice(1).map(snapshot) };
@@ -74,7 +96,12 @@ export function incomeWorksheetWork(db: Store, input: unknown, staff: WorkspaceS
     if (!current) return { error: incomeReviewUnavailable };
     const asOf = easternDate(now);
     const page = () => readWorksheet(db, loanId, current, staff, asOf);
-    if (data.type === "read") return { page: page() };
+    if (data.type === "read") {
+      if (data.worksheetRevision === undefined) return { page: page() };
+      const row = db.prepare(`SELECT ${metadata}, sources, evidence FROM loan_income_worksheets WHERE loanId = ? AND revision = ?`)
+        .get(loanId, data.worksheetRevision);
+      return row ? { page: { ...page(), requested: worksheetRecord(row) } } : { error: "This worksheet revision is unavailable on the loan." };
+    }
     if (data.type === "approve" && staff.brokerage.role === "Processor") return { error: "The loan officer or an admin approves the income worksheet." };
     const applicationRevision = currentApplication(current);
     if (!current.active || applicationRevision === null || data.applicationRevision !== applicationRevision) return { error: fileChanged };
@@ -99,11 +126,14 @@ export function incomeWorksheetWork(db: Store, input: unknown, staff: WorkspaceS
       const selected = new Map<string, IncomeEvidence>();
       for (const source of sources) {
         if (source.recipient !== primaryDocumentRecipient && !current.joint) return { error: "Select evidence for a separately linked borrower." };
-        if (new Set(source.evidence.map(({ id }) => id)).size !== source.evidence.length) return { error: "Choose distinct evidence for each source." };
+        if (new Set(source.evidence.map(incomeEvidenceKey)).size !== source.evidence.length) return { error: "Choose distinct evidence for each source." };
         for (const reference of source.evidence) {
-          const row = accepted.get(loanId, reference.id, reference.revision, source.recipient);
-          if (!row) return { error: evidenceChanged };
-          selected.set(reference.id, evidenceFromRow(row));
+          const row = reference.returnReference ? undefined : accepted.get(loanId, reference.id, reference.revision, source.recipient);
+          const item = reference.returnReference
+            ? latest.eligible.find((entry) => entry.recipient === source.recipient && sameIncomeEvidence(entry, reference))
+            : row && evidenceFromRow(row);
+          if (!item) return { error: evidenceChanged };
+          selected.set(incomeEvidenceKey(reference), item);
         }
       }
       evidence = [...selected.values()];

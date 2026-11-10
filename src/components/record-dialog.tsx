@@ -81,7 +81,7 @@ import { observeHandoffChecks } from "@/lib/tab-return";
 import { observeBorrowerChange } from "@/lib/borrower-change-signal";
 
 export type Modal =
-  | { kind: "details"; loanId: string; target?: string; campaignLender?: CampaignLenderPath }
+  | { kind: "details"; loanId: string; target?: string; campaignLender?: CampaignLenderPath; incomeWorksheetRevision?: number }
   | { kind: "assignment"; loanId: string; returnTo?: "processing-handoff" | "document-checklist"; manualReturn?: ManualReturnAssignment }
   | { kind: "loan"; loanId?: string; stage?: Stage; contactId?: string }
   | { kind: "contactHistory"; contactId: string }
@@ -560,9 +560,9 @@ function CarriedCallbackRescheduleForm({ loanId, taskId, dueAt, revision, busy, 
   </details>;
 }
 
-function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, openConversation, openRateWatchRefinance, appointmentChanged, reviewChanged,
+function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, incomeWorksheetRevision, openConversation, openRateWatchRefinance, appointmentChanged, reviewChanged,
   markDraftChanged, openScopedLoan }: {
-  target?: string; campaignLender?: CampaignLenderPath; loan: Loan; state: Workspace; staff: WorkspaceStaff | null;
+  target?: string; campaignLender?: CampaignLenderPath; incomeWorksheetRevision?: number; loan: Loan; state: Workspace; staff: WorkspaceStaff | null;
   busy: boolean; save: Save; show: (modal: Modal) => void;
   openConversation: (subject: ConversationSubject) => void;
   openRateWatchRefinance: (loanId: string) => void;
@@ -702,7 +702,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
       {(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&
-        <IncomeWorksheet key={loan.id} loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} focused={target === "income-worksheet"}
+        <IncomeWorksheet key={`${loan.id}:${incomeWorksheetRevision ?? "current"}`} loanId={loan.id}
+          brokerageId={staff?.brokerage.id ?? demoBrokerageId} focused={target === "income-worksheet"} worksheetRevision={incomeWorksheetRevision}
           onChanged={() => void save({ type: "refreshApplication", loanId: loan.id })}
           onPrice={processor ? undefined : (source) => openPricing(true, source)} />}
       <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
@@ -1077,7 +1078,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           }
         }}>
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} staff={staff} busy={busy}
-          save={save} show={show} target={target} campaignLender={campaignLender} openConversation={openConversation}
+          save={save} show={show} target={target} campaignLender={campaignLender} incomeWorksheetRevision={modal.incomeWorksheetRevision} openConversation={openConversation}
           openRateWatchRefinance={openRateWatchRefinance}
           appointmentChanged={appointmentChanged} reviewChanged={reviewChanged} markDraftChanged={markDraftChanged}
           openScopedLoan={(destination = disclosureTarget) => openContactLoan(loan.id, destination)} />}
@@ -1106,7 +1107,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           openApplication={() => show({ kind: "details", loanId: loan.id, campaignLender, target: "loan-application" })}
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?
-            () => show({ kind: "details", loanId: loan.id, campaignLender, target: "income-worksheet" }) : undefined}
+            (incomeWorksheetRevision) => show({ kind: "details", loanId: loan.id, campaignLender, target: "income-worksheet", incomeWorksheetRevision }) : undefined}
           useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} reviewSharedQuote={modal.reviewSharedQuote} focusFees={modal.focusFees} />}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({

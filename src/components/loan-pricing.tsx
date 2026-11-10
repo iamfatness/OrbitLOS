@@ -138,7 +138,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
-  openIncome?: () => void;
+  openIncome?: (worksheetRevision?: number) => void;
   openApplication: () => void;
   lenderHandoff?: { label: string; blocker: string | null; checkQuoteAmount: boolean; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
@@ -337,7 +337,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       {form.program === "Conventional" && openIncome && <div className="pricing-actions">
         <p className={incomeOutdated ? "quote-disclaimer" : "muted"}>{incomeOutdated ? repriceIncomeMessage :
           useIncomeRevision ? `Approved income worksheet v${useIncomeRevision} · ${cash(Number(form.monthlyIncome))} monthly` : "Monthly income uses a manual or 1003-reported amount."}</p>
-        <Button size="sm" variant="outline" type="button" disabled={busy} onClick={openIncome}>Open income worksheet</Button>
+        <Button size="sm" variant="outline" type="button" disabled={busy} onClick={() => openIncome()}>Open income worksheet</Button>
       </div>}
       {mockScore && <div className="pricing-actions">
         {form.creditScore === mockScore ? <span className="muted">Matches current mock credit report · {mockScore}</span> :
@@ -389,6 +389,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <p className="muted timestamp">{selected.manual ? `Manual sample · Quote ${selected.manual.reference} · Through ${dateLabel(selected.manual.expiresOn)}` :
         `${saved.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced ${dateTime(saved.quotedAt)} ET`}</p>
       {saved.incomeReviewRevision && <p className="muted">Income worksheet v{saved.incomeReviewRevision} · {cash(saved.scenario.monthlyIncome ?? null)} monthly</p>}
+      {saved.incomeReviewRevision && openIncome && <div><Button size="sm" variant="outline" type="button" disabled={busy}
+        onClick={() => openIncome(saved.incomeReviewRevision ?? undefined)}>View quote worksheet v{saved.incomeReviewRevision}</Button></div>}
       {(saved.id !== current?.id || selected.manual) && handoffAction}
       {savedNeedsReprice ? <p className="quote-disclaimer">{savedManualExpired ? "This manual offer expired. Enter and choose a current offer before sharing or exporting." : application?.correctionNote
         ? "Wait for the borrower to submit the corrected 1003 before sharing or locking a quote."
@@ -486,6 +488,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <div className="section-heading"><h3>Pricing options</h3><span className="pill">{current.offers.filter(({ manual }) => !manual).length} returned</span></div>
       <p className="muted timestamp">{cash(current.scenario.loanAmount)} · {current.scenario.purpose} · {dateTime(current.quotedAt)} ET</p>
       {current.incomeReviewRevision && <p className="muted">Income worksheet v{current.incomeReviewRevision} · {cash(current.scenario.monthlyIncome ?? null)} monthly</p>}
+      {current.id !== saved?.id && current.incomeReviewRevision && openIncome && <div><Button size="sm" variant="outline" type="button" disabled={busy}
+        onClick={() => openIncome(current.incomeReviewRevision ?? undefined)}>View quote worksheet v{current.incomeReviewRevision}</Button></div>}
       {current.reference && <p className="muted timestamp">EQ scenario {current.reference}</p>}
       {!current.offers.some(({ manual }) => !manual) && <p className="empty-inline">UWM returned no displayable pricing for this scenario.</p>}
       {current.offers.filter(({ manual }) => !manual).map((offer) => {

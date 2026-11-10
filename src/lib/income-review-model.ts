@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { documentRecipients, type DocumentRecipient } from "./document-model";
+import type { incomeVerificationKinds } from "./service-order-model";
 
 export const incomeReviewUnavailable = "Income review is available on fictional loans you can work.";
 export const repriceIncomeMessage = "The reviewed income or its evidence changed. Review the worksheet and reprice.";
@@ -13,7 +14,7 @@ const date = z.union([z.literal(""), z.iso.date()]);
 const cents = z.number().int().min(0).max(maxIncomeCents);
 const revision = z.number().int().nonnegative();
 const loanId = z.string().min(1).max(100);
-const evidence = z.object({ id: z.uuid(), revision });
+const evidence = z.object({ id: z.uuid(), revision, returnReference: z.string().min(1).max(100).optional() });
 export const incomeSource = z.object({
   id: z.uuid(), recipient: z.enum(documentRecipients), label: z.string().trim().max(100), kind: z.enum(incomeKinds),
   method: z.enum(incomeMethods), included: z.boolean(), start: date, end: date,
@@ -23,14 +24,20 @@ export const incomeSource = z.object({
 });
 const mutation = { loanId, revision, applicationRevision: revision, requestId: z.uuid() };
 export const incomeWorksheetRequest = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("read"), loanId }),
+  z.object({ type: z.literal("read"), loanId, worksheetRevision: revision.positive().optional() }),
   z.object({ type: z.literal("save"), ...mutation, sources: z.array(incomeSource).max(incomeSourceLimit) }),
   z.object({ type: z.literal("submit"), ...mutation }),
   z.object({ type: z.literal("approve"), ...mutation, note: z.string().trim().min(1).max(400) }),
 ]);
 
 export type IncomeSource = z.infer<typeof incomeSource>;
-export type IncomeEvidence = z.infer<typeof evidence> & { label: string; recipient: DocumentRecipient };
+export type IncomeEvidenceReference = z.infer<typeof evidence>;
+export type IncomeEvidence = IncomeEvidenceReference & { label: string; recipient: DocumentRecipient;
+  verification?: { kind: (typeof incomeVerificationKinds)[number]; returnedAt: string; acceptedAt: string; acceptedBy: string } };
+export const incomeEvidenceKey = ({ id, returnReference }: IncomeEvidenceReference) => `${returnReference ? "verification" : "document"}:${id}`;
+export function sameIncomeEvidence(a: IncomeEvidenceReference, b: IncomeEvidenceReference) {
+  return a.id === b.id && a.revision === b.revision && a.returnReference === b.returnReference;
+}
 export type IncomeStage = "Draft" | "Ready for review" | "Approved";
 export type IncomeWorksheetRecord = {
   revision: number; applicationRevision: number; stage: IncomeStage; amount: number; sources: IncomeSource[];
@@ -42,6 +49,7 @@ export type IncomeWorksheetPage = {
   recipients: DocumentRecipient[];
   declared: { recipient: DocumentRecipient; amount: number | null }[]; eligible: IncomeEvidence[];
   record: IncomeWorksheetRecord | null; stale: "1003 changed" | "Evidence changed" | null;
+  requested?: IncomeWorksheetRecord;
   history: Omit<IncomeWorksheetRecord, "sources" | "evidence">[];
 };
 

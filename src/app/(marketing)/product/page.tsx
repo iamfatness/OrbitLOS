@@ -12,7 +12,7 @@ const tools = [
   {icon:ListChecks,title:"Documents before the 1003",text:"Review sample uploads from My Tasks and adjust deadlines from Calendar. Managers can reassign leads with open document requests. Files and review history carry into the loan."},
   {icon:ShieldCheck,title:"Separate joint borrower links",text:"Each borrower saves and submits their own answers. Loan staff review one combined 1003 and can return a portion to its borrower for correction."},
   {icon:ShieldCheck,title:"Paired mock underwriting",text:"Run mock DU and LPA together on the same submitted 1003 and sample credit report. Keep each service’s findings and retry history separate."},
-  {icon:ListChecks,title:"Reviewed income worksheet",text:"Record source periods and adjustments, link accepted evidence, and carry the reviewed monthly amount into conventional mock pricing."},
+  {icon:ListChecks,title:"Reviewed income worksheet",text:"Record source periods and adjustments, cite accepted mock verification returns, and reopen the exact worksheet from its quote."},
   {icon:Wallet,title:"Brokerage fee templates",text:"Reuse sample estimates by loan purpose and ZIP. Saved quotes preserve the itemized amounts, and staff can see the template version, source, and effective date."},
   {icon:ShieldCheck,title:"Manual lender packages",text:"Check a reviewed 1003 against a fictional lender export profile and open the fields that need attention. Share versioned MISMO and sample PDFs through an expiring link and code."},
   {icon:ListChecks,title:"Loan amount reconciliation",text:"Compare the Pipeline amount, the 1003 request, and saved quotes. Adopt the reviewed amount with an audit entry. Mock lock confirmations show the quote amount and 1003 revision behind the locked terms."},

@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { documentRecipients, type DocumentRecipient } from "./document-model";
 
-const verificationOrderKinds = ["Employment verification", "Income verification", "Asset verification"] as const;
+export const incomeVerificationKinds = ["Employment verification", "Income verification"] as const;
+const verificationOrderKinds = [...incomeVerificationKinds, "Asset verification"] as const;
 export const serviceOrderKinds = ["Appraisal", "Title", "Homeowners insurance", "Flood", "Mortgage insurance", ...verificationOrderKinds] as const;
 export function isVerificationOrder(kind: ServiceOrder["kind"]) {
   return verificationOrderKinds.some((verification) => verification === kind);

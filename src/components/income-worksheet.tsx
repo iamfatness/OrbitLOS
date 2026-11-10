@@ -3,9 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Calculator } from "lucide-react";
 import { primaryDocumentRecipient } from "@/lib/document-model";
-import { incomeCompletionIssue, incomeEvidenceLimit, incomeKinds, incomeMethods, incomeSourceLimit, incomeSourceMonthly,
-  incomeReviewUnavailable, maxIncomeCents, monthlyWorksheetTotal, type IncomeSource, type IncomeWorksheetPage, type ReviewedIncomeSource } from "@/lib/income-review-model";
+import { incomeCompletionIssue, incomeEvidenceKey, incomeEvidenceLimit, incomeKinds, incomeMethods, incomeSourceLimit, incomeSourceMonthly,
+  incomeReviewUnavailable, maxIncomeCents, monthlyWorksheetTotal, sameIncomeEvidence, type IncomeEvidence,
+  type IncomeSource, type IncomeWorksheetPage, type ReviewedIncomeSource } from "@/lib/income-review-model";
+import { serviceOrderSlug } from "@/lib/service-order-model";
+import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { dateTime } from "@/lib/utils";
+import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
 const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -22,6 +26,19 @@ async function fetchWorksheet(brokerageId: string, input: object, signal?: Abort
   if ("error" in result) throw new Error(result.error);
   if (!response.ok) throw new Error(incomeReviewUnavailable);
   return result;
+}
+
+function VerificationReturn({ item }: { item: IncomeEvidence }) {
+  const { verification, returnReference: reference } = item;
+  if (!verification || !reference) return null;
+  return <details className="document-form">
+    <summary>View mock return receipt</summary>
+    <p className="muted">{reference}</p>
+    <p className="muted">Accepted by {verification.acceptedBy} · {dateTime(verification.acceptedAt)} ET</p>
+    <div><Button type="button" size="sm" variant="outline" onClick={() => downloadSampleFile(
+      serviceOrderPdf(verification.kind, { reference, returnedAt: verification.returnedAt }, item.recipient),
+      `orbit-sample-${serviceOrderSlug(verification.kind)}-return.pdf`, "application/pdf")}>Download sample return PDF</Button></div>
+  </details>;
 }
 
 function AmountField({ label, amount, signed, change }: {
@@ -71,12 +88,17 @@ function SourceEditor({ source, index, page, busy, change, remove }: {
     <div className="record-form" aria-label="Accepted income evidence">
       <strong>Accepted income evidence</strong>
       {evidence.length ? evidence.map((item) => {
-        const checked = source.evidence.some(({ id }) => id === item.id);
-        return <label key={item.id} className="demo-confirm"><input type="checkbox" checked={checked}
-          disabled={!checked && source.evidence.length >= incomeEvidenceLimit}
-          onChange={(event) => change({ evidence: event.target.checked ? [...source.evidence, { id: item.id, revision: item.revision }]
-            : source.evidence.filter(({ id }) => id !== item.id) })} /> {item.label} · Document revision {item.revision}</label>;
-      }) : <p className="muted">Accept a pay stub, bank statement, or tax form from this borrower’s checklist.</p>}
+        const checked = source.evidence.some((reference) => sameIncomeEvidence(reference, item));
+        return <div key={incomeEvidenceKey(item)}>
+          <label className="demo-confirm"><input type="checkbox" checked={checked}
+            disabled={!checked && source.evidence.length >= incomeEvidenceLimit}
+            onChange={(event) => change({ evidence: event.target.checked ? [...source.evidence, { id: item.id, revision: item.revision,
+              ...(item.returnReference ? { returnReference: item.returnReference } : {}) }]
+              : source.evidence.filter((reference) => !sameIncomeEvidence(reference, item)) })} />
+            {" "}{item.label} · {item.verification ? "Mock return · Order revision" : "Document revision"} {item.revision}</label>
+          <VerificationReturn item={item} />
+        </div>;
+      }) : <p className="muted">Accept a pay stub, bank statement, tax form, or employment or income verification for this borrower.</p>}
     </div>
     <div className="document-item-head"><strong>{source.included ? `${money(incomeSourceMonthly(source))} monthly in draft` : "Excluded from total"}</strong>
       <Button type="button" size="sm" variant="ghost" onClick={remove}>Remove source</Button>
@@ -84,8 +106,9 @@ function SourceEditor({ source, index, page, busy, change, remove }: {
   </fieldset>;
 }
 
-export function IncomeWorksheet({ brokerageId, loanId, focused, onChanged, onPrice }: {
-  brokerageId: string; loanId: string; focused: boolean; onChanged: () => void; onPrice?: (source: ReviewedIncomeSource) => void;
+export function IncomeWorksheet({ brokerageId, loanId, focused, worksheetRevision, onChanged, onPrice }: {
+  brokerageId: string; loanId: string; focused: boolean; worksheetRevision?: number;
+  onChanged: () => void; onPrice?: (source: ReviewedIncomeSource) => void;
 }) {
   const [opened, setOpened] = useState(focused);
   const [page, setPage] = useState<IncomeWorksheetPage>();
@@ -97,15 +120,17 @@ export function IncomeWorksheet({ brokerageId, loanId, focused, onChanged, onPri
   useEffect(() => {
     if (!opened) return;
     const controller = new AbortController();
-    void fetchWorksheet(brokerageId, { type: "read", loanId }, controller.signal).then(({ page: value }) => {
+    void fetchWorksheet(brokerageId, { type: "read", loanId, worksheetRevision }, controller.signal).then(({ page: value }) => {
+      if (worksheetRevision && value.requested?.revision !== worksheetRevision) throw new Error("Refresh the loan before opening the quote’s worksheet.");
       if (!controller.signal.aborted) setPage(value);
     }).catch((error: Error) => {
       if (!controller.signal.aborted) setFeedback({ text: error.message, error: true });
     });
     return () => controller.abort();
-  }, [brokerageId, loanId, opened]);
+  }, [brokerageId, loanId, opened, worksheetRevision]);
 
   const record = page?.record;
+  const displayed = page?.requested ?? record;
   const issue = record && page && incomeCompletionIssue(record.sources, page.asOf);
   async function request(input: object, mutate = false) {
     if (pending.current) return;
@@ -133,7 +158,7 @@ export function IncomeWorksheet({ brokerageId, loanId, focused, onChanged, onPri
     if (!page) return;
     setFeedback(undefined);
     setSources(record?.sources.map((source) => ({ ...source, evidence: source.evidence.filter((reference) =>
-      page.eligible.some((item) => item.id === reference.id && item.revision === reference.revision && item.recipient === source.recipient)) })) ?? [newSource()]);
+      page.eligible.some((item) => sameIncomeEvidence(item, reference) && item.recipient === source.recipient)) })) ?? [newSource()]);
   }
   function mutate(type: "save" | "submit" | "approve", values: object = {}) {
     if (!page || page.applicationRevision === null) return;
@@ -149,26 +174,32 @@ export function IncomeWorksheet({ brokerageId, loanId, focused, onChanged, onPri
         {feedback && <p className="application-message" role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
         {!page && !feedback && <p role="status">Opening income worksheet…</p>}
         {page && <>
-          {page.applicationRevision === null ? <p className="muted">A submitted fictional 1003 is needed before assembling the worksheet.</p> :
+          {page.requested ? <p role="status">Worksheet v{page.requested.revision} used for this quote.</p> :
+            page.applicationRevision === null ? <p className="muted">A submitted fictional 1003 is needed before assembling the worksheet.</p> :
             <p className="muted">1003 revision {page.applicationRevision} · {page.declared.map(({ recipient, amount }) =>
               `${recipient} reported ${amount === null ? "no amount" : `${money(amount)} monthly`}`).join(" · ")}</p>}
-          {record && <div className="document-item">
-            <div className="document-item-head"><strong>{money(record.amount)} monthly · Worksheet v{record.revision}</strong>
-              <span className="pill">{page.stale ?? record.stage}</span></div>
-            <p className="muted">1003 revision {record.applicationRevision} · {record.updatedBy} · {dateTime(record.updatedAt)} ET</p>
-            {record.note && <p>{record.note}</p>}
-            <ul>{record.sources.map((source) => <li key={source.id}>
+          {displayed && <div className="document-item">
+            <div className="document-item-head"><strong>{money(displayed.amount)} monthly · Worksheet v{displayed.revision}</strong>
+              <span className="pill">{page.requested ? displayed.stage : page.stale ?? displayed.stage}</span></div>
+            <p className="muted">1003 revision {displayed.applicationRevision} · {displayed.updatedBy} · {dateTime(displayed.updatedAt)} ET</p>
+            {displayed.note && <p>{displayed.note}</p>}
+            <ul>{displayed.sources.map((source) => <li key={source.id}>
               {source.label || "Unnamed source"} · {source.recipient} · {source.kind} · {source.included ? `${money(incomeSourceMonthly(source))} monthly` : "Excluded"}
               {source.start && source.end && ` · ${source.start} to ${source.end}`}
               {source.rationale && <p className="muted">{source.rationale}</p>}
               {source.evidence.map((reference) => {
-                const evidence = record.evidence.find(({ id }) => id === reference.id);
-                return <p className="muted" key={reference.id}>{evidence?.label ?? "Document"} · Document revision {reference.revision}</p>;
+                const evidence = displayed.evidence.find((item) => sameIncomeEvidence(item, reference));
+                return <div key={incomeEvidenceKey(reference)}>
+                  <p className="muted">{evidence?.label ?? "Document"} · {evidence?.verification ? "Mock return · Order revision" : "Document revision"} {reference.revision}</p>
+                  {evidence && <VerificationReturn item={evidence} />}
+                </div>;
               })}
             </li>)}</ul>
           </div>}
-          {page.stale && <p className="quote-disclaimer">Review the updated file and save a new version before using worksheet income in pricing.</p>}
-          {sources ? <form method="post" className="record-form" aria-label="Income source editor" onSubmit={(event) => {
+          {page.stale && !page.requested && <p className="quote-disclaimer">Review the updated file and save a new version before using worksheet income in pricing.</p>}
+          {page.requested ? <div><Button size="sm" variant="outline" type="button" disabled={busy}
+            onClick={() => void request({ type: "read" })}>Open current worksheet</Button></div> :
+          sources ? <form method="post" className="record-form" aria-label="Income source editor" onSubmit={(event) => {
             event.preventDefault();
             const fields = new FormData(event.currentTarget);
             const updated = sources.map((source) => ({ ...source, start: String(fields.get(`start-${source.id}`) ?? ""),
@@ -206,7 +237,7 @@ export function IncomeWorksheet({ brokerageId, loanId, focused, onChanged, onPri
                 <div><Button size="sm" type="submit" disabled={busy}>Approve sample income</Button></div>
               </form> : <p className="muted">The loan officer or an admin can approve the worksheet once the current 1003 is reviewed.</p>)}
           </>}
-          {page.history.length > 0 && <details className="document-form"><summary>Previous worksheet versions</summary>
+          {!page.requested && page.history.length > 0 && <details className="document-form"><summary>Previous worksheet versions</summary>
             <ul className="loan-task-list">{page.history.map((entry) => <li key={entry.revision}>
               v{entry.revision} · {entry.stage} · {money(entry.amount)} monthly · {entry.updatedBy} · {dateTime(entry.updatedAt)} ET
               {entry.note && <p className="muted">{entry.note}</p>}

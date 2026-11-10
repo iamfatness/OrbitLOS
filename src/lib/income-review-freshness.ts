@@ -1,13 +1,26 @@
 import { repriceIncomeMessage } from "./income-review-model";
 import { quoteMatchesApplication, repriceQuoteMessage, type PricingApplication } from "./pricing-model";
+import { incomeVerificationKinds } from "./service-order-model";
 import type { Store } from "./store";
+
+export const acceptedIncomeVerificationSql = `service.status = 'Completed'
+  AND service.kind IN (${incomeVerificationKinds.map((kind) => `'${kind}'`).join(", ")})
+  AND json_extract(receipt.value, '$.review.decision') = 'Accepted'`;
 
 // The caller supplies trusted SQL expressions. The predicate checks the exact accepted revisions used in the review.
 export function incomeEvidenceMatchesSql(loanId: string, evidence: string) {
-  return `NOT EXISTS (SELECT 1 FROM json_each(${evidence}) linked WHERE NOT EXISTS (
-    SELECT 1 FROM document_requests request WHERE request.loanId = ${loanId}
+  return `NOT EXISTS (SELECT 1 FROM json_each(${evidence}) linked WHERE NOT (
+    (json_extract(linked.value, '$.returnReference') IS NULL AND EXISTS (
+      SELECT 1 FROM document_requests request WHERE request.loanId = ${loanId}
       AND request.id = json_extract(linked.value, '$.id') AND request.revision = json_extract(linked.value, '$.revision')
-      AND request.recipient = json_extract(linked.value, '$.recipient') AND request.status = 'Accepted'))`;
+      AND request.recipient = json_extract(linked.value, '$.recipient') AND request.status = 'Accepted'))
+    OR EXISTS (
+      SELECT 1 FROM service_orders service JOIN json_each(service.returns) receipt
+      WHERE service.loanId = ${loanId} AND service.id = json_extract(linked.value, '$.id')
+        AND service.revision = json_extract(linked.value, '$.revision') AND service.recipient = json_extract(linked.value, '$.recipient')
+        AND json_extract(receipt.value, '$.reference') = json_extract(linked.value, '$.returnReference')
+        AND ${acceptedIncomeVerificationSql})
+    ))`;
 }
 
 export function approvedIncomeSql(loanId: string, revision: string) {

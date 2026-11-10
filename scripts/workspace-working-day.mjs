@@ -2291,12 +2291,22 @@ try {
     const path = `/api/income-worksheet?brokerage=${brokerage}`;
     const query = { type: "read", loanId };
     assert.equal((await postResponse(path, query, competingOfficer)).status, 409);
+    const orderId = randomUUID();
+    await loanAction(processor, loanId, "createServiceOrder", { orderId, kind: "Income verification", recipient: "Primary borrower", dueOn: today, note: "" });
+    const serviceReturn = { orderId, revision: 0, action: "Simulate return", note: "" };
+    await loanAction(processor, loanId, "updateServiceOrder", serviceReturn);
+    assert.ok(!(await post(path, query, processor)).page.eligible.some(({ id }) => id === orderId));
+    await loanAction(processor, loanId, "updateServiceOrder", { ...serviceReturn, revision: 1, action: "Accept" });
     const page = (await post(path, query, processor)).page;
     assert.equal(page.canApprove, false);
-    const [accepted] = page.eligible;
+    const accepted = page.eligible.find(({ id }) => id === item.id);
+    const verification = page.eligible.find(({ id }) => id === orderId);
+    assert.match(verification.returnReference, /^MOCK-INCOME-VERIFICATION-/);
+    assert.equal(verification.verification.acceptedBy, processor.name);
     const source = { id: randomUUID(), recipient: "Primary borrower", label: "Fictional payroll",
       kind: "Wages", method: "Amount per pay period", included: true, start: "2026-06-01", end: "2026-06-15",
-      amount: 325000, periods: 24, adjustment: 0, rationale: "", evidence: [{ id: accepted.id, revision: accepted.revision }] };
+      amount: 325000, periods: 24, adjustment: 0, rationale: "", evidence: [{ id: accepted.id, revision: accepted.revision },
+        { id: orderId, revision: verification.revision, returnReference: verification.returnReference }] };
     const change = (type, revision, fields = {}) => ({ type, loanId, revision, applicationRevision: sent.revision, requestId: randomUUID(), ...fields });
     const save = change("save", 0, { sources: [source] });
     assert.equal((await post(path, save, processor)).page.record.amount, 650000);
@@ -2308,6 +2318,7 @@ try {
     assert.equal(approved.amount, 650000);
     assert.equal(approved.stage, "Approved");
     assert.equal(approved.revision, 3);
+    assert.deepEqual(approved.evidence.find(({ id }) => id === orderId), verification);
     const pricing = { applicationRevision: sent.revision, incomeReviewRevision: approved.revision, scenario: {
       purpose: "Purchase", loanAmount: Number(sent.draft.loanAmount), propertyValue: Number(sent.draft.estimatedValue), purchasePrice: null,
       zip: sent.draft.propertyLocation.zip.slice(0, 5), creditScore: 760, monthlyIncome: 6500, occupancy: sent.draft.occupancy,
@@ -2321,12 +2332,17 @@ try {
     await loanAction(officer, loanId, "selectOffer", selection);
     await loanAction(officer, loanId, "publishQuote", selection);
     assert.ok((await borrower(token, { type: "status" })).loanStatus.quote);
+    assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /MOCK-INCOME-VERIFICATION|Reconciled the fictional/);
     await post(path, change("save", 3, { sources: [{ ...source, rationale: "Recheck fictional payroll details." }] }), processor);
     assert.equal((await file(officer, loanId)).pricingRuns.find(({ id }) => id === run.id).incomeReviewCurrent, false);
     assert.equal((await borrower(token, { type: "status" })).loanStatus.quote, null);
     assert.match((await action(officer, "mutate", { type: "runPricing", loanId, ...pricing })).error, /reviewed income/i);
     assert.match((await action(officer, "mutate", { type: "publishQuote", loanId, ...selection })).error, /reviewed income/i);
     assert.equal((await post(path, query, officer)).page.history[0].note, "Reconciled the fictional pay stub.");
+    const historical = (await post(path, { ...query, worksheetRevision: run.incomeReviewRevision }, officer)).page;
+    assert.equal(historical.record.revision, 4);
+    assert.deepEqual(historical.requested, approved);
+    assert.equal((await postResponse(path, { ...query, worksheetRevision: run.incomeReviewRevision }, competingOfficer)).status, 409);
   });
   await stage("MISMO import returns the exact draft and a scoped duplicate receipt", async () => {
     const fields = { firstName: "Fictional", lastName: "Working Day MISMO", amount: "275000", purpose: "Purchase",
