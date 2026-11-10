@@ -705,6 +705,7 @@ button:disabled { cursor: default; }
 .compliance-inventory > summary { width: 100%; min-height: 44px; padding-block: 11px; font-size: 14px; }
 .compliance-work .compliance-row { align-items: center; }
 .compliance-work .loan-task-copy span { font-size: 13px; }
+.compliance-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 8px; }
 @media (max-width: 540px) {
   .compliance-work .compliance-row { align-items: stretch; flex-direction: column; }
   .compliance-work button { min-height: 44px; }

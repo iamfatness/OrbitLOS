@@ -38,7 +38,7 @@ import { currentReportMonth } from "@/lib/report-date-range";
 import { OfficerToday } from "./officer-today";
 import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
 import { DisclosureCalendar } from "./disclosure-calendar";
-import { ComplianceQueue } from "./compliance-queue";
+import { ComplianceWorkspace } from "./compliance-workspace";
 import { ComplianceDailyWork } from "./compliance-daily-work";
 import { complianceCaseTarget, complianceTarget } from "@/lib/compliance-case-model";
 import { LoanStageEditSettings } from "./loan-stage-edits";
@@ -1395,7 +1395,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             selection={searchSelection} onSearch={setSearchSelection} version={state} busy={busy} open={(record) => void openSearchResult(record)} />}
           {section === "Reviews" && canOpenCalendar && <LoanReviewQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
             version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
-          {section === "Compliance" && admin && staff?.brokerage.pilot && <ComplianceQueue brokerageId={staff.brokerage.id} admin
+          {section === "Compliance" && admin && staff?.brokerage.pilot && <ComplianceWorkspace key={staff.brokerage.id}
+            brokerageId={staff.brokerage.id} paused={!!modal || busy}
             openHistoryRecord={openMigrationDestination}
             openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}

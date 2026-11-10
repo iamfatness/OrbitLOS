@@ -9,7 +9,7 @@ import { Button } from "./ui/button";
 
 type Inventory = Extract<ComplianceCaseResult, { kind: "inventory" }>;
 
-export function ComplianceInventory({ brokerageId, openLoan }: { brokerageId: string; openLoan: (id: string) => void }) {
+export function ComplianceInventory({ brokerageId, openLoan, initiallyOpen }: { brokerageId: string; openLoan: (id: string) => void; initiallyOpen?: boolean }) {
   const [data, setData] = useState<Inventory>();
   const [bucket, setBucket] = useState<InventoryBucket>();
   const [laterPage, setLaterPage] = useState(false);
@@ -38,7 +38,7 @@ export function ComplianceInventory({ brokerageId, openLoan }: { brokerageId: st
         state === "Scanning" ? `${data.scanned} files scanned so far. Counts cover scanned files only.` :
           `${data.scanned} ${data.scanned === 1 ? "file" : "files"} inventoried${data.asOf ? ` as of ${dateTime(data.asOf)} ET` : ""}.`;
 
-  return <details className="document-form compliance-inventory" onToggle={(event) => { if (event.currentTarget.open) void load(bucket); }}>
+  return <details className="document-form compliance-inventory" open={initiallyOpen} onToggle={(event) => { if (event.currentTarget.open) void load(bucket); }}>
     <summary>Fictional file inventory</summary>
     <section className="document-item record-form" aria-label="Fictional file inventory">
       <div><Button size="sm" variant="outline" disabled={pending} onClick={() => void load(bucket)}>Refresh inventory</Button></div>

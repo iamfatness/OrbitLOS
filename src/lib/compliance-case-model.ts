@@ -6,3 +6,11 @@ export const complianceCaseTarget = (caseId: string) => `${complianceTarget}-${c
 
 export const inventoryBuckets = ["Scope unknown", "Outside sample scope", "Sample package needed", "Sample review needed", "Sample review available"] as const;
 export type InventoryBucket = (typeof inventoryBuckets)[number];
+
+export const complianceAttention = ["review", "evidence", "ownership"] as const;
+export type ComplianceAttention = (typeof complianceAttention)[number];
+export const complianceAttentionLabels = {
+  review: "Awaiting review",
+  evidence: "Awaiting evidence",
+  ownership: "Needs ownership review",
+} as const;

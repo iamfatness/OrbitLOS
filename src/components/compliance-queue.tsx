@@ -2,23 +2,22 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
-import { complianceCaseKinds, complianceCaseStatuses, complianceCaseTarget, complianceTarget } from "@/lib/compliance-case-model";
+import { complianceAttentionLabels, complianceCaseKinds, complianceCaseStatuses, complianceCaseTarget, complianceTarget, type ComplianceAttention } from "@/lib/compliance-case-model";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
-import type { MigrationDestination } from "@/lib/migration-record-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
-import { ComplianceInventory } from "./compliance-inventory";
-import { ComplianceLeadBackfill } from "./compliance-lead-backfill";
 
 type Queue = Extract<ComplianceCaseResult, { kind: "list" }>;
-type Query = { type: "list"; loanId?: string; kind?: Queue["items"][number]["kind"]; status?: Queue["items"][number]["status"]; after?: NonNullable<Queue["next"]> };
+type Query = { type: "list"; loanId?: string; kind?: Queue["items"][number]["kind"]; status?: Queue["items"][number]["status"];
+  attention?: ComplianceAttention; after?: NonNullable<Queue["next"]> };
 
-export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, openLoan, openHistoryRecord, openDisclosures }: {
+export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, initialAttention, paused, openLoan, openDisclosures }: {
   brokerageId: string; admin: boolean; loanId?: string; initialCaseId?: string;
-  openLoan?: (loanId: string, caseId?: string) => void; openHistoryRecord?: (destination: MigrationDestination) => void; openDisclosures?: () => void;
+  initialAttention?: ComplianceAttention; paused?: boolean;
+  openLoan?: (loanId: string, caseId?: string) => void; openDisclosures?: () => void;
 }) {
   const id = useId();
-  const [query, setQuery] = useState<Query>({ type: "list", loanId });
+  const [query, setQuery] = useState<Query>({ type: "list", loanId, attention: initialAttention });
   const [caseId, setCaseId] = useState(initialCaseId);
   const [version, refresh] = useState(0);
   const [response, setResponse] = useState<{ query: Query; caseId?: string; version: number; data: ComplianceCaseResult }>();
@@ -28,11 +27,12 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
   const focus = useRef<string>(undefined);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
+    if (paused) return;
     let current = true;
     const update = (data: ComplianceCaseResult) => { if (current) setResponse({ query, caseId, version, data }); };
     void accessComplianceCases(caseId ? { type: "read", caseId, loanId } : query, brokerageId).then(update, () => update({ error: "Could not load compliance work. Try again." }));
     return () => { current = false; };
-  }, [brokerageId, query, caseId, loanId, version]);
+  }, [brokerageId, query, caseId, loanId, paused, version]);
   const data = response?.query === query && response.caseId === caseId && response.version === version ? response.data : undefined;
   const list = data && "kind" in data && data.kind === "list" ? data : undefined;
   const detail = data && "kind" in data && data.kind === "detail" ? data : undefined;
@@ -84,14 +84,15 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
     <div className="section-heading"><Heading id={`${id}-heading`} ref={heading} tabIndex={-1}>{title}</Heading>
       {caseId ? <Button size="sm" variant="outline" disabled={pending} onClick={() => open()}>Back to cases</Button> :
         <Button size="sm" variant="outline" disabled={pending} onClick={() => { setQuery({ ...query, after: undefined }); setMessage(undefined); }}>Refresh cases</Button>}</div>
-    <div className="document-item compliance-coverage"><strong>Coverage not evaluated</strong><p>Fictional cases and sample evidence only.</p></div>
-    {admin && !loanId && !caseId && openLoan && <ComplianceInventory key={brokerageId} brokerageId={brokerageId} openLoan={openLoan} />}
-    {admin && !loanId && !caseId && openHistoryRecord && <ComplianceLeadBackfill key={`lead:${brokerageId}`}
-      brokerageId={brokerageId} openRecord={openHistoryRecord} />}
+    {loanId && <div className="document-item compliance-coverage"><strong>Coverage not evaluated</strong><p>Fictional cases and sample evidence only.</p></div>}
     {!data && <p role="status" className="muted">Loading compliance work…</p>}
     {data && "error" in data && <div className="loan-application-actions"><p role="alert">{data.error}</p>
       <Button size="sm" variant="outline" onClick={() => { setQuery({ ...query, after: undefined }); refresh((value) => value + 1); }}>Reload</Button></div>}
-    {!loanId && !caseId && <div className="calendar-filters">
+    {!loanId && !caseId && query.attention && <div className="loan-application-actions">
+      <strong>{complianceAttentionLabels[query.attention]}</strong>
+      <Button size="sm" variant="outline" onClick={() => setQuery({ type: "list" })}>Show all cases</Button>
+    </div>}
+    {!loanId && !caseId && !query.attention && <div className="calendar-filters">
         <label className="field">Case type<select value={query.kind ?? ""} onChange={(event) => setQuery({ ...query, kind: (event.target.value || undefined) as Query["kind"], after: undefined })}>
           <option value="">All case types</option>{complianceCaseKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
         <label className="field">Workflow status<select value={query.status ?? ""} onChange={(event) => setQuery({ ...query, status: (event.target.value || undefined) as Query["status"], after: undefined })}>
@@ -99,11 +100,16 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
     </div>}
     {list && <>
       <p role="status" className="muted">{list.counts.cases} {list.counts.cases === 1 ? "case" : "cases"} · {list.counts.files} {list.counts.files === 1 ? "affected file" : "affected files"}</p>
-      {list.items.length ? <ul className="loan-task-list">{list.items.map((item) => <li className="loan-task compliance-row" key={item.id}>
-        <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.kind} · {item.status}</span>
-          <span>{item.ownerState === "Assigned" ? "Owner" : item.ownerState}{item.ownerName && ` · ${item.ownerName}`}</span></div>
-        <Button id={`${id}-${item.id}`} size="sm" variant="outline" disabled={pending} aria-label={`Open case ${item.title}`} onClick={() => open(item.id)}>Open case</Button>
-      </li>)}</ul> : <p className="muted">{query.kind || query.status ? "No cases match these filters." : loanId ? "No sample findings on this file." : "No sample cases yet. Open a fictional loan’s Compliance section to start."}</p>}
+      {list.items.length ? <ul className="loan-task-list">{list.items.map((item) => {
+        const fileId = !loanId && openLoan ? item.loanId : null;
+        const label = !loanId && item.borrower ? `${item.borrower} · ${item.title}` : item.title;
+        return <li className="loan-task compliance-row" key={item.id}>
+          <div className="loan-task-copy"><strong>{label}</strong><span>{item.kind} · {item.status}</span>
+            <span>{item.ownerState === "Assigned" ? "Owner" : item.ownerState}{item.ownerName && ` · ${item.ownerName}`}</span></div>
+          <Button id={`${id}-${item.id}`} size="sm" variant="outline" disabled={pending || paused} aria-label={`Open case ${label}`}
+            onClick={() => fileId && openLoan ? openLoan(fileId, item.id) : open(item.id)}>{fileId ? "Open file finding" : "Open case"}</Button>
+        </li>;
+      })}</ul> : <p className="muted">{query.kind || query.status || query.attention ? "No cases match these filters." : loanId ? "No sample findings on this file." : "No sample cases yet. Open a fictional loan’s Compliance section to start."}</p>}
       {loanId && admin && <div className="loan-application-actions">
         {list.samplePackageVersion && !list.items.some((item) => item.packageVersion === list.samplePackageVersion) ?
           <Button size="sm" disabled={pending} onClick={() => void save({ type: "openFixture", loanId, packageVersion: list.samplePackageVersion }, "Sample cases opened.")}>Open sample finding</Button> :
@@ -145,6 +151,23 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
         </label>
         <div><Button size="sm" variant="outline" type="submit" disabled={pending}>Submit for review</Button></div>
       </form>}
+      {typeof detail.evidencePackageRevision === "number" && <details className="document-form compliance-inventory">
+        <summary>Add sample evidence note</summary>
+        <form className="document-item record-form" key={`evidence-${detail.item.id}-${detail.item.revision}`} onSubmit={(event) => {
+          event.preventDefault();
+          const values = new FormData(event.currentTarget);
+          const source = values.get("source");
+          const note = values.get("note");
+          if (typeof source === "string" && source.trim() && typeof note === "string" && note.trim()) void save({
+            type: "recordEvidenceNote", source, note, packageRevision: detail.evidencePackageRevision,
+          }, "Sample evidence note saved in case history.");
+        }}>
+          <p className="muted">Records a staff observation in case history for the current sample package.</p>
+          <label className="field">Sample source<input name="source" required maxLength={120} disabled={pending} /></label>
+          <label className="field">What did you observe?<textarea name="note" required maxLength={1000} rows={3} disabled={pending} /></label>
+          <div><Button size="sm" variant="outline" type="submit" disabled={pending}>Save evidence note</Button></div>
+        </form>
+      </details>}
       {detail.canUpdateStatus && <form className="calendar-filters" key={`status-${detail.item.id}`}
         onSubmit={(event) => submit(event, "updateStatus", "status", "Workflow status saved.")}>
         <label className="field">Workflow status<select name="status" key={detail.item.status} defaultValue={detail.item.status} disabled={pending}>{complianceCaseStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>
@@ -158,8 +181,11 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ope
       </form>}
       {!loanId && detail.item.parentCaseId && <Button size="sm" variant="outline" disabled={pending} onClick={() => open(detail.item.parentCaseId ?? undefined)}>Open related case</Button>}
       <details className="document-form"><summary>Case history</summary><ul className="loan-task-list">{detail.history.map((event) => <li key={event.revision} className="loan-task compliance-row">
-        <div className="loan-task-copy"><strong>{({ recordSampleReview: "Recorded sample workbench review", submitForReview: "Submitted for review", assign: "Changed case owner", updateStatus: "Changed workflow status" })[event.action] ?? event.action}</strong>
-          <span>{event.actor} · {dateTime(event.at)} ET · Revision {event.revision}</span>{event.reviewNote && <span>{event.reviewNote}</span>}</div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
+        <div className="loan-task-copy"><strong>{({ recordSampleReview: "Recorded sample workbench review", recordEvidenceNote: "Recorded sample evidence note",
+          submitForReview: "Submitted for review", assign: "Changed case owner", updateStatus: "Changed workflow status" })[event.action] ?? event.action}</strong>
+          <span>{event.actor} · {dateTime(event.at)} ET · Revision {event.revision}</span>{event.reviewNote && <span>{event.reviewNote}</span>}
+          {event.evidenceNote && <><span>{event.evidenceNote.source} · Package revision {event.evidenceNote.packageRevision}</span>
+            <span>{event.evidenceNote.note}</span></>}</div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
     </>}
     {message && <p role={message.error ? "alert" : "status"}>{message.text}</p>}
     {message?.error && detail && <Button size="sm" variant="outline" disabled={pending} onClick={() => { setMessage(undefined); refresh((value) => value + 1); }}>Reload case</Button>}
