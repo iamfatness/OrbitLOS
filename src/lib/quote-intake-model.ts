@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
+import type { BranchChoice } from "./branch-model";
 import { leadContactFields } from "./lead-inbox-model";
 import { quoteAcceptedAnswers, quoteIntakeQuestions, quoteQuestionAnswers, type QuoteAcceptedAnswer } from "./quote-intake-questions";
 
@@ -15,7 +16,8 @@ const propertyZip = z.string().trim().regex(/^\d{5}$|^$/);
 export const quoteBranchZip = z.string().trim().regex(/^\d{3}(?:\d{2})?$/, "Use a three-digit ZIP prefix or a full five-digit ZIP.");
 const quoteOwner = z.email().max(254).toLowerCase().nullable();
 const quoteBranches = z.array(z.object({ id: z.uuid(), name: z.string().trim().min(2).max(60),
-  zip: quoteBranchZip, ownerEmail: quoteOwner })).max(quoteBranchLimit).superRefine((rules, ctx) => {
+  zip: quoteBranchZip, ownerEmail: quoteOwner, branchId: z.uuid().optional() }).refine(({ branchId, ownerEmail }) => !branchId || ownerEmail === null,
+  "Set the default owner for a managed branch in Team.")).max(quoteBranchLimit).superRefine((rules, ctx) => {
   if (new Set(rules.map(({ id }) => id)).size !== rules.length || new Set(rules.map(({ zip }) => zip)).size !== rules.length) {
     ctx.addIssue({ code: "custom", message: "Use each ZIP or prefix only once per intake profile." });
   }
@@ -46,6 +48,7 @@ export type PublicQuoteForm = Omit<QuoteFormVersion, "config"> & { config: Omit<
 export type QuoteIntakeSettings = QuoteFormVersion & {
   active: boolean; effectiveRevision: number;
   campaigns: { id: string; name: string }[];
+  managedBranches: BranchChoice[];
   history: { revision: number; publishedAt: string; active: boolean }[];
 };
 export type QuoteIntakeEvidence = { profile: QuoteProfile; revision: number; answers: QuoteAcceptedAnswer[] };
@@ -53,7 +56,7 @@ export type QuoteIntakeEvidence = { profile: QuoteProfile; revision: number; ans
 const quoteRoutingReceipt = z.object({
   profile: quoteProfile, formRevision: revision, websiteRevision: revision,
   rule: z.enum(["Branch default", "Profile default", "Website default", "Shared inbox", "Call campaign"]),
-  branch: z.object({ name: z.string().max(60), zip: quoteBranchZip }).nullable(),
+  branch: z.object({ name: z.string().max(60), zip: quoteBranchZip, id: z.uuid().optional(), revision: revision.optional() }).nullable(),
   destination: z.string().min(1).max(200), note: z.string().max(250),
   campaign: z.object({ name: z.string().max(160), revision: revision.nullable() }).nullable(),
 });

@@ -11,6 +11,7 @@ import type { DepartureItem } from "@/lib/offboarding-model";
 import { TeamLoanAssignment } from "./loan-assignment";
 import { ManageDocumentTemplates } from "./document-checklist-templates";
 import { ManageFeeTemplates } from "./fee-templates";
+import { BrokerageBranches } from "./brokerage-branches";
 
 export function BrokerageTeam({ staff, version, refresh, openLoan, openDepartureWork }: {
   staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string) => void;
@@ -128,6 +129,8 @@ export function BrokerageTeam({ staff, version, refresh, openLoan, openDeparture
     </section>
     {error && <p role="alert" className="application-message banner-error">{error}</p>}
     {message && <p role="status" className="application-message">{message}</p>}
+    {admin && settings && (pilot || staff.brokerage.id === demoBrokerageId) && <BrokerageBranches key={`branches-${staff.brokerage.id}`} endpoint={endpoint}
+      members={settings.members} refreshHistory={reloadTeam} />}
     {admin && settings && (pilot || staff.brokerage.id === demoBrokerageId) && <section className="pipeline relationship-panel" aria-label="Demo examples">
         <details className="document-form"><summary>Self-guided demo examples</summary>
           <p className="muted">Populate Today, Calendar, Lead Inbox, and the daily workspace with linked fictional records.</p>

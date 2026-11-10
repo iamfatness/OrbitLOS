@@ -55,7 +55,9 @@ import { enrollCrmSegmentInput } from "./lib/crm-segment-model";
 import { assignInboxLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
 import { leadRouting, readLeadArchive } from "./lib/lead-inbox";
 import { quoteIntakeSettingsRequest, quoteLeadInput } from "./lib/quote-intake-model";
-import { quoteConfiguredOwners, quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
+import { quoteConfiguredOwners, quoteIntakeRouting, quoteRoutingForForm, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
+import { branchesUnavailable } from "./lib/branch-model";
+import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
 import { documentTemplateWork } from "./lib/document-templates";
 import { feeTemplateWork } from "./lib/fee-templates";
 import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
@@ -760,11 +762,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const [member] = selectedActiveMembers(this.#store, id, [email], emails);
     return member && member.role !== "Processor" ? { email: member.email, name: member.name } : null;
   }
-  quoteIntakeRoster(id: string, selected: string[], bootstrapEmails: string[], adminEmail?: string): StaffIdentity[] {
+  quoteIntakeRoster(id: string, selected: string[], bootstrapEmails: string[], adminEmail?: string): VersionedBrokerageMember[] {
     if (this.#id !== demoBrokerageId || selected.length > campaignRoutingOfficerLimit + 2) return [];
     if (adminEmail && !activeBrokerages(this.#store, adminEmail, bootstrapEmails).some((item) => item.id === id && item.role === "Admin")) return [];
-    return selectedActiveMembers(this.#store, id, selected, bootstrapEmails)
-      .filter(({ role }) => role !== "Processor").map(({ email, name }) => ({ email, name }));
+    return selectedActiveMembers(this.#store, id, selected, bootstrapEmails).filter(({ role }) => role !== "Processor");
   }
   teamMembers(staff: WorkspaceStaff, emails: string[]) {
     if (!activeBrokerages(this.#store, staff.email, emails).some((entry) => entry.id === staff.brokerage.id && entry.role === "Admin")) return null;
@@ -819,6 +820,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return this.#id === demoBrokerageId ? departureRoster(this.#store, staff, staff.brokerage.id, emails, subject, replacement) : null;
   }
   manage(staff: WorkspaceStaff, emails: string[], input: unknown) { return changeBrokerage(this.#store, staff.brokerage.id, staff, emails, input); }
+  branches(staff: WorkspaceStaff) {
+    return canManageBranches(staff, this.#id) ? { branches: readBranches(this.#store) } : { error: branchesUnavailable };
+  }
+  saveBranch(staff: WorkspaceStaff, input: unknown, roster: VersionedBrokerageMember[]) {
+    return updateBranch(this.#store, input, staff, this.#id, roster);
+  }
   audit(staff: WorkspaceStaff) {
     if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return [];
     const history = workspaceAccessHistory(this.#store);
@@ -928,7 +935,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const parsed = quoteLeadInput.safeParse(input);
     if (!parsed.success) return receiveQuoteLead(this.#store, input);
     const snapshot = quoteIntakeRouting(this.#store, parsed.data.purpose, parsed.data.zip);
-    let members: StaffIdentity[] = [];
+    let members: VersionedBrokerageMember[] = [];
     if (snapshot.routing.quoteToken === parsed.data.token && snapshot.form.revision === parsed.data.formRevision) {
       const campaign = parsed.data.phone && snapshot.campaign?.enabled ? snapshot.campaign.officers.map(({ email }) => email) : [];
       const selected = [...new Set([snapshot.ownerEmail, snapshot.branch?.ownerEmail, ...campaign])]
@@ -944,20 +951,21 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   async quoteIntakeSettings(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: "Workspace access denied." } as const;
     const parsed = quoteIntakeSettingsRequest.safeParse(input);
-    let members: StaffIdentity[] = [];
+    let members: VersionedBrokerageMember[] = [];
+    let previewBranchRevision: number | null | undefined;
     if (parsed.success && (parsed.data.type === "publish" || parsed.data.type === "previewRoute")) {
-      const selected = quoteConfiguredOwners(parsed.data.config);
-      if (parsed.data.type === "previewRoute" && parsed.data.config.ownerEmail === undefined) {
-        const fallback = leadRouting(this.#store).websiteOwner;
-        if (fallback && !selected.includes(fallback)) selected.push(fallback);
-      }
+      const { data } = parsed;
+      const preview = data.type === "previewRoute" ? quoteRoutingForForm(this.#store, data, data.zip) : undefined;
+      if (preview) previewBranchRevision = preview.managedBranch?.revision ?? null;
+      const selected = preview ? [...new Set([preview.ownerEmail, preview.branch?.ownerEmail])]
+        .filter((email): email is string => typeof email === "string") : quoteConfiguredOwners(data.config);
       if (selected.length) {
         const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
         const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
         members = await directory.quoteIntakeRoster(this.#id, selected, emails, staff.email);
       }
     }
-    return workOnQuoteSettings(this.#store, input, staff, this.#id, undefined, members);
+    return workOnQuoteSettings(this.#store, input, staff, this.#id, undefined, members, previewBranchRevision);
   }
 
   documentTemplates(staff: WorkspaceStaff, input: unknown) {
@@ -1185,6 +1193,11 @@ export default {
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       if (request.method === "GET") {
         const view = url.searchParams.get("view");
+        if (view === "branches") {
+          if (url.searchParams.get("brokerage") !== staff.brokerage.id) return Response.json({ error: branchesUnavailable }, { status: 403, headers });
+          const result = await workspace.branches(staff);
+          return Response.json(result, { status: "error" in result ? 403 : 200, headers });
+        }
         if (view === "assignment-loans" || view === "loan-assignment") {
           if (staff.brokerage.role !== "Admin") return Response.json({ error: loanAssignmentUnavailable }, { status: 403, headers });
           const after = url.searchParams.has("afterId") || url.searchParams.has("afterStageSince") ?
@@ -1208,6 +1221,15 @@ export default {
         return Response.json({ brokerages, members: team.members, history, ...pilot }, { headers });
       }
       if (request.method === "POST") return borrowerJson<{ message?: string; created?: string } | DeparturePage>(request, async (input) => {
+        if (input && typeof input === "object" && "type" in input && (input.type === "saveBranch" || input.type === "setBranchActive")) {
+          if (url.searchParams.get("brokerage") !== staff.brokerage.id || !canManageBranches(staff, staff.brokerage.id)) {
+            return { status: 403, error: branchesUnavailable };
+          }
+          const roster = await directory.teamMembers(staff, bootstrapEmails);
+          if (!roster) return { status: 403, error: branchesUnavailable };
+          const result = await workspace.saveBranch(staff, input, roster);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }
         if (input && typeof input === "object" && "type" in input && typeof input.type === "string" && input.type.startsWith("offboarding")) {
           if (staff.brokerage.role !== "Admin") return { status: 403, error: offboardingUnavailable };
           const parsed = offboardingInput.safeParse(input);

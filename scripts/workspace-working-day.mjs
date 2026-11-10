@@ -2028,6 +2028,87 @@ try {
     assert.equal(read(retried, nextLead).dueAt, dueAt);
     assert.equal(read(retried, stillShared).officerEmail, null);
   });
+  await stage("Team branches route website ZIPs and keep the original lead receipts", async () => {
+    const id = randomUUID();
+    const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
+      [owner.email], { type: "create", id, name: "Fictional branch brokerage", pilot: true });
+    assert.equal(created.created, id, created.error);
+    const teamPath = `/api/brokerages?brokerage=${id}`;
+    const settingsPath = `/api/quote-intake-settings?brokerage=${id}`;
+    const inBranchWorkspace = (actor, name, input) => action(actor, name, input, undefined, id, id);
+    const branchWorkspace = async () => (await inBranchWorkspace(owner, "mutate", { type: "refreshWorkspace" })).state;
+    for (const member of [officer, competingOfficer]) await post(teamPath, { type: "invite", email: member.email, role: "LO" }, owner);
+    await directory.activateStaff({ email: officer.email, name: officer.name }, [owner.email]);
+    const branchId = randomUUID();
+    const first = { type: "saveBranch", id: branchId, revision: 0, name: "Fictional North Branch",
+      staffEmails: [officer.email, competingOfficer.email], ownerEmail: officer.email };
+    assert.equal((await postResponse(teamPath, first, officer)).status, 403);
+    assert.equal((await postResponse(teamPath, { ...first, ownerEmail: competingOfficer.email }, owner)).status, 409);
+    assert.equal((await postResponse(teamPath, { ...first, staffEmails: [processor.email], ownerEmail: null }, owner)).status, 409);
+    assert.equal((await post(teamPath, first, owner)).message, "Branch created.");
+    assert.equal((await post(teamPath, first, owner)).message, "Branch is up to date.");
+    const branchResponse = await runtime.dispatchFetch(`${origin}${teamPath}&view=branches`, { headers: { Cookie: `__Host-orbit-session=${owner.token}` } });
+    const { branches } = await branchResponse.json();
+    assert.deepEqual(branches.map(({ id, revision, staff }) => [id, revision, staff.length]), [[branchId, 1, 2]]);
+    const otherTenant = await runtime.dispatchFetch(`${origin}/api/brokerages?brokerage=${brokerage}&view=branches`,
+      { headers: { Cookie: `__Host-orbit-session=${owner.token}` } });
+    assert.deepEqual((await otherTenant.json()).branches, []);
+
+    const { leadRouting } = await branchWorkspace();
+    const enabled = await inBranchWorkspace(owner, "mutate", { ...leadRouting, type: "saveLeadRouting", quoteForm: "Enable or replace", websiteOwner: owner.email });
+    assert.ok(enabled.message, enabled.error);
+    const { leadRouting: { quoteToken } } = await branchWorkspace();
+    const quote = (input) => post("/api/quote-requests", { token: quoteToken, ...input });
+    const original = await quote({ type: "read" });
+    const rule = { id: randomUUID(), branchId, name: first.name, zip: "483", ownerEmail: null };
+    const config = { ...original.config, campaignId: null, branches: [rule], ownerEmail: owner.email };
+    const publish = { type: "publish", revision: 0, config };
+    assert.equal((await postResponse(`/api/quote-intake-settings?brokerage=${brokerage}`, publish, owner)).status, 409);
+    const general = await post(settingsPath, publish, owner);
+    const purchase = await post(settingsPath, { ...publish, profile: "Purchase" }, owner);
+    assert.deepEqual(general.managedBranches.map(({ id }) => id), [branchId]);
+    const publicForm = await quote({ type: "read", purpose: "Purchase" });
+    assert.doesNotMatch(JSON.stringify(publicForm), new RegExp(`branches|ownerEmail|${branchId}`));
+    const preview = () => post(settingsPath, { type: "previewRoute", profile: "General", revision: general.revision, config, zip: "48304", hasPhone: false }, owner);
+    assert.equal((await preview()).routingPreview.destination, officer.name);
+    const submit = async (label) => {
+      const name = `Fictional branch ${label}`;
+      assert.deepEqual(await quote({ type: "submit", requestId: randomUUID(), formRevision: purchase.revision, name,
+        email: `branch-${label}@example.test`, phone: "", purpose: "Purchase", zip: "48304", consent: true }), { received: true });
+      return (await branchWorkspace()).inboxLeads.find((lead) => lead.name === name);
+    };
+    const originalLead = await submit("original");
+    assert.equal(originalLead.officerEmail, officer.email);
+    assert.deepEqual(originalLead.initialRouting.branch, { name: first.name, zip: "483", id: branchId, revision: 1 });
+    await directory.activateStaff({ email: competingOfficer.email, name: competingOfficer.name }, [owner.email]);
+    assert.ok((await inBranchWorkspace(competingOfficer, "readInboxWork", { type: "open", id: originalLead.id })).error);
+    const next = { ...first, name: "Fictional Renamed Branch", revision: 1, ownerEmail: competingOfficer.email };
+    assert.equal((await post(teamPath, next, owner)).message, "Branch updated.");
+    assert.equal((await postResponse(teamPath, { ...next, name: "Stale branch edit" }, owner)).status, 409);
+    assert.equal((await preview()).routingPreview.destination, competingOfficer.name);
+    const changedLead = await submit("changed");
+    assert.equal(changedLead.officerEmail, competingOfficer.email);
+    assert.equal(changedLead.initialRouting.branch.revision, 2);
+    assert.equal(changedLead.initialRouting.branch.name, next.name);
+    const earlier = (await branchWorkspace()).inboxLeads.find(({ id }) => id === originalLead.id);
+    assert.deepEqual(earlier.initialRouting, originalLead.initialRouting);
+
+    await post(teamPath, { type: "revoke", email: competingOfficer.email }, owner);
+    await post(teamPath, { type: "invite", email: competingOfficer.email, role: "LO" }, owner);
+    await directory.activateStaff({ email: competingOfficer.email, name: competingOfficer.name }, [owner.email]);
+    const fallback = await submit("fallback");
+    assert.equal(fallback.officerEmail, owner.email);
+    assert.match(fallback.initialRouting.note, /branch LO was unavailable/i);
+    assert.equal((await post(teamPath, { type: "setBranchActive", id: branchId, revision: 2, active: false }, owner)).message, "Branch archived.");
+    const archived = await submit("archived");
+    assert.equal(archived.officerEmail, owner.email);
+    assert.match(archived.initialRouting.note, /branch was unavailable/i);
+    assert.equal((await post(teamPath, { type: "setBranchActive", id: branchId, revision: 3, active: true }, owner)).message, "Branch reactivated.");
+    assert.equal((await post(teamPath, { ...next, revision: 4 }, owner)).message, "Branch updated.");
+    const reassigned = await submit("reassigned");
+    assert.equal(reassigned.officerEmail, competingOfficer.email);
+    assert.equal(reassigned.initialRouting.branch.revision, 5);
+  });
   const crmFieldId = randomUUID();
   const quoteFile = await stage("A published website quote routes through campaign capacity into a prefilled 1003", async () => {
     const campaignId = randomUUID();

@@ -169,7 +169,7 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
           </div>
           <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void run("search")}>Find campaigns</Button></div>
           <p className="muted">Eligible phone leads follow the selected campaign’s routing rules. Branch defaults apply to other requests before direct routing.</p>
-          <QuoteBranchRouting key={profile} draft={draft} officers={profileOwners} change={change} busy={busy} preview={async (zip, hasPhone) => {
+          <QuoteBranchRouting key={profile} draft={draft} officers={profileOwners} managedBranches={published.managedBranches} change={change} busy={busy} preview={async (zip, hasPhone) => {
             const result = await settingsRequest<QuoteRoutingPreview>(endpoint, {
               type: "previewRoute", profile, revision: published.revision, config: draft, zip, hasPhone,
             });

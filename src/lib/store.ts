@@ -1018,6 +1018,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     db.exec(`CREATE INDEX IF NOT EXISTS migration_undo_by_source ON migration_undone_records(origin, recordKey);
       CREATE UNIQUE INDEX IF NOT EXISTS website_request_id ON referral_leads(requestId) WHERE realtorId IS NULL;
+    CREATE TABLE IF NOT EXISTS brokerage_branches (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, nameKey TEXT NOT NULL UNIQUE,
+      staff TEXT NOT NULL DEFAULT '[]', ownerEmail TEXT, active INTEGER NOT NULL DEFAULT 1, revision INTEGER NOT NULL DEFAULT 1
+    );
     CREATE TABLE IF NOT EXISTS quote_intake_versions (
       revision INTEGER PRIMARY KEY, config TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL,
       profile TEXT NOT NULL DEFAULT 'General', active INTEGER NOT NULL DEFAULT 1
