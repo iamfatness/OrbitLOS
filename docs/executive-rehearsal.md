@@ -17,6 +17,14 @@ The solo route has one available officer. Jordan is assigned to the admin and Ca
 
 The live two-officer check used three fictional CSV rows and a one-lead cap per officer. Each officer received one lead and the third stayed shared. In **Call Campaigns → Unassigned**, show both caps and **0 open slots**, then use **Assign this lead**. The receiving officer can open that exact lead from **Today → Next 7 days** with the original deadline.
 
+## Prepared CTO examples
+
+Use the normal mock UWM submission during the timed run. Prepare a second fictional loan with a reviewed 1003, a saved quote, and an issued, mock-signed sample package. Leave its loan workbench open. For a short exception demo, change one fee from **Disclosures → Fee worksheet**. From **Today**, open the review task and show the prior amount, revised amount, and effect on cash to close. Record a short internal review note and prepare the revised package. Open the previous version to show the original mock receipt and the new version's pending signer.
+
+Keep an active fictional loan with an unsent reviewed 1003 available for lender questions. **1003 → Rehearse a missing mock UWM acknowledgment** puts the exact file in Today. **Check mock UWM for receipt** recovers the first receipt and opens its conditions. The reviewed MISMO 3.4 export is available for a lender without an API.
+
+Sign in with the intended presenter account before starting the timer. Verify the campaign, browser tabs, and both prepared examples are visible to that account. Use sample data throughout. Describe provider results and signatures as simulations.
+
 ## Live interaction baseline
 
 Measured on hosted version `e5c302f9-74c0-45dd-b9e1-cafc5631d02c` from **Create guided pilot** in an existing admin session. The stopwatch includes browser actions, observations, and navigation. The presenter targets above include spoken transitions. Sign-in and spoken delivery were outside the measured run.

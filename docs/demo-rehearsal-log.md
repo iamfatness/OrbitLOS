@@ -665,3 +665,9 @@ The SQLite test verifies the original provider reference, receipt and attempted 
 On November 9, 2026, Worker `38e4d312-8ab8-4619-9d70-ea15883f4f7e` from `b5202c5` was verified in the fictional Role Handoff QA brokerage. The invited LO issued version three and the open borrower portal received it. A mock decline produced the same receipt in both tabs. Reopening Today showed the exact follow-up. The LO recorded a private note from Disclosures, the task cleared, and the borrower portal continued to show its receipt without the note. The QA admin session was restored.
 
 The SQLite checks cover borrower retries, exact task routing, unauthorized access, an upgrade from a declined package written by the prior release, private and immutable follow-up evidence, and closing the task by replacing the package. All 324 tests, lint, typecheck, the production Worker build, both local workspace rehearsals, and local browser QA passed. The public Product and Demo pages returned 200 with the updated copy. Signing remained mocked.
+
+## Sample disclosure change review
+
+On November 9, 2026, Worker `1a3c39fb-5a9e-491e-b716-7d44824b5cf2` from `b8f04f6` was verified in the fictional Role Handoff QA brokerage. The invited LO mock-signed version four, changed the title and settlement fee from $1,650 to $1,750, and saw estimated cash to close change from $99,155 to $99,255. Today opened the exact review task. Preparing version five recorded the internal note, reviewer, timestamp, and prior version. It cleared the task and retained the earlier signature receipt in history. The QA admin session was restored.
+
+All 324 tests, lint, typecheck, the production Worker build, both local workspace rehearsals, and local browser QA passed. The joint-application test covers required review evidence, stale edits, and portal privacy. The public Product and Demo pages returned 200 with the updated copy. Signing remained mocked.
