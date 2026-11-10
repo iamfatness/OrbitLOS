@@ -214,6 +214,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const pipelineQuery = useMemo<PipelineQuery>(() => ({ view, search: query.trim().slice(0, 200), filters }), [view, query, filters]);
   const pipeline = usePipeline(staff?.brokerage.id ?? demoBrokerageId, section === "Pipeline", pipelineQuery, state);
   const [modal, setModal] = useState<Modal | null>(null);
+  const recordTrigger = useRef<HTMLElement>(null);
   const exceptionTrigger = useRef<HTMLButtonElement>(null);
   const [detailedTasks, setDetailedTasks] = useState(processorTaskEntry);
   const [focusContactTask, setFocusContactTask] = useState<string>();
@@ -624,6 +625,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
 
   function navigate(next: Section, refresh = true, campaignId?: string, attention = false) {
     openingRecord.current = false;
+    recordTrigger.current = null;
     if (next !== "Call Campaigns") deferredCampaignLoad.current = undefined;
     setSection(next);
     setAttentionVisit((last) => attention ? { section: next, visit: (last?.visit ?? 0) + 1 } : undefined);
@@ -662,6 +664,9 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   }
 
   function show(next: Modal) {
+    if (!modal && !recordTrigger.current && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      recordTrigger.current = document.activeElement;
+    }
     loanReadVersion.current += 1;
     openingRecord.current = false;
     setSearchContact(undefined);
@@ -708,6 +713,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
       { kind: "manual-return-work"; submissionId: string | null; eventId?: string; personal: boolean } |
       { kind: "incoming-loan-work"; item: IncomingLoanWorkItem; view: IncomingLoanWorkQuery["view"] }) {
     if (pending.current) return;
+    if (!modal) {
+      const focused = document.activeElement;
+      recordTrigger.current = focused instanceof HTMLElement && focused !== document.body ? focused : null;
+    }
     loanReadVersion.current += 1;
     pending.current = true;
     openingRecord.current = true;
@@ -871,6 +880,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
       if (openingRecord.current) setError(staff && failure instanceof Error && failure.message === staffSignInRequired
         ? staffSignInRequired : "Could not open the loan. Please try again.");
     } finally {
+      if (!modal && openingRecord.current) recordTrigger.current = null;
       openingRecord.current = false;
       pending.current = false;
       setBusy(false);
@@ -1158,9 +1168,14 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     setSearchContact(undefined);
     setModal(null);
     const trigger = exceptionTrigger.current;
+    const original = recordTrigger.current;
     exceptionTrigger.current = null;
-    if (trigger && section === "Exceptions") requestAnimationFrame(() => {
-      (trigger.isConnected ? trigger : document.getElementById("owner-exception-filter"))?.focus({ preventScroll: true });
+    recordTrigger.current = null;
+    if (trigger || original) requestAnimationFrame(() => {
+      const target = trigger && section === "Exceptions" ?
+        (trigger.isConnected ? trigger : document.getElementById("owner-exception-filter")) :
+        (original?.isConnected ? original : sectionHeading.current);
+      target?.focus({ preventScroll: true });
     });
   }
 
@@ -1257,7 +1272,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           {!waitingForWorkspace && section === "Pipeline" ? <section className="pipeline-hero" aria-labelledby="pipeline-title">
             <div className="page-heading">
               <div>
-                <h1 id="pipeline-title">Loan pipeline</h1>
+                <h1 id="pipeline-title" ref={sectionHeading} tabIndex={-1}>Loan pipeline</h1>
               </div>
               <div className="heading-actions pipeline-actions">
                 {!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}

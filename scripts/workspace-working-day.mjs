@@ -443,7 +443,7 @@ try {
     const html = await response.text();
     assert.ok(/<fieldset(?=[^>]*aria-label="Walkthrough controls")(?=[^>]*\bdisabled="")[^>]*>/.test(html),
       "The server-rendered walkthrough must keep its controls disabled until hydration");
-    assert.ok(/<button(?=[^>]*aria-label="OrbitLOS home, back to Pipeline")(?=[^>]*\bdisabled="")[^>]*>/.test(html),
+    assert.ok(/<button(?=[^>]*aria-label="OrbitLOS home, brokerage overview")(?=[^>]*\bdisabled="")[^>]*>/.test(html),
       "Navigation must also wait until its handlers are ready");
     assert.ok(html.includes("Getting the walkthrough ready…"), "The guide must explain the short startup state");
   });
