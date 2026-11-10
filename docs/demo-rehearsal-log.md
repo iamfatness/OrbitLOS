@@ -879,3 +879,11 @@ On November 10, 2026, Worker `e1405124-6318-4221-889b-ad545c12b684` from `371192
 The built Worker denied a normal LO edit and a forged override and opened the fee review after an authorized save. SQLite tests also exercised stale policy and stage checks, repeat saves, assigned processor restrictions, a mock borrower signature and 1003 resubmission under the lock, and preservation of the ordinary review path. The local Chrome rehearsal recorded a separate lender-details override. All 358 tests, lint, typecheck, production build, and both Worker rehearsals passed.
 
 Both staged public pages displayed the stage controls and all 44 assets matched twice. Public landing, Product, and Demo returned HTTP 200 after promotion. The completed campaign guide opened the Owner Scorecard, and provider workflows remained mocked.
+
+## Reusable sample disclosure templates
+
+On November 10, 2026, Worker `e991b284-a501-4dc4-ab4b-22f2f29af827` from `c788e0c` served disclosure templates. In the live fictional branch-routing workspace, an admin published a Michigan purchase template with sample loan terms and borrower acknowledgment. Morgan's reviewed Purchase 1003 matched it. Staff resolved the open appraisal fee review and prepared sample package v3 with template v1.
+
+The admin then published template v2 with the fee summary in place of the acknowledgment. Package v3 kept template v1 and its original two documents. Staff issued and mock-signed v3. Its new mock receipt and the earlier borrower portal receipt on v2 remained visible. The completed campaign guide opened the Owner Scorecard.
+
+The Worker rehearsal rejected stale versions and unauthorized template management, retained the prior template in package history, and kept internal template metadata out of borrower status. SQLite tests covered matching precedence, ties, mismatches, manual selection, archiving, and borrower signing and fee-review continuity. All 359 tests, lint, typecheck, production build, and both Worker rehearsals passed. Both staged marketing pages showed the new template copy, all 44 assets matched twice, and the public landing, Product, and Demo returned HTTP 200 after promotion.
