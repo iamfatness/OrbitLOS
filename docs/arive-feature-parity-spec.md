@@ -47,9 +47,9 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F01 | Hosted paired mock DU/LPA with separate findings and retry history, tied to the submitted 1003 and authorized sample credit | Verify borrower selection, real consent evidence, service contracts, and reconciliation before any provider order. |
 | F02 | Hosted income worksheet with source periods, adjustments, exact accepted evidence, and reviewed income in mock pricing | Verify approved calculation policies and supported evidence before using real files. |
 | F03 | Hosted mock UWM intake and conditions, original receipt recovery, a scoped delivery timeline, manual MISMO export and sample packages, acknowledgment and returns | Verify real lender capabilities and map their ordering, rejection, and replay contracts. |
-| F04 | Hosted versioned checklist templates with purpose, instructions, due dates, and per-item occupancy and employment rules against the reviewed 1003 | Add borrower questions and reusable categories. Validate production scan and delivery contracts. |
+| F04 | Hosted conditional document checklists and per-borrower questions with deadlines, answer review, and clarification | Add reusable question templates and categories. Validate production scan and delivery contracts. |
 | F05 | Hosted versioned sample packages with signer-specific portal responses, receipt history, critical dates, and tasks for fee changes or declines. Revised packages retain the internal change review. | Extend package revisions and approved artifacts through closing. Validate document generation, signing, and applicable rules before live use. |
-| F06 | Hosted 1003 and a borrower action list for corrections, documents, and sample signatures, scoped to each borrower on a joint file | Validate live identity verification and configurable borrower needs in an approved pilot. |
+| F06 | Hosted 1003 and a borrower action list for corrections, questions, documents, and sample signatures, scoped to each borrower on a joint file | Validate live identity verification and configurable borrower needs in an approved pilot. |
 | F07 | Versioned brokerage quote form with a mobile borrower preview, one configurable question, branded themes and attributed campaign intake | Verify separate intake profiles, branch and officer overrides, conditional questions and safe mapping to the application. |
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
@@ -96,7 +96,9 @@ The [hosted checklist](demo-rehearsal-log.md#hosted-brokerage-document-checklist
 
 Each item can require an occupancy answer, current employment type for the selected borrower, or both. The preview uses the current reviewed 1003, identifies unanswered or unmatched rules, and requires staff to add requests explicitly. Each conditional request retains its source template and reviewed application revision. [Hosted conditional checklist rehearsal](demo-rehearsal-log.md#conditional-borrower-document-rules)
 
-Remaining scope covers reusable categories, additional criteria, questions, and production scan and delivery. Track requested, received, scan-pending, blocked, reviewed, replacement-needed, delivered and lender-confirmed outcomes distinctly. Verify that replacement requests require fresh review, uploads recover, and lender confirmation alone establishes lender clearance. Reuse private storage and scan adapters. Increments 1–3.
+Staff can ask a dated short-answer or yes-or-no question on a fictional loan. Answers appear in Incoming loan work. Reviewing clears that entry. Clarification returns the question to the same borrower and preserves earlier answers for staff. [Hosted borrower question rehearsal](demo-rehearsal-log.md#borrower-question-review)
+
+Remaining scope covers reusable categories, additional criteria, and production scan and delivery. Track requested, received, scan-pending, blocked, reviewed, replacement-needed, delivered and lender-confirmed outcomes distinctly. Verify that replacement requests require fresh review, uploads recover, and lender confirmation alone establishes lender clearance. Reuse private storage and scan adapters. Increments 1–3.
 
 ### F05 — Disclosure and signature workspace
 
@@ -108,7 +110,7 @@ The [hosted joint 1003](demo-rehearsal-log.md#hosted-separate-joint-borrower-lin
 
 The [hosted evidence flow](demo-rehearsal-log.md#hosted-borrower-specific-document-requests) gives each participant a separate checklist, mock verification session, and replacement instructions. Staff can reuse a template for either borrower, prepare a follow-up for the selected recipient, and review both checklists from the loan and manager queue. A linked lender condition uses one request with one recipient.
 
-**Your next actions** opens the current correction, exact outstanding request, or pending mock signature. Dated work appears first. Processing, received, and accepted evidence stays in the checklist while the borrower’s outstanding list reflects only their own work. Active actions appear above the status receipt. [Hosted borrower action rehearsal](demo-rehearsal-log.md#borrower-next-actions)
+**Your next actions** opens the current correction, exact outstanding document or question, or pending mock signature. Dated work appears first. Processing, received, and accepted evidence stays in the checklist while the borrower’s outstanding list reflects only their own work. Active actions appear above the status receipt. [Hosted borrower action rehearsal](demo-rehearsal-log.md#borrower-next-actions)
 
 Live identity verification, scan, delivery, and real-data admission have separate release gates. Increments 1–2, recovery in 4, live gate in 5.
 
