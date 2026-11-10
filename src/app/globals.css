@@ -398,6 +398,7 @@ button:disabled { cursor: default; }
 #borrower-actions-heading { scroll-margin-top: 78px; }
 #borrower-actions-heading:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
 .quote-terms dd small { display: block; margin-top: 2px; }
+.pricing-panel .field small { font-size: 12px; }
 .pricing-navigation { display: flex; gap: 8px; flex-wrap: wrap; }
 .pricing-navigation > button { min-height: 44px; }
 .pricing-panel :is(.pricing-form, .pricing-results, .quote-saved) { scroll-margin-top: 76px; }
@@ -444,9 +445,9 @@ button:disabled { cursor: default; }
 .lender-comparison-grid h4, .lender-comparison-grid p { margin: 0; }
 .quote-terms { display: grid; grid-template-columns: repeat(auto-fit, minmax(113px, 1fr)); gap: 6px; }
 .quote-terms > div { background: #f6f3fc; border-radius: 7px; padding: 6px; }
-.quote-terms dt { font-size: 11px; color: var(--muted); }
+.quote-terms dt { font-size: 12px; color: var(--muted); }
 .quote-terms dd { font-weight: 750; }
-.quote-terms small { font-size: 10px; color: var(--muted); margin-left: 3px; }
+.quote-terms small { font-size: 12px; color: var(--muted); }
 .quote-fee-allocation { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 400; overflow-wrap: anywhere; }
 .quote-preview { display: grid; gap: 6px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: white; }
 .quote-disclaimer { font-size: 11px; color: var(--muted); margin-top: 5px; }
