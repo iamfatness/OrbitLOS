@@ -145,3 +145,19 @@ Team shows branch setup before the larger pilot and staff panels. The editor put
 Playwright checked 1440 × 900, 900 × 1200 and 390 × 844, including touch selection, 44 px controls, keyboard save, focus on the receipt, and published ZIP routing. The rendered Impeccable scan found existing workspace typography and placeholder issues outside the new branch editor. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
 
 The next rendered Impeccable pass measured the pipeline search placeholder at 3.1:1 on a 390 × 844 viewport. The placeholder now uses Orbit's muted text token, which measures 5.89:1 against white. Playwright verified the built Worker's computed color, full opacity, keyboard entry, and absence of page overflow at 1440 × 900, 900 × 1200 and 390 × 844. Inter stays as the established workspace typeface. The focused check covered the pipeline search and leaves the broader typography advisories open.
+
+## Owner landing and shared loan navigation
+
+The signed-in owner baseline opened personal Today. In the fictional role rehearsal at 1440 × 900, Staff access began 1,589 px down Team, below several pilot panels. The phone loan drawer placed its section buttons in a 150 px grid that scrolled away during long tasks.
+
+Admins now land on **Brokerage overview**. Its exception, first-contact, and processing counts open the same queues they count. Personal Today remains available beside New Lead. Reports and setup open their named views. **Team** starts with Staff access and groups branches, assignments and templates, workspace switching, pilot tools, and access history by purpose. In the same fixture, Staff access began 279 px down the page.
+
+The loan drawer uses the same role-filtered section options in a labeled picker in the phone header. Desktop retains visible section buttons. Deep links keep the active section selected and scroll the relevant work below the sticky header. Closing a queued loan restores keyboard focus to the originating action when it remains available.
+
+The pass used the Impeccable source and rendered checks, UI UX Pro Max searches for keyboard focus and dashboard hierarchy, and 21st.dev dashboard references. The rendered detector flagged the existing Inter typography and global decorative effects. [Impeccable](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) · [21st.dev dashboards](https://21st.dev/community/components/s/dashboard)
+
+Local browser acceptance covered 1440 × 900, 900 × 1200, and 390 × 844. It verified owner counts and filters, report and Team routes, a fictional staff invitation, New Lead to 1003, LO and processor access, phone drawer navigation and keyboard return. It also opened the fictional borrower status and realtor referral portals at 390 px. The 36-stage working-day rehearsal exercised owner, LO, processor, borrower and realtor handoffs. All 402 tests, lint, typecheck and the Cloudflare build passed.
+
+Source `f137a94` serves 100% on Worker `1c2e38eb-3fd4-4845-842c-e08aae18625f`. The previous Worker `6d71a284-52ef-4fcc-82a0-941babe14ffa` is retained at 0%. Staged hosted QA checked exceptions, the first-contact filter, Staff access and personal Today. The ordinary live workspace verified the owner landing, processing, funding, Team, Today and the lender conditions drawer. Public routes, login, font and two asset passes at 376/376 passed. The temporary QA Worker and routes were removed.
+
+Continue the design review through 1003, pricing, lender conditions and closing, then through borrower and realtor feedback and recovery states. The portal phone checks in this release cover entry and layout.
