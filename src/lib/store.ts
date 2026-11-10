@@ -241,6 +241,11 @@ export function initializeStore(db: Store, seedDemo = true) {
       details TEXT NOT NULL, revision INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS document_requests (${documentRequestColumns});
+    CREATE TABLE IF NOT EXISTS loan_document_batches (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      selection TEXT NOT NULL, message TEXT NOT NULL, processedAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS loan_document_batches_by_loan ON loan_document_batches(loanId);
     CREATE TABLE IF NOT EXISTS borrower_question_sets (
       id TEXT PRIMARY KEY, revision INTEGER NOT NULL, title TEXT NOT NULL, config TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0
     );

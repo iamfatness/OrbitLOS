@@ -219,4 +219,10 @@ test("checklist writes signal only the matching submitted and unrevoked applicat
   assert.deepEqual(borrowerChecklistTokens({ type: "applyDocumentTemplate", loanId: "two", recipient: "Co-borrower" }, applications), ["co"]);
   assert.deepEqual(borrowerChecklistTokens({ type: "reviewDocument", loanId: "two", requestId: "co-request" }, applications,
     [{ id: "co-request", loanId: "two", recipient: "Co-borrower" }]), ["co"]);
+  const requestId = crypto.randomUUID();
+  const batch = { type: "processDocumentBatch", loanId: "two", batchId: crypto.randomUUID(), action: "accept", reviewed: true,
+    items: [{ requestId, revision: 1 }] };
+  assert.deepEqual(borrowerChecklistTokens(batch, applications, [{ id: requestId, loanId: "two", recipient: "Co-borrower" }]), ["co"]);
+  assert.deepEqual(borrowerChecklistTokens({ ...batch, action: "send" }, applications, [{ id: requestId, loanId: "two" }]), []);
+  assert.deepEqual(borrowerChecklistTokens(batch, applications, [{ id: requestId, loanId: "one" }]), []);
 });

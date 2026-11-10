@@ -2,10 +2,11 @@ import type { StaffApplication } from "./application-model";
 import { coBorrowerDocumentRecipient, documentRecipient, primaryDocumentRecipient, type LoanDocumentRequest } from "./document-model";
 import type { StaffBorrowerQuestion } from "./borrower-question-model";
 import { applyBorrowerQuestionSetInput } from "./borrower-question-set-model";
+import { batchReviewsDocuments, documentBatchInput } from "./document-batch-model";
 
 const checklistWrites = new Set([
   "requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline",
-  "reviewDocument", "reopenMockUwmCondition", "requestBorrowerQuestion", "applyBorrowerQuestionSet", "reviewBorrowerQuestion",
+  "reviewDocument", "processDocumentBatch", "reopenMockUwmCondition", "requestBorrowerQuestion", "applyBorrowerQuestionSet", "reviewBorrowerQuestion",
 ]);
 const disclosureWrites = new Set(["prepareDisclosurePackage", "issueDisclosurePackage", "respondToDisclosurePackage",
   "saveFeeWorksheet", "saveAllocatedFeeWorksheet", "selectOffer", "requestApplicationCorrection"]);
@@ -24,10 +25,8 @@ export function borrowerChecklistTokens(input: unknown, applications: readonly S
     !checklistWrites.has(input.type) || !("loanId" in input) || typeof input.loanId !== "string") return [];
   const app = applications.find((application) => application.loanId === input.loanId && application.submittedAt);
   const joint = app?.joint;
-  if (input.type === "applyBorrowerQuestionSet") {
-    const { data } = applyBorrowerQuestionSetInput.safeParse(input);
-    if (!data) return [];
-    const recipients = new Set(data.items.map(({ recipient }) => recipient));
+  if (input.type === "applyBorrowerQuestionSet" || input.type === "processDocumentBatch") {
+    const recipients = input.type === "applyBorrowerQuestionSet" ? questionSetRecipients(input) : documentBatchRecipients(input, requests);
     return [...(app && !app.revokedAt && recipients.has(primaryDocumentRecipient) ? [app.token] : []),
       ...(joint?.token && joint.submittedAt && !joint.revokedAt && recipients.has(coBorrowerDocumentRecipient) ? [joint.token] : [])];
   }
@@ -41,6 +40,18 @@ export function borrowerChecklistTokens(input: unknown, applications: readonly S
       primaryDocumentRecipient : input.type === "requestBorrowerQuestion" ? primaryDocumentRecipient : undefined);
   return [...(app && !app.revokedAt && recipient !== coBorrowerDocumentRecipient ? [app.token] : []),
     ...(joint?.token && joint.submittedAt && !joint.revokedAt && recipient !== primaryDocumentRecipient ? [joint.token] : [])];
+}
+
+function questionSetRecipients(input: unknown) {
+  const { data } = applyBorrowerQuestionSetInput.safeParse(input);
+  return new Set(data?.items.map(({ recipient }) => recipient));
+}
+
+function documentBatchRecipients(input: unknown, requests: readonly LoanDocumentRequest[]) {
+  const { data } = documentBatchInput.safeParse(input);
+  if (!data || !batchReviewsDocuments(data.action)) return new Set();
+  const ids = new Set(data.items.map(({ requestId }) => requestId));
+  return new Set(requests.filter((item) => item.loanId === data.loanId && ids.has(item.id)).map(documentRecipient));
 }
 
 export async function borrowerChangeChannel(token: string) {

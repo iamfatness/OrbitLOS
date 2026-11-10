@@ -14,13 +14,15 @@ import { carriedCallbacks, recordCarriedCallback, rescheduleCarriedCallback } fr
 import { leadWorkUnavailable, type CampaignMutationResult, type CampaignNavigationResult, type CampaignQueueResult, type LeadMutationResult } from "./lead-work-model";
 import { readEditableLoan } from "./editable-loan";
 import type { LoanMutationResult } from "./loan-work-model";
-import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, reconcileMockApplicationReceipt, refreshMockUwmClearance, reopenMockUwmCondition, replayMockUwmConditionDelivery, sendMockConditionDocument,
+import { hasReopenedMockUwmCondition, reconcileMockApplicationReceipt, refreshMockUwmClearance, reopenMockUwmCondition, replayMockUwmConditionDelivery, sendMockConditionDocument,
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { mockUwmReceiptTaskPrefix, pendingMockUwmAcceptance } from "./uwm-handoff-recovery";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
 import { manualHandoffNeedsApproval, manualHandoffOutcomes, requestedLoanAmount, reusablePropertyAddress } from "./application-model";
 import { handoffCheckpointError } from "./application-review-checkpoint";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
+import { documentBatchInput } from "./document-batch-model";
+import { processDocumentBatch, reviewLoanDocument } from "./document-review";
 import { addManualQuoteInput, manualQuoteReference, offerDisplayName } from "./manual-pricing-model";
 import { addManualQuote, manualQuoteForHandoff } from "./manual-pricing";
 import { approvedIncomeAmount, pricingInputError } from "./income-review-freshness";
@@ -279,6 +281,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("reviewDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative(),
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500), sendToMockUwm: z.boolean().optional(),
     dueOn: documentDueOn.optional() }),
+  documentBatchInput,
   z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames),
     recipient: z.enum(documentRecipients).default(primaryDocumentRecipient) }),
   applyDocumentTemplateInput,
@@ -394,7 +397,7 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if (staff.brokerage.role === "Processor") {
     const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "exportReviewedApplication", "reviewApplication", "requestApplicationCorrection",
-      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument",
+      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument", "processDocumentBatch",
       "requestBorrowerQuestion", "applyBorrowerQuestionSet", "reviewBorrowerQuestion", "refreshBorrowerQuestions", "sendConditionDocument", "simulateDeliveryFailure",
       "createServiceOrder", "updateServiceOrder", "setClosingServiceEvidence",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
@@ -525,6 +528,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "updateProcessing":
     case "requestSuggestedUwmDocuments":
     case "reviewDocument":
+    case "processDocumentBatch":
     case "runMockCredit":
     case "runMockAus":
     case "runMockPairedAus":
@@ -1423,31 +1427,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             : "These conditions already have checklist requests.";
           break;
         }
-        case "reviewDocument": {
-          const request = db.prepare("SELECT kind, status, revision, dueOn, submissionId, conditionId, recipient FROM document_requests WHERE id = ? AND loanId = ?")
-            .get(data.requestId, data.loanId);
-          const submission = request?.submissionId && db.prepare("SELECT conditions FROM submissions WHERE id = ? AND loanId = ?").get(request.submissionId, data.loanId);
-          const open = submission && (JSON.parse(String(submission.conditions)) as Condition[]).some((item) => item.id === request?.conditionId && !item.satisfiedAt);
-          const replaceAccepted = request?.status === "Accepted" && data.decision === "Needs replacement" && open;
-          if (!request || (request.status !== "Received" && !replaceAccepted) || request.revision !== data.revision) {
-            throw new WorkspaceError("This document request changed. Refresh the checklist before reviewing it.");
-          }
-          if (data.decision === "Needs replacement" && !data.replacementNote) throw new WorkspaceError("Tell the borrower what to replace.");
-          const replacement = data.decision === "Needs replacement";
-          const nextDueOn = replacement ? data.dueOn ?? null : request.dueOn;
-          db.prepare(`UPDATE document_requests SET status = ?, replacementNote = ?, revision = revision + 1,
-            dueOn = ?, deadlineRevision = deadlineRevision + ? WHERE id = ?`)
-            .run(data.decision, replacement ? data.replacementNote : "", nextDueOn, Number(nextDueOn !== request.dueOn), data.requestId);
-          if (replaceAccepted) archiveMockDocumentDelivery(db, data.requestId);
-          const pdf = db.prepare("SELECT objectId FROM document_files WHERE requestId = ?").get(data.requestId)?.objectId;
-          const accepted = pdf ? (staff?.brokerage.id === demoBrokerageId || staff?.brokerage.pilot ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
-          addApplicationActivity(db, data.loanId, `${replacement ? "Replacement requested" : accepted} · ${request.kind}${request.recipient !== primaryDocumentRecipient ? ` · ${request.recipient}` : ""}${replacement && nextDueOn ? ` · Due ${nextDueOn}` : ""}`, now);
-          message = data.decision === "Accepted" ? "Document accepted." : "Replacement requested on the borrower checklist.";
-          if (data.sendToMockUwm) {
-            const delivery = sendMockConditionDocument(db, data.loanId, data.requestId, data.revision + 1, now);
-            if ("error" in delivery) throw new WorkspaceError(delivery.error);
-            message = "Document accepted and sent to mock UWM. Check clearance when ready.";
-          }
+        case "reviewDocument":
+        case "processDocumentBatch": {
+          const result = data.type === "reviewDocument" ? reviewLoanDocument(db, data, staff, now) : processDocumentBatch(db, data, staff, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
           break;
         }
         case "applyDocumentPreset": {

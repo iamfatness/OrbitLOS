@@ -368,31 +368,34 @@ export function reconcileMockApplicationReceipt(db: Store, loanId: string, revis
 type UwmFile = { loan: InsightsLoan; conditions: Condition[] };
 type SavedUwmSubmission = Pick<Submission, "id" | "loanId" | "status"> & { conditions: string };
 
-function applyMockClearances(db: Store, submissionId: string, conditions: Condition[]) {
+function applyMockClearances(db: Store, submissionId: string, conditions: Condition[], requestIds?: readonly string[]) {
   const cleared = new Map(db.prepare(`SELECT requests.conditionId, deliveries.mockClearedAt FROM document_requests requests
     JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
     WHERE requests.submissionId = ? AND requests.status = 'Accepted' AND deliveries.mockClearedAt IS NOT NULL
-      AND (deliveries.documentRevision = requests.revision OR deliveries.documentRevision IS NULL)`)
-    .all(submissionId).map((item) => [String(item.conditionId), String(item.mockClearedAt)]));
+      AND (deliveries.documentRevision = requests.revision OR deliveries.documentRevision IS NULL)
+      ${requestIds ? "AND requests.id IN (SELECT value FROM json_each(?))" : ""}`)
+    .all(submissionId, ...(requestIds ? [JSON.stringify(requestIds)] : [])).map((item) => [String(item.conditionId), String(item.mockClearedAt)]));
   return conditions.map((condition) => {
     const satisfiedAt = cleared.get(condition.id);
     return satisfiedAt && !condition.satisfiedAt ? { ...condition, uploaded: true, satisfiedAt } : condition;
   });
 }
 
-function clearPendingMockDeliveries(db: Store, now: string, submissionId: string | null) {
+function clearPendingMockDeliveries(db: Store, now: string, submissionId: string | null, requestIds?: readonly string[]) {
   db.prepare(`UPDATE uwm_document_deliveries AS delivery SET mockClearedAt = ? FROM document_requests request
     WHERE delivery.requestId = request.id AND delivery.mockClearedAt IS NULL AND request.status = 'Accepted'
       AND (delivery.documentRevision = request.revision OR delivery.documentRevision IS NULL)
-      AND (? IS NULL OR request.submissionId = ?)`).run(now, submissionId, submissionId);
+      AND (? IS NULL OR request.submissionId = ?)
+      ${requestIds ? "AND request.id IN (SELECT value FROM json_each(?))" : ""}`)
+    .run(now, submissionId, submissionId, ...(requestIds ? [JSON.stringify(requestIds)] : []));
 }
 
 // Called inside the workspace mutation after access to the loan is checked.
-export function refreshMockUwmClearance(db: Store, loanId: string, submissionId: string, now: string) {
+export function refreshMockUwmClearance(db: Store, loanId: string, submissionId: string, now: string, requestIds?: readonly string[]) {
   const saved = uwmSubmissionConditions(db, loanId, submissionId);
   if (!saved) return { error: "This UWM submission is unavailable on this loan." } as const;
-  clearPendingMockDeliveries(db, now, submissionId);
-  const conditions = applyMockClearances(db, submissionId, saved);
+  clearPendingMockDeliveries(db, now, submissionId, requestIds);
+  const conditions = applyMockClearances(db, submissionId, saved, requestIds);
   const count = saved.reduce((total, condition, index) => total + Number(!condition.satisfiedAt && !!conditions[index].satisfiedAt), 0);
   const clearedAll = count > 0 && conditions.every((condition) => condition.satisfiedAt);
   if (clearedAll) {
@@ -408,7 +411,7 @@ export function refreshMockUwmClearance(db: Store, loanId: string, submissionId:
     recordMockConditionChanges(db, submissionId, conditions, saved, now);
     addApplicationActivity(db, loanId, `Mock UWM cleared ${count} ${label}.`, now);
   }
-  return { message: count ? `Mock UWM cleared ${count} ${label}.` : "No new mock UWM clearances for this submission." };
+  return { message: count ? `Mock UWM cleared ${count} ${label}.` : "No new mock UWM clearances for this submission.", cleared: count };
 }
 
 function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {

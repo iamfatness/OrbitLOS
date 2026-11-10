@@ -159,6 +159,8 @@ From **Conditions → Borrower questions**, staff can ask for a short answer or 
 
 In **Playbooks → Borrower question sets**, admins can publish reusable groups of up to six prompts. From **Conditions → Use a question set**, staff preview the prompts and choose the recipient and due date for each question they add. Each question appears only in its recipient’s portal. Staff history retains the set version used.
 
+From **Conditions → Work documents in bulk**, select up to 20 items on the current loan. Preview the sample or download its PDF, then confirm review before accepting or accepting and sending the selected documents. Use separate actions to send or retry accepted documents and check selected mock clearance receipts. A stale item stops the batch. The original per-document and per-condition controls remain available.
+
 **Incoming loan work** in **Today → My Tasks** shows submitted 1003s, received documents, and returned processing handoffs for the signed-in officer’s active loans, separately from due work. In **Processing → Assigned files**, it shows received documents and handoffs ready to accept. The newest incoming page and **Ready to accept** check every 15 seconds while visible and the loan drawer is closed. Each action opens the current 1003, document request, or handoff. Handoff notes stay in staff views.
 
 Under **Lender submissions**, open **Request borrower document** on an outstanding mock UWM condition. Confirm the document type and edit the instructions before adding the request. The condition shows the checklist status and links to the review controls. Each condition has its own request, and **Sync UWM** preserves the link. UWM clearance remains a separate lender status.

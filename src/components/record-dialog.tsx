@@ -23,6 +23,7 @@ import { LoanRetention, RetentionFields } from "./past-client-crm";
 import type { ReturningClientOption } from "@/lib/past-client-queue-model";
 import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
 import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-documents";
+import { DocumentBatch } from "./document-batch";
 import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
@@ -739,6 +740,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Conditions" && <>
       <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
+        <DocumentBatch key={loan.id} loanId={loan.id} requests={requests} submissions={submissions}
+          brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} open={open} />
         {submissions.length === 0 && <p className="empty-inline">No lender submissions yet. Add a manual lender or send the reviewed 1003 to mock UWM.</p>}
         {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
           checklistLinks={checklistLinks} joint={joint} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot}

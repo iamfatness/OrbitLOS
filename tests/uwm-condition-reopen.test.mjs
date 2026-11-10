@@ -105,6 +105,65 @@ test("suggested UWM document requests are scoped, atomic, and safe to retry", as
   assert.deepEqual((await apply(batch)).documentRequests, saved.documentRequests);
 });
 
+test("assigned processors can bulk review, deliver, retry and clear only the selected evidence", async (t) => {
+  const { db, staff, apply } = setup(t);
+  const initial = await apply({ type: "sync" });
+  const file = initial.submissions.find((item) => item.status === "Wholesale - Approved With Conditions");
+  const [income, assets] = file.conditions;
+  const loanId = file.loanId;
+  const processor = { ...staff, email: "processor@example.test", name: "Fictional Processor", brokerage: { ...staff.brokerage, role: "Processor" } };
+  db.prepare("INSERT INTO loan_processing VALUES (?, ?, ?, 'In processing', '', ?, 1)").run(loanId, processor.email, processor.name, new Date().toISOString());
+  await apply({ type: "requestSuggestedUwmDocuments", loanId, submissionId: file.id, conditionIds: [income.id, assets.id] });
+  const { documentRequests } = await apply({ type: "requestDocument", loanId, kind: "Photo ID", instructions: "Fictional standalone evidence." });
+  const ids = [income.id, assets.id, null].map((conditionId) => documentRequests.find((item) => item.conditionId === conditionId).id);
+  const [pay, bank, photo] = ids.map((requestId) => ({ requestId, revision: 1 }));
+  const markReceived = db.prepare("UPDATE document_requests SET status = 'Received', revision = 1, submittedAt = ? WHERE id = ?");
+  for (const id of ids) markReceived.run(new Date().toISOString(), id);
+  const batch = (action, items, reviewed = false) => ({ type: "processDocumentBatch", loanId, batchId: crypto.randomUUID(), action, items, reviewed });
+  const write = (input, actor = processor) => executeCommand(db, input, actor, undefined, [], { scopedLoanUpdates: true });
+  const current = (id) => db.prepare("SELECT status, revision FROM document_requests WHERE id = ?").get(id);
+  const receipt = (id) => db.prepare("SELECT receipt, mockClearedAt FROM uwm_document_deliveries WHERE requestId = ?").get(id);
+  const outsider = { ...processor, email: "unassigned@example.test" };
+  assert.match((await write(batch("accept", [bank, photo], true), outsider)).error, /access/i);
+  assert.match((await write(batch("accept", [bank, photo]))).error, /reviewed/i);
+  assert.match((await write(batch("accept", [bank, bank], true))).error, /only once/i);
+  assert.match((await write(batch("accept", [bank, { ...photo, revision: 0 }], true))).error, /changed/i);
+  assert.match((await write(batch("accept-and-send", [pay, photo], true))).error, /changed/i);
+  assert.ok(ids.every((id) => current(id).status === "Received" && current(id).revision === 1));
+  assert.equal(db.prepare("SELECT count(*) AS count FROM loan_document_batches").get().count, 0);
+
+  const accepted = batch("accept", [bank, photo], true);
+  const result = await write(accepted);
+  assert.equal(result.message, "Accepted 2 documents.");
+  assert.deepEqual(result.loanWork.loans.map(({ id }) => id), [loanId]);
+  assert.equal((await write({ ...accepted, items: [photo, bank] })).message, result.message);
+  assert.match((await write({ ...accepted, items: [pay, bank] })).error, /Start a new batch/);
+  assert.equal(current(bank.requestId).revision, 2);
+  assert.equal(current(photo.requestId).status, "Accepted");
+  assert.equal(current(pay.requestId).status, "Received");
+  const acceptAndSend = batch("accept-and-send", [pay], true);
+  assert.equal((await write(acceptAndSend)).message, "Accepted and sent 1 document to mock UWM.");
+  const payReceipt = receipt(pay.requestId).receipt;
+  assert.match((await write(acceptAndSend)).message, /Accepted and sent/);
+  assert.equal(receipt(pay.requestId).receipt, payReceipt);
+  assert.ok(!receipt(bank.requestId));
+  await apply({ type: "simulateDeliveryFailure", loanId, requestId: bank.requestId, revision: 2 });
+  assert.equal((await write(batch("send", [{ ...bank, revision: 2 }]))).message, "Sent 1 document to mock UWM.");
+  const bankReceipt = receipt(bank.requestId).receipt;
+  const clearPay = batch("clear", [{ ...pay, revision: 2, receipt: payReceipt }]);
+  assert.match((await write({ ...clearPay, items: [...clearPay.items, { ...bank, revision: 2, receipt: "outdated receipt" }] })).error, /changed/i);
+  assert.equal(receipt(pay.requestId).mockClearedAt, null);
+  assert.match((await write(clearPay)).message, /1 selected condition/);
+  const clearedAt = receipt(pay.requestId).mockClearedAt;
+  assert.ok(clearedAt);
+  assert.equal(receipt(bank.requestId).mockClearedAt, null);
+  assert.match((await write(clearPay)).message, /1 selected condition/);
+  assert.equal(receipt(pay.requestId).mockClearedAt, clearedAt);
+  const final = await write(batch("clear", [{ ...bank, revision: 2, receipt: bankReceipt }]));
+  assert.ok(final.loanWork.submissions.find(({ id }) => id === file.id).conditions.every(({ satisfiedAt }) => satisfiedAt));
+  assert.equal(db.prepare("SELECT count(*) AS count FROM loan_document_batches").get().count, 5);
+});
+
 test("borrower due dates track the open request without changing its upload revision", async (t) => {
   const { db, staff, command, apply } = setup(t);
   const initial = await apply({ type: "sync" });
