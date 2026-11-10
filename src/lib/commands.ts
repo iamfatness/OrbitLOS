@@ -320,7 +320,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120),
     days: z.union([z.literal(1), z.literal(3), z.literal(7)]), purpose: z.enum(followUpPurposes).default("Loan service") }),
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario, applicationRevision: z.number().int().nonnegative().nullable(),
-    incomeReviewRevision: z.number().int().positive().optional(), simulateUnsupportedEq: z.literal(true).optional() }),
+    incomeReviewRevision: z.number().int().positive().optional(), simulateUnsupportedEq: z.literal(true).optional(), manualLender: z.literal(true).optional() }),
   addManualQuoteInput,
   mockCreditInput,
   mockAusInput,
@@ -652,11 +652,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       if (currentRevision() !== data.applicationRevision) throw new WorkspaceError("The 1003 changed. Reload its inputs before running pricing.");
       checkReviewedIncome();
       const simulate = data.simulateUnsupportedEq === true;
+      if (data.manualLender && simulate) throw new WorkspaceError("Choose manual pricing or the EQ rehearsal.");
       if (simulate && (!data.scenario.nonAgency || (!isDemoStaff(staff) && !staff?.brokerage.pilot))) {
         throw new WorkspaceError("Unsupported EQ rehearsal is available for Non-QM scenarios in fictional workspaces.");
       }
-      const env = simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } : uwmPricingEnvironment(uwmEnvironment, staff);
-      const result = await pricingProvider(env).quote(data.scenario).catch((error: unknown) => {
+      const result = data.manualLender ? { provider: "Manual lender", mode: "manual" as const, reference: null, offers: [], notices: [], outcome: undefined } :
+        await pricingProvider(simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } : uwmPricingEnvironment(uwmEnvironment, staff)).quote(data.scenario).catch((error: unknown) => {
         if (!(error instanceof PricingError) || error.code !== "unsupported") throw error;
         return unsupportedPricingResult(simulate, error.message);
       });
@@ -664,6 +665,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         authorizeLoanOfficer(db, data, staff);
         if (currentRevision() !== data.applicationRevision) throw new WorkspaceError("The 1003 changed while pricing. Reload its inputs and try again.");
         checkReviewedIncome();
+        if (data.manualLender && !db.prepare("SELECT 1 FROM loans WHERE id = ? AND disposition = 'Active' AND stage NOT IN ('Funded', 'Closed')").get(data.loanId)) {
+          throw new WorkspaceError("Start a manual quote on an active loan.");
+        }
         const quotedAt = new Date().toISOString();
         db.prepare(`INSERT INTO pricing_runs
           (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt, applicationRevision, incomeReviewRevision, outcome)
@@ -673,8 +677,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             data.applicationRevision, data.incomeReviewRevision ?? null, result.outcome ?? null);
         if (result.outcome === "unsupported") addApplicationActivity(db, data.loanId,
           `${simulate ? "Simulated EQ coverage check" : "EQ stage coverage check"} · ${data.scenario.nonAgency?.program} · Unsupported`, quotedAt);
-        if (staff?.brokerage.pilot) accessEvent(db, staff, result.outcome === "unsupported" ? "Recorded unsupported pricing scenario" : "Ran sample pricing", data.loanId, quotedAt);
-        return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message: result.outcome === "unsupported" ?
+        if (data.manualLender) addApplicationActivity(db, data.loanId, "Started manual lender pricing", quotedAt);
+        else if (staff?.brokerage.pilot) accessEvent(db, staff, result.outcome === "unsupported" ? "Recorded unsupported pricing scenario" : "Ran sample pricing", data.loanId, quotedAt);
+        return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message: data.manualLender ?
+          "Scenario saved. Add the lender’s terms." : result.outcome === "unsupported" ?
           "EQ cannot price this scenario. Add a manual lender offer to continue." : result.mode === "stage" && !result.offers.length ?
             "UWM stage returned no displayable pricing options for this scenario." : `${result.offers.length} pricing options returned.` };
       });

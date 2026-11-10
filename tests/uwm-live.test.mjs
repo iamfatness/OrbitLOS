@@ -6,6 +6,7 @@ const { uwmPublicToken, uwmInsightsConnector, uwmConnectionSettings, uwmWorkspac
 const { syncUwm } = await import("../src/lib/uwm.ts");
 const { pricingProvider } = await import("../src/lib/pricing-provider.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
+const { easternDate } = await import("../src/lib/client-retention.ts");
 const { initializeStore, insertContact, insertLoan, insertSubmission } = await import("../src/lib/store.ts");
 
 function fixture(t) {
@@ -185,7 +186,9 @@ test("mapped admin sync persists provider observations, status and condition ale
   assert.match((await run({ ...staff, brokerage: { ...staff.brokerage, role: "LO" } })).error, /access to this workspace action/);
   assert.equal(network.mock.callCount(), 0);
 
-  assert.match((await run(staff)).message, /1 imported/);
+  const synced = await run(staff);
+  assert.match(synced.message, /1 imported/);
+  assert.equal(synced.state.submissions[0].syncSource, "Insights");
   const before = db.prepare("SELECT submissionId, snapshotId FROM uwm_insights_observations").get();
   reopened = true;
   assert.match((await run(staff)).message, /1 refreshed.*2 new alerts/);
@@ -197,6 +200,32 @@ test("mapped admin sync persists provider observations, status and condition ale
   assert.equal(db.prepare("SELECT status FROM submissions").get().status, "Wholesale - Underwriting");
   assert.equal(db.prepare("SELECT 1 FROM mock_uwm_condition_events").get(), undefined);
   assert.equal(network.mock.callCount(), 9);
+});
+
+test("a new operational file can save manual lender terms without a provider or a sample offer", async t => {
+  const { db, staff } = fixture(t);
+  const loanId = createLoan(db, staff);
+  const network = t.mock.method(globalThis, "fetch", () => assert.fail("Manual pricing must never contact a lender"));
+  const run = (input, actor = staff) => executeCommand(db, input, actor, undefined, [], { uwmEnvironment: stage });
+  const input = { type: "runPricing", loanId, applicationRevision: null, scenario, manualLender: true };
+  const unrelated = { ...staff, email: "different-lo@example.test", brokerage: { ...staff.brokerage, role: "LO" } };
+  assert.ok((await run(input, unrelated)).error);
+  const saved = await run(input);
+  assert.match(saved.message, /Add the lender’s terms/);
+  const [pricing] = saved.state.pricingRuns;
+  assert.equal(pricing.mode, "manual");
+  assert.equal(pricing.provider, "Manual lender");
+  assert.deepEqual(pricing.offers, []);
+  assert.equal(pricing.reference, null);
+  const today = easternDate();
+  const quote = { loanId, runId: pricing.id, offerId: crypto.randomUUID() };
+  const added = await run({ type: "addManualQuote", ...quote, details: { lender: "Fictional Lender", product: "30-year fixed",
+    reference: "MANUAL-1", quotedOn: today, expiresOn: today, years: 30, rate: 6.125, apr: null, adjustment: 0 } });
+  assert.match(added.message, /added to this pricing scenario/);
+  const selected = await run({ type: "selectOffer", ...quote });
+  assert.equal(selected.state.pricingRuns[0].selectedId, quote.offerId);
+  assert.equal(selected.state.pricingRuns[0].offers[0].manual.reference, "MANUAL-1");
+  assert.equal(network.mock.callCount(), 0);
 });
 
 test("Insights preserves manual evidence and discards a late concurrent snapshot", async t => {

@@ -1148,7 +1148,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   }
 
   function syncButton() {
-    if (!admin) return null;
+    if (!admin || uwmConnection.pipeline === "Insights credentials required") return null;
     return <Button variant="outline" onClick={() => void sync()} disabled={busy}><RefreshCw className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync UWM"}</Button>;
   }
 

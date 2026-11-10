@@ -203,7 +203,7 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
   const open = submission.conditions.filter((item) => !item.satisfiedAt);
   const cleared = submission.conditions.filter((item) => item.satisfiedAt);
   const byCondition = new Map(requests.filter((request) => request.submissionId === submission.id).map((request) => [request.conditionId, request]));
-  const mockUwm = submission.lender === "UWM" && !!submission.syncedAt;
+  const mockUwm = (brokerageId === demoBrokerageId || pilot) && submission.lender === "UWM" && !!submission.syncedAt && !submission.syncSource;
   const suggested = mockUwm ? open.flatMap((item) => {
     const document = !byCondition.has(item.id) && suggestedConditionDocument(item);
     return document ? [{ id: item.id, kind: document.kind }] : [];
@@ -218,12 +218,13 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
     <article className="submission" id={submissionTarget(submission.id)} tabIndex={-1}>
       <div className="submission-head">
         <div><strong>{submission.lender}</strong><p>Reference {submission.externalId}</p></div>
-        <span className="pill">{submission.syncedAt ? "Mock sync" : "Manual"}</span>
+        <span className="pill">{submission.syncSource === "Insights" ? "UWM Insights" : mockUwm ? "Sample sync" : submission.syncedAt ? "Previous sync" : "Manual"}</span>
         {!submission.syncedAt && <Button variant="ghost" size="icon" aria-label={`Edit ${submission.lender} submission`} onClick={onEdit}><Pencil /></Button>}
       </div>
       <p className="lender-status">{submission.status}</p>
       {submission.syncedAt && <>
         <p className="muted timestamp"><Clock3 size={13} /> Synced {dateTime(submission.syncedAt)} ET</p>
+        {submission.syncSource === "Insights" && <p className="muted">Review documents here. Use the lender portal to deliver them.</p>}
         <div className="condition-counts"><span>{open.length} outstanding</span><span>{cleared.length} cleared</span></div>
         {mockUwm && <UwmDeliveryTimeline submission={submission} brokerageId={brokerageId} busy={busy} canSimulate={canSimulate} save={save} />}
         {submission.conditions.length === 0 && <p className="muted">No conditions were returned for this loan.</p>}
@@ -281,10 +282,10 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
   );
 }
 
-function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, openPricing, openManual, markDraftChanged, shareBrokerage }: {
+function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jointLinks, openConditions, campaignManual, canSimulate, openReviews, openPricing, openManual, markDraftChanged, shareBrokerage }: {
   loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean; jointLinks: boolean;
   brokerageId: string;
-  openConditions: (id: string) => void; campaignManual: boolean; openReviews?: () => void;
+  openConditions: (id: string) => void; campaignManual: boolean; canSimulate: boolean; openReviews?: () => void;
   openPricing: () => void; openManual: () => void;
   markDraftChanged: (editor: Node) => void;
   shareBrokerage?: string;
@@ -403,7 +404,8 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
           <summary>Review submitted answers</summary>
           <ApplicationAnswers draft={application.draft} />
         </details>}
-        {application.reviewedAt ? !processor && (manualQuote ? <div className="document-item">
+        {application.reviewedAt ? !processor && (!canSimulate ?
+          <Button size="sm" variant="outline" disabled={busy} onClick={openPricing}>Open manual pricing</Button> : manualQuote ? <div className="document-item">
           <p>Selected manual lender offer · {manualQuote.lender}</p>
           <Button size="sm" variant="outline" disabled={busy} onClick={openManual}>Open selected lender handoff</Button>
         </div> : !currentSent && !pendingReceipt && (manualQuoteNeeded || quoteAmountIssue ? <div className="document-item">
@@ -413,7 +415,7 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
           onClick={() => void save({ type: "sendApplication", loanId, revision: application.revision })}>
           <Send /> {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button>)) :
           <Button size="sm" disabled={busy} onClick={() => void save({ type: "reviewApplication", loanId, revision: application.revision })}><CheckCircle2 /> Mark reviewed</Button>}
-        {shareBrokerage && !processor && canRecordReturn && application.reviewedAt && !manualQuote && !manualQuoteNeeded && !currentSent && !pendingReceipt && !blocker && !quoteAmountIssue &&
+        {canSimulate && shareBrokerage && !processor && canRecordReturn && application.reviewedAt && !manualQuote && !manualQuoteNeeded && !currentSent && !pendingReceipt && !blocker && !quoteAmountIssue &&
           <details className="document-form">
             <summary>Rehearse a missing mock UWM acknowledgment</summary>
             <p>Orbit will open a receipt review task. Use it to check the mock lender before sending again.</p>
@@ -445,7 +447,7 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
           <ApplicationAnswers draft={application.previousAnswers} />
         </details>}
       </details>}
-      <ManualLenderExport key={`export:${loanId}:${application.revision}:${manualQuote?.offerId ?? "general"}`}
+      {canSimulate && <ManualLenderExport key={`export:${loanId}:${application.revision}:${manualQuote?.offerId ?? "general"}`}
         application={application} busy={busy} save={save} openConditions={openConditions}
         canRecordReturn={canRecordReturn} canRecordRejection={canRecordReturn && jointLinks} handoffBlocker={blocker} openReviews={openReviews}
         shareBrokerage={shareBrokerage}
@@ -453,7 +455,7 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
         previousFile={acknowledgedFile ?? state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
         manualQuote={manualQuote} manualQuoteNeeded={manualQuoteNeeded} manualQuoteCurrent={!!chosen && pricingInputsMatch(chosen, application)}
         manualScenarioIssue={chosen && nonAgencyHandoffIssue(chosen.scenario, application.draft)} openPricing={openPricing}
-        campaignManual={campaignManual} correctionSave={applicationEdits.save} correctionBlocked={applicationEdits.blocked} />
+        campaignManual={campaignManual} correctionSave={applicationEdits.save} correctionBlocked={applicationEdits.blocked} />}
       <LenderApplicationDetails key={`lender:${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy || applicationEdits.blocked} save={applicationEdits.save} markDraftChanged={markDraftChanged} />
     </div>}
@@ -580,6 +582,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   openScopedLoan: (destination?: string) => void;
 }) {
   const processor = staff?.brokerage.role === "Processor";
+  const fictionalUwm = !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
   const canOpenReviews = Boolean(staff) || process.env.NODE_ENV === "development";
   const canOpenDisclosures = staff ? staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId : process.env.NODE_ENV === "development";
   const sharedProcessor = processor && loan.officerEmail !== staff.email;
@@ -660,7 +663,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         </div>
         <div className="details-grid">
           <div><span>Pipeline stage</span><strong>{loan.stage}</strong><span suppressHydrationWarning>{stageDays(loan.stageSince)}d in stage</span></div>
-          <div><span>{displayManual ? `${displayManual.lender} · Manual` : "UWM · Mock"}</span><strong>{lenderStatus}</strong>
+          <div><span>{displayManual ? `${displayManual.lender} · Manual` : uwm[0]?.syncSource === "Insights" ? "UWM Insights" : fictionalUwm ? "UWM · Sample" : "Lender handoff"}</span><strong>{lenderStatus}</strong>
             {(displayManual || uwm.length > 0) && <button type="button" className="condition-status" data-outstanding={openCount > 0}
               onClick={() => open(displayManual ? submissionTarget(displayManual.id) : "lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
           <div><span>Realtor partner</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
@@ -701,9 +704,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Pricing & credit" && <>
       <section className="details-section" id={target === sharedQuoteReviewTarget ? sharedQuoteReviewTarget : "loan-pricing"} tabIndex={-1} aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
-          {!processor && <Button size="sm" variant="outline" onClick={() => openPricing()}>Price loan</Button>}
+          {!processor && <Button size="sm" variant="outline" onClick={() => openPricing()}>{fictionalUwm ? "Price loan" : "Open pricing"}</Button>}
         </div>
-        <p className="empty-inline">{savedOffer && savedPricing ? `${savedPricing.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${requestedMoney(savedPricing.scenario.loanAmount)} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` : "Compare sample rate and fee options, then save a quote to the loan."}</p>
+        <p className="empty-inline">{savedOffer && savedPricing ? `${savedOffer.manual ? "Manual lender quote" : savedPricing.mode === "mock" ? "Saved sample" : "Saved stage quote"} · ${requestedMoney(savedPricing.scenario.loanAmount)} · ${savedOffer.product} at ${savedOffer.rate.toFixed(3)}%` :
+          fictionalUwm ? "Compare sample rate and fee options, then save a quote to the loan." : "Record a quote from your lender’s portal."}</p>
         {savedPricing && !pricingInputsMatch(savedPricing, application) &&
           <p className="quote-disclaimer">Saved quote needs repricing with the current 1003 and income inputs.</p>}
         {rate && <p className="timestamp">{mockRateStatus(rate, new Date().toISOString())} · {rate.rate.toFixed(3)}%
@@ -715,8 +719,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} focused={target === "income-worksheet"} worksheetRevision={incomeWorksheetRevision}
           onChanged={() => void save({ type: "refreshApplication", loanId: loan.id })}
           onPrice={processor ? undefined : (source) => openPricing(true, source)} />}
-      <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
-        revision={submittedApplicationRevision(application)} busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} />
+      {fictionalUwm ? <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
+        revision={submittedApplicationRevision(application)} busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} /> :
+        <section className="details-section" id="credit-aus" tabIndex={-1}><h3>Credit &amp; AUS</h3><p className="empty-inline">Use your credit and AUS providers while connections are pending.</p></section>}
       </>}
       {section === "Disclosures" && canOpenDisclosures &&
         <DisclosureWorkbench loan={loan} state={state} busy={busy} readOnly={processor} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
@@ -738,7 +743,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}
         shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         markDraftChanged={markDraftChanged}
-        openConditions={(id) => open(submissionTarget(id))} campaignManual={campaignLender === "manual" && !processor}
+        openConditions={(id) => open(submissionTarget(id))} campaignManual={campaignLender === "manual" && !processor} canSimulate={fictionalUwm}
         openPricing={() => openPricing()} openManual={() => open("manual-lender-export")}
         openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined} />
       {canOpenReviews && application?.reviewedAt && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
@@ -754,11 +759,12 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         <DocumentBatch key={loan.id} loanId={loan.id} requests={requests} submissions={submissions}
-          brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} open={open} />
-        {submissions.length === 0 && <p className="empty-inline">No lender submissions yet. Add a manual lender or send the reviewed 1003 to mock UWM.</p>}
+          brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} open={open} canSimulate={fictionalUwm} />
+        {submissions.length === 0 && <p className="empty-inline">{fictionalUwm ? "No lender submissions yet. Add a manual lender or send the reviewed 1003 to mock UWM." :
+          "No lender submissions yet. Add the lender after submitting through its portal."}</p>}
         {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
           checklistLinks={checklistLinks} joint={joint} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot}
-          canSimulate={!processor && (!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot)}
+          canSimulate={!processor && fictionalUwm}
           onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
       {state.serviceOrders !== undefined && <LoanServiceOrders key={loan.id} loanId={loan.id} joint={joint}
@@ -1029,7 +1035,8 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     ? state.applications.find((item) => item.loanId === loan.id) : undefined;
   const handoffRun = modal.kind === "pricing" ? latestSelectedPricingRun(state.pricingRuns, loan?.id) : undefined;
   const manualPricingPath = !!handoffRun?.offers.some((offer) => offer.id === handoffRun.selectedId && offer.manual);
-  const useManualPath = campaignLender === "manual" || manualPricingPath;
+  const fictionalUwm = !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
+  const useManualPath = campaignLender === "manual" || manualPricingPath || !fictionalUwm;
   const receivedByUwm = handoffApplication?.versions.some((version) =>
     version.revision === handoffApplication.revision && version.uwmReceipt);
   const lenderReceived = useManualPath
@@ -1040,13 +1047,17 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const handoffBlocker = lenderReceived || receiptPending ? null : secondReviewBlocker(state.playbook.requireSecondReview, handoffApplication);
   const lenderHandoff = modal.kind === "pricing" && loan && (handoffApplication || handoffBlocker) && staff?.brokerage.role !== "Processor" ? {
     label: handoffBlocker ? (handoffApplication?.reviewedAt ? "Open team reviews" : "Open 1003 review") :
-      useManualPath ? "Open manual MISMO export" : receiptPending ? "Open mock UWM receipt review" :
+      !fictionalUwm ? "Open lender conditions" : useManualPath ? "Open manual MISMO export" : receiptPending ? "Open mock UWM receipt review" :
         receivedByUwm ? "Open mock UWM checklist" : "Send reviewed 1003 to mock UWM",
     blocker: handoffBlocker,
     checkQuoteAmount: !useManualPath && !receivedByUwm && !receiptPending,
     proceed: (quote: { runId: string; offerId: string }) => {
       if (handoffBlocker) {
         show({ kind: "details", loanId: loan.id, target: handoffApplication?.reviewedAt ? loanReviewsTarget : "loan-application", campaignLender });
+        return;
+      }
+      if (!fictionalUwm) {
+        show({ kind: "details", loanId: loan.id, target: "lender-submissions", campaignLender });
         return;
       }
       if (useManualPath) {
@@ -1116,7 +1127,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           })} />}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-          canRehearseUnsupported={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
+          canRehearseUnsupported={fictionalUwm}
           openApplication={() => show({ kind: "details", loanId: loan.id, campaignLender, target: "loan-application" })}
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?

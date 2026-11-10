@@ -82,6 +82,7 @@ export interface Submission {
   status: string;
   conditions: Condition[];
   syncedAt: string | null;
+  syncSource?: "Insights" | null;
 }
 
 export interface Activity {

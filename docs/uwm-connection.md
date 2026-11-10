@@ -37,3 +37,7 @@ Operational brokerages use manual lender quotes until production pricing is auth
 | AUS and credit | Confirm DU and LPA access, valid credit-vendor references, borrower authorization, findings access and applicable compliance decisions. |
 
 Sources: existing `UWM-API-Reference.md`, [Public authentication](https://developers.uwm.com/portal/auth/docs/107), [Insights authentication](https://developers.uwm.com/portal/insights/docs/153), [Insights endpoint](https://developers.uwm.com/portal/insights/docs/154), [conditions](https://developers.uwm.com/portal/condition/docs/160).
+
+## Operational pricing before lender onboarding
+
+In an operational workspace, open **Pricing & credit → Open pricing → Start manual quote**. Enter the lender’s fixed-rate terms and reference, then choose the saved offer. Orbit stores it as a manual pricing run with the current loan inputs and makes no provider request. Use the lender portal for submission, document delivery, clearance, and locking. Use **Lender conditions** to record a lender reference and track local document work. The reviewed MISMO export and simulated lender workflows remain available in fictional workspaces.

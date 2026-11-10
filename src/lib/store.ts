@@ -1583,7 +1583,9 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
       (SELECT campaign.name FROM referral_leads lead JOIN call_campaign_members member ON member.leadId = lead.id
         JOIN call_campaigns campaign ON campaign.id = member.campaignId WHERE lead.loanId = loans.id) AS callCampaignName
       FROM loans ${where("id")} ORDER BY stageSince DESC, id`, ...args),
-    submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, `SELECT * FROM submissions ${where()} ORDER BY lender, id`, ...args)
+    submissions: rows<Omit<Submission, "conditions"> & { conditions: string }>(db, `SELECT submissions.*,
+      CASE WHEN EXISTS (SELECT 1 FROM uwm_insights_observations WHERE submissionId = submissions.id) THEN 'Insights' END AS syncSource
+      FROM submissions ${where()} ORDER BY lender, id`, ...args)
       .map((row) => ({ ...row, conditions: JSON.parse(row.conditions) })),
     tasks: rows<LoanTask>(db, `SELECT * FROM tasks ${where()} ORDER BY completedAt IS NOT NULL, dueAt, id`, ...args)
       .map((task): LoanTask => {

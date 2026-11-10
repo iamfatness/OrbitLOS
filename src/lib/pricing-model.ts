@@ -89,7 +89,7 @@ export interface PricingOffer {
 
 export interface PricingResult {
   provider: string;
-  mode: "mock" | "stage";
+  mode: "mock" | "stage" | "manual";
   reference: string | null;
   offers: PricingOffer[];
   notices: string[];
@@ -97,7 +97,7 @@ export interface PricingResult {
 }
 
 export function supportsManualOffers(run: Pick<PricingResult, "mode" | "outcome"> | undefined) {
-  return run?.mode === "mock" || run?.outcome === "unsupported";
+  return run?.mode === "mock" || run?.mode === "manual" || run?.outcome === "unsupported";
 }
 
 export interface PricingRun extends PricingResult {
