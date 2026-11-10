@@ -791,3 +791,9 @@ On November 10, 2026, Worker `0d06b6e1-53ba-4099-a106-093e0409ae31` from `bf12a7
 Staff saw the accepted profile version and answers in Lead Inbox. They selected occupancy and created the 1003. The live borrower draft showed Investment property and left the requested amount empty. Loan Activity showed the original sample amount, the accepted profile version, and the staff member's prefill decision.
 
 All 344 tests, lint, typecheck, the production Worker build, and the working-day and concurrency rehearsals passed. The built Worker rejected an unassigned officer's conversion and preserved the accepted receipt after profile retirement. Public Product and Demo returned 200 with the new copy. The executive brokerage was outside this rehearsal, and provider actions remained mocked.
+
+## Current release CTO walkthrough with a reopened condition
+
+The [November 10 current release rehearsal](executive-rehearsal.md#november-10-current-release-rehearsal) exercised the current hosted Worker `0d06b6e1-53ba-4099-a106-093e0409ae31` from a fresh fictional pilot. The two-row CSV, 1003 review, mock pricing, both sample PDFs, closing, funding, and the repeat refinance reached **7 / 7**. The scorecard opened at **3:58** and Casey's new borrower draft showed the confirmed property at **5:01**, including browser observations and excluding narration and sign-in.
+
+On the same file, reopening Income blocked Record closing and gave the borrower a replacement request. The realtor's **Refresh referrals** showed Closing on hold without the document details. The same refresh showed Clear to Close after the replacement cleared. The funded campaign drilldown opened Jordan's closing workbench. The owner scorecard and the rate-watch refinance used separate records, and all provider activity remained fictional. The public landing, Product, and Demo routes returned HTTP 200.

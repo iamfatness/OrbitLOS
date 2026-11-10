@@ -1,6 +1,6 @@
 # OrbitLOS executive walkthrough
 
-Open the [campaign guide](https://orbitlos.com/workspace?guide=campaign) with a signed-in admin. Create a fresh fictional pilot, set up the campaign, and load the realtor and rate-watch examples. Download the rehearsal CSV if you want to show the actual upload. Keep the staff and borrower tabs open together. Credit, pricing, lender delivery, and document handling use demo results.
+Open the [campaign guide](https://orbitlos.com/workspace?guide=campaign) with a signed-in admin. Select **Create guided pilot** or **Start in a fresh pilot**, then **Set up campaign rehearsal** and **Load realtor and rate-watch examples**. Have the rehearsal CSV ready to upload. Keep the staff and borrower tabs open together. Credit, pricing, lender delivery, and document handling use demo results.
 
 ## Presenter run sheet
 
@@ -17,6 +17,8 @@ The solo route has one available officer. Jordan is assigned to the admin and Ca
 
 Close with **Open Brokerage Owner Scorecard** at the bottom of the campaign guide. Click the funded count for the demo campaign to open Jordan's loan. The same view shows current overdue follow-ups and open conditions, along with projected and recorded funding for the selected dates.
 
+For the lender exception beat, open **Conditions** after the file reaches Clear to Close. On **Income**, expand **Simulate reopening (mock)** and confirm. In **Closing**, show **Record closing** disabled and use **Open reopened condition**. The borrower receives the replacement request in the open checklist. In the realtor tab, select **Refresh referrals** to show **Closing on hold**. After accepting, mock-sending, and clearing the replacement, select **Refresh referrals** again to show the return to Clear to Close. This can be shown on the same file or on a prepared sample if presentation time is tight.
+
 The live two-officer check used three fictional CSV rows and a one-lead cap per officer. Each officer received one lead and the third stayed shared. In **Call Campaigns → Unassigned**, show both caps and **0 open slots**, then use **Assign this lead**. The receiving officer can open that exact lead from **Today → Next 7 days** with the original deadline.
 
 ## Prepared CTO examples
@@ -30,6 +32,23 @@ For the manual path, choose **Fictional Wholesale · Registration v1** in **1003
 For the CTO's exception question, use a separate fictional loan with a cleared condition. Open **Conditions → Mock UWM delivery timeline** and select a cleared document condition. **Replay older and duplicate updates** shows the previous open update being ignored and the duplicate clearance being recognized. The condition remains cleared. Open its exact row from the timeline. The same view shows the 1003 revision and the original document receipts.
 
 Sign in with the intended presenter account before starting the timer. Verify the campaign, browser tabs, and both prepared examples are visible to that account. Use sample data throughout. Describe provider results and signatures as simulations.
+
+## November 10 current release rehearsal
+
+The fresh signed-in fictional pilot ran on Worker `0d06b6e1-53ba-4099-a106-093e0409ae31`. Starting with **Start in a fresh pilot**, the campaign reached **7 / 7** and opened the Owner Scorecard by **3:58**. Casey's separate refinance was opened and its property was verified in the borrower tab by **5:01**. Timing includes setup, the actual CSV upload, browser observations, and the mock reopening and replacement. It excludes sign-in and narration.
+
+| Checkpoint | Elapsed |
+| --- | --- |
+| Two-row CSV imported | 0:23 |
+| Fictional 1003 reviewed | 0:46 |
+| Mock UWM file and conditions opened | 1:15 |
+| Initial clearance and Clear to Close | 2:10 |
+| Reopened Income cleared and realtor status restored | 3:20 |
+| Closing and sample funding recorded | 3:26 |
+| Scorecard opened after the separate repeat refinance | 3:58 |
+| Casey's separate rate-watch refinance showed the confirmed property | 5:01 |
+
+The scorecard showed **2 leads, 1 submitted 1003, and 1 funded loan**, with **$360,000** recorded and a funded drilldown to Jordan's closing workbench. The borrower and staff application/document handoffs arrived without a page reload. The realtor view needed **Refresh referrals** for the hold and recovery. The run used the existing QA admin session in a fresh pilot, with separate borrower and realtor tabs. It did not exercise a new sign-in or an assigned processor.
 
 ## CTO rehearsal on the disclosure release
 
