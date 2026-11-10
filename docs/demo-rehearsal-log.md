@@ -863,3 +863,11 @@ On November 10, 2026, Worker `2ac3ad8e-aeb5-4b53-b82e-464059f80199` from `a38899
 The built Worker verified that the assigned LO downloaded the exact converted loan, the other LO received a header-only file, and cross-brokerage, revoked field sharing, and archived filters rejected export. SQLite tests checked multi-page parity, saved columns, date and revision checks, formula-safe escaping, audit attribution, and the 2,000-row limit. All 356 tests, lint, typecheck, the production build, and both Worker rehearsals passed.
 
 Both staged public pages displayed the updated CSV copy and all 44 assets matched twice. Public landing, Product, and Demo returned HTTP 200 after promotion. Provider workflows stayed mocked.
+
+## Loan fields and production reporting
+
+On November 10, 2026, Worker `fd09b134-5918-45e3-afe2-46e2428b6dfc` from `080ce11` served custom fields on individual loan files. In the live fictional brokerage, an admin created **QA closing priority**, set **Rush** on Jordan's funded purchase, and confirmed the value was blank on Jordan's separate refinance. The filtered production report showed one file, one submitted 1003, and one funding. The Files created drilldown opened the purchase, and its downloaded CSV contained exactly that purchase. The existing campaign guide still opened the Owner Scorecard.
+
+The built Worker allowed the assigned processor to edit the field, showed it as read-only to the LO, and omitted it from the borrower response. A competing LO received zero matching rows. Revoking processor view access removed both the field and export access. SQLite tests covered legacy field definitions, per-file separation, field permissions, the production and segment filter boundaries, and value cleanup on deletion. Loan-field settings and values use separate tables so the preceding release cannot edit their definitions. All 357 tests, lint, typecheck, the production build, and both Worker rehearsals passed.
+
+Both staged public pages displayed the loan field copy and all 44 assets matched twice. Public landing, Product, and Demo returned HTTP 200 after promotion. All provider workflows remained mocked.
