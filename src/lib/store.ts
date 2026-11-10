@@ -244,6 +244,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       issuedAt TEXT, supersededAt TEXT, reviewReason TEXT,
       PRIMARY KEY (loanId, version)
     );
+    CREATE TABLE IF NOT EXISTS mock_uwm_acceptances (
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL, attemptedAt TEXT NOT NULL, reference TEXT NOT NULL, receipt TEXT NOT NULL,
+      reconciledAt TEXT, PRIMARY KEY (loanId, revision)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS mock_uwm_one_pending_acceptance ON mock_uwm_acceptances(loanId) WHERE reconciledAt IS NULL;
     CREATE TABLE IF NOT EXISTS communication_drafts (${communicationDraftColumns});
     CREATE TABLE IF NOT EXISTS past_client_profiles (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,

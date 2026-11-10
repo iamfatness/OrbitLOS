@@ -16,10 +16,11 @@ registerHooks({
 
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { initializeStore, insertContact, insertLoan, insertSubmission } = await import("../src/lib/store.ts");
-const { borrowerCommandResult } = await import("../src/lib/applications.ts");
+const { borrowerCommandResult, loanActionApplications } = await import("../src/lib/applications.ts");
 const { applicationIssues, blankApplication, sampleApplication } = await import("../src/lib/application-model.ts");
 const { zipCityState } = await import("../src/lib/zip-city-state.ts");
 const { blankLenderDetails } = await import("../src/lib/urla.ts");
+const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 
 test("sample application answers preserve the property ZIP and its locality from intake", () => {
   const draft = blankApplication();
@@ -103,10 +104,31 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.match((await command("recordManualHandoff", { ...acknowledgment, lenderRevision: 1 })).error, /new handoff entry/);
   await apply("exportReviewedApplication", { ...manualExport, lenderRevision: 1, eventId: crypto.randomUUID() });
   await apply("recordManualHandoff", { ...acknowledgment, lenderRevision: 1, eventId: crypto.randomUUID() });
-  const firstSend = await apply("sendApplication", { revision: first.revision });
+  const pending = await apply("simulateMissingUwmReceipt", { revision: first.revision });
+  assert.equal(pending.submissions.length, 0);
+  assert.equal(pending.applications[0].uwmReference, null);
+  assert.equal(pending.applications[0].uwmPendingReceipt.revision, first.revision);
+  assert.deepEqual(loanActionApplications(db, [loanId])[0].uwmPendingReceipt, pending.applications[0].uwmPendingReceipt);
+  const queued = () => readOfficerQueue(db, { horizon: 7 }, staff, staff.brokerage.id).items
+    .filter(({ id }) => id.startsWith("uwm-receipt:"));
+  assert.equal(queued().length, 1);
+  assert.equal(queued()[0].target, "loan-application");
+  assert.match((await command("sendApplication", { revision: first.revision })).error, /missing submission receipt/);
+  assert.match((await command("simulateMissingUwmReceipt", { revision: first.revision })).error, /missing submission receipt/);
+  assert.match((await command("requestApplicationCorrection", { revision: first.revision, note: "Fictional correction" })).error, /Recover/);
+  assert.match((await command("completeTask", { id: queued()[0].id, completed: true })).error, /missing receipt/);
+  assert.ok((await command("reconcileMockUwmReceipt", { revision: first.revision + 1 })).error);
+  const acceptance = db.prepare("SELECT reference, receipt, attemptedAt FROM mock_uwm_acceptances WHERE loanId = ?").get(loanId);
+  const firstSend = await apply("reconcileMockUwmReceipt", { revision: first.revision });
+  assert.equal(queued().length, 0);
+  assert.equal(firstSend.applications[0].uwmPendingReceipt, undefined);
+  const recoveredAgain = await apply("reconcileMockUwmReceipt", { revision: first.revision });
+  assert.deepEqual(recoveredAgain.submissions, firstSend.submissions);
+  assert.deepEqual(recoveredAgain.uwmAlerts, firstSend.uwmAlerts);
   const file = firstSend.submissions[0];
   const firstReceipt = firstSend.applications[0].versions.find((item) => item.revision === first.revision).uwmReceipt;
-  assert.ok(firstReceipt.reference);
+  assert.equal(file.externalId, acceptance.reference);
+  assert.deepEqual(firstReceipt, { reference: acceptance.receipt, sentAt: acceptance.attemptedAt });
   const retry = await apply("sendApplication", { revision: first.revision });
   assert.deepEqual(retry.applications[0].versions[0].uwmReceipt, firstReceipt);
   assert.deepEqual(retry.uwmAlerts, firstSend.uwmAlerts);
@@ -205,6 +227,16 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.ok(cancelled.mockUwmRates[0].lockCancellationReference);
   assert.deepEqual(cancelled.mockUwmRates[0].quoteTerms, locked.quoteTerms);
   assert.equal(cancelled.sharedQuoteHistory[0].runId, original.id);
+  const revised = read();
+  const third = submit(revised.revision, { ...revised.draft, confirmedDemo: true });
+  await apply("reviewApplication", { revision: third.revision });
+  const beforeRecovery = await apply("simulateMissingUwmReceipt", { revision: third.revision });
+  const recoveredRevision = await apply("reconcileMockUwmReceipt", { revision: third.revision });
+  assert.equal(recoveredRevision.applications[0].uwmReference, file.externalId);
+  assert.deepEqual(recoveredRevision.submissions, beforeRecovery.submissions);
+  assert.deepEqual(recoveredRevision.uwmAlerts, beforeRecovery.uwmAlerts);
+  assert.equal(recoveredRevision.applications[0].versions.filter((version) => version.uwmReceipt).length, 3);
+  assert.equal(queued().length, 0);
   await apply("revokeApplication", { token });
   assert.equal(borrowerCommandResult(db, { type: "status", token }).status, 404);
 

@@ -31,7 +31,8 @@ function loanHandoffVersion(db: Store, loanId: string) {
   const joint = db.prepare("SELECT submittedAt, primarySubmittedAt, revokedAt, expiresAt FROM joint_applications WHERE loanId = ?").get(loanId);
   const processing = db.prepare("SELECT revision FROM loan_processing WHERE loanId = ?").get(loanId);
   const disclosure = db.prepare("SELECT version, revision FROM disclosure_packages WHERE loanId = ? ORDER BY version DESC LIMIT 1").get(loanId);
-  return createHash("sha256").update(JSON.stringify([application, documents, joint, processing, disclosure])).digest("hex");
+  const uwmAcceptance = db.prepare("SELECT revision, reconciledAt FROM mock_uwm_acceptances WHERE loanId = ? ORDER BY revision DESC LIMIT 1").get(loanId);
+  return createHash("sha256").update(JSON.stringify([application, documents, joint, processing, disclosure, uwmAcceptance])).digest("hex");
 }
 
 export function readLoanHandoff(db: Store, loanId: unknown, knownVersion: unknown, staff: WorkspaceStaff | null, brokerageId: string) {

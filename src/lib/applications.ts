@@ -28,7 +28,8 @@ import { borrowerDisclosureResponse } from "./disclosure-model";
 import { readBorrowerDisclosure, respondToBorrowerDisclosure } from "./disclosures";
 import { loanOutreachSuppressed } from "./outreach-preferences";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
+type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" |
+  "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
 export function getApplication(db: Store, loanId: string) {
@@ -58,9 +59,12 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     handoffs.set(loanId, handoff);
   }
   return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved,
+    pending.revision AS pendingRevision, pending.attemptedAt AS pendingAttemptedAt,
     ${lastManualLenderSubmission} AS lastManualSubmissionId
-    FROM applications app${filter}`).all(...args).map((value) => {
-    const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null };
+    FROM applications app LEFT JOIN mock_uwm_acceptances pending ON pending.loanId = app.loanId AND pending.reconciledAt IS NULL
+    ${loanId ? "WHERE app.loanId = ?" : ""}`).all(...args).map((value) => {
+    const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null;
+      pendingRevision: number | null; pendingAttemptedAt: string | null };
     const draft = JSON.parse(row.draft);
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
       ORDER BY reviewedAt IS NOT NULL DESC, revision DESC LIMIT 1`).get(row.loanId, row.revision);
@@ -76,6 +80,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, secondReviewApproved: Boolean(row.secondReviewApproved), uwmReference: row.uwmReference,
+      ...(row.pendingRevision !== null && row.pendingAttemptedAt ? { uwmPendingReceipt: { revision: row.pendingRevision, attemptedAt: row.pendingAttemptedAt } } : {}),
       draft: row.submittedAt ? applicationDraft.parse(draft) : null,
       ...(!row.submittedAt && typeof draft?.propertyAddress === "string" && draft.propertyAddress.trim()
         ? { draftHasPropertyStreet: true } : {}),
@@ -90,10 +95,11 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
 }
 
 type ActionApplication = LoanNextActionState["applications"][number] & { requestedAmount: number | null };
-type ActionApplicationRow = Omit<ActionApplication, "versions" | "secondReviewApproved" | "lastManualSubmissionId" | "requestedAmount"> & {
+type ActionApplicationRow = Omit<ActionApplication, "versions" | "secondReviewApproved" | "lastManualSubmissionId" | "requestedAmount" | "uwmPendingReceipt"> & {
   requestedAmount: string | null;
   secondReviewApproved: number; uwmReceipt: string | null; uwmSentAt: string | null;
   manualSubmissionId: string | null; exportPrepared: number; lastManualSubmissionId: string | null;
+  pendingRevision: number | null; pendingAttemptedAt: string | null;
 };
 
 export function loanActionApplications(db: Store, loanIds: string[]): ActionApplication[] {
@@ -103,15 +109,21 @@ export function loanActionApplications(db: Store, loanIds: string[]): ActionAppl
     CASE WHEN app.submittedAt IS NOT NULL AND coalesce(app.correctionNote, '') = '' THEN json_extract(app.draft, '$.loanAmount') END AS requestedAmount,
     ${approvedSecondReview} AS secondReviewApproved, version.uwmReceipt, version.uwmSentAt,
     ${currentManualLenderSubmission} AS manualSubmissionId, ${currentManualExportPrepared} AS exportPrepared,
-    ${lastManualLenderSubmission} AS lastManualSubmissionId
+    ${lastManualLenderSubmission} AS lastManualSubmissionId,
+    pending.revision AS pendingRevision, pending.attemptedAt AS pendingAttemptedAt
     FROM applications app LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
+    LEFT JOIN mock_uwm_acceptances pending ON pending.loanId = app.loanId AND pending.reconciledAt IS NULL
     WHERE app.loanId IN (SELECT value FROM json_each(?))`).all(JSON.stringify(loanIds)) as unknown as ActionApplicationRow[];
-  return rows.map(({ secondReviewApproved, uwmReceipt, uwmSentAt, manualSubmissionId, exportPrepared, lastManualSubmissionId, ...app }) => ({
+  return rows.map(({ secondReviewApproved, uwmReceipt, uwmSentAt, manualSubmissionId, exportPrepared,
+    lastManualSubmissionId, pendingRevision, pendingAttemptedAt, ...app }) => ({
     ...app, requestedAmount: requestedLoanAmount(app.requestedAmount), secondReviewApproved: Boolean(secondReviewApproved),
     versions: typeof uwmReceipt === "string" && typeof uwmSentAt === "string"
       ? [{ revision: app.revision, uwmReceipt: { reference: uwmReceipt, sentAt: uwmSentAt } }] : [],
     ...(manualSubmissionId ? { manualHandoff: { outcome: "Acknowledged", submissionId: manualSubmissionId, exportPrepared: Boolean(exportPrepared) } } : {}),
     ...(lastManualSubmissionId ? { lastManualSubmissionId } : {}),
+    ...(pendingRevision !== null && pendingAttemptedAt ? {
+      uwmPendingReceipt: { revision: pendingRevision, attemptedAt: pendingAttemptedAt },
+    } : {}),
   }));
 }
 

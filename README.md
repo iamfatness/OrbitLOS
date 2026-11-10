@@ -187,6 +187,10 @@ Open the issued package on the borrower’s existing application link. Each link
 
 Edit the selected quote’s fee worksheet after preparing a package. **Today** shows a review task that opens **Disclosures**, where staff can compare the changed amounts and prepare a revised package. A revised package closes the review task and starts with pending signers. Earlier documents, fee estimates, and responses remain in the package history.
 
+## Rehearse a missing mock lender receipt
+
+On an active fictional loan with a reviewed 1003, open **1003 → Rehearse a missing mock UWM acknowledgment** and simulate the missing receipt. In **Today**, open **Check mock UWM submission receipt**. Select **Check mock UWM for receipt** to recover the original acknowledgment and open its conditions. The receipt stays tied to the reviewed 1003 version, and recovering it closes the task.
+
 ## Rehearse a brokerage migration
 
 1. As an admin in a fictional pilot brokerage, open **Migration**. Load the sample CSV or download the template. A lead can point to a contact's external ID. Each note or task points to a lead's external ID. Use active brokerage staff email addresses to assign owners, or leave them blank for the shared inbox.

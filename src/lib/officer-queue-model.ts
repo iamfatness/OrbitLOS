@@ -2,6 +2,7 @@ import { z } from "zod";
 import { conversationCursor, type ConversationReplyPage } from "./conversation-model";
 import { fundingCheckInTarget } from "./loan-workflow";
 import { disclosureTarget } from "./disclosure-model";
+import { mockUwmReceiptTaskPrefix } from "./uwm-handoff-recovery";
 import type { Contact, ContactActivity } from "./model";
 import type { DueSequenceStep } from "./campaign-sequence-model";
 
@@ -107,7 +108,8 @@ export function queueActionLabel(item: OfficerQueueItem) {
     case "lock": return "Open pricing";
     case "funding": return item.target === fundingCheckInTarget ? "Record check-in" : item.completedAt ? "Open loan" : "Preview draft";
     case "loan": return item.target === fundingCheckInTarget ? "Record check-in" :
-      item.target === disclosureTarget ? "Open disclosures" : "Open loan task";
+      item.target === disclosureTarget ? "Open disclosures" :
+        item.id.startsWith(mockUwmReceiptTaskPrefix) ? "Open UWM receipt review" : "Open loan task";
     case "loan-hold": return "Open loan hold";
     default: return "Open closing";
   }

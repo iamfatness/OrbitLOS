@@ -6,6 +6,7 @@ import type { BrokerageRole } from "./brokerage-model";
 import { secondReviewBlocker } from "./application-model";
 import { loanReviewsTarget } from "./loan-review-model";
 import { disclosureTarget, disclosureTask } from "./disclosure-model";
+import { mockUwmReceiptTaskPrefix } from "./uwm-handoff-recovery";
 
 export const workFilters = ["Overdue", "Stalled", "Unassigned", "Paused or ended"] as const;
 export type WorkFilter = (typeof workFilters)[number];
@@ -15,7 +16,7 @@ export const stalledLoanCutoff = (now: number) => now - stalledLoanDays * day;
 
 type LoanActionRecord = Pick<Loan, "id" | "stage" | "contactId" | "officer" | "disposition" | "dispositionReason" | "revisitDate">;
 export type LoanNextActionState = {
-  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "correctionNote" | "manualHandoff" | "lastManualSubmissionId" | "joint"> & {
+  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "uwmPendingReceipt" | "correctionNote" | "manualHandoff" | "lastManualSubmissionId" | "joint"> & {
     versions: Pick<Workspace["applications"][number]["versions"][number], "revision" | "uwmReceipt">[];
   })[];
   contacts: Pick<Workspace["contacts"][number], "id" | "outreachSuppressed">[];
@@ -58,7 +59,7 @@ export function isStalledLoan(loan: Pick<Loan, "disposition" | "stage" | "stageS
 export function loanTaskTarget(id: string, readOnly = false) {
   if (disclosureTask(id)) return disclosureTarget;
   if (id.startsWith("first-contact:") || id.startsWith("outreach:")) return "loan-activity";
-  if (id.startsWith("application-")) return "loan-application";
+  if (id.startsWith("application-") || id.startsWith(mockUwmReceiptTaskPrefix)) return "loan-application";
   if (id.startsWith("rate-watch:") || id.startsWith("closing-anniversary:")) return "loan-retention";
   const audience = fundingTaskAudience(id);
   if (audience) return audience === "Borrower" && !readOnly ? fundingCheckInTarget : "loan-communications";
@@ -78,7 +79,7 @@ export function closingReviewReady(loan: Pick<Loan, "id" | "stage" | "dispositio
     state.closingProgress.some((item) => item.loanId === loan.id && item.fundingDate) ||
     state.loanProcessing.some((item) => item.loanId === loan.id && item.processorEmail && item.status !== "Complete")) return false;
   const application = state.applications.find((item) => item.loanId === loan.id);
-  if (!application?.submittedAt || !application.reviewedAt || application.correctionNote) return false;
+  if (!application?.submittedAt || !application.reviewedAt || application.correctionNote || application.uwmPendingReceipt) return false;
   const submissions = state.submissions.filter((item) => item.loanId === loan.id);
   if (submissions.some((item) => item.conditions.some(({ satisfiedAt }) => !satisfiedAt)) ||
     state.documentRequests.some((item) => item.loanId === loan.id && item.status !== "Accepted")) return false;
@@ -123,6 +124,11 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
   };
   if (application?.submittedAt && !application.reviewedAt) return {
     title: "Review submitted 1003", target: "loan-application", dueAt: afterHours(application.submittedAt, state.playbook.reviewHours), blocker: null,
+  };
+  if (!pastClient && application?.uwmPendingReceipt) return {
+    title: role === "Processor" ? "Await mock UWM receipt review" : "Check mock UWM submission receipt",
+    target: "loan-application", dueAt: application.uwmPendingReceipt.attemptedAt,
+    blocker: role === "Processor" ? loan.officer : "Lender response pending",
   };
   const currentReceipt = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
   const manualReceipt = application?.manualHandoff?.outcome === "Acknowledged" && state.submissions.find((item) =>

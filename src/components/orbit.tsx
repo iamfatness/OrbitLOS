@@ -75,6 +75,7 @@ import { leadDocumentsUnavailable, type LeadDocumentLocation } from "@/lib/lead-
 import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
+import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 
 type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
@@ -1401,7 +1402,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
                   context={task.id.startsWith("rate-watch:") ? rateFollowUpContext(state.pastClients.find((profile) => profile.loanId === loan.id)) : undefined}
                   openLoan={() => disclosureTask(task.id) ? void openQueueLoan({ kind: "details", loanId: loan.id, target: disclosureTarget }) :
                     show({ kind: "details", loanId: loan.id, target: loanTaskTarget(task.id, processor || Boolean(task.completedAt)) })}
-                  onChange={disclosureTask(task.id) || task.id.startsWith(reversedFundingTaskPrefix) || (task.completedAt && isApplicationReviewTask(task.id)) ? undefined :
+                  onChange={disclosureTask(task.id) || task.id.startsWith(mockUwmReceiptTaskPrefix) || task.id.startsWith(reversedFundingTaskPrefix) ||
+                    (task.completedAt && isApplicationReviewTask(task.id)) ? undefined :
                     () => void save({ type: "completeTask", id: task.id, completed: !task.completedAt })} />;
               })}
             </ul> : <p className="empty-inline no-matches">{visibleReferrals.length || visibleUwmAlerts.length || incomingLeadTasks.length || importedLeadTasks.length || visibleProcessing.length || visiblePlaybook.length || visibleContactFollowUps.length || (taskView !== "Completed" && focusedLoans.length)

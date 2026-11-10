@@ -161,7 +161,8 @@ export function DemoGuide(props: DemoGuideProps) {
       title: "Price the reviewed 1003 and submit to mock UWM",
       description: "Run mock credit and choose Price with mock score. Pricing carries over the property ZIP and loan details from the 1003. Run pricing, save a quote, and send the file to mock UWM.",
       done: Boolean(quote && currentApplicationSent),
-      action: loan && application?.reviewedAt && (quote ?
+      action: loan && application?.reviewedAt && (application.uwmPendingReceipt ?
+        <Button size="sm" onClick={() => open(loan.id, "loan-application")}>Open UWM receipt review</Button> : quote ?
         !currentApplicationSent && state.playbook.requireSecondReview && !application.secondReviewApproved ?
           <Button size="sm" onClick={() => open(loan.id, loanReviewsTarget)}>Open required second review</Button> :
         quoteAmountIssue ? <Button size="sm" onClick={() => openPricing(loan.id)}>Review quote amount</Button> :
@@ -428,7 +429,9 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
           "Check Confirm mock credit authorization, run mock credit, and choose Price with mock score. Save a quote and open the MISMO export. Download the file, then record the simulated acknowledgment in the same panel.") :
         "Check Confirm mock credit authorization, run mock credit, and choose Price with mock score. Run pricing, save a quote, and choose Send reviewed 1003 to mock UWM to open the lender checklist.",
       done: manual ? manualReady : Boolean(priced && sent),
-      action: loan && application?.reviewedAt && (!priced ? pricingAction : reviewBlocker ? openRequiredReview : manual ? !manualSubmission &&
+      action: loan && application?.reviewedAt && (!manual && application.uwmPendingReceipt ?
+        <Button size="sm" onClick={() => open(loan.id, "loan-application", campaignLender)}>Open UWM receipt review</Button> :
+        !priced ? pricingAction : reviewBlocker ? openRequiredReview : manual ? !manualSubmission &&
         <Button size="sm" onClick={() => open(loan.id, "manual-lender-export", "manual")}>Open manual MISMO handoff</Button> :
         !sent && (quoteAmountIssue ? <Button size="sm" onClick={() => openPricing(loan.id, campaignLender)}>Review quote amount</Button> :
         <Button size="sm" disabled={busy} onClick={() => void save({

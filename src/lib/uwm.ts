@@ -8,6 +8,7 @@ import { reopenedMockUwmAtSql } from "./processing-conditions";
 import { requestedLoanAmount } from "./application-model";
 import { pricingInputError } from "./income-review-freshness";
 import { mockUwmAmountMismatch } from "./pricing-model";
+import { closeMockUwmAcceptance, pendingMockUwmAcceptance, saveMockUwmAcceptance } from "./uwm-handoff-recovery";
 
 // The shapes used by the Insights Loans query and the single-loan conditions endpoint.
 interface InsightsLoan {
@@ -214,7 +215,14 @@ function mockApplicationConditions(reference: string, receivedAt: string) {
 
 // Called inside the workspace transaction after LO review. The mock import
 // acknowledgment and its condition snapshot are recorded together.
-export function submitMockApplication(db: Store, loanId: string, revision: number, now: string, quote?: { runId: string; offerId: string }) {
+export function submitMockApplication(db: Store, loanId: string, revision: number, now: string, quote?: { runId: string; offerId: string },
+  loseAcknowledgment = false) {
+  if (pendingMockUwmAcceptance(db, loanId)) {
+    return { error: "Check mock UWM for the missing submission receipt before sending again." } as const;
+  }
+  if (loseAcknowledgment && !db.prepare("SELECT 1 FROM loans WHERE id = ? AND disposition = 'Active' AND stage NOT IN ('Funded', 'Closed')").get(loanId)) {
+    return { error: "Open an active, unfunded loan to rehearse a missing UWM receipt." } as const;
+  }
   const application = getApplication(db, loanId);
   const saved = savedPricingRun(db, loanId);
   if (quote) {
@@ -243,13 +251,26 @@ export function submitMockApplication(db: Store, loanId: string, revision: numbe
     const mismatch = mockUwmAmountMismatch(saved.quotedAmount, requestedLoanAmount(JSON.parse(application.draft).loanAmount));
     if (mismatch) return { error: mismatch } as const;
   }
-  if (!existingReference) {
-    if (db.prepare("SELECT 1 FROM submissions WHERE loanId = ? AND lender = 'UWM'").get(loanId)) {
-      return { error: "This loan already has a separate UWM submission. Use a loan without a UWM file for a first mock handoff." } as const;
-    }
+  if (!existingReference && db.prepare("SELECT 1 FROM submissions WHERE loanId = ? AND lender = 'UWM'").get(loanId)) {
+    return { error: "This loan already has a separate UWM submission. Use a loan without a UWM file for a first mock handoff." } as const;
+  }
+  const receipt = `DEMO-1003-${crypto.randomUUID().toUpperCase()}`;
+  if (loseAcknowledgment) {
+    saveMockUwmAcceptance(db, { loanId, revision, attemptedAt: now, reference, receipt });
+    addApplicationActivity(db, loanId, `Mock UWM acknowledgment missing for 1003 revision ${revision}. Check for a receipt before sending again.`, now);
+    return { action: "unknown" } as const;
+  }
+  recordMockApplicationReceipt(db, application, reference, receipt, now, now);
+  return { reference, receipt, action: existingReference ? "revision" : "initial" } as const;
+}
+
+function recordMockApplicationReceipt(db: Store, application: NonNullable<ReturnType<typeof getApplication>>, reference: string, receipt: string,
+  receivedAt: string, now: string) {
+  const { loanId, revision, submittedAt } = application;
+  if (!application.uwmReference && submittedAt) {
     const submission = {
       id: crypto.randomUUID(), loanId, lender: "UWM", externalId: reference,
-      status: approvedWithConditions, conditions: mockApplicationConditions(reference, application.submittedAt), syncedAt: now,
+      status: approvedWithConditions, conditions: mockApplicationConditions(reference, submittedAt), syncedAt: now,
     };
     insertSubmission(db, submission);
     recordUwmAlerts(db, submission, null, now);
@@ -258,11 +279,34 @@ export function submitMockApplication(db: Store, loanId: string, revision: numbe
   }
 
   saveApplicationVersion(db, application);
-  const receipt = `DEMO-1003-${crypto.randomUUID().toUpperCase()}`;
   db.prepare("UPDATE application_versions SET uwmReceipt = ?, uwmSentAt = ? WHERE loanId = ? AND revision = ?")
-    .run(receipt, now, loanId, revision);
+    .run(receipt, receivedAt, loanId, revision);
   addApplicationActivity(db, loanId, `Mock UWM received 1003 revision ${revision} · File ${reference} · Receipt ${receipt}`, now);
-  return { reference, receipt, action: existingReference ? "revision" : "initial" } as const;
+}
+
+export function reconcileMockApplicationReceipt(db: Store, loanId: string, revision: number, now: string) {
+  const pending = pendingMockUwmAcceptance(db, loanId);
+  if (!pending) {
+    const completed = db.prepare(`SELECT accepted.reference, accepted.receipt FROM mock_uwm_acceptances accepted
+      JOIN application_versions version ON version.loanId = accepted.loanId AND version.revision = accepted.revision AND version.uwmReceipt = accepted.receipt
+      WHERE accepted.loanId = ? AND accepted.revision = ? AND accepted.reconciledAt IS NOT NULL`).get(loanId, revision);
+    if (completed) return { reference: String(completed.reference), receipt: String(completed.receipt), alreadyReconciled: true } as const;
+  }
+  const application = getApplication(db, loanId);
+  if (!pending || pending.revision !== revision || application?.revision !== revision || !application.reviewedAt || !application.submittedAt) {
+    return { error: "There is no matching pending mock UWM receipt for this 1003 revision." } as const;
+  }
+  const fileMismatch = application.uwmReference
+    ? application.uwmReference !== pending.reference || !db.prepare(`SELECT 1 FROM submissions
+      WHERE loanId = ? AND lender = 'UWM' AND externalId = ? AND syncedAt IS NOT NULL`).get(loanId, pending.reference)
+    : !!db.prepare("SELECT 1 FROM submissions WHERE loanId = ? AND lender = 'UWM'").get(loanId);
+  if (fileMismatch) {
+    return { error: "The current UWM file does not match the pending receipt. Review the lender submission first." } as const;
+  }
+  recordMockApplicationReceipt(db, application, pending.reference, pending.receipt, pending.attemptedAt, now);
+  closeMockUwmAcceptance(db, loanId, revision, now);
+  addApplicationActivity(db, loanId, `Recovered the original mock UWM receipt for revision ${revision} without another submission.`, now);
+  return { reference: pending.reference, receipt: pending.receipt } as const;
 }
 
 type UwmFile = { loan: InsightsLoan; conditions: Condition[] };

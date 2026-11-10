@@ -13,8 +13,9 @@ import { carriedCallbacks, recordCarriedCallback, rescheduleCarriedCallback } fr
 import { leadWorkUnavailable, type CampaignMutationResult, type CampaignNavigationResult, type CampaignQueueResult, type LeadMutationResult } from "./lead-work-model";
 import { readEditableLoan } from "./editable-loan";
 import type { LoanMutationResult } from "./loan-work-model";
-import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
+import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, reconcileMockApplicationReceipt, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
+import { mockUwmReceiptTaskPrefix, pendingMockUwmAcceptance } from "./uwm-handoff-recovery";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
 import { manualHandoffNeedsApproval, manualHandoffOutcomes, requestedLoanAmount, reusablePropertyAddress } from "./application-model";
 import { handoffCheckpointError } from "./application-review-checkpoint";
@@ -305,6 +306,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
   z.object({ type: z.literal("sendApplication"), loanId: id, revision: z.number().int().nonnegative(),
     quote: z.object({ runId: id, offerId: id }).optional() }),
+  z.object({ type: z.literal("simulateMissingUwmReceipt"), loanId: id, revision: z.number().int().nonnegative(),
+    quote: z.object({ runId: id, offerId: id }).optional() }),
+  z.object({ type: z.literal("reconcileMockUwmReceipt"), loanId: id, revision: z.number().int().nonnegative() }),
   updateProcessingInput,
 ]);
 
@@ -477,6 +481,8 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "prepareDisclosurePackage":
     case "issueDisclosurePackage":
     case "respondToDisclosurePackage":
+    case "simulateMissingUwmReceipt":
+    case "reconcileMockUwmReceipt":
     case "applyDocumentPreset":
     case "applyDocumentTemplate":
     case "sendConditionDocument":
@@ -1485,6 +1491,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const task = db.prepare("SELECT loanId, title, completedAt, purpose FROM tasks WHERE id = ?").get(data.id);
           if (!task) throw new WorkspaceError("This task no longer exists.");
           if (disclosureTask(data.id)) throw new WorkspaceError("Open the disclosure workbench to resolve this task.");
+          if (data.id.startsWith(mockUwmReceiptTaskPrefix)) throw new WorkspaceError("Check mock UWM for the missing receipt to resolve this task.");
           if (data.id.startsWith(reversedFundingTaskPrefix)) throw new WorkspaceError("This completed task belongs to a reversed funding entry.");
           message = data.completed ? "Task completed." : "Task reopened.";
           if (data.completed !== Boolean(task.completedAt)) {
@@ -1646,6 +1653,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "requestApplicationCorrection": {
+          if (pendingMockUwmAcceptance(db, data.loanId)) throw new WorkspaceError("Recover the missing mock UWM receipt before reopening the 1003.");
           const coBorrower = data.recipient === "Co-borrower";
           const joint = jointApplication(db, data.loanId);
           if (coBorrower && (!joint?.submittedAt || !joint.primarySubmittedAt || data.lenderReturn)) {
@@ -1689,13 +1697,31 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = "Lender details saved.";
           break;
         }
-        case "sendApplication": {
-          const result = submitMockApplication(db, data.loanId, data.revision, now, data.quote);
+        case "sendApplication":
+        case "simulateMissingUwmReceipt": {
+          const loseAcknowledgment = data.type === "simulateMissingUwmReceipt";
+          if (loseAcknowledgment && !isDemoStaff(staff) && !staff?.brokerage.pilot) {
+            throw new WorkspaceError("The missing receipt rehearsal is available in fictional workspaces.");
+          }
+          const result = submitMockApplication(db, data.loanId, data.revision, now, data.quote, loseAcknowledgment);
           if ("error" in result) throw new WorkspaceError(result.error);
+          if (result.action === "unknown") {
+            accessEvent(db, staff, "Mock UWM response missing", data.loanId, now);
+            message = "Mock UWM response missing. Check for the original receipt from Today or the 1003.";
+            break;
+          }
           if (result.action !== "retry") {
             accessEvent(db, staff, result.action === "initial" ? "Submitted to mock UWM" : "Sent updated 1003 to mock UWM", data.loanId, now);
           }
           message = `Mock UWM received 1003 revision ${data.revision} · ${result.reference}`;
+          break;
+        }
+        case "reconcileMockUwmReceipt": {
+          if (!isDemoStaff(staff) && !staff?.brokerage.pilot) throw new WorkspaceError("This mock receipt is unavailable.");
+          const result = reconcileMockApplicationReceipt(db, data.loanId, data.revision, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          if (!("alreadyReconciled" in result)) accessEvent(db, staff, "Recovered mock UWM receipt", data.loanId, now);
+          message = `Original mock UWM receipt recovered · ${result.reference}`;
           break;
         }
         case "optOutContact": {

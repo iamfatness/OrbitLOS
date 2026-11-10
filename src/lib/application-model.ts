@@ -225,6 +225,7 @@ export interface StaffApplication {
   reviewedAt: string | null;
   secondReviewApproved?: boolean;
   uwmReference: string | null;
+  uwmPendingReceipt?: import("./uwm-handoff-recovery").MockUwmPendingReceipt;
   draft: ApplicationDraft | null;
   draftHasPropertyStreet?: boolean;
   lender: { details: LenderDetails; revision: number } | null;
