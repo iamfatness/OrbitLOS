@@ -2,7 +2,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
 
-const tables = { Funding: "funding_dashboard_views", Sales: "sales_dashboard_views" } as const;
+const tables = { Funding: "funding_dashboard_views", Sales: "sales_dashboard_views", "Owner scorecard": "owner_scorecard_views" } as const;
 type Dashboard = keyof typeof tables | { name: "Processing"; scope: string };
 type ViewChange = { type: "saveView"; id: string; name: string; filters: unknown } | { type: "removeView"; id: string };
 const limit = 30;

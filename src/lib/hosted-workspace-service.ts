@@ -5,6 +5,7 @@ import { demoBrokerageId, portalBrokerage } from "./brokerage-model";
 import { jointLinkUnavailable } from "./joint-application-model";
 import { googleSettings } from "./staff-auth";
 import { fundingDashboardUnavailable } from "./funding-dashboard-model";
+import { ownerScorecardUnavailable } from "./owner-scorecard-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
 import { campaignManagerUnavailable } from "./campaign-manager-model";
@@ -256,6 +257,16 @@ export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | n
 export async function loadSalesDashboard(input: unknown, staff: WorkspaceStaff | null) {
   if (staff?.brokerage.role !== "Admin") return { error: salesDashboardUnavailable };
   return staffWorkspace(staff).salesDashboard(input, staff);
+}
+
+export async function loadOwnerScorecard(input: unknown, staff: WorkspaceStaff | null) {
+  if (staff?.brokerage.role !== "Admin") return { error: ownerScorecardUnavailable };
+  return staffWorkspace(staff).ownerScorecard(input, staff);
+}
+
+export async function updateOwnerScorecard(input: unknown, staff: WorkspaceStaff | null) {
+  if (staff?.brokerage.role !== "Admin") return { error: ownerScorecardUnavailable };
+  return staffWorkspace(staff).ownerScorecardSettings(input, staff);
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {

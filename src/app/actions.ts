@@ -14,6 +14,8 @@ import { callbackExceptionUnavailable } from "@/lib/campaign-callback-exceptions
 import { officerDashboardUnavailable } from "@/lib/officer-dashboard-model";
 import { processorQueueUnavailable } from "@/lib/processor-queue-model";
 import { salesDashboardUnavailable } from "@/lib/sales-dashboard-model";
+import { ownerScorecardUnavailable } from "@/lib/owner-scorecard-model";
+import { loadOwnerScorecard, updateOwnerScorecard } from "@/lib/workspace-service";
 import { conversationsUnavailable } from "@/lib/conversation-model";
 import { inboundReplyUnavailable } from "@/lib/inbound-replies-model";
 import { appointmentsUnavailable } from "@/lib/appointment-model";
@@ -299,6 +301,18 @@ export async function readSalesReport(input: unknown, expectedBrokerage: string)
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: salesDashboardUnavailable };
   return loadSalesDashboard(input, staff);
+}
+
+export async function readOwnerReport(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: ownerScorecardUnavailable };
+  return loadOwnerScorecard(input, staff);
+}
+
+export async function saveOwnerReportView(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: ownerScorecardUnavailable };
+  return updateOwnerScorecard(input, staff);
 }
 
 export async function saveSalesSetting(input: unknown, expectedBrokerage: string) {

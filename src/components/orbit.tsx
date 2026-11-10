@@ -30,6 +30,8 @@ import { FundingDashboard } from "./funding-dashboard";
 import { BrokerageFinance } from "./brokerage-finance";
 import { canManageFinance } from "@/lib/brokerage-finance-model";
 import { SalesDashboard, type SalesSelection } from "./sales-dashboard";
+import { OwnerScorecard } from "./owner-scorecard";
+import type { OwnerScorecardFilters } from "@/lib/owner-scorecard-model";
 import { currentReportMonth } from "@/lib/report-date-range";
 import { OfficerToday } from "./officer-today";
 import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
@@ -82,7 +84,7 @@ import { staffQuestionTarget } from "@/lib/borrower-question-model";
 type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
   "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration"]);
-const reportTabs = ["Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report"] as const;
+const reportTabs = ["Owner scorecard", "Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report"] as const;
 const [localOfficer] = localCampaignOfficers;
 const demoOfficer = localOfficer.name;
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
@@ -159,7 +161,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [searchContact, setSearchContact] = useState<SearchContact>();
   const [contactToolsOpen, setContactToolsOpen] = useState(false);
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
-  const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff?.brokerage.role === "Admin" ? "Production" : "Funding dashboard");
+  const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>("Owner scorecard");
+  const [scorecardFilters, setScorecardFilters] = useState<OwnerScorecardFilters>(() => ({ ...currentReportMonth(), owner: "" }));
   const [reportingPeriod, setReportingPeriod] = useState(currentReportingPeriod);
   const [managerExceptionView, setManagerExceptionView] = useState<ManagerExceptionView>("files");
   const [managerExceptionFilters, setManagerExceptionFilters] = useState(defaultManagerExceptionFilters);
@@ -600,7 +603,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       if (campaignId) setSelectedCampaignId(campaignId);
       if (refresh) loadCampaigns(campaignId ?? selectedCampaignId, true);
     } else if (workspaceStatus === "ready" && refresh && ((next === "Tasks" && !pagedTasks) ||
-      (next === "Reports" && canReport && reportTab !== "Funding dashboard" && reportTab !== "Pipeline workload" && reportTab !== "Sales conversion" && reportTab !== "Referral queue"))) {
+      (next === "Reports" && canReport && reportTab !== "Owner scorecard" && reportTab !== "Funding dashboard" &&
+        reportTab !== "Pipeline workload" && reportTab !== "Sales conversion" && reportTab !== "Referral queue"))) {
       void save({ type: "refreshWorkspace" }, undefined, false);
     }
   }
@@ -1457,11 +1461,23 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
 
           {section === "Reports" && canOpenReports && <div className="record-form">
             <div className="loan-application-actions" aria-label="Report view">
-              {reportTabs.filter((tab) => tab === "Financials" ? canOpenFinance : tab === "Referral queue" ? canReport : tab === "Pipeline workload" ? canOpenReports :
+              {reportTabs.filter((tab) => tab === "Financials" ? canOpenFinance : tab === "Referral queue" ? canReport :
+                tab === "Owner scorecard" || tab === "Pipeline workload" ? canOpenReports :
                 state.managerReports || tab === "Funding dashboard" || tab === "Sales conversion" || tab === "Call report").map((tab) => <Button size="sm" key={tab} aria-pressed={reportTab === tab}
                 variant={reportTab === tab ? "default" : "outline"} onClick={() => setReportTab(tab)}>{tab}</Button>)}
             </div>
-            {reportTab === "Financials" && canOpenFinance ? <BrokerageFinance brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            {reportTab === "Owner scorecard" ? <OwnerScorecard brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+              version={state} filters={scorecardFilters} setFilters={setScorecardFilters}
+              openCampaignRecord={(row, metric) => row.loanId ?
+                void openQueueLoan({ kind: "details", loanId: row.loanId, target: metric === "funded" ? "loan-funding" : "loan-application" }) :
+                void openScopedLead({ leadId: row.id })}
+              openWork={(destination, id) => {
+                if (destination.kind === "contact") return showGuideTasks(undefined, id, false, true);
+                if (destination.kind === "lead") return void openScopedLead({ leadId: destination.leadId,
+                  task: destination.task === "lead-task" ? { kind: destination.task, id, team: true } : undefined });
+                void openQueueLoan({ kind: "details", loanId: destination.loanId, target: destination.target });
+              }} /> :
+              reportTab === "Financials" && canOpenFinance ? <BrokerageFinance brokerageId={staff?.brokerage.id ?? demoBrokerageId}
               loans={state.loans} fundingVersion={state.closingProgress} openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })} /> :
               reportTab === "Pipeline workload" ? <StalledLoans team brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state} busy={busy}
                 openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId }, { kind: "brokerage-stalled" })}
@@ -1548,6 +1564,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             openProcessorAssignment={(loanId) => show({ kind: "assignment", loanId })}
             recordCheckIn={(loanId) => show({ kind: "fundingCheckIn", loanId })}
             startRepeat={(loanId) => show({ kind: "returningClient", loanId })}
+            openScorecard={() => { setScorecardFilters({ ...currentReportMonth(), owner: "" }); setReportTab("Owner scorecard"); navigate("Reports", false); }}
             showTasks={showGuideTasks} />
           </fieldset>}
 

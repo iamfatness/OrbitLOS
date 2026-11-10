@@ -182,6 +182,20 @@ try {
   }
   const setupMs = Math.round(performance.now() - setupStarted);
 
+  await stage("The owner scorecard is scoped through the deployed action", async () => {
+    const filters = { from: shiftReportDate(today, -7), through: today, owner: "" };
+    const summary = await action(owner, "readOwnerReport", { kind: "summary", ...filters });
+    assert.equal(summary.kind, "summary", summary.error);
+    assert.equal(summary.sales.periods.selected.leads, 0);
+    assert.equal(summary.funding.actual.count, 0);
+    assert.ok((await action(officer, "readOwnerReport", { kind: "summary", ...filters })).error);
+    assert.ok((await action(owner, "readOwnerReport", { kind: "summary", ...filters }, undefined, randomUUID())).error);
+    const settings = { type: "saveView", id: randomUUID(), name: "Working day", filters };
+    assert.ok((await action(owner, "saveOwnerReportView", settings)).message);
+    assert.deepEqual((await action(owner, "readOwnerReport", { kind: "summary", ...filters })).views,
+      [{ id: settings.id, name: settings.name, filters }]);
+  });
+
   await stage("The initial guide shows when its controls are ready", async () => {
     countRequest(owner.role);
     const response = await runtime.dispatchFetch(`${origin}/workspace?brokerage=${brokerage}&guide=campaign`, {

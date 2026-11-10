@@ -29,9 +29,9 @@ const pageSize = 20;
 const scanSize = 60;
 const sparseDeadlineLimit = scanSize * 4;
 const dueForLoan = `loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')`;
-const openCampaignCallback = `lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND task.completedAt IS NULL
+export const openCampaignCallback = `lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND task.completedAt IS NULL
   AND member.lastOutcome IS NOT 'Opted out' AND (follow.replyReceivedAt IS NULL OR member.lastOutcome = 'Requested callback')`;
-const campaignCallbackSource = (join: "JOIN" | "CROSS JOIN" = "JOIN") => `FROM referral_leads lead
+export const campaignCallbackSource = (join: "JOIN" | "CROSS JOIN" = "JOIN") => `FROM referral_leads lead
   ${join} call_campaign_members member ON member.leadId = lead.id
   ${join} lead_import_tasks task ON task.id = member.callbackTaskId AND task.leadId = lead.id
   LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id`;

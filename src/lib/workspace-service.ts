@@ -59,6 +59,7 @@ import { sharedPreapprovalDownload } from "./preapproval-sharing";
 import { sharedPreapprovalRequest, sharedPreapprovalUnavailable } from "./preapproval-model";
 import { readEditableLead } from "./editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./sales-dashboard";
+import { changeOwnerScorecardSettings, readOwnerScorecard } from "./owner-scorecard";
 import { changeConversation, readConversations } from "./conversations";
 import { changeInboundReply, readInboundReplies } from "./inbound-replies";
 import { workOnAppointment } from "./appointments";
@@ -373,6 +374,14 @@ export async function loadEditableLead(input: unknown, staff: WorkspaceStaff | n
 
 export async function loadSalesDashboard(input: unknown, staff: WorkspaceStaff | null) {
   return readSalesDashboard(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function loadOwnerScorecard(input: unknown, staff: WorkspaceStaff | null) {
+  return readOwnerScorecard(database(), input, staff ?? localAdmin, demoBrokerageId);
+}
+
+export async function updateOwnerScorecard(input: unknown, staff: WorkspaceStaff | null) {
+  return changeOwnerScorecardSettings(database(), input, staff ?? localAdmin, demoBrokerageId);
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {

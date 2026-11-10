@@ -238,6 +238,10 @@ button:disabled { cursor: default; }
 .sales-metrics > div { min-width: 0; background: #f9f7fd; border: 1px solid var(--line); border-radius: 9px; padding: 8px; }
 .sales-metrics dt { color: var(--muted); font-size: 12px; font-weight: 700; }
 .sales-metrics dd { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 0; }
+.owner-scorecard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 285px), 1fr)); gap: 12px; }
+.owner-scorecard-grid .work-queue { align-content: start; min-width: 0; }
+.owner-scorecard .section-heading { flex-wrap: wrap; gap: 8px; }
+.owner-scorecard-filters { grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr)); }
 .integration-head { display: flex; align-items: center; gap: 10px; }
 .integration-head .pill { margin-left: auto; }
 .integration-head p, .integration-description { color: var(--muted); }

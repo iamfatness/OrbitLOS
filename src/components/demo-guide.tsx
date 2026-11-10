@@ -40,6 +40,7 @@ type DemoGuideProps = {
   openCampaign: (id: string, leadId?: string) => void; openContact: (id: string) => void;
   openProcessorAssignment: (loanId: string) => void;
   recordCheckIn: (loanId: string) => void; startRepeat: (loanId: string) => void;
+  openScorecard: () => void;
 };
 
 function recordSampleRate(save: DemoGuideProps["save"], profile: PastClientProfile) {
@@ -325,7 +326,7 @@ function mockConditionInstructions(submission: Submission | undefined, requests:
 }
 
 function CampaignGuide({ state, staff, busy, save, open, openConditions, openPricing, openCampaign, openContact, openProcessorAssignment, previewRealtor, showTasks, recordCheckIn, startRepeat,
-  canSetup, creating, setupError, createPilot }: DemoGuideProps & {
+  openScorecard, canSetup, creating, setupError, createPilot }: DemoGuideProps & {
   canSetup: boolean; creating: boolean; setupError: string; createPilot: () => void;
 }) {
   const rehearsal = state.campaignRehearsal;
@@ -545,6 +546,11 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
           <Button size="sm" disabled={busy} onClick={() => void recordSampleRate(save, watch)}>Record sample 6.000%</Button>}
         <Button size="sm" variant="outline" onClick={() => open(watch.loanId, "loan-retention")}>View past-client record</Button>
       </div>
+    </section>}
+    {funding && staff?.brokerage.role === "Admin" && <section className="work-queue record-form" aria-label="Brokerage owner perspective">
+      <h3>See what this campaign produced</h3>
+      <p className="muted">Open the funded loan from the campaign count and see what still needs attention across the brokerage.</p>
+      <Button size="sm" onClick={openScorecard}>Open Brokerage Owner Scorecard</Button>
     </section>}
   </section>;
 }

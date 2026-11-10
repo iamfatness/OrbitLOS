@@ -89,6 +89,7 @@ import { readIncomingLoanWorkPage } from "./lib/incoming-loan-work";
 import { recordManualReturnFollowUp } from "./lib/manual-lender-work";
 import { readEditableLead } from "./lib/editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./lib/sales-dashboard";
+import { changeOwnerScorecardSettings, readOwnerScorecard } from "./lib/owner-scorecard";
 import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
 import { conversationInput } from "./lib/conversation-model";
@@ -391,6 +392,14 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   salesDashboard(input: unknown, staff: WorkspaceStaff) {
     return readSalesDashboard(this.#store, input, staff, this.#id);
+  }
+
+  ownerScorecard(input: unknown, staff: WorkspaceStaff) {
+    return readOwnerScorecard(this.#store, input, staff, this.#id);
+  }
+
+  ownerScorecardSettings(input: unknown, staff: WorkspaceStaff) {
+    return changeOwnerScorecardSettings(this.#store, input, staff, this.#id);
   }
 
   salesSettings(input: unknown, staff: WorkspaceStaff) {

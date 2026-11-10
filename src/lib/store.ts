@@ -452,6 +452,10 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, deletedAt TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS sales_dashboard_view_names ON sales_dashboard_views(name COLLATE NOCASE) WHERE deletedAt IS NULL;
+    CREATE TABLE IF NOT EXISTS owner_scorecard_views (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, filters TEXT NOT NULL, deletedAt TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS owner_scorecard_view_names ON owner_scorecard_views(name COLLATE NOCASE) WHERE deletedAt IS NULL;
     CREATE TABLE IF NOT EXISTS processing_dashboard_views (
       scope TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, filters TEXT NOT NULL, deletedAt TEXT,
       PRIMARY KEY (scope, id)
