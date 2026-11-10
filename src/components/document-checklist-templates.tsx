@@ -24,7 +24,7 @@ const emptyTemplate: DocumentTemplateConfig = { title: "", purpose: "Any loan pu
 export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }) {
   const [opened, setOpened] = useState(false);
   const [page, setPage] = useState<DocumentTemplatePage>();
-  const [draft, setDraft] = useState<{ id: string; revision: number; config: DocumentTemplateConfig }>();
+  const [draft, setDraft] = useState<{ id: string; revision: number; config: DocumentTemplateConfig; hadRules?: boolean }>();
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
@@ -42,7 +42,7 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
 
   function edit(template: DocumentTemplate) {
     const { id, revision, title, purpose, items } = template;
-    setDraft({ id, revision, config: { title, purpose, items } });
+    setDraft({ id, revision, config: { title, purpose, items }, hadRules: items.some((item) => item.when) });
   }
 
   function change(update: Partial<DocumentTemplateConfig>) {
@@ -111,7 +111,8 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
           event.preventDefault();
           const config = documentTemplateConfig.safeParse(draft.config);
           if (!config.success) { setFeedback({ text: "Enter a title and choose at least one document with a valid deadline.", error: true }); return; }
-          void run({ type: "publish", ...draft, config: config.data }, "Document checklist published.");
+          const type = draft.hadRules || config.data.items.some((item) => item.when) ? "publishRules" : "publish";
+          void run({ type, id: draft.id, revision: draft.revision, config: config.data }, "Document checklist published.");
         }}>
           <h3>{draft.revision ? `Edit template version ${draft.revision}` : "New checklist template"}</h3>
           <div className="form-grid">

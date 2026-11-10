@@ -34,7 +34,7 @@ export type DocumentTemplatePage = { templates: DocumentTemplate[]; asOf: string
 export const documentTemplateRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("loan"), loanId, recipient: z.enum(documentRecipients).optional() }),
   z.object({ type: z.literal("manage"), search: z.string().trim().max(80).default("") }),
-  z.object({ type: z.literal("publish"), id: z.uuid(), revision, config: documentTemplateConfig }),
+  z.object({ type: z.enum(["publish", "publishRules"]), id: z.uuid(), revision, config: documentTemplateConfig }),
   z.object({ type: z.literal("archive"), id: z.uuid(), revision, archived: z.boolean() }),
 ]);
 

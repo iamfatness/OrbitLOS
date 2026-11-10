@@ -135,8 +135,10 @@ test("conditional checklist items use the selected borrower's reviewed 1003 and 
       { kind: "Homeowners insurance", instructions: "Use fictional insurance.", dueDays: 0, when: { occupancy: "Second home" } },
     ],
   };
-  assert.ok(work({ ...publish, config: { ...conditional, items: [{ ...conditional.items[0], when: {} }] } }).error);
-  assert.equal(work({ ...publish, config: conditional }).templates[0].revision, 1);
+  assert.ok(work({ ...publish, type: "publishRules", config: { ...conditional, items: [{ ...conditional.items[0], when: {} }] } }).error);
+  assert.match(work({ ...publish, config: conditional }).error, /Reload Orbit/);
+  assert.equal(work({ ...publish, type: "publishRules", config: conditional }).templates[0].revision, 1);
+  assert.match(work({ ...publish, revision: 1, config: { ...conditional, items: [conditional.items[0]] } }).error, /Reload Orbit/);
   const preview = (recipient = "Primary borrower", actor = officer) => work({ type: "loan", loanId: id, recipient }, actor);
   assert.ok(preview("Co-borrower").error);
   assert.ok(preview("Primary borrower", processor).error);

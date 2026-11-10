@@ -67,7 +67,10 @@ export function documentTemplateWork(db: Store, input: unknown, staff: Workspace
       const row = db.prepare(`${templateQuery} WHERE template.id = ?`).get(data.id);
       const current = row && templateFromRow(row);
       const at = now.toISOString();
-      if (data.type === "publish") {
+      if ("config" in data) {
+        if (data.type === "publish" && (data.config.items.some((item) => item.when) || current?.items.some((item) => item.when))) {
+          return { error: "Reload Orbit to edit a checklist with reviewed 1003 rules." };
+        }
         const config = JSON.stringify(data.config);
         if (!current || (current.revision === data.revision && row?.config !== config)) {
           if ((current?.revision ?? 0) !== data.revision || current?.archived) return { error: documentTemplateChanged };
