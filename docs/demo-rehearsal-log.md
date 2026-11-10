@@ -871,3 +871,11 @@ On November 10, 2026, Worker `fd09b134-5918-45e3-afe2-46e2428b6dfc` from `080ce1
 The built Worker allowed the assigned processor to edit the field, showed it as read-only to the LO, and omitted it from the borrower response. A competing LO received zero matching rows. Revoking processor view access removed both the field and export access. SQLite tests covered legacy field definitions, per-file separation, field permissions, the production and segment filter boundaries, and value cleanup on deletion. Loan-field settings and values use separate tables so the preceding release cannot edit their definitions. All 357 tests, lint, typecheck, the production build, and both Worker rehearsals passed.
 
 Both staged public pages displayed the loan field copy and all 44 assets matched twice. Public landing, Product, and Demo returned HTTP 200 after promotion. All provider workflows remained mocked.
+
+## Loan stage edit controls
+
+On November 10, 2026, Worker `e1405124-6318-4221-889b-ad545c12b684` from `3711925` served the stage edit policy. In the live fictional branch-routing workspace, an admin locked quote and fee edits at Application. Morgan's signed sample disclosure showed the disabled $650 appraisal field. The admin entered an internal reason and changed the fee to $675. Orbit cleared the override input, retained the sample signature receipt, and created **Review disclosure package · Fees changed** in Today. The loan audit retained the actor, Application stage, policy v1, and reason. The QA workspace policy was restored in v2.
+
+The built Worker denied a normal LO edit and a forged override and opened the fee review after an authorized save. SQLite tests also exercised stale policy and stage checks, repeat saves, assigned processor restrictions, a mock borrower signature and 1003 resubmission under the lock, and preservation of the ordinary review path. The local Chrome rehearsal recorded a separate lender-details override. All 358 tests, lint, typecheck, production build, and both Worker rehearsals passed.
+
+Both staged public pages displayed the stage controls and all 44 assets matched twice. Public landing, Product, and Demo returned HTTP 200 after promotion. The completed campaign guide opened the Owner Scorecard, and provider workflows remained mocked.
