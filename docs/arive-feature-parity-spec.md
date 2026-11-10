@@ -46,7 +46,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | --- | --- | --- |
 | F01 | Hosted paired mock DU/LPA with separate findings and retry history, tied to the submitted 1003 and authorized sample credit | Verify borrower selection, real consent evidence, service contracts, and reconciliation before any provider order. |
 | F02 | Hosted income worksheet with source periods, adjustments, exact accepted evidence, and reviewed income in mock pricing | Verify approved calculation policies and supported evidence before using real files. |
-| F03 | Hosted mock UWM intake and conditions, original receipt recovery from Today, manual MISMO export and sample packages, acknowledgment and returns | Define verified lender capabilities and reconcile delayed, rejected, and repeated updates. |
+| F03 | Hosted mock UWM intake and conditions, original receipt recovery, a scoped delivery timeline, manual MISMO export and sample packages, acknowledgment and returns | Verify real lender capabilities and map their ordering, rejection, and replay contracts. |
 | F04 | Hosted versioned checklist templates with loan purpose, instructions and due dates, plus the existing request, mock-scanned PDF, replacement and clearance workflow | Verify additional checklist criteria and categories, and production scan and delivery contracts. |
 | F05 | Hosted versioned sample packages with signer-specific portal responses, receipt history, critical dates, and tasks for fee changes or declines. Revised packages retain the internal change review. | Extend package revisions and approved artifacts through closing. Validate document generation, signing, and applicable rules before live use. |
 | F06 | Hosted 1003, corrections, document requests, verification and replacement scoped to each borrower on a joint file | Verify a prioritized borrower action list and live identity verification in an approved pilot. |
@@ -86,7 +86,9 @@ The demonstrated methods cover staff-entered monthly amounts, totals over a spec
 
 ### F03 — Lender submission and updates
 
-Status: mock UWM and manual handoffs exist. Staff validate the current application, submit/export, reconcile lender identity, and act on returned updates. Store submission revision, provider reference, receipt, lender status and internal stage separately. Add a capability matrix per lender. Acceptance: repeated imports, delayed/out-of-order updates, lender rejection and manual corrections preserve one traceable file and actionable work. The page's event label is ambiguous: confirm whether commercial announcements are expected in addition to operational updates; keep optional announcements separate from loan status. Increments 1–2; live integration gate in 5.
+The mock delivery timeline shows exact acknowledged 1003 revisions, missing and recovered receipts, document deliveries and failures, and recorded condition changes. The mock condition feed keeps a version per condition. It records late and duplicate delivery evidence without changing the current state. The rehearsal proves an older open update cannot undo a newer clearance.
+
+Manual handoffs support reviewed export, acknowledgment, and returns. Remaining work covers the capability matrix, validated provider event identity and ordering, lender rejection reasons, and the workflow for recovering failed or unconfirmed provider handoffs. Keep provider status and internal stage separate. Increments 1–2 with the live integration gate in 5.
 
 ### F04 — Document and condition lifecycle
 

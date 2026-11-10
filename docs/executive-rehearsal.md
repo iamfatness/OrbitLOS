@@ -23,6 +23,8 @@ Use the normal mock UWM submission during the timed run. Prepare a second fictio
 
 Keep an active fictional loan with an unsent reviewed 1003 available for lender questions. **1003 → Rehearse a missing mock UWM acknowledgment** puts the exact file in Today. **Check mock UWM for receipt** recovers the first receipt and opens its conditions. The reviewed MISMO 3.4 export is available for a lender without an API.
 
+For the CTO's exception question, use a separate fictional loan with a cleared condition. Open **Conditions → Mock UWM delivery timeline** and select a cleared document condition. **Replay older and duplicate updates** shows the previous open update being ignored and the duplicate clearance being recognized. The condition remains cleared. Open its exact row from the timeline. The same view shows the 1003 revision and the original document receipts.
+
 Sign in with the intended presenter account before starting the timer. Verify the campaign, browser tabs, and both prepared examples are visible to that account. Use sample data throughout. Describe provider results and signatures as simulations.
 
 ## CTO rehearsal on the disclosure release
