@@ -350,6 +350,12 @@ Under **Choose alternatives to compare**, add a fixed-rate option with the same 
 
 Choose **Share through (Eastern)** before publishing. After that date the borrower sees an expiration notice in place of the sample terms. A changed shared worksheet or saved offer adds **Review shared sample quote** to the owner’s **Today** queue. Open it to review the difference and record an internal note. Keep the original version or publish an explicitly dated replacement. The existing history preserves the earlier terms and expiration.
 
+### Try a mock appraisal or title order
+
+On an active fictional loan, open **Conditions → Service orders → New mock service order**. Choose appraisal or title, set the expected return date, and record the order. A past date lets you rehearse overdue work. The assigned processor sees it in **Processing → Service orders**, or the loan officer sees it in **Today** when no processor is assigned. The team queue has filters for **Overdue** and **Ready to review**.
+
+Open the order and simulate a return. Download its sample PDF, then accept it or request a replacement with an internal note. Each return keeps its own reference, PDF, and review history. Accepting or cancelling the order clears its open deadline. Provider activity is simulated.
+
 Choose **DSCR** to enter rental income, property taxes, insurance, HOA dues, and reserves. Each mock offer shows housing cost and estimated rent coverage. Choose **Bank statement** to enter 12 or 24 months of personal or business statements, average eligible deposits, and other monthly debts. The business option also uses an expense factor and ownership percentage to estimate income and DTI. Both scenarios support sample rate-and-term and cash-out refinances. These are Orbit demo inputs. The live Easy Qualifier request fields and product rules need validation in UWM stage. [UWM program overview](https://www.uwm.com/real-estate-agent) · [UWM bank statement products](https://www.uwm.com/loan-products?bank-statement=bank-statement-fixed-blue&bank-statement=bank-statement-fixed-yellow)
 
 After a 1003 is submitted, **Publish sample quote** in the quote preview shares the saved quote on the borrower status page. The LO can replace or remove the shared quote. Saving a different quote keeps the existing published terms visible until the LO publishes the replacement.
