@@ -50,7 +50,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F04 | Hosted conditional document checklists and per-borrower questions with deadlines, answer review, and clarification | Add reusable question templates and categories. Validate production scan and delivery contracts. |
 | F05 | Hosted versioned sample packages with signer-specific portal responses, receipt history, critical dates, and tasks for fee changes or declines. Revised packages retain the internal change review. | Extend package revisions and approved artifacts through closing. Validate document generation, signing, and applicable rules before live use. |
 | F06 | Hosted 1003 and a borrower action list for corrections, questions, documents, and sample signatures, scoped to each borrower on a joint file | Validate live identity verification and configurable borrower needs in an approved pilot. |
-| F07 | Versioned brokerage quote form with a mobile borrower preview, one configurable question, branded themes and attributed campaign intake | Verify separate intake profiles, branch and officer overrides, conditional questions and safe mapping to the application. |
+| F07 | Versioned general, purchase, and refinance intake profiles with a mobile preview, a configurable question per profile, branded themes, and campaign or direct LO routing | Verify branch defaults, LO editing permissions, more conditional questions and safe mapping to the application. |
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
 | F10 | Hosted staff comparison, exact mock offer, dated borrower comparison with five-year cost and break-even, an owned task to review shared term changes, and mock UWM handoff | Validate provider coverage and provenance. Confirm locks separately. |
@@ -118,9 +118,9 @@ Live identity verification, scan, delivery, and real-data admission have separat
 
 ### F07 — Configurable intake and branding
 
-The [hosted quote form](demo-rehearsal-log.md#hosted-configurable-website-quote-intake) supports a brokerage title, introduction, one of three themes, contact requirements, ZIP and timeline visibility and one short question. Publishing keeps the link and creates a new version. Existing submissions retain their source, original version and answer. Eligible phone leads can enter a call campaign with the existing assignment caps.
+The [hosted quote form](demo-rehearsal-log.md#hosted-configurable-website-quote-intake) supports a brokerage title, introduction, one of three themes, contact requirements, ZIP and timeline visibility and one short question. Admins can publish separate purchase and refinance versions and give each a campaign and direct owner or shared inbox. The original link and purpose links use the current published forms. Prior submissions retain their source, profile, version and answer. Eligible phone leads can enter a call campaign with its existing assignment caps.
 
-Remaining scope covers separate profiles, branch defaults and allowed LO overrides, conditional visibility, consent text references and configurable application questions. Validate branching and answer mapping, preserve historical versions, and test accessibility and brokerage isolation. Increments 1–3.
+Remaining scope covers branch defaults, allowed LO overrides, additional conditional visibility, consent text references and configurable application questions. Validate branching and answer mapping, preserve historical versions, and test accessibility and brokerage isolation. Increments 1–3.
 
 ### F08 — Controlled preapproval letters
 
