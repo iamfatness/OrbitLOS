@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { ClosingPacketWork } from "@/lib/closing-packet-model";
@@ -8,6 +8,7 @@ import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview
 import { closingChecklistTarget, closingWorkbenchTarget, reopenedMockClosingMessage } from "@/lib/loan-workflow";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
+import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
@@ -15,19 +16,39 @@ type Save = (input: unknown, after?: () => void) => Promise<void>;
 function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy, save }: {
   loanId: string; brokerageId: string; packets?: ClosingPacketWork; disclosures?: DisclosureWork; busy: boolean; save: Save;
 }) {
+  const [downloading, setDownloading] = useState<number>();
+  const [downloadError, setDownloadError] = useState("");
   if (!packets || (!packets.canPrepare && !packets.packets.length)) return null;
   const confirmation = disclosures?.closingReviews.find(({ current }) => current);
   const [latest, ...prior] = packets.packets;
+  async function downloadVersion(version: number) {
+    setDownloading(version);
+    setDownloadError("");
+    try {
+      const query = new URLSearchParams({ brokerage: brokerageId, loanId, version: String(version) });
+      const result = await fetch(`/api/closing-packet?${query}`);
+      if (!result.ok || !result.headers.get("Content-Type")?.startsWith("application/pdf")) {
+        setDownloadError("Could not download this sample packet. Refresh the loan and try again.");
+        return;
+      }
+      downloadSampleFile(await result.blob(), `orbit-sample-closing-packet-v${version}.pdf`);
+    } catch {
+      setDownloadError("Could not download this sample packet. Try again.");
+    } finally {
+      setDownloading(undefined);
+    }
+  }
   const download = (packet: NonNullable<typeof latest>) => <div>
     <p>Packet v{packet.version} · Disclosure v{packet.disclosureVersion} · {packet.current ? "Current snapshot" : "Prior snapshot"}</p>
     <p className="muted">Prepared by {packet.preparedBy} · {dateTime(packet.preparedAt)} ET</p>
-    <Button size="sm" variant="outline" asChild><a href={`/api/closing-packet?${new URLSearchParams({
-      brokerage: brokerageId, loanId, version: String(packet.version),
-    })}`} download>Download sample closing packet v{packet.version}</a></Button>
+    <Button size="sm" variant="outline" disabled={downloading !== undefined} onClick={() => void downloadVersion(packet.version)}>
+      {downloading === packet.version ? "Downloading…" : `Download sample closing packet v${packet.version}`}
+    </Button>
   </div>;
   return <section className="document-item" aria-label="Sample closing packets">
     <div className="document-item-head"><strong>Sample closing packet</strong><span className="pill">Internal PDF</span></div>
     <p className="muted">Save the confirmed mock receipts, critical dates, and closing checklist as a versioned staff copy.</p>
+    {downloadError && <p role="alert">{downloadError}</p>}
     {confirmation && !latest?.current && <div><Button size="sm" disabled={busy} onClick={() => void save({
       type: "prepareClosingPacket", loanId, previousVersion: latest?.version ?? null,
       disclosureVersion: confirmation.version, disclosureRevision: confirmation.revision,
