@@ -38,6 +38,8 @@ import { currentReportMonth } from "@/lib/report-date-range";
 import { OfficerToday } from "./officer-today";
 import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
 import { DisclosureCalendar } from "./disclosure-calendar";
+import { ComplianceQueue } from "./compliance-queue";
+import { complianceCaseTarget } from "@/lib/compliance-case-model";
 import { LoanStageEditSettings } from "./loan-stage-edits";
 import { ManageClosingGates } from "./closing-gates";
 import { DisclosureTemplateSettings } from "./disclosure-templates";
@@ -96,9 +98,9 @@ import { staleProcessingHandoff } from "@/lib/processing-model";
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
 const CustomReports = lazy(async () => ({ default: (await import("./custom-reports")).CustomReports }));
 
-type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Exceptions" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
+type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Exceptions" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns" | "Compliance";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
-  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration", "Exceptions"]);
+  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration", "Exceptions", "Compliance"]);
 const reportTabs = ["Owner scorecard", "Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report", "Custom reports"] as const;
 const [localOfficer] = localCampaignOfficers;
 const demoOfficer = localOfficer.name;
@@ -127,6 +129,7 @@ const navigation = [
     { label: "Demo Guide", icon: workspaceIcons.demo },
     { label: "Reports", icon: workspaceIcons.reports },
     { label: "Playbooks", icon: workspaceIcons.playbooks },
+    { label: "Compliance", icon: workspaceIcons.compliance },
     { label: "Integrations", icon: workspaceIcons.integrations },
     { label: "Migration", icon: workspaceIcons.migration },
     { label: "Team", icon: workspaceIcons.team },
@@ -1174,7 +1177,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           {navigation.map(({ title, items }) => (
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
-              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
+              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Exceptions" || canReport) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (label !== "Compliance" || (admin && staff?.brokerage.pilot)) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
                 const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads :
                   label === "Exceptions" ? actionCounts?.exceptions : label === "Processing" ? actionCounts?.processing : undefined;
                 const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
@@ -1385,6 +1388,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             selection={searchSelection} onSearch={setSearchSelection} version={state} busy={busy} open={(record) => void openSearchResult(record)} />}
           {section === "Reviews" && canOpenCalendar && <LoanReviewQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
             version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
+          {section === "Compliance" && admin && staff?.brokerage.pilot && <ComplianceQueue brokerageId={staff.brokerage.id} admin
+            openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: complianceCaseTarget(caseId) })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}
@@ -1702,6 +1707,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           manualReturn ? { kind: "manual-return-work", ...manualReturn, personal: false } : undefined)}
         assignmentChanged={invalidateWorkspace}
         assignmentVersion={state}
+        separateSamplePricing={uwmConnection.pricing === "UWM stage API"}
         appointmentChanged={() => setCalendar((current) => ({ ...current, after: undefined }))}
         reviewChanged={() => {
           setReviewVersion((version) => version + 1);

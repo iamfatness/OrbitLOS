@@ -1,18 +1,17 @@
 import { z } from "zod";
 import type { VersionedBrokerageMember } from "./brokerage-model";
+import { complianceCaseKinds as kinds, complianceCaseStatuses as statuses, complianceWorkUnavailable } from "./compliance-case-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { loanAccess } from "./workspace-access";
 
-const kinds = ["Requirement review", "Control gap", "Operational finding"] as const;
-const statuses = ["Open", "In progress", "Awaiting evidence", "Awaiting review"] as const;
 const id = z.string().min(1).max(100);
 const revision = z.number().int().positive();
 const change = { caseId: z.uuid(), expectedRevision: revision, requestId: z.uuid() };
 const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.string().max(800), snapshot: z.number().int().nonnegative() });
 const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("list"), loanId: id.optional(), kind: z.enum(kinds).optional(), status: z.enum(statuses).optional(), after: cursor.optional() }),
-  z.strictObject({ type: z.literal("read"), caseId: z.uuid() }),
+  z.strictObject({ type: z.literal("read"), caseId: z.uuid(), loanId: id.optional() }),
   z.strictObject({ type: z.literal("openFixture"), loanId: id, packageVersion: revision }),
   z.strictObject({ type: z.literal("assign"), ...change, ownerEmail: z.email() }),
   z.strictObject({ type: z.literal("updateStatus"), ...change, status: z.enum(statuses) }),
@@ -31,7 +30,7 @@ type CaseEvent = { revision: number; actor: string; at: string; action: string; 
 const columns = `id, kind, title, status, loanId, packageVersion, parentCaseId,
   ownerEmail, ownerAccessRevision, revision, openedAt, updatedAt`;
 const pageSize = 20;
-const unavailable = { error: "This compliance work is unavailable." };
+const unavailable = { error: complianceWorkUnavailable };
 const changed = { error: "This compliance case changed. Reopen it before saving." };
 const coverage = { state: "Not evaluated", evaluatedFiles: 0, eligibleFiles: null, mode: "Fictional fixture", approval: "None" } as const;
 
@@ -49,7 +48,8 @@ function projection(db: Store, staff: WorkspaceStaff, roster: readonly Member[],
   const owner = currentMember(roster, ownerEmail);
   const stillAssigned = owner && (owner.accessRevision ?? 0) === ownerAccessRevision && mayOwn(db, staff, owner, item.loanId);
   const backup = roster.find((member) => member.status === "Active" && member.role === "Admin" && member.email !== ownerEmail);
-  return { ...row, ownerEmail: stillAssigned ? owner.email : backup?.email ?? null,
+  const accountable = stillAssigned ? owner : backup;
+  return { ...row, ownerEmail: accountable?.email ?? null, ownerName: accountable?.name ?? null,
     ownerState: stillAssigned ? "Assigned" : backup ? "Backup review" : "Needs assignment",
     parentCaseId: staff.brokerage.role === "Admin" && parentCaseId && findCase(db, staff.brokerage.id, parentCaseId) ? parentCaseId : null,
     source: "Fictional fixture", applicability: "Unknown", coverage: "Not approved", evaluation: "Not evaluated" } as const;
@@ -61,7 +61,21 @@ function findCase(db: Store, brokerageId: string, caseId: string) {
 }
 
 function currentPackage(db: Store, loanId: string) {
-  return db.prepare(`SELECT version, revision, supersededAt, runId FROM disclosure_packages WHERE loanId = ? ORDER BY version DESC LIMIT 1`).get(loanId);
+  return db.prepare(`SELECT version, revision, supersededAt, runId, reviewReason FROM disclosure_packages WHERE loanId = ? ORDER BY version DESC LIMIT 1`).get(loanId);
+}
+
+function samplePackage(db: Store, loanId: string) {
+  const loan = db.prepare(`SELECT loan.officerEmail FROM loans loan JOIN applications app ON app.loanId = loan.id
+    WHERE loan.id = ? AND loan.purpose = 'Purchase' AND json_extract(app.draft, '$.propertyLocation.state') = 'MI'`).get(loanId);
+  const packageRow = currentPackage(db, loanId);
+  if (!loan || !packageRow || packageRow.supersededAt || packageRow.reviewReason || !db.prepare(`SELECT 1 FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'
+      AND json_extract(scenario, '$.purpose') = 'Purchase' AND json_type(scenario, '$.nonAgency') IS NULL`).get(packageRow.runId, loanId)) return null;
+  return { version: Number(packageRow.version), revision: Number(packageRow.revision), officerEmail: loan.officerEmail };
+}
+
+function sampleWorkbenchReview(db: Store, loanId: string, version: number, revision: SqlValue) {
+  return db.prepare(`SELECT reviewedAt, actor FROM closing_disclosure_reviews WHERE loanId = ? AND version = ? AND revision = ?`)
+    .get(loanId, version, revision);
 }
 
 function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], item: Case) {
@@ -69,11 +83,18 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
     WHERE brokerageId = ? AND caseId = ? ORDER BY revision DESC LIMIT 51`).all(staff.brokerage.id, item.id) as unknown as CaseEvent[];
   const packageRow = item.loanId ? currentPackage(db, item.loanId) : undefined;
   const packageState = !item.loanId ? null : !packageRow ? "Unavailable" :
-    packageRow.version === item.packageVersion && !packageRow.supersededAt ? "Current" : "Superseded";
+    packageRow.version !== item.packageVersion || packageRow.supersededAt ? "Superseded" : packageRow.reviewReason ? "Needs review" : "Current";
+  const sampleReviewRevision = item.loanId && item.packageVersion && packageRow && packageState === "Current" &&
+    sampleWorkbenchReview(db, item.loanId, item.packageVersion, packageRow.revision) ? Number(packageRow.revision) : null;
   const sampleReview = packageRow && packageState === "Current" ? db.prepare(`SELECT actor, at FROM compliance_case_events
     WHERE brokerageId = ? AND caseId = ? AND action = 'recordSampleReview' AND json_extract(payload, '$.request.packageRevision') = ?
     ORDER BY revision DESC LIMIT 1`).get(staff.brokerage.id, item.id, packageRow.revision) : undefined;
-  return { kind: "detail", item: projection(db, staff, roster, item), packageState, coverage,
+  const projected = projection(db, staff, roster, item);
+  const admin = staff.brokerage.role === "Admin";
+  return { kind: "detail", item: projected, packageState, coverage, sampleReviewRevision,
+    canUpdateStatus: admin || (projected.ownerState === "Assigned" && projected.ownerEmail === staff.email),
+    assignableOwners: admin ? roster.filter((member) => member.status === "Active" && mayOwn(db, staff, member, item.loanId))
+      .map(({ email, name }) => ({ email, name })) : [],
     sampleReview: sampleReview ? { actor: String(sampleReview.actor), at: String(sampleReview.at), packageRevision: Number(packageRow?.revision), mode: "Sample workbench review" } : null,
     history: history.slice(0, 50).map((event) => ({ ...event, payload: JSON.parse(event.payload) as unknown })),
     moreHistory: history.length > 50 } as const;
@@ -101,6 +122,7 @@ function list(db: Store, staff: WorkspaceStaff, roster: readonly Member[], data:
   const page = rows.slice(0, pageSize);
   const last = page.at(-1);
   return { kind: "list", coverage, counts: { cases: Number(count?.cases), files: Number(count?.files) },
+    samplePackageVersion: loanId && staff.brokerage.role === "Admin" ? samplePackage(db, loanId)?.version ?? null : null,
     items: page.map((item) => projection(db, staff, roster, item)),
     next: last && rows.length > pageSize ? { id: last.id, openedAt: last.openedAt, cohort, snapshot } : null } as const;
 }
@@ -113,16 +135,12 @@ function addEvent(db: Store, staff: WorkspaceStaff, caseId: string, version: num
 function openFixture(db: Store, staff: WorkspaceStaff, roster: readonly Member[], data: Extract<ComplianceRequest, { type: "openFixture" }>, now: string) {
   if (staff.brokerage.role !== "Admin") return unavailable;
   const { loanId, packageVersion } = data;
-  const loan = db.prepare(`SELECT loan.officerEmail FROM loans loan JOIN applications app ON app.loanId = loan.id
-    WHERE loan.id = ? AND loan.purpose = 'Purchase' AND json_extract(app.draft, '$.propertyLocation.state') = 'MI'`).get(loanId);
-  const packageRow = currentPackage(db, loanId);
-  if (!loan || packageRow?.version !== packageVersion || packageRow.supersededAt ||
-    !db.prepare(`SELECT 1 FROM pricing_runs WHERE id = ? AND loanId = ? AND mode = 'mock'
-      AND json_extract(scenario, '$.purpose') = 'Purchase' AND json_type(scenario, '$.nonAgency') IS NULL`).get(packageRow.runId, loanId)) {
+  const packageRow = samplePackage(db, loanId);
+  if (!packageRow || packageRow.version !== packageVersion) {
     return { error: "Open a current sample disclosure package for a fictional Michigan conventional purchase." };
   }
   const admin = currentMember(roster, staff.email)!;
-  const officer = typeof loan.officerEmail === "string" ? currentMember(roster, loan.officerEmail) : undefined;
+  const officer = typeof packageRow.officerEmail === "string" ? currentMember(roster, packageRow.officerEmail) : undefined;
   const owner = officer && mayOwn(db, staff, officer, loanId) ? officer : admin;
 
   function addCase(caseKey: string, kind: Case["kind"], title: string, member: Member, parentCaseId: string | null, fileId: string | null = null) {
@@ -160,7 +178,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     const item = findCase(db, brokerageId, data.caseId);
     const isAdmin = staff.brokerage.role === "Admin";
     if (!item || (!isAdmin && (!item.loanId || !loanAccess(db, staff, item.loanId)))) return unavailable;
-    if (data.type === "read") return detail(db, staff, roster, item);
+    if (data.type === "read") return data.loanId && data.loanId !== item.loanId ? unavailable : detail(db, staff, roster, item);
     const owner = currentMember(roster, item.ownerEmail);
     const owns = owner?.email === actor.email && (owner.accessRevision ?? 0) === item.ownerAccessRevision;
     if (!isAdmin && (data.type !== "updateStatus" || !owns)) return unavailable;
@@ -183,12 +201,11 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
       nextStatus = data.status;
     } else {
       const packageRow = item.loanId && currentPackage(db, item.loanId);
-      if (!item.loanId || !item.packageVersion || !packageRow || packageRow.supersededAt || packageRow.version !== item.packageVersion ||
+      if (!item.loanId || !item.packageVersion || !packageRow || packageRow.supersededAt || packageRow.reviewReason || packageRow.version !== item.packageVersion ||
         packageRow.revision !== data.packageRevision) {
         return { error: "Review the current sample package in the disclosure workbench first." };
       }
-      const review = db.prepare(`SELECT reviewedAt, actor FROM closing_disclosure_reviews WHERE loanId = ? AND version = ? AND revision = ?`)
-        .get(item.loanId, item.packageVersion, data.packageRevision);
+      const review = sampleWorkbenchReview(db, item.loanId, item.packageVersion, data.packageRevision);
       if (!review) return { error: "Review the current sample package in the disclosure workbench first." };
       sampleEvidence = { mode: "Sample workbench review", packageVersion: item.packageVersion,
         reviewedAt: String(review.reviewedAt), reviewer: String(review.actor) };
@@ -200,3 +217,5 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
       status: nextStatus, revision: item.revision + 1, updatedAt: now });
   });
 }
+
+export type ComplianceCaseResult = ReturnType<typeof complianceCaseWork>;

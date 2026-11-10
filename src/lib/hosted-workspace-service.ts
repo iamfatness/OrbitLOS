@@ -19,6 +19,7 @@ import { customReportUnavailable } from "./custom-report-model";
 import { crmFieldUnavailable } from "./crm-field-model";
 import { disclosureCalendarUnavailable } from "./disclosure-calendar-model";
 import { disclosureTemplateUnavailable } from "./disclosure-template-model";
+import { complianceWorkUnavailable } from "./compliance-case-model";
 import { questionSetsUnavailable } from "./borrower-question-set-model";
 import { stageEditUnavailable } from "./loan-stage-edit-model";
 import { closingGateUnavailable } from "./closing-gate-model";
@@ -305,6 +306,10 @@ export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceS
 
 export async function workOnDisclosureTemplates(input: unknown, staff: WorkspaceStaff | null) {
   return staff ? staffWorkspace(staff).disclosureTemplates(input, staff) : { error: disclosureTemplateUnavailable };
+}
+
+export async function workOnComplianceCases(input: unknown, staff: WorkspaceStaff) {
+  return staff.brokerage.pilot ? staffWorkspace(staff).complianceCases(input, staff) : { error: complianceWorkUnavailable };
 }
 
 export async function workOnBorrowerQuestionSets(input: unknown, staff: WorkspaceStaff | null) {

@@ -100,6 +100,7 @@ test("tenant, current roster, file assignment and confidentiality restrict detai
   const loanId = addLoan();
   const { item } = open(loanId);
   assert.deepEqual(work({ type: "list", loanId }, officer).counts, { cases: 1, files: 1 });
+  assert.deepEqual(work({ type: "read", caseId: item.id, loanId: addLoan() }), unavailable);
   assert.deepEqual(work({ type: "list" }, officer), unavailable);
   assert.deepEqual(work({ type: "list", loanId }, unrelated), unavailable);
   assert.equal(read(item.id, processor).item.parentCaseId, null);

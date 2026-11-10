@@ -60,6 +60,8 @@ import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loan
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
+import { ComplianceQueue } from "./compliance-queue";
+import { complianceCaseTarget, complianceTarget } from "@/lib/compliance-case-model";
 import { closingDisclosureReviewTarget, filePreflightRequestTarget, filePreflightTarget, preflightFeesTarget } from "@/lib/file-preflight-model";
 import { ManualConditions } from "./manual-conditions";
 import { ContactHistory, FundingCheckInForm } from "./contact-crm";
@@ -491,13 +493,14 @@ function LenderApplicationDetails({ application, busy, save, markDraftChanged }:
 const loanSections = [
   ["Overview", "loan-workflow"], ["1003", "loan-application"], ["Conditions", "lender-submissions"],
   ["Scenarios", "loan-scenarios"],
-  ["Pricing & credit", "loan-pricing"], ["Disclosures", disclosureTarget], ["Closing", "closing-workbench"], ["Activity", "loan-activity"],
+  ["Pricing & credit", "loan-pricing"], ["Disclosures", disclosureTarget], ["Compliance", complianceTarget], ["Closing", "closing-workbench"], ["Activity", "loan-activity"],
 ] as const;
 
 function loanSection(target?: string) {
   if (!target) return "Overview";
   if (target === "loan-scenarios") return "Scenarios";
   if (target === disclosureTarget) return "Disclosures";
+  if (target === complianceTarget || target.startsWith(complianceCaseTarget(""))) return "Compliance";
   if (target === "loan-application" || target === jointBorrowerPortionsTarget || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
     target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
@@ -674,7 +677,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         <Button size="sm" onClick={() => open(action.target)}>Open next action <ArrowRight aria-hidden="true" /></Button>
       </div>
       <nav className="loan-section-nav" aria-label="Loan sections">{loanSections.filter(([name]) =>
-        (name !== "Scenarios" || canOpenReviews) && (name !== "Disclosures" || canOpenDisclosures)).map(([name, destination]) =>
+        (name !== "Scenarios" || canOpenReviews) && (name !== "Disclosures" || canOpenDisclosures) && (name !== "Compliance" || staff?.brokerage.pilot)).map(([name, destination]) =>
         <button key={name} type="button" aria-current={section === name ? "page" : undefined} onClick={() => open(destination)}>{name}</button>)}
       </nav>
       {section === "Overview" && <>
@@ -721,6 +724,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Disclosures" && canOpenDisclosures &&
         <DisclosureWorkbench loan={loan} state={state} busy={busy} readOnly={processor} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           save={save} open={open} refresh={openScopedLoan} />}
+      {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
+        loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}
+        admin={staff.brokerage.role === "Admin"} openDisclosures={() => open(disclosureTarget)} />}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
         brokerageId={staff?.brokerage.id ?? demoBrokerageId}
@@ -894,7 +900,7 @@ function ReturningClientForm({ borrower, originalProperty, fromRateWatch, busy, 
   </form>;
 }
 
-export function RecordDialog({ modal, state, staff, busy, error, save, show, close, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion }: {
+export function RecordDialog({ modal, state, staff, busy, error, save, show, close, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion, separateSamplePricing }: {
   modal: Modal; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; error: ReactNode; save: Save; show: (modal: Modal) => void; close: () => void;
   refreshLoan?: () => void;
   refreshLoanOnReturn?: (loanId: string, canApply: () => boolean, periodic: boolean) => Promise<void>;
@@ -911,6 +917,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   openContactLoan: (id: string, target?: string, manualReturn?: ManualReturnAssignment) => void;
   assignmentChanged: () => void;
   assignmentVersion: object;
+  separateSamplePricing: boolean;
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -1117,6 +1124,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           canRehearseUnsupported={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
+          canRunSamplePricing={separateSamplePricing && Boolean(staff?.brokerage.pilot)}
           openApplication={() => show({ kind: "details", loanId: loan.id, campaignLender, target: "loan-application" })}
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?

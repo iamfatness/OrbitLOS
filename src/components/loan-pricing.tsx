@@ -135,12 +135,13 @@ function SharedQuoteChanges({ shared, proposed }: { shared: QuotePresentation; p
   });
 }
 
-export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote, focusFees, canRehearseUnsupported }: {
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote, focusFees, canRehearseUnsupported, canRunSamplePricing }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
   reviewSharedQuote?: boolean;
   focusFees?: string;
   canRehearseUnsupported: boolean;
+  canRunSamplePricing?: boolean;
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
@@ -246,12 +247,12 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   async function price(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (formOutdated || incomeOutdated || (bank && !form.selfEmployed)) return;
-    const rehearse = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "unsupported";
+    const selectedMode = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
     setPricing(true);
     setPreview(false);
     try {
       await save({ type: "runPricing", loanId: loan.id, scenario, applicationRevision: formRevision, incomeReviewRevision: useIncomeRevision,
-        simulateUnsupportedEq: rehearse ? true : undefined }, ({ state: updated }) => {
+        simulateUnsupportedEq: selectedMode === "unsupported" ? true : undefined, sampleOnly: selectedMode === "sample" ? true : undefined }, ({ state: updated }) => {
         const result = updated.pricingRuns.find(({ loanId }) => loanId === loan.id);
         if (result?.outcome === "unsupported") focusRun.current = result.id;
         setResultsRunId(undefined);
@@ -409,6 +410,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <Button size="sm" variant="outline" disabled={busy} onClick={loadCurrentApplication}>{application ? "Load current 1003 inputs" : "Reload loan inputs"}</Button>
         <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>
         <Button type="submit" disabled={busy || formOutdated || incomeOutdated}><Calculator /> {pricing ? "Pricing…" : "Run pricing"}</Button>
+        {canRunSamplePricing && form.program === "Conventional" && form.purpose === "Purchase" &&
+          <Button type="submit" value="sample" size="sm" variant="outline" disabled={busy || formOutdated || incomeOutdated}>Run sample pricing</Button>}
         {canRehearseUnsupported && (dscr || bank) && <Button type="submit" value="unsupported" size="sm" variant="outline"
           disabled={busy || formOutdated || incomeOutdated || (bank && !form.selfEmployed)}>Rehearse unsupported EQ</Button>}
         {current && supportsManualOffers(current) && <Button type="button" variant="outline"
