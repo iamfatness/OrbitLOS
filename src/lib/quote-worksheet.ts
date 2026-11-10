@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PricingOffer, PricingRun, PricingScenario } from "./pricing-model";
+import { offerDisplayName } from "./manual-pricing-model";
 
 export const feeLabels = {
   origination: "Origination fee", appraisal: "Appraisal", creditReport: "Credit report", settlement: "Title and settlement",
@@ -141,6 +142,7 @@ export function sampleFeeLabel(input: FeeAllocationInputs | undefined, key: FeeK
 }
 
 export function estimateFees(scenario: PricingScenario, offer: PricingOffer, input: FeeInputs): FeeEstimate | null {
+  if (offer.manual && offer.pricingAmount === null) return null;
   const principal = Math.round(scenario.loanAmount * 100);
   const purchase = scenario.purpose === "Purchase";
   const { purchasePrice, payoffs } = input;
@@ -158,7 +160,7 @@ export function estimateFees(scenario: PricingScenario, offer: PricingOffer, inp
 
 export function quoteOption(run: Pick<PricingRun, "id" | "scenario">, offer: PricingOffer, worksheet?: FeeWorksheet): QuoteOption {
   return {
-    runId: run.id, offerId: offer.id, product: offer.product, rate: offer.rate, years: offer.years, principalAndInterest: offer.principalAndInterest,
+    runId: run.id, offerId: offer.id, product: offerDisplayName(offer), rate: offer.rate, years: offer.years, principalAndInterest: offer.principalAndInterest,
     loanAmount: run.scenario.loanAmount, purpose: run.scenario.purpose,
     estimate: worksheet ? estimateFees(run.scenario, offer, worksheet.inputs) : null,
     ...(worksheet?.origin ? { feeOrigin: worksheet.origin } : {}),

@@ -31,6 +31,7 @@ import { answerBorrowerQuestion } from "./borrower-question-model";
 import { borrowerQuestions, recordBorrowerAnswer } from "./borrower-questions";
 import { loanOutreachSuppressed } from "./outreach-preferences";
 import { defaultLenderExportProfile, lenderExportProfile } from "./lender-export-model";
+import { sameManualQuote, type ManualQuoteBasis } from "./manual-pricing-model";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "lastExportProfile" |
   "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt"> & { draft: string; step: number };
@@ -48,21 +49,27 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     details: lenderDetailsSchema.parse(JSON.parse(String(item.details))), revision: Number(item.revision),
   }]));
   const handoffs = new Map<string, NonNullable<StaffApplication["manualHandoff"]>>();
-  for (const event of db.prepare(`SELECT event.loanId, event.outcome, event.submissionId, event.exportProfile FROM application_handoff_events event
+  for (const event of db.prepare(`SELECT event.loanId, event.outcome, event.submissionId, event.exportProfile, event.quoteBasis FROM application_handoff_events event
     JOIN activity ON activity.id = event.activityId
     JOIN applications app ON app.loanId = event.loanId AND app.revision = event.applicationRevision AND app.reviewedAt IS NOT NULL
     LEFT JOIN application_lender_details details ON details.loanId = event.loanId
     WHERE event.lenderRevision = coalesce(details.revision, 0)${loanId ? " AND event.loanId = ?" : ""} ORDER BY activity.rowid DESC`).all(...args)) {
     const loanId = String(event.loanId);
     const handoff = handoffs.get(loanId) ?? { exportPrepared: false, outcome: null };
+    const basis = event.quoteBasis ? JSON.parse(String(event.quoteBasis)) as ManualQuoteBasis : null;
     if (event.outcome === "Export prepared") {
-      handoff.exportPrepared = true;
       const profile = lenderExportProfile.safeParse(event.exportProfile ?? defaultLenderExportProfile);
-      if (profile.success && !handoff.exportProfiles?.includes(profile.data)) (handoff.exportProfiles ??= []).push(profile.data);
+      if (!basis) {
+        handoff.exportPrepared = true;
+        if (profile.success && !handoff.exportProfiles?.includes(profile.data)) (handoff.exportProfiles ??= []).push(profile.data);
+      } else if (profile.success && !handoff.preparedQuotes?.some((item) => sameManualQuote(item, basis) && item.profile === profile.data)) {
+        (handoff.preparedQuotes ??= []).push({ runId: basis.runId, offerId: basis.offerId, profile: profile.data });
+      }
     }
     else if (!handoff.outcome) {
       handoff.outcome = manualHandoffOutcomes.find((outcome) => outcome === event.outcome) ?? null;
       if (handoff.outcome === "Acknowledged" && typeof event.submissionId === "string") handoff.submissionId = event.submissionId;
+      if (handoff.outcome === "Acknowledged" && basis) handoff.acknowledgedQuote = basis;
     }
     handoffs.set(loanId, handoff);
   }

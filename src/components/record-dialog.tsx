@@ -27,6 +27,7 @@ import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
 import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mockUwmQuoteAmountIssue, pricingInputsMatch } from "@/lib/pricing-model";
+import { manualQuoteBasis, sameManualQuote } from "@/lib/manual-pricing-model";
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
@@ -275,11 +276,11 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
   );
 }
 
-function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, openPricing, markDraftChanged, shareBrokerage }: {
+function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, openPricing, openManual, markDraftChanged, shareBrokerage }: {
   loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean; jointLinks: boolean;
   brokerageId: string;
   openConditions: (id: string) => void; campaignManual: boolean; openReviews?: () => void;
-  openPricing: () => void;
+  openPricing: () => void; openManual: () => void;
   markDraftChanged: (editor: Node) => void;
   shareBrokerage?: string;
 }) {
@@ -300,9 +301,12 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
   const lastSent = application?.versions.find((version) => version.uwmReceipt);
   const currentSent = !!lastSent && lastSent.revision === application?.revision;
   const pendingReceipt = application?.uwmPendingReceipt;
-  const quoteAmountIssue = currentSent ? null : mockUwmQuoteAmountIssue(latestSelectedPricingRun(state.pricingRuns, loanId), application);
-  const linkedFile = state.submissions.find((file) =>
+  const chosen = latestSelectedPricingRun(state.pricingRuns, loanId);
+  const manualQuote = chosen && manualQuoteBasis(chosen.id, chosen.scenario.loanAmount, chosen.offers.find((offer) => offer.id === chosen.selectedId));
+  const quoteAmountIssue = currentSent ? null : mockUwmQuoteAmountIssue(chosen, application);
+  const acknowledgedFile = state.submissions.find((file) =>
     file.id === application?.manualHandoff?.submissionId && file.loanId === loanId && file.syncedAt === null);
+  const linkedFile = sameManualQuote(manualQuote, application?.manualHandoff?.acknowledgedQuote) ? acknowledgedFile : undefined;
   const processingPending = state.loanProcessing.some((item) => item.loanId === loanId && item.processorEmail &&
     (item.status === "Assigned" || item.status === "Ready for processing"));
   const showCheckpoint = requireSecondReview && (!blocker || processingPending || (!currentSent && !linkedFile));
@@ -388,14 +392,17 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
           <summary>Review submitted answers</summary>
           <ApplicationAnswers draft={application.draft} />
         </details>}
-        {application.reviewedAt ? !processor && !currentSent && !pendingReceipt && (quoteAmountIssue ? <div className="document-item">
+        {application.reviewedAt ? !processor && (manualQuote ? <div className="document-item">
+          <p>Selected manual lender offer · {manualQuote.lender}</p>
+          <Button size="sm" variant="outline" disabled={busy} onClick={openManual}>Open selected lender handoff</Button>
+        </div> : !currentSent && !pendingReceipt && (quoteAmountIssue ? <div className="document-item">
           <p>{quoteAmountIssue}</p>
           <Button size="sm" variant="outline" disabled={busy} onClick={openPricing}>Review quote amount</Button>
         </div> : !blocker && <Button size="sm" disabled={busy}
           onClick={() => void save({ type: "sendApplication", loanId, revision: application.revision })}>
-          <Send /> {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button>) :
+          <Send /> {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button>)) :
           <Button size="sm" disabled={busy} onClick={() => void save({ type: "reviewApplication", loanId, revision: application.revision })}><CheckCircle2 /> Mark reviewed</Button>}
-        {shareBrokerage && !processor && canRecordReturn && application.reviewedAt && !currentSent && !pendingReceipt && !blocker && !quoteAmountIssue &&
+        {shareBrokerage && !processor && canRecordReturn && application.reviewedAt && !manualQuote && !currentSent && !pendingReceipt && !blocker && !quoteAmountIssue &&
           <details className="document-form">
             <summary>Rehearse a missing mock UWM acknowledgment</summary>
             <p>Orbit will open a receipt review task. Use it to check the mock lender before sending again.</p>
@@ -427,12 +434,13 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
           <ApplicationAnswers draft={application.previousAnswers} />
         </details>}
       </details>}
-      <ManualLenderExport key={`export:${loanId}:${application.revision}`}
+      <ManualLenderExport key={`export:${loanId}:${application.revision}:${manualQuote?.offerId ?? "general"}`}
         application={application} busy={busy} save={save} openConditions={openConditions}
         canRecordReturn={canRecordReturn} handoffBlocker={blocker} openReviews={openReviews}
         shareBrokerage={shareBrokerage}
         linkedFile={linkedFile}
-        previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
+        previousFile={acknowledgedFile ?? state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
+        manualQuote={manualQuote} manualQuoteCurrent={!!chosen && pricingInputsMatch(chosen, application)} openPricing={openPricing}
         campaignManual={campaignManual} correctionSave={applicationEdits.save} correctionBlocked={applicationEdits.blocked} />
       <LenderApplicationDetails key={`lender:${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy || applicationEdits.blocked} save={applicationEdits.save} markDraftChanged={markDraftChanged} />
@@ -717,7 +725,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         markDraftChanged={markDraftChanged}
         openConditions={(id) => open(submissionTarget(id))} campaignManual={campaignLender === "manual" && !processor}
-        openPricing={() => openPricing()}
+        openPricing={() => openPricing()} openManual={() => open("manual-lender-export")}
         openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined} />
       {canOpenReviews && application?.reviewedAt && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
       {staff?.brokerage.pilot && state.mismoLoans.includes(loan.id) && <section className="details-section" aria-label="Synthetic loan file">
@@ -1001,24 +1009,28 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   };
   const handoffApplication = modal.kind === "pricing" && loan
     ? state.applications.find((item) => item.loanId === loan.id) : undefined;
+  const handoffRun = modal.kind === "pricing" ? latestSelectedPricingRun(state.pricingRuns, loan?.id) : undefined;
+  const manualPricingPath = !!handoffRun?.offers.some((offer) => offer.id === handoffRun.selectedId && offer.manual);
+  const useManualPath = campaignLender === "manual" || manualPricingPath;
   const receivedByUwm = handoffApplication?.versions.some((version) =>
     version.revision === handoffApplication.revision && version.uwmReceipt);
-  const lenderReceived = campaignLender === "manual"
-    ? handoffApplication?.manualHandoff?.outcome === "Acknowledged" && !!handoffApplication.manualHandoff.submissionId : receivedByUwm;
-  const receiptPending = campaignLender !== "manual" && !!handoffApplication?.uwmPendingReceipt;
+  const lenderReceived = useManualPath
+    ? handoffApplication?.manualHandoff?.outcome === "Acknowledged" && !!handoffApplication.manualHandoff.submissionId &&
+      (!manualPricingPath || handoffApplication.manualHandoff.acknowledgedQuote?.offerId === handoffRun?.selectedId) : receivedByUwm;
+  const receiptPending = !useManualPath && !!handoffApplication?.uwmPendingReceipt;
   const handoffBlocker = lenderReceived || receiptPending ? null : secondReviewBlocker(state.playbook.requireSecondReview, handoffApplication);
   const lenderHandoff = modal.kind === "pricing" && loan && (handoffApplication || handoffBlocker) && staff?.brokerage.role !== "Processor" ? {
     label: handoffBlocker ? (handoffApplication?.reviewedAt ? "Open team reviews" : "Open 1003 review") :
-      campaignLender === "manual" ? "Open manual MISMO export" : receiptPending ? "Open mock UWM receipt review" :
+      useManualPath ? "Open manual MISMO export" : receiptPending ? "Open mock UWM receipt review" :
         receivedByUwm ? "Open mock UWM checklist" : "Send reviewed 1003 to mock UWM",
     blocker: handoffBlocker,
-    checkQuoteAmount: campaignLender !== "manual" && !receivedByUwm && !receiptPending,
+    checkQuoteAmount: !useManualPath && !receivedByUwm && !receiptPending,
     proceed: (quote: { runId: string; offerId: string }) => {
       if (handoffBlocker) {
         show({ kind: "details", loanId: loan.id, target: handoffApplication?.reviewedAt ? loanReviewsTarget : "loan-application", campaignLender });
         return;
       }
-      if (campaignLender === "manual") {
+      if (useManualPath) {
         show({ kind: "details", loanId: loan.id, target: "manual-lender-export", campaignLender });
         return;
       }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { QuotePresentation } from "./quote-worksheet";
 import { requestedMoney } from "./utils";
 import { submittedRequestedLoanAmount, type StaffApplication } from "./application-model";
+import type { ManualQuoteDetails } from "./manual-pricing-model";
 
 const amount = z.number().min(1).max(25_000_000);
 const monthlyExpense = z.number().nonnegative().max(10_000_000);
@@ -72,6 +73,7 @@ export interface PricingOffer {
   pricingPercent: number | null;
   pricingAmount: number | null;
   pricingLabel: string;
+  manual?: ManualQuoteDetails;
 }
 
 export interface PricingResult {
@@ -120,7 +122,7 @@ export function mockUwmAmountMismatch(quoted: number, requested: number | null, 
 
 export function mockUwmQuoteAmountIssue(run: PricingRun | undefined,
   application?: Pick<StaffApplication, "revision" | "correctionNote" | "submittedAt" | "draft">, action?: MockUwmQuoteAction) {
-  return run?.mode === "mock" && quoteMatchesApplication(run.applicationRevision, application)
+  return run?.mode === "mock" && !run.offers.some((offer) => offer.id === run.selectedId && offer.manual) && quoteMatchesApplication(run.applicationRevision, application)
     ? mockUwmAmountMismatch(run.scenario.loanAmount, submittedRequestedLoanAmount(application), action) : null;
 }
 

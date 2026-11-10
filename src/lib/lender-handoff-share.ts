@@ -7,6 +7,7 @@ import { prepareLenderExport } from "./lender-export";
 import { defaultLenderExportProfile, lenderExportProfiles } from "./lender-export-model";
 import { lenderPackageFilename, lenderPackageReference, lenderPackageUnavailable, lenderShareStaffInput, type LenderPackageManifest, type LenderPackageStatus,
   type LenderSharePage, type PackageDownloadInput, type SharedLenderPackageInput } from "./lender-handoff-share-model";
+import { manualQuoteForHandoff, selectedManualQuote } from "./manual-pricing";
 import type { ProtectPilotLinks } from "./pilot";
 import { readPlaybook } from "./playbooks";
 import type { WorkspaceStaff } from "./staff-store";
@@ -20,11 +21,12 @@ const unavailable = { status: 404, error: lenderPackageUnavailable };
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const cleanPdf = `request.status = 'Accepted' AND pdf.uploadMode = 'mock' AND pdf.objectId IS NOT NULL
   AND pdf.pendingId IS NULL AND pdf.failed = 0`;
+const packageQuote = `(SELECT event.quoteBasis FROM application_handoff_events event WHERE event.activityId = lender_package_links.id) AS quoteBasis`;
 type Row = Record<string, SqlValue>;
 type CreateShare = Extract<z.infer<typeof lenderShareStaffInput>, { type: "create" }>;
 
-function reviewedFile(db: Store, loanId: string) {
-  return db.prepare(`SELECT loan.contactId, app.revision, coalesce(lender.revision, 0) AS lenderRevision
+function reviewedFile(db: Store, loanId: string, now: string) {
+  const file = db.prepare(`SELECT loan.contactId, app.revision, coalesce(lender.revision, 0) AS lenderRevision
     FROM loans loan JOIN applications app ON app.loanId = loan.id
     LEFT JOIN application_lender_details lender ON lender.loanId = loan.id
     LEFT JOIN past_client_profiles past ON past.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
@@ -32,10 +34,16 @@ function reviewedFile(db: Store, loanId: string) {
       AND past.closingDate IS NULL AND closing.fundingDate IS NULL
       AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND coalesce(app.correctionNote, '') = ''
       AND json_extract(app.draft, '$.confirmedDemo') = 1${readPlaybook(db).requireSecondReview ? ` AND ${approvedSecondReview}` : ""}`).get(loanId);
+  if (!file) return undefined;
+  const manual = selectedManualQuote(db, loanId)?.basis;
+  const quote = manual && manualQuoteForHandoff(db, loanId, manual, now);
+  if (quote && "error" in quote) return undefined;
+  return { ...file, quoteBasis: quote?.basis ? JSON.stringify(quote.basis) : null } as Row;
 }
 
 function matchesFile(share: Row, current: Row | undefined) {
-  return !!current && share.borrowerId === current.contactId && share.applicationRevision === current.revision && share.lenderRevision === current.lenderRevision;
+  return !!current && share.borrowerId === current.contactId && share.applicationRevision === current.revision &&
+    share.lenderRevision === current.lenderRevision && share.quoteBasis === current.quoteBasis;
 }
 
 function documentsStillMatch(db: Store, share: Row) {
@@ -46,7 +54,7 @@ function documentsStillMatch(db: Store, share: Row) {
 }
 
 function activePackage(db: Store, loanId: string, now: string) {
-  return db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, tokenHash, expiresAt, recipient
+  return db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, tokenHash, expiresAt, recipient, ${packageQuote}
     FROM lender_package_links WHERE loanId = ? AND revokedAt IS NULL AND expiresAt > ?`).get(loanId, now);
 }
 
@@ -63,13 +71,13 @@ function packageFiles(db: Store, shareId: SqlValue) {
 }
 
 function sharePage(db: Store, loanId: string, now: string): LenderSharePage {
-  const current = reviewedFile(db, loanId);
+  const current = reviewedFile(db, loanId, now);
   const eligible = current ? db.prepare(`SELECT request.id, request.revision, request.kind, request.recipient
     FROM document_requests request JOIN document_files pdf ON pdf.requestId = request.id
     WHERE request.loanId = ? AND ${cleanPdf} ORDER BY request.kind, request.recipient, request.id LIMIT 50`).all(loanId).map((row) => ({
     id: String(row.id), revision: Number(row.revision), label: `${row.kind} · ${row.recipient}`,
   })) : [];
-  const shares = db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, recipient, createdAt, createdBy, expiresAt, revokedAt
+  const shares = db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, recipient, createdAt, createdBy, expiresAt, revokedAt, ${packageQuote}
     FROM lender_package_links WHERE loanId = ?
     ORDER BY (revokedAt IS NULL AND expiresAt > ?) DESC, createdAt DESC, rowid DESC LIMIT 15`).all(loanId, now).map((row) => {
     const canRevoke = !row.revokedAt && String(row.expiresAt) > now;
@@ -83,12 +91,12 @@ function sharePage(db: Store, loanId: string, now: string): LenderSharePage {
 }
 
 function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: string): LenderSharePage | { error: string } {
-  const { loanId, shareId, replacesId, token, code, names, revision, lenderRevision, profile, recipient, hours, documents } = data;
-  const current = reviewedFile(db, loanId);
+  const { loanId, shareId, replacesId, token, code, names, revision, lenderRevision, profile, manualQuote, recipient, hours, documents } = data;
+  const current = reviewedFile(db, loanId, now);
   if (!current || current.revision !== revision || current.lenderRevision !== lenderRevision) return { error: changedFile };
   if (portalBrokerage(token) !== staff.brokerage.id) return { error: staffUnavailable };
   const requestHash = hash(JSON.stringify(data));
-  const prior = db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, requestHash, expiresAt, revokedAt
+  const prior = db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, requestHash, expiresAt, revokedAt, ${packageQuote}
     FROM lender_package_links WHERE id = ?`).get(shareId);
   if (prior) {
     if (prior.loanId !== loanId || prior.requestHash !== requestHash || prior.revokedAt || String(prior.expiresAt) <= now ||
@@ -107,7 +115,7 @@ function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: s
     WHERE request.id = ? AND request.revision = ? AND request.loanId = ? AND ${cleanPdf}`);
   const selected = documents.map((document) => ({ document, pdf: readPdf.get(document.id, document.revision, loanId) }));
   if (selected.some(({ pdf }) => !pdf)) return { error: changedFile };
-  const prepared = prepareLenderExport(db, { type: "exportReviewedApplication", loanId, revision, lenderRevision, names, profile, eventId: shareId }, staff, now);
+  const prepared = prepareLenderExport(db, { type: "exportReviewedApplication", loanId, revision, lenderRevision, names, profile, manualQuote, eventId: shareId }, staff, now);
   if ("error" in prepared) return { error: prepared.error ?? changedFile };
   const expiresAt = new Date(Date.parse(now) + hours * 3600000).toISOString();
   db.prepare(`INSERT INTO lender_package_links
@@ -147,7 +155,7 @@ export async function lenderShareWork(db: Store, input: unknown, staff: Workspac
     const blocker = handoffCheckpointError(db, data.loanId);
     if (blocker) return { error: blocker };
     if (data.replacesId && protectLinks && !db.prepare("SELECT 1 FROM lender_package_links WHERE id = ?").get(data.shareId)) {
-      const current = reviewedFile(db, data.loanId);
+      const current = reviewedFile(db, data.loanId, now);
       const active = activePackage(db, data.loanId, now);
       if (!current || current.revision !== data.revision || current.lenderRevision !== data.lenderRevision) return { error: changedFile };
       if (!active || !isReplacement(db, active, current, data.replacesId)) return { error: changedPackage };
@@ -210,10 +218,10 @@ export function lenderPackageAccess(db: Store, input: SharedLenderPackageInput, 
 }
 
 function authenticatedShare(db: Store, input: SharedLenderPackageInput, now: string) {
-  const share = db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, recipient, expiresAt
+  const share = db.prepare(`SELECT id, loanId, borrowerId, applicationRevision, lenderRevision, recipient, expiresAt, ${packageQuote}
     FROM lender_package_links WHERE tokenHash = ? AND codeHash = ? AND revokedAt IS NULL AND expiresAt > ?`)
     .get(hash(input.token), hash(input.code), now);
-  if (share && matchesFile(share, reviewedFile(db, String(share.loanId))) && documentsStillMatch(db, share)) return share;
+  if (share && matchesFile(share, reviewedFile(db, String(share.loanId), now)) && documentsStillMatch(db, share)) return share;
 }
 
 export function confirmLenderPackagePdf(db: Store, input: PackageDownloadInput, objectId: string, now = new Date().toISOString()) {

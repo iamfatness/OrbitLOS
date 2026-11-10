@@ -69,7 +69,7 @@ export function UwmRateLock({ loanId, submissions, application, rate, saved, off
     {status !== "Mock locked" && (receiptIssue ? <div className="rate-lock-actions">
       <p className="quote-disclaimer">{receiptIssue}</p>
       <Button type="button" size="sm" variant="outline" disabled={busy} onClick={openApplication}>Open 1003 handoff</Button>
-    </div> : !saved || !offer || saved.mode !== "mock"
+    </div> : offer?.manual ? <p className="muted">The selected manual lender offer uses the manual handoff. Choose a UWM offer to float or lock here.</p> : !saved || !offer || saved.mode !== "mock"
       ? <p className="muted">Save a sample pricing option to start the mock float and lock flow.</p>
       : needsReprice ? <p className="quote-disclaimer">Save a fresh quote from the current 1003 to float or request a mock lock.</p>
       : !files.length ? <p className="muted">Use Sync UWM for a sample UWM file, or send a reviewed 1003 to UWM (mock) from this loan first.</p>

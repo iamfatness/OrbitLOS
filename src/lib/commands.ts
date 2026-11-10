@@ -21,6 +21,8 @@ import { addApplicationActivity, getApplication, saveApplicationVersion, startAp
 import { manualHandoffNeedsApproval, manualHandoffOutcomes, requestedLoanAmount, reusablePropertyAddress } from "./application-model";
 import { handoffCheckpointError } from "./application-review-checkpoint";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
+import { addManualQuoteInput, manualQuoteReference, offerDisplayName } from "./manual-pricing-model";
+import { addManualQuote, manualQuoteForHandoff } from "./manual-pricing";
 import { approvedIncomeAmount, pricingInputError } from "./income-review-freshness";
 import { repriceIncomeMessage } from "./income-review-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
@@ -289,7 +291,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("refreshBorrowerQuestions"), loanId: id }),
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500),
-    lenderFile: z.object({ lender: label, externalId: label }).optional(), profile: lenderExportProfile.optional() }),
+    lenderFile: z.object({ lender: label, externalId: label }).optional(), profile: lenderExportProfile.optional(), manualQuote: manualQuoteReference.optional() }),
   z.object({ type: z.literal("acknowledgeCampaignLenderExport"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative(), profile: lenderExportProfile.optional() }),
   z.object({ type: z.literal("sendConditionDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
@@ -308,6 +310,7 @@ const command = z.discriminatedUnion("type", [
     days: z.union([z.literal(1), z.literal(3), z.literal(7)]), purpose: z.enum(followUpPurposes).default("Loan service") }),
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario, applicationRevision: z.number().int().nonnegative().nullable(),
     incomeReviewRevision: z.number().int().positive().optional() }),
+  addManualQuoteInput,
   mockCreditInput,
   mockAusInput,
   mockPairedAusInput,
@@ -506,6 +509,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "requestApplicationCorrection":
       return data.lenderReturn ? data.loanId : undefined;
     case "markClearToClose":
+    case "addManualQuote":
     case "useReviewedLoanAmount":
     case "saveClosingTarget":
     case "saveClosingItem":
@@ -1505,12 +1509,18 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const outcome = simulated ? "Acknowledged" : data.outcome;
           const note = simulated ? campaignManualHandoff.acknowledgmentNote : data.note;
           const file = simulated ? undefined : data.lenderFile;
+          const quote = manualQuoteForHandoff(db, data.loanId, simulated ? undefined : data.manualQuote, now);
+          if ("error" in quote) throw new WorkspaceError(quote.error);
+          if (quote.basis && (!file || file.lender.toLowerCase() !== quote.basis.lender.toLowerCase())) {
+            throw new WorkspaceError("Record acknowledgment from the lender on the selected manual quote.");
+          }
+          const quoteBasis = quote.basis ? JSON.stringify(quote.basis) : null;
           const detail = `Manual handoff · ${outcome} · Application revision ${data.revision}${file ? ` · ${file.lender} · ${file.externalId}` : ""}${note ? ` · ${note}` : ""}`;
           const previous = db.prepare("SELECT loanId, text FROM activity WHERE id = ?").get(data.eventId);
           if (previous) {
-            const recorded = db.prepare("SELECT lenderRevision, submissionId, exportProfile FROM application_handoff_events WHERE activityId = ?").get(data.eventId);
+            const recorded = db.prepare("SELECT lenderRevision, submissionId, exportProfile, quoteBasis FROM application_handoff_events WHERE activityId = ?").get(data.eventId);
             if (previous.loanId !== data.loanId || previous.text !== detail || (simulated && !recorded) ||
-              (recorded && (recorded.lenderRevision !== lenderRevision || (recorded.exportProfile ?? undefined) !== data.profile)) ||
+              (recorded && (recorded.lenderRevision !== lenderRevision || (recorded.exportProfile ?? undefined) !== data.profile || recorded.quoteBasis !== quoteBasis)) ||
               (file && !recorded?.submissionId)) {
               throw new WorkspaceError("Start a new handoff entry.");
             }
@@ -1534,7 +1544,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (!alreadyRecorded) {
             if (file) {
               if (outcome !== "Acknowledged" || data.lenderRevision === undefined ||
-                !hasPreparedLenderExport(db, { ...data, lenderRevision })) {
+                !hasPreparedLenderExport(db, { ...data, lenderRevision }, quote.basis)) {
                 throw new WorkspaceError("Prepare the MISMO export for the current reviewed 1003 before linking a lender acknowledgment.");
               }
               const existing = db.prepare("SELECT id, loanId, syncedAt FROM submissions WHERE lender = ? AND externalId = ?")
@@ -1548,8 +1558,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             }
             db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(data.eventId, data.loanId, detail, now);
             if (data.lenderRevision !== undefined) db.prepare(`INSERT INTO application_handoff_events
-              (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId, exportProfile) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-              .run(data.eventId, data.loanId, data.revision, lenderRevision, outcome, submissionId, data.profile ?? null);
+              (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId, exportProfile, quoteBasis) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+              .run(data.eventId, data.loanId, data.revision, lenderRevision, outcome, submissionId, data.profile ?? null, quoteBasis);
             accessEvent(db, staff, simulated ? "Recorded simulated lender acknowledgment" : `Manual handoff · ${outcome}`, data.loanId, now);
           }
           message = simulated ? "Simulated acknowledgment recorded. The fictional lender checklist is ready." :
@@ -1645,10 +1655,18 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             .run(crypto.randomUUID(), data.loanId, data.title, new Date(Date.parse(now) + data.days * 86_400_000).toISOString(), data.purpose);
           message = "Follow-up task added.";
           break;
+        case "addManualQuote": {
+          const result = addManualQuote(db, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          if (result.added) addApplicationActivity(db, data.loanId, `Added manual offer · ${data.details.lender} · ${data.details.product}`, now);
+          message = result.added ? "Manual lender offer added to this pricing scenario." : "This manual lender offer was already added.";
+          break;
+        }
         case "selectOffer": {
           const run = db.prepare("SELECT offers, selectedId, mode, applicationRevision, incomeReviewRevision FROM pricing_runs WHERE id = ? AND loanId = ?").get(data.runId, data.loanId);
           const offer = run && (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === data.offerId);
           if (!run || !offer) throw new WorkspaceError("That pricing option is unavailable. Refresh the loan and try again.");
+          if (offer.manual && offer.manual.expiresOn < easternDate(new Date(now))) throw new WorkspaceError("This manual offer expired. Add a current lender offer before choosing a quote.");
           const freshness = pricingInputError(db, data.loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision }, getApplication(db, data.loanId));
           if (freshness) throw new WorkspaceError(freshness);
           const lastSaved = savedPricingRun(db, data.loanId);
@@ -1657,7 +1675,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             db.prepare("UPDATE pricing_runs SET selectedId = ?, selectedAt = ? WHERE id = ?").run(offer.id, now, data.runId);
             flagDisclosureReview(db, data.loanId, "Selected quote changed", now);
             flagSharedQuoteReview(db, data.loanId, "Selected offer changed", now, { runId: data.runId, offerId: offer.id, change: "selection" });
-            addApplicationActivity(db, data.loanId, `Saved ${run.mode === "mock" ? "sample" : "stage"} quote · ${offer.product} at ${offer.rate.toFixed(3)}%`, now);
+            addApplicationActivity(db, data.loanId, `Saved ${offer.manual ? "manual lender" : run.mode === "mock" ? "sample" : "stage"} quote · ${offerDisplayName(offer)} at ${offer.rate.toFixed(3)}%`, now);
             auditStageOverride(db, staff, data.loanId, "Changed selected quote", now, override);
           }
           message = "Quote saved on the loan.";
@@ -1715,9 +1733,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (new Set(choices.map((choice) => JSON.stringify([choice.runId, choice.offerId]))).size !== choices.length) {
             throw new WorkspaceError("Choose distinct pricing options for the comparison.");
           }
+          const manualExpirations: string[] = [];
           const options: QuoteOption[] = choices.map((choice) => {
             const result = quoteSnapshot(db, data.loanId, choice, application);
             if ("error" in result) throw new WorkspaceError(result.error);
+            if (result.manualExpiresOn) manualExpirations.push(result.manualExpiresOn);
             return result.option;
           });
           const [primary, ...alternatives] = options;
@@ -1725,6 +1745,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const presentation = JSON.stringify({ primary, alternatives });
           const previous = db.prepare("SELECT runId, offerId, presentation, publishedAt, expiresOn, reviewReason, reviewRevision FROM published_quotes WHERE loanId = ?").get(data.loanId);
           const expiresOn = data.type === "publishDatedQuote" ? data.expiresOn : null;
+          if (manualExpirations.some((limit) => !expiresOn || expiresOn > limit)) {
+            throw new WorkspaceError("Set the shared quote to expire on or before each manual offer’s expiration.");
+          }
           const identical = previous?.runId === data.runId && previous.offerId === data.offerId &&
             previous.presentation === presentation && previous.expiresOn === expiresOn;
           if (data.type === "publishDatedQuote") {
@@ -1748,7 +1771,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
               product = excluded.product, rate = excluded.rate, principalAndInterest = excluded.principalAndInterest,
               quotedAt = excluded.quotedAt, publishedAt = excluded.publishedAt, presentation = excluded.presentation, expiresOn = excluded.expiresOn,
               reviewReason = NULL, reviewRevision = 0`)
-              .run(data.loanId, data.runId, offer.id, offer.product, offer.rate, offer.principalAndInterest, run.quotedAt, publishedAt, presentation, expiresOn);
+              .run(data.loanId, data.runId, offer.id, primary.product, offer.rate, offer.principalAndInterest, run.quotedAt, publishedAt, presentation, expiresOn);
             addApplicationActivity(db, data.loanId, "Sample quote published to borrower status.", now);
           }
           if (previous?.reviewReason && data.type === "publishDatedQuote" && !identical) {

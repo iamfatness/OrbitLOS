@@ -33,6 +33,7 @@ export function saveFeeWorksheet(db: Store, data: SaveFeeWorksheet, now: string)
   if (freshness) return { error: freshness };
   const allocationIssue = feeAllocationIssue(worksheet, option.scenario.purpose === "Purchase");
   if (allocationIssue) return { error: allocationIssue };
+  if (option.offer.manual && option.offer.pricingAmount === null) return { error: "Enter a new manual offer with points or credit before estimating fees. Use zero when the lender quoted neither." };
   if (!estimateFees(option.scenario, option.offer, worksheet)) {
     return { error: option.scenario.purpose === "Purchase" ? "Enter a purchase price at or above the loan amount." : "Enter estimated refinance payoffs, including zero if applicable." };
   }
@@ -65,7 +66,7 @@ export function quoteSnapshot(db: Store, loanId: string, choice: z.infer<typeof 
   if (freshness) return { error: freshness };
   const worksheet = quoteFeeWorksheet(db, loanId, choice.runId, choice.offerId);
   if ((worksheet?.revision ?? 0) !== choice.feeRevision) return { error: "A fee worksheet changed. Refresh the comparison before sharing." };
-  return { option: quoteOption({ ...option, id: choice.runId }, option.offer, worksheet) };
+  return { option: quoteOption({ ...option, id: choice.runId }, option.offer, worksheet), manualExpiresOn: option.offer.manual?.expiresOn };
 }
 
 export function archiveSharedQuote(db: Store, loanId: string, now: string, outcome: "Replaced" | "Removed") {

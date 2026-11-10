@@ -7,6 +7,8 @@ import { afterHours } from "./playbook-model";
 import { readPlaybook } from "./playbooks";
 import { defaultLenderExportProfile, lenderExportProfiles, type ExportName, type LenderExportProfile, type exportReviewedApplication } from "./lender-export-model";
 import { lenderExportIssues } from "./lender-export-profile";
+import { manualQuoteLenderDetails, type ManualQuoteBasis } from "./manual-pricing-model";
+import { manualQuoteForHandoff } from "./manual-pricing";
 import { mismoBorrower, mismoFinances, mortgage, usage } from "./mismo-borrower-export";
 import { container, contactPoint, fields, indicator, label, mismoAddress, partyRole, relationship } from "./mismo-xml";
 import type { StaffIdentity } from "./staff-store";
@@ -14,11 +16,12 @@ import type { Store } from "./store";
 import { blankLenderDetails, lenderDetailsSchema, readAddress, type LenderDetails } from "./urla";
 import type { z } from "zod";
 
-export function hasPreparedLenderExport(db: Store, input: { loanId: string; revision: number; lenderRevision: number; profile?: LenderExportProfile }) {
+export function hasPreparedLenderExport(db: Store, input: { loanId: string; revision: number; lenderRevision: number; profile?: LenderExportProfile }, quote: ManualQuoteBasis | null = null) {
   return Boolean(db.prepare(`SELECT 1 FROM application_handoff_events
-    WHERE loanId = ? AND applicationRevision = ? AND lenderRevision = ? AND outcome = 'Export prepared'
+    WHERE loanId = ? AND applicationRevision = ? AND lenderRevision = ? AND outcome = 'Export prepared' AND quoteBasis IS ?
     ${input.profile ? "AND coalesce(exportProfile, ?) = ?" : ""}`)
-    .get(input.loanId, input.revision, input.lenderRevision, ...(input.profile ? [defaultLenderExportProfile, input.profile] : [])));
+    .get(input.loanId, input.revision, input.lenderRevision, quote ? JSON.stringify(quote) : null,
+      ...(input.profile ? [defaultLenderExportProfile, input.profile] : [])));
 }
 
 export function recordManualLenderReturn(db: Store, input: { loanId: string; revision: number; note: string;
@@ -177,7 +180,10 @@ export function prepareLenderExport(db: Store, input: z.infer<typeof exportRevie
   if (Number(lender?.revision ?? 0) !== input.lenderRevision) return { error: "Lender details changed. Refresh the loan before downloading." };
   const draft = applicationDraft.parse(JSON.parse(application.draft));
   if (!draft.confirmedDemo) return { error: "Manual export is available for fictional pilot applications." };
-  const details = lender ? lenderDetailsSchema.parse(JSON.parse(String(lender.details))) : blankLenderDetails();
+  const quote = manualQuoteForHandoff(db, input.loanId, input.manualQuote, now);
+  if ("error" in quote) return { error: quote.error };
+  const basis = quote.basis ? JSON.stringify(quote.basis) : null;
+  const details = manualQuoteLenderDetails(lender ? lenderDetailsSchema.parse(JSON.parse(String(lender.details))) : blankLenderDetails(), quote.basis);
   const profile = input.profile ?? defaultLenderExportProfile;
   const issues = lenderExportIssues(draft, details, input.names, profile);
   if (issues.length) return { error: `Resolve the MISMO export checks before preparing the file. ${issues[0].label}` };
@@ -189,15 +195,16 @@ export function prepareLenderExport(db: Store, input: z.infer<typeof exportRevie
 
   const digest = createHash("sha256").update(xml).digest("hex");
   const profileNote = profile === defaultLenderExportProfile ? "" : ` · ${lenderExportProfiles[profile].label}`;
-  const message = `Prepared MISMO 3.4 XML for manual handoff · Application revision ${input.revision} · Lender details revision ${input.lenderRevision}${profileNote} · ${staff.email}`;
-  const previous = db.prepare(`SELECT activity.loanId, activity.text, event.exportProfile, event.exportDigest FROM activity
+  const quoteNote = quote.basis ? ` · ${quote.basis.lender} · ${quote.basis.product} at ${quote.basis.rate.toFixed(3)}%` : "";
+  const message = `Prepared MISMO 3.4 XML for manual handoff · Application revision ${input.revision} · Lender details revision ${input.lenderRevision}${profileNote}${quoteNote} · ${staff.email}`;
+  const previous = db.prepare(`SELECT activity.loanId, activity.text, event.exportProfile, event.exportDigest, event.quoteBasis FROM activity
     LEFT JOIN application_handoff_events event ON event.activityId = activity.id WHERE activity.id = ?`).get(input.eventId);
   if (previous && (previous.loanId !== input.loanId || previous.text !== message ||
-    (previous.exportProfile ?? defaultLenderExportProfile) !== profile || (previous.exportDigest && previous.exportDigest !== digest))) {
+    (previous.exportProfile ?? defaultLenderExportProfile) !== profile || (previous.exportDigest && previous.exportDigest !== digest) || previous.quoteBasis !== basis)) {
     return { error: "Reopen the export panel and start a new download." };
   }
   if (!previous) db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(input.eventId, input.loanId, message, now);
-  db.prepare(`INSERT OR IGNORE INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, exportProfile, exportDigest)
-    VALUES (?, ?, ?, ?, 'Export prepared', ?, ?)`).run(input.eventId, input.loanId, input.revision, input.lenderRevision, profile, digest);
+  db.prepare(`INSERT OR IGNORE INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, exportProfile, exportDigest, quoteBasis)
+    VALUES (?, ?, ?, ?, 'Export prepared', ?, ?, ?)`).run(input.eventId, input.loanId, input.revision, input.lenderRevision, profile, digest, basis);
   return { xml };
 }

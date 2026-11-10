@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { loanReviewsTarget } from "./loan-review-model";
+import { manualQuoteReference } from "./manual-pricing-model";
 
 export const manualReturnStatus = {
   borrower: "Waiting on borrower",
@@ -56,7 +57,7 @@ export const defaultLenderExportProfile: LenderExportProfile = "basic";
 export const exportReviewedApplication = z.object({
   type: z.literal("exportReviewedApplication"), loanId: z.string().min(1).max(100),
   revision: z.number().int().nonnegative(), lenderRevision: z.number().int().nonnegative(),
-  eventId: z.uuid(), names: z.array(exportName).min(1).max(5), profile: lenderExportProfile.optional(),
+  eventId: z.uuid(), names: z.array(exportName).min(1).max(5), profile: lenderExportProfile.optional(), manualQuote: manualQuoteReference.optional(),
 });
 
 export function suggestExportName(name: string): ExportName {

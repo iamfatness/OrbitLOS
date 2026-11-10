@@ -3,6 +3,7 @@ import { requestedLoanAmount } from "./application-model";
 import { mockRateQuoteTermsLabel, mockRateStatus, mockUwmAmountMismatch, mockUwmRateReceiptIssue,
   type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer } from "./pricing-model";
 import { pricingInputError } from "./income-review-freshness";
+import { findPricingOffer } from "./manual-pricing-model";
 import { savedPricingRun, type Store } from "./store";
 
 type Result = { message: string } | { error: string };
@@ -50,7 +51,7 @@ export function floatMockRate(db: Store, input: {
   if (previous && status === "Floating" && sameQuote) return { message: `Rate already floating · ${previous.floatReference}` };
   if ((previous?.floatReference ?? null) !== previousFloatReference) return { error: "The floating rate changed. Reopen pricing before floating another quote." };
   const offer = (JSON.parse(String(run.offers)) as PricingOffer[]).find((item) => item.id === offerId);
-  if (!offer) return { error: "This sample quote is unavailable." };
+  if (!offer || offer.manual) return { error: "Choose a UWM offer before floating a mock UWM rate." };
 
   const reference = `DEMO-FLOAT-${crypto.randomUUID().toUpperCase()}`;
   db.prepare(`INSERT INTO mock_uwm_rates (loanId, submissionId, loanNumber, runId, offerId, product, rate, quotedAt, floatReference, floatedAt)
@@ -76,7 +77,7 @@ export function lockMockRate(db: Store, input: { loanId: string; floatReference:
     : { error: "A mock lock already exists for this floating rate." };
 
   const run = savedPricingRun(db, loanId);
-  if (run?.id !== current.runId || run.selectedId !== current.offerId || run.mode !== "mock") {
+  if (run?.id !== current.runId || run.selectedId !== current.offerId || run.mode !== "mock" || findPricingOffer(run.offers, run.selectedId)?.manual) {
     return { error: "The saved quote changed. Float it before requesting a mock lock." };
   }
   const quoteError = rateQuoteError(db, loanId, run, current.loanNumber);

@@ -2530,6 +2530,42 @@ try {
     assert.ok(overrides[0].changes.some(({ field, after }) => field === "Reason" && after === reason));
     assert.equal((await policy(owner, { ...publish, revision: 1, rules: { closing: [], funding: [] } })).revision, 2);
   });
+  await stage("A manually entered lender offer carries its terms through MISMO and acknowledgment", async () => {
+    const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Harbor Borrower",
+      borrowerEmail: "working-day-harbor-pricing@example.test", start1003: true, partnerId: null, officer: officer.name,
+      address: "", amount: 0, purpose: "Purchase", stage: "Lead" });
+    const loanId = created.loanWork.loanId;
+    const { token } = (await file(officer, loanId)).applications[0];
+    const { application } = await borrower(token, { type: "read" });
+    const draft = { ...sampleApplication(application.draft), confirmedDemo: true };
+    const submitted = (await borrower(token, { type: "submit", revision: application.revision, step: 9, draft, confirmedDemo: true })).application;
+    await loanAction(officer, loanId, "reviewApplication", { revision: submitted.revision });
+    const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
+      zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+      propertyType: "Single family", firstTimeBuyer: false };
+    const [run] = (await loanAction(officer, loanId, "runPricing", { scenario, applicationRevision: submitted.revision })).state.pricingRuns
+      .filter((item) => item.loanId === loanId);
+    const manualQuote = { runId: run.id, offerId: randomUUID() };
+    const details = { lender: "Fictional Harbor Wholesale", reference: "HARBOR-QA-102", product: "Flex fixed", years: 20, rate: 5.875,
+      apr: null, adjustment: -0.25, quotedOn: today, expiresOn: shiftReportDate(today, 7) };
+    const add = () => loanAction(officer, loanId, "addManualQuote", { ...manualQuote, details });
+    assert.match((await add()).message, /added to this pricing scenario/);
+    assert.match((await add()).message, /already added/);
+    await loanAction(officer, loanId, "selectOffer", manualQuote);
+    assert.match((await action(officer, "mutate", { type: "sendApplication", loanId, revision: submitted.revision })).error, /Manual lender export/);
+    const base = { loanId, revision: submitted.revision, lenderRevision: 0, profile: "basic", manualQuote };
+    const result = await write(officer, { type: "exportReviewedApplication", ...base, eventId: randomUUID(),
+      names: [{ first: "Fictional", middle: "Harbor", last: "Borrower", suffix: "" }] });
+    assert.match(result.mismoXml, /<NoteRatePercent>5\.875<\/NoteRatePercent>/);
+    assert.match(result.mismoXml, /<LoanAmortizationPeriodCount>240<\/LoanAmortizationPeriodCount>/);
+    const acknowledge = { type: "recordManualHandoff", ...base, eventId: randomUUID(), outcome: "Acknowledged", note: "",
+      lenderFile: { lender: details.lender, externalId: "HARBOR-ACK-102" } };
+    await write(officer, acknowledge);
+    const [saved] = (await file(officer, loanId)).applications;
+    assert.equal(saved.manualHandoff.acknowledgedQuote.reference, details.reference);
+    assert.equal(saved.manualHandoff.acknowledgedQuote.offerId, manualQuote.offerId);
+    assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /HARBOR-QA-102/);
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

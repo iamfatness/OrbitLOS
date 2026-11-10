@@ -11,7 +11,7 @@ const providerName = "UWM Easy Qualifier";
 const mockNotice = "Sample pricing for demonstration. Principal and interest exclude taxes, insurance and other costs. Rates and prices are illustrative.";
 const nonAgencyNotice = "Sample coverage and income calculations are illustrations. UWM program eligibility and Easy Qualifier results require a live lender review.";
 
-function principalAndInterest(amount: number, rate: number, years: number) {
+export function principalAndInterest(amount: number, rate: number, years: number) {
   const monthlyRate = rate / 1200;
   return Math.round(amount * monthlyRate / (1 - (1 + monthlyRate) ** (-years * 12)) * 100) / 100;
 }

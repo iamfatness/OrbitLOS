@@ -29,7 +29,7 @@ function disclosureSource(db: Store, loanId: string) {
   const quote = quoteSnapshot(db, loanId, { runId, offerId: run.selectedId, feeRevision: worksheet.revision }, app);
   if ("error" in quote) return { error: quote.error } as const;
   const source: DisclosureSource = { applicationRevision: app.revision, feeRevision: worksheet.revision, quote: quote.option };
-  return { source, draft: app.draft } as const;
+  return { source, draft: app.draft, manualExpiresOn: quote.manualExpiresOn } as const;
 }
 
 type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp" | "changeReview" | "deadlineBasis" | "templateBasis"> & {
@@ -223,6 +223,7 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
   if (!source.source) return { error: source.error } as const;
   const today = easternDate(new Date(now));
   if (data.type === "prepareDisclosurePackage") {
+    if (source.manualExpiresOn && source.manualExpiresOn < today) return { error: "Choose a current manual lender quote before preparing a sample package." } as const;
     if ((latest?.version ?? null) !== data.previousVersion) return { error: "The package changed. Refresh the loan and try again." } as const;
     if (data.signBy < today) return { error: "Choose a signing target of today or later." } as const;
     let deadlineBasis: DisclosureCalendarBasis | null = null;

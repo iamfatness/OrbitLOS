@@ -30,6 +30,8 @@ const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
 const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { loanStageEditWork } = await import("../src/lib/loan-stage-edits.ts");
 const { closingGateWork } = await import("../src/lib/closing-gates.ts");
+const { newPortalAccessCode, portalToken } = await import("../src/lib/brokerage-model.ts");
+const { lenderPackageAccess, lenderShareWork } = await import("../src/lib/lender-handoff-share.ts");
 const { disclosureTemplatesForLoan, disclosureTemplateWork } = await import("../src/lib/disclosure-templates.ts");
 const { blankLenderDetails } = await import("../src/lib/urla.ts");
 const at = "2026-11-08T15:00:00.000Z";
@@ -62,6 +64,84 @@ function fixture(t) {
     reviewerEmail: processor.email, dueOn: today, note: "Fictional internal instructions", ...fields });
   return { db, id, admin, officer, outsider, processor, nextProcessor, roster, work, create };
 }
+
+test("a manual lender quote stays with its exact export and acknowledgment and cannot be sent to mock UWM", async (t) => {
+  const { db, id, officer, outsider, roster } = fixture(t);
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(at) });
+  const loanId = "loan";
+  const pilot = { ...officer, brokerage: { ...officer.brokerage, pilot: true } };
+  const change = (type, fields = {}, actor = pilot) => executeCommand(db, { type, loanId, ...fields }, actor, undefined, roster);
+  const ok = async (type, fields) => {
+    const result = await change(type, fields);
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  const { token } = (await ok("startApplication")).state.applications[0];
+  const borrower = (input) => borrowerCommandResult(db, { token, ...input });
+  const initial = borrower({ type: "read" }).application;
+  const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+  const { revision } = borrower({ type: "submit", revision: initial.revision, step: 9, draft }).application;
+  await ok("reviewApplication", { revision });
+  const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
+    zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+    propertyType: "Single family", firstTimeBuyer: false };
+  const [run] = (await ok("runPricing", { scenario, applicationRevision: revision })).state.pricingRuns;
+  const choice = { runId: run.id, offerId: crypto.randomUUID() };
+  const mock = { runId: run.id, offerId: run.offers[0].id };
+  const names = [{ first: "Fictional", middle: "", last: "Borrower", suffix: "" }];
+  const base = { revision, lenderRevision: 0, profile: "basic", names };
+  const exportWith = (manualQuote, eventId = crypto.randomUUID()) => ({ ...base, eventId, manualQuote });
+  const legacyExport = await ok("exportReviewedApplication", exportWith(undefined));
+  assert.doesNotMatch(legacyExport.mismoXml, /<NoteRatePercent>5\.875/);
+  const details = { lender: "Fictional Harbor Wholesale", product: "Flex fixed", reference: "PRIVATE-QA-REF-108", quotedOn: today,
+    expiresOn: "2026-11-12", years: 20, rate: 5.875, apr: null, adjustment: -0.25 };
+  const manual = { ...choice, details };
+  assert.ok((await change("addManualQuote", manual, outsider)).error);
+  assert.match((await change("addManualQuote", { ...manual, details: { ...details, expiresOn: "2026-11-07" } })).error, /expiration/);
+  await ok("addManualQuote", manual);
+  await ok("addManualQuote", manual);
+  assert.match((await change("addManualQuote", { ...manual, details: { ...details, rate: 5.9 } })).error, /new manual offer/);
+  const added = (await ok("selectOffer", choice)).state.pricingRuns[0];
+  assert.equal(added.offers.filter(({ manual }) => manual).length, 1);
+  assert.equal(added.offers.find(({ id }) => id === choice.offerId).pricingAmount, -scenario.loanAmount / 400);
+  assert.match((await change("sendApplication", { revision })).error, /Manual lender export/);
+  assert.match((await change("sendApplication", { revision, quote: mock })).error, /Manual lender export/);
+  assert.match((await change("exportReviewedApplication", exportWith(undefined))).error, /quote changed/);
+  const ack = { revision, lenderRevision: 0, eventId: crypto.randomUUID(), profile: "basic", outcome: "Acknowledged", note: "",
+    manualQuote: choice, lenderFile: { lender: details.lender, externalId: "FICTIONAL-HARBOR-108" } };
+  assert.match((await change("recordManualHandoff", ack)).error, /Prepare the MISMO export/);
+  const download = exportWith(choice);
+  const { mismoXml } = await ok("exportReviewedApplication", download);
+  assert.match(mismoXml, /<NoteRatePercent>5\.875<\/NoteRatePercent>/);
+  assert.match(mismoXml, /<LoanAmortizationPeriodCount>240<\/LoanAmortizationPeriodCount>/);
+  assert.equal((await ok("exportReviewedApplication", download)).mismoXml, mismoXml);
+  assert.match((await change("recordManualHandoff", { ...ack, lenderFile: { ...ack.lenderFile, lender: "Fictional Other" } })).error, /lender on the selected/);
+  await ok("recordManualHandoff", ack);
+  await ok("recordManualHandoff", ack);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM submissions").get().count, 1);
+  const basis = JSON.parse(db.prepare("SELECT quoteBasis FROM application_handoff_events WHERE activityId = ?").get(ack.eventId).quoteBasis);
+  assert.deepEqual(basis, { ...details, ...choice, loanAmount: scenario.loanAmount });
+
+  const offer = { ...choice, feeRevision: 0, alternatives: [], expiresOn: "2026-11-13", previousPublishedAt: null, reviewRevision: 0, reviewNote: "" };
+  assert.match((await change("publishDatedQuote", offer)).error, /expiration/);
+  await ok("publishDatedQuote", { ...offer, expiresOn: details.expiresOn });
+  const borrowerStatus = borrower({ type: "status" }).statusView;
+  assert.match(JSON.stringify(borrowerStatus), /Fictional Harbor Wholesale/);
+  assert.doesNotMatch(JSON.stringify(borrowerStatus), /PRIVATE-QA-REF-108/);
+  const packageInput = { type: "create", loanId, ...base, manualQuote: choice, shareId: crypto.randomUUID(), token: portalToken(id),
+    code: newPortalAccessCode(), recipient: details.lender, confirmedFictional: true, documents: [], hours: 1 };
+  const read = { type: "download", slot: 0, token: packageInput.token, code: packageInput.code };
+  assert.equal((await lenderShareWork(db, packageInput, pilot, id, undefined, new Date(at))).createdId, packageInput.shareId);
+  assert.equal(lenderPackageAccess(db, read, at).xml, mismoXml);
+  await ok("selectOffer", mock);
+  assert.equal(lenderPackageAccess(db, read, at).status, 404);
+  assert.match((await change("exportReviewedApplication", exportWith(choice))).error, /quote changed/);
+  await ok("sendApplication", { revision, quote: mock });
+  const submissionId = db.prepare("SELECT id FROM submissions WHERE lender = 'UWM'").get().id;
+  await ok("selectOffer", choice);
+  assert.match((await change("floatMockRate", { ...choice, submissionId, previousFloatReference: null })).error, /Choose a UWM offer/);
+  assert.equal(JSON.parse(db.prepare("SELECT quoteBasis FROM application_handoff_events WHERE activityId = ?").get(ack.eventId).quoteBasis).reference, details.reference);
+});
 
 test("closing and funding policies link to current evidence and audit only a successful admin override", async (t) => {
   const { db, id, admin, officer, outsider, processor, roster } = fixture(t);

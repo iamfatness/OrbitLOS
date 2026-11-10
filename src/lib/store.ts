@@ -160,7 +160,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       applicationRevision INTEGER NOT NULL, lenderRevision INTEGER NOT NULL, outcome TEXT NOT NULL,
       submissionId TEXT REFERENCES submissions(id) ON DELETE SET NULL, followUpDueAt TEXT,
-      exportProfile TEXT, exportDigest TEXT
+      exportProfile TEXT, exportDigest TEXT, quoteBasis TEXT
     );
     CREATE INDEX IF NOT EXISTS application_handoff_by_revision
       ON application_handoff_events(loanId, applicationRevision, lenderRevision);
@@ -719,6 +719,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!handoffColumns.has("followUpDueAt")) db.exec("ALTER TABLE application_handoff_events ADD COLUMN followUpDueAt TEXT");
     if (!handoffColumns.has("exportProfile")) db.exec("ALTER TABLE application_handoff_events ADD COLUMN exportProfile TEXT");
     if (!handoffColumns.has("exportDigest")) db.exec("ALTER TABLE application_handoff_events ADD COLUMN exportDigest TEXT");
+    if (!handoffColumns.has("quoteBasis")) db.exec("ALTER TABLE application_handoff_events ADD COLUMN quoteBasis TEXT");
     linkLegacyCampaignAcknowledgments(db);
     if (!db.prepare("PRAGMA table_info(communication_drafts)").all().some((column) => column.name === "eventKey")) {
       const columns = "id, loanId, contactId, audience, milestone, createdAt, emailCopiedAt, textCopiedAt";

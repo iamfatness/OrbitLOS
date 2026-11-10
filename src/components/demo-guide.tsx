@@ -10,7 +10,7 @@ import { searchTaskTarget } from "@/lib/workspace-search-model";
 import { prospectingBlocked, type PastClientProfile, type Submission, type Workspace } from "@/lib/model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import type { LoanProcessing } from "@/lib/processing-model";
-import { rateTargetReached } from "@/lib/client-retention";
+import { easternDate, rateTargetReached } from "@/lib/client-retention";
 import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { latestSelectedPricingRun, mockUwmQuoteAmountIssue, pricingInputsMatch } from "@/lib/pricing-model";
 import { campaignRehearsalCsv, type CampaignLenderPath, type CampaignRehearsal } from "@/lib/call-campaign-model";
@@ -339,17 +339,20 @@ function CampaignGuide({ state, staff, busy, save, open, openConditions, openPri
   const processing = state.loanProcessing.find((item) => item.loanId === loan?.id);
   const credit = state.mockCreditAusRuns.find((item) => item.loanId === loan?.id && item.service === "Credit");
   const savedQuote = latestSelectedPricingRun(state.pricingRuns, loan?.id);
-  const priced = savedQuote?.mode === "mock" && pricingInputsMatch(savedQuote, application);
+  const selectedManual = savedQuote?.offers.find((offer) => offer.id === savedQuote.selectedId)?.manual;
+  const priced = savedQuote?.mode === "mock" && pricingInputsMatch(savedQuote, application) &&
+    (!selectedManual || selectedManual.expiresOn >= easternDate());
   const uwmSubmission = state.submissions.find((item) => item.loanId === loan?.id && item.lender === "UWM" && item.syncedAt);
   const sent = application?.versions.some((version) => version.revision === application.revision && version.uwmReceipt);
   const mockStarted = application?.versions.some((version) => version.uwmReceipt);
   const handoff = application?.manualHandoff;
   const manualSubmission = loan && state.submissions.find((item) => item.loanId === loan.id && item.syncedAt === null &&
     item.id === (handoff?.submissionId ?? application?.lastManualSubmissionId));
-  const manual = !mockStarted && Boolean(manualSubmission || handoff?.exportPrepared || (loan && manualChoice === loan.id));
+  const manual = Boolean(selectedManual || (!mockStarted && (manualSubmission || handoff?.exportPrepared || (loan && manualChoice === loan.id))));
   const campaignLender = manual ? "manual" : "uwm";
   const quoteAmountIssue = manual || sent ? null : mockUwmQuoteAmountIssue(savedQuote, application);
-  const manualAcknowledged = Boolean(manualSubmission && handoff?.exportPrepared && handoff.outcome === "Acknowledged" &&
+  const prepared = selectedManual ? handoff?.acknowledgedQuote?.offerId === savedQuote?.selectedId : handoff?.exportPrepared;
+  const manualAcknowledged = Boolean(manualSubmission && prepared && handoff?.outcome === "Acknowledged" &&
     handoff.submissionId === manualSubmission.id);
   const manualReady = Boolean(priced && manualAcknowledged);
   const reviewBlocker = application?.reviewedAt && !(manual ? manualAcknowledged : sent)

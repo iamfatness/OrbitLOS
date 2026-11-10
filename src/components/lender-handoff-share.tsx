@@ -4,12 +4,14 @@ import { useRef, useState } from "react";
 import { newPortalAccessCode, portalToken } from "@/lib/brokerage-model";
 import { lenderPackageReference, type LenderSharePage } from "@/lib/lender-handoff-share-model";
 import type { ExportName, LenderExportProfile } from "@/lib/lender-export-model";
+import type { ManualQuoteReference } from "@/lib/manual-pricing-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
-export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevision, names, profile, canCreate, onCreated }: {
+export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevision, names, profile, manualQuote, manualLender, canCreate, onCreated }: {
   brokerageId: string; loanId: string; revision: number; lenderRevision: number; names: ExportName[]; profile: LenderExportProfile;
   canCreate: boolean; onCreated: () => void;
+  manualQuote?: ManualQuoteReference; manualLender?: string;
 }) {
   const [page, setPage] = useState<LenderSharePage>();
   const [selected, setSelected] = useState<string[]>([]);
@@ -79,7 +81,7 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
         const form = new FormData(event.currentTarget);
         const recipient = String(form.get("recipient") ?? "").trim();
         const documents = page.eligible.filter(({ id }) => selected.includes(id)).map(({ id, revision }) => ({ id, revision }));
-        const input = { type: "create", revision, lenderRevision, names, profile, recipient, hours: Number(form.get("hours")), documents,
+        const input = { type: "create", revision, lenderRevision, names, profile, manualQuote, recipient, hours: Number(form.get("hours")), documents,
           replacesId: replacement?.id,
           confirmedFictional: form.has("confirmed") };
         const key = JSON.stringify(input);
@@ -97,7 +99,7 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
         {replacement && <p className="muted">Create a package from the current reviewed file. The previous link is already blocked. Replacing it revokes that link and keeps its download history.</p>}
         <div className="form-grid">
           <label className="field">Fictional lender or recipient<input name="recipient" minLength={2} maxLength={120}
-            defaultValue={replacement?.recipient} placeholder="Example Wholesale Intake" required disabled={busy} /></label>
+            defaultValue={manualLender ?? replacement?.recipient} placeholder="Example Wholesale Intake" required disabled={busy} /></label>
           <label className="field">Link expires after<select name="hours" defaultValue="24" disabled={busy}>
             <option value="1">1 hour</option><option value="24">24 hours</option><option value="72">72 hours</option>
           </select></label>

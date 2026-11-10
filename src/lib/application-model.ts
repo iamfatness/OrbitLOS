@@ -231,6 +231,7 @@ export interface StaffApplication {
   draftHasPropertyStreet?: boolean;
   lender: { details: LenderDetails; revision: number } | null;
   manualHandoff?: { exportPrepared: boolean; exportProfiles?: import("./lender-export-model").LenderExportProfile[];
+    preparedQuotes?: import("./manual-pricing-model").PreparedManualQuote[]; acknowledgedQuote?: import("./manual-pricing-model").ManualQuoteBasis;
     outcome: (typeof manualHandoffOutcomes)[number] | null; submissionId?: string };
   lastExportProfile?: import("./lender-export-model").LenderExportProfile;
   lastManualSubmissionId?: string;
