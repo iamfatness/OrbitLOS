@@ -4,9 +4,12 @@ import type { ServiceOrder, ServiceOrderReturn } from "./service-order-model";
 const findings = {
   Appraisal: ["Sample property review", "A fictional appraisal report was returned for processor review.", "Use the return reference to distinguish replacements."],
   Title: ["Sample title review", "A fictional title commitment was returned for processor review.", "Sample follow-up: verify vesting against the loan record."],
-};
+  "Homeowners insurance": ["Sample coverage review", "A fictional homeowners insurance binder was returned.", "Sample follow-up: check the effective date and mortgagee details."],
+  Flood: ["Sample flood determination", "A fictional flood determination was returned for processor review.", "Sample follow-up: record the determination on the closing checklist."],
+  "Mortgage insurance": ["Sample mortgage insurance review", "A fictional mortgage insurance commitment was returned.", "Sample follow-up: verify the sample premium and coverage details."],
+} satisfies Record<ServiceOrder["kind"], string[]>;
 
-export function serviceOrderPdf(kind: ServiceOrder["kind"], receipt: ServiceOrderReturn) {
+export function serviceOrderPdf(kind: ServiceOrder["kind"], receipt: Pick<ServiceOrderReturn, "reference" | "returnedAt">) {
   const lines = [
     [10, 733, "FICTIONAL SAMPLE  /  NOT FOR A REAL TRANSACTION"],
     [24, 684, `Sample ${kind.toLowerCase()} return`],

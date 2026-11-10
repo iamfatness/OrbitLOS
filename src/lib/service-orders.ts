@@ -1,7 +1,7 @@
 import { addApplicationActivity } from "./applications";
 import { easternDate } from "./client-retention";
 import { shiftReportDate } from "./report-date-range";
-import { serviceOrderLimit, serviceOrdersUnavailable, serviceReturnLimit, type ServiceOrder,
+import { serviceOrderLimit, serviceOrdersUnavailable, serviceOrderSlug, serviceReturnLimit, type ServiceOrder,
   type ServiceOrderCommand, type ServiceOrderQueuePage, type ServiceOrderQueueQuery } from "./service-order-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -101,7 +101,7 @@ export function changeServiceOrder(db: Store, data: ServiceOrderCommand, staff: 
     case "Simulate return":
       if (current.status !== "Ordered") return { error: "Review the returned evidence first." } as const;
       if (returns.length >= serviceReturnLimit) return { error: "This sample order reached its return limit. Start another order after closing it." } as const;
-      returns.push({ reference: `MOCK-${current.kind.toUpperCase()}-${orderId.toUpperCase()}-V${returns.length + 1}`,
+      returns.push({ reference: `MOCK-${serviceOrderSlug(current.kind).toUpperCase()}-${orderId.toUpperCase()}-V${returns.length + 1}`,
         returnedAt: at, receivedBy: actor });
       status = "Received";
       detail = "Received sample evidence";

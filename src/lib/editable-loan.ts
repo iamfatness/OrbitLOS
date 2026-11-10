@@ -19,6 +19,7 @@ import { readClosingPackets } from "./closing-packets";
 import { closingPacketChecklistLimit } from "./closing-packet-model";
 import { staffBorrowerQuestions } from "./borrower-questions";
 import { canUseServiceOrders, loanServiceOrders } from "./service-orders";
+import { closingServiceEvidence } from "./closing-service-evidence";
 
 export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 
@@ -110,7 +111,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
     ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
     ...(disclosureWork ? { disclosureWork } : {}),
     borrowerQuestions: disclosureWork ? staffBorrowerQuestions(db, loanId) : [],
-    ...(canUseServiceOrders(staff) ? { serviceOrders: loanServiceOrders(db, loanId) } : {}),
+    ...(canUseServiceOrders(staff) ? { serviceOrders: loanServiceOrders(db, loanId), closingServiceEvidence: closingServiceEvidence(db, loanId) } : {}),
     ...(disclosureWork?.packages.length ? { closingPacketWork: readClosingPackets(db, loanId, disclosureWork) } : {}),
     applications: scopeJointLinks(records.applications, staff),
     repeatOption,

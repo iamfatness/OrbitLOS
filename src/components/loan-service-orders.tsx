@@ -4,7 +4,7 @@ import { useRef, useState, type FormEvent } from "react";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { dateLabel, easternDate } from "@/lib/client-retention";
 import { shiftReportDate } from "@/lib/report-date-range";
-import { serviceOrderKinds, serviceOrderLimit, serviceOrderTarget, serviceOrdersTarget, type ServiceOrder, type ServiceOrderCommand } from "@/lib/service-order-model";
+import { serviceOrderKinds, serviceOrderLimit, serviceOrderSlug, serviceOrderTarget, serviceOrdersTarget, type ServiceOrder, type ServiceOrderCommand } from "@/lib/service-order-model";
 import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
@@ -13,8 +13,8 @@ import { Button } from "./ui/button";
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 type OrderAction = Extract<ServiceOrderCommand, { type: "updateServiceOrder" }>["action"];
 
-function ServiceOrderCard({ item, today, busy, editable, save }: {
-  item: ServiceOrder; today: string; busy: boolean; editable: boolean; save: Save;
+function ServiceOrderCard({ item, today, busy, editable, save, openClosing }: {
+  item: ServiceOrder; today: string; busy: boolean; editable: boolean; save: Save; openClosing: () => void;
 }) {
   const [dueOn, setDueOn] = useState(item.dueOn);
   const [note, setNote] = useState("");
@@ -36,9 +36,10 @@ function ServiceOrderCard({ item, today, busy, editable, save }: {
         <p className="muted">{receipt.reference}</p>
         {receipt.review && <p>{receipt.review.actor} · {dateTime(receipt.review.at)} ET{receipt.review.note && ` · ${receipt.review.note}`}</p>}
         <div><Button size="sm" variant="outline" onClick={() => downloadSampleFile(serviceOrderPdf(item.kind, receipt),
-          `orbit-sample-${item.kind.toLowerCase()}-${index + 1}.pdf`, "application/pdf")}>Download sample return {index + 1} PDF</Button></div>
+          `orbit-sample-${serviceOrderSlug(item.kind)}-${index + 1}.pdf`, "application/pdf")}>Download sample return {index + 1} PDF</Button></div>
       </div>
     </li>)}</ul>}
+    {item.status === "Completed" && <div><Button size="sm" variant="outline" onClick={openClosing}>Open closing checklist</Button></div>}
     {open && editable && <>
       {item.status === "Ordered" ? <div><Button size="sm" disabled={busy} onClick={() => update("Simulate return")}>Simulate {item.kind.toLowerCase()} return</Button></div> :
         <p className="muted">Review the returned PDF, then accept it or request a replacement.</p>}
@@ -66,8 +67,8 @@ function ServiceOrderCard({ item, today, busy, editable, save }: {
   </article>;
 }
 
-export function LoanServiceOrders({ loanId, orders, owner, busy, editable, save }: {
-  loanId: string; orders: ServiceOrder[]; owner: string; busy: boolean; editable: boolean; save: Save;
+export function LoanServiceOrders({ loanId, orders, owner, busy, editable, save, openClosing }: {
+  loanId: string; orders: ServiceOrder[]; owner: string; busy: boolean; editable: boolean; save: Save; openClosing: () => void;
 }) {
   const today = easternDate();
   const attempt = useRef<{ key: string; id: string } | null>(null);
@@ -86,7 +87,7 @@ export function LoanServiceOrders({ loanId, orders, owner, busy, editable, save 
   }
   return <section className="details-section document-section" id={serviceOrdersTarget} tabIndex={-1} aria-label="Loan service orders">
     <div className="section-heading"><h3>Service orders</h3><span className="pill">Mock services</span></div>
-    <p className="muted">Track appraisal and title deadlines and review sample returns. New work goes to {owner}.</p>
+    <p className="muted">Track appraisal, title, homeowners insurance, flood, and mortgage insurance. New work goes to {owner}.</p>
     {editable && allowed.length > 0 && orders.length < serviceOrderLimit && <details className="document-form">
       <summary>New mock service order</summary>
       <form key={allowed.join(",")} className="record-form" onSubmit={create}>
@@ -101,6 +102,6 @@ export function LoanServiceOrders({ loanId, orders, owner, busy, editable, save 
       </form>
     </details>}
     {orders.length ? orders.map((item) => <ServiceOrderCard key={`${item.id}:${item.revision}`} item={item} today={today}
-      editable={editable} busy={busy} save={save} />) : <p className="empty-inline">No appraisal or title orders on this loan yet.</p>}
+      editable={editable} busy={busy} save={save} openClosing={openClosing} />) : <p className="empty-inline">No service orders on this loan yet.</p>}
   </section>;
 }

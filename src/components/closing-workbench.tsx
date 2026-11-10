@@ -4,8 +4,11 @@ import { useRef, useState, type FormEvent } from "react";
 import { CalendarCheck, CheckCircle2, Plus, RotateCcw } from "lucide-react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { ClosingPacketWork } from "@/lib/closing-packet-model";
+import { closingServiceEvidenceLimit, type ClosingServiceEvidence } from "@/lib/closing-service-evidence-model";
 import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
-import { closingChecklistTarget, closingWorkbenchTarget, reopenedMockClosingMessage } from "@/lib/loan-workflow";
+import { closingChecklistListTarget, closingChecklistTarget, closingWorkbenchTarget, pausedLoan, reopenedMockClosingMessage } from "@/lib/loan-workflow";
+import { serviceOrderSlug, serviceOrderTarget, type ServiceOrder } from "@/lib/service-order-model";
+import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
@@ -134,6 +137,52 @@ function ClosingItemForm({ loan, item, targetDate, busy, save }: {
   </details>;
 }
 
+function ClosingServiceLinks({ item, links, orders, editable, busy, save, open }: {
+  item: ClosingItem; links: ClosingServiceEvidence[]; orders: ServiceOrder[]; editable: boolean; busy: boolean;
+  save: Save; open: (target: string) => void;
+}) {
+  const choices = orders.flatMap((order) => order.status !== "Completed" ? [] : order.returns.filter((receipt) =>
+    receipt.review?.decision === "Accepted" && !links.some((link) => link.reference === receipt.reference))
+    .map((receipt) => ({ order, receipt })));
+  const canLink = editable && links.length < closingServiceEvidenceLimit && choices.length > 0;
+  if (!links.length && !canLink) return null;
+  function change(orderId: string, reference: string, linked: boolean) {
+    void save({ type: "setClosingServiceEvidence", loanId: item.loanId, itemId: item.id, itemRevision: item.revision, orderId, reference, linked });
+  }
+  return <div className="document-section">
+    {links.length > 0 && <ul className="document-list" aria-label="Linked sample service evidence">{links.map((link) =>
+      <li className="document-item" key={link.reference}>
+        <strong>{link.kind} · Accepted sample return</strong>
+        <p className="muted">{link.reference}</p>
+        <p className="muted">Accepted by {link.acceptedBy} · {dateTime(link.acceptedAt)} ET</p>
+        <p className="muted">Linked by {link.linkedBy} · {dateTime(link.linkedAt)} ET</p>
+        <div className="loan-application-actions">
+          <Button size="sm" variant="outline" onClick={() => downloadSampleFile(serviceOrderPdf(link.kind, link),
+            `orbit-sample-${serviceOrderSlug(link.kind)}-${link.reference.slice(-15).toLowerCase()}.pdf`, "application/pdf")}>Download linked PDF</Button>
+          <Button size="sm" variant="outline" onClick={() => open(serviceOrderTarget(link.orderId))}>Open service order</Button>
+          {editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => change(link.orderId, link.reference, false)}>Unlink evidence</Button>}
+        </div>
+      </li>)}</ul>}
+    {canLink && <details className="document-form">
+      <summary>Link accepted service evidence</summary>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        const reference = new FormData(event.currentTarget).get("reference");
+        const choice = choices.find(({ receipt }) => receipt.reference === reference);
+        if (choice) change(choice.order.id, choice.receipt.reference, true);
+      }}>
+        <label className="field">Accepted sample return<select name="reference" required defaultValue="" disabled={busy}>
+          <option value="" disabled>Choose a sample return</option>
+          {choices.map(({ order, receipt }) => <option key={receipt.reference} value={receipt.reference}>
+            {order.kind} · {dateTime(receipt.returnedAt)} ET · {receipt.reference.slice(-15)}
+          </option>)}
+        </select></label>
+        <div><Button size="sm" type="submit" disabled={busy}>Link sample return</Button></div>
+      </form>
+    </details>}
+  </div>;
+}
+
 export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, manualClearance, borrowerCheckIn,
   advanceDemoToFunding, reopenedCondition, openCondition, brokerageId }: {
   loan: Loan; state: Workspace; busy: boolean; save: Save; preview: (audience: DraftAudience, draftId: string) => void;
@@ -152,6 +201,9 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   const actual = profile?.closingDate;
   const progress = state.closingProgress.find((item) => item.loanId === loan.id);
   const items = state.closingItems.filter((item) => item.loanId === loan.id);
+  const orders = (state.serviceOrders ?? []).filter((item) => item.loanId === loan.id);
+  const editServiceEvidence = state.closingServiceEvidence !== undefined && !pausedLoan(loan) &&
+    loan.stage !== "Funded" && loan.stage !== "Closed";
   const drafts = state.communicationDrafts.filter((draft) => draft.loanId === loan.id && draft.milestone === "Closing complete");
   const borrowerDraft = drafts.find((draft) => draft.audience === "Borrower" && draft.contactId === loan.contactId);
   const realtorDraft = drafts.find((draft) => draft.audience === "Realtor" && draft.contactId === loan.partnerId);
@@ -260,7 +312,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
       {borrowerDraft && <Button size="sm" variant="outline" onClick={() => preview("Borrower", borrowerDraft.id)}>Preview borrower closing update</Button>}
       {realtorDraft && <Button size="sm" variant="outline" onClick={() => preview("Realtor", realtorDraft.id)}>Preview realtor closing update</Button>}
     </div>}
-    <div className="section-heading"><h4>Closing checklist</h4><span className="pill">{outstanding} outstanding</span></div>
+    <div className="section-heading" id={closingChecklistListTarget} tabIndex={-1}><h4>Closing checklist</h4><span className="pill">{outstanding} outstanding</span></div>
     <details className="document-form"><summary>Prepare LO and processor handoff</summary>
       <p className="muted">Set the checklist date. A brokerage admin can assign the file to its next owner from Team.</p>
       <form onSubmit={(event) => {
@@ -281,6 +333,8 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
         })}>{item.completedAt ? <><RotateCcw /> Reopen</> : <><CheckCircle2 /> Mark complete</>}</Button>
         <ClosingItemForm loan={loan} item={item} busy={busy} save={save} />
       </div>
+      <ClosingServiceLinks item={item} orders={orders} links={(state.closingServiceEvidence ?? []).filter((link) => link.itemId === item.id)}
+        editable={editServiceEvidence} busy={busy} save={save} open={openCondition} />
     </li>)}</ul> : <p className="empty-inline">Add the items your team needs to finish before closing.</p>}
   </section>;
 }

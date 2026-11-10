@@ -3,6 +3,7 @@ import { closingPacketChecklistLimit, closingPacketRequest, closingPacketUnavail
 import { canUseSampleDisclosures, readDisclosureWork } from "./disclosures";
 import { addApplicationActivity } from "./applications";
 import { closingPacketPdf } from "./closing-packet-pdf";
+import { closingServiceEvidence } from "./closing-service-evidence";
 import type { DisclosureWork } from "./disclosure-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -23,9 +24,15 @@ function packetSnapshot(db: Store, loanId: string, work: DisclosureWork): Closin
     LEFT JOIN closing_progress progress ON progress.loanId = loan.id
     WHERE loan.id = ?`).get(loanId) as Omit<ClosingPacketSnapshot, "disclosure" | "checklist"> | undefined;
   if (!loan) return;
-  const checklist = db.prepare(`SELECT title, owner, dueDate, completedAt FROM closing_items
-    WHERE loanId = ? ORDER BY dueDate, id LIMIT ?`).all(loanId, closingPacketChecklistLimit + 1) as ClosingPacketSnapshot["checklist"];
-  if (checklist.length > closingPacketChecklistLimit) return;
+  const items = db.prepare(`SELECT id, title, owner, dueDate, completedAt FROM closing_items
+    WHERE loanId = ? ORDER BY dueDate, id LIMIT ?`).all(loanId, closingPacketChecklistLimit + 1) as unknown as
+    (ClosingPacketSnapshot["checklist"][number] & { id: string })[];
+  if (items.length > closingPacketChecklistLimit) return;
+  const links = closingServiceEvidence(db, loanId);
+  const checklist = items.map(({ id, ...item }) => {
+    const serviceEvidence = links.filter(({ itemId }) => itemId === id);
+    return serviceEvidence.length ? { ...item, serviceEvidence } : item;
+  });
   const { version, revision, at, actor, applicationRevision, feeRevision, signers, changeReview } = review;
   const { documents, issuedAt, signBy, quote } = packageRow;
   return { ...loan, disclosure: { version, revision, at, actor, applicationRevision, feeRevision, signers, changeReview,

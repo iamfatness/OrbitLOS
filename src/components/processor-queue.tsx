@@ -166,7 +166,7 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
   return <section className="integration record-form manager-panel" aria-label="Processing queue">
     <div className="section-heading"><h2>{team ? "Team processing queue" : "My processing queue"}</h2>
       {page && <span className="pill">Checked {dateTime(page.checkedAt)} ET</span>}</div>
-    <p className="muted">{serviceOrders ? "Review mock appraisal and title orders. Earliest due dates appear first." :
+    <p className="muted">{serviceOrders ? "Review mock appraisal, title, homeowners insurance, flood, and mortgage insurance orders. Earliest due dates appear first." :
       workload ? "Compare active processing files by target closing date. Closing recorded shows active files with an actual closing date." : exception ? descriptions[exception] :
       "Oldest handoff updates appear first."}
       {page?.handoffHours && ` Current deadline: ${page.handoffHours} hours.`}</p>

@@ -33,6 +33,7 @@ export type LoanNextActionState = {
 type LoanNextAction = { title: string; target: string; dueAt: string | null; blocker: string | null; taskId?: string };
 
 export const closingChecklistTarget = (id: string) => `closing-checklist-${id}`;
+export const closingChecklistListTarget = "closing-checklist-items";
 export const fundingCheckInTarget = "funding-check-in";
 export const closingWorkbenchTarget = "closing-workbench";
 export const loanAmountComparisonTarget = "loan-amount-comparison";

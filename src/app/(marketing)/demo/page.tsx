@@ -53,7 +53,7 @@ export default function DemoPage() {
           <li>Float and lock a matching mock quote after the linked UWM file receives the current 1003. See the amount and 1003 revision on the confirmation while pricing another quote.</li>
           <li>Open submitted 1003s and received documents from Today or Processing and go straight to the item that needs review.</li>
           <li>Send a file to an assigned processor. See acceptance and the private return note in the open handoff, or pick the file back up from Today after mock lender clearance.</li>
-          <li>Track mock appraisal and title orders in Processing. Open an overdue order, review its sample PDF, and keep earlier returns if a replacement is needed.</li>
+          <li>Track mock appraisal, title, homeowners insurance, flood, and mortgage insurance orders in Processing. Review the returned PDFs and link accepted evidence to the closing checklist.</li>
           <li>Reopen a mock UWM condition and see the hold in the borrower and realtor views. If staff try to record closing or funding from an older view, the open loan shows the condition that needs attention. Replace its evidence and continue when it clears.</li>
           <li>Open a reply from Today, carry the promised callback into the loan, and log the outcome once for both loan activity and campaign reporting.</li>
           <li>See overdue callbacks across leads and loans, with the original deadline and a link to the exact follow-up.</li>

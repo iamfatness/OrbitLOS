@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const serviceOrderKinds = ["Appraisal", "Title"] as const;
+export const serviceOrderKinds = ["Appraisal", "Title", "Homeowners insurance", "Flood", "Mortgage insurance"] as const;
 export const serviceOrderViews = ["Open", "Overdue", "Ready to review"] as const;
 export const serviceOrderLimit = 24;
 export const serviceReturnLimit = 8;
@@ -8,6 +8,7 @@ export const serviceOrderTargetPrefix = "loan-service-order-";
 export const serviceOrdersTarget = "loan-service-orders";
 export const serviceOrderTarget = (id: string) => serviceOrderTargetPrefix + id;
 export const serviceOrdersUnavailable = "Mock service orders are available on assigned loans in fictional workspaces.";
+export const serviceOrderSlug = (kind: ServiceOrder["kind"]) => kind.toLowerCase().replaceAll(" ", "-");
 const id = z.string().min(1).max(100);
 const orderId = z.uuid();
 const dueOn = z.iso.date();

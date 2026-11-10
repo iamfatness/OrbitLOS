@@ -100,6 +100,8 @@ import { applyDocumentTemplate } from "./document-templates";
 import { requestBorrowerQuestion, reviewBorrowerQuestion } from "./borrower-question-model";
 import { createServiceOrder, updateServiceOrder } from "./service-order-model";
 import { changeServiceOrder } from "./service-orders";
+import { closingServiceEvidenceInput } from "./closing-service-evidence-model";
+import { setClosingServiceEvidence } from "./closing-service-evidence";
 import { changeBorrowerQuestion } from "./borrower-questions";
 import { changeJointApplicationLink, jointApplication, reopenJointBorrower } from "./joint-application";
 import { jointLinkCommand } from "./joint-application-model";
@@ -272,6 +274,7 @@ const command = z.discriminatedUnion("type", [
   reviewBorrowerQuestion,
   createServiceOrder,
   updateServiceOrder,
+  closingServiceEvidenceInput,
   z.object({ type: z.literal("refreshBorrowerQuestions"), loanId: id }),
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500),
@@ -370,7 +373,7 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
     const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "exportReviewedApplication", "reviewApplication", "requestApplicationCorrection",
       "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument",
       "requestBorrowerQuestion", "reviewBorrowerQuestion", "refreshBorrowerQuestions", "sendConditionDocument", "simulateDeliveryFailure",
-      "createServiceOrder", "updateServiceOrder",
+      "createServiceOrder", "updateServiceOrder", "setClosingServiceEvidence",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
       "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
       "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "confirmClosingDisclosure", "prepareClosingPacket",
@@ -517,6 +520,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "reviewBorrowerQuestion":
     case "createServiceOrder":
     case "updateServiceOrder":
+    case "setClosingServiceEvidence":
     case "refreshBorrowerQuestions":
     case "sendConditionDocument":
     case "simulateDeliveryFailure":
@@ -937,6 +941,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "completeClosingItem": {
           const result = setClosingChecklistStatus(db, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
+        case "setClosingServiceEvidence": {
+          const result = setClosingServiceEvidence(db, data, staff, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;

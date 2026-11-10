@@ -322,6 +322,7 @@ export interface Workspace {
   documentRequests: LoanDocumentRequest[];
   borrowerQuestions?: import("./borrower-question-model").StaffBorrowerQuestion[];
   serviceOrders?: import("./service-order-model").ServiceOrder[];
+  closingServiceEvidence?: import("./closing-service-evidence-model").ClosingServiceEvidence[];
   pricingRuns: PricingRun[];
   feeWorksheets: FeeWorksheet[];
   publishedQuotes: PublishedQuote[];

@@ -37,6 +37,7 @@ import { readCampaignRouting } from "./campaign-routing";
 import { campaignResponses } from "./campaign-response";
 import { initializeProcessingConditions, reopenedMockUwmAtSql } from "./processing-conditions";
 import { initializeCallReportReadiness } from "./call-report-readiness";
+import { serviceOrderKinds } from "./service-order-model";
 
 export type SqlValue = string | number | null;
 
@@ -77,6 +78,14 @@ const borrowerUploadAccessColumns = `
   sendWindow INTEGER NOT NULL, sendCount INTEGER NOT NULL, sentAt INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
   sessionHash TEXT, sessionUntil INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (loanId, recipient)
+`;
+
+const serviceOrderColumns = `
+  id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN (${serviceOrderKinds.map((kind) => `'${kind}'`).join(", ")})),
+  status TEXT NOT NULL DEFAULT 'Ordered' CHECK(status IN ('Ordered', 'Received', 'Completed', 'Cancelled')),
+  dueOn TEXT NOT NULL, originalDueOn TEXT NOT NULL, createdAt TEXT NOT NULL, createdBy TEXT NOT NULL, note TEXT NOT NULL,
+  returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT
 `;
 
 const salesTargetColumns = `
@@ -243,16 +252,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       questionId TEXT NOT NULL REFERENCES borrower_questions(id) ON DELETE CASCADE,
       revision INTEGER NOT NULL, answer TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (questionId, revision)
     );
-    CREATE TABLE IF NOT EXISTS service_orders (
-      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL CHECK(kind IN ('Appraisal', 'Title')),
-      status TEXT NOT NULL DEFAULT 'Ordered' CHECK(status IN ('Ordered', 'Received', 'Completed', 'Cancelled')),
-      dueOn TEXT NOT NULL, originalDueOn TEXT NOT NULL, createdAt TEXT NOT NULL, createdBy TEXT NOT NULL, note TEXT NOT NULL,
-      returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT
-    );
-    CREATE INDEX IF NOT EXISTS service_orders_by_loan ON service_orders(loanId);
-    CREATE UNIQUE INDEX IF NOT EXISTS open_service_orders_by_kind ON service_orders(loanId, kind) WHERE status IN ('Ordered', 'Received');
-    CREATE INDEX IF NOT EXISTS open_service_orders_by_due ON service_orders(dueOn, id) WHERE status IN ('Ordered', 'Received');
+    CREATE TABLE IF NOT EXISTS service_orders (${serviceOrderColumns});
     CREATE TABLE IF NOT EXISTS document_checklist_templates (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, purpose TEXT NOT NULL, revision INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0
     );
@@ -626,6 +626,24 @@ export function initializeStore(db: Store, seedDemo = true) {
   `);
   db.transaction(() => {
     initializeSettlementSummaries(db);
+    const serviceSchema = String(db.prepare("SELECT sql FROM sqlite_schema WHERE name = 'service_orders'").get()?.sql ?? "");
+    if (serviceOrderKinds.some((kind) => !serviceSchema.includes(`'${kind}'`))) {
+      const columns = "id, loanId, kind, status, dueOn, originalDueOn, createdAt, createdBy, note, returns, revision, cancellation, lastCommand";
+      db.exec(`CREATE TABLE service_orders_next (${serviceOrderColumns});
+        INSERT INTO service_orders_next (${columns}) SELECT ${columns} FROM service_orders;
+        DROP TABLE service_orders;
+        ALTER TABLE service_orders_next RENAME TO service_orders;`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS service_orders_by_loan ON service_orders(loanId);
+      CREATE UNIQUE INDEX IF NOT EXISTS open_service_orders_by_kind ON service_orders(loanId, kind) WHERE status IN ('Ordered', 'Received');
+      CREATE INDEX IF NOT EXISTS open_service_orders_by_due ON service_orders(dueOn, id) WHERE status IN ('Ordered', 'Received');
+      CREATE TABLE IF NOT EXISTS closing_service_evidence (
+        itemId TEXT NOT NULL REFERENCES closing_items(id) ON DELETE CASCADE,
+        orderId TEXT NOT NULL REFERENCES service_orders(id) ON DELETE CASCADE,
+        reference TEXT NOT NULL, linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL,
+        PRIMARY KEY (itemId, orderId, reference)
+      );
+      CREATE INDEX IF NOT EXISTS closing_service_evidence_by_order ON closing_service_evidence(orderId);`);
     if (!db.prepare("PRAGMA table_info(document_checklist_origins)").all().some(({ name }) => name === "applicationRevision")) {
       db.exec("ALTER TABLE document_checklist_origins ADD COLUMN applicationRevision INTEGER");
     }

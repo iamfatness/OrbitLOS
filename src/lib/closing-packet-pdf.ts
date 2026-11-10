@@ -51,12 +51,12 @@ export function closingPacketPdf({ version, preparedAt, preparedBy, snapshot }: 
     text(value.toUpperCase(), 54, y, 9, purple, true);
     y -= 19;
   }
-  function rows(values: string[], inset = 0) {
-    const lines = values.flatMap((value) => pdfWrappedLines(pdfSafeBodyText(value), 500 - inset, bodyWidth));
+  function rows(values: string[], inset = 0, size = 10) {
+    const lines = values.flatMap((value) => pdfWrappedLines(pdfSafeBodyText(value), (500 - inset) * 10 / size, bodyWidth));
     ensure(lines.length);
     for (const line of lines) {
       ensure(1);
-      text(line, 54 + inset, y, 10);
+      text(line, 54 + inset, y, size);
       y -= lineHeight;
     }
   }
@@ -91,6 +91,13 @@ export function closingPacketPdf({ version, preparedAt, preparedBy, snapshot }: 
   for (const [index, item] of checklist.entries()) {
     rows([`${index + 1}. ${item.title}`, `${item.completedAt ? `Completed ${stamp(item.completedAt)}` : "Open"} / Due ${day(item.dueDate)}`,
       `Owner: ${item.owner}`], 12);
+    for (const evidence of item.serviceEvidence ?? []) {
+      ensure(4);
+      rows([`Sample ${evidence.kind.toLowerCase()} evidence`], 24);
+      rows([evidence.reference], 24, 9);
+      rows([`Accepted by ${evidence.acceptedBy} on ${stamp(evidence.acceptedAt)}`,
+        `Linked by ${evidence.linkedBy} on ${stamp(evidence.linkedAt)}`], 24);
+    }
     y -= 5;
   }
 

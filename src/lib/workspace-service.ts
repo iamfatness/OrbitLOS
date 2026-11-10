@@ -164,7 +164,7 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
     (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" ||
       input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" ||
       input.type === "requestBorrowerQuestion" || input.type === "reviewBorrowerQuestion" || input.type === "refreshBorrowerQuestions" ||
-      input.type === "createServiceOrder" || input.type === "updateServiceOrder" ||
+      input.type === "createServiceOrder" || input.type === "updateServiceOrder" || input.type === "setClosingServiceEvidence" ||
       input.type === "prepareClosingHandoff" || input.type === "saveClosingTarget" || input.type === "saveClosingItem" || input.type === "completeClosingItem" ||
       confirmClosingDisclosure.safeParse(input).success || disclosureCommand.safeParse(input).success || prepareClosingPacketInput.safeParse(input).success);
   const actor = localScopedLoan ? localPilotAdmin : staff;

@@ -49,7 +49,7 @@ import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, mockClearanceClosingStages, pausedLoan,
-  reopenedMockClosingCondition } from "@/lib/loan-workflow";
+  closingChecklistListTarget, reopenedMockClosingCondition } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
@@ -600,7 +600,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const open = (destination: string) => {
     const needsDisclosures = !state.disclosureWork &&
       (destination === disclosureTarget || !staff && canOpenDisclosures && loanSection(destination) === "Closing");
-    const needsServiceOrders = !staff && state.serviceOrders === undefined && loanSection(destination) === "Conditions";
+    const needsServiceOrders = !staff && state.closingServiceEvidence === undefined && ["Conditions", "Closing"].includes(loanSection(destination));
     if (needsDisclosures || needsServiceOrders) {
       openScopedLoan(destination);
     }
@@ -721,7 +721,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {state.serviceOrders !== undefined && <LoanServiceOrders key={loan.id} loanId={loan.id}
         orders={state.serviceOrders.filter((item) => item.loanId === loan.id)} busy={busy}
         owner={state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail)?.processorName || loan.officer || "Unassigned"}
-        editable={!pausedLoan(loan) && !pastClientLoan(loan)} save={save} />}
+        editable={!pausedLoan(loan) && !pastClientLoan(loan)} save={save} openClosing={() => open(closingChecklistListTarget)} />}
       <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} joint={joint} requests={requests} inlineRequests={inlineRequests}
         openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
         customTemplates={!pausedLoan(loan) && !pastClientLoan(loan) && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot :

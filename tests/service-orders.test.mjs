@@ -121,3 +121,36 @@ test("mock title orders support deadlines, cancellation, scoped pagination and d
   db.prepare("UPDATE loans SET disposition = 'On hold' WHERE id = ?").run(loanId);
   assert.ok(!queue("Open").serviceOrders.rows.some((item) => item.loanId === loanId));
 });
+
+test("existing two-service workspaces retain accepted evidence when the order catalog expands", async (t) => {
+  const { db, loanId, today, now, send, queue } = fixture(t);
+  const titleId = randomUUID(), previousReference = "MOCK-TITLE-LEGACY-V1";
+  const at = now.toISOString();
+  const returns = [{ reference: previousReference, returnedAt: at, receivedBy: "Prior processor",
+    review: { at, actor: "Prior processor", decision: "Accepted", note: "Accepted before catalog change" } }];
+  db.exec(`DROP TABLE closing_service_evidence;
+    DROP TABLE service_orders;
+    CREATE TABLE service_orders (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('Appraisal', 'Title')),
+      status TEXT NOT NULL DEFAULT 'Ordered' CHECK(status IN ('Ordered', 'Received', 'Completed', 'Cancelled')),
+      dueOn TEXT NOT NULL, originalDueOn TEXT NOT NULL, createdAt TEXT NOT NULL, createdBy TEXT NOT NULL, note TEXT NOT NULL,
+      returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT
+    );`);
+  db.prepare(`INSERT INTO service_orders (id, loanId, kind, status, dueOn, originalDueOn, createdAt, createdBy, note, returns, revision)
+    VALUES (?, ?, 'Title', 'Completed', ?, ?, ?, 'Prior processor', '', ?, 2)`).run(titleId, loanId, today, today, at, JSON.stringify(returns));
+  initializeStore(db, false);
+  for (const kind of ["Homeowners insurance", "Flood", "Mortgage insurance"]) {
+    const orderId = randomUUID();
+    const created = await send({ type: "createServiceOrder", orderId, kind, dueOn: today, note: "" });
+    assert.ok(created.loanWork, created.error);
+    assert.deepEqual(created.loanWork.serviceOrders.find(({ id }) => id === titleId).returns, returns);
+    const result = await send({ type: "updateServiceOrder", orderId, action: "Simulate return", revision: 0, note: "" });
+    const sample = result.loanWork.serviceOrders.find(({ id }) => id === orderId).returns[0];
+    assert.match(sample.reference, /^MOCK-[A-Z-]+-[A-F0-9-]+-V1$/);
+    assert.ok(serviceOrderPdf(kind, sample).includes(Buffer.from(sample.reference).toString("hex")));
+  }
+  initializeStore(db, false);
+  assert.equal(queue("Ready to review").serviceOrders.rows.length, 3);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
