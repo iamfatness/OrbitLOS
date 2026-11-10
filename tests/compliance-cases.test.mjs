@@ -14,6 +14,90 @@ registerHooks({ resolve(specifier, context, next) {
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 
+test("lead history backfill resumes, keeps source references and separates unknown times from task deadlines", (t) => {
+  const { db, work, addLoan, admin, officer, processor, brokerageId } = fixture(t);
+  const loanId = addLoan();
+  const addLead = db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, createdAt, dueAt, loanId, importSource)
+    VALUES (?, ?, 'Fictional Lead', '', '', 'Purchase', 'Fictional LO', ?, ?, ?, ?)`);
+  const migrate = db.prepare("INSERT INTO migration_records (origin, recordKey, targetId) VALUES ('Fictional CRM', ?, ?)");
+  const dateFromLegacy = "2026-10-20T17:00:00.000Z";
+  for (let index = 0; index < 26; index++) {
+    const id = `lead-${String(index).padStart(2, "0")}`;
+    addLead.run(id, id, index === 1 ? dateFromLegacy : index === 2 ? "bad date" : at, at,
+      index === 0 ? loanId : null, index === 0 ? "Website quote request" : null);
+  }
+  migrate.run("Lead:prior-lead", "lead-01");
+  db.prepare("UPDATE referral_leads SET resolvedAt = ?, archiveToken = 'fictional-archive' WHERE id = 'lead-03'").run(at);
+  const event = db.prepare("INSERT INTO lead_events (id, leadId, at, actor, kind, text) VALUES (?, ?, ?, 'Fictional LO', 'Call', 'Private note text')");
+  event.run("event-carried", "lead-00", at);
+  event.run("event-date-import", "lead-01", dateFromLegacy);
+  event.run("event-bad", "lead-02", "invalid");
+  migrate.run("Note:original-note", "event-date-import");
+  db.prepare("INSERT INTO activity (id, loanId, createdAt, kind, text) VALUES (?, ?, ?, 'Call', 'Private note text')")
+    .run("event-carried", loanId, at);
+  migrate.run("Note:carried-note", "event-carried");
+  db.prepare("INSERT INTO activity (id, loanId, createdAt, kind, text) VALUES (?, ?, ?, 'Email', 'Private note text')")
+    .run("event-only-loan", loanId, at);
+  migrate.run("Note:loan-only", "event-only-loan");
+  const task = db.prepare("INSERT INTO lead_import_tasks (id, leadId, dueAt, completedAt, title) VALUES (?, ?, ?, ?, 'Private task title')");
+  task.run("task-carried", "lead-00", at, null);
+  task.run("task-done", "lead-01", at, at);
+  db.prepare("INSERT INTO tasks (id, loanId, dueAt, completedAt, title) VALUES (?, ?, ?, ?, 'Private task title')")
+    .run("task-carried", loanId, at, null);
+  migrate.run("Task:carried-task", "task-carried");
+  db.prepare("INSERT INTO tasks (id, loanId, dueAt, completedAt, title) VALUES (?, ?, ?, ?, 'Private task title')")
+    .run("task-only-loan", loanId, at, dateFromLegacy);
+  migrate.run("Task:original-loan-task", "task-only-loan");
+
+  assert.deepEqual(work({ type: "leadBackfill" }, officer), unavailable);
+  assert.deepEqual(work({ type: "advanceLeadBackfill", revision: 0 }, processor), unavailable);
+  assert.deepEqual(work({ type: "leadBackfill" }, admin, undefined, `${brokerageId}-elsewhere`), unavailable);
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'compliance_lead_backfill'").get(), undefined);
+  assert.equal(work({ type: "leadBackfill" }).state, "Not started");
+  const first = work({ type: "advanceLeadBackfill", revision: 0 });
+  assert.equal(first.state, "Scanning");
+  assert.equal(first.scanned, 25);
+  initializeStore(db, false);
+  assert.equal(work({ type: "advanceLeadBackfill", revision: 0 }).scanned, 25);
+  const completed = work({ type: "advanceLeadBackfill", revision: first.revision });
+  assert.equal(completed.state, "Complete");
+  assert.equal(completed.scanned, 33);
+  assert.equal(completed.unknown, 6);
+  const second = work({ type: "leadBackfill", after: completed.next });
+  const entries = [...completed.entries, ...second.entries];
+  assert.equal(entries.length, 33);
+  assert.equal(new Set(entries.map(({ kind, id }) => `${kind}:${id}`)).size, 33);
+  const unknown = work({ type: "leadBackfill", unknownOnly: true });
+  assert.equal(unknown.entries.length, 6);
+  assert.equal(unknown.entries.every(({ occurredAt }) => occurredAt === null), true);
+  assert.deepEqual(unknown.entries.find(({ id }) => id === "event-date-import"), {
+    id: "event-date-import", leadId: "lead-01", loanId: null, name: "Fictional Lead", kind: "Lead activity",
+    event: "Call", source: "CRM import", sourceRef: "Fictional CRM · Note:original-note", occurredAt: null, recordedDate: "2026-10-20",
+    destination: { kind: "lead", id: "lead-01" },
+  });
+  assert.equal(entries.find(({ id }) => id === "event-only-loan").occurredAt, at);
+  assert.equal(entries.find(({ id }) => id === "task-carried").event, "Task recorded");
+  assert.equal(entries.find(({ id }) => id === "task-carried").loanId, loanId);
+  assert.equal(entries.find(({ id }) => id === "lead-00").source, "Website quote form");
+  assert.deepEqual(entries.find(({ id }) => id === "lead-03").destination, { kind: "archivedLead", id: "lead-03" });
+  assert.equal(JSON.stringify(entries).includes("Private"), false);
+  assert.match(work({ type: "leadBackfill", unknownOnly: true, after: completed.next }).error, /changed/);
+
+  db.prepare("UPDATE lead_events SET at = ? WHERE id = 'event-bad'").run(at);
+  db.prepare("UPDATE tasks SET completedAt = ? WHERE id = 'task-carried'").run(at);
+  assert.equal(work({ type: "leadBackfill" }).state, "Stale");
+  assert.equal(work({ type: "leadBackfill" }).scanned, null);
+  assert.match(work({ type: "leadBackfill", after: completed.next }).error, /changed/);
+  const rebuiltFirst = work({ type: "advanceLeadBackfill", revision: work({ type: "leadBackfill" }).revision });
+  assert.equal(rebuiltFirst.scanned, 25);
+  const rebuilt = work({ type: "advanceLeadBackfill", revision: rebuiltFirst.revision });
+  assert.equal(rebuilt.scanned, 33);
+  assert.equal(rebuilt.unknown, 4);
+  const finishedTask = rebuilt.entries.find(({ id }) => id === "task-carried");
+  assert.equal(finishedTask.occurredAt, at);
+  assert.deepEqual(finishedTask.destination, { kind: "loan", id: loanId, target: "loan-task-task-carried" });
+});
+
 const at = "2026-11-10T12:00:00.000Z";
 const unavailable = { error: "This compliance work is unavailable." };
 const member = (name, role) => ({ name, email: `${name.toLowerCase()}@example.test`, role, status: "Active", accessRevision: 1 });

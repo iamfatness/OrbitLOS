@@ -3,6 +3,7 @@ import type { VersionedBrokerageMember } from "./brokerage-model";
 import { complianceCaseKinds as kinds, complianceCaseStatuses as statuses, complianceWorkUnavailable } from "./compliance-case-model";
 import { initializeComplianceInventory } from "./compliance-case-store";
 import { advanceInventory, currentPackage, inventoryAdvance, inventoryRead, readInventory, samplePackage, sampleWorkbenchReview } from "./compliance-inventory";
+import { advanceLeadBackfill, initializeComplianceLeadBackfill, leadBackfillAdvance, leadBackfillRead, readLeadBackfill } from "./compliance-lead-backfill";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { loanAccess } from "./workspace-access";
@@ -20,6 +21,8 @@ const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("recordSampleReview"), ...change, packageRevision: revision }),
   inventoryRead,
   inventoryAdvance,
+  leadBackfillRead,
+  leadBackfillAdvance,
 ]);
 
 type ComplianceRequest = z.infer<typeof request>;
@@ -163,6 +166,11 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
       if (staff.brokerage.role !== "Admin") return unavailable;
       initializeComplianceInventory(db);
       return data.type === "inventory" ? readInventory(db, brokerageId, data) : advanceInventory(db, brokerageId, data.revision, now);
+    }
+    if (data.type === "leadBackfill" || data.type === "advanceLeadBackfill") {
+      if (staff.brokerage.role !== "Admin") return unavailable;
+      initializeComplianceLeadBackfill(db);
+      return data.type === "leadBackfill" ? readLeadBackfill(db, brokerageId, data) : advanceLeadBackfill(db, brokerageId, data.revision, now);
     }
     if (data.type === "list") return list(db, staff, roster, data);
     if (data.type === "openFixture") return openFixture(db, staff, roster, data, now);
