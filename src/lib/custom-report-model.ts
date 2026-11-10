@@ -6,6 +6,7 @@ import { reportMonthDates, shiftReportDate, validReportRange } from "./report-da
 
 export const customReportUnavailable = "This custom report is unavailable in your workspace.";
 export const customReportLimit = 30;
+export const customReportExportLimit = 2_000;
 export const customReportTypes = ["Intake cohort", "Loan production"] as const;
 export const customReportGroups = ["None", "Lead source", "Campaign", "Loan officer", "Purpose", "Current stage"] as const;
 export const customReportColumns = ["Lead source", "Loan officer", "Purpose", "Current status", "Loan amount"] as const;
@@ -53,6 +54,8 @@ export const customReportInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("run"), ...reference, after: z.object({ key: groupKey, name: z.string().min(1).max(240) }).optional() }),
   z.object({ type: z.literal("records"), ...reference, metric: z.enum(metrics), group: groupKey.optional(),
     after: z.object({ at: cursorDate, id: recordId }).optional() }),
+  z.object({ type: z.literal("export"), ...reference, metric: z.enum(metrics).optional(), group: groupKey.optional(),
+    from: z.iso.date(), through: z.iso.date() }),
 ]);
 export type CustomReportInput = z.infer<typeof customReportInput>;
 export type CustomReportDefinition = z.infer<typeof customReportDefinition>;
@@ -70,7 +73,8 @@ export type CustomReportRun = {
 };
 export type CustomReportRecords = { kind: "records"; rows: CustomReportRecord[]; next: { id: string; at: string } | null };
 export type CustomReportResult = { kind: "list"; reports: CustomReport[] } | { kind: "saved"; report: CustomReport } |
-  { kind: "archived" } | CustomReportRun | CustomReportRecords | { error: string };
+  { kind: "archived" } | { kind: "export"; csv: string; filename: string; count: number } |
+  CustomReportRun | CustomReportRecords | { error: string };
 
 export function customReportRange(value: CustomReportDefinition["period"], now: Date) {
   if (value.kind === "Fixed dates") return { from: value.from, through: value.through };

@@ -1,6 +1,7 @@
 import { easternDayStart } from "./client-retention";
+import { callReportCsvCell } from "./call-report-model";
 import { canSeeCrmField, crmFieldValueTable, resolveCrmFieldFilter } from "./crm-fields";
-import { customReportDefinition, customReportInput, customReportLimit, customReportRange, customReportUnavailable,
+import { customReportDefinition, customReportExportLimit, customReportInput, customReportLimit, customReportMetricLabels, customReportRange, customReportUnavailable,
   type CustomReport, type CustomReportCounts, type CustomReportInput, type CustomReportMetric, type CustomReportRecord,
   type CustomReportResult } from "./custom-report-model";
 import { shiftReportDate, type ReportDateRange } from "./report-date-range";
@@ -12,6 +13,7 @@ type SavedRow = { id: string; revision: number; definition: string; archivedAt: 
 type ReportRow = Record<string, SqlValue>;
 type RunRequest = Extract<CustomReportInput, { type: "run" }>;
 type RecordsRequest = Extract<CustomReportInput, { type: "records" }>;
+type ExportRequest = Extract<CustomReportInput, { type: "export" }>;
 const pageSize = 20;
 
 function definition(row: SavedRow): CustomReport {
@@ -176,14 +178,19 @@ function runReport(db: Store, input: RunRequest, report: CustomReport, staff: Wo
     next: groupRows.length > pageSize && last ? { key: last.key, name: last.name } : null };
 }
 
-function reportRecords(db: Store, input: RecordsRequest, report: CustomReport, staff: WorkspaceStaff, range: ReportDateRange): CustomReportResult {
-  if (!report.metrics.includes(input.metric) || (input.group && report.groupBy === "None")) return { error: customReportUnavailable };
-  const source = cohort({ ...report, metrics: [input.metric] }, staff, range);
-  const after = input.after;
+function recordRows(db: Store, input: { metric?: CustomReportMetric; group?: string; after?: RecordsRequest["after"] },
+  report: CustomReport, staff: WorkspaceStaff, range: ReportDateRange, limit: number) {
+  const { metric, group, after } = input;
+  const source = cohort(metric ? { ...report, metrics: [metric] } : report, staff, range);
   const columns = report.columns.map((column, index) => `${columnSql[column]} AS value${index}`).join(", ");
-  const rows = db.prepare(`${source.sql} SELECT id, at, name, targetKind, targetId ${columns ? `, ${columns}` : ""} FROM report
-    WHERE 1 = 1 ${input.group ? "AND groupKey = ?" : ""} ${after ? "AND (at, id) < (?, ?)" : ""}
-    ORDER BY at DESC, id DESC LIMIT ?`).all(...source.params, ...(input.group ? [input.group] : []), ...(after ? [after.at, after.id] : []), pageSize + 1);
+  return db.prepare(`${source.sql} SELECT id, at, name, targetKind, targetId, metric, groupName
+    ${columns ? `, ${columns}` : ""} FROM report
+    WHERE 1 = 1 ${group ? "AND groupKey = ?" : ""} ${after ? "AND (at, id) < (?, ?)" : ""}
+    ORDER BY at DESC, id DESC, metric LIMIT ?`).all(...source.params, ...(group ? [group] : []), ...(after ? [after.at, after.id] : []), limit);
+}
+
+function reportRecords(db: Store, input: RecordsRequest, report: CustomReport, staff: WorkspaceStaff, range: ReportDateRange): CustomReportResult {
+  const rows = recordRows(db, input, report, staff, range, pageSize + 1);
   const page = rows.slice(0, pageSize).map((row): CustomReportRecord => ({
     id: String(row.id), at: String(row.at), name: String(row.name),
     destination: { kind: row.targetKind === "lead" ? "lead" : "loan", id: String(row.targetId) },
@@ -191,6 +198,31 @@ function reportRecords(db: Store, input: RecordsRequest, report: CustomReport, s
   }));
   const last = page.at(-1);
   return { kind: "records", rows: page, next: rows.length > pageSize && last ? { id: last.id, at: last.at } : null };
+}
+
+function exportReport(db: Store, input: ExportRequest, report: CustomReport, staff: WorkspaceStaff, range: ReportDateRange,
+  now: string): CustomReportResult {
+  if (input.from !== range.from || input.through !== range.through) {
+    return { error: "The report dates rolled over. Run the report again before exporting." };
+  }
+  return db.transaction(() => {
+    const rows = recordRows(db, input, report, staff, range, customReportExportLimit + 1);
+    if (rows.length > customReportExportLimit) {
+      return { error: "This export has more than 2,000 report rows. Download a single count or narrow the saved report’s filters." };
+    }
+    const grouped = report.groupBy !== "None";
+    const header = ["Metric", ...(grouped ? [`Group (${report.groupBy})`] : []), "Event date", "Name", "Record type", "Record ID", ...report.columns];
+    const lines = rows.map((row) => [
+      customReportMetricLabels[row.metric as CustomReportMetric], ...(grouped ? [row.groupName] : []),
+      row.at, row.name, row.targetKind, row.targetId, ...report.columns.map((_, index) => row[`value${index}`]),
+    ].map(callReportCsvCell).join(","));
+    const csv = "\uFEFF" + [header.map(callReportCsvCell).join(","), ...lines].join("\r\n") + "\r\n";
+    if (new TextEncoder().encode(csv).length > 2_000_000) return { error: "This export is too large. Narrow the saved report’s filters." };
+    const slug = report.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "report";
+    const filename = `orbit-${slug}${input.metric ? `-${input.metric}` : ""}-v${report.revision}-${range.from}-${range.through}.csv`;
+    accessEvent(db, staff, "Prepared custom report CSV", `${report.id} · v${report.revision} · ${range.from} to ${range.through} · ${rows.length} rows`, now);
+    return { kind: "export", csv, filename, count: rows.length };
+  });
 }
 
 export function customReportWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): CustomReportResult {
@@ -213,5 +245,9 @@ export function customReportWork(db: Store, input: unknown, staff: WorkspaceStaf
   }
   if (request.revision !== report.revision) return { error: "This report changed. Reload the saved report before running it." };
   const range = customReportRange(report.period, now);
-  return request.type === "run" ? runReport(db, request, report, staff, range) : reportRecords(db, request, report, staff, range);
+  if (request.type === "run") return runReport(db, request, report, staff, range);
+  if ((request.metric && !report.metrics.includes(request.metric)) || (request.group && (!request.metric || report.groupBy === "None"))) {
+    return { error: customReportUnavailable };
+  }
+  return request.type === "records" ? reportRecords(db, request, report, staff, range) : exportReport(db, request, report, staff, range, now.toISOString());
 }

@@ -10,6 +10,7 @@ import { currentReportMonth } from "@/lib/report-date-range";
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { CrmFieldFilterEditor } from "./crm-fields";
+import { downloadSampleFile } from "./sample-download";
 
 type Edit = { id: string; revision: number; definition: CustomReportDefinition };
 type Drill = { metric: CustomReportMetric; group?: CustomReportGroup; page: CustomReportRecords };
@@ -178,6 +179,18 @@ export function CustomReports({ brokerageId, role, openRecord }: {
     });
   }
 
+  function downloadReport(report: CustomReport, selection?: Drill) {
+    if (!run) return;
+    void perform(async () => {
+      const result = await accessCustomReport({ type: "export", id: report.id, revision: report.revision,
+        from: run.from, through: run.through, metric: selection?.metric, group: selection?.group?.key }, brokerageId);
+      if ("error" in result) throw new Error(result.error);
+      if (result.kind !== "export") throw new Error("Could not prepare the report CSV.");
+      downloadSampleFile(result.csv, result.filename, "text/csv;charset=utf-8");
+      setMessage({ text: `CSV prepared with ${result.count} ${result.count === 1 ? "row" : "rows"}.` });
+    });
+  }
+
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!edit) return;
@@ -262,7 +275,9 @@ export function CustomReports({ brokerageId, role, openRecord }: {
         <p className="muted">{active.dataset === "Intake cohort"
           ? "Open and converted inquiries use the received date. Submission and funding can happen later."
           : "Files, first 1003 submissions, and recorded fundings use their respective event dates."}</p>
-        <h4>All matching records</h4>
+        <div className="loan-application-actions"><h4>All matching records</h4>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => downloadReport(active)}>Download report CSV</Button>
+        </div>
         <MetricCounts report={active} counts={run.totals} busy={busy} onSelect={(metric) => readRecords(active, metric)} />
         {run.groups.length > 0 && <ul className="document-list">{run.groups.map((group) => <li key={group.key} className="document-item">
           <strong>{group.name}</strong>
@@ -270,7 +285,9 @@ export function CustomReports({ brokerageId, role, openRecord }: {
         </li>)}</ul>}
         {run.next && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void perform(() => loadReport(active, true))}>More report groups</Button></div>}
         {drill && <section className="work-queue" aria-label="Report records" tabIndex={-1} ref={drillRegion}>
-          <h4>{customReportMetricLabels[drill.metric]}{drill.group && ` · ${drill.group.name}`}</h4>
+          <div className="loan-application-actions"><h4>{customReportMetricLabels[drill.metric]}{drill.group && ` · ${drill.group.name}`}</h4>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => downloadReport(active, drill)}>Download this count CSV</Button>
+          </div>
           {drill.page.rows.length ? <ul className="document-list">{drill.page.rows.map((record) => <li className="document-item" key={record.id}>
             <div className="document-item-head"><strong>{record.name}</strong><span>{record.at.length === 10 ? record.at : `${dateTime(record.at)} ET`}</span></div>
             {active.columns.length > 0 && <p className="muted">{active.columns.map((column) => {

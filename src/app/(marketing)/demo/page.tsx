@@ -19,7 +19,7 @@ export default function DemoPage() {
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
           <li>Finish in the Brokerage Owner Scorecard. Open the records behind each campaign count and check current follow-ups, open conditions, and funding for the selected period.</li>
-          <li>Build shared custom reports for intake and loan production. Choose the fields, then open the leads or loans behind each count.</li>
+          <li>Build shared custom reports for intake and loan production. Open the leads or loans behind a count and download a CSV of the same records.</li>
           <li>Use brokerage CRM fields such as outreach tier to filter a campaign segment and see which borrowers match before enrolling them.</li>
           <li>Compare the opening pipeline with the prior quarter’s saved ending pipeline, then save an internal review CSV that stays available after corrections.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s. See how the next shared lead moves up after an unanswered lead reaches its retry limit.</li>

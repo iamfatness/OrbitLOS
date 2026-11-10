@@ -339,6 +339,8 @@ Under **Reports → Custom reports**, an admin can save an intake cohort or loan
 
 Share a report with LOs to show their own leads and loans. Share a production report with processors to show assigned files. Changing the report’s audience or archiving the report updates access to saved report links.
 
+Select **Download report CSV** for all matching events or **Download this count CSV** from a drilldown. The CSV includes every matching page within your current access, using the saved columns. A loan can appear once for each metric it meets. Each file can contain up to 2,000 rows. For larger reports, choose one count or narrow the saved filters. Orbit records who prepared the download and the report version and dates.
+
 ### Add brokerage CRM fields
 
 Under **Contacts → Manage CRM fields**, admins can define a short text, choice, yes or no, number, or date field and choose which staff roles can see it. In an open lead or a borrower contact’s history, expand **CRM fields** to enter values. Converting a lead fills empty borrower fields and preserves existing borrower values. Processors can view shared fields on their assigned borrower records.

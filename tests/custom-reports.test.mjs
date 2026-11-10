@@ -15,6 +15,7 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { customReportWork } = await import("../src/lib/custom-reports.ts");
 const { defaultCustomReport } = await import("../src/lib/custom-report-model.ts");
 const { crmFieldWork } = await import("../src/lib/crm-fields.ts");
+const { readCsv } = await import("../src/lib/contact-csv.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -42,6 +43,8 @@ function fixture(t) {
     work({ type: "save", id: crypto.randomUUID(), revision: 0, ...options, definition }, actor);
   const run = ({ id, revision }, actor = admin, after) => work({ type: "run", id, revision, after }, actor);
   const records = ({ id, revision }, metric, actor = admin, more = {}) => work({ type: "records", id, revision, metric, ...more }, actor);
+  const download = ({ id, revision }, actor = admin, options = {}) =>
+    work({ type: "export", id, revision, from: "2026-11-01", through: "2026-11-30", ...options }, actor);
   const file = (id, owner, options = {}) => {
     insertContact(db, { id: `contact-${id}`, name: `Borrower ${id}`, email: "", phone: "", role: "Borrower" });
     insertLoan(db, { id, contactId: `contact-${id}`, partnerId: null, officer: owner?.name ?? "", officerEmail: owner?.email ?? null,
@@ -54,11 +57,11 @@ function fixture(t) {
       .run(id, id, `Lead ${id}`, owner?.name ?? "", owner?.email ?? null, at, at,
         options.source ?? "Website quote request", loanId, loanId || options.archived ? at : null);
   };
-  return { db, now, brokerageId, admin, officer, other, processor, work, save, run, records, file, inquiry };
+  return { db, now, brokerageId, admin, officer, other, processor, work, save, run, records, download, file, inquiry };
 }
 
 test("CRM filters keep counts and drilldowns scoped and refuse revoked or archived fields", (t) => {
-  const { db, brokerageId, admin, officer, other, processor, work, save, run, records, inquiry, file } = fixture(t);
+  const { db, brokerageId, admin, officer, other, processor, work, save, run, records, download, inquiry, file } = fixture(t);
   const fieldId = crypto.randomUUID();
   const fields = (input, actor = admin, tenant = brokerageId) => crmFieldWork(db, input, actor, tenant);
   const definition = { label: "Outreach score", kind: "Number", options: [], roles: ["LO", "Processor"] };
@@ -99,6 +102,10 @@ test("CRM filters keep counts and drilldowns scoped and refuse revoked or archiv
   assert.equal(run(report).totals.inquiries, 2);
   assert.equal(run(report, officer).totals.inquiries, 1);
   assert.deepEqual(records(report, "inquiries", officer).rows.map(({ id }) => id), ["mine"]);
+  const output = download(report, officer);
+  assert.equal(output.count, 1);
+  assert.deepEqual(readCsv(output.csv).at(-1).slice(3, 6), ["Lead mine", "lead", "mine"]);
+  assert.doesNotMatch(output.csv, /Priority|999999999999\.0001|unscoped/);
   const { report: production } = save({ ...setup, name: "Priority production", dataset: "Loan production", metrics: ["files"], roles: ["Processor"] });
   assert.equal(run(production, processor).totals.files, 1);
   assert.deepEqual(records(production, "files", processor).rows.map(({ id }) => id), ["production"]);
@@ -108,14 +115,68 @@ test("CRM filters keep counts and drilldowns scoped and refuse revoked or archiv
   assert.equal(work({ type: "list" }, officer).reports.length, 0);
   assert.ok(run(report, officer).error);
   assert.ok(records(report, "inquiries", officer).error);
+  assert.ok(download(report, officer).error);
+  assert.ok(download(production, processor).error);
   assert.ok(run(production, processor).error);
   assert.equal(run(report).totals.inquiries, 2);
   assert.equal(fields({ type: "archiveField", fieldId, revision: 2 }).kind, "archived");
   assert.ok(work({ type: "list" }).reports.some(({ id }) => id === report.id));
   assert.match(run(report).error, /CRM field is unavailable/);
   assert.match(records(report, "inquiries").error, /CRM field is unavailable/);
+  assert.match(download(report).error, /CRM field is unavailable/);
   const repaired = save({ ...setup, customFilter: undefined }, report);
   assert.equal(run(repaired.report, officer).totals.inquiries, 2);
+});
+
+test("CSV exports include all authorized pages, honor the selected count, and encode safe cells", (t) => {
+  const { db, admin, officer, other, processor, save, run, records, download, inquiry, file, work } = fixture(t);
+  file("file-1", officer);
+  inquiry("original", officer, "file-1", { source: "Campaign import" });
+  inquiry("other", other);
+  inquiry("shared", null);
+  for (let index = 0; index < 23; index++) inquiry(`inquiry-${index}`, officer);
+  db.prepare("UPDATE referral_leads SET name = ? WHERE id = 'inquiry-22'").run('=HYPERLINK("https://example.test","Fictional, café")');
+  db.exec("INSERT INTO closing_progress (loanId, fundingDate) VALUES ('file-1','2026-11-08')");
+  const { report } = save({ ...defaultCustomReport, name: "Officer pipeline / QA", groupBy: "Purpose", roles: ["LO"], columns: ["Purpose", "Loan amount"] });
+  const all = download(report, officer);
+  assert.equal(all.kind, "export");
+  assert.equal(all.filename, "orbit-officer-pipeline-qa-v1-2026-11-01-2026-11-30.csv");
+  const [header, ...rows] = readCsv(all.csv);
+  assert.deepEqual(header, ["Metric", "Group (Purpose)", "Event date", "Name", "Record type", "Record ID", "Purpose", "Loan amount"]);
+  const totals = run(report, officer).totals;
+  assert.equal(all.count, totals.inquiries + totals.cohortFunded);
+  assert.equal(rows.length, all.count);
+  assert.ok(rows.some((row) => row[3] === '\'=HYPERLINK("https://example.test","Fictional, café")'));
+  assert.ok(rows.every((row) => !["other", "shared"].includes(row[5])));
+  assert.ok(rows.some((row) => row[4] === "loan" && row[5] === "file-1" && row[7] === "300000"));
+  const grouped = download(report, officer, { metric: "inquiries", group: "Purchase" });
+  const drill = records(report, "inquiries", officer, { group: "Purchase" });
+  const next = records(report, "inquiries", officer, { group: "Purchase", after: drill.next });
+  assert.deepEqual(readCsv(grouped.csv).slice(1).map((row) => row[5]),
+    [...drill.rows, ...next.rows].map(({ destination }) => destination.id));
+  const empty = download(report, officer, { metric: "converted" });
+  assert.equal(empty.count, 0);
+  assert.deepEqual(readCsv(empty.csv), [header]);
+  assert.match(download(report, officer, { through: "2026-12-01" }).error, /Run the report again/);
+  assert.ok(download(report, officer, { revision: report.revision + 1 }).error);
+  assert.ok(download(report, officer, { metric: "funding" }).error);
+  assert.ok(download(report, officer, { group: "Purchase" }).error);
+  assert.ok(download(report, processor).error);
+  assert.ok(work({ type: "export", id: report.id, revision: report.revision, from: "2026-11-01", through: "2026-11-30" }, admin, "another-brokerage").error);
+  const audit = db.prepare("SELECT actor, subject FROM workspace_access_history WHERE action = 'Prepared custom report CSV'").all();
+  assert.equal(audit.length, 3);
+  assert.ok(audit.every(({ actor, subject }) => actor === officer.email && subject.includes(report.id) && !subject.includes("Fictional")));
+});
+
+test("oversized reports require a narrower export instead of returning partial data", (t) => {
+  const { db, officer, save, download, inquiry } = fixture(t);
+  db.transaction(() => {
+    for (let index = 0; index < 2_001; index++) inquiry(`lead-${index}`, officer);
+  });
+  const { report } = save({ ...defaultCustomReport, name: "Oversized intake" });
+  assert.match(download(report).error, /more than 2,000 report rows/);
+  assert.equal(download(report, undefined, { metric: "cohortFunded" }).count, 0);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM workspace_access_history WHERE action = 'Prepared custom report CSV'").get().total, 1);
 });
 
 test("intake report uses current ownership for open and converted leads and keeps drilldowns within the shared role", (t) => {
