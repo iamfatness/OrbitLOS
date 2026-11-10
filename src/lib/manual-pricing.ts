@@ -1,11 +1,11 @@
 import type { z } from "zod";
-import { requestedLoanAmount } from "./application-model";
+import { applicationDraft, requestedLoanAmount } from "./application-model";
 import { getApplication } from "./applications";
 import { easternDate } from "./client-retention";
 import { pricingInputError } from "./income-review-freshness";
 import { findPricingOffer, manualQuoteBasis, manualQuoteChanged, manualQuoteLimit, sameManualQuote,
   type addManualQuoteInput, type ManualQuoteReference } from "./manual-pricing-model";
-import { nonAgencyManualHandoffMessage, type PricingOffer } from "./pricing-model";
+import { nonAgencyHandoffIssue, nonAgencyManualHandoffMessage, type PricingOffer, type PricingScenario } from "./pricing-model";
 import { principalAndInterest } from "./pricing-provider";
 import { latestPricingUnsupported, savedPricingRun, type Store } from "./store";
 
@@ -52,9 +52,12 @@ export function manualQuoteForHandoff(db: Store, loanId: string, reference: Manu
     incomeReviewRevision: selected.run.incomeReviewRevision }, application);
   if (freshness) return { error: freshness };
   if (selected.basis.expiresOn < easternDate(new Date(now))) return { error: "The selected manual quote expired. Enter and choose a current offer before preparing the handoff." };
-  const amount = application && requestedLoanAmount(JSON.parse(application.draft).loanAmount);
+  const draft = application && applicationDraft.parse(JSON.parse(application.draft));
+  const amount = draft && requestedLoanAmount(draft.loanAmount);
   if (amount === null || amount === undefined || Math.round(amount * 100) !== Math.round(selected.basis.loanAmount * 100)) {
     return { error: "Choose a manual quote for the exact loan amount on the reviewed 1003 before preparing the handoff." };
   }
+  const issue = nonAgencyHandoffIssue(JSON.parse(String(selected.run.scenario)) as PricingScenario, draft);
+  if (issue) return { error: issue };
   return { basis: selected.basis };
 }

@@ -33,7 +33,7 @@ function focusExportIssue(issue: LenderExportIssue) {
 }
 
 export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, canRecordRejection, openConditions,
-  shareBrokerage, handoffBlocker, openReviews, correctionSave, correctionBlocked, manualQuote, manualQuoteNeeded, manualQuoteCurrent, openPricing }: {
+  shareBrokerage, handoffBlocker, openReviews, correctionSave, correctionBlocked, manualQuote, manualQuoteNeeded, manualQuoteCurrent, manualScenarioIssue, openPricing }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
@@ -51,6 +51,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   manualQuote?: ManualQuoteBasis;
   manualQuoteNeeded: boolean;
   manualQuoteCurrent: boolean;
+  manualScenarioIssue?: string | null;
   openPricing: () => void;
 }) {
   const originals = application.draft ? [application.draft.borrowerName,
@@ -74,7 +75,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   const requested = submittedRequestedLoanAmount(application);
   const quoteIssue = manualQuoteNeeded ? nonAgencyManualHandoffMessage : manualQuote ? !manualQuoteCurrent ? "Reprice from the current 1003 before using this manual quote." :
     manualQuote.expiresOn < easternDate() ? "This manual quote expired. Choose a current offer in Pricing." :
-      requested !== null && Math.round(requested * 100) !== Math.round(manualQuote.loanAmount * 100) ? "Choose a manual offer for the exact amount on the reviewed 1003." : null : null;
+      requested !== null && Math.round(requested * 100) !== Math.round(manualQuote.loanAmount * 100) ? "Choose a manual offer for the exact amount on the reviewed 1003." : manualScenarioIssue : null;
   const valid = !issues.length && !quoteIssue;
   const handoff = application.manualHandoff;
   const reference = manualQuote ? { runId: manualQuote.runId, offerId: manualQuote.offerId } : undefined;

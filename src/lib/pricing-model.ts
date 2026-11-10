@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { QuotePresentation } from "./quote-worksheet";
 import { requestedMoney } from "./utils";
-import { submittedRequestedLoanAmount, type StaffApplication } from "./application-model";
+import { submittedRequestedLoanAmount, type ApplicationDraft, type StaffApplication } from "./application-model";
 import type { ManualQuoteDetails } from "./manual-pricing-model";
 
 const amount = z.number().min(1).max(25_000_000);
@@ -53,6 +53,16 @@ export const pricingScenario = z.object({
 });
 
 export type PricingScenario = z.infer<typeof pricingScenario>;
+
+export function nonAgencyHandoffIssue(scenario: PricingScenario, draft: ApplicationDraft | null | undefined) {
+  if (!scenario.nonAgency || !draft) return null;
+  const mismatches = [
+    scenario.purpose !== draft.purpose && "loan purpose",
+    scenario.occupancy !== draft.occupancy && "occupancy",
+    draft.propertyLocation.zip && scenario.zip !== draft.propertyLocation.zip.slice(0, 5) && "property ZIP",
+  ].filter(Boolean);
+  return mismatches.length ? `The Non-QM quote and reviewed 1003 differ on ${mismatches.join(", ")}. Reprice the reviewed file or request a 1003 correction.` : null;
+}
 
 export function sampleNonAgencyMetrics(scenario: NonNullable<PricingScenario["nonAgency"]>, principalAndInterest: number) {
   const housing = principalAndInterest + scenario.monthlyTaxes + scenario.monthlyInsurance + scenario.monthlyHoa;

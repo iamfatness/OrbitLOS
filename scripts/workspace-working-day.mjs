@@ -3044,6 +3044,9 @@ try {
     assert.match((await action(officer, "mutate", { ...send, quote: sampleChoice })).error, /manual lender offer/);
     const dscrManual = await add(unsupported, "SUMMIT-DSCR", 7.125);
     assert.match((await write(officer, xml(submitted.revision, dscrManual))).mismoXml, /<NoteRatePercent>7\.125<\/NoteRatePercent>/);
+    const comparisonOnly = await price({ ...bank, occupancy: "Primary residence" }, submitted.revision, true);
+    const differentOccupancy = await add(comparisonOnly, "SUMMIT-BANK-WHAT-IF", 7.25);
+    assert.match((await action(officer, "mutate", xml(submitted.revision, differentOccupancy))).error, /differ on occupancy/);
     const bankResult = await price(bank, submitted.revision, true);
     assert.equal(bankResult.outcome, "unsupported");
     assert.deepEqual(bankResult.scenario, bank);

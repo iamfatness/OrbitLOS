@@ -29,7 +29,7 @@ import { ConditionEvidencePicker } from "./condition-evidence";
 import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
-import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mockUwmQuoteAmountIssue, nonAgencyManualHandoffMessage, pricingInputsMatch } from "@/lib/pricing-model";
+import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mockUwmQuoteAmountIssue, nonAgencyHandoffIssue, nonAgencyManualHandoffMessage, pricingInputsMatch } from "@/lib/pricing-model";
 import { manualQuoteBasis, sameManualQuote } from "@/lib/manual-pricing-model";
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
@@ -451,7 +451,8 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
         shareBrokerage={shareBrokerage}
         linkedFile={linkedFile}
         previousFile={acknowledgedFile ?? state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
-        manualQuote={manualQuote} manualQuoteNeeded={manualQuoteNeeded} manualQuoteCurrent={!!chosen && pricingInputsMatch(chosen, application)} openPricing={openPricing}
+        manualQuote={manualQuote} manualQuoteNeeded={manualQuoteNeeded} manualQuoteCurrent={!!chosen && pricingInputsMatch(chosen, application)}
+        manualScenarioIssue={chosen && nonAgencyHandoffIssue(chosen.scenario, application.draft)} openPricing={openPricing}
         campaignManual={campaignManual} correctionSave={applicationEdits.save} correctionBlocked={applicationEdits.blocked} />
       <LenderApplicationDetails key={`lender:${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy || applicationEdits.blocked} save={applicationEdits.save} markDraftChanged={markDraftChanged} />
