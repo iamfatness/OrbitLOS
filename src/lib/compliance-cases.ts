@@ -5,6 +5,7 @@ import { complianceAttention, complianceCaseKinds as kinds, complianceCaseStatus
 import { initializeComplianceInventory } from "./compliance-case-store";
 import { advanceInventory, currentPackage, inventoryAdvance, inventoryRead, readInventory, samplePackage, sampleWorkbenchReview } from "./compliance-inventory";
 import { advanceLeadBackfill, initializeComplianceLeadBackfill, leadBackfillAdvance, leadBackfillRead, readLeadBackfill } from "./compliance-lead-backfill";
+import { evaluateSampleReceipt, lastSampleReceiptEvaluation, sampleReceiptBasis, sampleReceiptEvaluation, sampleReceiptFingerprint } from "./sample-receipt-check";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { loanAccess } from "./workspace-access";
@@ -32,6 +33,7 @@ const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("recordEvidenceNote"), ...change, packageRevision: revision,
     source: z.string().trim().min(1).max(120), note: z.string().trim().min(1).max(1000) }),
   z.strictObject({ type: z.literal("recordSampleReview"), ...change, packageRevision: revision }),
+  z.strictObject({ type: z.literal("evaluateSampleReceipt"), ...change, packageRevision: revision, fingerprint: sampleReceiptFingerprint }),
   inventoryRead,
   inventoryAdvance,
   leadBackfillRead,
@@ -56,6 +58,7 @@ const coverage = { state: "Not evaluated", evaluatedFiles: 0, eligibleFiles: nul
 const submissionPayload = z.object({ request: z.object({ note: z.string(), packageRevision: revision }) });
 const evidencePayload = z.object({ request: z.object({ source: z.string(), note: z.string(), packageRevision: revision }) });
 const decisionPayload = z.object({ request: z.object(decisionFields) });
+const evaluationPayload = z.object({ sampleEvaluation: sampleReceiptEvaluation });
 
 function currentMember(roster: readonly Member[], email: string) {
   return roster.find((member) => member.email === email && member.status === "Active");
@@ -163,16 +166,17 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
   const packageState = !item.loanId ? null : !packageRow ? "Unavailable" :
     packageRow.version !== item.packageVersion || packageRow.supersededAt ? "Superseded" :
       packageRow.reviewReason ? "Needs review" : samplePackage(db, item.loanId) ? "Current" : "Outside sample scope";
-  const sampleReviewRevision = item.loanId && item.packageVersion && packageRow && packageState === "Current" &&
-    sampleWorkbenchReview(db, item.loanId, item.packageVersion, packageRow.revision) ? Number(packageRow.revision) : null;
-  const sampleReview = packageRow && packageState === "Current" ? db.prepare(`SELECT actor, at FROM compliance_case_events
-    WHERE brokerageId = ? AND caseId = ? AND action = 'recordSampleReview' AND json_extract(payload, '$.request.packageRevision') = ?
-    ORDER BY revision DESC LIMIT 1`).get(staff.brokerage.id, item.id, packageRow.revision) : undefined;
+  const currentPackageRevision = packageState === "Current" && typeof packageRow?.revision === "number" ? packageRow.revision : null;
+  const currentCheck = item.loanId && item.packageVersion && currentPackageRevision !== null ?
+    evaluateSampleReceipt(sampleReceiptBasis(db, { brokerageId: staff.brokerage.id, caseId: item.id, loanId: item.loanId },
+      item.packageVersion, currentPackageRevision)) : null;
+  const sampleReviewRevision = currentCheck?.basis.workbenchReview ? currentPackageRevision : null;
+  const sampleReview = currentCheck?.outcome === "Sample evidence matches" ? currentCheck.basis.caseEvidence : null;
+  const savedCheck = item.loanId ? lastSampleReceiptEvaluation(db, staff.brokerage.id, item.id) : null;
   const projected = projection(db, staff, roster, item);
   const admin = staff.brokerage.role === "Admin";
   const canUpdateStatus = admin || (projected.ownerState === "Assigned" && projected.ownerEmail === staff.email);
   const submitted = packageState === "Current" && packageRow ? currentReviewSubmission(db, staff.brokerage.id, item, packageRow.revision) : undefined;
-  const currentPackageRevision = packageState === "Current" && typeof packageRow?.revision === "number" ? packageRow.revision : null;
   const decision = item.loanId ? lastReviewDecision(db, staff.brokerage.id, item) : null;
   return { kind: "detail", item: projected, packageState, coverage, sampleReviewRevision,
     canUpdateStatus: canUpdateStatus && !submitted,
@@ -182,18 +186,25 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
       actor: String(submitted.actor), at: String(submitted.at), note: String(submitted.note) } : null,
     canDecideReview: admin && Boolean(submitted),
     reviewDecision: decision && decision.packageRevision === currentPackageRevision ? decision : null,
+    sampleReceiptCheck: item.loanId ? {
+      ready: currentCheck && canUpdateStatus ? { packageRevision: currentCheck.basis.packageRevision, fingerprint: currentCheck.fingerprint } : null,
+      latest: savedCheck ? { ...savedCheck, current: savedCheck.fingerprint === currentCheck?.fingerprint } : null,
+    } : null,
     assignableOwners: admin ? roster.filter((member) => member.status === "Active" && mayOwn(db, staff, member, item.loanId))
       .map(({ email, name }) => ({ email, name })) : [],
-    sampleReview: sampleReview ? { actor: String(sampleReview.actor), at: String(sampleReview.at), packageRevision: Number(packageRow?.revision), mode: "Sample workbench review" } : null,
+    sampleReview: sampleReview ? { actor: sampleReview.recordedBy, at: sampleReview.recordedAt,
+      packageRevision: currentPackageRevision, mode: "Sample workbench review" } : null,
     history: history.slice(0, 50).map((event) => {
       const payload: unknown = JSON.parse(event.payload);
       const submission = event.action === "submitForReview" ? submissionPayload.safeParse(payload) : undefined;
       const evidence = event.action === "recordEvidenceNote" ? evidencePayload.safeParse(payload) : undefined;
       const decision = event.action === "decideReview" ? decisionPayload.safeParse(payload) : undefined;
+      const evaluation = event.action === "evaluateSampleReceipt" ? evaluationPayload.safeParse(payload) : undefined;
       return { ...event, payload, reviewNote: submission?.success ? submission.data.request.note : null,
         reviewPackageRevision: submission?.success ? submission.data.request.packageRevision : null,
         evidenceNote: evidence?.success ? evidence.data.request : null,
-        reviewDecision: decision?.success ? decision.data.request : null };
+        reviewDecision: decision?.success ? decision.data.request : null,
+        sampleEvaluation: evaluation?.success ? evaluation.data.sampleEvaluation : null };
     }),
     moreHistory: history.length > 50 } as const;
 }
@@ -321,7 +332,8 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     if (data.type === "read") return data.loanId && data.loanId !== item.loanId ? unavailable : detail(db, staff, roster, item);
     const owner = currentMember(roster, item.ownerEmail);
     const owns = owner?.email === actor.email && (owner.accessRevision ?? 0) === item.ownerAccessRevision;
-    if (!isAdmin && ((data.type !== "updateStatus" && data.type !== "submitForReview" && data.type !== "recordEvidenceNote") || !owns)) return unavailable;
+    if (!isAdmin && ((data.type !== "updateStatus" && data.type !== "submitForReview" && data.type !== "recordEvidenceNote" &&
+      data.type !== "evaluateSampleReceipt") || !owns)) return unavailable;
     const replay = db.prepare(`SELECT actor, json_extract(payload, '$.request') AS request FROM compliance_case_events
       WHERE brokerageId = ? AND caseId = ? AND requestId = ?`)
       .get(brokerageId, item.id, data.requestId);
@@ -332,6 +344,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     let nextOwnerRevision = item.ownerAccessRevision;
     let nextStatus = item.status;
     let sampleEvidence: { mode: "Sample workbench review"; packageVersion: number; reviewedAt: string; reviewer: string } | undefined;
+    let sampleEvaluation: ReturnType<typeof evaluateSampleReceipt> | undefined;
     if (data.type === "assign") {
       const member = currentMember(roster, data.ownerEmail);
       if (!member || !mayOwn(db, staff, member, item.loanId)) return { error: "Choose an active staff member with access to this work." };
@@ -359,6 +372,12 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
         const submission = currentReviewSubmission(db, brokerageId, item, data.packageRevision);
         if (submission?.revision !== data.submissionRevision) return { error: "Open the current review request before recording a decision." };
         nextStatus = data.decision === "Return for evidence" ? "Awaiting evidence" : "In progress";
+      } else if (data.type === "evaluateSampleReceipt") {
+        sampleEvaluation = evaluateSampleReceipt(sampleReceiptBasis(db, { brokerageId, caseId: item.id, loanId: item.loanId },
+          item.packageVersion, data.packageRevision));
+        if (sampleEvaluation.fingerprint !== data.fingerprint) return { error: "The sample evidence changed. Reload the case and run the check again." };
+        const previous = lastSampleReceiptEvaluation(db, brokerageId, item.id);
+        if (previous?.fingerprint === sampleEvaluation.fingerprint) return detail(db, staff, roster, item);
       } else if (data.type === "recordSampleReview") {
         const review = sampleWorkbenchReview(db, item.loanId, item.packageVersion, data.packageRevision);
         if (!review) return { error: "Review the current sample package in the disclosure workbench first." };
@@ -368,7 +387,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     }
     db.prepare(`UPDATE compliance_cases SET ownerEmail = ?, ownerAccessRevision = ?, status = ?, revision = revision + 1, updatedAt = ?
       WHERE brokerageId = ? AND id = ? AND revision = ?`).run(nextOwner, nextOwnerRevision, nextStatus, now, brokerageId, item.id, item.revision);
-    addEvent(db, staff, item.id, item.revision + 1, now, data.type, { request: data, sampleEvidence }, data.requestId);
+    addEvent(db, staff, item.id, item.revision + 1, now, data.type, { request: data, sampleEvidence, sampleEvaluation }, data.requestId);
     return detail(db, staff, roster, { ...item, ownerEmail: nextOwner, ownerAccessRevision: nextOwnerRevision,
       status: nextStatus, revision: item.revision + 1, updatedAt: now });
   });

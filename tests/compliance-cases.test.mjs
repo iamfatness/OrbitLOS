@@ -517,3 +517,55 @@ test("review decisions bind to one current request and package revision and reta
   assert.equal(current.submitPackageRevision, 2);
   assert.equal(current.history.filter((entry) => entry.reviewDecision).length, 2);
 });
+
+test("sample receipt evaluations preserve exact inputs and distinguish absent, changed and matching evidence", (t) => {
+  const { db, work, open, read, edit, addLoan, addPackage, admin, officer, processor, brokerageId } = fixture(t);
+  const loanId = addLoan();
+  const first = open(loanId);
+  const run = (detail, actor = admin) => edit(detail.item, { type: "evaluateSampleReceipt", ...detail.sampleReceiptCheck.ready }, actor);
+  assert.equal(read(first.item.id, processor).sampleReceiptCheck.ready, null);
+  assert.deepEqual(run(first, processor), unavailable);
+  assert.equal(work({ type: "read", caseId: first.item.id }, admin, undefined, `${brokerageId}-other`).error, unavailable.error);
+
+  const missingReview = run(first, officer);
+  assert.equal(missingReview.sampleReceiptCheck.latest.outcome, "Workbench review missing");
+  assert.equal(missingReview.sampleReceiptCheck.latest.basis.workbenchReview, null);
+  assert.equal(missingReview.item.status, "Open");
+  assert.equal(run(missingReview).item.revision, missingReview.item.revision);
+  assert.equal(run(missingReview).history.length, missingReview.history.length);
+
+  db.prepare("INSERT INTO closing_disclosure_reviews VALUES (?, 1, 1, ?, ?)").run(loanId, at, officer.email);
+  assert.match(run(missingReview).error, /sample evidence changed/);
+  const newSource = read(first.item.id);
+  assert.equal(newSource.sampleReceiptCheck.latest.current, false);
+  const missingCaseEvidence = run(newSource);
+  assert.equal(missingCaseEvidence.sampleReceiptCheck.latest.outcome, "Case evidence missing");
+  assert.deepEqual(missingCaseEvidence.sampleReceiptCheck.latest.basis.workbenchReview, { reviewer: officer.email, reviewedAt: at });
+  assert.equal(missingCaseEvidence.sampleReceiptCheck.latest.basis.caseEvidence, null);
+
+  const recorded = edit(missingCaseEvidence.item, { type: "recordSampleReview", packageRevision: 1 });
+  const matched = run(recorded);
+  assert.equal(matched.sampleReceiptCheck.latest.outcome, "Sample evidence matches");
+  assert.equal(matched.sampleReceiptCheck.latest.current, true);
+  assert.equal(matched.sampleReceiptCheck.latest.version, 1);
+  assert.equal(matched.sampleReceiptCheck.latest.basis.caseEvidence.revision, recorded.item.revision);
+  assert.equal(matched.sampleReceiptCheck.latest.basis.caseEvidence.recordedBy, admin.email);
+  assert.equal(matched.item.status, "Open");
+  assert.equal(matched.coverage.state, "Not evaluated");
+  assert.equal(matched.reviewDecision, null);
+  assert.deepEqual(matched.history.filter((entry) => entry.sampleEvaluation).map((entry) => entry.sampleEvaluation.outcome),
+    ["Sample evidence matches", "Case evidence missing", "Workbench review missing"]);
+
+  const correctedReview = "2026-11-10T13:00:00.000Z";
+  db.prepare("UPDATE closing_disclosure_reviews SET reviewedAt = ? WHERE loanId = ?").run(correctedReview, loanId);
+  const outOfDate = run(read(first.item.id));
+  assert.equal(outOfDate.sampleReceiptCheck.latest.outcome, "Case evidence out of date");
+  assert.equal(outOfDate.sampleReceiptCheck.latest.basis.workbenchReview.reviewedAt, correctedReview);
+  assert.equal(outOfDate.sampleReceiptCheck.latest.basis.caseEvidence.reviewedAt, at);
+  addPackage(loanId, 2);
+  assert.match(run(outOfDate).error, /sample package changed/);
+  const replaced = read(first.item.id);
+  assert.equal(replaced.sampleReceiptCheck.ready, null);
+  assert.equal(replaced.sampleReceiptCheck.latest.current, false);
+  assert.equal(replaced.sampleReceiptCheck.latest.basis.packageVersion, 1);
+});
