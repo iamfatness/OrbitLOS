@@ -768,6 +768,10 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.exec(`ALTER TABLE referral_leads ADD COLUMN importSource TEXT;
         ALTER TABLE referral_leads ADD COLUMN importedContactId TEXT REFERENCES contacts(id) ON DELETE SET NULL;`);
     }
+    if (!db.prepare("PRAGMA table_info(referral_leads)").all().some(({ name }) => name === "pastClientLoanId")) {
+      db.exec("ALTER TABLE referral_leads ADD COLUMN pastClientLoanId TEXT REFERENCES loans(id) ON DELETE SET NULL");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS leads_by_past_client_loan ON referral_leads(pastClientLoanId) WHERE pastClientLoanId IS NOT NULL");
     if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "heldAt")) {
       db.exec(`ALTER TABLE referral_leads ADD COLUMN heldAt TEXT;
         ALTER TABLE referral_leads ADD COLUMN holdReason TEXT;

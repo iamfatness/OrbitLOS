@@ -91,6 +91,11 @@ test("counts and drilldowns reconcile across original attribution, current partn
     assert.equal(directory("elodie", override).partners[0].counts.referrals, 0);
     assert.equal(records("origin", "referrals", override).total, 0);
   }
+  db.exec(`UPDATE referral_leads SET createdAt = '2026-11-09T04:59:59.999Z' WHERE id = 'converted';
+    UPDATE loans SET createdAt = '2026-11-09T12:00:00.000Z', leadSource = 'Direct' WHERE id = 'moved';`);
+  assert.equal(directory("elodie", matching).partners[0].counts.funded, 1);
+  assert.deepEqual(records("origin", "funded", matching).rows.map(({ id, at, source }) => [id, at, source]),
+    [["moved", "2026-11-09T04:59:59.999Z", "Realtor referral"]]);
   db.prepare("UPDATE closing_progress SET fundingDate = NULL WHERE loanId = 'moved'").run();
   assert.equal(directory("elodie").partners[0].counts.funded, 0);
   assert.equal(records("origin", "funded").total, 0);

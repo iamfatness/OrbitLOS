@@ -181,12 +181,15 @@ button:disabled { cursor: default; }
 .lender-chip, .open-chip { background: #eee8fc; color: #533c9a; border-radius: 5px; padding: 2px 5px; font-weight: 700; }
 .open-chip { background: #fff1d5; color: #80580b; }
 .table-scroll { overflow-x: auto; }
+.table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .data-table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }
 .data-table th, .data-table td { padding: 10px 16px; border-top: 1px solid var(--line); }
 .data-table th { background: #faf8fd; color: var(--muted); font-size: 12px; font-weight: 600; }
 .data-table td { font-size: 14px; }
 .data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table td small { display: block; color: var(--muted); }
+.partner-conversion .data-table th small, .returning-client-report .data-table th small { display: block; margin-top: 3px; color: var(--muted); }
+.report-scroll-hint { display: none; }
 .quote-comparison-scroll .data-table { white-space: normal; }
 .quote-comparison-scroll .data-table th, .quote-comparison-scroll .data-table td { min-width: 8rem; }
 .quote-comparison-scroll .data-table th small { display: block; margin-top: 3px; }
@@ -544,7 +547,8 @@ button:disabled { cursor: default; }
   .nav-group { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .nav-group .workspace-label { grid-column: 1 / -1; }
   .nav-item { min-height: 44px; padding: 8px; gap: 8px; }
-  .conversation-reply-task { display: grid; justify-items: start; }
+  .conversation-reply-task, .returning-client-record { display: grid; justify-items: start; }
+  .report-scroll-hint { display: block; }
   .topbar { min-height: 44px; height: auto; padding-inline: 12px; gap: 8px; }
   .topbar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .topbar-actions { flex-shrink: 0; }

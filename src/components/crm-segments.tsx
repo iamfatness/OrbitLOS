@@ -77,7 +77,7 @@ export function CrmSegments({ segments, campaign, brokerageId, busy, save }: {
     {segment && (campaign ? <div className="work-queue">
       <h3>Preview for {campaign.name}</h3>
       <p className="muted">{segment.kind === "Quiet leads" ? "Existing leads keep their assigned officer." :
-        "Enrolled borrowers get a returning-client refinance lead."}
+        "Enrolled borrowers get a refinance lead linked to their original loan."}
         {campaign.routing?.enabled ? " Round robin routes unassigned leads when capacity is available." : " Unassigned leads enter the shared inbox."}</p>
       {!preview && matchingSequence && <p className="muted">Eligible borrowers start {attachedKind} v{campaign.sequenceConfig?.attachedVersion}. Assigned steps appear in Today.</p>}
       <div><Button size="sm" variant="outline" disabled={busy} onClick={() => run(false)}>Preview segment</Button></div>

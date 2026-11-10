@@ -19,7 +19,7 @@ export function PartnerConversion({ page, selected, selection, filters, search, 
     setFilters({ ...filters, [key]: value });
   }
 
-  return <section className="pipeline" aria-label="Partner conversion">
+  return <section className="pipeline partner-conversion" aria-label="Partner conversion">
     <div className="pipeline-heading"><div><h2>Partner conversion</h2>
       <p>Open a realtor to manage the relationship or a count to see the records behind it. Conversion credit follows the original referral.</p></div></div>
     <div className="filter-row">
@@ -34,8 +34,9 @@ export function PartnerConversion({ page, selected, selection, filters, search, 
         {leadSources.map((value) => <option key={value}>{value}</option>)}</select></label>
       <Button variant="outline" size="sm" onClick={refresh} disabled={busy}>Refresh realtors</Button>
     </div>
-    <p className="relationship-inset muted">Dates filter intake. Officer follows the current owner. Funded counts use recorded funding dates.</p>
-    {page && (report.length ? <div className="table-scroll"><table className="data-table">
+    <p className="relationship-inset muted">Dates filter original intake in Eastern time. Officer follows the current owner. Funding uses the recorded date.</p>
+    {report.length > 0 && <p className="relationship-inset muted report-scroll-hint">Scroll across for submitted and funded counts.</p>}
+    {page && (report.length ? <div className="table-scroll" tabIndex={0} role="region" aria-label="Partner conversion table"><table className="data-table">
       <thead><tr><th scope="col">Realtor</th>{metricKeys.map((key) => <th scope="col" key={key}>{conversionMetrics[key]}</th>)}<th scope="col">Funded conversion</th></tr></thead>
       <tbody>{report.map((row: ConversionPartner) => <tr key={row.id}>
         <th scope="row">{row.id ? <button className="name-link" type="button" aria-pressed={selected === row.id}
@@ -66,7 +67,8 @@ export function RealtorRecords({ view, page, busy, error, openRecord, loadMore, 
       {close && <Button size="sm" variant="outline" onClick={close}>Close conversion records</Button>}</div>
     {error && <p className="empty-inline" role="alert">{error}</p>}
     {!page && !error && <p className="empty-inline" role="status">Loading records…</p>}
-    {page && (page.rows.length ? <div className="table-scroll"><table className="data-table">
+    {!!page?.rows.length && <p className="relationship-inset muted report-scroll-hint">Scroll across for more loan details.</p>}
+    {page && (page.rows.length ? <div className="table-scroll" tabIndex={0} role="region" aria-label={`${recordTitles[view]} table`}><table className="data-table">
       <thead><tr><th scope="col">Borrower or prospect</th><th scope="col">Status</th><th scope="col">Loan officer</th>
         {view === "linked" ? <><th scope="col">Open tasks</th><th scope="col">Last activity</th></> :
           <><th scope="col">Submitted 1003</th><th scope="col">Funded</th></>}</tr></thead>

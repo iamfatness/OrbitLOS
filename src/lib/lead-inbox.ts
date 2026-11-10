@@ -129,10 +129,14 @@ export function archiveLead(db: Store, staff: WorkspaceStaff | null, leadId: str
 
 export function restoreArchivedLead(db: Store, staff: WorkspaceStaff | null, data: z.infer<typeof restoreLeadInput>, now: string, toShared = false): Outcome {
   const { leadId, archiveToken } = data;
-  const lead = db.prepare(`SELECT officerEmail, email, phone, importedContactId AS contactId
+  const lead = db.prepare(`SELECT officerEmail, email, phone, importedContactId AS contactId, pastClientLoanId
     FROM referral_leads WHERE id = ? AND archiveToken = ? AND resolvedAt IS NOT NULL AND loanId IS NULL`).get(leadId, archiveToken);
   if (!lead || staff?.brokerage.role === "Processor" || (staff?.brokerage.role === "LO" && lead.officerEmail !== staff.email)) {
     return { error: "This archived lead is unavailable. Refresh the archive before continuing." };
+  }
+  if (typeof lead.pastClientLoanId === "string" && db.prepare(`SELECT 1 FROM referral_leads WHERE pastClientLoanId = ? AND resolvedAt IS NULL
+    UNION ALL SELECT 1 FROM returning_client_loans WHERE fundedLoanId = ? LIMIT 1`).get(lead.pastClientLoanId, lead.pastClientLoanId)) {
+    return { error: "This borrower already has a campaign lead or a repeat 1003 for the original loan." };
   }
   db.prepare(`UPDATE referral_leads SET resolvedAt = NULL, archiveToken = NULL, realtorSharedSince =
     CASE WHEN officerEmail IS NULL AND realtorId IS NOT NULL THEN ? ELSE realtorSharedSince END WHERE id = ?`).run(now, leadId);

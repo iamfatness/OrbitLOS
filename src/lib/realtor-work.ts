@@ -1,5 +1,7 @@
 import { readContactDirectory } from "./contact-directory";
+import { easternDayStart } from "./client-retention";
 import { leadRouting } from "./lead-inbox";
+import { shiftReportDate } from "./report-date-range";
 import { realtorWorkInput, realtorWorkUnavailable, type ConversionCounts, type RealtorFilters, type RealtorProfile, type RealtorRecord,
   type RealtorWorkQuery, type RealtorWorkResult } from "./realtor-work-model";
 import type { WorkspaceStaff } from "./staff-store";
@@ -15,28 +17,36 @@ const submittedAt = "coalesce((SELECT submittedAt FROM application_versions WHER
 function conversion(ids: string[], filters: RealtorFilters) {
   const idsJson = JSON.stringify(ids);
   const direct = ids.includes("");
+  const at = `coalesce(origin.createdAt, strftime('%Y-%m-%dT%H:%M:%fZ', ${loanAt}))`;
+  const source = `coalesce(nullif(origin.importSource, ''), CASE WHEN origin.realtorId IS NOT NULL THEN 'Realtor referral'
+    WHEN origin.id IS NOT NULL THEN 'Website quote request' ELSE loan.leadSource END)`;
+  const range = [...(filters.from ? [easternDayStart(filters.from)] : []),
+    ...(filters.through && filters.through < "9999-12-31" ? [easternDayStart(shiftReportDate(filters.through, 1))] : [])];
   const candidates = direct ? "SELECT id FROM loans WHERE partnerId IS NULL" : `
     SELECT id FROM loans WHERE partnerId IN (SELECT value FROM partners)
     UNION SELECT loanId FROM referral_leads WHERE realtorId IN (SELECT value FROM partners) AND loanId IS NOT NULL`;
   const sql = `WITH partners AS (SELECT value FROM json_each(?)), candidates AS (${candidates}),
     entries AS (
-      SELECT loan.id, 'loan' AS kind, borrower.name, ${loanStatus} AS status, ${loanAt} AS at, loan.officer,
-        loan.leadSource AS source, ${submittedAt} AS submittedAt, closing.fundingDate AS fundedOn, 0 AS archived,
-        coalesce((SELECT realtorId FROM referral_leads WHERE loanId = loan.id ORDER BY createdAt, id LIMIT 1), loan.partnerId, '') AS partnerId
+      SELECT loan.id, 'loan' AS kind, borrower.name, ${loanStatus} AS status, ${at} AS at, loan.officer,
+        ${source} AS source, ${submittedAt} AS submittedAt, closing.fundingDate AS fundedOn, 0 AS archived,
+        coalesce(origin.realtorId, loan.partnerId, '') AS partnerId
       FROM candidates JOIN loans loan ON loan.id = candidates.id
       JOIN contacts borrower ON borrower.id = loan.contactId
+      LEFT JOIN referral_leads origin ON origin.loanId = loan.id
       LEFT JOIN applications app ON app.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
-      WHERE (? = '' OR coalesce(nullif(loan.officerEmail, ''), loan.officer) = ?) AND (? = '' OR loan.leadSource = ?)
+      WHERE (? = '' OR coalesce(nullif(loan.officerEmail, ''), loan.officer) = ?)
       ${direct ? "" : `UNION ALL
-      SELECT lead.id, 'lead', lead.name, ${leadStatus}, lead.createdAt, lead.officer, 'Realtor referral', NULL, NULL, lead.archiveToken IS NOT NULL, lead.realtorId
+      SELECT lead.id, 'lead', lead.name, ${leadStatus}, lead.createdAt, lead.officer, coalesce(nullif(lead.importSource, ''), 'Realtor referral'),
+        NULL, NULL, lead.archiveToken IS NOT NULL, lead.realtorId
       FROM referral_leads lead WHERE lead.realtorId IN (SELECT value FROM partners) AND lead.loanId IS NULL
-        AND (? = '' OR coalesce(nullif(lead.officerEmail, ''), lead.officer) = ?) AND ? IN ('', 'Realtor referral')`}
+        AND (? = '' OR coalesce(nullif(lead.officerEmail, ''), lead.officer) = ?)`}
     ), records AS (
       SELECT * FROM entries WHERE partnerId IN (SELECT value FROM partners)
-        AND (? = '' OR substr(at, 1, 10) >= ?) AND (? = '' OR substr(at, 1, 10) <= ?)
+        AND (? = '' OR source = ?) ${filters.from ? "AND at >= ?" : ""}
+        ${filters.through && filters.through < "9999-12-31" ? "AND at < ?" : ""}
     )`;
-  return { sql, params: [idsJson, filters.officer, filters.officer, filters.source, filters.source,
-    ...(direct ? [] : [filters.officer, filters.officer, filters.source]), filters.from, filters.from, filters.through, filters.through] };
+  return { sql, params: [idsJson, filters.officer, filters.officer,
+    ...(direct ? [] : [filters.officer, filters.officer]), filters.source, filters.source, ...range] };
 }
 
 function conversionCounts(db: Store, ids: string[], filters: RealtorFilters) {

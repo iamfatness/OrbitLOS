@@ -107,3 +107,9 @@ The initial browser pass found that the comparison table widened the desktop loa
 The owner chooses the matching record and attaches the event. Today gives the assigned LO the missed-call label, the linked record, and the promised time when one exists. Both views use Orbit's existing work cards and buttons.
 
 The Impeccable review moved source diagnostics behind a disclosure and collapsed the simulator after a successful save so the matching decision takes focus. Closing review returns focus to the originating control. UI UX Pro Max's responsive and touch guidance informed the stacked phone card and 44 px primary controls. The portrait review exposed a clipped sidebar label and wordmark, so the narrow desktop sidebar now gives its labels more room. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
+
+## Referral and returning-client reporting
+
+The LO can see when outreach is in progress and reopen the same repeat application from Past Clients after conversion. The owner sees the campaign and loan status together, with separate actions for the original loan and the funded refinance. The realtor report uses the original intake and opens the purchase associated with that referral.
+
+Playwright exercised the report at desktop, portrait, and phone widths. The first phone review showed the officer's email running into their name and the conversion totals beyond the first visible columns. The final layout puts that metadata on its own line, explains when users can scroll across, and keeps keyboard focus and horizontal scrolling inside each table. The returning-client record stacks its actions on the phone. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)

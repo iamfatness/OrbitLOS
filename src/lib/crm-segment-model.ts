@@ -37,7 +37,7 @@ export interface SegmentPreview {
     id: string;
     name: string;
     owner: string;
-    status: "Eligible" | "Opted out" | "Already enrolled" | "Missing valid phone" | "Existing lead" | "Duplicate" | "Follow-up paused" | "Follow-up stopped" | "Lead on hold" | "Reply received";
+    status: "Eligible" | "Opted out" | "Already enrolled" | "Missing valid phone" | "Existing lead" | "Duplicate" | "Follow-up paused" | "Follow-up stopped" | "Lead on hold" | "Reply received" | "Repeat 1003 exists";
     detail: string;
   }[];
 }

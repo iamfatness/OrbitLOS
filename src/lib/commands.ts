@@ -1107,6 +1107,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             message = "Opened the existing returning-client 1003.";
             break;
           }
+          if (funded.hasCampaignLead) throw new WorkspaceError("This borrower already has a campaign lead. Work it from Lead Inbox or Call Campaigns.");
           const rateTaskId = data.fromRateWatch ? activeRateWatchTask(db, data.loanId) : undefined;
           if (data.fromRateWatch && (!rateTaskId || data.purpose !== "Refinance")) {
             throw new WorkspaceError("The rate-watch follow-up changed. Refresh the loan before starting its refinance 1003.");
@@ -1296,6 +1297,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             break;
           }
           if (lead.heldAt) throw new WorkspaceError("Reactivate this lead before creating its loan.");
+          if (typeof lead.pastClientLoanId === "string" &&
+              db.prepare("SELECT 1 FROM returning_client_loans WHERE fundedLoanId = ?").get(lead.pastClientLoanId)) {
+            throw new WorkspaceError("The original loan already has a repeat 1003. Open it from Past Clients.");
+          }
           let reviewedFields: QuoteApplicationPrefill | undefined;
           let intakeAudit: string | undefined;
           if (data.intakeReview) {
@@ -1353,6 +1358,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           if (!startApplication(db, loanId, now, staff?.brokerage.id, { email, phone, propertyZip: String(lead.zip ?? ""), reviewedFields })) {
             throw new WorkspaceError("Orbit could not create the borrower link.");
+          }
+          if (typeof lead.pastClientLoanId === "string") {
+            db.prepare("INSERT INTO returning_client_loans (fundedLoanId, loanId) VALUES (?, ?)").run(lead.pastClientLoanId, loanId);
+            const rateTaskId = activeRateWatchTask(db, lead.pastClientLoanId);
+            if (rateTaskId) db.prepare("UPDATE tasks SET completedAt = ? WHERE id = ?").run(now, rateTaskId);
           }
           db.prepare("UPDATE referral_leads SET resolvedAt = ?, loanId = ? WHERE id = ?").run(now, loanId, data.referralId);
           recordLoanAudit(db, loanId, staff, "Converted lead to loan", now, null);

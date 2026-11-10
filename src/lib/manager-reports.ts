@@ -36,12 +36,16 @@ function returningClientReport(db: Store, suppression: Set<string>): ReturningCl
         WHERE checkIn.loanId = loan.id AND activity.createdAt = task.completedAt)`)
     .all(borrowerTask, reversedFundingTaskPrefix, retiredSuffix, retiredSuffix) as unknown as ReturningClientReportRow[];
   const applications = db.prepare(`SELECT loan.id, 'applications' AS metric, contact.name, loan.contactId, loan.id AS loanId,
-      loan.officer, loan.officerEmail, loan.purpose, repeat.fundedLoanId AS sourceLoanId, coalesce(loan.createdAt, loan.stageSince) AS at,
+      loan.officer, loan.officerEmail, loan.purpose, repeat.fundedLoanId AS sourceLoanId, campaign.name AS campaignName,
+      coalesce(loan.createdAt, loan.stageSince) AS at,
       CASE WHEN closing.fundingDate IS NOT NULL THEN 'Funded' WHEN application.correctionNote <> '' THEN 'Corrections requested'
         WHEN application.reviewedAt IS NOT NULL THEN 'Reviewed' WHEN application.submittedAt IS NOT NULL THEN 'Submitted' ELSE 'Draft' END AS detail
     FROM loans loan JOIN contacts contact ON contact.id = loan.contactId
     JOIN applications application ON application.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
     LEFT JOIN returning_client_loans repeat ON repeat.loanId = loan.id
+    LEFT JOIN referral_leads lead ON lead.loanId = loan.id
+    LEFT JOIN call_campaign_members member ON member.leadId = lead.id
+    LEFT JOIN call_campaigns campaign ON campaign.id = member.campaignId
     WHERE loan.leadSource = 'Returning client' OR repeat.loanId IS NOT NULL`)
     .all() as unknown as ReturningClientReportRow[];
   return [...results, ...legacy, ...applications];

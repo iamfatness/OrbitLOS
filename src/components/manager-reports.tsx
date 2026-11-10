@@ -28,7 +28,7 @@ const returningMetrics = [
 export function ReturningClientReports({ rows, contactActivity, members, ownerError, busy, save, refresh, openApplication, openOriginalLoan, openContact }: {
   rows: ReturningClientReportRow[]; busy: boolean; refresh: () => void;
   contactActivity: ContactActivity[]; members?: BrokerageMember[]; ownerError: string; save: Save;
-  openApplication: (loanId: string) => void; openOriginalLoan: (loanId: string) => void; openContact: (contactId: string) => void;
+  openApplication: (loanId: string, funded: boolean) => void; openOriginalLoan: (loanId: string) => void; openContact: (contactId: string) => void;
 }) {
   const [from, setFrom] = useState("");
   const [through, setThrough] = useState("");
@@ -51,7 +51,7 @@ export function ReturningClientReports({ rows, contactActivity, members, ownerEr
   const selectedLabel = returningMetrics.find(([key]) => key === selected.metric)?.[1];
   const count = (records: ReturningClientReportRow[], metric: ReturningClientMetric) => records.filter((row) => row.metric === metric).length;
 
-  return <section className="integration record-form manager-panel" aria-label="Returning-client reporting">
+  return <section className="integration record-form manager-panel returning-client-report" aria-label="Returning-client reporting">
     <div className="section-heading"><h2>Returning-client activity</h2>
       <Button size="sm" variant="outline" disabled={busy} onClick={refresh}>Refresh report</Button></div>
     <div className="form-grid">
@@ -67,7 +67,8 @@ export function ReturningClientReports({ rows, contactActivity, members, ownerEr
           variant={selected.metric === key && !selected.owner ? "default" : "outline"} aria-pressed={selected.metric === key && !selected.owner}
           onClick={() => select({ metric: key })}>{label} · {count(filtered, key)}</Button>)}
       </div>
-      {owners.length ? <div className="table-scroll"><table className="data-table">
+      {owners.length ? <><p className="muted report-scroll-hint">Scroll across for totals by officer.</p>
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Returning-client activity table"><table className="data-table">
         <caption>Returning-client activity by officer</caption>
         <thead><tr><th>Officer</th>{returningMetrics.map(([key, label]) => <th key={key}>{label}</th>)}</tr></thead>
         <tbody>{owners.map(([key, group]) => {
@@ -78,14 +79,15 @@ export function ReturningClientReports({ rows, contactActivity, members, ownerEr
               aria-label={`${label} for ${officer} · ${count(group, metric)}`}
               onClick={() => select({ metric, owner: key })}>{count(group, metric)}</Button></td>)}</tr>;
         })}</tbody>
-      </table></div> : <p className="muted">No returning-client activity in this date range.</p>}
+      </table></div></> : <p className="muted">No returning-client activity in this date range.</p>}
       <section className="work-queue" aria-label="Returning-client report details">
         <h3>{selectedLabel} · {drill.length} {drill.length === 1 ? "record" : "records"}{selected.owner && active.length > 0 && ` · ${active[0].officer || "Unassigned"}`}</h3>
         {selected.metric === "callbacks" && drill.length > 0 && ownerError && <p role="alert">{ownerError}</p>}
         {drill.length ? <ul className="loan-task-list">{drill.map((row) => {
           const callback = row.metric === "callbacks" ? callbacks.get(row.id) : undefined;
-          return <li className="loan-task" key={row.id}>
+          return <li className="loan-task returning-client-record" key={row.id}>
             <div className="loan-task-copy"><strong>{row.name}</strong><span>{[row.officer || "Unassigned", row.purpose, row.detail].filter(Boolean).join(" · ")}</span>
+              {row.campaignName && <span>Campaign · {row.campaignName}</span>}
               <span>{row.metric === "callbacks" ? "Due" : row.metric === "applications" ? "Lead created" : "Completed"} {dateTime(row.at)} ET</span>
               {callback && <ContactFollowUpCompletion item={callback} busy={busy} save={save} />}
               {callback && <BorrowerCallbackReschedule item={callback} busy={busy} save={save} />}
@@ -98,7 +100,8 @@ export function ReturningClientReports({ rows, contactActivity, members, ownerEr
             </div>
             {row.metric === "applications" && row.loanId
               ? <div className="loan-application-actions">
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => openApplication(row.loanId!)}>Open 1003</Button>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => openApplication(row.loanId!, row.detail === "Funded")}>
+                  {row.detail === "Funded" ? "Open funded loan" : "Open 1003"}</Button>
                 {row.sourceLoanId && <Button variant="ghost" size="sm" disabled={busy} onClick={() => openOriginalLoan(row.sourceLoanId!)}>Open original loan</Button>}
               </div>
               : <Button variant="outline" size="sm" onClick={() => openContact(row.contactId)}>Open borrower history</Button>}

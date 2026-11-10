@@ -88,6 +88,7 @@ export function PastClients({ brokerageId, version, busy, openLoan, editRetentio
           {openRepeat && (repeat === "start" || repeat === "open") &&
             <Button variant="outline" size="sm" disabled={busy} onClick={() => openRepeat(id)}>{repeat === "open" ? "Open repeat 1003" : "Start repeat 1003"}</Button>}
           {repeat === "restricted" && <small>Ask an admin for access to the repeat 1003.</small>}
+          {repeat === "campaign" && <small>Campaign lead in progress</small>}
         </div></td>
       </tr>)}</tbody>
     </table></div> : <p className="empty-inline no-matches">{search ? "No past clients match your search." :

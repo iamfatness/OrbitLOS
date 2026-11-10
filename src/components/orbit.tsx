@@ -696,6 +696,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       }
       if (next.kind === "returningClient") {
         const option = result.repeatOption;
+        if (option.kind === "campaign") {
+          setError("This borrower already has a campaign lead. Work it from Lead Inbox or Call Campaigns.");
+          return;
+        }
         if (option.kind === "restricted" || option.kind === "unavailable") {
           setError(option.kind === "restricted" ? "Ask a brokerage admin to review access to the linked returning-client application." :
             "This returning-client application is unavailable. Refresh Past Clients.");
@@ -1591,7 +1595,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               reportTab === "Returning clients" ? <ReturningClientReports rows={state.managerReports.returningClients} busy={busy} save={save}
                 contactActivity={state.contactActivity} members={followUpOwners} ownerError={followUpOwnerError}
                 refresh={() => void save({ type: "refreshWorkspace" })}
-                openApplication={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-application" })}
+                openApplication={(loanId, funded) => void openQueueLoan({ kind: "details", loanId, target: funded ? "loan-funding" : "loan-application" })}
                 openOriginalLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
                 openContact={(contactId) => show({ kind: "contactHistory", contactId })} /> :
               <ManagerReports data={state.managerReports} campaigns={state.callCampaigns} segments={state.crmSegments} busy={busy} now={taskNow} save={save}

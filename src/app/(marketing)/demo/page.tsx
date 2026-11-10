@@ -26,6 +26,7 @@ export default function DemoPage() {
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s. See how the next shared lead moves up after an unanswered lead reaches its retry limit.</li>
           <li>Attach a New Lead sequence to a CSV campaign. Work due calls and preview mock email or text from Today. A reply, conversion, or opt-out stops the remaining steps.</li>
           <li>Attach Cold Lead Reactivation or Past Client Outreach to a campaign. Select individual borrowers from a saved CRM segment preview or import a prepared list, then work the next steps in Today.</li>
+          <li>Convert a past-client campaign lead into a repeat 1003. In Returning clients, open the original loan and the refinance from the same record. In Realtors, verify the original referral keeps its funding credit.</li>
           <li>Open the borrower portal and change call, email, or text preferences. See what changed and when in Contact History, then check that Today shows the next allowed sequence step.</li>
           <li>Set weekday and weekend contact hours in the borrower portal. Check that an out-of-hours sequence step waits for the next opening in the borrower’s time zone.</li>
           <li>Use Next call to work assigned leads one at a time. See the last call note, the scheduled callback, and any earlier promise deadline before logging the next outcome.</li>

@@ -21,6 +21,7 @@ test("lead conversion atomically carries the exact sample file and closes its ol
   const db = sqliteStore(sqlite);
   initializeStore(db, false);
   const clock = Date.parse("2026-11-10T18:00:00.000Z");
+  t.mock.timers.enable({ apis: ["Date"], now: clock });
   const at = new Date(clock).toISOString();
   const leadId = randomUUID();
   const tenant = randomUUID();

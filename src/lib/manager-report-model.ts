@@ -58,6 +58,7 @@ export interface ReturningClientReportRow {
   contactId: string;
   loanId: string | null;
   sourceLoanId?: string | null;
+  campaignName?: string | null;
   purpose?: Purpose;
   officer: string;
   officerEmail: string | null;

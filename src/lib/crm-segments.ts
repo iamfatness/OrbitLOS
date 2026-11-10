@@ -18,7 +18,7 @@ import { accessEvent } from "./workspace-access";
 type Lead = { id: string; name: string; email: string; phone: string; contactId: string | null; officer: string; officerEmail: string | null;
   campaignId: string | null; status: string | null; lastOutreach: string; replied: number; replyReceivedAt: string | null; heldAt: string | null };
 type PastClient = { id: string; name: string; email: string; phone: string; contactId: string; scenarioId: string | null;
-  observedRate: number | null; targetRate: number | null; watchEnabled: number };
+  observedRate: number | null; targetRate: number | null; watchEnabled: number; repeatId: string | null };
 type PreviewRow = SegmentPreview["rows"][number];
 type SegmentMutation = { message: string; preview?: SegmentPreview; leadIds?: string[] } | { error: string };
 const filterUnavailable = { error: "The segment’s CRM field is unavailable. Update its filter before continuing." };
@@ -57,12 +57,14 @@ function matchingLeads(db: Store) {
 
 function pastClients(db: Store, atRateTarget: boolean) {
   const files = db.prepare(`SELECT loan.id, contact.id AS contactId, contact.name, contact.email, contact.phone, profile.observedRate,
-    profile.targetRate, profile.watchEnabled,
+    profile.targetRate, profile.watchEnabled, repeat.loanId AS repeatId,
     (SELECT id FROM pilot_scenario WHERE EXISTS (SELECT 1 FROM pilot_sample_contacts WHERE contactId = contact.id)) AS scenarioId
     FROM loans loan LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id JOIN contacts contact ON contact.id = loan.contactId
-    WHERE loan.stage IN ('Funded', 'Closed') AND contact.role <> 'Realtor'
-      AND ${atRateTarget ? "profile.loanId IS NOT NULL" : "loan.disposition = 'Active'"}
-    ORDER BY coalesce(profile.closingDate, substr(loan.stageSince, 1, 10)) DESC, loan.stageSince DESC, loan.id`).all() as unknown as PastClient[];
+    LEFT JOIN closing_progress closing ON closing.loanId = loan.id
+    LEFT JOIN returning_client_loans repeat ON repeat.fundedLoanId = loan.id
+    WHERE loan.stage IN ('Funded', 'Closed') AND loan.disposition = 'Active' AND contact.role <> 'Realtor'
+      AND (closing.fundingDate IS NOT NULL OR closing.loanId IS NULL) ${atRateTarget ? "AND profile.loanId IS NOT NULL" : ""}
+    ORDER BY coalesce(closing.fundingDate, profile.closingDate, substr(loan.stageSince, 1, 10)) DESC, loan.stageSince DESC, loan.id`).all() as unknown as PastClient[];
   const seen = new Set<string>();
   return files.filter((file) => {
     if (seen.has(file.contactId)) return false;
@@ -105,6 +107,7 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
     const lead = "lastOutreach" in candidate ? candidate : null;
     let status: PreviewRow["status"] = "Eligible";
     if (outreachSuppressed(suppression, { ...candidate, leadId: lead?.id })) status = "Opted out";
+    else if ("repeatId" in candidate && candidate.repeatId) status = "Repeat 1003 exists";
     else if (lead?.heldAt) status = "Lead on hold";
     else if (lead?.replyReceivedAt) status = "Reply received";
     else if (keys.some((key) => enrolledKeys.has(key))) status = "Already enrolled";
@@ -151,9 +154,9 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
     if (!("lastOutreach" in candidate)) {
       leadId = crypto.randomUUID();
       const requestId = candidate.scenarioId ? `${pilotSegmentLeadPrefix(candidate.scenarioId)}${leadId}` : leadId;
-      db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, createdAt, dueAt, importSource, importedContactId)
-        VALUES (?, ?, ?, ?, ?, 'Refinance', '', ?, ?, 'Returning client', ?)`)
-        .run(leadId, requestId, candidate.name, candidate.email, candidate.phone, now, dueAt, candidate.contactId);
+      db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, createdAt, dueAt, importSource, importedContactId, pastClientLoanId)
+        VALUES (?, ?, ?, ?, ?, 'Refinance', '', ?, ?, 'Returning client', ?, ?)`)
+        .run(leadId, requestId, candidate.name, candidate.email, candidate.phone, now, dueAt, candidate.contactId, candidate.id);
     }
     const linked = linkCampaignLead(db, input.campaignId, leadId, now);
     if ("error" in linked || !linked.added) return { error: "A borrower is no longer eligible. Preview the segment again." };

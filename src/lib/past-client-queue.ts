@@ -10,7 +10,8 @@ import { loanAccess } from "./workspace-access";
 const reached = "(profile.watchEnabled = 1 AND profile.observedRate IS NOT NULL AND profile.targetRate IS NOT NULL AND profile.observedRate <= profile.targetRate)";
 
 export function returningClientSource(db: Store, loanId: string) {
-  return db.prepare(`SELECT loan.contactId, loan.officer, loan.officerEmail, loan.address, closing.fundingDate, repeat.loanId AS repeatId
+  return db.prepare(`SELECT loan.contactId, loan.officer, loan.officerEmail, loan.address, closing.fundingDate, repeat.loanId AS repeatId,
+    EXISTS (SELECT 1 FROM referral_leads lead WHERE lead.pastClientLoanId = loan.id AND lead.resolvedAt IS NULL) AS hasCampaignLead
     FROM loans loan LEFT JOIN closing_progress closing ON closing.loanId = loan.id
     JOIN contacts borrower ON borrower.id = loan.contactId
     LEFT JOIN returning_client_loans repeat ON repeat.fundedLoanId = loan.id
@@ -33,6 +34,7 @@ export function returningClientOption(db: Store, loanId: string, staff: Workspac
   if (!source) return { kind: "unavailable" };
   if (typeof source.repeatId === "string") return !staff || loanAccess(db, staff, source.repeatId) ?
     { kind: "open", loanId: source.repeatId } : { kind: "restricted" };
+  if (source.hasCampaignLead) return { kind: "campaign" };
   if (source.fundingDate && (db.prepare("SELECT 1 FROM tasks WHERE id = ? AND loanId = ? AND completedAt IS NULL")
     .get(fundingTaskId(loanId, "borrower"), loanId) || recordedFundingCheckIn(db, loanId))) return { kind: "start" };
   return activeRateWatchTask(db, loanId) ? { kind: "start", fromRateWatch: true } : { kind: "unavailable" };
