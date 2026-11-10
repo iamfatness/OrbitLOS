@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type Ref } from "react";
 import { cutoverFileSource, cutoverFileSourceMaxBytes, type CutoverFileComparison, type CutoverFileSource } from "@/lib/cutover-file-model";
-import type { CutoverFileInventory } from "@/lib/migration-cutover-model";
+import type { CutoverFileInventory, CutoverOpenWork } from "@/lib/migration-cutover-model";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
@@ -89,6 +89,33 @@ function ComparisonRows({ rows }: { rows: CutoverFileComparison["rows"] }) {
       <div><dt>Orbit</dt><dd>{destination ?? "No record"}</dd></div>
     </dl>
   </li>)}</ul>;
+}
+
+export function CutoverOpenWorkPreview({ work, receipt, receiptRef, disabled, restore, openAssignment, openRestoredWork }: {
+  work: CutoverOpenWork; receipt?: string; receiptRef: Ref<HTMLParagraphElement>; disabled: boolean;
+  restore: () => void; openAssignment: () => void; openRestoredWork: () => void;
+}) {
+  const hasWork = Boolean(work.documents || work.conditions);
+  const newWork = [work.documents ? `${work.documents} pending document ${work.documents === 1 ? "request" : "requests"}` : "",
+    work.conditions ? `${work.conditions} manual lender ${work.conditions === 1 ? "condition" : "conditions"}` : ""].filter(Boolean).join(" and ");
+  return <section className="record-form cutover-open-work" aria-label="Open work from source">
+    <div className="document-item-head"><h3 className="font-semibold">Open work from source</h3>
+      {work.review > 0 && <span className="open-chip">{work.review} to review</span>}
+    </div>
+    <dl className="cutover-file-values grid grid-cols-2 gap-3">
+      <div><dt>Loan owner</dt><dd>{work.owner ?? "Unassigned"}</dd></div>
+      <div><dt>Processor</dt><dd>{work.processor ?? "Unassigned"}</dd></div>
+    </dl>
+    {receipt ? <p role="status" ref={receiptRef} tabIndex={-1} className="application-message">{receipt}</p> :
+      <p className={hasWork ? "muted" : "empty-inline"}>{hasWork ? `Add ${newWork} to this fictional file. The restore is internal to Orbit.` :
+        "No new work is eligible to restore."}</p>}
+    {work.review > 0 && <p className="muted">Check the remaining records in the document and lender comparisons below.</p>}
+    <div className="loan-application-actions">
+      {hasWork && <Button className="min-h-11" size="sm" disabled={disabled} onClick={restore}>Restore open work</Button>}
+      {receipt && !hasWork && <Button className="min-h-11" size="sm" disabled={disabled} onClick={openRestoredWork}>Open restored work</Button>}
+      <Button className="min-h-11" size="sm" variant="outline" disabled={disabled} onClick={openAssignment}>Review staff assignment</Button>
+    </div>
+  </section>;
 }
 
 export function FileInventoryComparison({ comparison, supplied, category }: {

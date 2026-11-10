@@ -54,12 +54,25 @@ export const cutoverFileInventoryInput = cutoverApplicationQuery.extend({
   revision: z.number().int().nonnegative(), fictional: z.literal(true), source: cutoverFileSource,
 });
 export type CutoverFileInventoryInput = z.infer<typeof cutoverFileInventoryInput>;
+export const restoreCutoverWorkInput = cutoverApplicationQuery.extend({
+  type: z.literal("restoreCutoverWork"), preview: fingerprint,
+});
+export type RestoreCutoverWorkInput = z.infer<typeof restoreCutoverWorkInput>;
+export type CutoverOpenWork = {
+  fingerprint: string;
+  owner: string | null;
+  processor: string | null;
+  documents: number;
+  conditions: number;
+  review: number;
+};
 export type CutoverFileInventory = {
   revision: number;
   source: CutoverFileSource | null;
   documents: CutoverFileComparison | null;
   lender: CutoverFileComparison | null;
   funding: CutoverFileComparison | null;
+  openWork: CutoverOpenWork | null;
 };
 export const cutoverReviewInput = z.object({
   origin: source, basis: cutoverBasis, loanId: loanId.optional(),

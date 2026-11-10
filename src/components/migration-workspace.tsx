@@ -442,7 +442,7 @@ export function MigrationWorkspace({ busy, save, openLinkedLoan, openRecord, bro
   brokerageId: string; version: object;
 }) {
   return <div className="record-form">
-    <MigrationCutoverChecklist key={brokerageId} brokerageId={brokerageId} version={version} busy={busy} openLoan={openLinkedLoan} openRecord={openRecord} />
+    <MigrationCutoverChecklist key={brokerageId} brokerageId={brokerageId} version={version} busy={busy} openLoan={openLinkedLoan} openRecord={openRecord} save={save} />
     <PipelineMigration busy={busy} save={save} brokerageId={brokerageId} openRecord={openRecord} />
     <MigrationRecovery key={brokerageId} brokerageId={brokerageId} busy={busy} save={save} openRecord={openRecord} />
     <LoanFileRehearsal key={brokerageId} busy={busy} save={save} openLoan={(id) => openLinkedLoan(id, "loan-application")} brokerageId={brokerageId} />

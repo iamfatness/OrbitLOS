@@ -2,12 +2,13 @@ import { readApplicationComparison } from "./cutover-application-comparison";
 import type { CutoverApplicationComparison } from "./cutover-application-model";
 import { readCutoverCallbackEvidence } from "./cutover-callback-evidence";
 import { readFileComparison } from "./cutover-file-comparison";
+import { applyCutoverOpenWork, planCutoverOpenWork } from "./cutover-open-work";
 import { cutoverFileComparisonUnavailable, cutoverFileSource, cutoverFileSourceSection, type CutoverFileItem, type CutoverFileSource } from "./cutover-file-model";
 import { renderCutoverHandoff } from "./cutover-handoff";
 import { cutoverApplicationQuery, cutoverCallbackItem, cutoverFileInventoryInput, cutoverFileLookupQuery, cutoverHandoffQuery, cutoverItems,
   cutoverReadinessLimit, cutoverReviewInput, cutoverSourceInput, cutoverUnavailable, type CutoverApplicationQuery, type CutoverCallbackEvidence,
   type CutoverDraft, type CutoverDraftItem, type CutoverDraftReadiness, type CutoverFileInventory, type CutoverFileLookup, type CutoverHandoff, type CutoverReadiness, type CutoverReview,
-  type MigrationCutover } from "./migration-cutover-model";
+  type MigrationCutover, type RestoreCutoverWorkInput } from "./migration-cutover-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -84,10 +85,27 @@ export function readCutoverFileInventory(db: Store, staff: WorkspaceStaff | null
     const record = fileSourceRecord(db, parsed.data);
     const source = readFileSource(record?.source);
     const { loanId } = parsed.data;
-    return { revision: Number(record?.revision ?? 0), source, documents: source ? readFileComparison(db, loanId, "documents", source) : null,
-      lender: source ? readFileComparison(db, loanId, "lender", source) : null,
-      funding: source ? readFileComparison(db, loanId, "funding", source) : null };
+    const revision = Number(record?.revision ?? 0);
+    const documents = source ? readFileComparison(db, loanId, "documents", source) : null;
+    const lender = source ? readFileComparison(db, loanId, "lender", source) : null;
+    return { revision, source, documents, lender, funding: source ? readFileComparison(db, loanId, "funding", source) : null,
+      openWork: source ? planCutoverOpenWork(db, parsed.data, source, revision, documents, lender)?.preview ?? null : null };
   });
+}
+
+export function restoreCutoverWork(db: Store, staff: WorkspaceStaff | null, input: RestoreCutoverWorkInput, now: string) {
+  if (!staff?.brokerage.pilot || staff.brokerage.role !== "Admin") return { error: cutoverUnavailable };
+  const { origin, basis, loanId, preview } = input;
+  const scope = { origin, basis, loanId };
+  const error = fileScopeError(db, scope);
+  if (error) return { error };
+  const record = fileSourceRecord(db, scope);
+  const source = readFileSource(record?.source);
+  const plan = source && planCutoverOpenWork(db, scope, source, Number(record?.revision ?? 0),
+    readFileComparison(db, loanId, "documents", source), readFileComparison(db, loanId, "lender", source));
+  if (!plan || plan.preview.fingerprint !== preview) return { error: "The open work preview changed. Refresh the cutover checklist and review it again." };
+  if (!plan.preview.documents && !plan.preview.conditions) return { error: "This file has no eligible open work to restore." };
+  return applyCutoverOpenWork(db, loanId, plan, staff, now);
 }
 
 export function saveCutoverFileInventory(db: Store, staff: WorkspaceStaff | null, brokerageId: string, input: unknown, now = new Date().toISOString()) {

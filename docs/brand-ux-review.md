@@ -119,3 +119,9 @@ Playwright exercised the report at desktop, portrait, and phone widths. The firs
 The preview shows the source restrictions and the blocks that will be written to the record. The receipt compares the same source restrictions with the current Orbit record. Preview moves focus to the result heading, and automatically mapped files keep the column editor collapsed.
 
 The first phone review placed the contact restrictions behind the horizontal edge of the reconciliation table. The final layout keeps the desktop table and stacks each source, result and action on a phone. The summary shows the results that need attention without listing empty categories. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
+
+## Processing work cutover
+
+The source inventory previously led straight to comparisons. **Open work from source** now puts the owner, processor and eligible work together before the owner restores anything. Impeccable detected a nested assignment panel in the rendered first pass. The revised view uses dividers and plain assignment fields. Its focused rescan dropped the finding for this panel. The workspace scan still flags the existing avatar text, reference placeholder contrast, font and other nested cards. UI UX Pro Max informed the button hierarchy, tap size and focus on the restore receipt.
+
+Playwright exercised desktop at 1440 × 900, portrait at 900 × 1200 and a touch phone at 390 × 844. Both controls measured at least 44 px and the panel fit without horizontal scrolling. Keyboard activation moved focus to the inline receipt and **Open restored work** opened the same loan's lender section. The processor sees the condition in the existing Processing queue with the same action labels as a manually entered condition. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)

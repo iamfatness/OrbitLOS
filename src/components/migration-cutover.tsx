@@ -8,11 +8,12 @@ import { cutoverCallbackItem, cutoverDecisions, cutoverItems, type CutoverCallba
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationCutoverComparison } from "./cutover-application-comparison";
-import { FileInventoryComparison, FileInventoryUpload } from "./cutover-file-inventory";
+import { CutoverOpenWorkPreview, FileInventoryComparison, FileInventoryUpload } from "./cutover-file-inventory";
 import { CutoverDraftChecks, CutoverReadinessOverview, CutoverReferenceLookup } from "./cutover-readiness";
 import { downloadSampleFile } from "./sample-download";
 import { MigrationRecordLink } from "./migration-record-link";
 import type { MigrationDestination } from "@/lib/migration-record-model";
+import type { WorkspaceMutationSuccess } from "@/lib/commands";
 
 type CutoverResult = MigrationCutover | { error: string };
 type Item = CutoverReview["item"];
@@ -127,13 +128,17 @@ function CallbackSignoff({ callbacks, review, complete, disabled, after, page, b
   </section>;
 }
 
-export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan, openRecord }: {
+export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan, openRecord, save }: {
   brokerageId: string; version: object; busy: boolean; openLoan: (id: string, target: string) => void;
   openRecord: (destination: MigrationDestination) => void;
+  save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
 }) {
   const [request, setRequest] = useState<{ origin?: string; after?: CutoverDraftCursor; callbackAfter?: string }>({});
   const [result, setResult] = useState<{ request: object; version: object; data: CutoverResult }>();
   const [notice, setNotice] = useState<{ message: string } | { error: string }>();
+  const [workReceipt, setWorkReceipt] = useState<{ loanId: string; message: string; target: string }>();
+  const receiptRef = useRef<HTMLParagraphElement>(null);
+  const focusedReceipt = useRef<typeof workReceipt>(undefined);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [draftsOpen, setDraftsOpen] = useState(false);
@@ -199,6 +204,13 @@ export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan
     validComparison.rows.every(({ status }) => status !== "Missing in draft");
   const disabled = saving || downloading || busy;
 
+  useEffect(() => {
+    if (!validInventory?.openWork || !workReceipt || focusedReceipt.current === workReceipt || !receiptRef.current) return;
+    focusedReceipt.current = workReceipt;
+    receiptRef.current.focus({ preventScroll: true });
+    receiptRef.current.scrollIntoView({ block: "nearest" });
+  }, [validInventory, workReceipt]);
+
   function pageDrafts(after?: CutoverDraftCursor) {
     if (!evidence) return;
     setSelectedLoanId(undefined);
@@ -231,6 +243,7 @@ export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan
     if (!evidence || disabled) return;
     setSaving(true);
     setNotice(undefined);
+    setWorkReceipt(undefined);
     try {
       const reply = await saveCutoverFileInventory(brokerageId, { origin: evidence.origin, basis: evidence.basis, loanId, source, revision, fictional: true });
       setNotice("error" in reply ? { error: reply.error ?? "Could not save the source inventory." } : { message: reply.message });
@@ -265,6 +278,7 @@ export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan
 
   function fileCard(draft: CutoverDraft, fileBasis: string, focused = false) {
     const expanded = focused || selectedLoan?.id === draft.id;
+    const receipt = workReceipt?.loanId === draft.id ? workReceipt : undefined;
     return <li className="document-item" key={draft.id}>
       <div className="document-item-head">
         {focused ? <h4 ref={referenceHeading} tabIndex={-1} className="scroll-mt-16 font-semibold">{draft.name}</h4> : <strong>{draft.name}</strong>}
@@ -280,6 +294,17 @@ export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan
       {expanded && <section className="record-form" aria-label={`File evidence for ${draft.name}`}>
         <ApplicationCutoverComparison comparison={compared} />
         <FileInventoryUpload inventory={inventory} disabled={disabled} save={(source, revision) => void saveInventory(source, revision, draft.id)} />
+        {validInventory?.openWork && <CutoverOpenWorkPreview work={validInventory.openWork} disabled={disabled} receipt={receipt?.message} receiptRef={receiptRef}
+          openAssignment={() => openLoan(draft.id, "processing-handoff")}
+          openRestoredWork={() => { if (receipt) openLoan(draft.id, receipt.target); }}
+          restore={() => {
+            const work = validInventory.openWork;
+            if (!origin || !basis || !work || disabled) return;
+            setNotice(undefined);
+            setWorkReceipt(undefined);
+            void save({ type: "restoreCutoverWork", origin, basis, loanId: draft.id, preview: work.fingerprint },
+              ({ message }) => setWorkReceipt({ loanId: draft.id, message, target: work.conditions ? cutoverItems.lender.target : cutoverItems.documents.target }), false);
+          }} />}
         <CutoverReviewList reviews={draft.reviews} basis={fileBasis} disabled={disabled} applicationReady={applicationReady} fileInventory={validInventory}
           record={(item, revision, fields) => void record(item, revision, fields, draft.id)} openEvidence={(target) => openLoan(draft.id, target)} />
       </section>}

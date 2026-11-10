@@ -221,15 +221,18 @@ try {
       [{ id: settings.id, name: settings.name, filters }]);
   });
 
-  await stage("Two fictional brokerages reconcile CRM permissions, ownership, and separate LOS drafts", async () => {
+  await stage("Two fictional brokerages reconcile CRM permissions and resume imported processing work", async () => {
     const [sending, receiving] = [randomUUID(), randomUUID()];
     for (const [id, name] of [[sending, "Fictional CRM Source"], [receiving, "Fictional CRM Destination"]]) {
       const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
         [owner.email], { type: "create", id, name, pilot: true });
       assert.equal(created.created, id, created.error);
-      await post(`/api/brokerages?brokerage=${id}`, { type: "invite", email: officer.email, role: officer.role }, owner);
+      for (const member of [officer, processor]) {
+        await post(`/api/brokerages?brokerage=${id}`, { type: "invite", email: member.email, role: member.role }, owner);
+      }
     }
     await directory.activateStaff({ name: officer.name, email: officer.email }, [owner.email]);
+    await directory.activateStaff({ name: processor.name, email: processor.email }, [owner.email]);
     const inBrokerage = (id, actor, name, input, scope) => action(actor, name, input, scope, id, id);
     const change = (id, input) => inBrokerage(id, owner, "mutate", input, "migration");
     const parse = (csv) => {
@@ -293,7 +296,7 @@ try {
       const existingContactId = destinationIds.get(`Contact:${sourceIds.get(`Contact:${external}`)}`);
       const fields = { firstName: "Fictional", lastName, amount, purpose, occupancy: "Primary residence",
         street, unit: "", city: "Royal Oak", state: "MI", zip: "48067" };
-      const request = { type: "importMismo", requestId: randomUUID(), fields, existingContactId, fictional: true };
+      const request = { type: "importMismo", requestId: randomUUID(), fields, existingContactId, fictional: true, extraBorrowers: 0 };
       const imported = await change(receiving, request);
       assert.ok(imported.applicationLoanId, imported.error);
       assert.equal((await change(receiving, request)).applicationLoanId, imported.applicationLoanId);
@@ -303,6 +306,78 @@ try {
       assert.equal(result.loans[0].amount, Number(amount));
       assert.equal(result.applications[0].submittedAt, null);
       assert.ok((await inBrokerage(sending, owner, "readLoanForWork", imported.applicationLoanId)).error);
+      if (external !== "ARIVE-C") continue;
+
+      const loanId = imported.applicationLoanId;
+      const query = { loanId, origin: numbered.origin, basis: cutover.evidence.basis };
+      const inventory = (actor = owner, id = receiving) => action(actor, "readCutoverFileInventory", id, undefined, query, id);
+      const sourceInventory = { version: 1, documents: [
+        { kind: "Photo ID", instructions: "Provide the fictional sample identification.", status: "Requested", dueOn: today },
+        { kind: "Bank statement", instructions: "Historical file held at the source.", status: "Accepted", dueOn: null },
+      ], lenderFiles: [
+        { lender: "Example Wholesale", reference: "CUTOVER-FICTIONAL-01", status: "In underwriting", conditions: [
+          { category: "Income", description: "Verify the fictional income statement.", status: "Open" },
+          { category: "Assets", description: "Previous delivery recorded in the source.", status: "Delivered" },
+        ] },
+        { lender: "UWM", reference: "CUTOVER-FICTIONAL-UWM", status: "In underwriting", conditions: [
+          { category: "Identity", description: "Open in the source lender portal.", status: "Open" },
+        ] },
+      ] };
+      const savedInventory = await action(owner, "saveCutoverFileInventory", receiving, undefined,
+        { ...query, revision: 0, source: sourceInventory, fictional: true }, receiving);
+      assert.equal(savedInventory.message, "Source inventory saved.");
+      const before = (await inventory()).openWork;
+      assert.deepEqual([before.documents, before.conditions, before.review], [1, 1, 4]);
+      assert.equal(before.processor, null);
+      const assign = (input) => post(`/api/brokerages?brokerage=${receiving}`, { loanId, ...input }, owner);
+      assert.ok((await assign({ type: "assign", previousEmail: owner.email, email: officer.email })).message);
+      assert.ok((await assign({ type: "assignProcessor", email: processor.email, revision: 0 })).message);
+      const prepared = { type: "restoreCutoverWork", ...query, preview: before.fingerprint };
+      assert.match((await change(receiving, prepared)).error, /preview changed/);
+      const updated = (await inventory()).openWork;
+      assert.equal(updated.owner, officer.name);
+      assert.equal(updated.processor, processor.name);
+      const restore = { ...prepared, preview: updated.fingerprint };
+      assert.ok((await inventory(officer)).error);
+      assert.ok((await inventory(owner, sending)).error);
+      assert.ok((await inBrokerage(receiving, officer, "mutate", restore, "migration")).error);
+      assert.ok((await change(sending, restore)).error);
+      const retries = await Promise.all([change(receiving, restore), change(receiving, restore)]);
+      assert.equal(retries.filter((reply) => reply.migrationChanged).length, 1);
+      assert.match(retries.find((reply) => reply.error)?.error, /preview changed/);
+      const resumed = await inBrokerage(receiving, officer, "readLoanForWork", loanId);
+      assert.equal(resumed.loans[0].stage, "Lead");
+      assert.equal(resumed.applications[0].submittedAt, null);
+      assert.equal(resumed.submissions.length, 1);
+      assert.equal(resumed.documentRequests.length, 1);
+      assert.equal(resumed.documentRequests[0].dueOn, today);
+      assert.equal(resumed.documentRequests[0].status, "Requested");
+      const [lenderFile] = resumed.submissions;
+      const [condition] = lenderFile.conditions;
+      assert.equal(lenderFile.syncedAt, null);
+      assert.equal(lenderFile.status, "In underwriting");
+      assert.equal(lenderFile.conditions.length, 1);
+      assert.equal(condition.manual.owner, processor.name);
+      assert.equal(condition.satisfiedAt, null);
+      const followUp = (actor, input) => inBrokerage(receiving, actor, "mutate", { loanId, ...input });
+      assert.ok((await followUp(officer, { type: "move", id: loanId, stage: "Processing" })).message);
+      const processorFile = await inBrokerage(receiving, processor, "readLoanForWork", loanId);
+      assert.equal(processorFile.loans[0].stage, "Processing");
+      assert.equal(processorFile.submissions[0].conditions[0].id, condition.id);
+      const queue = () => inBrokerage(receiving, processor, "readProcessingWork", { readyOnly: false });
+      const queueCondition = (await queue()).files.find(({ id }) => id === loanId)?.condition;
+      assert.equal(queueCondition?.action, "Review lender request");
+      assert.ok(queueCondition.target.includes(condition.id));
+      const requestDocument = await followUp(processor, { type: "requestDocument", kind: "Pay stub", instructions: condition.description,
+        condition: { submissionId: lenderFile.id, conditionId: condition.id } });
+      assert.ok(requestDocument.message, requestDocument.error);
+      const continued = await inBrokerage(receiving, processor, "readLoanForWork", loanId);
+      assert.ok(continued.documentRequests.some((document) => document.conditionId === condition.id && document.status === "Requested"));
+      assert.equal((await queue()).files.find(({ id }) => id === loanId)?.condition?.action, "Follow up on borrower document");
+      const audit = await followUp(officer, { type: "loadLoanAudit" });
+      assert.equal(audit.loanAudit.filter(({ action: label }) => label === "Restored fictional open work from cutover").length, 1);
+      const remaining = (await inventory()).openWork;
+      assert.deepEqual([remaining.documents, remaining.conditions, remaining.review], [0, 0, 4]);
     }
     const finalCutover = await action(owner, "readCutoverChecklist", receiving, undefined, numbered.origin, receiving);
     assert.equal(finalCutover.evidence.draftCount, 2);

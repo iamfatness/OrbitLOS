@@ -290,6 +290,8 @@ button:disabled { cursor: default; }
 .cutover-file-values { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); }
 .cutover-file-values dt { color: var(--muted); font-size: 12px; }
 .cutover-file-values dd { font-weight: 650; }
+.cutover-open-work { border-block: 1px solid var(--line); padding-block: 12px; }
+.cutover-open-work dd { overflow-wrap: anywhere; }
 .details-section { border-top: 1px solid var(--line); padding-top: 11px; }
 .section-heading, .submission-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 7px; }
 .section-heading h3 { display: flex; gap: 8px; align-items: center; font-size: 18px; font-weight: 600; }

@@ -3865,7 +3865,7 @@ test("cutover file inventories are scoped, revision checked, and independently i
   const document = { kind: "Pay statement", instructions: "Use the fictional sample.", status: "Accepted", dueOn: "2026-11-12" };
   const documentsOnly = { version: 1, documents: [document] };
 
-  assert.deepEqual(read(), { revision: 0, source: null, documents: null, lender: null, funding: null });
+  assert.deepEqual(read(), { revision: 0, source: null, documents: null, lender: null, funding: null, openWork: null });
   assert.match(review("documents").error, /save the corresponding fictional source inventory/i);
   assert.ok(store(documentsOnly, 0, { fictional: false }).error);
   assert.ok(store({ version: 1 }).error);
@@ -3986,7 +3986,7 @@ test("cutover file inventories are scoped, revision checked, and independently i
   batch.run(origin, nextBasis, nextBasis);
   assert.match(read().error, /source changed/i);
   assert.match(store(both, 4).error, /source changed/i);
-  assert.deepEqual(read({ basis: nextBasis }), { revision: 0, source: null, documents: null, lender: null, funding: null });
+  assert.deepEqual(read({ basis: nextBasis }), { revision: 0, source: null, documents: null, lender: null, funding: null, openWork: null });
   db.prepare("DELETE FROM migration_records WHERE origin = ? AND recordKey = 'Contact:borrower'").run(origin);
   assert.match(read({ basis: nextBasis }).error, /no longer linked/i);
   assert.match(store(both, 0, { basis: nextBasis }).error, /no longer linked/i);

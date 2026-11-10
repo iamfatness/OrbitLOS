@@ -44,8 +44,9 @@ import type { PlaybookSettingsMutation } from "./manager-exception-model";
 import { clearPendingAnniversaries, easternDate, pastClientLoan, retentionInput, synchronizeRetentionTasks } from "./client-retention";
 import { activeRateWatchTask, returningClientSource } from "./past-client-queue";
 import { checklistInstructions, checklistPresetNames, checklistPresets, conditionDocumentBatchLimit, documentKinds,
-  documentRecipients, primaryDocumentRecipient, suggestedConditionDocument, type DocumentKind, type DocumentRecipient } from "./document-model";
+  documentRecipients, primaryDocumentRecipient, suggestedConditionDocument } from "./document-model";
 import { documentRecipientAvailable } from "./borrower-documents";
+import { addDocumentRequest } from "./document-requests";
 import { referralMatches } from "./referral-matches";
 import { mockAusInput, mockCreditInput, mockPairedAusInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
 import { loadProtectedPilotScenario, trackPilotBorrower, type ProtectPilotLinks } from "./pilot";
@@ -77,6 +78,8 @@ import { migrationInput, undoMigrationInput, type MigrationReport } from "./pipe
 import { migratePipeline } from "./pipeline-migration";
 import { undoMigration } from "./migration-recovery";
 import type { MigrationMutationResult } from "./migration-record-model";
+import { restoreCutoverWork } from "./migration-cutover";
+import { restoreCutoverWorkInput } from "./migration-cutover-model";
 import { addCampaignLeadInput, assignCampaignLeadsInput, createCallCampaignInput, loadCampaignRehearsalInput, openCampaignsInput, pauseCampaignRetriesInput, recordCampaignCallInput, recordCampaignFollowUpInput, refreshCampaignQueueInput, routeCampaignQueueInput,
   campaignManualHandoff, rescheduleCampaignCallbackInput, saveCampaignRoutingInput, saveCampaignRulesInput, unansweredCampaignCall } from "./call-campaign-model";
 import { assignCampaignLeads, createCallCampaign, linkCampaignLead, mayManageCampaigns, pauseCampaignRetries, recordCampaignCall, recordCampaignFollowUp, rescheduleCampaignCallback,
@@ -246,6 +249,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("loadLoanAudit"), loanId: id }),
   deleteReportView,
   importMismo,
+  restoreCutoverWorkInput,
   exportMismo,
   exportReviewedApplication,
   z.object({ type: z.literal("completeLeadTask"), leadId: z.uuid(), taskId: z.uuid(), completed: z.boolean() }),
@@ -366,14 +370,6 @@ function stageOverrideFor(db: Store, staff: WorkspaceStaff | null, area: StageEd
   const permission = authorizeStageEdit(db, staff, data.loanId, area, data.stageOverride);
   if ("error" in permission) throw new WorkspaceError(permission.error);
   return permission.override;
-}
-
-function addDocumentRequest(db: Store, loanId: string, kind: DocumentKind, instructions: string, now: string,
-  source?: { submissionId: string; conditionId: string }, dueOn: string | null = null, recipient: DocumentRecipient = primaryDocumentRecipient) {
-  db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, submissionId, conditionId, dueOn, recipient)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(crypto.randomUUID(), loanId, kind, instructions, now, source?.submissionId ?? null, source?.conditionId ?? null, dueOn, recipient);
-  addApplicationActivity(db, loanId, `Document requested · ${kind}${source ? " · Lender condition" : ""}${dueOn ? ` · Due ${dueOn}` : ""}${recipient !== primaryDocumentRecipient ? ` · ${recipient}` : ""}`, now);
 }
 
 function addContactActivity(db: Store, input: {
@@ -891,6 +887,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             db.prepare("DELETE FROM manager_report_views WHERE id = ?").run(data.id);
             message = "Manager report view removed.";
           }
+          break;
+        }
+        case "restoreCutoverWork": {
+          const result = restoreCutoverWork(db, staff, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          if (scopedMigrationUpdates) return { message, migrationChanged: true };
           break;
         }
         case "importMismo": {
