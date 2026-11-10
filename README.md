@@ -187,7 +187,7 @@ Open the issued package on the borrower’s existing application link. Each link
 
 A mock decline closes the signing reminder and adds a follow-up in **Today**. Open **Disclosures** to record a private note or prepare a revised package. Both options clear the follow-up, and the original response and receipt stay in history. A missed signing target appears as past due while pending mock responses remain available.
 
-Edit the selected quote’s fee worksheet after preparing a package. **Today** shows a review task that opens **Disclosures**, where staff can compare the changed amounts and prepare a revised package. A revised package closes the review task and starts with pending signers. Earlier documents, fee estimates, and responses remain in the package history.
+Edit the selected quote’s fee worksheet after preparing a package. **Today** shows a review task that opens **Disclosures**, where staff can compare the changed amounts and record an internal review note. The revised package retains who reviewed it and when, closes the task, and starts with pending signers. Earlier documents, fee estimates, and responses remain in the package history.
 
 ## Rehearse a missing mock lender receipt
 

@@ -19,7 +19,7 @@ export const disclosureCommand = z.discriminatedUnion("type", [
     applicationRevision: z.number().int().nonnegative(), runId: loanId, offerId: loanId, feeRevision: version,
     documents: z.array(z.enum(sampleDisclosureDocuments)).min(1, "Choose at least one sample document.").max(sampleDisclosureDocuments.length)
       .refine((items) => new Set(items).size === items.length, "Choose each sample document once."),
-    signBy: z.iso.date() }),
+    signBy: z.iso.date(), reviewedPackageRevision: version.optional(), revisionNote: z.string().trim().min(1).max(500).optional() }),
   z.object({ type: z.literal("issueDisclosurePackage"), ...current }),
   z.object({ type: z.literal("respondToDisclosurePackage"), ...current, signer: z.enum(disclosureSigners), response: z.enum(disclosureResponses) }),
   z.object({ type: z.literal("reviewDisclosureDecline"), ...current, note: z.string().trim().min(1).max(500) }),
@@ -44,6 +44,7 @@ export type DisclosurePackage = DisclosureSource & {
   preparedAt: string; signBy: string; issuedAt: string | null; supersededAt: string | null;
   reviewReason: string | null;
   declineFollowUp: { at: string; actor: string; note: string } | null;
+  changeReview: { fromVersion: number; reason: string; at: string; actor: string; note: string } | null;
 };
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];

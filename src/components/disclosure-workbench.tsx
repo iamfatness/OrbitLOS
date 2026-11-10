@@ -34,15 +34,32 @@ function QuoteDetails({ quote }: { quote: QuoteOption }) {
   </>;
 }
 
-function FeeChanges({ previous, current }: { previous: DisclosurePackage; current: DisclosureSource }) {
-  const old = previous.quote.estimate;
-  const next = current.quote.estimate;
-  if (!old || !next || previous.quote.runId !== current.quote.runId || previous.quote.offerId !== current.quote.offerId) return null;
-  const changes: { title: string; before: number | null; after: number | null }[] = feeKeys.filter((key) => old.inputs.fees[key] !== next.inputs.fees[key])
-    .map((key) => ({ title: feeLabels[key], before: old.inputs.fees[key], after: next.inputs.fees[key] }));
-  if (old.cashToClose !== next.cashToClose) changes.push({ title: "Estimated cash to close", before: old.cashToClose, after: next.cashToClose });
-  return changes.length ? <ul>{changes.map(({ title, before, after }) =>
-    <li key={title}>{title} · {cents(before)} → {cents(after)}</li>)}</ul> : null;
+function ChangedTerms({ previous, current }: { previous: DisclosurePackage; current: DisclosureSource }) {
+  const fields = ({ applicationRevision, quote }: DisclosureSource) => {
+    const { estimate } = quote;
+    return {
+      "Reviewed 1003 revision": String(applicationRevision),
+      "Product": quote.product, "Term": `${quote.years} years`, "Rate": `${quote.rate.toFixed(3)}%`,
+      "Loan amount": usd.format(quote.loanAmount), "Monthly principal and interest": usd.format(quote.principalAndInterest),
+      ...Object.fromEntries(feeKeys.map((key) => [feeLabels[key], cents(estimate?.inputs.fees[key])])),
+      "Points": cents(estimate?.points), "Lender credit": cents(estimate?.lenderCredit),
+      "Estimated closing costs": cents(estimate?.closingCosts), "Estimated cash to close": cents(estimate?.cashToClose),
+    } as Record<string, string>;
+  };
+  const before = fields(previous);
+  const changes = Object.entries(fields(current)).filter(([label, value]) => before[label] !== value);
+  return changes.length ? <ul aria-label="Changed sample terms">{changes.map(([label, value]) =>
+    <li key={label}>{label} · {before[label]} → {value}</li>)}</ul> :
+    <p className="muted">The displayed amounts match. Review the current application and quote before preparing another version.</p>;
+}
+
+function ChangeReview({ item }: { item: DisclosurePackage }) {
+  const review = item.changeReview;
+  return review && <div>
+    <strong>Change review from version {review.fromVersion} · {review.reason}</strong>
+    <p>{review.note}</p>
+    <p className="muted">{review.actor} · {stamp(review.at)}</p>
+  </div>;
 }
 
 function PackagePreview({ item }: { item: DisclosurePackage }) {
@@ -76,6 +93,10 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
   const command = current ? { loanId: loan.id, version: current.version, revision: current.revision } : null;
   const declined = current?.signers.find(({ status }) => status === "Declined");
   const targetPassed = status === "Awaiting signatures" && current && current.signBy < today;
+  const sourceChanged = current && source && (current.applicationRevision !== source.applicationRevision ||
+    current.feeRevision !== source.feeRevision || current.quote.runId !== source.quote.runId || current.quote.offerId !== source.quote.offerId);
+  const reviewReason = current?.reviewReason ?? (sourceChanged ? "Application or quote changed" : null);
+  const needsChangeNote = Boolean(reviewReason);
 
   return <section className="details-section document-section" id={disclosureTarget} tabIndex={-1} aria-label="Disclosure and Critical Dates">
     <div className="section-heading"><h3><ClipboardList size={17} /> Disclosure &amp; Critical Dates</h3><span className="pill">Mock signing</span></div>
@@ -90,21 +111,22 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     </div>
     {!work && <p>{refresh ? <Button size="sm" variant="outline" disabled={busy} onClick={refresh}>Load disclosure workbench</Button> :
       "Open this loan from Pipeline to load the disclosure workbench."}</p>}
-    {current?.reviewReason && <div className="work-queue">
-      <strong>Review required · {current.reviewReason}</strong>
+    {current && reviewReason && <div className="work-queue">
+      <strong>Review required · {reviewReason}</strong>
       <p>Review the updated terms and prepare a revised sample package to resolve the task. Prior responses stay with their version.</p>
-      {source && <FeeChanges previous={current} current={source} />}
+      {source && <ChangedTerms previous={current} current={source} />}
     </div>}
     {current && command && <section className="document-item" aria-label={`Sample disclosure package version ${current.version}`}>
       <div className="document-item-head"><strong>Sample package v{current.version}</strong><span className="pill">{status}</span></div>
       <p className="muted">Prepared {stamp(current.preparedAt)}{current.issuedAt && ` · Issued ${stamp(current.issuedAt)}`}</p>
+      <ChangeReview item={current} />
       <PackagePreview item={current} />
       <ul className="loan-task-list">{current.signers.map((signer) => <li className="loan-task" key={signer.role}>
         <div className="loan-task-copy"><strong>{signer.role} · {signer.name}</strong>
           <span>{signer.status}{signer.actedAt && ` · ${stamp(signer.actedAt)}`}</span>
           {signer.receipt && <span>{signer.receipt}{signer.respondedVia && ` · ${signer.respondedVia}`}</span>}
         </div>
-        {editable && source && status === "Awaiting signatures" && signer.status === "Pending" &&
+        {editable && source && !reviewReason && status === "Awaiting signatures" && signer.status === "Pending" &&
           <div className="loan-application-actions">{disclosureResponses.map((response) =>
             <Button key={response} size="sm" variant={response === "Signed" ? "default" : "outline"} disabled={busy}
               onClick={() => void save({ type: "respondToDisclosurePackage", ...command, signer: signer.role, response })}>
@@ -126,7 +148,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
           </form>}
         </>}
       </div>}
-      {editable && source && status === "Draft" && <div><Button size="sm" disabled={busy}
+      {editable && source && !reviewReason && status === "Draft" && <div><Button size="sm" disabled={busy}
         onClick={() => void save({ type: "issueDisclosurePackage", ...command })}>Issue sample package</Button></div>}
     </section>}
     {work && !source && <div className="work-queue">
@@ -138,16 +160,18 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     </div>}
     {editable && work && run && offer && <FeeWorksheetEditor key={`${run.id}:${offer.id}:${worksheet?.revision ?? 0}`}
       run={run} offer={offer} saved={worksheet} busy={busy} save={save} brokerageId={brokerageId} current={pricingInputsMatch(run, app)} />}
-    {editable && source && <details className="document-form" open={!current || Boolean(current.reviewReason) || Boolean(declined)} key={current?.version ?? 0}>
+    {editable && source && <details className="document-form" open={!current || Boolean(reviewReason) || Boolean(declined)} key={current?.version ?? 0}>
       <summary>{current ? "Prepare revised sample package" : "Assemble sample package"}</summary>
       <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
         void save({ type: "prepareDisclosurePackage", loanId: loan.id, previousVersion: current?.version ?? null,
           applicationRevision: source.applicationRevision, feeRevision: source.feeRevision, runId: source.quote.runId,
-          offerId: source.quote.offerId, documents: data.getAll("documents"), signBy: data.get("signBy") });
+          offerId: source.quote.offerId, documents: data.getAll("documents"), signBy: data.get("signBy"),
+          ...(needsChangeNote ? { reviewedPackageRevision: current?.revision, revisionNote: data.get("revisionNote") } : {}) });
       }}>
         <p>Reviewed 1003 revision {source.applicationRevision} · Fee worksheet revision {source.feeRevision} · {source.quote.product}</p>
+        {needsChangeNote && <label className="field">Internal change-review note<textarea name="revisionNote" rows={2} required maxLength={500} /></label>}
         <label className="field">Sample signing target<input name="signBy" type="date" min={today} required
           defaultValue={current && current.signBy >= today ? current.signBy : today} /></label>
         <fieldset disabled={busy}><legend>Package documents</legend>{sampleDisclosureDocuments.map((document) =>
@@ -164,6 +188,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
           {role} · {status}{actedAt && ` · ${stamp(actedAt)}`}{receipt && ` · ${receipt}`}{respondedVia && ` · ${respondedVia}`}
         </li>)}</ul>
         <DeclineFollowUp item={item} />
+        <ChangeReview item={item} />
         <PackagePreview item={item} />
       </div>)}
     </section>}

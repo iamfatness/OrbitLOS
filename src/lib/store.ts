@@ -242,7 +242,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       version INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, applicationRevision INTEGER NOT NULL, feeRevision INTEGER NOT NULL,
       quote TEXT NOT NULL, documents TEXT NOT NULL, signers TEXT NOT NULL, preparedAt TEXT NOT NULL, signBy TEXT NOT NULL,
-      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT,
+      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT, changeReview TEXT,
       PRIMARY KEY (loanId, version)
     );
     CREATE TABLE IF NOT EXISTS mock_uwm_acceptances (
@@ -983,6 +983,9 @@ export function initializeStore(db: Store, seedDemo = true) {
           AND loan.stage NOT IN ('Funded', 'Closed')
           AND json_extract(signer.value, '$.status') = 'Declined' AND json_extract(signer.value, '$.actedAt') IS NOT NULL`)
         .run(disclosureDeclinePrefix, disclosureDeclineTaskTitle);
+    }
+    if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "changeReview")) {
+      db.exec("ALTER TABLE disclosure_packages ADD COLUMN changeReview TEXT");
     }
     const pricingColumns = new Set(db.prepare("PRAGMA table_info(pricing_runs)").all().map(({ name }) => name));
     for (const column of ["applicationRevision", "incomeReviewRevision"]) {

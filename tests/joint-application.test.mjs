@@ -125,7 +125,13 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.match((await f.run("completeTask", { id: reviews[0].id, completed: true })).error, /workbench/);
   assert.match((await f.run("respondToDisclosurePackage", { ...version(), signer: "Co-borrower", response: "Signed" })).error, /revised/);
   assert.ok((await f.run("prepareDisclosurePackage", prepare(1))).error);
-  await apply("prepareDisclosurePackage", prepare(1, 2));
+  const revisionNote = "Fictional fee review: title estimate increased after confirmation.";
+  assert.match((await f.run("prepareDisclosurePackage", prepare(1, 2))).error, /change-review note/);
+  assert.match((await f.run("prepareDisclosurePackage", { ...prepare(1, 2), revisionNote,
+    reviewedPackageRevision: current().revision - 1 })).error, /package changed/);
+  await apply("prepareDisclosurePackage", { ...prepare(1, 2), revisionNote, reviewedPackageRevision: current().revision });
+  assert.deepEqual(current().changeReview, { fromVersion: 1, reason: "Fees changed", actor: f.officer.name, note: revisionNote,
+    at: current().preparedAt });
   assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-review:")));
   assert.deepEqual(current().signers.map(({ status }) => status), ["Pending", "Pending"]);
   assert.equal(work().packages[1].signers[0].status, "Signed");
@@ -136,6 +142,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   const primaryPackage = () => f.primary({ type: "status" }).statusView.loanStatus.disclosure;
   assert.equal(primaryPackage().signer.status, "Pending");
   assert.equal(primaryPackage().fees.items.settlement, 125_000);
+  assert.ok(!JSON.stringify(primaryPackage()).includes(revisionNote));
   assert.doesNotMatch(JSON.stringify(primaryPackage()), /Co-borrower|applicationRevision|runId|feeOrigin|joint-borrower@example/);
   assert.equal(f.primary({ ...response, version: 1 }).status, 409);
   assert.equal(f.primary({ ...response, signer: "Co-borrower" }).status, 400);
@@ -154,6 +161,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(disclosurePackageStatus(current()), "Mock signing complete");
   assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-signing:")));
   await apply("prepareDisclosurePackage", prepare(2, 2));
+  assert.equal(work().packages[1].changeReview.note, revisionNote);
   assert.equal(primaryPackage().state, "Awaiting revision");
   await apply("issueDisclosurePackage", version());
   const coToken = jointApplication(f.db, f.loanId).token;

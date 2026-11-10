@@ -27,9 +27,10 @@ function disclosureSource(db: Store, loanId: string) {
   return { source, draft: app.draft } as const;
 }
 
-type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp"> & {
+type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp" | "changeReview"> & {
   loanId: string; runId: string; offerId: string; documents: string; signers: string; quote: string;
   declineFollowUp: string | null;
+  changeReview: string | null;
 };
 
 function packageRows(db: Store, loanId: string, limit: number) {
@@ -45,6 +46,7 @@ export function readDisclosureWork(db: Store, loanId: string): DisclosureWork {
       preparedAt: item.preparedAt, issuedAt: item.issuedAt, signBy: item.signBy, supersededAt: item.supersededAt, reviewReason: item.reviewReason,
       documents: JSON.parse(item.documents), signers: JSON.parse(item.signers), quote: JSON.parse(item.quote),
       declineFollowUp: item.declineFollowUp ? JSON.parse(item.declineFollowUp) : null,
+      changeReview: item.changeReview ? JSON.parse(item.changeReview) : null,
     })) };
 }
 
@@ -171,6 +173,13 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
     const { quote, applicationRevision, feeRevision } = source.source;
     if (data.applicationRevision !== applicationRevision || data.feeRevision !== feeRevision ||
       data.runId !== quote.runId || data.offerId !== quote.offerId) return { error: "The application, quote, or fee worksheet changed. Refresh the loan first." } as const;
+    let changeReview: DisclosurePackage["changeReview"] = null;
+    if (latest && (latest.reviewReason || !matchesSource(latest, source.source))) {
+      if (!data.revisionNote) return { error: "Record an internal change-review note before preparing the revised package." } as const;
+      if (data.reviewedPackageRevision !== latest.revision) return { error: "The package changed. Refresh the loan and review it again." } as const;
+      changeReview = { fromVersion: latest.version, reason: latest.reviewReason ?? "Application or quote changed",
+        at: now, actor: staff?.name ?? "Demo staff", note: data.revisionNote };
+    }
     const version = (latest?.version ?? 0) + 1;
     if (latest) {
       db.prepare("UPDATE disclosure_packages SET supersededAt = ?, revision = revision + 1 WHERE loanId = ? AND version = ?")
@@ -180,9 +189,11 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
       completeTask(db, disclosureDeclinePrefix, latest, now);
     }
     db.prepare(`INSERT INTO disclosure_packages (loanId, version, runId, offerId, applicationRevision, feeRevision,
-      quote, documents, signers, preparedAt, signBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      quote, documents, signers, preparedAt, signBy, changeReview) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(data.loanId, version, quote.runId, quote.offerId, applicationRevision, feeRevision, JSON.stringify(quote),
-        JSON.stringify(data.documents), JSON.stringify(disclosureNames(source.draft)), now, data.signBy);
+        JSON.stringify(data.documents), JSON.stringify(disclosureNames(source.draft)), now, data.signBy,
+        changeReview ? JSON.stringify(changeReview) : null);
+    if (changeReview) addApplicationActivity(db, data.loanId, `Reviewed sample disclosure changes from v${changeReview.fromVersion} for v${version} · ${changeReview.reason}.`, now);
     addApplicationActivity(db, data.loanId, `Prepared sample disclosure package v${version} · Fee worksheet v${feeRevision}.`, now);
     return { message: `Sample disclosure package v${version} prepared.` } as const;
   }
