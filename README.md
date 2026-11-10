@@ -350,6 +350,8 @@ Under **Choose alternatives to compare**, add a fixed-rate option with the same 
 
 Choose **Share through (Eastern)** before publishing. After that date the borrower sees an expiration notice in place of the sample terms. A changed shared worksheet or saved offer adds **Review shared sample quote** to the owner’s **Today** queue. Open it to review the difference and record an internal note. Keep the original version or publish an explicitly dated replacement. The existing history preserves the earlier terms and expiration.
 
+In a sample fee worksheet, expand **Payer and payee details** and open a fee line. Enter a fictional company and any direct seller, lender, or other-party contributions. The borrower share is the remainder. General credits stay in their separate fields. The shared quote keeps the gross fee and the saved split. The sample fee summary and confirmed closing packet carry the same allocation, including payee changes that leave totals unchanged.
+
 ### Try a mock service order
 
 On an active fictional loan, open **Conditions → Service orders → New mock service order**. Choose appraisal, title, homeowners insurance, flood, or mortgage insurance. Set the expected return date and record the order. A past date lets you rehearse overdue work. The assigned processor sees it in **Processing → Service orders**, or the loan officer sees it in **Today** when no processor is assigned. The team queue has filters for **Overdue** and **Ready to review**.

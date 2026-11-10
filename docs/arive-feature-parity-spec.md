@@ -54,7 +54,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
 | F10 | Hosted staff comparison, exact mock offer, dated borrower comparison with five-year cost and break-even, an owned task to review shared term changes, and mock UWM handoff | Validate provider coverage and provenance. Confirm locks separately. |
-| F11 | Hosted brokerage templates by purpose and ZIP, with effective dates, staff overrides, and immutable shared quote snapshots | Verify payer and payee detail, broader geographic matching, and external fee sources. |
+| F11 | Hosted brokerage templates by purpose and ZIP, with effective dates and staff overrides. Sample payer contributions and payee details carry from the immutable shared quote through disclosure review and the closing packet. | Verify broader geographic matching and external fee sources. Add settlement-side fee comparison. |
 | F12 | Dashboard drilldowns, call-report preparation and exports | Reconcile report periods and data coverage before a custom report builder or filing claim. |
 | F13 | Internal workflow actions and planned delegated API | Define bounded event subscriptions and safe replay for Zapier. |
 | F14 | Hosted fictional lead upload and lender download links with separate codes, document revisions, and conversion history | Verify stronger recipient identity, authorized delivery, and live scanning before real use. |
