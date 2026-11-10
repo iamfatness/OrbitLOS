@@ -53,8 +53,8 @@ export type DisclosurePackage = DisclosureSource & {
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
   closingReviews: ClosingDisclosureReview[];
-  suggestedDeadline: DisclosureDeadline;
-  draftTargetChanged: { version: number; signBy: string } | null;
+  suggestedDeadline?: DisclosureDeadline;
+  draftTargetChanged?: { version: number; signBy: string } | null;
 };
 export type ClosingDisclosureReview = {
   version: number; revision: number; at: string; actor: string;

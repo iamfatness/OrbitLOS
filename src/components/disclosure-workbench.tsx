@@ -79,23 +79,24 @@ function PackagePreview({ item }: { item: DisclosurePackage }) {
 }
 
 function SigningTarget({ current, suggestion, today, busy, refresh }: {
-  current?: DisclosurePackage; suggestion: DisclosureDeadline; today: string; busy: boolean; refresh?: () => void;
+  current?: DisclosurePackage; suggestion?: DisclosureDeadline; today: string; busy: boolean; refresh?: () => void;
 }) {
-  const [mode, setMode] = useState(current && !current.deadlineBasis ? "manual" : "calendar");
-  const currentSuggestion = suggestion.anchorOn === today;
+  const [choice, setChoice] = useState<string>();
+  const mode = suggestion ? choice ?? (current && !current.deadlineBasis ? "manual" : "calendar") : "manual";
   return <div className="record-form">
     <label className="field">Signing target basis<select name="dateBasis" value={mode} disabled={busy}
-      onChange={(event) => setMode(event.target.value)}>
-      <option value="calendar">Brokerage calendar</option><option value="manual">Manual date</option>
+      onChange={(event) => setChoice(event.target.value)}>
+      <option value="calendar" disabled={!suggestion}>Brokerage calendar</option><option value="manual">Manual date</option>
     </select></label>
-    {mode === "calendar" ? <>
+    {mode === "calendar" && suggestion ? <>
       <input type="hidden" name="signBy" value={suggestion.signBy} />
       <p><strong>Suggested signing target {dateLabel(suggestion.signBy)}</strong> · Brokerage calendar v{suggestion.version}</p>
       <p className="muted">{suggestion.days} open days after {dateLabel(suggestion.anchorOn)}{suggestion.skipped.length > 0 &&
         ` · Skipped ${suggestion.skipped.map(({ on, label }) => `${dateLabel(on)} · ${label}`).join(", ")}`}</p>
-      {!currentSuggestion && <p>Refresh the loan to calculate the date from today.</p>}
+      {suggestion.anchorOn !== today && <p>Refresh the loan to calculate the date from today.</p>}
     </> : <label className="field">Sample signing target<input name="signBy" type="date" min={today} required
       defaultValue={current && current.signBy >= today ? current.signBy : today} /></label>}
+    {!suggestion && <p className="muted">Refresh the loan to check for a calendar suggestion.</p>}
     {refresh && <div><Button size="sm" variant="outline" disabled={busy} onClick={refresh}>Refresh signing target</Button></div>}
   </div>;
 }
@@ -195,11 +196,11 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
       <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
-        const { version, anchorOn } = work.suggestedDeadline;
+        const suggestion = data.get("dateBasis") === "calendar" ? work.suggestedDeadline : undefined;
         void save({ type: "prepareDisclosurePackage", loanId: loan.id, previousVersion: current?.version ?? null,
           applicationRevision: source.applicationRevision, feeRevision: source.feeRevision, runId: source.quote.runId,
           offerId: source.quote.offerId, documents: data.getAll("documents"), signBy: data.get("signBy"),
-          ...(data.get("dateBasis") === "calendar" ? { deadlineCalendar: { version, anchorOn } } : {}),
+          ...(suggestion ? { deadlineCalendar: { version: suggestion.version, anchorOn: suggestion.anchorOn } } : {}),
           ...(needsChangeNote ? { reviewedPackageRevision: current?.revision, revisionNote: data.get("revisionNote") } : {}) });
       }}>
         <p>Reviewed 1003 revision {source.applicationRevision} · Fee worksheet revision {source.feeRevision} · {source.quote.product}</p>
