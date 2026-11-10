@@ -59,7 +59,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F13 | Internal workflow actions and planned delegated API | Define bounded event subscriptions and safe replay for Zapier. |
 | F14 | Hosted fictional lead upload and lender download links with separate codes, document revisions, and conversion history | Verify stronger recipient identity, authorized delivery, and live scanning before real use. |
 | F15 | Broker financial visibility and a separate planned non-del channel | Specify investor price, margin policy and registry evidence with a non-del broker. |
-| F16 | Reviewed 1003 revisions, closing checklist, and closing and funding dates | Specify change and package revisions, approvals, and applicable UCD contracts. |
+| F16 | Reviewed 1003 revisions, closing checklist, closing and funding dates, and version-specific confirmation of signed sample disclosure evidence | Extend to a versioned closing package and validate document, approval, and applicable UCD contracts. |
 | F17 | Funding and restricted expected versus received financial entries | Reconcile fictional purchase advice, receipt and reversal with reviewer history. |
 | F18 | Brokerage membership and assigned processor scope | Rehearse one contract processor across two brokerages with isolated files and fees. |
 | F19 | Workspace admin, invitations, roles and offboarding | Define seat entitlements and scoped support access, then rehearse role onboarding. |

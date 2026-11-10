@@ -25,6 +25,25 @@ Keep an active fictional loan with an unsent reviewed 1003 available for lender 
 
 Sign in with the intended presenter account before starting the timer. Verify the campaign, browser tabs, and both prepared examples are visible to that account. Use sample data throughout. Describe provider results and signatures as simulations.
 
+## CTO rehearsal on the disclosure release
+
+The November 9, 2026 timed browser run used a fresh fictional campaign pilot on Worker `1a3c39fb-5a9e-491e-b716-7d44824b5cf2`. It reached **7 / 7** and opened the separate rate-watch refinance in **3:32**, including setup, the upload, navigation, and two selector retries. Sign-in, narration, and the separate disclosure example were outside the timer.
+
+| Checkpoint | Elapsed |
+| --- | --- |
+| Campaign and relationship examples loaded | 0:06 |
+| Two-row CSV imported | 0:32 |
+| Connected call opened the prefilled 1003 | 0:46 |
+| Borrower submitted and staff reviewed the application | 0:59 |
+| ZIP 48304 and mock score 742 carried to pricing. The mock receipt opened both conditions. | 1:20 |
+| Both sample PDFs cleared and zero conditions remained | 1:57 |
+| Realtor saw Clear to Close | 2:06 |
+| Closing and funding recorded | 2:16 |
+| Post-funding callback saved and the distinct refinance opened | 2:50 |
+| Rate-watch refinance opened with its own confirmed address | 3:32 |
+
+The browser download event for **Download rehearsal CSV** timed out. The prepared fictional CSV uploaded successfully. Keep that CSV ready before opening the guide. No browser runtime errors were reported in the staff tab.
+
 ## Live interaction baseline
 
 Measured on hosted version `e5c302f9-74c0-45dd-b9e1-cafc5631d02c` from **Create guided pilot** in an existing admin session. The stopwatch includes browser actions, observations, and navigation. The presenter targets above include spoken transitions. Sign-in and spoken delivery were outside the measured run.
