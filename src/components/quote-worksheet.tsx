@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { preflightFeeField, preflightFeesTarget } from "@/lib/file-preflight-model";
 import type { PricingOffer, PricingRun } from "@/lib/pricing-model";
 import { compareQuoteCosts } from "@/lib/quote-cost-comparison";
 import { allocatedFeeLine, blankFees, estimateFees, feeAllocationIssue, feeAllocationLabel, feeAllocations, feeContributionKeys,
@@ -34,9 +35,9 @@ function FeeSource({ origin, fees }: { origin: FeeTemplateOrigin; fees: FeeInput
   </div>;
 }
 
-export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId, current }: {
+export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId, current, focused }: {
   run: PricingRun; offer: PricingOffer; saved?: FeeWorksheet; busy: boolean; save: (input: unknown) => Promise<void>;
-  brokerageId: string; current: boolean;
+  brokerageId: string; current: boolean; focused?: string;
 }) {
   const purchase = run.scenario.purpose === "Purchase";
   const [origin, setOrigin] = useState<FeeTemplateOrigin | undefined>(saved?.origin);
@@ -79,7 +80,7 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
     setAllocations((current) => ({ ...current, [key]: { ...(current[key] ?? emptyAllocation), [field]: value } }));
   }
   function field(name: string, caption: string, required = false) {
-    return <label className="field" key={name}>{caption}<input type="number" min={0} max={25_000_000} step="0.01"
+    return <label className="field" key={name}>{caption}<input type="number" min={0} max={25_000_000} step="0.01" id={focused === preflightFeeField(name) ? focused : undefined}
       name={name} required={required} disabled={!current || busy} value={fields[name]} onChange={(event) => setFields({ ...fields, [name]: event.target.value })} /></label>;
   }
   function loadSample() {
@@ -90,7 +91,7 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
       payoffs: fields.payoffs || String(Math.max(0, run.scenario.loanAmount - 10_000)) });
   }
 
-  return <details className="document-form">
+  return <details className="document-form" id={focused ? preflightFeesTarget : undefined} open={focused ? true : undefined}>
     <summary>Fee worksheet · {label}</summary>
     <p className="muted">Enter sample amounts in dollars. Leave unknown fees blank. Points and lender credits come from this pricing option.</p>
     {!current && <p className="muted">Reprice the current 1003 before editing this worksheet.</p>}

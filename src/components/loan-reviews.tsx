@@ -7,6 +7,8 @@ import { dateLabel } from "@/lib/client-retention";
 import { loanReviewsTarget, reviewCategories, reviewFilters, reviewTarget, reviewViews, type ReviewMutation, type ReviewQueueQuery,
   type ReviewResult, type ReviewSummary } from "@/lib/loan-review-model";
 import { dateTime } from "@/lib/utils";
+import { filePreflightCategory, filePreflightTarget, preflightBlocked } from "@/lib/file-preflight-model";
+import { PreflightChecks } from "./file-preflight";
 import { Button } from "./ui/button";
 
 type LoanPage = Extract<ReviewResult, { kind: "loan" }>;
@@ -62,13 +64,14 @@ export function LoanReviewQueue({ brokerageId, team, version, busy, open }: {
   </section>;
 }
 
-function CreateReview({ loanId, page, busy, save }: { loanId: string; page: LoanPage; busy: boolean; save: Save }) {
+function CreateReview({ loanId, page, busy, save, requestPreflight }: { loanId: string; page: LoanPage; busy: boolean; save: Save; requestPreflight?: boolean }) {
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const details = useRef<HTMLDetailsElement>(null);
   const category = useRef<HTMLSelectElement>(null);
   const reviewer = useRef<HTMLSelectElement>(null);
   const { routingBlock } = page;
   const canRequest = page.options.length > 0;
+  const preflight = requestPreflight && page.preflightKey ? filePreflightCategory : undefined;
   const secondReview = page.canReview1003 ? routingBlock : undefined;
   const capturedDueOn = secondReview?.dueOn;
   const dueOn = capturedDueOn === null ? "" : capturedDueOn && capturedDueOn > page.today ? capturedDueOn : page.today;
@@ -76,8 +79,10 @@ function CreateReview({ loanId, page, busy, save }: { loanId: string; page: Loan
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const fields = { title: String(data.get("title")), category: data.get("category") as ReviewSummary["category"],
-      reviewerEmail: String(data.get("reviewerEmail")), dueOn: String(data.get("dueOn")), note: String(data.get("note")) };
+    const reviewCategory = data.get("category") as ReviewSummary["category"];
+    const fields = { title: String(data.get("title")), category: reviewCategory,
+      reviewerEmail: String(data.get("reviewerEmail")), dueOn: String(data.get("dueOn")), note: String(data.get("note")),
+      ...(reviewCategory === filePreflightCategory ? { preflightKey: page.preflightKey } : {}) };
     const key = JSON.stringify(fields);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
     void save({ type: "create", loanId, id: attempt.current.id, ...fields }, () => {
@@ -97,13 +102,13 @@ function CreateReview({ loanId, page, busy, save }: { loanId: string; page: Loan
         reviewer.current?.focus();
       }}>Assign second reviewer</Button> : <p className="muted">An eligible teammate and a reviewed 1003 are required for manual assignment.</p>}
     </aside>}
-    {canRequest ? <details className="document-form" ref={details}>
+    {canRequest ? <details className="document-form" ref={details} open={preflight ? true : undefined}>
       <summary>Request internal review</summary>
       <form onSubmit={submit}>
-        <label>Review title<input name="title" required maxLength={120} defaultValue={secondReview ? "1003 second review" : undefined}
+        <label>Review title<input name="title" required maxLength={120} defaultValue={preflight ?? (secondReview ? "1003 second review" : undefined)}
           placeholder="e.g. Check the application before handoff" /></label>
-        <label>Review type<select name="category" ref={category} defaultValue={secondReview ? "1003 second review" : undefined}>{reviewCategories.map((category) => <option key={category}
-          disabled={category === "1003 second review" && !page.canReview1003}>{category}</option>)}</select></label>
+        <label>Review type<select name="category" ref={category} defaultValue={preflight ?? (secondReview ? "1003 second review" : undefined)}>{reviewCategories.map((category) => <option key={category}
+          disabled={(category === "1003 second review" && !page.canReview1003) || (category === filePreflightCategory && !page.preflightKey)}>{category}</option>)}</select></label>
         <label>Assigned reviewer<select name="reviewerEmail" defaultValue="" ref={reviewer} required><option value="">Choose a teammate</option>
           {page.options.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.role}</option>)}
         </select></label>
@@ -124,7 +129,10 @@ function ReviewActions({ page, busy, save }: { page: DetailPage; busy: boolean; 
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const { review, today } = page;
   const available: Action[] = ["comment"];
-  if (review.canDecide) available.push("approve", "changes");
+  if (review.canDecide) {
+    if (!review.preflight || !preflightBlocked(review.preflight)) available.push("approve");
+    available.push("changes");
+  }
   if (review.canManage) {
     if (review.options.length) available.push("reassign");
     if (review.status === "Changes requested" || review.evidenceChanged) available.push("resubmit");
@@ -151,7 +159,7 @@ function ReviewActions({ page, busy, save }: { page: DetailPage; busy: boolean; 
       case "approve":
       case "changes": change = { ...edit, type: "decide", decision: selected === "approve" ? "Approved" : "Changes requested" }; break;
       case "reassign": change = { ...edit, type: "reassign", reviewerEmail, dueOn }; break;
-      case "resubmit": change = { ...edit, type: "resubmit", dueOn }; break;
+      case "resubmit": change = { ...edit, type: "resubmit", dueOn, preflightKey: review.preflight?.key }; break;
       case "escalate": change = { ...edit, type: "escalate" }; break;
       case "cancel": change = { ...edit, type: "cancel" }; break;
     }
@@ -174,8 +182,8 @@ function ReviewActions({ page, busy, save }: { page: DetailPage; busy: boolean; 
   </form>;
 }
 
-export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvidence }: {
-  brokerageId: string; loanId: string; focusId?: string; onChanged: () => void; openEvidence: (target: string) => void;
+export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvidence, requestPreflight }: {
+  brokerageId: string; loanId: string; focusId?: string; onChanged: () => void; openEvidence: (target: string) => void; requestPreflight?: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>();
   const [version, setVersion] = useState(0);
@@ -192,10 +200,10 @@ export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvide
     let active = true;
     const update = (data: LoanPage | { error: string }) => { if (active) setList({ version, data }); };
     const failure = { error: "Could not load reviews for this loan." };
-    void workOnLoanReview({ type: "loan", loanId, focusId }, brokerageId).then((result) =>
+    void workOnLoanReview({ type: "loan", loanId, focusId, ...(requestPreflight ? { preparePreflight: true } : {}) }, brokerageId).then((result) =>
       update("error" in result || result.kind === "loan" ? result : failure), () => update(failure));
     return () => { active = false; };
-  }, [brokerageId, loanId, focusId, version]);
+  }, [brokerageId, loanId, focusId, requestPreflight, version]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -235,7 +243,8 @@ export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvide
   }
 
   const evidence = page && ({ "1003 second review": ["Open 1003", "loan-application"], "Document checklist": ["Open document checklist", "document-checklist"],
-    "Closing readiness": ["Open closing workbench", "closing-workbench"], "General file review": null })[page.review.category];
+    "Closing readiness": ["Open closing workbench", "closing-workbench"], "General file review": null,
+    [filePreflightCategory]: ["Open file preflight", filePreflightTarget] })[page.review.category];
   return <section className="details-section document-section" id={loanReviewsTarget} tabIndex={-1} aria-label="Team reviews">
     <div className="section-heading"><h3><ClipboardCheck size={17} /> Team reviews</h3>
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setVersion((value) => value + 1); setError(""); }}><RefreshCw /> Refresh team reviews</Button>
@@ -245,7 +254,7 @@ export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvide
     {!rows && <p role="status" className="muted">Loading team reviews…</p>}
     {rows && "error" in rows && <p role="alert">{rows.error}</p>}
     {rows && !("error" in rows) && <>
-      <CreateReview loanId={loanId} page={rows} busy={busy} save={save} />
+      <CreateReview loanId={loanId} page={rows} busy={busy} save={save} requestPreflight={requestPreflight} />
       {rows.reviews.length ? <ReviewList rows={rows.reviews} busy={busy} open={(row) => { setSelected(row.id); setBefore(undefined); setError(""); }} /> :
         <p className="empty-inline">No internal reviews on this loan.</p>}
       {rows.hasMore && <p className="muted">Open Reviews in the workspace to see more requests.</p>}
@@ -258,13 +267,18 @@ export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvide
       <p className="muted">Assigned to {page.review.reviewerName} · Requested by {page.review.requesterName}</p>
       {page.review.escalatedAt && <p>Escalated for manager attention.</p>}
       {page.review.applicationRevision !== null && <p>Submitted 1003 revision {page.review.applicationRevision}</p>}
-      {page.review.evidenceChanged && <p>The submitted 1003 version has changed since this review.</p>}
+      {page.review.evidenceChanged && <p>{page.review.preflight ? "The file evidence has changed since this review." : "The submitted 1003 version has changed since this review."}</p>}
       {!page.review.reviewerAvailable && (page.review.status === "Requested" || page.review.status === "Changes requested") && <p>The reviewer needs to be reassigned.</p>}
       {evidence && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => openEvidence(evidence[1])}>{evidence[0]}</Button></div>}
+      {page.review.preflight && <details className="document-form" open>
+        <summary>Current preflight checks</summary>
+        <PreflightChecks preflight={page.review.preflight} open={openEvidence} />
+      </details>}
       <ReviewActions key={`${page.review.id}:${page.review.revision}`} page={page} busy={busy} save={save} />
       <h4>Internal decision history</h4>
       <ul className="document-list">{page.history.map((event) => <li key={event.sequence} className="document-item">
         <strong>{event.action} · {event.actorName}</strong><p className="muted">{dateTime(event.at)} ET{event.context && ` · ${event.context}`}</p><p>{event.note}</p>
+        {event.preflight && <details className="document-form"><summary>Evidence at this decision</summary><PreflightChecks preflight={event.preflight} /></details>}
       </li>)}</ul>
       <div className="loan-application-actions">
         {before && <Button size="sm" variant="outline" onClick={() => setBefore(undefined)}>Latest decisions</Button>}

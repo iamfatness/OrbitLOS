@@ -126,10 +126,11 @@ function SharedQuoteChanges({ shared, proposed }: { shared: QuotePresentation; p
   });
 }
 
-export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote }: {
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote, focusFees }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
   reviewSharedQuote?: boolean;
+  focusFees?: string;
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
@@ -170,7 +171,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   });
   const [formRevision, setFormRevision] = useState(reviewedIncome?.applicationRevision ?? (initialRun ? initialRun.applicationRevision : application?.revision ?? null));
   const [incomeRevision, setIncomeRevision] = useState(reviewedIncome?.revision ?? initialRun?.incomeReviewRevision ?? undefined);
-  const [preview, setPreview] = useState(Boolean(sourceIsSaved || reviewSharedQuote));
+  const [preview, setPreview] = useState(Boolean(sourceIsSaved || reviewSharedQuote || focusFees));
   const [pricing, setPricing] = useState(false);
   const amountInput = useRef<HTMLInputElement>(null);
   const savedQuoteSection = useRef<HTMLElement>(null);
@@ -386,7 +387,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         {primary && presentation ? <>
           <FeeWorksheetEditor key={`${primary.key}:${primary.worksheet?.revision ?? 0}`}
             run={primary.run} offer={primary.offer} saved={primary.worksheet} busy={busy} save={save}
-            brokerageId={brokerageId} current={!savedNeedsReprice} />
+            brokerageId={brokerageId} current={!savedNeedsReprice} focused={focusFees} />
           {comparable.length > 0 && <details className="document-form">
             <summary>Choose alternatives to compare</summary>
             <p className="muted">Include up to two alternatives for the same loan purpose. Save each worksheet to include its fees.</p>

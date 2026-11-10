@@ -6,6 +6,7 @@ import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { ClosingPacketWork } from "@/lib/closing-packet-model";
 import { closingServiceEvidenceLimit, type ClosingServiceEvidence } from "@/lib/closing-service-evidence-model";
 import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
+import { closingDisclosureReviewTarget } from "@/lib/file-preflight-model";
 import { closingChecklistListTarget, closingChecklistTarget, closingWorkbenchTarget, pausedLoan, reopenedMockClosingMessage } from "@/lib/loan-workflow";
 import { serviceOrderSlug, serviceOrderTarget, type ServiceOrder } from "@/lib/service-order-model";
 import { serviceOrderPdf } from "@/lib/service-order-pdf";
@@ -89,7 +90,7 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
     </ul>}
     {entry.changeReview && <p>Change review by {entry.changeReview.actor} · {entry.changeReview.reason} · {entry.changeReview.note}</p>}
   </>;
-  return <section className="document-item" aria-label="Sample disclosures for closing">
+  return <section className="document-item" id={closingDisclosureReviewTarget} tabIndex={-1} aria-label="Sample disclosures for closing">
     <div className="document-item-head"><strong>Sample disclosures for closing</strong><span className="pill">Mock evidence</span></div>
     <p>Package v{item.version} · {review ? "Confirmed for closing handoff" : sourceCurrent ? status : "Review required"}</p>
     {review ? reviewSummary(review) : <>

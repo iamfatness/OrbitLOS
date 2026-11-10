@@ -26,6 +26,8 @@ const { readProcessorQueue } = await import("../src/lib/processor-queue.ts");
 const { readFileExceptions, fileExceptionOwners, nameFileExceptions } = await import("../src/lib/file-exceptions.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { readPlaybook } = await import("../src/lib/playbooks.ts");
+const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
+const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const at = "2026-11-08T15:00:00.000Z";
 const today = "2026-11-08";
 
@@ -80,6 +82,93 @@ function secondReviewFixture(t) {
   assert.equal(startApplication(db, "loan", reviewTime), true);
   return { ...base, roster, reviewer, formerReviewer, command, save, enable, submit, review, approve, file };
 }
+
+test("preflight pins sample evidence, rejects stale decisions, and keeps the approval history", async (t) => {
+  const { db, officer, processor, outsider, admin, roster, work, create } = fixture(t);
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(at) });
+  const pilot = (staff) => ({ ...staff, brokerage: { ...staff.brokerage, pilot: true } });
+  const loanId = "loan";
+  const preflight = (staff = officer) => work({ type: "preflight", loanId }, pilot(staff));
+  const lookup = (input, staff = officer) => work({ loanId, ...input }, pilot(staff));
+  const mutate = async (type, fields = {}) => {
+    const result = await executeCommand(db, { type, loanId, ...fields }, pilot(officer), undefined, roster);
+    assert.ok(!result.error, result.error);
+    return result.state ?? result.loanWork;
+  };
+  assert.ok(work({ type: "preflight", loanId }, officer).error);
+  assert.ok(preflight(outsider).error);
+  assert.ok(work({ type: "preflight", loanId }, { ...pilot(admin), brokerage: { ...pilot(admin).brokerage, id: "another-brokerage" } }).error);
+  const missing = preflight().preflight;
+  assert.equal(missing.checks.find(({ id }) => id === "1003").target, "loan-application");
+  assert.equal(missing.checks.find(({ id }) => id === "disclosures").state, "Needs attention");
+  const request = create({ category: "File preflight", preflightKey: missing.key });
+  assert.equal(lookup(request).kind, "saved");
+  assert.equal(lookup(request).kind, "saved");
+  assert.match(lookup({ ...request, id: crypto.randomUUID() }).error, /already has a preflight review/);
+  const detail = { type: "detail", id: request.id };
+  const decide = (decision, revision) => ({ type: "decide", id: request.id, revision, decision, eventId: crypto.randomUUID(), note: "Fictional evidence reviewed." });
+  assert.match(lookup(decide("Approved", 1), processor).error, /Resolve the preflight issues/);
+  assert.match(lookup(decide("Changes requested", 1), admin).error, /current assigned reviewer/);
+  assert.equal(lookup(decide("Changes requested", 1), processor).kind, "saved");
+  assert.equal(lookup(detail).history[0].preflight.key, missing.key);
+  assert.equal(lookup({ type: "queue", view: "Requested by me", filter: "Open" }).reviews[0].status, "Changes requested");
+
+  const app = (await mutate("startApplication")).applications[0];
+  const borrower = (input) => borrowerCommandResult(db, { token: app.token, ...input });
+  const initial = borrower({ type: "read" }).application;
+  const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+  const submitted = borrower({ type: "submit", revision: initial.revision, step: 9, draft }).application;
+  assert.ok(submitted?.submittedAt);
+  await mutate("reviewApplication", { revision: submitted.revision });
+  const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
+    zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+    propertyType: "Single family", firstTimeBuyer: false };
+  const [run] = (await mutate("runPricing", { applicationRevision: submitted.revision, scenario })).pricingRuns;
+  const choice = { runId: run.id, offerId: run.offers[0].id };
+  await mutate("selectOffer", choice);
+  const sampleFees = { origination: 95_000, appraisal: 65_000, creditReport: 0, settlement: 100_000, government: 0, prepaid: 0, escrow: 0, other: 0 };
+  const worksheet = { fees: { ...sampleFees, appraisal: null }, purchasePrice: 45_000_000, payoffs: null,
+    deposit: 0, sellerCredits: 0, otherCredits: 0 };
+  await mutate("saveFeeWorksheet", { ...choice, feeRevision: 0, worksheet });
+  assert.equal(preflight().preflight.checks.find(({ id }) => id === "fees").target, "preflight-fee-worksheet-appraisal");
+  await mutate("saveFeeWorksheet", { ...choice, feeRevision: 1, worksheet: { ...worksheet, fees: sampleFees } });
+  await mutate("prepareDisclosurePackage", { ...choice, feeRevision: 2, applicationRevision: submitted.revision,
+    previousVersion: null, documents: sampleDisclosureDocuments, signBy: today });
+  const version = () => {
+    const [row] = readDisclosureWork(db, loanId).packages;
+    return { version: row.version, revision: row.revision };
+  };
+  await mutate("issueDisclosurePackage", version());
+  await mutate("respondToDisclosurePackage", { ...version(), signer: "Borrower", response: "Signed" });
+  assert.equal(preflight().preflight.checks.find(({ id }) => id === "disclosures").target, "closing-disclosure-review");
+  await mutate("confirmClosingDisclosure", version());
+  await mutate("sendApplication", { revision: submitted.revision, quote: choice });
+  const lender = db.prepare("SELECT id, conditions, externalId FROM submissions WHERE loanId = ?").get(loanId);
+  const conditions = JSON.parse(lender.conditions);
+  assert.equal(preflight().preflight.checks.find(({ id }) => id.startsWith("condition:")).state, "Needs attention");
+  db.prepare("UPDATE submissions SET conditions = ? WHERE id = ?").run(JSON.stringify(conditions.map((item) => ({ ...item, satisfiedAt: at }))), lender.id);
+  const ready = preflight().preflight;
+  assert.ok(ready.checks.every(({ state }) => state === "Ready"), JSON.stringify(ready.checks));
+  const resend = { type: "resubmit", id: request.id, revision: 2, eventId: crypto.randomUUID(), dueOn: today,
+    note: "Resolved the sample issues.", preflightKey: ready.key };
+  assert.match(lookup({ ...resend, preflightKey: missing.key }).error, /preflight changed/);
+  assert.equal(lookup(resend).kind, "saved");
+  assert.equal(lookup(detail, processor).review.canDecide, true);
+  const decision = decide("Approved", 3);
+  assert.equal(lookup(decision, processor).kind, "saved");
+  assert.equal(lookup(decision, processor).kind, "saved");
+  assert.equal(preflight().latest.current, true);
+  assert.equal(preflight().canRequest, false);
+  const approved = lookup(detail).history[0];
+  assert.deepEqual([approved.action, approved.actorName, approved.preflight.key], ["Approved", processor.name, ready.key]);
+  await mutate("saveFeeWorksheet", { ...choice, feeRevision: 2, worksheet: { ...worksheet, fees: { ...sampleFees, appraisal: 70_000 } } });
+  assert.equal(preflight().latest.current, false);
+  assert.equal(preflight().canRequest, true);
+  assert.equal(lookup(detail).review.evidenceChanged, true);
+  assert.deepEqual(lookup(detail).history[0], approved);
+  assert.doesNotMatch(JSON.stringify(borrower({ type: "status" })), /preflight|Resolved the sample issues/i);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
 
 test("the second 1003 review rule defaults off, validates the selected admin, and survives an older playbook save", async (t) => {
   const { db, admin, officer, formerReviewer, save, enable, submit, review, file } = secondReviewFixture(t);

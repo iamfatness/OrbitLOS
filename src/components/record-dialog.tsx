@@ -54,6 +54,7 @@ import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loan
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
+import { closingDisclosureReviewTarget, filePreflightRequestTarget, filePreflightTarget, preflightFeesTarget } from "@/lib/file-preflight-model";
 import { ManualConditions } from "./manual-conditions";
 import { ContactHistory, FundingCheckInForm } from "./contact-crm";
 import { ConditionResponse } from "./condition-response";
@@ -88,7 +89,7 @@ export type Modal =
   | { kind: "documentFollowUp"; loanId: string }
   | { kind: "returningClient"; loanId: string; fromRateWatch?: true }
   | { kind: "fundingCheckIn"; loanId: string; returnToLoan?: boolean; campaignLender?: CampaignLenderPath }
-  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean; sourceQuote?: ScenarioQuoteSource; reviewedIncome?: ReviewedIncomeSource; reviewSharedQuote?: boolean }
+  | { kind: "pricing"; loanId: string; campaignLender?: CampaignLenderPath; useMockScore?: boolean; sourceQuote?: ScenarioQuoteSource; reviewedIncome?: ReviewedIncomeSource; reviewSharedQuote?: boolean; focusFees?: string }
   | { kind: "retention"; loanId: string }
   | { kind: "submission"; loanId: string; submissionId?: string };
 
@@ -477,9 +478,9 @@ function loanSection(target?: string) {
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
     target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";
   if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet" || target === sharedQuoteReviewTarget) return "Pricing & credit";
-  if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" ||
+  if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" || target === closingDisclosureReviewTarget ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
-  if (["loan-activity", "loan-tasks", "loan-retention", "loan-communications", loanReviewsTarget].includes(target) ||
+  if (["loan-activity", "loan-tasks", "loan-retention", "loan-communications", loanReviewsTarget, filePreflightRequestTarget].includes(target) ||
     target.startsWith(appointmentTargetPrefix) || target.startsWith(searchTaskTarget("")) || target.startsWith(reviewTarget(""))) return "Activity";
   return "Overview";
 }
@@ -601,6 +602,13 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const checklistLinks = borrowerChecklistLinks(application);
   const joint = !!application?.joint;
   const open = (destination: string) => {
+    if (destination.startsWith(preflightFeesTarget)) {
+      if (!processor) {
+        show({ kind: "pricing", loanId: loan.id, campaignLender, focusFees: destination });
+        return;
+      }
+      destination = "loan-pricing";
+    }
     const needsDisclosures = !state.disclosureWork &&
       (destination === disclosureTarget || !staff && canOpenDisclosures && loanSection(destination) === "Closing");
     const needsServiceOrders = !staff && state.closingServiceEvidence === undefined && ["Conditions", "Closing"].includes(loanSection(destination));
@@ -654,7 +662,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         {stages.map((stage) => <option key={stage} disabled={!!reopenedClosing && stage !== loan.stage &&
           mockClearanceClosingStages.some((item) => item === stage)}>{stage}</option>)}
       </select></Field>
-      <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open}
+      <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} preflightOpen={target === filePreflightTarget}
+        preflightBrokerage={canOpenDisclosures ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         preapprovalBrokerage={staff ? !processor && (staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) ? staff.brokerage.id : undefined :
           process.env.NODE_ENV === "development" ? demoBrokerageId : undefined} />
       </>}
@@ -743,7 +752,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Activity" && <>
       {canOpenReviews && <LoanReviews loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
         focusId={target?.startsWith(reviewTarget("")) ? target.slice(reviewTarget("").length) : undefined}
-        onChanged={reviewChanged} openEvidence={open} />}
+        onChanged={reviewChanged} openEvidence={open} requestPreflight={target === filePreflightRequestTarget} />}
       <LoanAppointments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
         focusId={target?.startsWith(appointmentTargetPrefix) ? target.slice(appointmentTargetPrefix.length) : undefined} onChange={appointmentChanged} />
       {realtorDraft && <section className="details-section">
@@ -884,7 +893,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
     };
   }, []);
-  const target = modal.kind === "pricing" ? "pricing-workbench" : modal.kind === "returningClient" ? "returning-client-purpose" :
+  const target = modal.kind === "pricing" ? modal.focusFees ?? "pricing-workbench" : modal.kind === "returningClient" ? "returning-client-purpose" :
     modal.kind === "fundingCheckIn" ? "funding-check-in-channel" :
     modal.kind === "details" ? modal.target : undefined;
   useEffect(() => {
@@ -969,7 +978,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     returningClient: "Start returning-client 1003",
     fundingCheckIn: "Record borrower check-in",
   }[modal.kind];
-  const backTarget = modal.kind === "pricing" ? (modal.sourceQuote ? "loan-scenarios" : "loan-pricing") : modal.kind === "communication" ? modal.returnTo ?? "loan-communications" :
+  const backTarget = modal.kind === "pricing" ? (modal.focusFees ? filePreflightTarget : modal.sourceQuote ? "loan-scenarios" : "loan-pricing") : modal.kind === "communication" ? modal.returnTo ?? "loan-communications" :
     modal.kind === "retention" ? "loan-retention" : modal.kind === "documentFollowUp" ? "document-checklist" :
     modal.kind === "submission" ? "lender-submissions" : modal.kind === "fundingCheckIn" && modal.returnToLoan ? "loan-tasks" : undefined;
   const back = () => loan ? show({ kind: "details", loanId: loan.id, target: backTarget, campaignLender }) : close();
@@ -1072,7 +1081,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?
             () => show({ kind: "details", loanId: loan.id, campaignLender, target: "income-worksheet" }) : undefined}
-          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} reviewSharedQuote={modal.reviewSharedQuote} />}
+          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} reviewSharedQuote={modal.reviewSharedQuote} focusFees={modal.focusFees} />}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({
             type: "saveRetention", loanId: loan.id, revision: retention?.revision ?? 0, closingDate: text(data, "closingDate"),

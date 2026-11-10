@@ -311,7 +311,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const parsed = reviewInput.safeParse(input);
     if (!parsed.success) return { error: "Check the reviewer, dates, and note before continuing." };
     const action = parsed.data;
-    if (action.type === "queue") return loanReviewWork(this.#store, action, staff, this.#id, []);
+    if (action.type === "queue" || action.type === "preflight") return loanReviewWork(this.#store, action, staff, this.#id, []);
     const selected = action.type === "inbox" || action.type === "readNotice" ? [staff.email] : reviewParticipants(this.#store, action, staff);
     if (!selected) return { error: reviewsUnavailable };
     if ((action.type === "comment" && !action.mentionEmail) || action.type === "escalate") {

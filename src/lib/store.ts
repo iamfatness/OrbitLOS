@@ -426,6 +426,12 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE INDEX IF NOT EXISTS loan_review_events_by_review ON loan_review_events(reviewId, sequence DESC);
     CREATE INDEX IF NOT EXISTS loan_review_schedule_events ON loan_review_events(reviewId, sequence DESC)
       WHERE action IN ('Requested', 'Changes requested', 'Resubmitted', 'Reassigned');
+    CREATE TABLE IF NOT EXISTS loan_review_preflight (
+      eventId TEXT PRIMARY KEY REFERENCES loan_review_events(id) ON DELETE CASCADE,
+      snapshot TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS one_open_preflight_by_loan ON loan_reviews(loanId)
+      WHERE category = 'File preflight' AND status IN ('Requested', 'Changes requested');
     CREATE TABLE IF NOT EXISTS loan_review_notices (
       eventId TEXT NOT NULL REFERENCES loan_review_events(id) ON DELETE CASCADE,
       recipientEmail TEXT NOT NULL, recipientRole TEXT NOT NULL, recipientRevision INTEGER NOT NULL,

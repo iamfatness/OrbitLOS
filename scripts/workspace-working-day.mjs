@@ -20,6 +20,7 @@ const { applyLeadConversion } = await import("../src/lib/lead-work-model.ts");
 const { afterHours, defaultPlaybook, fundingTaskId } = await import("../src/lib/playbook-model.ts");
 const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exception-model.ts");
 const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
+const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { closingReviewReady, loanNextAction } = await import("../src/lib/loan-workflow.ts");
 const { manualReturnStatus, manualReturnSteps } = await import("../src/lib/lender-export-model.ts");
@@ -1008,6 +1009,51 @@ try {
     const partner = await realtor(realtorToken);
     assert.ok(partner.referrals.some(({ borrowerName, stage }) => borrowerName === imported.name && stage === cleared.loans[0].stage));
     assert.doesNotMatch(JSON.stringify(partner), /Internal note/);
+  });
+
+  await stage("File preflight links the current evidence and keeps the processor decision", async () => {
+    const preflight = (staff = officer) => action(staff, "workOnLoanReview", { type: "preflight", loanId }, brokerage);
+    const review = (staff, input) => action(staff, "workOnLoanReview", { loanId, ...input }, brokerage);
+    assert.ok((await preflight(competingOfficer)).error);
+    const current = await preflight();
+    assert.equal(current.preflight.checks.find(({ id }) => id === "lender").state, "Ready");
+    assert.equal(current.preflight.checks.find(({ id }) => id === "amount").target, "loan-amount-comparison");
+    assert.equal(current.preflight.checks.find(({ id }) => id === "fees").target, "preflight-fee-worksheet-settlement");
+    assert.equal(current.preflight.checks.find(({ id }) => id === "documents").state, "Ready");
+    const reviewId = randomUUID();
+    const request = { type: "create", id: reviewId, title: "Sample closing preflight", category: "File preflight",
+      reviewerEmail: processor.email, dueOn: today, note: "Review the sample evidence.", preflightKey: current.preflight.key };
+    assert.equal((await review(officer, request)).kind, "saved");
+    const decision = { type: "decide", id: reviewId, revision: 1, eventId: randomUUID(), decision: "Approved", note: "Sample evidence checked." };
+    assert.match((await review(processor, decision)).error, /Resolve the preflight issues/);
+    const currentFile = await file(officer, loanId);
+    const app = currentFile.applications[0];
+    await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
+    const [fee] = currentFile.feeWorksheets;
+    const selection = { runId: fee.runId, offerId: fee.offerId };
+    const fees = Object.fromEntries(Object.entries(fee.inputs.fees).map(([key, amount]) => [key, amount ?? 0]));
+    await loanAction(officer, loanId, "saveFeeWorksheet", { ...selection, feeRevision: fee.revision, worksheet: { ...fee.inputs, fees } });
+    assert.match((await review(processor, decision)).error, /Preflight evidence changed/);
+    await loanAction(officer, loanId, "prepareDisclosurePackage", { ...selection, feeRevision: fee.revision + 1,
+      previousVersion: null, applicationRevision: app.revision, documents: sampleDisclosureDocuments, signBy: today });
+    const version = async () => {
+      const [{ version, revision }] = (await file(officer, loanId)).disclosureWork.packages;
+      return { version, revision };
+    };
+    await loanAction(officer, loanId, "issueDisclosurePackage", await version());
+    await loanAction(officer, loanId, "respondToDisclosurePackage", { ...await version(), signer: "Borrower", response: "Signed" });
+    assert.equal((await preflight()).preflight.checks.find(({ id }) => id === "disclosures").target, "closing-disclosure-review");
+    await loanAction(officer, loanId, "confirmClosingDisclosure", await version());
+    const ready = (await preflight()).preflight;
+    assert.ok(ready.checks.every(({ state }) => state === "Ready"), JSON.stringify(ready.checks));
+    assert.equal((await review(officer, { type: "resubmit", id: reviewId, revision: 1, eventId: randomUUID(),
+      note: "The sample worksheet and signatures are ready.", dueOn: today, preflightKey: ready.key })).kind, "saved");
+    assert.equal((await review(processor, { ...decision, eventId: randomUUID(), revision: 2 })).kind, "saved");
+    const detail = await review(officer, { type: "detail", id: reviewId });
+    assert.equal(detail.review.status, "Approved");
+    assert.equal(detail.history[0].preflight.key, ready.key);
+    assert.equal(detail.history.at(-1).preflight.key, current.preflight.key);
+    assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /Sample closing preflight|Sample evidence checked/);
   });
 
   const repeatFile = await stage("LO closes, funds, and opens the repeat application", async () => {

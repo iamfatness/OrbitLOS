@@ -36,6 +36,7 @@ export default function DemoPage() {
           <li>Ask a borrower a question from the loan. Review their answer from Incoming loan work, or send it back to their private action list for clarification.</li>
           <li>Confirm the signed sample package from Closing. A replacement leaves the earlier confirmation and receipts in history.</li>
           <li>Download a versioned sample closing packet with the confirmed disclosure, mock signer receipts, and the checklist as it stood at preparation.</li>
+          <li>Open file preflight, jump to the exact missing sample fee or lender condition, and assign a review of the current evidence. Changes to the file flag an earlier approval as out of date.</li>
           <li>Open a settlement exception on the exact funding cycle. Review the difference between sample purchase advice and receipts, and keep corrections in the cycle history.</li>
           <li>Compare a sample settlement fee statement with the confirmed disclosure. Open itemized fee differences directly from the settlement exception queue.</li>
           <li>Recover a missing mock UWM receipt from Today. Open the mock UWM delivery timeline to see which 1003 revision arrived and why older or duplicate updates left a cleared condition in place.</li>

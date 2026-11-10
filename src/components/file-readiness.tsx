@@ -8,10 +8,14 @@ import type { Loan, Workspace } from "@/lib/model";
 import { money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { PreapprovalLetters } from "./preapproval-letters";
+import { filePreflightTarget } from "@/lib/file-preflight-model";
+import { FilePreflightPanel } from "./file-preflight";
 
-export function FileReadiness({ loan, state, busy, save, open, preapprovalBrokerage }: {
+export function FileReadiness({ loan, state, busy, save, open, preapprovalBrokerage, preflightBrokerage, preflightOpen }: {
   loan: Loan; state: Workspace; busy: boolean;
   preapprovalBrokerage?: string;
+  preflightBrokerage?: string;
+  preflightOpen: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   open: (target: string) => void;
 }) {
@@ -43,7 +47,9 @@ export function FileReadiness({ loan, state, busy, save, open, preapprovalBroker
       <Button size="sm" variant="outline" onClick={() => open("loan-application")}>1003 · {status}</Button>
       <Button size="sm" variant="outline" onClick={() => open("document-checklist")}>Open document checklist</Button>
       <Button size="sm" variant="outline" onClick={() => open("credit-aus")}>Review mock credit and AUS</Button>
+      {preflightBrokerage && !preflightOpen && <Button size="sm" variant="outline" onClick={() => open(filePreflightTarget)}>Open file preflight</Button>}
     </div>
+    {preflightBrokerage && preflightOpen && <FilePreflightPanel key={loan.id} loanId={loan.id} brokerageId={preflightBrokerage} open={open} />}
     {openItems.length > 0 && <ul className="loan-task-list">{openItems.map((item) => <li key={item.id}>
       <button className="name-link" type="button" onClick={() => open(`document-${item.id}`)}>{item.kind} · {item.status}</button>
     </li>)}</ul>}
