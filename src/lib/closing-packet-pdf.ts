@@ -102,7 +102,7 @@ export function closingPacketPdf({ version, preparedAt, preparedBy, snapshot }: 
       `Owner: ${item.owner}`], 12);
     for (const evidence of item.serviceEvidence ?? []) {
       ensure(4);
-      rows([`Sample ${evidence.kind.toLowerCase()} evidence`], 24);
+        rows([`Sample ${evidence.kind.toLowerCase()} evidence${evidence.recipient ? ` · ${evidence.recipient}` : ""}`], 24);
       rows([evidence.reference], 24, 9);
       rows([`Accepted by ${evidence.acceptedBy} on ${stamp(evidence.acceptedAt)}`,
         `Linked by ${evidence.linkedBy} on ${stamp(evidence.linkedAt)}`], 24);

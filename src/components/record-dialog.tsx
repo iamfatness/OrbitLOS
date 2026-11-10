@@ -751,7 +751,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           canSimulate={!processor && (!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot)}
           onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
-      {state.serviceOrders !== undefined && <LoanServiceOrders key={loan.id} loanId={loan.id}
+      {state.serviceOrders !== undefined && <LoanServiceOrders key={loan.id} loanId={loan.id} joint={joint}
         orders={state.serviceOrders.filter((item) => item.loanId === loan.id)} busy={busy}
         owner={state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail)?.processorName || loan.officer || "Unassigned"}
         editable={!pausedLoan(loan) && !pastClientLoan(loan)} save={save} openClosing={() => open(closingChecklistListTarget)} />}

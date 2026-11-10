@@ -3,8 +3,9 @@
 import { useRef, useState, type FormEvent } from "react";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { dateLabel, easternDate } from "@/lib/client-retention";
+import { documentRecipients } from "@/lib/document-model";
 import { shiftReportDate } from "@/lib/report-date-range";
-import { serviceOrderKinds, serviceOrderLimit, serviceOrderSlug, serviceOrderTarget, serviceOrdersTarget, type ServiceOrder, type ServiceOrderCommand } from "@/lib/service-order-model";
+import { isVerificationOrder, serviceOrderKinds, serviceOrderLimit, serviceOrderSlug, serviceOrderTarget, serviceOrdersTarget, type ServiceOrder, type ServiceOrderCommand } from "@/lib/service-order-model";
 import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
@@ -24,7 +25,7 @@ function ServiceOrderCard({ item, today, busy, editable, save, openClosing }: {
       action, dueOn: date, note: action === "Accept" || action === "Request replacement" || action === "Cancel" ? note : "" });
   }
   return <article className="document-item record-form" id={serviceOrderTarget(item.id)} tabIndex={-1} aria-label={`Mock ${item.kind.toLowerCase()} order`}>
-    <div className="document-item-head"><strong>{item.kind}</strong><span className="pill">{item.status}</span></div>
+    <div className="document-item-head"><strong>{item.kind}{item.recipient && ` · ${item.recipient}`}</strong><span className="pill">{item.status}</span></div>
     <p className="muted">{item.owner} · {open && item.dueOn < today ? "Overdue since" : "Due"} {dateLabel(item.dueOn)} ET</p>
     <p className="muted">Recorded by {item.createdBy} · {dateTime(item.createdAt)} ET</p>
     {item.note && <p>{item.note}</p>}
@@ -35,7 +36,7 @@ function ServiceOrderCard({ item, today, busy, editable, save, openClosing }: {
         <p className="muted">{dateTime(receipt.returnedAt)} ET · {receipt.receivedBy}</p>
         <p className="muted">{receipt.reference}</p>
         {receipt.review && <p>{receipt.review.actor} · {dateTime(receipt.review.at)} ET{receipt.review.note && ` · ${receipt.review.note}`}</p>}
-        <div><Button size="sm" variant="outline" onClick={() => downloadSampleFile(serviceOrderPdf(item.kind, receipt),
+        <div><Button size="sm" variant="outline" onClick={() => downloadSampleFile(serviceOrderPdf(item.kind, receipt, item.recipient),
           `orbit-sample-${serviceOrderSlug(item.kind)}-${index + 1}.pdf`, "application/pdf")}>Download sample return {index + 1} PDF</Button></div>
       </div>
     </li>)}</ul>}
@@ -67,32 +68,43 @@ function ServiceOrderCard({ item, today, busy, editable, save, openClosing }: {
   </article>;
 }
 
-export function LoanServiceOrders({ loanId, orders, owner, busy, editable, save, openClosing }: {
-  loanId: string; orders: ServiceOrder[]; owner: string; busy: boolean; editable: boolean; save: Save; openClosing: () => void;
+export function LoanServiceOrders({ loanId, orders, owner, joint, busy, editable, save, openClosing }: {
+  loanId: string; orders: ServiceOrder[]; owner: string; joint: boolean; busy: boolean; editable: boolean; save: Save; openClosing: () => void;
 }) {
   const today = easternDate();
   const attempt = useRef<{ key: string; id: string } | null>(null);
-  const allowed = serviceOrderKinds.filter((kind) => !orders.some((item) => item.kind === kind && ["Ordered", "Received"].includes(item.status)));
+  const [choice, setChoice] = useState<ServiceOrder["kind"]>(serviceOrderKinds[0]);
+  const hasOpen = (kind: ServiceOrder["kind"], recipient: ServiceOrder["recipient"]) =>
+    orders.some((item) => item.kind === kind && (item.recipient ?? null) === recipient && ["Ordered", "Received"].includes(item.status));
+  const eligibleRecipients = (kind: ServiceOrder["kind"]) =>
+    (joint ? documentRecipients : documentRecipients.slice(0, 1)).filter((recipient) => !hasOpen(kind, recipient));
+  const allowed = serviceOrderKinds.filter((kind) => isVerificationOrder(kind) ? eligibleRecipients(kind).length > 0 : !hasOpen(kind, null));
+  const selected = allowed.includes(choice) ? choice : allowed[0];
   function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const values = new FormData(form);
-    const kind = values.get("kind"), dueOn = values.get("dueOn"), note = String(values.get("note") ?? "").trim();
-    const key = JSON.stringify([kind, dueOn, note]);
+    const kind = values.get("kind"), recipient = values.get("recipient") ?? undefined;
+    const dueOn = values.get("dueOn"), note = String(values.get("note") ?? "").trim();
+    const key = JSON.stringify([kind, recipient, dueOn, note]);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
-    void save({ type: "createServiceOrder", orderId: attempt.current.id, loanId, kind, dueOn, note }, () => {
+    void save({ type: "createServiceOrder", orderId: attempt.current.id, loanId, kind, recipient, dueOn, note }, () => {
       attempt.current = null;
       form.reset();
     });
   }
   return <section className="details-section document-section" id={serviceOrdersTarget} tabIndex={-1} aria-label="Loan service orders">
     <div className="section-heading"><h3>Service orders</h3><span className="pill">Mock services</span></div>
-    <p className="muted">Track appraisal, title, homeowners insurance, flood, and mortgage insurance. New work goes to {owner}.</p>
+    <p className="muted">Track property services and borrower verifications. New work goes to {owner}.</p>
     {editable && allowed.length > 0 && orders.length < serviceOrderLimit && <details className="document-form">
       <summary>New mock service order</summary>
-      <form key={allowed.join(",")} className="record-form" onSubmit={create}>
+      <form className="record-form" onSubmit={create}>
         <div className="form-grid">
-          <label className="field">Service<select name="kind" required disabled={busy}>{allowed.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
+          <label className="field">Service<select name="kind" value={selected} required disabled={busy}
+            onChange={(event) => setChoice(event.target.value as ServiceOrder["kind"])}>{allowed.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
+          {isVerificationOrder(selected) && <label className="field">Borrower<select key={selected} name="recipient" required disabled={busy}>
+            {eligibleRecipients(selected).map((recipient) => <option key={recipient}>{recipient}</option>)}
+          </select></label>}
           <label className="field">Expected return date (Eastern)<input name="dueOn" type="date" required defaultValue={shiftReportDate(today, 3)}
             min={shiftReportDate(today, -30)} max={shiftReportDate(today, 365)} disabled={busy} /></label>
         </div>

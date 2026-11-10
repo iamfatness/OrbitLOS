@@ -159,12 +159,12 @@ function ClosingServiceLinks({ item, links, orders, editable, busy, save, open }
   return <div className="document-section">
     {links.length > 0 && <ul className="document-list" aria-label="Linked sample service evidence">{links.map((link) =>
       <li className="document-item" key={link.reference}>
-        <strong>{link.kind} · Accepted sample return</strong>
+        <strong>{link.kind}{link.recipient && ` · ${link.recipient}`} · Accepted sample return</strong>
         <p className="muted">{link.reference}</p>
         <p className="muted">Accepted by {link.acceptedBy} · {dateTime(link.acceptedAt)} ET</p>
         <p className="muted">Linked by {link.linkedBy} · {dateTime(link.linkedAt)} ET</p>
         <div className="loan-application-actions">
-          <Button size="sm" variant="outline" onClick={() => downloadSampleFile(serviceOrderPdf(link.kind, link),
+          <Button size="sm" variant="outline" onClick={() => downloadSampleFile(serviceOrderPdf(link.kind, link, link.recipient),
             `orbit-sample-${serviceOrderSlug(link.kind)}-${link.reference.slice(-15).toLowerCase()}.pdf`, "application/pdf")}>Download linked PDF</Button>
           <Button size="sm" variant="outline" onClick={() => open(serviceOrderTarget(link.orderId))}>Open service order</Button>
           {editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => change(link.orderId, link.reference, false)}>Unlink evidence</Button>}
@@ -181,7 +181,7 @@ function ClosingServiceLinks({ item, links, orders, editable, busy, save, open }
         <label className="field">Accepted sample return<select name="reference" required defaultValue="" disabled={busy}>
           <option value="" disabled>Choose a sample return</option>
           {choices.map(({ order, receipt }) => <option key={receipt.reference} value={receipt.reference}>
-            {order.kind} · {dateTime(receipt.returnedAt)} ET · {receipt.reference.slice(-15)}
+            {order.kind}{order.recipient && ` · ${order.recipient}`} · {dateTime(receipt.returnedAt)} ET · {receipt.reference.slice(-15)}
           </option>)}
         </select></label>
         <div><Button size="sm" type="submit" disabled={busy}>Link sample return</Button></div>

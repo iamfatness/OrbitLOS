@@ -400,7 +400,8 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
           EXISTS (SELECT 1 FROM applications app WHERE app.loanId = loan.id AND ${firstReview}))` : ""}`,
     "task.id", "task.dueAt", "loan.officerEmail", "loan.officer", false, [], `tasks task WHERE ${openLoanTask}`),
     ...select("service-order", (join) => `service.id, loan.id AS recordId, contact.name, service.dueOn AS dueAt,
-      CASE service.status WHEN 'Received' THEN 'Review mock ' ELSE 'Follow up on mock ' END || lower(service.kind) AS title
+      CASE service.status WHEN 'Received' THEN 'Review mock ' ELSE 'Follow up on mock ' END || lower(service.kind) ||
+        coalesce(' · ' || service.recipient, '') AS title
       FROM service_orders service ${join} loans loan ON loan.id = service.loanId JOIN contacts contact ON contact.id = loan.contactId
       LEFT JOIN loan_processing processing ON processing.loanId = loan.id
       WHERE ${dueForLoan} AND ${openServiceOrderSql}${processor ? " AND processing.processorEmail IS NOT NULL" : ""}`,

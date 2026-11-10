@@ -1,4 +1,5 @@
 import { addApplicationActivity } from "./applications";
+import { documentRecipientAvailable } from "./borrower-documents";
 import { easternDate } from "./client-retention";
 import { shiftReportDate } from "./report-date-range";
 import { serviceOrderLimit, serviceOrdersUnavailable, serviceOrderSlug, serviceReturnLimit, type ServiceOrder,
@@ -12,7 +13,7 @@ export const serviceOrderOwnerEmailSql = "coalesce(processing.processorEmail, lo
 export const serviceOrderOwnerSql = "coalesce(nullif(processing.processorName, ''), nullif(loan.officer, ''), 'Unassigned')";
 const activeLoan = "loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')";
 const serviceLoan = `JOIN loans loan ON loan.id = service.loanId LEFT JOIN loan_processing processing ON processing.loanId = loan.id`;
-const publicColumns = "service.id, service.loanId, service.kind, service.status, service.dueOn";
+const publicColumns = "service.id, service.loanId, service.kind, service.status, service.dueOn, service.recipient";
 const orderColumns = `${publicColumns}, service.revision, service.createdAt, service.createdBy, service.note, service.returns, service.cancellation,
   ${serviceOrderOwnerSql} AS owner`;
 type StoredServiceOrder = Omit<ServiceOrder, "returns"> & { returns: string; lastCommand: string | null; originalDueOn: string };
@@ -72,17 +73,22 @@ export function changeServiceOrder(db: Store, data: ServiceOrderCommand, staff: 
     }
   }
   if (data.type === "createServiceOrder") {
-    if (current) return current.kind === data.kind && current.originalDueOn === data.dueOn && current.note === data.note
+    const recipient = data.recipient ?? null;
+    if (current) return current.kind === data.kind && current.originalDueOn === data.dueOn && current.note === data.note && current.recipient === recipient
       ? { message: "Mock service order already recorded." } : { error: "This service order identifier has already been used." };
-    if (db.prepare(`SELECT 1 FROM service_orders service WHERE service.loanId = ? AND service.kind = ? AND ${openServiceOrderSql}`).get(loanId, data.kind)) {
-      return { error: `An open mock ${data.kind.toLowerCase()} order already exists on this loan.` };
+    if (recipient && !documentRecipientAvailable(db, loanId, recipient)) {
+      return { error: "Add a co-borrower to this loan before recording their verification." };
+    }
+    if (db.prepare(`SELECT 1 FROM service_orders service WHERE service.loanId = ? AND service.kind = ?
+      AND coalesce(service.recipient, '') = ? AND ${openServiceOrderSql}`).get(loanId, data.kind, recipient ?? "")) {
+      return { error: `An open mock ${data.kind.toLowerCase()} order already exists ${recipient ? `for the ${recipient.toLowerCase()}` : "on this loan"}.` };
     }
     if (Number(db.prepare("SELECT count(*) AS total FROM service_orders WHERE loanId = ?").get(loanId)?.total) >= serviceOrderLimit) {
       return { error: `This sample loan already has ${serviceOrderLimit} service orders.` };
     }
-    db.prepare(`INSERT INTO service_orders (id, loanId, kind, dueOn, originalDueOn, createdAt, createdBy, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(orderId, loanId, data.kind, data.dueOn, data.dueOn, at, actor, data.note);
-    addApplicationActivity(db, loanId, `Recorded mock ${data.kind.toLowerCase()} order · Due ${data.dueOn} · ${actor}`, at);
+    db.prepare(`INSERT INTO service_orders (id, loanId, kind, dueOn, originalDueOn, createdAt, createdBy, note, recipient)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(orderId, loanId, data.kind, data.dueOn, data.dueOn, at, actor, data.note, recipient);
+    addApplicationActivity(db, loanId, `Recorded mock ${data.kind.toLowerCase()} order${recipient ? ` · ${recipient}` : ""} · Due ${data.dueOn} · ${actor}`, at);
     return { message: `Mock ${data.kind.toLowerCase()} order recorded.` };
   }
 
@@ -127,6 +133,6 @@ export function changeServiceOrder(db: Store, data: ServiceOrderCommand, staff: 
   }
   db.prepare(`UPDATE service_orders SET status = ?, dueOn = ?, returns = ?, cancellation = ?, lastCommand = ?, revision = revision + 1
     WHERE id = ?`).run(status, data.dueOn ?? current.dueOn, JSON.stringify(returns), cancellation, command, orderId);
-  addApplicationActivity(db, loanId, `Mock ${current.kind.toLowerCase()} order · ${detail} · ${actor}${data.note ? ` · ${data.note}` : ""}`, at);
+  addApplicationActivity(db, loanId, `Mock ${current.kind.toLowerCase()} order${current.recipient ? ` · ${current.recipient}` : ""} · ${detail} · ${actor}${data.note ? ` · ${data.note}` : ""}`, at);
   return { message: `${detail} for mock ${current.kind.toLowerCase()} order.` };
 }

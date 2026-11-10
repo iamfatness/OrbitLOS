@@ -411,7 +411,7 @@ In a sample fee worksheet, expand **Payer and payee details** and open a fee lin
 
 ### Try a mock service order
 
-On an active fictional loan, open **Conditions → Service orders → New mock service order**. Choose appraisal, title, homeowners insurance, flood, or mortgage insurance. Set the expected return date and record the order. A past date lets you rehearse overdue work. The assigned processor sees it in **Processing → Service orders**, or the loan officer sees it in **Today** when no processor is assigned. The team queue has filters for **Overdue** and **Ready to review**.
+On an active fictional loan, open **Conditions → Service orders → New mock service order**. Choose a property service or an employment, income, or asset verification. For verification, choose the primary borrower or a linked co-borrower. Each borrower can have an open order of the same type. Set the expected return date and record the order. A past date lets you rehearse overdue work. The assigned processor sees it in **Processing → Service orders**, or the loan officer sees it in **Today** when no processor is assigned. The team queue has filters for **Overdue** and **Ready to review**. The sample PDF and linked closing evidence identify the borrower role.
 
 Open the order and simulate a return. Download its sample PDF, then accept it or request a replacement with an internal note. Each return keeps its own reference, PDF, and review history. Accepting or cancelling the order clears its open deadline. Provider activity is simulated.
 

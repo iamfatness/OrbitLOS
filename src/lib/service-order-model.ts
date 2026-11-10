@@ -1,6 +1,11 @@
 import { z } from "zod";
+import { documentRecipients, type DocumentRecipient } from "./document-model";
 
-export const serviceOrderKinds = ["Appraisal", "Title", "Homeowners insurance", "Flood", "Mortgage insurance"] as const;
+const verificationOrderKinds = ["Employment verification", "Income verification", "Asset verification"] as const;
+export const serviceOrderKinds = ["Appraisal", "Title", "Homeowners insurance", "Flood", "Mortgage insurance", ...verificationOrderKinds] as const;
+export function isVerificationOrder(kind: ServiceOrder["kind"]) {
+  return verificationOrderKinds.some((verification) => verification === kind);
+}
 export const serviceOrderViews = ["Open", "Overdue", "Ready to review"] as const;
 export const serviceOrderLimit = 24;
 export const serviceReturnLimit = 8;
@@ -16,7 +21,9 @@ const note = z.string().trim().max(500);
 
 export const createServiceOrder = z.strictObject({
   type: z.literal("createServiceOrder"), loanId: id, orderId, kind: z.enum(serviceOrderKinds), dueOn, note,
-});
+  recipient: z.enum(documentRecipients).optional(),
+}).refine(({ kind, recipient }) => isVerificationOrder(kind) === Boolean(recipient),
+  "Choose a borrower for verification orders only.");
 export const updateServiceOrder = z.strictObject({
   type: z.literal("updateServiceOrder"), loanId: id, orderId, revision: z.number().int().nonnegative(),
   action: z.enum(["Reschedule", "Simulate return", "Accept", "Request replacement", "Cancel"]), dueOn: dueOn.optional(), note,
@@ -33,7 +40,7 @@ export type ServiceOrderReturn = {
 export type ServiceOrder = {
   id: string; loanId: string; kind: (typeof serviceOrderKinds)[number]; status: ServiceOrderStatus;
   dueOn: string; revision: number; createdAt: string; createdBy: string; note: string;
-  owner: string; returns: ServiceOrderReturn[]; cancellation: string | null;
+  owner: string; returns: ServiceOrderReturn[]; cancellation: string | null; recipient?: DocumentRecipient | null;
 };
 export const serviceOrderQueueQuery = z.object({
   view: z.enum(serviceOrderViews),
@@ -41,6 +48,6 @@ export const serviceOrderQueueQuery = z.object({
 });
 export type ServiceOrderQueueQuery = z.infer<typeof serviceOrderQueueQuery>;
 export type ServiceOrderQueuePage = {
-  today: string; rows: (Pick<ServiceOrder, "id" | "loanId" | "kind" | "status" | "dueOn" | "owner"> & { name: string })[];
+  today: string; rows: (Pick<ServiceOrder, "id" | "loanId" | "kind" | "status" | "dueOn" | "owner" | "recipient"> & { name: string })[];
   next: ServiceOrderQueueQuery["after"] | null;
 };

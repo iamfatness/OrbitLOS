@@ -166,7 +166,7 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
   return <section className="integration record-form manager-panel" aria-label="Processing queue">
     <div className="section-heading"><h2>{team ? "Team processing queue" : "My processing queue"}</h2>
       {page && <span className="pill">Checked {dateTime(page.checkedAt)} ET</span>}</div>
-    <p className="muted">{serviceOrders ? "Review mock appraisal, title, homeowners insurance, flood, and mortgage insurance orders. Earliest due dates appear first." :
+    <p className="muted">{serviceOrders ? "Review mock property services and employment, income, and asset verifications. Earliest due dates appear first." :
       workload ? "Compare active processing files by target closing date. Closing recorded shows active files with an actual closing date." : exception ? descriptions[exception] :
       "Oldest handoff updates appear first."}
       {page?.handoffHours && ` Current deadline: ${page.handoffHours} hours.`}</p>
@@ -249,9 +249,11 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
       {page && !orderPage && <p className="muted">The service order queue is temporarily unavailable. Refresh processing to try again.</p>}
       {orderPage && (orderPage.rows.length ? <ul className="loan-task-list">{orderPage.rows.map((order) =>
         <li className="document-item" key={order.id}>
-          <div className="document-item-head"><strong>{order.kind} · {order.name}</strong><span className="pill">{order.status}</span></div>
+          <div className="document-item-head"><strong>{order.kind} · {order.name}{order.recipient && ` · ${order.recipient}`}</strong><span className="pill">{order.status}</span></div>
           <p className="muted">{order.owner} · {order.dueOn < orderPage.today ? "Overdue since" : "Due"} {dateLabel(order.dueOn)} ET</p>
-          <div><Button size="sm" variant="outline" onClick={() => openLoan(order.loanId, serviceOrderTarget(order.id))}>Open {order.kind.toLowerCase()} order</Button></div>
+          <div><Button size="sm" variant="outline" onClick={() => openLoan(order.loanId, serviceOrderTarget(order.id))}>
+            Open {order.kind.toLowerCase()} order{order.recipient && ` · ${order.recipient}`}
+          </Button></div>
         </li>)}</ul> : <p className="empty-inline">No mock service orders match this view.</p>)}
       {(serviceOrders.after || orderPage?.next) && <div className="loan-application-actions">
         {serviceOrders.after && <Button size="sm" variant="outline" onClick={refresh}>First page</Button>}

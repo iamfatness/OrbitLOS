@@ -122,7 +122,7 @@ test("mock title orders support deadlines, cancellation, scoped pagination and d
   assert.ok(!queue("Open").serviceOrders.rows.some((item) => item.loanId === loanId));
 });
 
-test("existing two-service workspaces retain accepted evidence when the order catalog expands", async (t) => {
+test("existing service orders and their closing links survive a catalog upgrade", async (t) => {
   const { db, loanId, today, now, send, queue } = fixture(t);
   const titleId = randomUUID(), previousReference = "MOCK-TITLE-LEGACY-V1";
   const at = now.toISOString();
@@ -132,25 +132,84 @@ test("existing two-service workspaces retain accepted evidence when the order ca
     DROP TABLE service_orders;
     CREATE TABLE service_orders (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
-      kind TEXT NOT NULL CHECK(kind IN ('Appraisal', 'Title')),
+      kind TEXT NOT NULL CHECK(kind IN ('Appraisal', 'Title', 'Homeowners insurance', 'Flood', 'Mortgage insurance')),
       status TEXT NOT NULL DEFAULT 'Ordered' CHECK(status IN ('Ordered', 'Received', 'Completed', 'Cancelled')),
       dueOn TEXT NOT NULL, originalDueOn TEXT NOT NULL, createdAt TEXT NOT NULL, createdBy TEXT NOT NULL, note TEXT NOT NULL,
       returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT
+    );
+    CREATE UNIQUE INDEX open_service_orders_by_kind ON service_orders(loanId, kind) WHERE status IN ('Ordered', 'Received');
+    CREATE TABLE closing_service_evidence (
+      itemId TEXT NOT NULL REFERENCES closing_items(id) ON DELETE CASCADE,
+      orderId TEXT NOT NULL REFERENCES service_orders(id) ON DELETE CASCADE,
+      reference TEXT NOT NULL, linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL,
+      PRIMARY KEY (itemId, orderId, reference)
     );`);
   db.prepare(`INSERT INTO service_orders (id, loanId, kind, status, dueOn, originalDueOn, createdAt, createdBy, note, returns, revision)
     VALUES (?, ?, 'Title', 'Completed', ?, ?, ?, 'Prior processor', '', ?, 2)`).run(titleId, loanId, today, today, at, JSON.stringify(returns));
+  const itemId = randomUUID();
+  const item = { type: "saveClosingItem", itemId, revision: 0, title: "Check fictional title", owner: "Loan officer", dueDate: today };
+  db.prepare("INSERT INTO closing_items (id, loanId, title, owner, dueDate, revision) VALUES (?, ?, ?, ?, ?, 1)")
+    .run(itemId, loanId, item.title, item.owner, item.dueDate);
+  db.prepare("INSERT INTO closing_service_evidence VALUES (?, ?, ?, ?, ?)").run(itemId, titleId, previousReference, at, "Prior processor");
   initializeStore(db, false);
-  for (const kind of ["Homeowners insurance", "Flood", "Mortgage insurance"]) {
+  assert.equal(db.prepare("SELECT reference FROM closing_service_evidence WHERE orderId = ?").get(titleId).reference, previousReference);
+  assert.equal(db.prepare("PRAGMA foreign_key_list(closing_service_evidence)").all().find(({ from }) => from === "orderId").table, "service_orders");
+  for (const kind of ["Employment verification", "Income verification", "Asset verification"]) {
     const orderId = randomUUID();
-    const created = await send({ type: "createServiceOrder", orderId, kind, dueOn: today, note: "" });
+    const created = await send({ type: "createServiceOrder", orderId, kind, dueOn: today, note: "", recipient: "Primary borrower" });
     assert.ok(created.loanWork, created.error);
     assert.deepEqual(created.loanWork.serviceOrders.find(({ id }) => id === titleId).returns, returns);
     const result = await send({ type: "updateServiceOrder", orderId, action: "Simulate return", revision: 0, note: "" });
     const sample = result.loanWork.serviceOrders.find(({ id }) => id === orderId).returns[0];
     assert.match(sample.reference, /^MOCK-[A-Z-]+-[A-F0-9-]+-V1$/);
-    assert.ok(serviceOrderPdf(kind, sample).includes(Buffer.from(sample.reference).toString("hex")));
+    assert.ok(serviceOrderPdf(kind, sample, "Primary borrower").includes(Buffer.from(sample.reference).toString("hex")));
+    assert.ok(serviceOrderPdf(kind, sample, "Primary borrower").includes(Buffer.from("Verification subject: Primary borrower").toString("hex")));
+    assert.equal(created.loanWork.closingServiceEvidence.find(({ orderId }) => orderId === titleId).recipient, undefined);
   }
   initializeStore(db, false);
   assert.equal(queue("Ready to review").serviceOrders.rows.length, 3);
   assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
+test("verification orders keep separate open work and accepted evidence for each borrower", async (t) => {
+  const { db, loanId, now, today, overdue, send, queue, processor, another } = fixture(t);
+  const order = { type: "createServiceOrder", orderId: randomUUID(), kind: "Income verification", dueOn: overdue, note: "" };
+  const primary = { ...order, recipient: "Primary borrower" };
+  const co = { ...order, orderId: randomUUID(), recipient: "Co-borrower" };
+  assert.match((await send(order)).error, /choose a borrower/i);
+  assert.match((await send({ ...primary, kind: "Title" })).error, /verification orders only/i);
+  assert.match((await send(co)).error, /add a co-borrower/i);
+  const application = await send({ type: "startApplication" });
+  const started = application.loanWork ?? application.state;
+  assert.ok(started, application.error);
+  const enabled = await send({ type: "enableJointApplication", revision: started.applications.find((app) => app.loanId === loanId).revision });
+  assert.ok(enabled.loanWork ?? enabled.state, enabled.error);
+  db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
+    VALUES (?, ?, ?, 'In processing', '', ?, 1)`).run(loanId, processor.email, processor.name, now.toISOString());
+  assert.ok((await send(primary, processor)).loanWork);
+  assert.match((await send(primary, processor)).message, /already recorded/);
+  assert.match((await send({ ...primary, orderId: randomUUID() }, processor)).error, /primary borrower/);
+  assert.match((await send({ ...co, orderId: primary.orderId }, processor)).error, /identifier has already been used/);
+  assert.ok((await send(co, processor)).loanWork);
+  assert.deepEqual(new Set(queue("Overdue", processor).serviceOrders.rows.map(({ recipient }) => recipient)),
+    new Set(["Primary borrower", "Co-borrower"]));
+  assert.equal(queue("Overdue", another).serviceOrders.rows.length, 0);
+  const change = { type: "updateServiceOrder", orderId: co.orderId, revision: 0, action: "Simulate return", note: "" };
+  const result = await send(change, processor);
+  assert.ok(result.loanWork, result.error);
+  assert.deepEqual(queue("Ready to review", processor).serviceOrders.rows.map(({ id }) => id), [co.orderId]);
+  const received = result.loanWork.serviceOrders.find(({ id }) => id === co.orderId);
+  assert.equal(received.recipient, "Co-borrower");
+  const approved = await send({ ...change, revision: 1, action: "Accept" }, processor);
+  assert.ok(approved.loanWork, approved.error);
+  assert.equal(approved.loanWork.serviceOrders.find(({ id }) => id === primary.orderId).status, "Ordered");
+  assert.deepEqual(queue("Ready to review", processor).serviceOrders.rows, []);
+  const itemId = randomUUID();
+  await send({ type: "saveClosingItem", itemId, revision: 0, title: "Check sample income return", owner: "Processor", dueDate: today }, processor);
+  const linked = await send({ type: "setClosingServiceEvidence", itemId, itemRevision: 1, orderId: co.orderId,
+    reference: received.returns[0].reference, linked: true }, processor);
+  assert.ok(linked.loanWork, linked.error);
+  const [receipt] = linked.loanWork.closingServiceEvidence;
+  assert.equal(receipt.recipient, "Co-borrower");
+  assert.equal(serviceOrderPdf(received.kind, received.returns[0], received.recipient), serviceOrderPdf(receipt.kind, receipt, receipt.recipient));
 });

@@ -8,6 +8,6 @@ export const closingServiceEvidenceInput = z.strictObject({
   itemRevision: z.number().int().positive(), orderId: z.uuid(), reference: id, linked: z.boolean(),
 });
 export type ClosingServiceEvidence = {
-  itemId: string; orderId: string; kind: ServiceOrder["kind"]; reference: string;
+  itemId: string; orderId: string; kind: ServiceOrder["kind"]; reference: string; recipient?: ServiceOrder["recipient"];
   returnedAt: string; acceptedAt: string; acceptedBy: string; linkedAt: string; linkedBy: string;
 };

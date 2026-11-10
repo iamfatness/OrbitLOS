@@ -2159,6 +2159,34 @@ try {
     assert.equal(staffRequests.find(({ id }) => id === primary.id).recipient, "Primary borrower");
     assert.equal(staffRequests.find(({ id }) => id === co.id).recipient, "Co-borrower");
   });
+  await stage("Borrower-specific mock verification returns reach the assigned processor", async () => {
+    const { loanId, primaryToken, coToken } = jointFile;
+    await team(owner, { type: "assignProcessor", email: processor.email, loanId, revision: 0 });
+    const primary = { type: "createServiceOrder", loanId, orderId: randomUUID(), kind: "Employment verification",
+      recipient: "Primary borrower", dueOn: today, note: "" };
+    const co = { ...primary, orderId: randomUUID(), recipient: "Co-borrower" };
+    assert.ok((await action(competingOfficer, "mutate", co)).error);
+    await write(processor, primary);
+    await write(processor, co);
+    const returned = { type: "updateServiceOrder", loanId, orderId: co.orderId, revision: 0, action: "Simulate return", note: "" };
+    await write(processor, returned);
+    assert.match((await write(processor, returned)).message, /already updated/);
+    const ready = (staff) => action(staff, "readProcessingWork", { readyOnly: false, serviceOrders: { view: "Ready to review" } });
+    const rows = (await ready(processor)).serviceOrders.rows.filter((item) => item.loanId === loanId);
+    assert.deepEqual(rows.map(({ id, recipient }) => ({ id, recipient })), [{ id: co.orderId, recipient: "Co-borrower" }]);
+    assert.ok((await ready(competingOfficer)).error);
+    const sample = (await file(processor, loanId)).serviceOrders.find(({ id }) => id === co.orderId).returns[0];
+    await write(processor, { ...returned, revision: 1, action: "Accept", note: "Reviewed the fictional employment return." });
+    assert.ok(!(await ready(processor)).serviceOrders.rows.some(({ id }) => id === co.orderId));
+    const itemId = randomUUID();
+    await loanAction(processor, loanId, "saveClosingItem", { itemId, revision: 0, title: "Confirm fictional employment evidence", owner: "Processor", dueDate: today });
+    await loanAction(processor, loanId, "setClosingServiceEvidence", { itemId, itemRevision: 1, orderId: co.orderId, reference: sample.reference, linked: true });
+    const current = await file(processor, loanId);
+    assert.equal(current.closingServiceEvidence.find(({ orderId }) => orderId === co.orderId).recipient, "Co-borrower");
+    assert.equal(current.serviceOrders.find(({ id }) => id === primary.orderId).status, "Ordered");
+    assert.doesNotMatch(JSON.stringify(await borrower(primaryToken, { type: "status" })), /fictional employment return|MOCK-EMPLOYMENT/);
+    assert.doesNotMatch(JSON.stringify(await post("/api/joint-application", { type: "read", token: coToken })), /fictional employment return|MOCK-EMPLOYMENT/);
+  });
   await stage("A fictional lender downloads only the exact reviewed MISMO and approved sample PDF", async () => {
     const publicPage = await runtime.dispatchFetch(`${origin}/lender-package`);
     assert.equal(publicPage.status, 200);

@@ -7,14 +7,19 @@ const findings = {
   "Homeowners insurance": ["Sample coverage review", "A fictional homeowners insurance binder was returned.", "Sample follow-up: check the effective date and mortgagee details."],
   Flood: ["Sample flood determination", "A fictional flood determination was returned for processor review.", "Sample follow-up: record the determination on the closing checklist."],
   "Mortgage insurance": ["Sample mortgage insurance review", "A fictional mortgage insurance commitment was returned.", "Sample follow-up: verify the sample premium and coverage details."],
+  "Employment verification": ["Sample employment review", "A fictional source confirmed employment is active.", "Compare the status and dates against the borrower's 1003."],
+  "Income verification": ["Sample income review", "The sample lists $6,250 in gross monthly base income.", "Compare the pay period and income type to the file's evidence."],
+  "Asset verification": ["Sample asset review", "The sample lists $42,500 in verified liquid assets.", "Review available funds and source of deposits before using the result."],
 } satisfies Record<ServiceOrder["kind"], string[]>;
 
-export function serviceOrderPdf(kind: ServiceOrder["kind"], receipt: Pick<ServiceOrderReturn, "reference" | "returnedAt">) {
+export function serviceOrderPdf(kind: ServiceOrder["kind"], receipt: Pick<ServiceOrderReturn, "reference" | "returnedAt">,
+  recipient?: ServiceOrder["recipient"]) {
   const lines = [
     [10, 733, "FICTIONAL SAMPLE  /  NOT FOR A REAL TRANSACTION"],
     [24, 684, `Sample ${kind.toLowerCase()} return`],
     [11, 641, receipt.reference],
     [11, 618, `Simulated return: ${receipt.returnedAt}`],
+    ...(recipient ? [[11, 595, `Verification subject: ${recipient}`] as const] : []),
     [14, 565, findings[kind][0]],
     [11, 542, findings[kind][1]],
     [11, 522, findings[kind][2]],

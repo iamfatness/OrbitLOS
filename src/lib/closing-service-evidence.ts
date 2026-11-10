@@ -7,13 +7,14 @@ import { loanAccess } from "./workspace-access";
 import type { z } from "zod";
 
 export function closingServiceEvidence(db: Store, loanId: string) {
-  return db.prepare(`SELECT evidence.*, service.kind, json_extract(receipt.value, '$.returnedAt') AS returnedAt,
-    json_extract(receipt.value, '$.review.at') AS acceptedAt, json_extract(receipt.value, '$.review.actor') AS acceptedBy
+  const rows = db.prepare(`SELECT evidence.*, service.kind, json_extract(receipt.value, '$.returnedAt') AS returnedAt,
+    json_extract(receipt.value, '$.review.at') AS acceptedAt, json_extract(receipt.value, '$.review.actor') AS acceptedBy, service.recipient
     FROM closing_items item JOIN closing_service_evidence evidence ON evidence.itemId = item.id
     JOIN service_orders service ON service.id = evidence.orderId AND service.loanId = item.loanId
     JOIN json_each(service.returns) receipt ON json_extract(receipt.value, '$.reference') = evidence.reference
     WHERE item.loanId = ? AND service.status = 'Completed' AND json_extract(receipt.value, '$.review.decision') = 'Accepted'
     ORDER BY evidence.itemId, evidence.linkedAt, evidence.reference`).all(loanId) as unknown as ClosingServiceEvidence[];
+  return rows.map(({ recipient, ...link }) => recipient ? { ...link, recipient } : link);
 }
 
 export function setClosingServiceEvidence(db: Store, input: z.infer<typeof closingServiceEvidenceInput>, staff: WorkspaceStaff | null, at: string) {

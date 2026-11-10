@@ -87,7 +87,15 @@ const serviceOrderColumns = `
   kind TEXT NOT NULL CHECK(kind IN (${serviceOrderKinds.map((kind) => `'${kind}'`).join(", ")})),
   status TEXT NOT NULL DEFAULT 'Ordered' CHECK(status IN ('Ordered', 'Received', 'Completed', 'Cancelled')),
   dueOn TEXT NOT NULL, originalDueOn TEXT NOT NULL, createdAt TEXT NOT NULL, createdBy TEXT NOT NULL, note TEXT NOT NULL,
-  returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT
+  returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT,
+  recipient TEXT CHECK (recipient IN ('Primary borrower', 'Co-borrower'))
+`;
+
+const closingServiceEvidenceColumns = (orderTable: "service_orders" | "service_orders_next") => `
+  itemId TEXT NOT NULL REFERENCES closing_items(id) ON DELETE CASCADE,
+  orderId TEXT NOT NULL REFERENCES ${orderTable}(id) ON DELETE CASCADE,
+  reference TEXT NOT NULL, linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL,
+  PRIMARY KEY (itemId, orderId, reference)
 `;
 
 const salesTargetColumns = `
@@ -687,22 +695,23 @@ export function initializeStore(db: Store, seedDemo = true) {
   db.transaction(() => {
     initializeSettlementSummaries(db);
     const serviceSchema = String(db.prepare("SELECT sql FROM sqlite_schema WHERE name = 'service_orders'").get()?.sql ?? "");
-    if (serviceOrderKinds.some((kind) => !serviceSchema.includes(`'${kind}'`))) {
+    db.exec(`CREATE TABLE IF NOT EXISTS closing_service_evidence (${closingServiceEvidenceColumns("service_orders")});`);
+    if (!serviceSchema.includes("recipient TEXT") || serviceOrderKinds.some((kind) => !serviceSchema.includes(`'${kind}'`))) {
       const columns = "id, loanId, kind, status, dueOn, originalDueOn, createdAt, createdBy, note, returns, revision, cancellation, lastCommand";
+      const orderColumns = serviceSchema.includes("recipient TEXT") ? columns + ", recipient" : columns;
       db.exec(`CREATE TABLE service_orders_next (${serviceOrderColumns});
-        INSERT INTO service_orders_next (${columns}) SELECT ${columns} FROM service_orders;
+        INSERT INTO service_orders_next (${orderColumns}) SELECT ${orderColumns} FROM service_orders;
+        CREATE TABLE closing_service_evidence_next (${closingServiceEvidenceColumns("service_orders_next")});
+        INSERT INTO closing_service_evidence_next SELECT * FROM closing_service_evidence;
+        DROP TABLE closing_service_evidence;
         DROP TABLE service_orders;
-        ALTER TABLE service_orders_next RENAME TO service_orders;`);
+        ALTER TABLE service_orders_next RENAME TO service_orders;
+        ALTER TABLE closing_service_evidence_next RENAME TO closing_service_evidence;`);
     }
     db.exec(`CREATE INDEX IF NOT EXISTS service_orders_by_loan ON service_orders(loanId);
-      CREATE UNIQUE INDEX IF NOT EXISTS open_service_orders_by_kind ON service_orders(loanId, kind) WHERE status IN ('Ordered', 'Received');
+      CREATE UNIQUE INDEX IF NOT EXISTS open_service_orders_by_kind ON service_orders(loanId, kind, coalesce(recipient, ''))
+        WHERE status IN ('Ordered', 'Received');
       CREATE INDEX IF NOT EXISTS open_service_orders_by_due ON service_orders(dueOn, id) WHERE status IN ('Ordered', 'Received');
-      CREATE TABLE IF NOT EXISTS closing_service_evidence (
-        itemId TEXT NOT NULL REFERENCES closing_items(id) ON DELETE CASCADE,
-        orderId TEXT NOT NULL REFERENCES service_orders(id) ON DELETE CASCADE,
-        reference TEXT NOT NULL, linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL,
-        PRIMARY KEY (itemId, orderId, reference)
-      );
       CREATE INDEX IF NOT EXISTS closing_service_evidence_by_order ON closing_service_evidence(orderId);`);
     if (!db.prepare("PRAGMA table_info(document_checklist_origins)").all().some(({ name }) => name === "applicationRevision")) {
       db.exec("ALTER TABLE document_checklist_origins ADD COLUMN applicationRevision INTEGER");
