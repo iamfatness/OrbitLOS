@@ -99,3 +99,13 @@ Staff can submit a review note against the current sample package revision. The 
 Application source `ca0c3cd` is live on Worker `9f11052c-84c2-4cec-8836-a107766763d7`. Backend source `3807a30`, Worker `5df13716-3ed9-4197-b6f1-c33e677dd26f`, is the compatible rollback version. Both versions retain all 192 tested browser assets. The temporary signed-in QA route was removed before promotion.
 
 All 398 tests, lint, typecheck and the Cloudflare build passed. Local browser acceptance covered LO Today and Tasks, manager return and reassignment, the assigned processor resubmitting, preserved history, unrelated LO scope, and 1440, 900 and 390 px widths. The staged QA admin submitted a fictional note from Today and opened it from the manager queue. On the ordinary live URL, the admin reopened that exact case and returned it to Today for evidence. The public pages, login boundary, font and two live asset checks passed.
+
+## Brokerage overview and sample evidence
+
+Pilot admins can open **Compliance → Overview** to see distinct file and finding counts for work awaiting evidence, review, or ownership review. Each count opens the matching list, and each finding opens on its exact loan. One file can appear in more than one category. Restricted cases are excluded before counting. **Coverage & gaps** includes the file inventory and lead-history backfill. Inventory totals describe scanned files in the pilot. Compliance coverage, blockers and deadlines remain unevaluated.
+
+Staff with permission to update a finding can add a sample evidence note on its current package. Case history records the source, note, actor, recording time and package revision. Recording the note leaves the workflow status and sample workbench review intact.
+
+Application source `6c0e470` serves 100% on Worker `6542881a-d512-430c-8016-31b16f13e351`. Compatible backend source `8eb0f69`, Worker `fb74d2d8-15a7-49b5-a1b8-3f1b9242a31d`, is at 0% for rollback. Both carry the same 238 fingerprinted JS and CSS assets. The temporary signed-in QA route was removed before promotion.
+
+All 400 tests, lint, typecheck and the Cloudflare build passed. Local browser acceptance covered desktop, portrait and phone widths, keyboard drilldown, finding updates, a two-batch inventory and the LO access boundary. Hosted QA saved an observation from the overview, opened the exact case, and verified the inventory file drilldown. The ordinary live URL verified the saved note, submission and return between the two filtered queues, all 35 inventory files and the lead history view. Public pages, sign-in boundary, font and two live asset passes passed.
