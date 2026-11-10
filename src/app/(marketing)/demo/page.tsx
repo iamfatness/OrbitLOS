@@ -56,6 +56,7 @@ export default function DemoPage() {
           <li>See requests and sample PDFs update in open borrower and staff views across separate browser sessions. Reopen the lender checklist from the guide to review attachments already received.</li>
           <li>Preview a brokerage document checklist with rules for occupancy and the selected borrower’s employment. See what matches the reviewed 1003 before adding missing requests.</li>
           <li>Work documents in bulk from Conditions. Review the selected evidence, accept and send it to mock UWM, then choose which receipts to check for clearance.</li>
+          <li>Link an already accepted document to another condition on the same loan. Open the original revision from the condition and record delivery separately.</li>
           <li>Give two borrowers separate links to save and submit their own portions. Review the combined fictional 1003 on one loan.</li>
           <li>Assign document requests to each borrower on a joint loan. Each private checklist shows that person’s evidence and mock upload status.</li>
           <li>Run mock DU and LPA together on the same 1003 and sample credit report. Review separate findings and retry either service independently.</li>

@@ -11,6 +11,7 @@ import { dateTime } from "@/lib/utils";
 import { DocumentStatusPill, SampleDocument } from "./sample-document";
 import { Button } from "./ui/button";
 import { ApplyDocumentChecklist, ManageDocumentTemplates } from "./document-checklist-templates";
+import { ConditionEvidenceHistory } from "./condition-evidence";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
 
@@ -138,6 +139,7 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
         {request.pdfUploadedAt ? <div><Button size="sm" variant="outline" asChild>
           <a href={`/api/documents/download?brokerage=${brokerageId}&request=${request.id}`}>Download {request.status === "Needs replacement" ? "previous " : ""}{pdfLabel}</a>
         </Button></div> : request.submittedAt && <SampleDocument kind={request.kind} />}
+        <ConditionEvidenceHistory request={request} brokerageId={brokerageId} />
         {request.uwmReceipt && request.uwmSentAt && <p className="muted"><strong>Sent to UWM · Mock</strong><br />
           {dateTime(request.uwmSentAt)} ET · Receipt {request.uwmReceipt}</p>}
         {request.previousUwmDeliveries.length > 0 && <details className="document-form"><summary>Previous mock deliveries</summary>

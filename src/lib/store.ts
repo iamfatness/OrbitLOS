@@ -1286,6 +1286,17 @@ export function initializeStore(db: Store, seedDemo = true) {
       objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL, failed INTEGER NOT NULL DEFAULT 0,
       uploadMode TEXT
     );
+    CREATE INDEX IF NOT EXISTS document_files_by_object ON document_files(objectId) WHERE objectId IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS document_acceptances (
+      requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE, revision INTEGER NOT NULL,
+      actor TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY(requestId, revision)
+    );
+    CREATE TABLE IF NOT EXISTS condition_document_sources (
+      id TEXT PRIMARY KEY, requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE, revision INTEGER NOT NULL,
+      sourceId TEXT NOT NULL, sourceRevision INTEGER NOT NULL, kind TEXT NOT NULL, reviewedAt TEXT, reviewedBy TEXT,
+      linkedAt TEXT NOT NULL, linkedBy TEXT NOT NULL, objectId TEXT, selection TEXT NOT NULL, UNIQUE(requestId, revision)
+    );
+    CREATE INDEX IF NOT EXISTS condition_document_sources_by_object ON condition_document_sources(objectId) WHERE objectId IS NOT NULL;
     CREATE TABLE IF NOT EXISTS lender_package_links (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, borrowerId TEXT NOT NULL,
       applicationRevision INTEGER NOT NULL, lenderRevision INTEGER NOT NULL, recipient TEXT NOT NULL, tokenHash TEXT NOT NULL UNIQUE,
@@ -1307,6 +1318,15 @@ export function initializeStore(db: Store, seedDemo = true) {
       objectId TEXT, uploadedAt TEXT, pendingId TEXT, pendingUntil INTEGER, attemptedAt INTEGER NOT NULL DEFAULT 0,
       failed INTEGER NOT NULL DEFAULT 0, UNIQUE(leadId, kind)
     );
+    CREATE INDEX IF NOT EXISTS lead_document_files_by_object ON lead_document_requests(objectId) WHERE objectId IS NOT NULL;
+    CREATE TRIGGER IF NOT EXISTS preserve_referenced_document_objects BEFORE INSERT ON document_file_cleanup
+      WHEN EXISTS (SELECT 1 FROM document_files WHERE objectId = NEW.objectId)
+        OR EXISTS (SELECT 1 FROM lead_document_requests WHERE objectId = NEW.objectId)
+        OR EXISTS (SELECT 1 FROM condition_document_sources WHERE objectId = NEW.objectId)
+      BEGIN SELECT RAISE(IGNORE); END;
+    CREATE TRIGGER IF NOT EXISTS condition_document_sources_deleted AFTER DELETE ON condition_document_sources BEGIN
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId WHERE OLD.objectId IS NOT NULL;
+    END;
     CREATE TABLE IF NOT EXISTS lead_document_links (
       id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE, tokenHash TEXT NOT NULL UNIQUE,
       codeHash TEXT NOT NULL, createdBy TEXT NOT NULL, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, revokedAt TEXT
@@ -1530,16 +1550,21 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
     callReportFiles: includeReports ? callReportFiles(db, loanId) : null,
     mismoLoans: rows<{ loanId: string }>(db, `SELECT loanId FROM mismo_rehearsals ${where()}`, ...args).map((row) => row.loanId),
     applications: staffApplications(db, loanId),
-    documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries">>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
+    documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries"> & { evidenceJson: string }>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
       failures.failedAt AS uwmDeliveryFailedAt, origin.revision AS templateRevision, json_extract(version.config, '$.title') AS templateTitle,
-      origin.applicationRevision AS templateApplicationRevision, ${pdfColumns()}
+      origin.applicationRevision AS templateApplicationRevision, ${pdfColumns()},
+      (SELECT json_group_array(json_object('id', link.id, 'revision', link.revision, 'sourceId', link.sourceId, 'sourceRevision', link.sourceRevision,
+        'kind', link.kind, 'reviewedAt', link.reviewedAt, 'reviewedBy', link.reviewedBy, 'linkedAt', link.linkedAt, 'linkedBy', link.linkedBy,
+        'pdf', json(CASE WHEN link.objectId IS NULL THEN 'false' ELSE 'true' END)))
+        FROM condition_document_sources link WHERE link.requestId = requests.id) AS evidenceJson
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
       LEFT JOIN document_files files ON files.requestId = requests.id
       LEFT JOIN mock_delivery_failures failures ON failures.requestId = requests.id AND failures.revision = requests.revision
       LEFT JOIN document_checklist_origins origin ON origin.requestId = requests.id
       LEFT JOIN document_checklist_versions version ON version.templateId = origin.templateId AND version.revision = origin.revision
-      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, templateApplicationRevision, ...request }) =>
+      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, templateApplicationRevision, evidenceJson, ...request }) =>
       ({ ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}),
+        ...(evidenceJson !== "[]" ? { evidenceLinks: JSON.parse(evidenceJson) as LoanDocumentRequest["evidenceLinks"] } : {}),
         ...(templateApplicationRevision !== null ? { templateApplicationRevision } : {}), previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
         FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices" | "incomeReviewCurrent"> &

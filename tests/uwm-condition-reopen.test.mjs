@@ -25,6 +25,9 @@ const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { applyLoanMutation } = await import("../src/lib/loan-work-model.ts");
 const { readUwmDelivery } = await import("../src/lib/uwm-delivery.ts");
 const { latestMockConditionUpdate, receiveMockConditionUpdate } = await import("../src/lib/uwm-condition-events.ts");
+const { conditionEvidenceKey } = await import("../src/lib/condition-evidence-model.ts");
+const { borrowerDocuments } = await import("../src/lib/borrower-documents.ts");
+const { documentCleanupBatch, downloadableDocument } = await import("../src/lib/document-files.ts");
 
 function setup(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -103,6 +106,68 @@ test("suggested UWM document requests are scoped, atomic, and safe to retry", as
     assert.equal(request.status, "Requested");
   }
   assert.deepEqual((await apply(batch)).documentRequests, saved.documentRequests);
+});
+
+test("linked condition evidence keeps the accepted PDF revision through delivery and replacements", async (t) => {
+  const { db, staff, apply } = setup(t);
+  const initial = await apply({ type: "sync" });
+  const file = initial.submissions.find((item) => item.status === "Wholesale - Approved With Conditions");
+  const [income, assets] = file.conditions;
+  const { loanId } = file;
+  const processor = { ...staff, email: "processor@example.test", name: "Fictional Processor",
+    brokerage: { ...staff.brokerage, role: "Processor" } };
+  const otherProcessor = { ...processor, email: "unassigned@example.test" };
+  const write = (input, actor = processor) => executeCommand(db, input, actor, undefined, [], { scopedLoanUpdates: true });
+  const at = new Date().toISOString();
+  db.prepare("INSERT INTO loan_processing VALUES (?, ?, ?, 'In processing', '', ?, 1)").run(loanId, processor.email, processor.name, at);
+  await apply({ type: "requestDocument", loanId, kind: "Pay stub", instructions: "Sample income condition.",
+    condition: { submissionId: file.id, conditionId: income.id } });
+  const state = await apply({ type: "requestDocument", loanId, kind: "Pay stub", instructions: "Sample payroll evidence." });
+  const target = state.documentRequests.find(({ conditionId }) => conditionId === income.id);
+  const source = state.documentRequests.find(({ conditionId }) => conditionId === null);
+  const original = crypto.randomUUID();
+  db.prepare("UPDATE document_requests SET status = 'Received', revision = 1, submittedAt = ? WHERE id = ?").run(at, source.id);
+  db.prepare("INSERT INTO document_files (requestId, objectId, uploadedAt, attemptedAt, uploadMode) VALUES (?, ?, ?, ?, 'mock')")
+    .run(source.id, original, at, Date.parse(at));
+  const review = await write({ type: "reviewDocument", loanId, requestId: source.id, revision: 1, decision: "Accepted", replacementNote: "" });
+  assert.ok(review.loanWork, review.error);
+  const link = { type: "reuseConditionEvidence", loanId, submissionId: file.id, conditionId: income.id,
+    conditionKey: conditionEvidenceKey(income), target: { id: target.id, revision: target.revision },
+    source: { id: source.id, revision: 2 }, linkId: crypto.randomUUID(), confirmed: true };
+  assert.match((await write(link, otherProcessor)).error, /access/i);
+  assert.match((await write({ ...link, target: null })).error, /changed/i);
+  assert.match((await write({ ...link, source: { id: source.id, revision: 1 } })).error, /current accepted revision/i);
+  assert.match((await write({ ...link, conditionKey: "stale" })).error, /changed/i);
+  const linked = await write(link);
+  assert.ok(linked.loanWork, linked.error);
+  const document = linked.loanWork.documentRequests.find(({ id }) => id === target.id);
+  assert.equal(document.status, "Accepted");
+  assert.equal(document.revision, target.revision + 1);
+  assert.equal(document.uwmReceipt, null);
+  assert.equal(document.evidenceLinks.length, 1);
+  assert.deepEqual(document.evidenceLinks.map(({ sourceId, sourceRevision, reviewedBy, linkedBy, pdf }) =>
+    ({ sourceId, sourceRevision, reviewedBy, linkedBy, pdf })),
+  [{ sourceId: source.id, sourceRevision: 2, reviewedBy: processor.name, linkedBy: processor.name, pdf: true }]);
+  assert.equal((await write(link)).message, linked.message);
+  assert.match((await write({ ...link, conditionId: assets.id, conditionKey: conditionEvidenceKey(assets), target: null })).error, /new evidence link/i);
+  assert.match((await write({ ...link, conditionId: assets.id, conditionKey: conditionEvidenceKey(assets), target: null,
+    linkId: crypto.randomUUID(), source: { id: target.id, revision: document.revision } })).error, /current accepted revision/i);
+  assert.doesNotMatch(JSON.stringify(borrowerDocuments(db, loanId, "Primary borrower")), /evidenceLinks|Fictional Processor/);
+  assert.equal(downloadableDocument(db, processor, target.id, link.linkId).objectId, original);
+  assert.equal(downloadableDocument(db, processor, source.id, link.linkId), null);
+  assert.equal(downloadableDocument(db, otherProcessor, target.id, link.linkId), null);
+  const sent = await write({ type: "sendConditionDocument", loanId, requestId: target.id, revision: document.revision });
+  assert.match(sent.loanWork.documentRequests.find(({ id }) => id === target.id).uwmReceipt, /^DEMO-DOC-/);
+  const cleared = await write({ type: "refreshMockUwmClearance", loanId, submissionId: file.id });
+  assert.ok(cleared.loanWork.submissions.find(({ id }) => id === file.id).conditions.find(({ id }) => id === income.id).satisfiedAt);
+  const replace = db.prepare("UPDATE document_files SET objectId = ? WHERE requestId = ?");
+  replace.run(crypto.randomUUID(), source.id);
+  replace.run(crypto.randomUUID(), target.id);
+  assert.equal(downloadableDocument(db, processor, target.id, link.linkId).objectId, original);
+  assert.ok(!documentCleanupBatch(db).includes(original));
+  db.prepare("DELETE FROM document_requests WHERE id = ?").run(target.id);
+  assert.equal(documentCleanupBatch(db).filter((id) => id === original).length, 1);
+  assert.equal(downloadableDocument(db, processor, target.id, link.linkId), null);
 });
 
 test("assigned processors can bulk review, deliver, retry and clear only the selected evidence", async (t) => {

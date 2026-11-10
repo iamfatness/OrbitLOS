@@ -8,6 +8,7 @@ import { conditionTarget } from "@/lib/uwm-alert-model";
 import { DocumentRequestForm, LoanDocumentCard } from "./loan-documents";
 import { Button } from "./ui/button";
 import { ConditionResponse } from "./condition-response";
+import { ConditionEvidencePicker } from "./condition-evidence";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
 
@@ -55,6 +56,7 @@ export function ManualConditions({ submission, requests, checklistLinks, joint, 
             openCondition={false} replaceable={!item.satisfiedAt} busy={busy} save={save} compact showRecipient={joint} />
         </> :
           !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} quick joint={joint} />}
+        <ConditionEvidencePicker submission={submission} condition={item} requests={requests} target={request} brokerageId={brokerageId} busy={busy} save={save} />
         {manual.deliveries.length > 0 && <ul>{manual.deliveries.map((delivery) => <li key={delivery.at + delivery.reference}>
           Delivered revision {delivery.documentRevision} · {delivery.reference} · {dateTime(delivery.at)} ET
         </li>)}</ul>}

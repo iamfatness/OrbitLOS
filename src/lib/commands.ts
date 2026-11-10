@@ -23,6 +23,8 @@ import { handoffCheckpointError } from "./application-review-checkpoint";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
 import { documentBatchInput } from "./document-batch-model";
 import { processDocumentBatch, reviewLoanDocument } from "./document-review";
+import { reuseConditionEvidenceInput } from "./condition-evidence-model";
+import { reuseConditionEvidence } from "./condition-evidence";
 import { addManualQuoteInput, manualQuoteReference, offerDisplayName } from "./manual-pricing-model";
 import { addManualQuote, manualQuoteForHandoff } from "./manual-pricing";
 import { approvedIncomeAmount, pricingInputError } from "./income-review-freshness";
@@ -282,6 +284,7 @@ const command = z.discriminatedUnion("type", [
     decision: z.enum(["Accepted", "Needs replacement"]), replacementNote: z.string().trim().max(500), sendToMockUwm: z.boolean().optional(),
     dueOn: documentDueOn.optional() }),
   documentBatchInput,
+  reuseConditionEvidenceInput,
   z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames),
     recipient: z.enum(documentRecipients).default(primaryDocumentRecipient) }),
   applyDocumentTemplateInput,
@@ -397,7 +400,7 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if (staff.brokerage.role === "Processor") {
     const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "exportReviewedApplication", "reviewApplication", "requestApplicationCorrection",
-      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument", "processDocumentBatch",
+      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument", "processDocumentBatch", "reuseConditionEvidence",
       "requestBorrowerQuestion", "applyBorrowerQuestionSet", "reviewBorrowerQuestion", "refreshBorrowerQuestions", "sendConditionDocument", "simulateDeliveryFailure",
       "createServiceOrder", "updateServiceOrder", "setClosingServiceEvidence",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
@@ -529,6 +532,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "requestSuggestedUwmDocuments":
     case "reviewDocument":
     case "processDocumentBatch":
+    case "reuseConditionEvidence":
     case "runMockCredit":
     case "runMockAus":
     case "runMockPairedAus":
@@ -1425,6 +1429,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           message = added ? `Added ${added} suggested document ${added === 1 ? "request" : "requests"} to the borrower checklist.`
             : "These conditions already have checklist requests.";
+          break;
+        }
+        case "reuseConditionEvidence": {
+          const result = reuseConditionEvidence(db, data, staff, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
           break;
         }
         case "reviewDocument":

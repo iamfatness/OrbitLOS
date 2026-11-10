@@ -137,21 +137,24 @@ export function failDocumentUpload(db: Store, requestId: string, objectId: strin
   });
 }
 
-export function downloadableDocument(db: Store, staff: WorkspaceStaff, requestId: string) {
-  const item = db.prepare(`SELECT files.objectId, requests.loanId, requests.kind FROM document_files files
+export function downloadableDocument(db: Store, staff: WorkspaceStaff, requestId: string, evidenceId?: string) {
+  const item = evidenceId ? db.prepare(`SELECT evidence.objectId, request.loanId, evidence.kind FROM condition_document_sources evidence
+    JOIN document_requests request ON request.id = evidence.requestId
+    WHERE evidence.id = ? AND request.id = ? AND evidence.objectId IS NOT NULL`).get(evidenceId, requestId) :
+    db.prepare(`SELECT files.objectId, requests.loanId, requests.kind FROM document_files files
     JOIN document_requests requests ON requests.id = files.requestId
     WHERE requests.id = ? AND files.objectId IS NOT NULL`).get(requestId);
   return item && loanAccess(db, staff, String(item.loanId))
     ? { objectId: String(item.objectId), loanId: String(item.loanId), kind: item.kind as DocumentKind } : null;
 }
 
-export function recordDocumentDownload(db: Store, staff: WorkspaceStaff, requestId: string, objectId: string) {
+export function recordDocumentDownload(db: Store, staff: WorkspaceStaff, requestId: string, objectId: string, evidenceId?: string) {
   return db.transaction(() => {
-    const item = downloadableDocument(db, staff, requestId);
+    const item = downloadableDocument(db, staff, requestId, evidenceId);
     if (!item || item.objectId !== objectId) return false;
     const now = new Date().toISOString();
-    accessEvent(db, staff, "Downloaded borrower PDF", requestId, now);
-    addApplicationActivity(db, item.loanId, `Borrower PDF downloaded · ${item.kind}`, now);
+    accessEvent(db, staff, evidenceId ? "Downloaded linked evidence revision" : "Downloaded borrower PDF", evidenceId ?? requestId, now);
+    addApplicationActivity(db, item.loanId, `${evidenceId ? "Linked evidence revision downloaded" : "Borrower PDF downloaded"} · ${item.kind}`, now);
     return true;
   });
 }

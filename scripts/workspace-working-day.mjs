@@ -1414,6 +1414,27 @@ try {
     await write(officer, { type: "recordManualDelivery", ...condition, revision: 1,
       documentRevision: accepted.revision, reference: "FICT-DOC-01" });
     await write(officer, { type: "recordManualClearance", ...condition, revision: 2, cleared: true, confirmation: "FICT-CLEAR-01" });
+    const additionalCondition = { loanId: repeatId, submissionId, conditionId: randomUUID() };
+    await write(officer, { type: "saveManualCondition", ...additionalCondition, revision: 0,
+      category: "Employment", owner: "Loan officer", description: "Verify employment using the accepted fictional pay stub." });
+    const added = (await file(officer, repeatId)).submissions[0].conditions.find(({ id }) => id === additionalCondition.conditionId);
+    const conditionKey = JSON.stringify([added.category, added.description, added.group, added.satisfiedAt,
+      added.mockReopenedAt ?? null, added.manual?.revision ?? null]);
+    const reuse = { type: "reuseConditionEvidence", ...additionalCondition, conditionKey, linkId: randomUUID(),
+      target: null, source: { id: accepted.id, revision: accepted.revision }, confirmed: true };
+    assert.ok((await action(competingOfficer, "mutate", reuse)).error);
+    assert.match((await write(officer, reuse)).message, /Accepted evidence linked/);
+    assert.match((await write(officer, reuse)).message, /Accepted evidence linked/);
+    const reused = (await file(officer, repeatId)).documentRequests.find(({ id }) => id === reuse.linkId);
+    assert.equal(reused.status, "Accepted");
+    assert.equal(reused.evidenceLinks[0].sourceRevision, accepted.revision);
+    assert.equal(reused.evidenceLinks[0].reviewedBy, officer.name);
+    const borrowerChecklist = (await borrower(repeatToken, { type: "status" })).loanStatus.documents;
+    assert.equal(borrowerChecklist.find(({ id }) => id === reused.id).status, "Accepted");
+    assert.doesNotMatch(JSON.stringify(borrowerChecklist), /evidenceLinks|linkedBy/);
+    await write(officer, { type: "recordManualDelivery", ...additionalCondition, revision: 1,
+      documentRevision: reused.revision, reference: "FICT-REUSE-01" });
+    await write(officer, { type: "recordManualClearance", ...additionalCondition, revision: 2, cleared: true, confirmation: "FICT-REUSE-CLEAR" });
     const cleared = await file(officer, repeatId);
     assert.equal(cleared.submissions[0].conditions[0].manual.confirmedDelivery, "FICT-CLEAR-01");
     assert.equal(cleared.submissions[0].conditions[0].manual.deliveries[0].reference, "FICT-DOC-01");

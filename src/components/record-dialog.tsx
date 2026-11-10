@@ -24,6 +24,7 @@ import type { ReturningClientOption } from "@/lib/past-client-queue-model";
 import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
 import { DocumentRequestForm, LoanDocumentCard, LoanDocuments } from "./loan-documents";
 import { DocumentBatch } from "./document-batch";
+import { ConditionEvidencePicker } from "./condition-evidence";
 import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
@@ -258,6 +259,8 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
                 <LoanDocumentCard key={request.revision} request={request} brokerageId={brokerageId} pilot={pilot}
                   openCondition={!item.satisfiedAt} replaceable={!item.satisfiedAt} busy={busy} save={save} compact showRecipient={joint} />
               </> : !item.satisfiedAt && <DocumentRequestForm loanId={submission.loanId} source={{ submissionId: submission.id, condition: item }} busy={busy} save={save} quick joint={joint} />}
+              {mockUwm && <ConditionEvidencePicker submission={submission} condition={item} requests={requests} target={request}
+                brokerageId={brokerageId} busy={busy} save={save} />}
               {!item.satisfiedAt && <ConditionResponse condition={item} request={request} lender={submission.lender} />}
               {canSimulate && submission.lender === "UWM" && item.satisfiedAt && <details className="document-form">
                 <summary>Simulate reopening (mock)</summary>

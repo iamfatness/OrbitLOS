@@ -29,6 +29,8 @@ export function reviewLoanDocument(db: Store, data: Review, staff: WorkspaceStaf
     dueOn = ?, deadlineRevision = deadlineRevision + ? WHERE id = ?`)
     .run(data.decision, replacement ? data.replacementNote : "", nextDueOn, Number(nextDueOn !== request.dueOn), data.requestId);
   if (replaceAccepted) archiveMockDocumentDelivery(db, data.requestId);
+  if (!replacement) db.prepare("INSERT INTO document_acceptances (requestId, revision, actor, at) VALUES (?, ?, ?, ?)")
+    .run(data.requestId, data.revision + 1, staff?.name ?? "Demo staff", now);
   const accepted = request.objectId ? (staff?.brokerage.id === demoBrokerageId || staff?.brokerage.pilot ? "Demo PDF accepted" : "Borrower PDF accepted") : "Sample document accepted";
   addApplicationActivity(db, data.loanId, `${replacement ? "Replacement requested" : accepted} · ${request.kind}${request.recipient !== primaryDocumentRecipient ? ` · ${request.recipient}` : ""}${replacement && nextDueOn ? ` · Due ${nextDueOn}` : ""}`, now);
   if (data.sendToMockUwm) {

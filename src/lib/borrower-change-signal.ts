@@ -3,10 +3,11 @@ import { coBorrowerDocumentRecipient, documentRecipient, primaryDocumentRecipien
 import type { StaffBorrowerQuestion } from "./borrower-question-model";
 import { applyBorrowerQuestionSetInput } from "./borrower-question-set-model";
 import { batchReviewsDocuments, documentBatchInput } from "./document-batch-model";
+import { reuseConditionEvidenceInput } from "./condition-evidence-model";
 
 const checklistWrites = new Set([
   "requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline",
-  "reviewDocument", "processDocumentBatch", "reopenMockUwmCondition", "requestBorrowerQuestion", "applyBorrowerQuestionSet", "reviewBorrowerQuestion",
+  "reviewDocument", "processDocumentBatch", "reuseConditionEvidence", "reopenMockUwmCondition", "requestBorrowerQuestion", "applyBorrowerQuestionSet", "reviewBorrowerQuestion",
 ]);
 const disclosureWrites = new Set(["prepareDisclosurePackage", "issueDisclosurePackage", "respondToDisclosurePackage",
   "saveFeeWorksheet", "saveAllocatedFeeWorksheet", "selectOffer", "requestApplicationCorrection"]);
@@ -25,8 +26,9 @@ export function borrowerChecklistTokens(input: unknown, applications: readonly S
     !checklistWrites.has(input.type) || !("loanId" in input) || typeof input.loanId !== "string") return [];
   const app = applications.find((application) => application.loanId === input.loanId && application.submittedAt);
   const joint = app?.joint;
-  if (input.type === "applyBorrowerQuestionSet" || input.type === "processDocumentBatch") {
-    const recipients = input.type === "applyBorrowerQuestionSet" ? questionSetRecipients(input) : documentBatchRecipients(input, requests);
+  if (input.type === "applyBorrowerQuestionSet" || input.type === "processDocumentBatch" || input.type === "reuseConditionEvidence") {
+    const recipients = input.type === "applyBorrowerQuestionSet" ? questionSetRecipients(input) : input.type === "reuseConditionEvidence"
+      ? reusedEvidenceRecipients(input, requests) : documentBatchRecipients(input, requests);
     return [...(app && !app.revokedAt && recipients.has(primaryDocumentRecipient) ? [app.token] : []),
       ...(joint?.token && joint.submittedAt && !joint.revokedAt && recipients.has(coBorrowerDocumentRecipient) ? [joint.token] : [])];
   }
@@ -52,6 +54,12 @@ function documentBatchRecipients(input: unknown, requests: readonly LoanDocument
   if (!data || !batchReviewsDocuments(data.action)) return new Set();
   const ids = new Set(data.items.map(({ requestId }) => requestId));
   return new Set(requests.filter((item) => item.loanId === data.loanId && ids.has(item.id)).map(documentRecipient));
+}
+
+function reusedEvidenceRecipients(input: unknown, requests: readonly LoanDocumentRequest[]) {
+  const { data } = reuseConditionEvidenceInput.safeParse(input);
+  const source = data && requests.find((item) => item.id === data.source.id && item.loanId === data.loanId);
+  return new Set(source ? [documentRecipient(source)] : []);
 }
 
 export async function borrowerChangeChannel(token: string) {
