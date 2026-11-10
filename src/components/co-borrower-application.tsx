@@ -16,6 +16,8 @@ import { BorrowerSampleDisclosure } from "./borrower-sample-disclosure";
 import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
 import { borrowerActions, borrowerCorrectionTarget } from "@/lib/borrower-action-model";
 import { BorrowerActionCenter } from "./borrower-action-center";
+import { BorrowerQuestionCards } from "./borrower-questions";
+import type { BorrowerQuestionResponse } from "@/lib/borrower-question-model";
 
 async function requestCoBorrower(token: string, input: object, signal: AbortSignal): Promise<CoBorrowerApplication> {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete co-borrower link from your loan officer.");
@@ -41,7 +43,7 @@ export function CoBorrowerApplicationForm() {
 
 const labels = [...coBorrowerSections.map(([, label]) => label), "Review"];
 type CoBorrowerAction = { type: "read" } | { type: "attachSample"; requestId: string; revision: number } |
-  { type: "save" | "submit"; step: number; revision: number; draft: BorrowerDetails; confirmedDemo: boolean } | BorrowerDisclosureResponse;
+  { type: "save" | "submit"; step: number; revision: number; draft: BorrowerDetails; confirmedDemo: boolean } | BorrowerDisclosureResponse | BorrowerQuestionResponse;
 
 function CoBorrowerForm({ token }: { token?: string }) {
   const [view, setView] = useState<CoBorrowerApplication>();
@@ -104,7 +106,7 @@ function CoBorrowerForm({ token }: { token?: string }) {
       if (!controller.signal.aborted && window.location.hash.slice(1) === token) {
         setView(next);
         setNotice(success);
-        if (input.type === "attachSample" || input.type === "respondToSampleDisclosure") void announceBorrowerChange(token);
+        if (input.type === "attachSample" || input.type === "respondToSampleDisclosure" || input.type === "answerBorrowerQuestion") void announceBorrowerChange(token);
         if (move) window.scrollTo(0, 0);
       }
     } catch (failure) {
@@ -163,6 +165,8 @@ function CoBorrowerForm({ token }: { token?: string }) {
       {actions.length === 0 && actionCenter}
       {view?.disclosure && <BorrowerSampleDisclosure key={view.disclosure.version} item={view.disclosure} busy={busy}
         respond={(input) => void perform(input, "Your sample disclosure response was recorded.")} />}
+      <BorrowerQuestionCards questions={view?.questions} busy={busy}
+        answer={(input) => void perform(input, "Your answer was sent to the loan team.")} />
       {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}
         busy={busy} refresh={refresh} attach={attach} uploadsMode={view.documentUploadsMode} />}
     </div> : view && <section className="application-panel" aria-label="Co-borrower portion"

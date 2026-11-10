@@ -13,6 +13,8 @@ import { BorrowerSampleDisclosure } from "./borrower-sample-disclosure";
 import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
 import { borrowerActions, borrowerDocumentTarget, borrowerDocumentVerificationTarget } from "@/lib/borrower-action-model";
 import { BorrowerActionCenter } from "./borrower-action-center";
+import { BorrowerQuestionCards } from "./borrower-questions";
+import type { BorrowerQuestionResponse } from "@/lib/borrower-question-model";
 
 const stageUpdates: Record<Stage, { label: string; next: string }> = {
   Lead: { label: "Getting started", next: "Your loan officer will review your application and share the next steps." },
@@ -26,10 +28,11 @@ const stageUpdates: Record<Stage, { label: string; next: string }> = {
 };
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-export function BorrowerStatus({ token, status, submittedAt, busy, refresh, attach, uploadsMode, respondToDisclosure }: {
+export function BorrowerStatus({ token, status, submittedAt, busy, refresh, attach, uploadsMode, respondToDisclosure, answerQuestion }: {
   token: string; status: BorrowerLoanStatus; submittedAt: string; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
   uploadsMode?: DocumentUploadMode;
   respondToDisclosure: (input: BorrowerDisclosureResponse) => void;
+  answerQuestion: (input: BorrowerQuestionResponse) => void;
 }) {
   const stage = stageUpdates[status.stage];
   const pause = status.closingPause;
@@ -60,6 +63,7 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
     </section>
     {!hasActions && actionCenter}
     {status.disclosure && <BorrowerSampleDisclosure key={status.disclosure.version} item={status.disclosure} busy={busy} respond={respondToDisclosure} />}
+    <BorrowerQuestionCards questions={status.questions} busy={busy} answer={answerQuestion} />
     {status.quote && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-quote-heading">
       <div className="section-heading"><h2 id="borrower-quote-heading"><Calculator size={19} /> Your shared quote</h2><span className="pill">Sample pricing</span></div>
       <div className="borrower-next">

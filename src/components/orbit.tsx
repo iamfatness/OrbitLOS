@@ -76,6 +76,7 @@ import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
+import { staffQuestionTarget } from "@/lib/borrower-question-model";
 
 type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
@@ -485,7 +486,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       }
       if (!("leadWork" in result)) {
         const updated = "loanWork" in result ? result.loanWork : result.state;
-        for (const token of borrowerChecklistTokens(input, updated.applications, updated.documentRequests)) {
+        for (const token of borrowerChecklistTokens(input, updated.applications, updated.documentRequests, updated.borrowerQuestions)) {
           void announceBorrowerChange(token, "checklist-changed");
         }
         for (const token of borrowerDisclosureTokens(input, updated.applications)) {
@@ -716,6 +717,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         const current = item.kind === "application" ? application?.loanId === item.id && application.revision === item.revision &&
           application.submittedAt && !application.reviewedAt : item.kind === "document" ?
           result.documentRequests.some((request) => request.id === item.id && request.revision === item.revision && request.status === "Received") :
+          item.kind === "question" ? result.borrowerQuestions.some((question) =>
+            question.id === item.id && question.revision === item.revision && question.status === "Answered") :
           assigned?.loanId === item.id && assigned.revision === item.revision && !!assigned.processorEmail &&
           (view === "today" ? assigned.status === "Returned to LO" : assigned.status === "Ready for processing" && readyToAccept);
         if (!inQueue || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
@@ -904,7 +907,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     if (item.kind === "lead-document") return void openLeadDocumentWork(item.leadId, item.id);
     if (item.kind === "lender-return") return void openQueueLoan({ kind: "details", loanId: item.loanId },
       { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: true });
-    const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` : "processing-handoff";
+    const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` :
+      item.kind === "question" ? staffQuestionTarget(item.id) : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }
 

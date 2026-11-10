@@ -1,5 +1,6 @@
 import type { BorrowerDisclosure } from "./disclosure-model";
 import { needsBorrowerDocument, type DocumentRequest } from "./document-model";
+import { borrowerQuestionTarget, needsBorrowerAnswer, type BorrowerQuestion } from "./borrower-question-model";
 
 export const borrowerCorrectionTarget = "borrower-correction-form";
 export const borrowerDisclosureTarget = "borrower-sample-disclosure";
@@ -8,18 +9,19 @@ export const borrowerDocumentTarget = (id: string) => `borrower-document-${id}`;
 
 export type BorrowerActionItem = {
   target: string;
-  kind: "Correction" | "Signature" | "Replacement" | "Retry" | "Document";
+  kind: "Correction" | "Signature" | "Replacement" | "Retry" | "Document" | "Question";
   title: string;
   button: string;
   date: string | null;
 };
 
 const priority: Record<BorrowerActionItem["kind"], number> = {
-  Correction: 0, Replacement: 1, Signature: 2, Retry: 3, Document: 4,
+  Correction: 0, Replacement: 1, Signature: 2, Retry: 3, Document: 4, Question: 5,
 };
 
-export function borrowerActions({ documents = [], disclosure, correction }: {
+export function borrowerActions({ documents = [], questions = [], disclosure, correction }: {
   documents?: DocumentRequest[];
+  questions?: BorrowerQuestion[];
   disclosure?: BorrowerDisclosure;
   correction?: string;
 }): BorrowerActionItem[] {
@@ -36,6 +38,11 @@ export function borrowerActions({ documents = [], disclosure, correction }: {
     const verb = kind === "Replacement" ? "Replace" : kind === "Retry" ? "Retry" : "Attach";
     actions.push({ target: borrowerDocumentTarget(request.id), kind, title: `${verb} ${request.kind.toLowerCase()}`,
       button: `Open ${request.kind.toLowerCase()} request`, date: request.dueOn });
+  }
+  for (const question of questions) {
+    if (!needsBorrowerAnswer(question.status)) continue;
+    actions.push({ target: borrowerQuestionTarget(question.id), kind: "Question", title: question.prompt,
+      button: question.status === "Needs clarification" ? "Open clarification" : "Open question", date: question.dueOn });
   }
   return actions.sort((a, b) => (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31") || priority[a.kind] - priority[b.kind]);
 }

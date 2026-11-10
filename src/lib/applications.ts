@@ -26,6 +26,8 @@ import { reconcileBorrowerSequences } from "./borrower-sequences";
 import { borrowerHoursInput, borrowerHoursLabel, sameBorrowerHours } from "./borrower-hours";
 import { borrowerDisclosureResponse } from "./disclosure-model";
 import { readBorrowerDisclosure, respondToBorrowerDisclosure } from "./disclosures";
+import { answerBorrowerQuestion } from "./borrower-question-model";
+import { borrowerQuestions, recordBorrowerAnswer } from "./borrower-questions";
 import { loanOutreachSuppressed } from "./outreach-preferences";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" |
@@ -186,6 +188,7 @@ const borrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
   z.object({ type: z.literal("status"), token }),
   borrowerDisclosureResponse,
+  answerBorrowerQuestion,
   z.strictObject({ type: z.literal("contactPreferences"), token }),
   z.strictObject({ type: z.literal("saveContactPreferences"), token, expected: borrowerChannelMask, blocked: borrowerChannelMask,
     hours: z.strictObject({ expected: borrowerHoursInput.nullable(), value: borrowerHoursInput.nullable() }).optional() }),
@@ -245,9 +248,11 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
     readSharedPreapprovalLetters(db, [row.loanId], "Borrower", token, now).get(row.loanId);
   const closingPause = loan?.stage === "Clear to Close" ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
   const disclosure = loan && sampleSigning ? readBorrowerDisclosure(db, row.loanId, "Borrower") : undefined;
+  const questions = loan && sampleSigning ? borrowerQuestions(db, row.loanId, primaryDocumentRecipient) : [];
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: borrowerDocuments(db, row.loanId, primaryDocumentRecipient),
+    ...(questions.length ? { questions } : {}),
     quote: published && currentAlternatives ? { ...published, presentation: borrowerQuotePresentation(presentation) } as unknown as BorrowerQuote : null,
     ...(preapproval ? { preapproval } : {}),
     ...(closingPause ? { closingPause } : {}),
@@ -339,13 +344,18 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
   const now = new Date().toISOString();
   return db.transaction(() => {
     if (data.type === "contactPreferences" || data.type === "saveContactPreferences") return borrowerContactPreferences(db, data, now);
-    if (data.type === "status" || data.type === "respondToSampleDisclosure" || (data.type === "attachSample" && data.statusOnly)) {
+    if (data.type === "status" || data.type === "respondToSampleDisclosure" || data.type === "answerBorrowerQuestion" || (data.type === "attachSample" && data.statusOnly)) {
       const row = db.prepare(`SELECT loanId, submittedAt, reviewedAt, correctionNote, revision ${borrowerLink}`)
         .get(data.token, now) as BorrowerStatusRow | undefined;
       if (!row) return borrowerLinkUnavailable;
       if (data.type === "respondToSampleDisclosure") {
         if (!sampleSigning || !row.submittedAt) return { status: 404, error: "This sample package is unavailable." };
         const failure = respondToBorrowerDisclosure(db, row.loanId, "Borrower", data, now);
+        if (failure) return failure;
+      }
+      if (data.type === "answerBorrowerQuestion") {
+        if (!sampleSigning || !row.submittedAt) return { status: 404, error: "This question is unavailable." };
+        const failure = recordBorrowerAnswer(db, row.loanId, primaryDocumentRecipient, data, now);
         if (failure) return failure;
       }
       if (!row.submittedAt) {
@@ -425,8 +435,10 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
       submittedAt = row.submittedAt, complete = Boolean(application.submittedAt), confirmedDemo = Boolean(row.confirmedDemo)): { value: CoBorrowerApplication } => {
       const closingPause = complete && submittedAt ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
       const disclosure = complete && submittedAt && sampleSigning ? readBorrowerDisclosure(db, row.loanId, "Co-borrower") : undefined;
+      const questions = complete && submittedAt && sampleSigning ? borrowerQuestions(db, row.loanId, coBorrowerDocumentRecipient) : [];
       return { value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
         ...(complete && submittedAt ? { documents: borrowerDocuments(db, row.loanId, coBorrowerDocumentRecipient) } : {}),
+        ...(questions.length ? { questions } : {}),
         ...(closingPause ? { closingPause } : {}),
         ...(disclosure ? { disclosure } : {}),
         ...(row.correctionNote && !submittedAt ? { correctionNote: row.correctionNote } : {}) } };
@@ -435,6 +447,10 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
     if (data.type === "respondToSampleDisclosure") {
       if (!sampleSigning || !row.submittedAt || !application.submittedAt) return { status: 404, error: "This sample package is unavailable." };
       return respondToBorrowerDisclosure(db, row.loanId, "Co-borrower", data, now) ?? view();
+    }
+    if (data.type === "answerBorrowerQuestion") {
+      if (!sampleSigning || !row.submittedAt || !application.submittedAt) return { status: 404, error: "This question is unavailable." };
+      return recordBorrowerAnswer(db, row.loanId, coBorrowerDocumentRecipient, data, now) ?? view();
     }
     if (data.type === "attachSample") {
       const ready = row.submittedAt && application.submittedAt;

@@ -82,6 +82,7 @@ export interface BorrowerLoanStatus {
   closingPause?: ClosingPause;
   reviewed: boolean;
   documents: DocumentRequest[];
+  questions?: import("./borrower-question-model").BorrowerQuestion[];
   quote: BorrowerQuote | null;
   preapproval?: SharedPreapprovalLetter;
   disclosure?: import("./disclosure-model").BorrowerDisclosure;

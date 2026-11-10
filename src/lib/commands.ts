@@ -96,6 +96,8 @@ import { archiveFundingFinancials } from "./brokerage-finance";
 import { completeContactFollowUp, setClosingChecklistStatus, setClosingTarget, setDocumentDeadline } from "./deadline-actions";
 import { applyDocumentTemplateInput } from "./document-template-model";
 import { applyDocumentTemplate } from "./document-templates";
+import { requestBorrowerQuestion, reviewBorrowerQuestion } from "./borrower-question-model";
+import { changeBorrowerQuestion } from "./borrower-questions";
 import { changeJointApplicationLink, jointApplication, reopenJointBorrower } from "./joint-application";
 import { jointLinkCommand } from "./joint-application-model";
 import { closingReviewReady, mockClearanceClosingStages, reopenedMockClosingMessage } from "./loan-workflow";
@@ -263,6 +265,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("applyDocumentPreset"), loanId: id, preset: z.enum(checklistPresetNames),
     recipient: z.enum(documentRecipients).default(primaryDocumentRecipient) }),
   applyDocumentTemplateInput,
+  requestBorrowerQuestion,
+  reviewBorrowerQuestion,
+  z.object({ type: z.literal("refreshBorrowerQuestions"), loanId: id }),
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500),
     lenderFile: z.object({ lender: label, externalId: label }).optional() }),
@@ -352,7 +357,8 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
     data.type === "createRealtorPortal" || data.type === "revokeRealtorPortal") denied();
   if (staff.brokerage.role === "Processor") {
     const permitted = ["refreshWorkspace", "refreshApplication", "loadLoanAudit", "exportReviewedApplication", "reviewApplication", "requestApplicationCorrection",
-      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument", "sendConditionDocument", "simulateDeliveryFailure",
+      "saveLenderDetails", "requestDocument", "setDocumentDeadline", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "reviewDocument",
+      "requestBorrowerQuestion", "reviewBorrowerQuestion", "refreshBorrowerQuestions", "sendConditionDocument", "simulateDeliveryFailure",
       "refreshMockUwmClearance", "reviewUwmAlert", "createTask", "completeTask", "note", "copyDraft",
       "recordManualHandoff", "submission", "saveClosingTarget", "saveClosingItem", "completeClosingItem", "recordClosing",
       "recordFunding", "saveDisclosureStatus", "prepareClosingHandoff", "confirmClosingDisclosure", "prepareClosingPacket",
@@ -493,6 +499,9 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "reconcileMockUwmReceipt":
     case "applyDocumentPreset":
     case "applyDocumentTemplate":
+    case "requestBorrowerQuestion":
+    case "reviewBorrowerQuestion":
+    case "refreshBorrowerQuestions":
     case "sendConditionDocument":
     case "simulateDeliveryFailure":
     case "refreshMockUwmClearance":
@@ -1387,6 +1396,16 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           message = result.message;
           break;
         }
+        case "requestBorrowerQuestion":
+        case "reviewBorrowerQuestion": {
+          const result = changeBorrowerQuestion(db, data, staff, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
+        case "refreshBorrowerQuestions":
+          message = "Borrower questions refreshed.";
+          break;
         case "recordManualHandoff":
         case "acknowledgeCampaignLenderExport": {
           const application = getApplication(db, data.loanId);

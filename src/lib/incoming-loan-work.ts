@@ -5,6 +5,7 @@ import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnPhase, pendi
 import { readPlaybook } from "./playbooks";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
+import { isDemoStaff } from "./workspace-access";
 
 const pageSize = 8;
 const sparseReceivedLimit = 32;
@@ -73,11 +74,19 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       request.revision, request.kind || ' · Lead', NULL, 0, NULL, NULL, NULL, NULL
     FROM referral_leads lead JOIN lead_document_requests request ON request.leadId = lead.id
     WHERE lead.officerEmail = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND request.status = 'Received'` : ""}
+  ), borrower_answers AS (
+    SELECT 'question', question.id, loan.id, contact.name, question.answeredAt, question.revision,
+      CASE WHEN question.recipient = 'Co-borrower' THEN 'Co-borrower answer' ELSE 'Borrower answer' END,
+      ${team ? "processing.processorName" : "NULL"}, 0, NULL, NULL, NULL, NULL
+    FROM borrower_questions question JOIN loans loan ON loan.id = question.loanId ${contacts}
+    ${processing ? "JOIN loan_processing processing ON processing.loanId = loan.id" : ""}
+    WHERE ${activeProcessingLoan} AND ${scope} AND question.status = 'Answered' AND question.answeredAt IS NOT NULL
+      AND ${Number(isDemoStaff(staff) || staff.brokerage.pilot === true)} = 1
   ), page AS (
-    SELECT * FROM incoming ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
+    SELECT * FROM (SELECT * FROM incoming UNION ALL SELECT * FROM borrower_answers) ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
-    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(leadDocuments ? [staff.email] : []),
+    .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(leadDocuments ? [staff.email] : []), ...documentArgs,
       ...(after ? [after.receivedAt, after.kind, after.id] : []), pageSize + 1) as unknown as
       (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline" | "returnEventId" | "returnFollowUp"> & {
         loanId: string; linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;

@@ -4,6 +4,7 @@ import { portalTokenPattern } from "./brokerage-model";
 import type { DocumentRequest } from "./document-model";
 import type { ClosingPause } from "./model";
 import { borrowerDisclosureResponse, type BorrowerDisclosure } from "./disclosure-model";
+import { answerBorrowerQuestion, type BorrowerQuestion } from "./borrower-question-model";
 import { borrowerDetailsSchema, normalizeBorrowerDetails, sampleUrla, type BorrowerDetails, type BorrowerSection } from "./urla";
 
 const loanId = z.string().min(1).max(100);
@@ -26,6 +27,7 @@ export const jointLinkCommand = z.discriminatedUnion("type", [
 export const coBorrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
   borrowerDisclosureResponse,
+  answerBorrowerQuestion,
   z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision }),
   z.object({ type: z.enum(["save", "submit"]), token, revision, step: z.number().int().min(0).max(coBorrowerReviewStep),
     draft: borrowerDetailsSchema, confirmedDemo: z.boolean() }),
@@ -49,6 +51,7 @@ export interface CoBorrowerApplication {
   complete: boolean;
   confirmedDemo: boolean;
   documents?: DocumentRequest[];
+  questions?: BorrowerQuestion[];
   closingPause?: ClosingPause;
   disclosure?: BorrowerDisclosure;
   documentUploadsMode?: "mock";

@@ -229,6 +229,20 @@ export function initializeStore(db: Store, seedDemo = true) {
       details TEXT NOT NULL, revision INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS document_requests (${documentRequestColumns});
+    CREATE TABLE IF NOT EXISTS borrower_questions (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      recipient TEXT NOT NULL CHECK(recipient IN ('Primary borrower', 'Co-borrower')),
+      prompt TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('Short answer', 'Yes or no')), dueOn TEXT,
+      status TEXT NOT NULL DEFAULT 'Requested' CHECK(status IN ('Requested', 'Answered', 'Needs clarification', 'Reviewed', 'Cancelled')),
+      revision INTEGER NOT NULL DEFAULT 0, requestedAt TEXT NOT NULL, askedBy TEXT NOT NULL,
+      answer TEXT, answeredAt TEXT, clarification TEXT NOT NULL DEFAULT '', reviewedAt TEXT, reviewedBy TEXT
+    );
+    CREATE INDEX IF NOT EXISTS borrower_questions_by_loan ON borrower_questions(loanId, recipient);
+    CREATE INDEX IF NOT EXISTS answered_borrower_questions ON borrower_questions(answeredAt DESC, id DESC, loanId) WHERE status = 'Answered';
+    CREATE TABLE IF NOT EXISTS borrower_question_answers (
+      questionId TEXT NOT NULL REFERENCES borrower_questions(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL, answer TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (questionId, revision)
+    );
     CREATE TABLE IF NOT EXISTS document_checklist_templates (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, purpose TEXT NOT NULL, revision INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0
     );

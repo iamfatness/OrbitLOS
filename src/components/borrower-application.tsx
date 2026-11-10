@@ -10,6 +10,7 @@ import { observeHandoffChecks } from "@/lib/tab-return";
 import { primaryJointDraft } from "@/lib/joint-application-model";
 import type { BorrowerPortalPreferences } from "@/lib/borrower-channel-model";
 import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
+import type { BorrowerQuestionResponse } from "@/lib/borrower-question-model";
 import { borrowerActions, borrowerCorrectionTarget } from "@/lib/borrower-action-model";
 import { borrowerWeekendHours, sameBorrowerHours, type BorrowerHours } from "@/lib/borrower-hours";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
@@ -25,6 +26,7 @@ type ApplicationView = BorrowerApplication | SubmittedView;
 type BorrowerAction = { type: "save" | "submit"; step: number; revision: number; draft: BorrowerApplication["draft"] }
   | { type: "status" }
   | BorrowerDisclosureResponse
+  | BorrowerQuestionResponse
   | { type: "attachSample"; requestId: string; revision: number; statusOnly: true };
 
 function applicationView(application: BorrowerApplication): ApplicationView {
@@ -229,7 +231,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
     setNotice("");
     try {
       let next: ApplicationView;
-      if (input.type === "status" || input.type === "attachSample" || input.type === "respondToSampleDisclosure") {
+      if (input.type === "status" || input.type === "attachSample" || input.type === "respondToSampleDisclosure" || input.type === "answerBorrowerQuestion") {
         const status = await requestApplication<BorrowerStatusRefresh>(token, input, signal);
         if (!isCurrent()) return;
         if (status.kind === "resume") {
@@ -243,7 +245,8 @@ function BorrowerApplication({ token }: { token: string | null }) {
       }
       if (!isCurrent()) return;
       setView(next);
-      if (input.type === "submit" || input.type === "attachSample" || input.type === "respondToSampleDisclosure") void announceBorrowerChange(token);
+      if (input.type === "submit" || input.type === "attachSample" || input.type === "respondToSampleDisclosure" ||
+        input.type === "answerBorrowerQuestion") void announceBorrowerChange(token);
       onSuccess(next);
     } catch (failure) {
       if (isCurrent()) setError(failure instanceof Error ? failure.message : "Could not save the application. Try again.");
@@ -312,6 +315,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
       <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void perform({ type: "status" }, () => setNotice("Joint application progress refreshed."))}>Refresh joint status</Button></div>
     </section> : view?.submittedAt && "loanStatus" in view ? token && view.loanStatus && <BorrowerStatus token={token} status={view.loanStatus} submittedAt={view.submittedAt}
       busy={busy} attach={attach} uploadsMode={view.documentUploadsMode} refresh={() => void perform({ type: "status" }, () => setNotice("Loan status refreshed."))}
+      answerQuestion={(input) => void perform(input, () => setNotice("Your answer was sent to the loan team."))}
       respondToDisclosure={(input) => void perform(input, () => setNotice("Your sample disclosure response was recorded."))} />
       : application && <section className="application-panel application-editor" aria-label="1003 application"
         id={borrowerCorrectionTarget} tabIndex={-1} data-borrower-action-target>

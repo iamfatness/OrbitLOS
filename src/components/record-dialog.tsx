@@ -30,6 +30,7 @@ import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mock
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
+import { LoanBorrowerQuestions } from "./loan-borrower-questions";
 import { UwmDeliveryTimeline } from "./uwm-delivery-timeline";
 import { ManualLenderExport } from "./manual-lender-export";
 import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@/lib/lender-export-model";
@@ -467,7 +468,7 @@ function loanSection(target?: string) {
   if (target === disclosureTarget) return "Disclosures";
   if (target === "loan-application" || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
     target === manualLenderAcknowledgmentTarget) return "1003";
-  if (target.startsWith("lender-") || target.startsWith("document-")) return "Conditions";
+  if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-")) return "Conditions";
   if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet") return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
@@ -720,6 +721,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         applicationReviewRevision={application?.reviewedAt && application.submittedAt ? application.revision : null}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
+      {canOpenDisclosures && <LoanBorrowerQuestions key={loan.id} loanId={loan.id}
+        questions={(state.borrowerQuestions ?? []).filter((item) => item.loanId === loan.id)}
+        canRequest={Object.values(checklistLinks).some(Boolean) && !pausedLoan(loan) && !pastClientLoan(loan)}
+        joint={joint} busy={busy} save={save} />}
       </>}
       {section === "Activity" && <>
       {canOpenReviews && <LoanReviews loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId}

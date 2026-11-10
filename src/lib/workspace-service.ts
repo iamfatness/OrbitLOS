@@ -163,6 +163,7 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
   const localScopedLoan = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" && "type" in input &&
     (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" ||
       input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" ||
+      input.type === "requestBorrowerQuestion" || input.type === "reviewBorrowerQuestion" || input.type === "refreshBorrowerQuestions" ||
       input.type === "prepareClosingHandoff" || input.type === "saveClosingTarget" || input.type === "saveClosingItem" || input.type === "completeClosingItem" ||
       confirmClosingDisclosure.safeParse(input).success || disclosureCommand.safeParse(input).success || prepareClosingPacketInput.safeParse(input).success);
   const actor = localScopedLoan ? localPilotAdmin : staff;

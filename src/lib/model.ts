@@ -320,6 +320,7 @@ export interface Workspace {
   unlinkedReferrals: UnlinkedReferral[];
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];
+  borrowerQuestions?: import("./borrower-question-model").StaffBorrowerQuestion[];
   pricingRuns: PricingRun[];
   feeWorksheets: FeeWorksheet[];
   publishedQuotes: PublishedQuote[];

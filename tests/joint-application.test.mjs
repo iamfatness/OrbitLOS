@@ -7,6 +7,7 @@ const { applicationIssues, applicationSteps, sampleApplication } = await import(
 const { borrowerActions, borrowerCorrectionTarget, borrowerDisclosureTarget, borrowerDocumentTarget } = await import("../src/lib/borrower-action-model.ts");
 const { disclosurePackageStatus, disclosureTarget, sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
+const { readIncomingLoanWorkPage } = await import("../src/lib/incoming-loan-work.ts");
 const { blankFees } = await import("../src/lib/quote-worksheet.ts");
 const { easternDate } = await import("../src/lib/client-retention.ts");
 const { borrowerCommandResult, coBorrowerCommandResult, getApplication, staffApplications, startApplication } = await import("../src/lib/applications.ts");
@@ -36,6 +37,65 @@ test("borrower actions use the earliest dates and exclude completed or processin
   assert.deepEqual(borrowerActions({ documents, disclosure, correction: "Confirm the purchase price." }).map(({ kind }) => kind), ["Correction"]);
   assert.deepEqual(borrowerActions({ disclosure: { ...disclosure, state: "Awaiting revision" } }), []);
   assert.deepEqual(borrowerActions({ disclosure: { ...disclosure, state: "Closed" } }), []);
+});
+
+test("borrower questions stay with their own link and create one current answer for staff review", async (t) => {
+  const f = fixture(t);
+  const primaryQuestion = { questionId: crypto.randomUUID(), prompt: "Does the fictional property have an HOA?",
+    kind: "Yes or no", recipient: "Primary borrower", dueOn: easternDate() };
+  const coQuestion = { questionId: crypto.randomUUID(), prompt: "When can we call about your fictional sample?",
+    kind: "Short answer", recipient: "Co-borrower", dueOn: null };
+  const ask = (data, actor = f.officer) => f.run("requestBorrowerQuestion", data, actor, { scopedLoanUpdates: true });
+  assert.match((await ask(primaryQuestion)).error, /submitted 1003/);
+  await f.enable();
+  const primary = f.primary().application;
+  const co = f.co().value;
+  f.primary(f.primaryWrite(f.primarySample(primary.draft), primary.revision));
+  assert.equal(f.co(f.coWrite(f.coSample(co.draft), co.revision)).value.complete, true);
+  assert.match((await ask(primaryQuestion, f.outsider)).error, /access/);
+  assert.match((await ask(primaryQuestion, f.processor)).error, /access/);
+  const asked = await ask(primaryQuestion);
+  assert.equal(asked.loanWork.borrowerQuestions[0].status, "Requested");
+  assert.match((await ask(primaryQuestion)).message, /already added/);
+  assert.ok((await ask(coQuestion)).loanWork);
+  const primaryStatus = () => f.primary({ type: "status" }).statusView.loanStatus;
+  const answer = (item, value, revision = 0) => ({ type: "answerBorrowerQuestion", questionId: item.questionId, revision, answer: value });
+  assert.deepEqual(primaryStatus().questions.map(({ id }) => id), [primaryQuestion.questionId]);
+  assert.deepEqual(f.co().value.questions.map(({ id }) => id), [coQuestion.questionId]);
+  assert.doesNotMatch(JSON.stringify(primaryStatus()), /askedBy|previousAnswers|Co-borrower/);
+  assert.equal(f.primary(answer(coQuestion, "Private")).status, 404);
+  assert.equal(f.co(answer(primaryQuestion, "Yes")).status, 404);
+  assert.equal(f.primary(answer(primaryQuestion, "Maybe")).status, 422);
+  assert.equal(borrowerActions(primaryStatus())[0].kind, "Question");
+
+  f.db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
+    VALUES (?, ?, ?, 'In processing', '', ?, 1)`).run(f.loanId, f.processor.email, f.processor.name, f.now);
+  const queue = (actor = f.officer, view = "today") => readIncomingLoanWorkPage(f.db, { view }, actor, f.brokerage.id).items.filter((item) => item.kind === "question");
+  assert.equal(f.primary(answer(primaryQuestion, "Yes")).statusView.loanStatus.questions[0].status, "Answered");
+  assert.deepEqual(borrowerActions(primaryStatus()), []);
+  assert.equal(f.primary(answer(primaryQuestion, "Yes")).statusView.loanStatus.questions[0].revision, 1);
+  assert.equal(f.primary(answer(primaryQuestion, "No")).status, 409);
+  assert.deepEqual(queue().map(({ id, revision }) => [id, revision]), [[primaryQuestion.questionId, 1]]);
+  assert.equal(queue(f.processor, "processing")[0].id, primaryQuestion.questionId);
+  assert.deepEqual(queue(f.outsider), []);
+  const review = (decision, revision, clarification = "", actor = f.processor) => f.run("reviewBorrowerQuestion",
+    { questionId: primaryQuestion.questionId, decision, revision, clarification }, actor, { scopedLoanUpdates: true });
+  assert.match((await review("Needs clarification", 0, "Please confirm the HOA answer.")).error, /question changed/);
+  assert.ok((await review("Needs clarification", 1, "Please confirm the HOA answer.")).loanWork);
+  assert.deepEqual(queue(), []);
+  assert.equal(borrowerActions(primaryStatus())[0].button, "Open clarification");
+  assert.equal(primaryStatus().questions[0].clarification, "Please confirm the HOA answer.");
+  assert.equal(f.primary(answer(primaryQuestion, "Yes")).statusView.loanStatus.questions[0].status, "Needs clarification");
+  assert.equal(f.primary(answer(primaryQuestion, "No", 2)).statusView.loanStatus.questions[0].answer, "No");
+  assert.equal(queue()[0].revision, 3);
+  const reviewed = await review("Reviewed", 3);
+  const row = reviewed.loanWork.borrowerQuestions.find(({ id }) => id === primaryQuestion.questionId);
+  assert.equal(row.reviewedBy, f.processor.name);
+  assert.deepEqual(row.previousAnswers.map(({ answer }) => answer), ["No", "Yes"]);
+  assert.deepEqual(queue(), []);
+  assert.equal(primaryStatus().questions[0].status, "Reviewed");
+  assert.equal(f.co(answer(coQuestion, "Tuesday after noon.")).value.questions[0].status, "Answered");
+  assert.equal(queue()[0].title, "Co-borrower answer");
 });
 
 function fixture(t) {

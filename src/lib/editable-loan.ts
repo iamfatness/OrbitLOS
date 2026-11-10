@@ -17,6 +17,7 @@ import { processingActivityPrefix } from "./processing-model";
 import { canUseSampleDisclosures, readDisclosureWork } from "./disclosures";
 import { readClosingPackets } from "./closing-packets";
 import { closingPacketChecklistLimit } from "./closing-packet-model";
+import { staffBorrowerQuestions } from "./borrower-questions";
 
 export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 
@@ -43,8 +44,9 @@ function loanHandoffVersion(db: Store, loanId: string) {
   const checklist = packet && db.prepare("SELECT id, revision FROM closing_items WHERE loanId = ? ORDER BY dueDate, id LIMIT ?")
     .all(loanId, closingPacketChecklistLimit + 1);
   const uwmAcceptance = db.prepare("SELECT revision, reconciledAt FROM mock_uwm_acceptances WHERE loanId = ? ORDER BY revision DESC LIMIT 1").get(loanId);
+  const questions = db.prepare("SELECT id, revision FROM borrower_questions WHERE loanId = ? ORDER BY id").all(loanId);
   return createHash("sha256").update(JSON.stringify([
-    application, documents, joint, processing, disclosure, closingDisclosure, packet, closingDates, checklist, uwmAcceptance,
+    application, documents, joint, processing, disclosure, closingDisclosure, packet, closingDates, checklist, uwmAcceptance, questions,
   ])).digest("hex");
 }
 
@@ -105,6 +107,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   return {
     ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
     ...(disclosureWork ? { disclosureWork } : {}),
+    borrowerQuestions: disclosureWork ? staffBorrowerQuestions(db, loanId) : [],
     ...(disclosureWork?.packages.length ? { closingPacketWork: readClosingPackets(db, loanId, disclosureWork) } : {}),
     applications: scopeJointLinks(records.applications, staff),
     repeatOption,
