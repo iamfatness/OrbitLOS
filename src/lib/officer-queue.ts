@@ -7,6 +7,8 @@ import { coverageKinds, type CoverageItem, type CoverageWindow } from "./coverag
 import { currentConversationContact, readOwnedConversationReplies } from "./conversations";
 import { campaignFollowUpRecipient } from "./call-campaign-model";
 import { sequenceStep } from "./campaign-sequence-model";
+import { borrowerChannelBits } from "./borrower-channel-model";
+import { leadChannelBlocksSql } from "./borrower-channels";
 import { reviewTarget } from "./loan-review-model";
 import { closingChecklistTarget, loanTaskTarget } from "./loan-workflow";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
@@ -230,6 +232,8 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const openLeadDocument = "lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND lead.officerEmail IS NOT NULL";
   const showSequences = !calendar && !tasks && !coverage;
   const currentSequenceStep = "json_extract(template.steps, '$[' || run.position || ']')";
+  const sequenceChannelBit = `CASE json_extract(${currentSequenceStep}, '$.channel')
+    WHEN 'Call' THEN ${borrowerChannelBits.Call} WHEN 'Email' THEN ${borrowerChannelBits.Email} WHEN 'Text' THEN ${borrowerChannelBits.Text} END`;
   const currentSequenceId = "(run.leadId || ':' || run.version || ':' || run.position)";
   // Returning audiences have their own cadence. New Lead only replaces a duplicate first call.
   const sequenceFirstCall = showSequences ? `AND NOT EXISTS (SELECT 1 FROM campaign_sequence_enrollments run
@@ -291,7 +295,8 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       FROM campaign_sequence_enrollments run JOIN referral_leads lead ON lead.id = run.leadId
       JOIN call_campaign_members member ON member.leadId = lead.id JOIN campaign_sequence_versions template ON template.version = run.version
       LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
-      WHERE run.dueAt IS NOT NULL AND run.outcome IS NULL AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL`,
+      WHERE run.dueAt IS NOT NULL AND run.outcome IS NULL AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL
+        AND (${leadChannelBlocksSql} & (${sequenceChannelBit})) = 0`,
     currentSequenceId, "run.dueAt", "lead.officerEmail", "lead.officer") : []),
     ...(policy ? [
       ...select("lead-hold", `lead.id, lead.id AS recordId, lead.name, (lead.revisitDate || 'T17:00:00.000Z') AS dueAt,
@@ -339,6 +344,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       FROM referral_leads lead LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
       LEFT JOIN call_campaign_members member ON member.leadId = lead.id
       WHERE lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.firstContactAt IS NULL AND follow.replyReceivedAt IS NULL
+      AND (member.leadId IS NULL OR (${leadChannelBlocksSql} & ${borrowerChannelBits.Call}) = 0)
       ${policy ? `AND NOT (${quietReady})` : ""} ${sequenceFirstCall}`,
     "lead.id", "lead.dueAt", "lead.officerEmail", "lead.officer", false, policy ? [checkedAt] : []),
     ...select("campaign", `task.id, lead.id AS recordId, lead.id AS leadId, lead.name, task.dueAt, lead.email, lead.phone,

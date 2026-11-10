@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { borrowerChannelBlocked } from "@/lib/borrower-channel-model";
 import { Phone, RefreshCw, Upload } from "lucide-react";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignFollowUpSource, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv, sequenceReplacesFirstContact,
@@ -276,7 +277,7 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
               <div><Button size="sm" type="submit" disabled={busy}>Save callback time</Button></div>
             </form>
           </details>}
-        <form className="record-form" onSubmit={(event) => {
+        {borrowerChannelBlocked(lead.outreachChannelBlocks, "Call") ? <p className="muted">This borrower blocks calls.</p> : <form className="record-form" onSubmit={(event) => {
           event.preventDefault();
           if (!outcome) return;
           const form = event.currentTarget;
@@ -301,7 +302,7 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
             <label className="demo-confirm"><input type="checkbox" name="simulateFollowUpFailure" /> Simulate a follow-up failure for this call</label>
           </details>}
           <div><Button size="sm" type="submit" variant="outline" disabled={busy}><Phone /> Log call outcome</Button></div>
-        </form>
+        </form>}
         {followUp && <CampaignFollowUp key={JSON.stringify([followUp.callEventId, followUp.callbackAt, lead.email, lead.phone, lead.officerEmail])}
           campaignId={campaign.id} lead={lead} source={followUp} busy={busy} save={save} openConversation={openConversation} />}
         <div className="loan-application-actions">

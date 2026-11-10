@@ -1,4 +1,6 @@
 import type { z } from "zod";
+import { borrowerChannelBits, borrowerChannelBlocked } from "./borrower-channel-model";
+import { leadChannelBlocksSql } from "./borrower-channels";
 import { demoBrokerageId, portalToken, type BrokerageMember } from "./brokerage-model";
 import { isOpenOverdueCallbackPromise } from "./campaign-callback-exceptions";
 import { callbackExceptionChanged, callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
@@ -86,6 +88,17 @@ function followUpRow(db: Store, leadId: string): FollowUpRow {
 export function advanceLeadRevision(db: Store, leadId: string) {
   db.prepare(`INSERT INTO lead_follow_up (leadId, revision) VALUES (?, 1)
     ON CONFLICT (leadId) DO UPDATE SET revision = revision + 1`).run(leadId);
+}
+
+export function skipBlockedInboxEmail(db: Store, leadId: string, now: string) {
+  const row = db.prepare(`SELECT follow.nextStep FROM lead_follow_up follow JOIN referral_leads lead ON lead.id = follow.leadId
+    WHERE lead.id = ? AND lead.resolvedAt IS NULL AND follow.status = 'Active' AND follow.replyReceivedAt IS NULL
+      AND (${leadChannelBlocksSql} & ${borrowerChannelBits.Email}) <> 0`).get(leadId);
+  if (!row) return 0;
+  db.prepare(`UPDATE lead_follow_up SET status = 'Completed', nextStep = ?, nextAt = NULL, pausedAt = NULL, revision = revision + 1
+    WHERE leadId = ?`).run(leadSequenceSteps.length, leadId);
+  leadEvent(db, leadId, "Orbit", now, "Skipped the remaining mock email steps because the borrower blocks email.");
+  return leadSequenceSteps.length - Number(row.nextStep);
 }
 
 export function archiveLead(db: Store, staff: WorkspaceStaff | null, leadId: string, revision: number, now: string): Outcome {
@@ -233,7 +246,8 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
     }
     if (!isOpenOverdueCallbackPromise(db, callbackPromiseId, data.leadId, now)) return { error: callbackExceptionChanged };
   }
-  const lead = db.prepare("SELECT officerEmail, realtorId, resolvedAt, heldAt, email, phone, importedContactId AS contactId FROM referral_leads WHERE id = ?").get(data.leadId);
+  const lead = db.prepare(`SELECT officerEmail, realtorId, resolvedAt, heldAt, email, phone, importedContactId AS contactId,
+    ${leadChannelBlocksSql} AS blocked FROM referral_leads lead WHERE id = ?`).get(data.leadId);
   if (!lead || lead.resolvedAt || staff?.brokerage.role === "Processor") return { error: "This lead is no longer available." };
   const isOfficer = staff?.brokerage.role === "LO";
   const selfClaim = data.type === "assignInboxLead" && data.previousEmail === null && data.email === staff?.email;
@@ -307,6 +321,9 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
   const stop = () => { row.status = "Stopped"; row.nextAt = null; row.pausedAt = null; };
   let event: string;
   if (data.type === "leadContact") {
+    if (data.outcome !== "Reply received" && data.outcome !== "Opted out" && borrowerChannelBlocked(Number(lead.blocked), data.channel)) {
+      return { error: `The borrower blocks ${data.channel.toLowerCase()} outreach.` };
+    }
     if (!row.firstContactAt && campaign && campaignCall) recordCampaignFirstOutreach(db, data.leadId, now);
     row.firstContactAt ??= now;
     if (row.status !== "Completed" && (data.outcome === "Connected" || data.outcome === "Reply received" || data.outcome === "Opted out")) stop();
@@ -338,6 +355,7 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
         event = "Stopped the mock sequence.";
         break;
       case "Mock send": {
+        if (borrowerChannelBlocked(Number(lead.blocked), "Email")) return { error: "The borrower blocks email outreach." };
         const step = leadSequenceSteps[row.nextStep];
         if (row.status !== "Active" || !row.nextAt || row.nextAt > now || !step) return { error: "This mock step is not due." };
         event = `Mock delivery recorded · ${step.title}`;
@@ -348,6 +366,12 @@ export function updateInboxLead(db: Store, staff: WorkspaceStaff | null, data: I
         break;
       }
     }
+  }
+  if (data.type === "leadSequence" && row.status === "Active" && borrowerChannelBlocked(Number(lead.blocked), "Email")) {
+    row.status = "Completed";
+    row.nextStep = leadSequenceSteps.length;
+    row.nextAt = null;
+    event = "Skipped the remaining mock email steps because the borrower blocks email.";
   }
   db.prepare(`INSERT INTO lead_follow_up (leadId, status, revision, nextStep, nextAt, pausedAt, firstContactAt) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (leadId) DO UPDATE SET status = excluded.status, revision = excluded.revision, nextStep = excluded.nextStep,

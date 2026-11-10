@@ -1,4 +1,6 @@
 import type { z } from "zod";
+import { borrowerChannelBlocked } from "./borrower-channel-model";
+import { leadChannelBlocksSql } from "./borrower-channels";
 import { assignableCampaignLead, campaignFollowUpAllowed, campaignFollowUpRecipient, defaultCampaignRules, localCampaignOfficers, mockCampaignFollowUpPrefix, unansweredCampaignCall,
   type assignCampaignLeadsInput, type createCallCampaignInput, type pauseCampaignRetriesInput, type recordCampaignCallInput, type recordCampaignFollowUpInput, type rescheduleCampaignCallbackInput,
   type saveCampaignRulesInput } from "./call-campaign-model";
@@ -219,6 +221,7 @@ export function rescheduleCampaignCallback(db: Store, staff: WorkspaceStaff | nu
 export function recordCampaignFollowUp(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof recordCampaignFollowUpInput>, now: string) {
   if (staff && (!staff.brokerage.pilot || staff.brokerage.role === "Processor")) return { error: "Mock campaign follow-up is available in a fictional pilot." };
   const lead = db.prepare(`SELECT lead.officerEmail, lead.heldAt, lead.email, lead.phone, lead.importedContactId AS contactId, member.lastOutcome,
+    ${leadChannelBlocksSql} AS blocked,
     coalesce(follow.revision, 0) AS revision, follow.replyReceivedAt, call.id AS callEventId, call.at AS callAt, call.outcome AS callOutcome,
     CASE WHEN member.lastOutcome = 'Requested callback' AND task.completedAt IS NULL THEN task.dueAt END AS callbackAt
     FROM call_campaign_members member JOIN referral_leads lead ON lead.id = member.leadId
@@ -235,6 +238,7 @@ export function recordCampaignFollowUp(db: Store, staff: WorkspaceStaff | null, 
     return { error: "This borrower opted out of brokerage outreach." };
   }
   if (lead.heldAt) return { error: "Reactivate this lead before recording follow-up." };
+  if (borrowerChannelBlocked(Number(lead.blocked), input.channel)) return { error: `The borrower blocks ${input.channel.toLowerCase()} outreach.` };
   const changed = { error: "The call, recipient, or callback changed. Refresh the campaign and reopen the draft." };
   const callbackAt = typeof lead.callbackAt === "string" ? lead.callbackAt : null;
   const recipient = campaignFollowUpRecipient(input.channel, { email: String(lead.email ?? ""), phone: String(lead.phone ?? "") });

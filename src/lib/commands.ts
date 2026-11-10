@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { saveBorrowerChannelsInput } from "./borrower-channel-model";
+import { carryLeadChannelBlocks, linkedChannelLeadIds, saveBorrowerChannels } from "./borrower-channels";
+import { reconcileBorrowerSequenceChannels } from "./borrower-sequences";
 import { campaignWorkPatch, crmSegmentRows, insertContact, insertLoan, insertSubmission, leadContactCandidates, leadWorkRecord, loanWorkRecords,
   readCampaignNavigation, readCampaignQueue, readWorkspace, savedPricingRun, workspace, type SqlValue, type Store } from "./store";
 import { activityKinds, contactOutcomes, disclosureStatuses, dispositions, draftMilestones, followUpOutcomes, followUpPurposes,
@@ -46,7 +49,8 @@ import { assignInboxLeadInput, convertReferralInput, leadContactInput, leadHoldI
 import { inboxLeadScope } from "./lead-inbox-query";
 import { claimSharedRealtorInput, saveRealtorClaimPolicyInput } from "./realtor-claim-model";
 import { saveRealtorClaimPolicy } from "./realtor-claim-queue";
-import { archiveLead, carryLeadHistory, changeLeadRouting, claimSharedRealtor, restoreArchivedLead, setImportedLeadTaskStatus, updateInboxLead } from "./lead-inbox";
+import { archiveLead, carryLeadHistory, changeLeadRouting, claimSharedRealtor, leadEvent, restoreArchivedLead, setImportedLeadTaskStatus,
+  updateInboxLead } from "./lead-inbox";
 import { carryLeadDocuments } from "./lead-documents";
 import { carryLeadConversation } from "./conversations";
 import { updateProcessingInput } from "./processing-model";
@@ -202,6 +206,7 @@ const command = z.discriminatedUnion("type", [
   routeCampaignQueueInput,
   saveCampaignRulesInput,
   saveCampaignSequenceInput,
+  saveBorrowerChannelsInput,
   changeCampaignSequenceInput,
   recordSequenceMockInput,
   pauseCampaignRetriesInput,
@@ -349,9 +354,11 @@ function authorizeLoanOfficer(db: Store, data: z.infer<typeof command>, staff: W
   if (data.type === "completeTask" && !owns(db.prepare("SELECT loanId FROM tasks WHERE id = ?").get(data.id)?.loanId)) denied();
   if (data.type === "deleteSubmission" && !owns(db.prepare("SELECT loanId FROM submissions WHERE id = ?").get(data.id)?.loanId)) denied();
   if (data.type === "submission" && data.id && db.prepare("SELECT loanId FROM submissions WHERE id = ?").get(data.id)?.loanId !== data.loanId) denied();
-  if (data.type === "loan" || data.type === "optOutContact" || data.type === "logContactActivity") {
+  if (data.type === "loan" || data.type === "optOutContact" || data.type === "logContactActivity" ||
+    (data.type === "saveBorrowerChannels" && data.target === "contact")) {
     if (data.type === "loan" && data.id && !owns(data.id)) denied();
-    for (const contactId of data.type === "loan" ? [data.contactId, data.partnerId] : [data.contactId]) {
+    for (const contactId of data.type === "loan" ? [data.contactId, data.partnerId] :
+      [data.type === "saveBorrowerChannels" ? data.recordId : data.contactId]) {
       if (contactId && !db.prepare("SELECT 1 FROM loans WHERE officerEmail = ? AND (contactId = ? OR partnerId = ?)").get(staff.email, contactId, contactId) &&
         !db.prepare("SELECT 1 FROM contacts WHERE id = ? AND addedBy = ?").get(contactId, staff.email)) denied();
     }
@@ -419,6 +426,8 @@ const inboxCommands = new Set(["assignInboxLead", "claimSharedRealtor", "complet
 
 function scopedLeadId(data: z.infer<typeof command>) {
   switch (data.type) {
+    case "saveBorrowerChannels":
+      return data.target === "lead" ? data.recordId : undefined;
     case "assignInboxLead":
     case "claimSharedRealtor":
     case "rescheduleCampaignCallback":
@@ -689,6 +698,21 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const result = recordSequenceMock(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
+          break;
+        }
+        case "saveBorrowerChannels": {
+          const result = saveBorrowerChannels(db, staff, data);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          let skipped = 0;
+          if (result.changed) {
+            skipped = reconcileBorrowerSequenceChannels(db, result.leadIds, now);
+            accessEvent(db, staff, "Updated borrower contact preferences", result.contactId ?? data.recordId, now);
+            if (data.target === "lead") leadEvent(db, data.recordId, staff?.name ?? "Demo workspace", now, "Updated borrower contact preferences.");
+          }
+          message = skipped ? `Contact preferences saved. Skipped ${skipped} blocked sequence ${skipped === 1 ? "step" : "steps"}.` : "Contact preferences saved.";
+          if (scopedContactUpdates && data.target === "contact") {
+            return { contactsChanged: true, borrowerChannels: { contactId: data.recordId, blocked: data.blocked }, message };
+          }
           break;
         }
         case "saveCrmSegment":
@@ -1176,6 +1200,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const carriedDocuments = carryLeadDocuments(db, data.referralId, loanId, now);
           if (carriedDocuments === null) throw new WorkspaceError("A sample PDF is still processing. Wait for the upload to finish before converting the lead.");
           stopCampaignFollowUp(db, staff, data.referralId, now, "1003 started", true);
+          if (carryLeadChannelBlocks(db, data.referralId, contact.id)) {
+            reconcileBorrowerSequenceChannels(db, linkedChannelLeadIds(db, contact.id).filter((leadId) => leadId !== data.referralId), now);
+          }
           const firstContactAt = carryLeadHistory(db, data.referralId, loanId);
           carryLeadConversation(db, data.referralId, loanId, contact.id, now);
           const leadIdentity = { leadId: data.referralId, email, phone, contactId: lead.importedContactId };

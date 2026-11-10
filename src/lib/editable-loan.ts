@@ -65,7 +65,9 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   const processingActivity = records.loanProcessing.length ? db.prepare(`SELECT id, text, createdAt FROM activity
     WHERE loanId = ? AND text GLOB '${processingActivityPrefix}*' ORDER BY rowid DESC LIMIT 4`).all(loanId)
     .map(({ id, text, createdAt }) => ({ id: String(id), text: String(text), createdAt: String(createdAt) })) : [];
-  const contacts = db.prepare("SELECT * FROM contacts WHERE id IN (?, ?) ORDER BY name COLLATE NOCASE")
+  const contacts = db.prepare(`SELECT contact.*, coalesce(channels.blocked, 0) AS outreachChannelBlocks
+    FROM contacts contact LEFT JOIN borrower_contact_channels channels ON channels.contactId = contact.id
+    WHERE contact.id IN (?, ?) ORDER BY contact.name COLLATE NOCASE`)
     .all(loan.contactId, loan.partnerId).map((row) => ({ ...row }) as unknown as Contact);
   const suppression = blockedOutreachKeys(db, contacts.filter((item) => item.role !== "Realtor").map((item) => ({ ...item, contactId: item.id })));
   const visibleContacts = contacts.map((contact) => ({ ...contact,

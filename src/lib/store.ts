@@ -26,6 +26,7 @@ import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
 import { readPlaybook } from "./playbooks";
 import { assignableCampaignLead, defaultCampaignRules, type CallCampaign, type CallCampaignMember, type CampaignLeadOption, type CampaignQueueFile } from "./call-campaign-model";
 import { campaignSequenceConfig } from "./campaign-sequences";
+import { initializeBorrowerChannels, leadChannelBlocksSql } from "./borrower-channels";
 import { blockedOutreachKeys, indexPendingContactOutreach, initializeContactOutreachIndex, initializeLeadReplyIndex, initializeRealtorReplyIndex,
   migrateCampaignOptOuts, openCallbackPromise, outreachIdentityKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import { initializeContactDuplicateQueue } from "./contact-duplicate-queue";
@@ -1205,6 +1206,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     initializeContactOutreachIndex(db);
     initializeContactDuplicateQueue(db);
     initializeLeadReplyIndex(db);
+    initializeBorrowerChannels(db);
     initializeProcessingConditions(db);
     if (db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('retiredClosingHoldDrafts', '1') RETURNING key").get()) {
       db.exec(`WITH pending AS MATERIALIZED (
@@ -1336,7 +1338,7 @@ function inboxLeadRows(db: Store, leadIds?: string | string[]) {
   const scope = typeof leadIds === "string" ? "AND lead.id = ?" : leadIds ? "AND lead.id IN (SELECT value FROM json_each(?))" : "";
   return rows<InboxLeadRow>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
       lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.importedContactId,
-      lead.heldAt, lead.holdReason, lead.revisitDate,
+      lead.heldAt, lead.holdReason, lead.revisitDate, ${leadChannelBlocksSql} AS outreachChannelBlocks,
       coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
       member.campaignId, member.callbackTaskId AS campaignTaskId, coalesce(member.lastOutcome = 'Opted out', 0) AS campaignOptedOut
     FROM referral_leads lead LEFT JOIN contacts ON contacts.id = lead.realtorId
@@ -1546,7 +1548,9 @@ export function readCampaignNavigation(db: Store, preferredId: string | undefine
 
 export function workspace(db: Store, includeReports = false): Workspace {
   const suppression = outreachSuppressionKeys(db);
-  const contacts = rows<Contact>(db, "SELECT * FROM contacts ORDER BY name COLLATE NOCASE").map((contact) => ({
+  const contacts = rows<Contact>(db, `SELECT contact.*, coalesce(channels.blocked, 0) AS outreachChannelBlocks
+    FROM contacts contact LEFT JOIN borrower_contact_channels channels ON channels.contactId = contact.id
+    ORDER BY contact.name COLLATE NOCASE`).map((contact) => ({
     ...contact, outreachSuppressed: contact.role !== "Realtor" && outreachSuppressed(suppression, { ...contact, contactId: contact.id }),
   }));
   const referralLeads = rows<ReferralLead>(db, `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,

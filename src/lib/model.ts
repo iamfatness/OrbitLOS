@@ -28,6 +28,7 @@ export interface Contact {
   role: ContactRole;
   addedBy?: string | null;
   outreachSuppressed?: boolean;
+  outreachChannelBlocks?: number;
 }
 
 export interface Loan {
@@ -243,6 +244,7 @@ export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName
   campaignTaskId: string | null;
   campaignOptedOut: boolean;
   outreachSuppressed: boolean;
+  outreachChannelBlocks?: number;
   heldAt: string | null;
   holdReason: string | null;
   revisitDate: string | null;

@@ -3,6 +3,7 @@ import { contactCsvDuplicateKeys, contactCsvHeader, contactCsvKeys, contactCsvLi
 import { contactDirectoryInput, contactsUnavailable, contactUnavailable, type ContactDirectoryResult,
   type ContactRecord, type ContactRow } from "./contact-directory-model";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
+import { readContactChannelBlocks } from "./borrower-channels";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
@@ -129,7 +130,10 @@ export function readContactRecord(db: Store, staff: WorkspaceStaff | null, id: s
     ({ id, purpose, address, disposition, stage }) as ContactRecord["loans"][number]);
   const last = linked[loanLimit - 1];
   const nextLoan = linked.length > loanLimit ? { id: String(last.id), createdAt: String(last.createdAt) } : null;
-  return { kind: "contact", contact: { ...contact, outreachSuppressed: optedOut }, assignedOnly: !fullAccess, loans, nextLoan };
+  const blocked = contact.role === "Realtor" ? 0 : readContactChannelBlocks(db, contact.id);
+  return { kind: "contact", contact: { ...contact, outreachSuppressed: optedOut,
+    ...(blocked ? { outreachChannelBlocks: blocked } : {}) },
+    assignedOnly: !fullAccess, loans, nextLoan };
 }
 
 export function readContactDirectory(db: Store, input: unknown, staff: WorkspaceStaff | null): ContactDirectoryResult {

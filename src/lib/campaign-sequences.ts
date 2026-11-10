@@ -1,5 +1,7 @@
 import type { z } from "zod";
 import { campaignFollowUpRecipient, mockCampaignFollowUpPrefix } from "./call-campaign-model";
+import { borrowerChannelBlocked } from "./borrower-channel-model";
+import { leadChannelBlocksSql } from "./borrower-channels";
 import { sequenceSteps, sequenceTaskId, type CampaignSequenceConfig, type CampaignSequenceKind, type CampaignSequenceVersion, type changeCampaignSequenceInput,
   type recordSequenceMockInput, type saveCampaignSequenceInput } from "./campaign-sequence-model";
 import { campaignWeekdayAt } from "./campaign-timing";
@@ -65,6 +67,7 @@ export function attachedCampaignSequence(db: Store, campaignId: string) {
 export function enrollCampaignSequence(db: Store, leadId: string, template: CampaignSequenceVersion, now: string) {
   db.prepare(`INSERT INTO campaign_sequence_enrollments (leadId, version, dueAt) VALUES (?, ?, ?)
     ON CONFLICT(leadId) DO NOTHING`).run(leadId, template.version, sequenceDue(now, template.steps[0].delay));
+  skipBlockedCampaignSteps(db, leadId, now);
 }
 
 export function stopCampaignSequence(db: Store, leadId: string, reason: string) {
@@ -90,12 +93,37 @@ export function changeCampaignSequence(db: Store, staff: WorkspaceStaff | null, 
   const action = `${pause ? "Paused" : "Resumed"} ${run.kind} sequence`;
   leadEvent(db, input.leadId, staff?.name ?? "Demo workspace", now, `${action} at step ${Number(run.position) + 1}.`, "Campaign");
   accessEvent(db, staff, action, input.leadId, now);
+  if (!pause) skipBlockedCampaignSteps(db, input.leadId, now);
   return { message: pause ? "Sequence paused. The current step and schedule are saved." : "Sequence resumed from the saved step." };
+}
+
+export function skipBlockedCampaignSteps(db: Store, leadId: string, now: string) {
+  const row = db.prepare(`SELECT run.position, run.dueAt, template.kind, template.steps, ${leadChannelBlocksSql} AS blocked
+    FROM campaign_sequence_enrollments run JOIN campaign_sequence_versions template ON template.version = run.version
+    JOIN referral_leads lead ON lead.id = run.leadId LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
+    WHERE run.leadId = ? AND run.dueAt IS NOT NULL AND run.outcome IS NULL
+      AND lead.resolvedAt IS NULL AND follow.replyReceivedAt IS NULL`).get(leadId);
+  if (!row?.blocked) return 0;
+  const steps = sequenceSteps.parse(JSON.parse(String(row.steps)));
+  const first = Number(row.position);
+  let position = first;
+  let dueAt = String(row.dueAt);
+  while (steps[position] && borrowerChannelBlocked(Number(row.blocked), steps[position].channel)) {
+    const step = steps[position];
+    leadEvent(db, leadId, "Orbit", now, `${row.kind} sequence · Skipped step ${position + 1} (${step.channel}) because the borrower blocks this channel.`, "Campaign");
+    position++;
+    if (steps[position]) dueAt = sequenceDue(dueAt, steps[position].delay);
+  }
+  if (position === first) return 0;
+  db.prepare("UPDATE campaign_sequence_enrollments SET position = ?, dueAt = ?, outcome = ? WHERE leadId = ?")
+    .run(position, steps[position] ? dueAt : null, steps[position] ? null : "Completed", leadId);
+  advanceLeadRevision(db, leadId);
+  return position - first;
 }
 
 function currentStep(db: Store, leadId: string, now: string) {
   const run = db.prepare(`SELECT run.version, run.position, template.kind, template.steps, lead.officerEmail, lead.email, lead.phone,
-    lead.importedContactId AS contactId FROM campaign_sequence_enrollments run
+    lead.importedContactId AS contactId, ${leadChannelBlocksSql} AS blocked FROM campaign_sequence_enrollments run
     JOIN campaign_sequence_versions template ON template.version = run.version JOIN referral_leads lead ON lead.id = run.leadId
     LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
     WHERE run.leadId = ? AND run.dueAt <= ? AND run.outcome IS NULL
@@ -103,13 +131,16 @@ function currentStep(db: Store, leadId: string, now: string) {
   if (!run) return null;
   const position = Number(run.position);
   const steps = sequenceSteps.parse(JSON.parse(String(run.steps)));
+  if (!steps[position] || borrowerChannelBlocked(Number(run.blocked), steps[position].channel)) return null;
   return { version: Number(run.version), kind: String(run.kind), position, step: steps[position], next: steps[position + 1],
+    blocked: Number(run.blocked),
     officerEmail: run.officerEmail, email: String(run.email ?? ""), phone: String(run.phone ?? ""), contactId: run.contactId };
 }
 
 function advance(db: Store, leadId: string, run: NonNullable<ReturnType<typeof currentStep>>, now: string) {
   db.prepare("UPDATE campaign_sequence_enrollments SET position = ?, dueAt = ?, outcome = ? WHERE leadId = ?")
     .run(run.position + 1, run.next ? sequenceDue(now, run.next.delay) : null, run.next ? null : "Completed", leadId);
+  if (run.next && borrowerChannelBlocked(run.blocked, run.next.channel)) skipBlockedCampaignSteps(db, leadId, now);
 }
 
 export function isCurrentSequenceCall(db: Store, leadId: string, taskId: string, now: string) {

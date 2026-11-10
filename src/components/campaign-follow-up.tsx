@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { borrowerChannelBlocked } from "@/lib/borrower-channel-model";
 import { campaignFollowUpRecipient, renderCampaignFollowUp, type campaignFollowUpSource } from "@/lib/call-campaign-model";
 import { draftChannels } from "@/lib/communication-templates";
 import type { DraftChannel, InboxLead } from "@/lib/model";
@@ -14,12 +15,14 @@ export function CampaignFollowUp({ campaignId, lead, source, busy, save, openCon
   save: (input: unknown, after?: () => void) => Promise<void>;
   openConversation: (leadId: string) => void;
 }) {
-  const channels = draftChannels.filter((channel) => campaignFollowUpRecipient(channel, lead));
-  const [channel, setChannel] = useState<DraftChannel>(channels[0] ?? "Email");
+  const channels = draftChannels.filter((channel) => campaignFollowUpRecipient(channel, lead) && !borrowerChannelBlocked(lead.outreachChannelBlocks, channel));
+  const [chosen, setChannel] = useState<DraftChannel>(channels[0] ?? "Email");
   const [edits, setEdits] = useState<Partial<Record<DraftChannel, { subject: string; body: string }>>>({});
   const [recorded, setRecorded] = useState<DraftChannel[]>([]);
   const attempt = useRef<{ signature: string; id: string } | undefined>(undefined);
   const { callEventId, outcome, callbackAt } = source;
+  const channel = channels.includes(chosen) ? chosen : channels[0];
+  if (!channel) return null;
   const recipient = campaignFollowUpRecipient(channel, lead);
   const draft = edits[channel] ?? renderCampaignFollowUp(outcome, channel, lead.name, lead.officer, callbackAt);
   const done = recorded.includes(channel);

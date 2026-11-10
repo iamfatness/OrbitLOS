@@ -16,6 +16,7 @@ import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { leadWorkUnavailable } from "@/lib/lead-work-model";
 import { QuoteIntakeEditor } from "./quote-intake-settings";
 import { LeadDocumentChecklist } from "./lead-document-checklist";
+import { BorrowerChannelPreferences } from "./borrower-channel-preferences";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
 type Convert = (id: string, contactId: string | null, allowDuplicate: boolean, after: () => void) => void;
@@ -169,7 +170,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
           <p className="muted">{lead.outreachSuppressed ? "This borrower opted out of brokerage outreach. You can still process a borrower-requested application." : "This lead’s outreach and follow-up are managed by its call campaign."}</p>
           {lead.campaignId && <div><Button size="sm" variant="outline" onClick={() => openCampaign(lead.campaignId!, lead.id)}>Open call campaign</Button></div>}
         </div> : <><div className="work-queue">
-          <div className="section-heading"><h4>Mock follow-up sequence</h4><span className="pill">{followUp.status}</span></div>
+          <div className="section-heading"><h4>Mock email follow-up sequence</h4><span className="pill">{followUp.status}</span></div>
           {step && (followUp.status === "Active" || followUp.status === "Paused") && <div>
             <p><strong>{step.title}</strong>{followUp.nextAt && followUp.status === "Active" && ` · Due ${dateTime(followUp.nextAt)} ET`}</p>
             <p>{step.body}</p>
@@ -200,6 +201,8 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
           <label className="field">Outreach note (optional)<textarea rows={2} maxLength={500} name="note" /></label>
           <div><Button size="sm" type="submit" disabled={busy}>Log outreach</Button></div>
         </form></>)}
+        <BorrowerChannelPreferences target="lead" recordId={lead.id} blocked={lead.outreachChannelBlocks}
+          optedOut={lead.outreachSuppressed} busy={busy} save={save} />
         {!lead.outreachSuppressed && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => {
           if (window.confirm(`Record ${lead.name}’s outreach opt-out across this brokerage? This stops mock sequences and campaign callbacks for matching records.`)) {
             void save({ type: "leadOptOut", leadId: lead.id });

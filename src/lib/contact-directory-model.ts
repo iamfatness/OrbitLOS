@@ -24,4 +24,7 @@ export type ContactRecord = {
 };
 export type ContactDirectoryResult = ContactDirectoryPage | ContactRecord | { kind: "previewCsv"; duplicates: boolean[] } |
   { kind: "exportCsv"; csv: string } | { error: string };
-export type ContactMutationResult = { contactsChanged: true; contactId?: string; message: string };
+export type ContactMutationResult = {
+  contactsChanged: true; contactId?: string; message: string;
+  borrowerChannels?: { contactId: string; blocked: number };
+};

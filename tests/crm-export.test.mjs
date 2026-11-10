@@ -196,6 +196,72 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
   assert.ok((await write(control(newLead, "Resume"))).error);
 });
 
+test("borrower channel preferences skip campaign steps without recording touches and survive conversion", async (t) => {
+  const { db, staff } = fixture(t);
+  const officer = { ...staff, email: "channel-owner@example.test", brokerage: { ...staff.brokerage, role: "LO" } };
+  const another = { ...officer, email: "another-officer@example.test" };
+  const members = [staff, officer, another].map((person) => ({ ...person, status: "Active" }));
+  const write = (input, actor = staff) => executeCommand(db, input, actor, undefined, members, { scopedLeadUpdates: true });
+  const apply = async (input, actor) => {
+    const result = await write(input, actor);
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  const campaignId = crypto.randomUUID();
+  await apply({ type: "createCallCampaign", id: campaignId, name: "Fictional channel preferences" });
+  await apply({ type: "saveCampaignSequence", campaignId, expectedVersion: null, expectedTemplateVersion: null,
+    steps: [{ channel: "Call", title: "First call", delay: 0, body: "" },
+      { channel: "Email", title: "First email", delay: 0, body: "Fictional email draft" },
+      { channel: "Text", title: "First text", delay: 0, body: "Fictional text draft" },
+      { channel: "Email", title: "Follow-up email", delay: 2, body: "Fictional email draft" }] });
+  const request = { type: "migratePipeline", campaignId, origin: campaignOrigin(campaignId), decisions: {},
+    rows: parseCampaignLeadCsv(`id,name,phone,email\nchannel-a,Fictional Channel A,2485550183,channel-a@example.test\nchannel-b,Fictional Channel B,2485550184,channel-b@example.test`,
+      new Date().toISOString()).map((row) => ({ ...row, ownerEmail: officer.email })) };
+  const preview = await apply(request);
+  const [first, second] = (await apply({ ...request, preview: preview.migration.fingerprint })).migration.rows.map(({ targetId }) => targetId);
+  const step = (id) => readOfficerQueue(db, { horizon: 7 }, officer, staff.brokerage.id).items.find((item) => item.kind === "sequence" && item.recordId === id);
+  const revision = (id) => db.prepare("SELECT revision FROM lead_follow_up WHERE leadId = ?").get(id)?.revision ?? 0;
+  const prefs = (id, expected, blocked, target = "lead") => ({ type: "saveBorrowerChannels", target, recordId: id, expected, blocked });
+  const control = (leadId, action) => apply({ type: "changeCampaignSequence", campaignId, leadId, action, revision: revision(leadId) });
+  const mock = (leadId) => {
+    const { version, position, recipient } = step(leadId).sequence;
+    return { type: "recordSequenceMock", leadId, version, position, recipient };
+  };
+
+  const call = step(first);
+  assert.equal(call.sequence.channel, "Call");
+  assert.ok((await write(prefs(first, 0, 3), another)).error);
+  await apply(prefs(first, 0, 3), officer);
+  assert.match((await write(prefs(first, 0, 1), officer)).error, /preferences changed/);
+  assert.equal(step(first).sequence.channel, "Text");
+  assert.equal(step(first).dueAt, call.dueAt);
+  assert.ok(readEditableLead(db, { leadId: first, task: { kind: "sequence", id: call.id } }, officer, staff.brokerage.id).error);
+  assert.match((await write({ type: "recordCampaignCall", campaignId, leadId: first, revision: revision(first),
+    outcome: "Connected", callbackAt: null, note: "Fictional blocked call" }, officer)).error, /blocks/i);
+  await apply(mock(first), officer);
+  assert.equal(step(first), undefined);
+  const touches = db.prepare("SELECT position FROM campaign_sequence_touches WHERE leadId = ?").all(first);
+  assert.deepEqual(touches.map(({ position }) => position), [2]);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM lead_events WHERE leadId = ? AND text LIKE '%Skipped step%'").get(first).count, 3);
+
+  await control(second, "Pause");
+  await apply(prefs(second, 0, 1));
+  assert.equal(db.prepare("SELECT position FROM campaign_sequence_enrollments WHERE leadId = ?").get(second).position, 0);
+  await control(second, "Resume");
+  assert.equal(step(second).sequence.channel, "Email");
+  const staleDraft = mock(second);
+  await apply(prefs(second, 1, 3));
+  assert.ok((await write(staleDraft, officer)).error);
+  assert.equal(step(second).sequence.channel, "Text");
+  await apply(prefs(second, 3, 7));
+  assert.equal(step(second), undefined);
+  const conversion = await apply({ type: "convertReferral", referralId: second, contactId: null }, officer);
+  const contactId = db.prepare("SELECT contactId FROM loans WHERE id = ?").get(conversion.referralLoanId).contactId;
+  assert.equal(db.prepare("SELECT blocked FROM borrower_contact_channels WHERE contactId = ?").get(contactId).blocked, 7);
+  await apply(prefs(contactId, 7, 5, "contact"), officer);
+  assert.equal(db.prepare("SELECT blocked FROM borrower_contact_channels WHERE contactId = ?").get(contactId).blocked, 5);
+});
+
 test("reusable reactivation and past-client sequences enroll the right audiences and keep their versions in Today", async (t) => {
   const { db, staff } = fixture(t);
   const officer = { ...staff, name: "Fictional outreach LO", email: "outreach-lo@example.test", brokerage: { ...staff.brokerage, role: "LO" } };

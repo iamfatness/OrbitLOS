@@ -1,5 +1,6 @@
 "use client";
 
+import { BorrowerChannelPreferences } from "./borrower-channel-preferences";
 import { useRef, useState } from "react";
 import { readContactsWork } from "@/app/actions";
 import type { BrokerageMember } from "@/lib/brokerage-model";
@@ -251,6 +252,8 @@ export function ContactHistory({ contact, state, brokerageId, open, openLead, op
       {contact.outreachSuppressed ? <p className="muted"><span className="open-chip">Opted out</span> Orbit blocks prospecting across this brokerage, including new campaign imports.</p> :
         <p className="muted">No outreach opt-out is recorded for this contact.</p>}
       {optOut && !contact.outreachSuppressed && <div><Button size="sm" variant="outline" disabled={busy} onClick={optOut}>Record outreach opt-out</Button></div>}
+      {save && <BorrowerChannelPreferences target="contact" recordId={contact.id} blocked={contact.outreachChannelBlocks}
+        optedOut={contact.outreachSuppressed} busy={busy} save={save} />}
     </div>}
     {loans.length ? <ul>{loans.map((loan) => <li key={loan.id}><button className="name-link" onClick={() => open(loan.id)}>
       {loan.purpose} · {loan.address || "Property pending"} · {loan.disposition === "Active" ? loan.stage : loan.disposition || loan.stage}

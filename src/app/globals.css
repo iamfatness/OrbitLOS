@@ -465,6 +465,9 @@ button:disabled { cursor: default; }
 .document-form form, .document-form label, .document-review { display: grid; justify-items: start; gap: 6px; }
 .document-form form { margin-top: 7px; }
 .document-form label { width: 100%; font-size: 12px; font-weight: 650; }
+.borrower-channel-options { column-gap: 16px; }
+.borrower-channel-options label { display: flex; align-items: center; width: auto; min-height: 36px; }
+.borrower-channel-options label input { margin-top: 0; }
 .document-form textarea { resize: vertical; }
 .sample-document pre { white-space: pre-wrap; margin: 6px 0; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 12px; }
 .sample-document > a { text-decoration: underline; text-underline-offset: 2px; }

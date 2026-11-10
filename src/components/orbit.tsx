@@ -5,7 +5,7 @@ import {
   ArrowDownUp, ArrowRight, Bell, CircleCheck, List, LogOut, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, X,
 } from "lucide-react";
 import { checkLoanHandoff, mutate, readContactsWork, readLeadForWork, readLoanForWork, searchWorkspace } from "@/app/actions";
-import { prospectingBlocked, stages, type Loan, type LoanTask, type Stage, type Submission, type Workspace } from "@/lib/model";
+import { prospectingBlocked, stages, type Contact, type Loan, type LoanTask, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { compactMoney, dateTime, initials, money, requestedMoney, stageDays } from "@/lib/utils";
 import { RecordDialog, type Modal } from "./record-dialog";
 import { Button } from "./ui/button";
@@ -411,6 +411,18 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         if (campaignWork || segments) setState(apply);
         if (announce) setNotice(result.message);
         after?.({ state: apply(state), message: result.message, migration: result.migration, segmentPreview: result.segmentPreview });
+        return;
+      }
+      if ("contactsChanged" in result && result.borrowerChannels) {
+        const { contactId, blocked } = result.borrowerChannels;
+        const updateContact = <T extends Contact>(contact: T) => contact.id === contactId ? { ...contact, outreachChannelBlocks: blocked } : contact;
+        const apply = (current: Workspace) => ({ ...current, contacts: current.contacts.map(updateContact) });
+        setState(apply);
+        setLoanWork((current) => current && { ...current, contacts: current.contacts.map(updateContact) });
+        setSearchContact((current) => current?.contact.id === contactId ?
+          { ...current, contact: { ...current.contact, outreachChannelBlocks: blocked } } : current);
+        if (announce) setNotice(result.message);
+        after?.({ state: apply(state), message: result.message });
         return;
       }
       if ("contactsChanged" in result || "tasksChanged" in result) {
