@@ -60,7 +60,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F14 | Hosted fictional lead upload and lender download links with separate codes, document revisions, and conversion history | Verify stronger recipient identity, authorized delivery, and live scanning before real use. |
 | F15 | Broker financial visibility and a separate planned non-del channel | Specify investor price, margin policy and registry evidence with a non-del broker. |
 | F16 | Reviewed 1003 revisions, closing checklist and dates, version-specific disclosure confirmation, and downloadable internal sample closing packets that preserve each evidence snapshot | Validate actual document generation, approval, and applicable UCD contracts. |
-| F17 | Funding, restricted compensation entries, and owner-only reconciliation of sample purchase advice and partial receipts with review and reversal history | Validate external evidence contracts and workflow with a non-delegated pilot. |
+| F17 | Funding, restricted compensation entries, owner-only sample settlement reconciliation, and an exception queue that opens the exact funding cycle | Validate external evidence contracts and workflow with a non-delegated pilot. |
 | F18 | Brokerage membership and assigned processor scope | Rehearse one contract processor across two brokerages with isolated files and fees. |
 | F19 | Workspace admin, invitations, roles and offboarding | Define seat entitlements and scoped support access, then rehearse role onboarding. |
 
@@ -156,7 +156,9 @@ Status: closing coordination exists; regulated document generation/UCD delivery 
 
 ### F17 — Funding and settlement reconciliation
 
-Status: funding/financial records exist; purchase-advice/wire matching unverified. Record expected versus actual amounts, dated receipts, fees, adjustments and unresolved differences. Match externally supplied purchase advice and wire evidence to the correct loan and funding cycle, with reviewer approval and reversal history. Acceptance: partial/duplicate receipts, corrected statements and funding reversals reconcile without erasing prior records; restricted financial data stays restricted. Initial scope records and reconciles evidence, not initiating money movement. Increments 3–4; separate non-del operational acceptance in 5.
+The fictional owner-only queue groups active funding cycles into differences, matches to confirm, missing evidence, and reviewed differences. A row opens the exact cycle and its source entries. Funding-date corrections can reopen a review. Reversals leave the earlier cycle in the archived ledger. [Hosted settlement exception rehearsal](demo-rehearsal-log.md#sample-settlement-exception-queue)
+
+External evidence matching and operational acceptance still require a non-delegated pilot. Validate purchase-advice and receipt contracts, source identity, reviewer approval, and recovery after delayed or duplicate evidence. The demonstrated flow records sample evidence. Increments 3–4; separate non-del operational acceptance in 5.
 
 ### F18 — Contract processing
 
