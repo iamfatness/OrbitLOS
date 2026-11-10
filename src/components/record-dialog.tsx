@@ -30,6 +30,7 @@ import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mock
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
+import { UwmDeliveryTimeline } from "./uwm-delivery-timeline";
 import { ManualLenderExport } from "./manual-lender-export";
 import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@/lib/lender-export-model";
 import { ClosingWorkbench } from "./closing-workbench";
@@ -212,6 +213,7 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
       {submission.syncedAt && <>
         <p className="muted timestamp"><Clock3 size={13} /> Synced {dateTime(submission.syncedAt)} ET</p>
         <div className="condition-counts"><span>{open.length} outstanding</span><span>{cleared.length} cleared</span></div>
+        {mockUwm && <UwmDeliveryTimeline submission={submission} brokerageId={brokerageId} busy={busy} canSimulate={canSimulate} save={save} />}
         {submission.conditions.length === 0 && <p className="muted">No conditions were returned for this loan.</p>}
         {mockUwm && (suggested.length > 1 || waitingCount > 0 || sentCount > 1) &&
           <div className="condition-checklist" role="group" aria-label="Mock UWM checklist">

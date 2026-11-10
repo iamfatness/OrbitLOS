@@ -9,6 +9,7 @@ import { requestedLoanAmount } from "./application-model";
 import { pricingInputError } from "./income-review-freshness";
 import { mockUwmAmountMismatch } from "./pricing-model";
 import { closeMockUwmAcceptance, pendingMockUwmAcceptance, saveMockUwmAcceptance } from "./uwm-handoff-recovery";
+import { latestMockConditionUpdate, nextMockConditionUpdate, receiveMockConditionUpdate, recordMockConditionChanges } from "./uwm-condition-events";
 
 // The shapes used by the Insights Loans query and the single-loan conditions endpoint.
 interface InsightsLoan {
@@ -163,9 +164,12 @@ export function sendMockConditionDocument(db: Store, loanId: string, requestId: 
   return { receipt };
 }
 
-export function reopenMockUwmCondition(db: Store, input: {
+type MockConditionTarget = {
   loanId: string; submissionId: string; conditionId: string; expectedSatisfiedAt: string; expectedReopenedAt: string | null;
-}, now: string) {
+};
+type MockConditionContext = { previous: { status: string; conditions: Condition[] }; condition: Condition };
+
+function currentMockCondition(db: Store, input: MockConditionTarget): MockConditionContext | { error: string } {
   const { loanId, submissionId, conditionId, expectedSatisfiedAt, expectedReopenedAt } = input;
   const file = db.prepare(`SELECT status, conditions FROM submissions
     WHERE loanId = ? AND id = ? AND lender = 'UWM' AND syncedAt IS NOT NULL`).get(loanId, submissionId);
@@ -173,8 +177,13 @@ export function reopenMockUwmCondition(db: Store, input: {
   const previous = { status: String(file.status), conditions: JSON.parse(String(file.conditions)) as Condition[] };
   const condition = previous.conditions.find((item) => item.id === conditionId);
   if (condition?.satisfiedAt !== expectedSatisfiedAt || (condition.mockReopenedAt ?? null) !== expectedReopenedAt) {
-    return { error: "The condition changed. Refresh the file before simulating a reopening." } as const;
+    return { error: "The condition changed. Refresh the file before simulating a lender update." } as const;
   }
+  return { previous, condition };
+}
+
+function applyMockConditionReopening(db: Store, { loanId, submissionId, conditionId }: MockConditionTarget,
+  { previous, condition }: MockConditionContext, now: string) {
   const request = db.prepare("SELECT id, status, kind FROM document_requests WHERE submissionId = ? AND conditionId = ?").get(submissionId, conditionId);
   if (typeof request?.id === "string") {
     archiveMockDocumentDelivery(db, request.id);
@@ -195,6 +204,48 @@ export function reopenMockUwmCondition(db: Store, input: {
   addApplicationActivity(db, loanId, `Mock UWM reopened condition · ${condition.category} · ${condition.description}`, now);
   return { message: request ? "Mock UWM reopened the condition and updated the borrower checklist."
     : "Mock UWM reopened the condition. Request the required document from the borrower." } as const;
+}
+
+function ensureMockClearanceRecorded(db: Store, { submissionId, conditionId, expectedSatisfiedAt }: MockConditionTarget,
+  condition: Condition, now: string) {
+  const recorded = latestMockConditionUpdate(db, submissionId, conditionId);
+  if (recorded?.state === "Cleared" && recorded.occurredAt === expectedSatisfiedAt) return recorded;
+  // Older files can already be cleared when the timeline is first opened.
+  const clearance = nextMockConditionUpdate(db, submissionId, condition, expectedSatisfiedAt);
+  receiveMockConditionUpdate(db, submissionId, condition.category, clearance, now, () => {});
+  return clearance;
+}
+
+export function reopenMockUwmCondition(db: Store, input: MockConditionTarget, now: string) {
+  const context = currentMockCondition(db, input);
+  if ("error" in context) return context;
+  ensureMockClearanceRecorded(db, input, context.condition, now);
+  const event = nextMockConditionUpdate(db, input.submissionId, { ...context.condition, satisfiedAt: null }, now);
+  let message = "The mock condition update was already processed.";
+  receiveMockConditionUpdate(db, input.submissionId, context.condition.category, event, now, () => {
+    message = applyMockConditionReopening(db, input, context, now).message;
+  });
+  return { message };
+}
+
+export function replayMockUwmConditionDelivery(db: Store, input: MockConditionTarget, now: string) {
+  const context = currentMockCondition(db, input);
+  if ("error" in context) return context;
+  const { submissionId, conditionId } = input;
+  const { condition } = context;
+  const clearance = ensureMockClearanceRecorded(db, input, condition, now);
+  const olderOpen = {
+    id: `demo-late:${clearance.id}`, conditionId, version: clearance.version - 1, state: "Open" as const,
+    occurredAt: new Date(Date.parse(clearance.occurredAt) - 1000).toISOString(),
+  };
+  const stale = receiveMockConditionUpdate(db, submissionId, condition.category, olderOpen, now, () => {
+    applyMockConditionReopening(db, input, context, now);
+  });
+  const duplicate = receiveMockConditionUpdate(db, submissionId, condition.category, clearance, now, () => {});
+  if ((stale !== "Ignored stale" && stale !== "Duplicate") || duplicate !== "Duplicate") {
+    return { error: "Mock UWM replay could not confirm the current clearance." } as const;
+  }
+  return { message: "Older update ignored and duplicate clearance recognized. The condition is still cleared." };
 }
 
 function mockApplicationConditions(reference: string, receivedAt: string) {
@@ -273,6 +324,7 @@ function recordMockApplicationReceipt(db: Store, application: NonNullable<Return
       status: approvedWithConditions, conditions: mockApplicationConditions(reference, submittedAt), syncedAt: now,
     };
     insertSubmission(db, submission);
+    recordMockConditionChanges(db, submission.id, submission.conditions, [], now);
     recordUwmAlerts(db, submission, null, now);
     createRealtorLenderDraft(db, loanId, "Lender review started", submission.id, now);
     db.prepare("UPDATE applications SET uwmReference = ? WHERE loanId = ?").run(reference, loanId);
@@ -348,7 +400,10 @@ export function refreshMockUwmClearance(db: Store, loanId: string, submissionId:
     db.prepare("UPDATE submissions SET conditions = ?, syncedAt = ? WHERE id = ?").run(JSON.stringify(conditions), now, submissionId);
   }
   const label = count === 1 ? "condition" : "conditions";
-  if (count) addApplicationActivity(db, loanId, `Mock UWM cleared ${count} ${label}.`, now);
+  if (count) {
+    recordMockConditionChanges(db, submissionId, conditions, saved, now);
+    addApplicationActivity(db, loanId, `Mock UWM cleared ${count} ${label}.`, now);
+  }
   return { message: count ? `Mock UWM cleared ${count} ${label}.` : "No new mock UWM clearances for this submission." };
 }
 
@@ -371,6 +426,7 @@ function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
       status = "Conditions cleared";
     }
     update.run(status, JSON.stringify(conditions), now, existing.id);
+    if (mock) recordMockConditionChanges(db, existing.id, conditions, previousConditions, now);
     alerts += recordUwmProgress(db, { id: existing.id, loanId: existing.loanId, status, conditions },
       { status: existing.status, conditions: previousConditions }, now, mock);
     conditionCount += conditions.length;
@@ -398,6 +454,7 @@ function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
       id: crypto.randomUUID(), loanId, lender: "UWM", externalId: loan.LoanId, status: loan.LoanStatusDescription, conditions, syncedAt: now,
     };
     insertSubmission(db, submission);
+    if (mock) recordMockConditionChanges(db, submission.id, conditions, [], now);
     alerts += recordUwmAlerts(db, submission, null, now).count;
     conditionCount += conditions.length;
     imported++;

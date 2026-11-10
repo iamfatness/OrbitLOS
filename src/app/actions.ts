@@ -2,7 +2,8 @@
 
 import { currentStaff, loadCampaignCallbackExceptions, loadCampaignCallbackPerformance, loadCampaignCallbacks, loadCampaignManager, loadCampaignSequencePerformance, loadConversations, loadCutoverApplicationComparison, loadCutoverFileInventory, loadCutoverFileLookup, loadCutoverHandoff, loadEditableLead, loadEditableLoan, loadFileExceptions, loadFundingDashboard, loadInboundReplies, loadLeadArchive, loadMigrationCutover, loadMigrationRecovery, loadOfficerQueue, loadPipelineExport, loadProcessorQueue, loadRecordHistory, loadSalesDashboard, loadWorkspaceCalendar, loadWorkspaceSearch,
   loadContactDirectory, loadDraftQueue, loadLeadInbox, loadLoanContactPicker, loadPipeline, loadRealtorQueueReport, loadReportingReadiness, loadSharedRealtorQueue, loadWorkspaceTasks, updateAppointments, updateConversation, updateCutoverFileInventory, updateFundingRecord, updateInboundReply, updateLoanReview, updateMigrationCutover, updateProcessingView, updateRealtorQueueAssignment, updateSalesSettings, updateStaffCoverage, updateWorkspace,
-  workOnBrokerageFinance, workOnContactMerge, workOnOfficerDashboard, workOnPlaybookRun } from "@/lib/workspace-service";
+  loadUwmDelivery, workOnBrokerageFinance, workOnContactMerge, workOnOfficerDashboard, workOnPlaybookRun } from "@/lib/workspace-service";
+import { uwmDeliveryUnavailable } from "@/lib/uwm-delivery-model";
 import { demoBrokerageId } from "@/lib/brokerage-model";
 import { fundingDashboardUnavailable } from "@/lib/funding-dashboard-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable, workspaceTasksUnavailable } from "@/lib/officer-queue-model";
@@ -115,6 +116,12 @@ export async function readHistoryPage(input: unknown, expectedBrokerage: string)
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: "The workspace changed. Reload to view activity history." };
   return loadRecordHistory(input, staff);
+}
+
+export async function readMockUwmDelivery(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: uwmDeliveryUnavailable };
+  return loadUwmDelivery(input, staff);
 }
 
 export async function readArchivePage(input: unknown, expectedBrokerage: string) {

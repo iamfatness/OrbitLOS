@@ -157,6 +157,8 @@ In **Closing workbench**, save a target date and add checklist items with owners
 
 After accepting a sample linked to a condition, record mock delivery to get a receipt. Choose **Check UWM clearance (mock)** from the checklist to refresh that submission. The checklist keeps the acceptance and receipt, and the lender card shows the clearance separately. The brokerage-wide **Sync UWM** also applies mock clearances.
 
+Open **Mock UWM delivery timeline** on the lender card to see 1003 revisions, original acknowledgments, condition document receipts, failures, and tracked condition changes. In fictional workspaces, select a cleared condition and replay an older open update and a duplicate clearance. The timeline records each outcome and links to the condition.
+
 Each submitted or corrected 1003 appears once under **Tasks → Playbook tasks**, with the brokerage’s review deadline. The loan officer and assigned processor can open the current application from their queue. **My Tasks** uses your signed-in account for matching. New loans start assigned to you. For existing loans, open **Edit loan** and select **Assign to my account** to connect the assignment to your login.
 
 When a 1003 is submitted or a loan changes pipeline stage, Orbit creates a draft for the borrower and any linked realtor. Open **Communications** to see the queue or open a loan to see its draft history. Preview email or text and copy it to use in your messaging app. The history records when each channel was first copied. Realtor drafts contain only a milestone update. Drafts from earlier stages remain in the history.

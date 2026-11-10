@@ -23,6 +23,8 @@ const { readWorkspaceCalendar } = await import("../src/lib/officer-queue.ts");
 const { easternDate } = await import("../src/lib/client-retention.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { applyLoanMutation } = await import("../src/lib/loan-work-model.ts");
+const { readUwmDelivery } = await import("../src/lib/uwm-delivery.ts");
+const { latestMockConditionUpdate, receiveMockConditionUpdate } = await import("../src/lib/uwm-condition-events.ts");
 
 function setup(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -231,6 +233,41 @@ test("reopened conditions survive sync and only an accepted replacement revision
   const cleared = final.submissions.find((item) => item.id === file.id);
   assert.ok(cleared.conditions[0].satisfiedAt);
   assert.equal(cleared.status, "Conditions cleared");
+  const replay = { ...reopen, type: "replayMockUwmConditionDelivery", expectedSatisfiedAt: cleared.conditions[0].satisfiedAt,
+    expectedReopenedAt: cleared.conditions[0].mockReopenedAt };
+  const query = { loanId: file.loanId, submissionId: file.id };
+  const timeline = (actor = staff, input = query, brokerageId = staff.brokerage.id) => readUwmDelivery(db, input, actor, brokerageId);
+  assert.match(timeline(null).error, /unavailable/);
+  assert.match(timeline(staff, { ...query, submissionId: initial.submissions.find(({ id }) => id !== file.id).id }).error, /unavailable/);
+  assert.match(timeline(staff, query, crypto.randomUUID()).error, /unavailable/);
+  const processor = { ...staff, email: "processor@example.test", brokerage: { ...staff.brokerage, role: "Processor" } };
+  assert.match(timeline(processor).error, /unavailable/);
+  db.prepare(`INSERT INTO loan_processing (loanId, processorEmail, processorName, status, note, updatedAt, revision)
+    VALUES (?, ?, 'Assigned processor', 'Assigned', '', ?, 1)`).run(file.loanId, processor.email, now);
+  assert.ok(timeline(processor).events.length);
+  assert.match((await executeCommand(db, replay, processor)).error, /access/);
+  assert.match((await executeCommand(db, replay, { ...staff, brokerage: { ...staff.brokerage, pilot: false } })).error, /fictional/);
+  assert.match((await command({ ...replay, expectedSatisfiedAt: condition.satisfiedAt })).error, /changed/);
+  const taskCount = final.tasks.length;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const result = await command(replay);
+    assert.match(result.message, /still cleared/);
+    assert.deepEqual(result.state.submissions, final.submissions);
+    assert.deepEqual(result.state.uwmAlerts, final.uwmAlerts);
+    assert.deepEqual(result.state.communicationDrafts, final.communicationDrafts);
+    assert.deepEqual(result.state.documentRequests, final.documentRequests);
+    assert.equal(result.state.tasks.length, taskCount);
+    const events = timeline().events;
+    assert.equal(events.filter(({ title }) => title === "Older condition update ignored").length, 1);
+    assert.ok(events.find(({ title, detail }) => title === "Duplicate condition update recognized" && detail.includes(`${attempt} repeat deliver`)));
+    assert.ok(events.find(({ title, receipt, detail }) =>
+      title === "Condition document acknowledged" && receipt === current.uwmReceipt && detail.includes(`revision ${current.revision}`)));
+    assert.ok(events.find(({ title, receipt }) => title === "Prior condition document acknowledged" && receipt === "original-receipt"));
+  }
+  const currentEvent = latestMockConditionUpdate(db, file.id, condition.id);
+  assert.equal(receiveMockConditionUpdate(db, file.id, condition.category, { ...currentEvent, state: "Open" }, now,
+    () => assert.fail("Conflicting mock event identity was applied")), "Conflicting identity");
+  assert.deepEqual(latestMockConditionUpdate(db, file.id, condition.id), currentEvent);
   assert.ok((await command(reopen)).error);
   const currentDraft = final.communicationDrafts.find(({ milestone, supersededAt }) => milestone === firstDraft.milestone && !supersededAt);
   const earlierResumed = final.communicationDrafts.find(({ id }) => id === resumed.id);
@@ -254,4 +291,17 @@ test("reopened conditions survive sync and only an accepted replacement revision
   const latestClosing = await apply(closingCopy);
   assert.ok(latestClosing.communicationDrafts.find(({ id }) => id === currentClosing.find(({ audience }) => audience === "Realtor").id).emailCopiedAt);
   assert.deepEqual((await apply({ type: "sync" })).communicationDrafts, latestClosing.communicationDrafts);
+  const newer = await apply({ ...replay, type: "reopenMockUwmCondition" });
+  assert.equal(newer.submissions.find(({ id }) => id === file.id).conditions[0].satisfiedAt, null);
+  assert.equal(timeline().events.filter(({ title }) => title === "Condition reopened").length, 2);
+  for (let index = 0; index < 23; index++) {
+    assert.equal(receiveMockConditionUpdate(db, file.id, condition.category, { ...currentEvent, id: `older-${index}`, version: 0 }, now,
+      () => assert.fail("Stale mock condition update was applied")), "Ignored stale");
+  }
+  const firstPage = timeline();
+  const secondPage = timeline(staff, { ...query, before: firstPage.next });
+  assert.equal(firstPage.events.length, 20);
+  assert.ok(secondPage.events.length);
+  assert.equal(secondPage.next, null);
+  assert.equal(new Set([...firstPage.events, ...secondPage.events].map(({ id }) => id)).size, firstPage.events.length + secondPage.events.length);
 });

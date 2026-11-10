@@ -33,6 +33,7 @@ import { lenderPackageUnavailable, type SharedLenderPackageInput } from "./lende
 import { quoteSettingsUnavailable } from "./quote-intake-model";
 import { incomeReviewUnavailable } from "./income-review-model";
 import { leadDocumentsUnavailable } from "./lead-document-model";
+import { uwmDeliveryUnavailable } from "./uwm-delivery-model";
 export { currentStaff } from "./current-staff";
 
 function staffWorkspace(staff: WorkspaceStaff | null) {
@@ -87,6 +88,10 @@ export async function loadRealtorWork(input: unknown, staff: WorkspaceStaff | nu
 
 export async function loadRecordHistory(input: unknown, staff: WorkspaceStaff | null) {
   return staffWorkspace(staff).history(input, staff);
+}
+
+export async function loadUwmDelivery(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).uwmDelivery(input, staff) : { error: uwmDeliveryUnavailable };
 }
 
 export async function loadLeadArchive(input: unknown, staff: WorkspaceStaff | null) {

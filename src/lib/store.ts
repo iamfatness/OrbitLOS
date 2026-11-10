@@ -130,6 +130,16 @@ export function initializeStore(db: Store, seedDemo = true) {
       conditions TEXT NOT NULL DEFAULT '[]', syncedAt TEXT,
       UNIQUE(lender, externalId)
     );
+    CREATE TABLE IF NOT EXISTS mock_uwm_condition_events (
+      submissionId TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+      id TEXT NOT NULL, conditionId TEXT NOT NULL, category TEXT NOT NULL, version INTEGER NOT NULL,
+      state TEXT NOT NULL CHECK(state IN ('Open', 'Cleared')), occurredAt TEXT NOT NULL, receivedAt TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK(outcome IN ('Applied', 'Ignored stale')), duplicates INTEGER NOT NULL DEFAULT 0, lastDuplicateAt TEXT,
+      PRIMARY KEY (submissionId, id)
+    );
+    CREATE INDEX IF NOT EXISTS mock_uwm_applied_condition_version
+      ON mock_uwm_condition_events(submissionId, conditionId, version DESC) WHERE outcome = 'Applied';
+    CREATE INDEX IF NOT EXISTS mock_uwm_condition_event_order ON mock_uwm_condition_events(submissionId, receivedAt DESC, id DESC);
     CREATE TABLE IF NOT EXISTS activity (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       text TEXT NOT NULL, createdAt TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'Note'
@@ -1097,6 +1107,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE,
       receipt TEXT PRIMARY KEY, sentAt TEXT NOT NULL, documentRevision INTEGER
     );
+    CREATE INDEX IF NOT EXISTS uwm_document_delivery_history_by_request ON uwm_document_delivery_history(requestId);
     CREATE TABLE IF NOT EXISTS mock_delivery_failures (
       requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE,
       revision INTEGER NOT NULL, failedAt TEXT NOT NULL, PRIMARY KEY (requestId, revision)

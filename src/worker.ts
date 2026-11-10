@@ -66,6 +66,7 @@ import { assignProcessor } from "./lib/loan-processing";
 import { loanAssignmentUnavailable, readLoanAssignments } from "./lib/loan-assignments";
 import { savePlaybookInput } from "./lib/playbook-model";
 import { readRecordHistory } from "./lib/record-history";
+import { readUwmDelivery } from "./lib/uwm-delivery";
 import { exportPilotPipeline } from "./lib/pipeline-export";
 import { reviewMigrationRecovery } from "./lib/migration-recovery";
 import { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
@@ -172,6 +173,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   history(input: unknown, staff: WorkspaceStaff | null) {
     if (!this.#accepts(staff)) return { error: "This activity history is unavailable." };
     return readRecordHistory(this.#store, staff, input);
+  }
+
+  uwmDelivery(input: unknown, staff: WorkspaceStaff) {
+    return readUwmDelivery(this.#store, input, staff, this.#id);
   }
 
   leadArchive(input: unknown, staff: WorkspaceStaff | null) {

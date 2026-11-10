@@ -33,6 +33,7 @@ import { readSharedRealtorQueue } from "./realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./realtor-queue-report";
 import { assignWaitingRealtorInput } from "./realtor-queue-report-model";
 import { readRecordHistory } from "./record-history";
+import { readUwmDelivery } from "./uwm-delivery";
 import { exportPilotPipeline } from "./pipeline-export";
 import { reviewMigrationRecovery } from "./migration-recovery";
 import { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
@@ -192,6 +193,10 @@ export async function loadRealtorWork(input: unknown, staff: WorkspaceStaff | nu
 
 export async function loadRecordHistory(input: unknown, staff: WorkspaceStaff | null) {
   return readRecordHistory(database(), staff, input);
+}
+
+export async function loadUwmDelivery(input: unknown, staff: WorkspaceStaff | null) {
+  return readUwmDelivery(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null), demoBrokerageId);
 }
 
 export async function loadLeadArchive(input: unknown, staff: WorkspaceStaff | null) {

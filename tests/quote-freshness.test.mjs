@@ -14,6 +14,8 @@ registerHooks({
   },
 });
 
+const { readUwmDelivery } = await import("../src/lib/uwm-delivery.ts");
+
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { initializeStore, insertContact, insertLoan, insertSubmission } = await import("../src/lib/store.ts");
 const { borrowerCommandResult, loanActionApplications } = await import("../src/lib/applications.ts");
@@ -236,6 +238,13 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.deepEqual(recoveredRevision.submissions, beforeRecovery.submissions);
   assert.deepEqual(recoveredRevision.uwmAlerts, beforeRecovery.uwmAlerts);
   assert.equal(recoveredRevision.applications[0].versions.filter((version) => version.uwmReceipt).length, 3);
+  const delivery = readUwmDelivery(db, { loanId, submissionId: file.id }, staff, staff.brokerage.id);
+  for (const version of recoveredRevision.applications[0].versions.filter((item) => item.uwmReceipt)) {
+    assert.ok(delivery.events.some(({ receipt, detail }) =>
+      receipt === version.uwmReceipt.reference && detail === `Submitted 1003 revision ${version.revision}`));
+  }
+  assert.equal(delivery.events.filter(({ title }) => title === "Original 1003 receipt recovered").length, 2);
+  assert.equal(delivery.events.filter(({ title }) => title === "1003 acknowledgment missing").length, 2);
   assert.equal(queued().length, 0);
   await apply("revokeApplication", { token });
   assert.equal(borrowerCommandResult(db, { type: "status", token }).status, 404);

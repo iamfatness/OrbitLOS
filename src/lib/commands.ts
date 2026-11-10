@@ -13,7 +13,7 @@ import { carriedCallbacks, recordCarriedCallback, rescheduleCarriedCallback } fr
 import { leadWorkUnavailable, type CampaignMutationResult, type CampaignNavigationResult, type CampaignQueueResult, type LeadMutationResult } from "./lead-work-model";
 import { readEditableLoan } from "./editable-loan";
 import type { LoanMutationResult } from "./loan-work-model";
-import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, reconcileMockApplicationReceipt, refreshMockUwmClearance, reopenMockUwmCondition, sendMockConditionDocument,
+import { archiveMockDocumentDelivery, hasReopenedMockUwmCondition, reconcileMockApplicationReceipt, refreshMockUwmClearance, reopenMockUwmCondition, replayMockUwmConditionDelivery, sendMockConditionDocument,
   simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { mockUwmReceiptTaskPrefix, pendingMockUwmAcceptance } from "./uwm-handoff-recovery";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
@@ -271,7 +271,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sendConditionDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("simulateDeliveryFailure"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("refreshMockUwmClearance"), loanId: id, submissionId: id }),
-  z.object({ type: z.literal("reopenMockUwmCondition"), loanId: id, submissionId: id, conditionId: id,
+  z.object({ type: z.enum(["reopenMockUwmCondition", "replayMockUwmConditionDelivery"]), loanId: id, submissionId: id, conditionId: id,
     expectedSatisfiedAt: z.iso.datetime({ offset: true }), expectedReopenedAt: z.iso.datetime().nullable() }),
   z.object({ type: z.literal("refreshWorkspace") }),
   refreshCampaignQueueInput,
@@ -497,6 +497,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "simulateDeliveryFailure":
     case "refreshMockUwmClearance":
     case "reopenMockUwmCondition":
+    case "replayMockUwmConditionDelivery":
     case "copyDraft":
     case "saveRetention":
     case "recordCarriedCampaignCallback":
@@ -1483,6 +1484,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const result = reopenMockUwmCondition(db, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           accessEvent(db, staff, "Simulated mock UWM condition reopening", data.loanId, now);
+          message = result.message;
+          break;
+        }
+        case "replayMockUwmConditionDelivery": {
+          if (!isDemoStaff(staff) && !staff?.brokerage.pilot) throw new WorkspaceError("Condition replay is available in fictional demo workspaces.");
+          const result = replayMockUwmConditionDelivery(db, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;
         }
