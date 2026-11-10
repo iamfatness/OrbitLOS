@@ -31,6 +31,8 @@ One product milestone is active at a time. An independent partner-readiness task
 
 The first R1 release is the owner Exceptions workflow, aligned with Today and Processing. Start with existing exact-record drilldowns and scope. Rehearse the loaded queue, a cleared queue, and an exception that reopens. Keep the [feature coverage register](docs/arive-feature-parity-spec.md#current-release-reconciliation) as the detailed F01–F19 inventory and update it from evidence at each release.
 
+R1.1 is live. The owner sidebar opens file exceptions and includes unassigned handoffs, reopened conditions, and sample disclosure reviews. R1.2 continues with the cross-role handoff. The UWM stage pricing guard shipped alongside R1.1, and capability mapping and receipt recovery are next on the integration track. [Release evidence](docs/demo-rehearsal-log.md#hosted-owner-exceptions)
+
 ### R1 execution plan
 
 | Slice | Work | Release evidence |
