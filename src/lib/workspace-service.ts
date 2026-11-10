@@ -63,6 +63,7 @@ import { changeOwnerScorecardSettings, readOwnerScorecard } from "./owner-scorec
 import { customReportWork } from "./custom-reports";
 import { crmFieldWork } from "./crm-fields";
 import { disclosureCalendarWork } from "./disclosure-calendar";
+import { loanStageEditWork } from "./loan-stage-edits";
 import { changeConversation, readConversations } from "./conversations";
 import { changeInboundReply, readInboundReplies } from "./inbound-replies";
 import { workOnAppointment } from "./appointments";
@@ -166,6 +167,7 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
   }
   const localScopedLoan = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" && "type" in input &&
     (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" || input.type === "saveAllocatedFeeWorksheet" ||
+      input.type === "saveLenderDetails" || input.type === "requestApplicationCorrection" || input.type === "selectOffer" ||
       input.type === "simulateMissingUwmReceipt" || input.type === "reconcileMockUwmReceipt" ||
       input.type === "requestBorrowerQuestion" || input.type === "reviewBorrowerQuestion" || input.type === "refreshBorrowerQuestions" ||
       input.type === "createServiceOrder" || input.type === "updateServiceOrder" || input.type === "setClosingServiceEvidence" ||
@@ -397,6 +399,10 @@ export async function workOnCrmFields(input: unknown, staff: WorkspaceStaff | nu
 
 export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceStaff | null) {
   return disclosureCalendarWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+}
+
+export async function workOnLoanStageEdits(input: unknown, staff: WorkspaceStaff | null) {
+  return loanStageEditWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {

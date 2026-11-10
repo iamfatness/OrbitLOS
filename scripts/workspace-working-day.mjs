@@ -1146,6 +1146,33 @@ try {
     assert.equal(detail.history[0].preflight.key, ready.key);
     assert.equal(detail.history.at(-1).preflight.key, current.preflight.key);
     assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /Sample closing preflight|Sample evidence checked/);
+    const stageEdits = (staff, input) => action(staff, "accessLoanStageEdits", input);
+    const controlled = await file(officer, loanId);
+    const stage = controlled.loans[0].stage;
+    const readControls = { type: "loan", loanId };
+    const policy = { type: "publish", revision: 0, rules: { application: [stage], fees: [stage] },
+      reason: "Protect the fictional preflight file." };
+    assert.ok((await stageEdits(officer, policy)).error);
+    assert.equal((await stageEdits(owner, policy)).revision, 1);
+    assert.equal((await stageEdits(officer, readControls)).locked.fees, true);
+    assert.equal((await stageEdits(processor, readControls)).canOverride, false);
+    assert.ok((await stageEdits(competingOfficer, readControls)).error);
+    const [controlledFee] = controlled.feeWorksheets;
+    const feeEdit = { ...selection, feeRevision: controlledFee.revision,
+      worksheet: { ...controlledFee.inputs, fees: { ...controlledFee.inputs.fees, settlement: 175_000 } } };
+    const stageOverride = { revision: 1, stage, reason: "Reviewed the revised fictional settlement fee." };
+    assert.match((await action(officer, "mutate", { type: "saveFeeWorksheet", loanId, ...feeEdit })).error, /locked at/);
+    assert.match((await action(officer, "mutate", { type: "saveFeeWorksheet", loanId, ...feeEdit, stageOverride })).error, /Only a brokerage admin/);
+    assert.ok(!(await action(owner, "mutate", { type: "saveFeeWorksheet", loanId, ...feeEdit, stageOverride })).error);
+    const affected = await file(officer, loanId);
+    assert.equal(affected.disclosureWork.packages[0].reviewReason, "Fees changed");
+    assert.ok(affected.tasks.some(({ title, completedAt }) => title === "Review disclosure package · Fees changed" && !completedAt));
+    const audit = await action(officer, "mutate", { type: "loadLoanAudit", loanId });
+    assert.equal(audit.loanAudit.filter(({ action }) => action === "Admin stage override · Saved fee worksheet").length, 1);
+    assert.ok(audit.loanAudit.some(({ changes }) => changes.some(({ after }) => after === stageOverride.reason)));
+    assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /revised fictional settlement fee/);
+    assert.equal((await stageEdits(owner, { ...policy, revision: 1, rules: { application: [], fees: [] },
+      reason: "Restore the default rules for other rehearsals." })).revision, 2);
   });
 
   const repeatFile = await stage("LO closes, funds, and opens the repeat application", async () => {

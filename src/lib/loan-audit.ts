@@ -52,7 +52,11 @@ export function recordLoanAudit(db: Store, loanId: string, actor: StaffIdentity 
     const previous = before?.[field as keyof typeof before] ?? null;
     return previous === value ? [] : [{ field, before: previous, after: value }];
   });
-  if (!changes.length) return;
+  if (changes.length) addLoanAuditEntry(db, loanId, actor, action, occurredAt, changes);
+}
+
+export function addLoanAuditEntry(db: Store, loanId: string, actor: StaffIdentity | "Borrower" | null, action: string,
+  occurredAt: string, changes: LoanAuditChange[]) {
   db.prepare("INSERT INTO loan_audit (id, loanId, actor, action, occurredAt, changes) VALUES (?, ?, ?, ?, ?, ?)")
     .run(crypto.randomUUID(), loanId, typeof actor === "string" ? actor : actor?.email ?? "Demo workspace", action, occurredAt, JSON.stringify(changes));
 }

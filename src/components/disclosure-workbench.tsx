@@ -12,6 +12,8 @@ import { feeKeys, feeLabels, sampleFeeLabel, type QuoteOption } from "@/lib/quot
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { FeeWorksheetEditor } from "./quote-worksheet";
+import { LoanStageEditNotice, useLoanStageEdit } from "./loan-stage-edits";
+import type { WorkspaceMutationSuccess } from "@/lib/commands";
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const cents = (value: number | null | undefined) => value == null ? "Not entered" : usd.format(value / 100);
@@ -102,7 +104,7 @@ function SigningTarget({ current, suggestion, today, busy, refresh }: {
 }
 
 export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, save, open, refresh }: {
-  loan: Loan; state: Workspace; busy: boolean; readOnly?: boolean; save: (input: unknown) => Promise<void>;
+  loan: Loan; state: Workspace; busy: boolean; readOnly?: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   open: (target: string) => void; refresh?: () => void; brokerageId: string;
 }) {
   const work = state.disclosureWork;
@@ -113,6 +115,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
   const funded = state.closingProgress.find(({ loanId }) => loanId === loan.id)?.fundingDate;
   const closed = state.pastClients.find(({ loanId }) => loanId === loan.id)?.closingDate;
   const editable = !readOnly && (!loan.disposition || loan.disposition === "Active") && loan.stage !== "Closed" && loan.stage !== "Funded";
+  const feeEdits = useLoanStageEdit("fees", loan.id, loan.stage, brokerageId, save, editable);
   const today = easternDate();
   const source = work?.source;
   const run = latestSelectedPricingRun(state.pricingRuns, loan.id);
@@ -189,8 +192,11 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
         <Button size="sm" variant="outline" onClick={() => open("loan-pricing")}>Open Pricing &amp; credit</Button>
       </div>
     </div>}
-    {editable && work && run && offer && <FeeWorksheetEditor key={`${run.id}:${offer.id}:${worksheet?.revision ?? 0}`}
-      run={run} offer={offer} saved={worksheet} busy={busy} save={save} brokerageId={brokerageId} current={pricingInputsMatch(run, app)} />}
+    {editable && work && run && offer && <>
+      <LoanStageEditNotice area="fees" control={feeEdits} busy={busy} />
+      <FeeWorksheetEditor key={`${run.id}:${offer.id}:${worksheet?.revision ?? 0}`} run={run} offer={offer} saved={worksheet}
+        busy={busy} save={feeEdits.save} stageBlocked={feeEdits.blocked} brokerageId={brokerageId} current={pricingInputsMatch(run, app)} />
+    </>}
     {editable && source && work && <details className="document-form" open={!current || Boolean(reviewReason) || Boolean(declined) || Boolean(shifted)} key={current?.version ?? 0}>
       <summary>{current ? "Prepare revised sample package" : "Assemble sample package"}</summary>
       <form className="record-form" onSubmit={(event) => {

@@ -35,11 +35,12 @@ function FeeSource({ origin, fees }: { origin: FeeTemplateOrigin; fees: FeeInput
   </div>;
 }
 
-export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId, current, focused }: {
+export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId, current, focused, stageBlocked }: {
   run: PricingRun; offer: PricingOffer; saved?: FeeWorksheet; busy: boolean; save: (input: unknown) => Promise<void>;
-  brokerageId: string; current: boolean; focused?: string;
+  brokerageId: string; current: boolean; focused?: string; stageBlocked: boolean;
 }) {
   const purchase = run.scenario.purpose === "Purchase";
+  const canEdit = current && !stageBlocked;
   const [origin, setOrigin] = useState<FeeTemplateOrigin | undefined>(saved?.origin);
   const [allocations, setAllocations] = useState<AllocationDraft>(() => Object.fromEntries(
     Object.entries(saved?.inputs.allocations ?? {}).map(([key, split]) => [key, {
@@ -81,7 +82,7 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
   }
   function field(name: string, caption: string, required = false) {
     return <label className="field" key={name}>{caption}<input type="number" min={0} max={25_000_000} step="0.01" id={focused === preflightFeeField(name) ? focused : undefined}
-      name={name} required={required} disabled={!current || busy} value={fields[name]} onChange={(event) => setFields({ ...fields, [name]: event.target.value })} /></label>;
+      name={name} required={required} disabled={!canEdit || busy} value={fields[name]} onChange={(event) => setFields({ ...fields, [name]: event.target.value })} /></label>;
   }
   function loadSample() {
     setOrigin(undefined);
@@ -97,10 +98,10 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
     {!current && <p className="muted">Reprice the current 1003 before editing this worksheet.</p>}
     <form className="record-form" onSubmit={(event) => {
       event.preventDefault();
-      if (estimate && valid && current) void save({ type: "saveAllocatedFeeWorksheet", loanId: run.loanId, runId: run.id, offerId: offer.id,
+      if (estimate && valid && canEdit) void save({ type: "saveAllocatedFeeWorksheet", loanId: run.loanId, runId: run.id, offerId: offer.id,
         feeRevision: saved?.revision ?? 0, worksheet: inputs, template: origin ? { id: origin.id, revision: origin.revision } : null });
     }}>
-      {current && <FeeTemplatePicker brokerageId={brokerageId} loanId={run.loanId} runId={run.id} disabled={busy} onLoad={(template) => {
+      {canEdit && <FeeTemplatePicker brokerageId={brokerageId} loanId={run.loanId} runId={run.id} disabled={busy} onLoad={(template) => {
         setOrigin(template);
         setFields((last) => ({ ...last, ...Object.fromEntries(feeKeys.map((key) => [key, amountText(template.fees[key])])) }));
       }} />}
@@ -122,16 +123,16 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
             <summary>{feeLabels[key]} payment details{line && (line.payee || line.seller || line.lender || line.other) ? " · Allocated" : ""}</summary>
             <div className="form-grid">
               <label className="field">{feeLabels[key]} payee
-                <input maxLength={80} value={draft.payee} disabled={!current || busy} onChange={(event) => changeAllocation(key, "payee", event.target.value)} />
+                <input maxLength={80} value={draft.payee} disabled={!canEdit || busy} onChange={(event) => changeAllocation(key, "payee", event.target.value)} />
               </label>
               {feeContributionKeys.filter((party) => purchase || party !== "seller").map((party) => <label className="field" key={party}>
                 {feeLabels[key]} {feeContributionLabels[party].toLowerCase()} amount
-                <input type="number" min={0} max={25_000_000} step="0.01" value={draft[party]} disabled={!current || busy}
+                <input type="number" min={0} max={25_000_000} step="0.01" value={draft[party]} disabled={!canEdit || busy}
                   onChange={(event) => changeAllocation(key, party, event.target.value)} />
               </label>)}
             </div>
             <p>Borrower share {line && line.borrower >= 0 ? formatFee(line.borrower) : allocations[key] ? "Check the allocation" : formatFee(fees[key] ?? 0)}</p>
-            {allocations[key] && <Button size="sm" variant="outline" type="button" disabled={!current || busy}
+            {allocations[key] && <Button size="sm" variant="outline" type="button" disabled={!canEdit || busy}
               onClick={() => setAllocations((last) => {
                 const next = { ...last };
                 delete next[key];
@@ -145,8 +146,8 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
         {missing.length > 0 && " · Known fees only"}</p>}
       {valid && !estimate && !allocationIssue && <p className="muted">{purchase ? "Enter a purchase price at or above the loan amount." : "Enter estimated payoffs, including zero if applicable."}</p>}
       <div className="loan-application-actions">
-        <Button size="sm" variant="outline" type="button" onClick={loadSample} disabled={busy || !current}>Load sample fees</Button>
-        <Button size="sm" type="submit" disabled={busy || !current || !estimate || !valid}>Save fee worksheet</Button>
+        <Button size="sm" variant="outline" type="button" onClick={loadSample} disabled={busy || !canEdit}>Load sample fees</Button>
+        <Button size="sm" type="submit" disabled={busy || !canEdit || !estimate || !valid}>Save fee worksheet</Button>
       </div>
     </form>
   </details>;

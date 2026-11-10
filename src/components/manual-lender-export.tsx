@@ -28,10 +28,12 @@ function focusExportIssue(issue: LenderExportIssue) {
 }
 
 export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, openConditions,
-  shareBrokerage, handoffBlocker, openReviews }: {
+  shareBrokerage, handoffBlocker, openReviews, correctionSave, correctionBlocked }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
+  correctionSave: (input: unknown) => Promise<void>;
+  correctionBlocked: boolean;
   campaignManual: boolean;
   linkedFile?: Submission;
   previousFile?: Submission;
@@ -156,12 +158,12 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
             const note = String(new FormData(event.currentTarget).get("borrowerInstructions") ?? "").trim();
             if (!note) return;
             if (returnAttempt.current?.note !== note) returnAttempt.current = { note, id: crypto.randomUUID() };
-            void save({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note,
+            void correctionSave({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note,
               lenderReturn: { eventId: returnAttempt.current.id, submissionId: linkedFile.id, lenderRevision: application.lender?.revision ?? 0 } });
           }}>
-            <label className="field">Instructions for the borrower<textarea name="borrowerInstructions" required rows={3} maxLength={500} /></label>
+            <label className="field">Instructions for the borrower<textarea name="borrowerInstructions" required rows={3} maxLength={500} disabled={correctionBlocked} /></label>
             <p className="muted">The borrower can reopen their existing link. The lender checklist and its history stay on this loan.</p>
-            <div><Button size="sm" type="submit" disabled={busy}>Record return and reopen 1003</Button></div>
+            <div><Button size="sm" type="submit" disabled={busy || correctionBlocked}>Record return and reopen 1003</Button></div>
           </form>
         </details>}
       </> : <form className="record-form" onSubmit={(event) => {

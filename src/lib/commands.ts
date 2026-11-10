@@ -90,6 +90,8 @@ import { createMismoRehearsal, exportMismoRehearsal } from "./mismo-rehearsal";
 
 import { saveCallReport } from "./call-report-model";
 import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEvent } from "./loan-audit";
+import { stageEditOverride, type StageEditArea, type StageEditOverride } from "./loan-stage-edit-model";
+import { auditStageOverride, authorizeStageEdit } from "./loan-stage-edits";
 
 import { exportReviewedApplication, lenderExportProfile } from "./lender-export-model";
 import { hasPreparedLenderExport, prepareLenderExport, recordManualLenderReturn } from "./lender-export";
@@ -304,13 +306,13 @@ const command = z.discriminatedUnion("type", [
   mockAusInput,
   mockPairedAusInput,
   mockRetryInput,
-  z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id }),
+  z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id, stageOverride: stageEditOverride.optional() }),
   z.object({ type: z.literal("floatMockRate"), loanId: id, submissionId: id, runId: id, offerId: id, previousFloatReference: id.nullable() }),
   z.object({ type: z.literal("lockMockRate"), loanId: id, floatReference: id, days: z.literal(mockLockPeriods) }),
   z.object({ type: z.literal("extendMockLock"), ...lockChange, days: z.literal(mockLockExtensionPeriods) }),
   z.object({ type: z.literal("cancelMockLock"), ...lockChange }),
-  saveFeeWorksheetInput,
-  saveAllocatedFeeWorksheetInput,
+  saveFeeWorksheetInput.extend({ stageOverride: stageEditOverride.optional() }),
+  saveAllocatedFeeWorksheetInput.extend({ stageOverride: stageEditOverride.optional() }),
   ...disclosureCommand.options,
   confirmClosingDisclosure,
   prepareClosingPacketInput,
@@ -327,10 +329,11 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("useReviewedLoanAmount"), loanId: id, revision: z.number().int().nonnegative(),
     previousAmount: z.number().int().min(0).max(1_000_000_000) }),
   z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
-    note: z.string().trim().min(1).max(500),
+    note: z.string().trim().min(1).max(500), stageOverride: stageEditOverride.optional(),
     recipient: z.enum(["Primary borrower", "Co-borrower"]).default("Primary borrower"),
     lenderReturn: z.object({ eventId: z.uuid(), submissionId: id, lenderRevision: z.number().int().nonnegative() }).optional() }),
-  z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema }),
+  z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema,
+    stageOverride: stageEditOverride.optional() }),
   z.object({ type: z.literal("sendApplication"), loanId: id, revision: z.number().int().nonnegative(),
     quote: z.object({ runId: id, offerId: id }).optional() }),
   z.object({ type: z.literal("simulateMissingUwmReceipt"), loanId: id, revision: z.number().int().nonnegative(),
@@ -341,6 +344,13 @@ const command = z.discriminatedUnion("type", [
 
 class WorkspaceError extends Error {}
 class LeadClaimConflict extends WorkspaceError {}
+
+function stageOverrideFor(db: Store, staff: WorkspaceStaff | null, area: StageEditArea,
+  data: { loanId: string; stageOverride?: StageEditOverride }) {
+  const permission = authorizeStageEdit(db, staff, data.loanId, area, data.stageOverride);
+  if ("error" in permission) throw new WorkspaceError(permission.error);
+  return permission.override;
+}
 
 function addDocumentRequest(db: Store, loanId: string, kind: DocumentKind, instructions: string, now: string,
   source?: { submissionId: string; conditionId: string }, dueOn: string | null = null, recipient: DocumentRecipient = primaryDocumentRecipient) {
@@ -1622,10 +1632,12 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (freshness) throw new WorkspaceError(freshness);
           const lastSaved = savedPricingRun(db, data.loanId);
           if (lastSaved?.id !== data.runId || lastSaved.selectedId !== offer.id) {
+            const override = stageOverrideFor(db, staff, "fees", data);
             db.prepare("UPDATE pricing_runs SET selectedId = ?, selectedAt = ? WHERE id = ?").run(offer.id, now, data.runId);
             flagDisclosureReview(db, data.loanId, "Selected quote changed", now);
             flagSharedQuoteReview(db, data.loanId, "Selected offer changed", now, { runId: data.runId, offerId: offer.id, change: "selection" });
             addApplicationActivity(db, data.loanId, `Saved ${run.mode === "mock" ? "sample" : "stage"} quote · ${offer.product} at ${offer.rate.toFixed(3)}%`, now);
+            auditStageOverride(db, staff, data.loanId, "Changed selected quote", now, override);
           }
           message = "Quote saved on the loan.";
           break;
@@ -1646,6 +1658,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "saveFeeWorksheet":
         case "saveAllocatedFeeWorksheet": {
+          const override = stageOverrideFor(db, staff, "fees", data);
           const result = saveFeeWorksheet(db, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           if (result.revision !== undefined) {
@@ -1653,6 +1666,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
               { runId: data.runId, offerId: data.offerId, feeRevision: result.revision });
             flagSharedQuoteReview(db, data.loanId, "Fee worksheet changed on a shared offer", now,
               { runId: data.runId, offerId: data.offerId, change: "fees" });
+            auditStageOverride(db, staff, data.loanId, "Saved fee worksheet", now, override);
           }
           message = result.message;
           break;
@@ -1813,6 +1827,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           const application = getApplication(db, data.loanId);
           if (!application?.submittedAt || application.revision !== data.revision) throw new WorkspaceError("Refresh the submitted application before requesting corrections.");
+          const override = stageOverrideFor(db, staff, "application", data);
           saveApplicationVersion(db, application);
           if (joint) reopenJointBorrower(db, data.loanId, data.recipient, data.note, now);
           db.prepare(`UPDATE applications SET correctionNote = ?, submittedAt = NULL, reviewedAt = NULL,
@@ -1823,6 +1838,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare(`UPDATE tasks SET completedAt = ? WHERE loanId = ? AND completedAt IS NULL
             AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
           addApplicationActivity(db, data.loanId, coBorrower ? "Loan officer requested co-borrower corrections." : "Loan officer requested 1003 corrections.", now);
+          auditStageOverride(db, staff, data.loanId, "Requested borrower corrections", now, override);
           message = data.lenderReturn ? "Lender return recorded. The borrower can reopen the same link to correct the 1003." :
             coBorrower ? "The co-borrower can reopen their link to correct and resubmit their portion." :
               "The borrower can reopen the same link to correct and resubmit the 1003.";
@@ -1833,11 +1849,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (!application) throw new WorkspaceError("Start an application before saving lender details.");
           const existing = db.prepare("SELECT revision FROM application_lender_details WHERE loanId = ?").get(data.loanId);
           if (Number(existing?.revision ?? 0) !== data.revision) throw new WorkspaceError("Lender details changed. Refresh the application before saving.");
+          const override = stageOverrideFor(db, staff, "application", data);
           const originator = cleanAnswers(lenderQuestions, data.details.originator);
           const supplement = cleanAnswers(lenderSupplement, data.details.supplement);
           db.prepare(`INSERT INTO application_lender_details (loanId, details, revision) VALUES (?, ?, ?)
             ON CONFLICT(loanId) DO UPDATE SET details = excluded.details, revision = excluded.revision`)
             .run(data.loanId, JSON.stringify({ originator: originator.answers, supplement: supplement.answers }), data.revision + 1);
+          auditStageOverride(db, staff, data.loanId, "Saved lender details", now, override);
           message = "Lender details saved.";
           break;
         }

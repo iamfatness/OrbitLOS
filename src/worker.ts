@@ -93,6 +93,7 @@ import { changeOwnerScorecardSettings, readOwnerScorecard } from "./lib/owner-sc
 import { customReportWork } from "./lib/custom-reports";
 import { crmFieldWork } from "./lib/crm-fields";
 import { disclosureCalendarWork } from "./lib/disclosure-calendar";
+import { loanStageEditWork } from "./lib/loan-stage-edits";
 import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
 import { conversationInput } from "./lib/conversation-model";
@@ -415,6 +416,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   disclosureCalendar(input: unknown, staff: WorkspaceStaff) {
     return disclosureCalendarWork(this.#store, input, staff, this.#id);
+  }
+
+  loanStageEdits(input: unknown, staff: WorkspaceStaff) {
+    return loanStageEditWork(this.#store, input, staff, this.#id);
   }
 
   salesSettings(input: unknown, staff: WorkspaceStaff) {

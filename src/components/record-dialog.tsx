@@ -30,6 +30,7 @@ import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mock
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
+import { LoanStageEditNotice, useLoanStageEdit } from "./loan-stage-edits";
 import { CrmFieldValues } from "./crm-fields";
 import { LoanBorrowerQuestions } from "./loan-borrower-questions";
 import { UwmDeliveryTimeline } from "./uwm-delivery-timeline";
@@ -274,8 +275,9 @@ function SubmissionCard({ submission, requests, busy, save, onEdit, checklistLin
   );
 }
 
-function LoanApplication({ loanId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, openPricing, markDraftChanged, shareBrokerage }: {
+function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jointLinks, openConditions, campaignManual, openReviews, openPricing, markDraftChanged, shareBrokerage }: {
   loanId: string; state: Workspace; busy: boolean; save: Save; processor?: boolean; jointLinks: boolean;
+  brokerageId: string;
   openConditions: (id: string) => void; campaignManual: boolean; openReviews?: () => void;
   openPricing: () => void;
   markDraftChanged: (editor: Node) => void;
@@ -285,6 +287,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
   const [confirmingRevocation, setConfirmingRevocation] = useState<string | null>(null);
   const application = state.applications.find((item) => item.loanId === loanId);
   const loan = state.loans.find((item) => item.id === loanId);
+  const applicationEdits = useLoanStageEdit("application", loanId, loan?.stage ?? "Lead", brokerageId, save, !!application);
   const requestedAmount = submittedRequestedLoanAmount(application);
   const wholeAmount = requestedAmount === null ? 0 : Math.round(requestedAmount);
   const canRecordReturn = Boolean(loan && !pausedLoan(loan) && !pastClientLoan(loan) &&
@@ -323,6 +326,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
       <h3><ClipboardList size={17} /> 1003 application</h3>
       {application && <span className="pill">{status}</span>}
     </div>
+    <LoanStageEditNotice area="application" control={applicationEdits} busy={busy} />
     {showCheckpoint && <SecondReviewCheckpoint blocker={blocker} revision={application?.revision} busy={busy} openReviews={openReviews} />}
     {!application ? <div className="loan-application-box">
       <p className="muted">Create a link for a borrower to complete a sample application. Use fictional information.</p>
@@ -403,12 +407,12 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
           <form className="record-form" onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
-            void save({ type: "requestApplicationCorrection", loanId, revision: application.revision, note: text(data, "note"),
+            void applicationEdits.save({ type: "requestApplicationCorrection", loanId, revision: application.revision, note: text(data, "note"),
               recipient: data.get("recipient") || "Primary borrower" });
           }}>
-            {application.joint && <Field label="Correction recipient"><select name="recipient"><option>Primary borrower</option><option>Co-borrower</option></select></Field>}
-            <Field label="Instructions for the borrower"><textarea name="note" rows={3} required maxLength={500} /></Field>
-            <div><Button size="sm" type="submit" disabled={busy}>Request corrections</Button></div>
+            {application.joint && <Field label="Correction recipient"><select name="recipient" disabled={applicationEdits.blocked}><option>Primary borrower</option><option>Co-borrower</option></select></Field>}
+            <Field label="Instructions for the borrower"><textarea name="note" rows={3} required maxLength={500} disabled={applicationEdits.blocked} /></Field>
+            <div><Button size="sm" type="submit" disabled={busy || applicationEdits.blocked}>Request corrections</Button></div>
           </form>
         </details>}
       </>}
@@ -429,9 +433,9 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
         shareBrokerage={shareBrokerage}
         linkedFile={linkedFile}
         previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
-        campaignManual={campaignManual} />
+        campaignManual={campaignManual} correctionSave={applicationEdits.save} correctionBlocked={applicationEdits.blocked} />
       <LenderApplicationDetails key={`lender:${loanId}:${application.lender?.revision ?? 0}`} application={application}
-        busy={busy} save={save} markDraftChanged={markDraftChanged} />
+        busy={busy || applicationEdits.blocked} save={applicationEdits.save} markDraftChanged={markDraftChanged} />
     </div>}
   </section>;
 }
@@ -449,7 +453,7 @@ function LenderApplicationDetails({ application, busy, save, markDraftChanged }:
   return <details ref={editor} className="application-review">
     <summary>Lender and originator details</summary>
     <p className="muted">Staff-only fields for the sample loan file.</p>
-    <div className="urla-questionnaire">
+    <fieldset className="urla-questionnaire" disabled={busy}>
       <QuestionnaireFields definition={lenderQuestions} answers={details.originator} focusPrefix={lenderFieldPrefix("originator")}
         change={(update) => change("originator", update)} />
       <details className="application-review">
@@ -460,7 +464,7 @@ function LenderApplicationDetails({ application, busy, save, markDraftChanged }:
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void save({
         type: "saveLenderDetails", loanId: application.loanId, revision: application.lender?.revision ?? 0, details,
       })}>Save lender details</Button>
-    </div>
+    </fieldset>
   </details>;
 }
 
@@ -708,7 +712,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {callReportFile && <CallReportLoanFacts key={`${loan.id}:${callReportFile.revision}`} file={callReportFile} busy={busy} save={save} />}
       </>}
       {section === "1003" && <>
-      <LoanApplication loanId={loan.id} state={state} busy={busy} save={save} processor={processor}
+      <LoanApplication loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} state={state} busy={busy} save={save} processor={processor}
         jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}
         shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         markDraftChanged={markDraftChanged}

@@ -28,6 +28,8 @@ const { executeCommand } = await import("../src/lib/commands.ts");
 const { readPlaybook } = await import("../src/lib/playbooks.ts");
 const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
 const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
+const { loanStageEditWork } = await import("../src/lib/loan-stage-edits.ts");
+const { blankLenderDetails } = await import("../src/lib/urla.ts");
 const at = "2026-11-08T15:00:00.000Z";
 const today = "2026-11-08";
 
@@ -58,6 +60,91 @@ function fixture(t) {
     reviewerEmail: processor.email, dueOn: today, note: "Fictional internal instructions", ...fields });
   return { db, id, admin, officer, outsider, processor, nextProcessor, roster, work, create };
 }
+
+test("stage policy locks staff edits, audits only successful overrides, and keeps mock borrower work open", async (t) => {
+  const { db, id, admin, officer, outsider, processor, roster } = fixture(t);
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(at) });
+  const loanId = "loan";
+  const work = (input, actor = admin, tenant = id) => loanStageEditWork(db, input, actor, tenant, at);
+  const change = (type, fields = {}, actor = officer) =>
+    executeCommand(db, { type, loanId, ...fields }, { ...actor, brokerage: { ...actor.brokerage, pilot: true } }, undefined, roster);
+  const apply = async (type, fields, actor) => {
+    const result = await change(type, fields, actor);
+    assert.ok(!result.error, result.error);
+    return result.state;
+  };
+  const { token } = (await apply("startApplication")).applications[0];
+  const borrower = (input) => borrowerCommandResult(db, { token, ...input });
+  const initial = borrower({ type: "read" }).application;
+  const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+  const submitted = borrower({ type: "submit", revision: initial.revision, step: 9, draft }).application;
+  await apply("reviewApplication", { revision: submitted.revision });
+  const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
+    zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+    propertyType: "Single family", firstTimeBuyer: false };
+  const [run] = (await apply("runPricing", { scenario, applicationRevision: submitted.revision })).pricingRuns;
+  const choice = { runId: run.id, offerId: run.offers[0].id };
+  await apply("selectOffer", choice);
+  const fees = { origination: 95_000, appraisal: 65_000, creditReport: 0, settlement: 100_000, government: 0, prepaid: 0, escrow: 0, other: 0 };
+  const worksheet = { fees, purchasePrice: 45_000_000, payoffs: null, deposit: 0, sellerCredits: 0, otherCredits: 0 };
+  await apply("saveFeeWorksheet", { ...choice, feeRevision: 0, worksheet });
+  await apply("prepareDisclosurePackage", { ...choice, feeRevision: 1, applicationRevision: submitted.revision,
+    previousVersion: null, documents: sampleDisclosureDocuments, signBy: today });
+  const before = readDisclosureWork(db, loanId).packages[0];
+  const rules = { application: ["Processing"], fees: ["Processing"] };
+  const publish = { type: "publish", revision: 0, rules, reason: "Keep the fictional processing file stable." };
+  assert.equal(work({ type: "settings" }).revision, 0);
+  assert.ok(work(publish, officer).error);
+  assert.ok(work(publish, admin, "another-brokerage").error);
+  assert.equal(work(publish).revision, 1);
+  assert.equal(work(publish).revision, 1);
+  assert.ok(work({ ...publish, rules: { ...rules, fees: [] } }).error);
+  const read = { type: "loan", loanId };
+  assert.deepEqual(work(read, officer).locked, { application: true, fees: true });
+  assert.equal(work(read, processor).canOverride, false);
+  assert.equal(work(read).canOverride, true);
+  assert.ok(work(read, outsider).error);
+  await apply("issueDisclosurePackage", { version: before.version, revision: before.revision });
+  const signed = borrower({ type: "respondToSampleDisclosure", version: before.version, response: "Signed", confirmedDemo: true });
+  assert.ok(signed.statusView, signed.error);
+  assert.equal(readDisclosureWork(db, loanId).packages[0].signers[0].status, "Signed");
+
+  const stageOverride = { revision: 1, stage: "Processing", reason: "Verified the revised fictional vendor fee." };
+  const edit = { ...choice, feeRevision: 1, worksheet: { ...worksheet, fees: { ...fees, appraisal: 71_000 } } };
+  const audit = () => db.prepare("SELECT actor, action, changes FROM loan_audit WHERE action LIKE 'Admin stage override%' ORDER BY rowid").all();
+  assert.match((await change("saveFeeWorksheet", edit)).error, /locked at Processing/);
+  assert.match((await change("saveAllocatedFeeWorksheet", edit, admin)).error, /locked at Processing/);
+  assert.match((await change("saveFeeWorksheet", { ...edit, stageOverride })).error, /Only a brokerage admin/);
+  assert.match((await change("saveFeeWorksheet", { ...edit, stageOverride: { ...stageOverride, stage: "Underwriting" } }, admin)).error, /changed/);
+  assert.match((await change("selectOffer", { runId: run.id, offerId: run.offers[1].id })).error, /locked at Processing/);
+  assert.equal(audit().length, 0);
+  assert.equal(readDisclosureWork(db, loanId).packages[0].reviewReason, null);
+  assert.equal(db.prepare("SELECT revision FROM fee_worksheets WHERE runId = ? AND offerId = ?").get(choice.runId, choice.offerId).revision, 1);
+  await apply("saveAllocatedFeeWorksheet", { ...edit, stageOverride }, admin);
+  await apply("saveAllocatedFeeWorksheet", { ...edit, stageOverride }, admin);
+  const [feeAudit] = audit();
+  assert.equal(audit().length, 1);
+  assert.equal(feeAudit.actor, admin.email);
+  assert.ok(JSON.parse(feeAudit.changes).some(({ field, after }) => field === "Internal reason" && after === stageOverride.reason));
+  assert.equal(readDisclosureWork(db, loanId).packages[0].reviewReason, "Fees changed");
+  assert.ok(db.prepare("SELECT 1 FROM tasks WHERE loanId = ? AND title = 'Review disclosure package · Fees changed' AND completedAt IS NULL").get(loanId));
+
+  const supplement = { revision: 0, details: blankLenderDetails() };
+  assert.match((await change("saveLenderDetails", supplement, processor)).error, /locked at Processing/);
+  await apply("saveLenderDetails", { ...supplement, stageOverride: { ...stageOverride, reason: "Verified the fictional lender details." } }, admin);
+  const correction = { revision: submitted.revision, note: "Please recheck the fictional property details." };
+  assert.match((await change("requestApplicationCorrection", correction, processor)).error, /locked at Processing/);
+  await apply("requestApplicationCorrection", { ...correction, stageOverride: { ...stageOverride, reason: "Reopen the fictional property section." } }, admin);
+  const reopened = borrower({ type: "read" }).application;
+  const resubmitted = borrower({ type: "submit", revision: reopened.revision, step: 9, draft }).application;
+  assert.ok(resubmitted.submittedAt);
+  await apply("reviewApplication", { revision: resubmitted.revision });
+  assert.equal(audit().length, 3);
+  assert.doesNotMatch(JSON.stringify(borrower({ type: "status" })), /Internal reason|revised fictional vendor fee/);
+  assert.equal(work({ ...publish, revision: 1, rules: { application: [], fees: [] }, reason: "Restore the usual staff edit access." }).revision, 2);
+  assert.match((await change("saveLenderDetails", { ...supplement, revision: 1, stageOverride }, admin)).error, /changed/);
+  await apply("saveLenderDetails", { ...supplement, revision: 1 }, processor);
+});
 
 const reviewTime = "2026-11-09T03:30:00.000Z";
 

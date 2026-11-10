@@ -215,6 +215,12 @@ In a fictional pilot, the finance owner can open a funded loan in **Financials**
 
 Confirm the signed sample disclosure in **Closing** before funding. In **Financials → Sample settlement fee comparison**, record the itemized gross fees, borrower shares, and payees. **Use confirmed fee figures** starts a fictional comparison with the disclosed figures. The first statement pins that confirmed disclosure for the funding cycle. **Settlement exceptions → Fee differences** opens the exact comparison for review. A corrected statement keeps earlier amounts and notes in history. Blank figures stay visible as missing. Sample purchase advice and wire receipts have their own reconciliation.
 
+### Configure loan stage edit controls
+
+In **Playbooks → Loan stage edit policy**, an admin can choose the stages that require an override to reopen a submitted 1003, save lender details, change the selected quote, or save a fee worksheet. Publishing requires a reason. The default policy has no locked stages.
+
+On a locked loan, an admin can enter an internal reason to make one change. The loan audit records the actor, stage, policy version, and reason. The policy is checked again when the change is saved. Borrower submission and correction responses, staff review, and mock signing continue through their existing steps. A fee override still creates the disclosure review task when the saved fees affect a package.
+
 ## Rehearse a missing mock lender receipt
 
 On an active fictional loan with a reviewed 1003, open **1003 → Rehearse a missing mock UWM acknowledgment** and simulate the missing receipt. In **Today**, open **Check mock UWM submission receipt**. Select **Check mock UWM for receipt** to recover the original acknowledgment and open its conditions. The receipt stays tied to the reviewed 1003 version, and recovering it closes the task.

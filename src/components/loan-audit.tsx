@@ -14,7 +14,7 @@ export function LoanAudit({ loanId, busy, save }: {
     item === null ? "—" : typeof item === "number" && field.toLowerCase().includes("amount") ? (item ? money(item) : "$0") : item;
   return <section className="details-section" aria-label="Loan audit history">
     <h3>Loan audit history</h3>
-    <p className="muted">See up to 100 recent changes to loan, assignment, and reporting fields. History starts when this feature was enabled.</p>
+    <p className="muted">See up to 100 recent loan changes, including stage overrides and their reasons.</p>
     <div className="loan-application-actions"><Button variant="outline" size="sm" disabled={busy} onClick={() =>
       void save({ type: "loadLoanAudit", loanId }, ({ loanAudit }) => setHistory(loanAudit))
     }>{history ? "Refresh audit history" : "Load audit history"}</Button></div>

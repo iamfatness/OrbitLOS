@@ -16,6 +16,7 @@ import { UwmRateLock } from "./uwm-rate-lock";
 import { feeKeys, feeLabels, quoteOption, sampleFeeLabel, type QuotePresentation } from "@/lib/quote-worksheet";
 import { sharedQuoteExpired, sharedQuoteExpiry } from "@/lib/shared-quote-model";
 import { FeeWorksheetEditor, SampleQuotePresentation } from "./quote-worksheet";
+import { LoanStageEditNotice, useLoanStageEdit } from "./loan-stage-edits";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const cash = (amount: number | null) => amount === null ? "—" : dollars.format(amount);
@@ -138,6 +139,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   openApplication: () => void;
   lenderHandoff?: { label: string; blocker: string | null; checkQuoteAmount: boolean; proceed: (quote: { runId: string; offerId: string }) => void };
 }) {
+  const feeEdits = useLoanStageEdit("fees", loan.id, loan.stage, brokerageId, save);
   const runs = state.pricingRuns.filter((item) => item.loanId === loan.id);
   const current = runs[0];
   const saved = latestSelectedPricingRun(runs, loan.id);
@@ -260,6 +262,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       <div><h3><Calculator size={18} /> UWM Easy Qualifier</h3><p>Conventional, DSCR, and bank statement scenarios.</p></div>
       <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : "Mock pricing"}</span>
     </header>
+    <LoanStageEditNotice area="fees" control={feeEdits} busy={busy} />
     {published?.reviewReason && <section className="quote-saved" aria-label="Shared quote review">
       <div className="section-heading"><h3>Review shared sample quote</h3><span className="pill">Needs review</span></div>
       <p>{published.reviewReason}. {publishedNeedsReprice ? "Share a new quote from the current loan inputs to restore borrower access."
@@ -288,8 +291,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <p className="muted timestamp">{sourceRun.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced {dateTime(sourceRun.quotedAt)} ET</p>
         <Terms offer={sourceOffer} />
         {!isCurrent(sourceRun) ? <p className="quote-disclaimer">{sourceRun.incomeReviewCurrent === false ? repriceIncomeMessage : "Reprice from the current 1003 before saving this quote."}</p> :
-          <Button size="sm" variant="outline" disabled={busy || sourceIsSaved}
-            onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: sourceRun.id, offerId: sourceOffer.id }, () => setPreview(true))}>
+          <Button size="sm" variant="outline" disabled={busy || sourceIsSaved || feeEdits.blocked}
+            onClick={() => void feeEdits.save({ type: "selectOffer", loanId: loan.id, runId: sourceRun.id, offerId: sourceOffer.id }, () => setPreview(true))}>
             {sourceIsSaved ? "Saved to this loan" : "Save this quote"}
           </Button>}
       </> : <p className="quote-disclaimer">This pricing option is no longer in the current results. Run pricing again to continue.</p>}
@@ -386,7 +389,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <p className="muted">{cash(saved.scenario.loanAmount)} loan · {saved.scenario.purpose}</p>
         {primary && presentation ? <>
           <FeeWorksheetEditor key={`${primary.key}:${primary.worksheet?.revision ?? 0}`}
-            run={primary.run} offer={primary.offer} saved={primary.worksheet} busy={busy} save={save}
+            run={primary.run} offer={primary.offer} saved={primary.worksheet} busy={busy} save={feeEdits.save} stageBlocked={feeEdits.blocked}
             brokerageId={brokerageId} current={!savedNeedsReprice} focused={focusFees} />
           {comparable.length > 0 && <details className="document-form">
             <summary>Choose alternatives to compare</summary>
@@ -404,7 +407,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
             </div>
           </details>}
           {alternatives.map((item) => <FeeWorksheetEditor key={`${item.key}:${item.worksheet?.revision ?? 0}`}
-            run={item.run} offer={item.offer} saved={item.worksheet} busy={busy} save={save}
+            run={item.run} offer={item.offer} saved={item.worksheet} busy={busy} save={feeEdits.save} stageBlocked={feeEdits.blocked}
             brokerageId={brokerageId} current={isCurrent(item.run)} />)}
           <SampleQuotePresentation quote={presentation} />
           <SampleMetrics scenario={saved.scenario} offer={selected} />
@@ -461,8 +464,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
                 `${scenario.nonAgency.statementMonths} months · ${scenario.nonAgency.source.type.toLowerCase()} · ${cash(scenario.nonAgency.averageMonthlyDeposits)} monthly deposits`}</small>}
             </td>
             <td>{offer.product}<Terms offer={offer} /><SampleMetrics scenario={scenario} offer={offer} /></td>
-            <td>{!isCurrent(run) ? "Needs repricing" : saved?.id === run.id ? "Chosen quote" : <Button size="sm" variant="outline" disabled={busy}
-              onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: run.id, offerId: offer.id })}>Choose quote</Button>}</td>
+            <td>{!isCurrent(run) ? "Needs repricing" : saved?.id === run.id ? "Chosen quote" : <Button size="sm" variant="outline" disabled={busy || feeEdits.blocked}
+              onClick={() => void feeEdits.save({ type: "selectOffer", loanId: loan.id, runId: run.id, offerId: offer.id })}>Choose quote</Button>}</td>
           </tr>;
         })}</tbody>
       </table></div>
@@ -476,8 +479,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       {current.offers.map((offer) => {
         const isSaved = saved?.id === current.id && saved.selectedId === offer.id;
         return <article className="pricing-option" key={offer.id}>
-          <div className="section-heading"><h3>{offer.product}</h3><Button size="sm" variant="outline" disabled={busy || isSaved || !isCurrent(current)}
-            onClick={() => void save({ type: "selectOffer", loanId: loan.id, runId: current.id, offerId: offer.id })}>{isSaved ? "Saved" : "Save quote"}</Button></div>
+          <div className="section-heading"><h3>{offer.product}</h3><Button size="sm" variant="outline" disabled={busy || isSaved || !isCurrent(current) || feeEdits.blocked}
+            onClick={() => void feeEdits.save({ type: "selectOffer", loanId: loan.id, runId: current.id, offerId: offer.id })}>{isSaved ? "Saved" : "Save quote"}</Button></div>
           <Terms offer={offer} />
           <SampleMetrics scenario={current.scenario} offer={offer} />
           {isSaved && handoffAction}
