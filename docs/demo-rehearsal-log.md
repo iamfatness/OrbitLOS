@@ -1014,6 +1014,10 @@ Playwright exercised keyboard use in the 1440 × 1000 owner and 900 × 1200 LO v
 
 ## Non-QM pricing fallback
 
+On November 10, 2026, Worker `4b23cd6e-876a-4950-beb1-0cb3a3bd3c54` from `544dc2a` took 100% of traffic. The landing, Product and Demo returned HTTP 200, the updated Product and Demo copy matched, and all 45 staged assets matched the build twice.
+
+The hosted Role Handoff QA rehearsal submitted and reviewed one fictional investment-property refinance. The workspace saved unsupported outcomes for DSCR and bank statement, compared the bank statement estimate with a selected manual DSCR quote, and chose the DSCR quote again from the comparison. Staff prepared the sample MISMO and recorded a fictional lender acknowledgment. Owner Activity showed the unsupported check. Provider activity remained simulated.
+
 The local Worker preserved the exact DSCR and bank statement inputs and the simulated unsupported outcome. It refused a mock submission from an unsupported scenario or a selected Non-QM estimate. A manual offer added to the saved DSCR inputs produced a sample MISMO export at the chosen rate. A what-if occupancy could be saved for comparison, and the handoff refused that quote against the reviewed file. After the borrower corrected the requested amount, staff could see earlier terms but could only hand off a fresh manual offer on the current revision. The revised bank statement offer exported a $340,000 note at 7.500%, received a fictional manual acknowledgment, and left the unsupported result in owner-visible activity.
 
 The stage fixture saved an unsupported result and a manual offer with zero provider requests. The MISMO sample carries the standard loan and quote terms. Non-QM income calculations and assumptions stay on the pricing scenario until receiving-lender field mapping is verified.
