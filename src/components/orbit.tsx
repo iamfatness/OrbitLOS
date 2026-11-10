@@ -403,10 +403,14 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         return;
       }
       if ("campaignWork" in result) {
-        const patch = result.campaignWork;
-        if (patch) setState((current) => applyCampaignMutation(current, patch));
+        const { campaignWork, segments } = result;
+        const apply = (current: Workspace) => {
+          const next = campaignWork ? applyCampaignMutation(current, campaignWork) : current;
+          return segments ? { ...next, crmSegments: segments } : next;
+        };
+        if (campaignWork || segments) setState(apply);
         if (announce) setNotice(result.message);
-        after?.({ state: patch ? applyCampaignMutation(state, patch) : state, message: result.message, migration: result.migration });
+        after?.({ state: apply(state), message: result.message, migration: result.migration, segmentPreview: result.segmentPreview });
         return;
       }
       if ("contactsChanged" in result || "tasksChanged" in result) {

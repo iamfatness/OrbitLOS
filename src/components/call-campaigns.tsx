@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Phone, RefreshCw, Upload } from "lucide-react";
 import { demoBrokerageId } from "@/lib/brokerage-model";
-import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignFollowUpSource, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
+import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignFollowUpSource, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv, sequenceReplacesFirstContact,
   type CallCampaign, type CallCampaignMember, type CallOutcome, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { CampaignManagerRecord } from "@/lib/campaign-manager-model";
@@ -240,10 +240,11 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
     <div className="document-item-head"><strong>{member.name}</strong><span className={overdue || callbackDue ? "open-chip" : "pill"}>{badge}</span></div>
     <p className="muted">{member.attempts} {member.attempts === 1 ? "call" : "calls"} logged{lead && ` · ${lead.officerEmail ? lead.officer : "Shared inbox"}`}
       {lead && (lead.officerEmail || shared) && !lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt && !optedOut && !held &&
+        !sequenceReplacesFirstContact(member.sequenceKind) &&
         ` · First contact due ${dateTime(lead.dueAt)} ET`}
       {!(showCallContext && canWork && !optedOut) && !member.resolvedAt && !held && member.callbackDueAt && ` · ${dateTime(member.callbackDueAt)} ET`}</p>
     {sequence && lead && <div className="loan-application-actions">
-      <span className="muted">New Lead · {sequence.paused ? "Paused at step" : "Step"} {sequence.position + 1} · {sequence.title} · {dateTime(sequence.dueAt)} ET</span>
+      <span className="muted">{member.sequenceKind} · {sequence.paused ? "Paused at step" : "Step"} {sequence.position + 1} · {sequence.title} · {dateTime(sequence.dueAt)} ET</span>
       {canManageSequence && !held && <CampaignSequenceToggle campaignId={campaign.id} leadId={lead.id} revision={lead.followUp.revision}
         paused={sequence.paused} busy={busy} save={save} />}
     </div>}
@@ -370,7 +371,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     (!staff || lead?.officerEmail === staff.email)) : undefined;
   const scheduled = [...dueCallbacks, ...upcomingCallbacks];
   const dueCallbackIds = new Set(dueCallbacks.map(({ member }) => member.leadId));
-  const overdue = records.filter(({ lead, optedOut }) => lead?.officerEmail && !optedOut && firstContactOverdue(lead, now))
+  const overdue = records.filter(({ lead, member, optedOut }) =>
+    lead?.officerEmail && !optedOut && !sequenceReplacesFirstContact(member.sequenceKind) && firstContactOverdue(lead, now))
     .sort((a, b) => a.lead!.dueAt.localeCompare(b.lead!.dueAt));
   const overdueIds = new Set(overdue.map(({ member }) => member.leadId));
   const unassigned = records.filter(({ lead, member, optedOut }) => lead && !member.resolvedAt && !member.retryExhaustedAt &&
@@ -507,9 +509,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         {state.callCampaigns.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
       </select></label>}
       {campaign && <CampaignRulesForm key={campaign.id} campaign={campaign} canManage={canManage} busy={busy} save={save} />}
-      {canManage && campaign?.newLeadSequence && <CampaignSequence
-        key={`${campaign.id}:${campaign.newLeadSequence.attachedVersion}:${campaign.newLeadSequence.latest?.version}`}
-        campaignId={campaign.id} config={campaign.newLeadSequence} busy={busy} save={save} />}
+      {canManage && campaign?.sequenceConfig && <CampaignSequence key={`sequence-editor:${campaign.id}`}
+        campaignId={campaign.id} config={campaign.sequenceConfig} busy={busy} save={save} />}
       {canManage ? <form className="brokerage-form" onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -532,8 +533,8 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
     </section>
     {canManage && segmentsOpen && <CrmSegments segments={state.crmSegments} campaign={campaign} busy={busy} save={save} />}
     {campaign && <>
-      {canManage && routingOpen && <CampaignRouting key={`${campaign.id}:${campaign.routing?.revision ?? 0}`} campaign={campaign} staff={staff} busy={busy} save={save} />}
-      {canManage && importOpen && <CampaignImport key={`${campaign.id}:${campaign.routing?.revision ?? 0}`} campaign={campaign} staff={staff} busy={busy} save={save}
+      {canManage && routingOpen && <CampaignRouting key={`routing:${campaign.id}:${campaign.routing?.revision ?? 0}`} campaign={campaign} staff={staff} busy={busy} save={save} />}
+      {canManage && importOpen && <CampaignImport key={`import:${campaign.id}:${campaign.routing?.revision ?? 0}`} campaign={campaign} staff={staff} busy={busy} save={save}
         rehearsal={state.campaignRehearsal?.campaignId === campaign.id ? state.campaignRehearsal : undefined} />}
       <section className="integration record-form manager-panel" aria-label="Campaign call queue">
         <div className="section-heading"><h2>{campaign.name}</h2><span className="pill">{members.reduce((sum, member) => sum + member.attempts, 0)} calls logged</span>

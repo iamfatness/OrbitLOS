@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { linkCampaignLead } from "./call-campaigns";
 import { distributeCampaignLeads, readCampaignRouting } from "./campaign-routing";
+import { attachedCampaignSequence, enrollCampaignSequence } from "./campaign-sequences";
 import { rateTargetReached } from "./client-retention";
-import { pilotSegmentLeadPrefix, segmentEnrollmentLimit, type CrmSegment, type SegmentPreview,
+import { pilotSegmentLeadPrefix, segmentEnrollmentLimit, sequenceKindForSegment, type CrmSegment, type SegmentPreview,
   type enrollCrmSegmentInput, type saveCrmSegmentInput } from "./crm-segment-model";
 import { firstContactDue, leadEvent, leadRouting } from "./lead-inbox";
 import { leadContactFields } from "./lead-inbox-model";
@@ -17,7 +18,7 @@ type Lead = { id: string; name: string; email: string; phone: string; contactId:
 type PastClient = { id: string; name: string; email: string; phone: string; contactId: string; scenarioId: string | null;
   observedRate: number | null; targetRate: number | null; watchEnabled: number };
 type PreviewRow = SegmentPreview["rows"][number];
-type SegmentMutation = { message: string; preview?: SegmentPreview } | { error: string };
+type SegmentMutation = { message: string; preview?: SegmentPreview; leadIds?: string[] } | { error: string };
 
 export function saveCrmSegment(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof saveCrmSegmentInput>, now: string): SegmentMutation {
   const current = db.prepare("SELECT revision, name, kind, quietDays FROM crm_segments WHERE id = ?").get(input.id);
@@ -47,18 +48,19 @@ function matchingLeads(db: Store) {
     WHERE lead.resolvedAt IS NULL ORDER BY lastOutreach, lead.id`).all() as unknown as Lead[];
 }
 
-function pastClientsAtTarget(db: Store) {
+function pastClients(db: Store, atRateTarget: boolean) {
   const files = db.prepare(`SELECT loan.id, contact.id AS contactId, contact.name, contact.email, contact.phone, profile.observedRate,
     profile.targetRate, profile.watchEnabled,
     (SELECT id FROM pilot_scenario WHERE EXISTS (SELECT 1 FROM pilot_sample_contacts WHERE contactId = contact.id)) AS scenarioId
-    FROM past_client_profiles profile JOIN loans loan ON loan.id = profile.loanId JOIN contacts contact ON contact.id = loan.contactId
+    FROM loans loan LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id JOIN contacts contact ON contact.id = loan.contactId
     WHERE loan.stage IN ('Funded', 'Closed') AND contact.role <> 'Realtor'
+      AND ${atRateTarget ? "profile.loanId IS NOT NULL" : "loan.disposition = 'Active'"}
     ORDER BY coalesce(profile.closingDate, substr(loan.stageSince, 1, 10)) DESC, loan.stageSince DESC, loan.id`).all() as unknown as PastClient[];
   const seen = new Set<string>();
   return files.filter((file) => {
     if (seen.has(file.contactId)) return false;
     seen.add(file.contactId);
-    return rateTargetReached({ ...file, watchEnabled: Boolean(file.watchEnabled) });
+    return !atRateTarget || rateTargetReached({ ...file, watchEnabled: Boolean(file.watchEnabled) });
   });
 }
 
@@ -67,6 +69,12 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
   if (!segment || !db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(input.campaignId)) {
     return { error: "Choose an available saved segment and call campaign." };
   }
+  const attachment = attachedCampaignSequence(db, input.campaignId);
+  const kind = sequenceKindForSegment(segment.kind);
+  if (attachment && attachment.kind !== "New Lead" && attachment.kind !== kind) {
+    return { error: `Choose a campaign with the ${kind} sequence for this audience, or detach the current sequence.` };
+  }
+  const sequence = attachment?.kind === kind ? attachment : null;
   const leads = matchingLeads(db);
   const routing = readCampaignRouting(db, input.campaignId);
   const suppression = outreachSuppressionKeys(db);
@@ -75,7 +83,7 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
   const cutoff = Date.parse(now) - segment.quietDays * 86_400_000;
   const candidates = segment.kind === "Quiet leads"
     ? leads.filter((lead) => !lead.replied && Date.parse(lead.lastOutreach) <= cutoff)
-    : pastClientsAtTarget(db);
+    : pastClients(db, segment.kind === "Past clients at rate target");
   const seen = new Set<string>();
   const plan = candidates.map((candidate) => {
     const keys = outreachIdentityKeys(candidate);
@@ -92,7 +100,7 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
     else if (keys.some((key) => seen.has(key))) status = "Duplicate";
     if (status === "Eligible") for (const key of keys) seen.add(key);
     const detail = "lastOutreach" in candidate ? candidate.replyReceivedAt ? "Incoming reply logged in the lead conversation" : `No reply for at least ${segment.quietDays} days` :
-      `Observed ${candidate.observedRate?.toFixed(3)}% · Target ${candidate.targetRate?.toFixed(3)}%`;
+      segment.kind === "Past clients at rate target" ? `Observed ${candidate.observedRate?.toFixed(3)}% · Target ${candidate.targetRate?.toFixed(3)}%` : "Funded or closed borrower";
     const row: PreviewRow = { id: candidate.id, name: candidate.name,
       owner: lead?.officer || (routing?.enabled ? "Round robin when capacity is available" : "Shared inbox"), status, detail };
     return { candidate, row };
@@ -100,8 +108,10 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
   const eligible = plan.filter(({ row }) => row.status === "Eligible");
   const batch = eligible.slice(0, segmentEnrollmentLimit);
   const excluded = plan.filter(({ row }) => row.status !== "Eligible");
-  const fingerprint = createHash("sha256").update(JSON.stringify({ segment, campaign: input.campaignId, routingRevision: routing?.revision, plan })).digest("hex");
+  const fingerprint = createHash("sha256").update(JSON.stringify({ segment, campaign: input.campaignId, routingRevision: routing?.revision,
+    sequenceVersion: sequence?.version, plan })).digest("hex");
   const preview: SegmentPreview = { fingerprint, eligible: eligible.length, excluded: excluded.length,
+    ...(sequence ? { sequence: { kind: sequence.kind, version: sequence.version } } : {}),
     rows: [...batch, ...excluded.slice(0, segmentEnrollmentLimit)].map(({ row }) => row) };
   if (!input.fingerprint) return { preview, message: "Segment preview is ready." };
   if (input.fingerprint !== fingerprint) return { error: "The segment results changed. Preview them again before enrolling." };
@@ -122,10 +132,11 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
     const linked = linkCampaignLead(db, input.campaignId, leadId, now);
     if ("error" in linked || !linked.added) return { error: "A borrower is no longer eligible. Preview the segment again." };
     recordSegment.run(segment.id, leadId);
+    if (sequence) enrollCampaignSequence(db, leadId, sequence, now);
     leadIds.push(leadId);
     leadEvent(db, leadId, staff?.name ?? "Demo workspace", now, `Enrolled from ${segment.name} · ${row.detail}.`, "Campaign");
   }
   accessEvent(db, staff, "Enrolled CRM segment in call campaign", `${segment.id} · ${input.campaignId} · ${batch.length}`, now);
   const { assigned } = distributeCampaignLeads(db, staff, input.campaignId, staff ? members : undefined, now, leadIds);
-  return { message: `${batch.length} ${batch.length === 1 ? "borrower enrolled" : "borrowers enrolled"} from ${segment.name}.${assigned ? ` ${assigned} routed.` : ""}` };
+  return { leadIds, message: `${batch.length} ${batch.length === 1 ? "borrower enrolled" : "borrowers enrolled"} from ${segment.name}.${assigned ? ` ${assigned} routed.` : ""}` };
 }

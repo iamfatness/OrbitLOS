@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { defaultNewLeadSteps, sequenceChannels, type CampaignSequenceConfig, type CampaignSequenceStep } from "@/lib/campaign-sequence-model";
+import { campaignSequenceKinds, defaultCampaignSequenceSteps, sequenceChannels,
+  type CampaignSequenceConfig, type CampaignSequenceKind, type CampaignSequenceStep } from "@/lib/campaign-sequence-model";
 import { Button } from "./ui/button";
 
 export function CampaignSequenceToggle({ campaignId, leadId, revision, paused, busy, save }: {
@@ -16,19 +17,36 @@ export function CampaignSequenceToggle({ campaignId, leadId, revision, paused, b
 export function CampaignSequence({ campaignId, config, busy, save }: {
   campaignId: string; config: CampaignSequenceConfig; busy: boolean; save: (input: unknown) => Promise<void>;
 }) {
-  const [steps, setSteps] = useState(config.latest?.steps ?? defaultNewLeadSteps);
+  const [kind, setKind] = useState<CampaignSequenceKind>(config.attachedKind ?? "New Lead");
+  const audience = kind === "Cold Lead Reactivation" ? "Use Quiet leads in Saved CRM segments, or import a prepared CSV." :
+    kind === "Past Client Outreach" ? "Use Past clients or Past clients at rate target in Saved CRM segments, or import a prepared CSV." :
+      "Use a CSV import to enroll new leads.";
+  return <details className="record-form" aria-label="Campaign sequence">
+    <summary>{config.attachedKind ? `${config.attachedKind} sequence · Attached v${config.attachedVersion}` : "Campaign sequence · Off"}</summary>
+    <label className="field">Sequence template<select value={kind} disabled={busy} onChange={(event) => setKind(event.target.value as CampaignSequenceKind)}>
+      {campaignSequenceKinds.map((option) => <option key={option}>{option}</option>)}
+    </select></label>
+    <p className="muted">{audience} Current enrollments keep their saved version. Email and text are simulated.</p>
+    <CampaignSequenceEditor key={`${kind}:${config.latest[kind]?.version}:${config.attachedVersion}`}
+      campaignId={campaignId} kind={kind} config={config} busy={busy} save={save} />
+  </details>;
+}
+
+function CampaignSequenceEditor({ campaignId, kind, config, busy, save }: {
+  campaignId: string; kind: CampaignSequenceKind; config: CampaignSequenceConfig; busy: boolean; save: (input: unknown) => Promise<void>;
+}) {
+  const latest = config.latest[kind];
+  const [steps, setSteps] = useState(latest?.steps ?? defaultCampaignSequenceSteps[kind]);
   function update(index: number, change: Partial<CampaignSequenceStep>) {
     setSteps((current) => current.map((step, i) => i === index ? { ...step, ...change } : step));
   }
   function attach(next: CampaignSequenceStep[] | null) {
-    void save({ type: "saveCampaignSequence", campaignId, expectedVersion: config.attachedVersion,
-      expectedTemplateVersion: config.latest?.version ?? null, steps: next });
+    void save({ type: "saveCampaignSequence", campaignId, kind, expectedVersion: config.attachedVersion,
+      expectedTemplateVersion: latest?.version ?? null, steps: next });
   }
 
-  return <details className="record-form" aria-label="New Lead sequence"><summary>New Lead sequence · {config.attachedVersion ? `Attached v${config.attachedVersion}` : "Off"}</summary>
-    <p className="muted">Apply the brokerage’s New Lead template to future CSV imports for this campaign. Current enrollments keep their saved version. Email and text are simulated.</p>
-    {config.latest && <p className="muted">Editing brokerage template v{config.latest.version}. Save to attach the edited version to this campaign.</p>}
-    <form className="record-form" onSubmit={(event) => { event.preventDefault(); attach(steps); }}>
+  return <form className="record-form" onSubmit={(event) => { event.preventDefault(); attach(steps); }}>
+      {latest && <p className="muted">Brokerage template v{latest.version}. Saving changed steps creates a reusable version.</p>}
       {steps.map((step, index) => <fieldset key={index} className="record-form">
         <legend>Step {index + 1}</legend>
         <div className="form-grid">
@@ -57,9 +75,8 @@ export function CampaignSequence({ campaignId, config, busy, save }: {
       <div className="loan-application-actions">
         <Button type="button" size="sm" variant="outline" disabled={busy || steps.length >= 6}
           onClick={() => setSteps((current) => [...current, { channel: "Call", title: "", delay: 1, body: "" }])}>Add sequence step</Button>
-        <Button type="submit" size="sm" disabled={busy}>Save and attach New Lead sequence</Button>
-        {config.attachedVersion && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => attach(null)}>Detach sequence</Button>}
+        <Button type="submit" size="sm" disabled={busy}>Save and attach {kind} sequence</Button>
+        {config.attachedKind === kind && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => attach(null)}>Detach sequence</Button>}
       </div>
-    </form>
-  </details>;
+  </form>;
 }

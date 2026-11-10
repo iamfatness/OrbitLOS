@@ -1,5 +1,5 @@
 import { campaignManagerUnavailable } from "./campaign-manager-model";
-import { sequenceSteps } from "./campaign-sequence-model";
+import { sequenceSteps, type CampaignSequenceKind } from "./campaign-sequence-model";
 import { sequencePerformanceQuery, type SequencePerformancePage } from "./campaign-sequence-performance-model";
 import { outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import type { WorkspaceStaff } from "./staff-store";
@@ -23,10 +23,11 @@ export function readCampaignSequencePerformance(db: Store, input: unknown, staff
   if (!parsed.success) return { error: "Choose a valid sequence report and page." };
   const { campaignId, drilldown, page: requestedPage } = parsed.data;
   if (!db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(campaignId)) return { error: "This campaign is unavailable." };
-  const versions = db.prepare(`SELECT run.version, count(*) AS enrolled FROM call_campaign_members member
+  const versions = db.prepare(`SELECT template.kind, run.version, count(*) AS enrolled FROM call_campaign_members member
     JOIN campaign_sequence_enrollments run ON run.leadId = member.leadId
+    JOIN campaign_sequence_versions template ON template.version = run.version
     WHERE member.campaignId = ? GROUP BY run.version ORDER BY run.version DESC`).all(campaignId)
-    .map(({ version, enrolled }) => ({ version: Number(version), enrolled: Number(enrolled) }));
+    .map(({ kind, version, enrolled }) => ({ kind: kind as CampaignSequenceKind, version: Number(version), enrolled: Number(enrolled) }));
   const version = parsed.data.version ?? versions[0]?.version ?? null;
   if (version === null) return { versions, version, steps: [], unattributed: 0, items: [], page: 1, pages: 1 };
   const template = versions.some((item) => item.version === version) &&

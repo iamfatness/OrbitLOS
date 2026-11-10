@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CampaignManagerRecord } from "./campaign-manager-model";
-import type { CampaignSequenceStep } from "./campaign-sequence-model";
+import type { CampaignSequenceKind, CampaignSequenceStep } from "./campaign-sequence-model";
 
 export const sequencePerformanceMetrics = ["touches", "replies", "stalled"] as const;
 const drilldown = z.discriminatedUnion("metric", [
@@ -17,7 +17,7 @@ export type SequencePerformanceQuery = z.input<typeof sequencePerformanceQuery>;
 export type SequenceDrilldown = z.infer<typeof drilldown>;
 export type SequencePerformanceMetric = (typeof sequencePerformanceMetrics)[number];
 export type SequencePerformancePage = {
-  versions: { version: number; enrolled: number }[];
+  versions: { kind: CampaignSequenceKind; version: number; enrolled: number }[];
   version: number | null;
   steps: (Pick<CampaignSequenceStep, "title" | "channel"> & Record<SequencePerformanceMetric, number>)[];
   unattributed: number;

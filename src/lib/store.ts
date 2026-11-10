@@ -688,7 +688,9 @@ export function initializeStore(db: Store, seedDemo = true) {
         callbackTaskId TEXT REFERENCES lead_import_tasks(id) ON DELETE SET NULL
       );
       CREATE INDEX IF NOT EXISTS campaign_members_by_campaign ON call_campaign_members(campaignId, joinedAt);
-      CREATE TABLE IF NOT EXISTS campaign_sequence_versions (version INTEGER PRIMARY KEY, steps TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS campaign_sequence_versions (
+        version INTEGER PRIMARY KEY, steps TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'New Lead'
+      );
       CREATE TABLE IF NOT EXISTS campaign_sequence_attachments (
         campaignId TEXT PRIMARY KEY REFERENCES call_campaigns(id) ON DELETE CASCADE,
         version INTEGER NOT NULL REFERENCES campaign_sequence_versions(version)
@@ -755,6 +757,9 @@ export function initializeStore(db: Store, seedDemo = true) {
         origin TEXT NOT NULL, basis TEXT NOT NULL, source TEXT NOT NULL, revision INTEGER NOT NULL,
         PRIMARY KEY (loanId, origin, basis)
       );`);
+    if (!db.prepare("PRAGMA table_info(campaign_sequence_versions)").all().some(({ name }) => name === "kind")) {
+      db.exec("ALTER TABLE campaign_sequence_versions ADD COLUMN kind TEXT NOT NULL DEFAULT 'New Lead'");
+    }
     if (!db.prepare("PRAGMA table_info(migration_cutover_reviews)").all().some(({ name }) => name === "callbackFingerprint")) {
       db.exec("ALTER TABLE migration_cutover_reviews ADD COLUMN callbackFingerprint TEXT");
     }
@@ -1368,7 +1373,7 @@ function campaignRows(db: Store, campaignId?: string, includeRouting = true, off
     .map((campaign) => {
       const routing = includeRouting && readCampaignRouting(db, campaign.id);
       return { ...campaign, automaticPaused: Boolean(campaign.automaticPaused),
-        ...(includeRouting && campaignId ? { newLeadSequence: campaignSequenceConfig(db, campaignId) } : {}),
+        ...(includeRouting && campaignId ? { sequenceConfig: campaignSequenceConfig(db, campaignId) } : {}),
         ...(routing ? { routing: { enabled: routing.enabled, revision: routing.revision, officers: routing.officers } } : {}) };
     });
 }
@@ -1382,7 +1387,7 @@ function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: strin
       lead.name, lead.resolvedAt, lead.loanId, lead.email, lead.phone, coalesce(loan.contactId, lead.importedContactId) AS contactId,
       member.attempts, member.lastOutcome, member.reachedAt, member.retryExhaustedAt, member.callbackTaskId,
       CASE WHEN task.completedAt IS NULL THEN task.dueAt END AS callbackDueAt,
-      sequence.position AS sequencePosition, sequence.dueAt AS sequenceDueAt, (sequence.outcome IS 'Paused') AS sequencePaused,
+      template.kind AS sequenceKind, sequence.position AS sequencePosition, sequence.dueAt AS sequenceDueAt, (sequence.outcome IS 'Paused') AS sequencePaused,
       json_extract(template.steps, '$[' || sequence.position || '].title') AS sequenceTitle,
       CASE WHEN run.status IN ('Failed', 'Paused') THEN run.status END AS followUpRunStatus, run.id AS runId, run.dueAt AS runDueAt,
       CASE WHEN run.status = 'Completed' AND run.outcome = 'Requested callback' AND run.taskId = task.id
@@ -1392,13 +1397,14 @@ function campaignMemberRows(db: Store, suppression: Set<string>, leadIds?: strin
     LEFT JOIN loans loan ON loan.id = lead.loanId
     LEFT JOIN crm_segments segment ON segment.id = member.segmentId
     LEFT JOIN lead_import_tasks task ON task.id = member.callbackTaskId
-    LEFT JOIN campaign_sequence_enrollments sequence ON sequence.leadId = member.leadId AND sequence.dueAt IS NOT NULL
+    LEFT JOIN campaign_sequence_enrollments sequence ON sequence.leadId = member.leadId
     LEFT JOIN campaign_sequence_versions template ON template.version = sequence.version
     LEFT JOIN campaign_follow_up_runs run ON run.leadId = lead.id AND run.campaignId = member.campaignId AND run.callNumber = member.attempts
       AND run.outcome = member.lastOutcome
     ${scope} ORDER BY member.joinedAt, member.leadId`, ...(leadIds ? [typeof leadIds === "string" ? leadIds : JSON.stringify(leadIds)] : []))
     .map(({ email, phone, contactId, runId, runDueAt, requestEventId, promisedDueAt,
-      sequencePosition, sequenceDueAt, sequenceTitle, sequencePaused, ...member }) => ({ ...member,
+      sequenceKind, sequencePosition, sequenceDueAt, sequenceTitle, sequencePaused, ...member }) => ({ ...member,
+      ...(sequenceKind ? { sequenceKind } : {}),
       ...(sequenceDueAt && sequenceTitle ? { sequence: { position: sequencePosition, dueAt: sequenceDueAt, title: sequenceTitle,
         paused: Boolean(sequencePaused) } } : {}),
       ...(member.followUpRunStatus && runId && runDueAt ? { followUpRun: { id: runId, dueAt: runDueAt } } : {}),
@@ -1512,7 +1518,7 @@ export function readCampaignQueue(db: Store, campaignId: string, staff: Workspac
   };
 }
 
-function crmSegmentRows(db: Store) {
+export function crmSegmentRows(db: Store) {
   return rows<CrmSegment>(db, "SELECT id, name, kind, quietDays, revision FROM crm_segments ORDER BY name, id");
 }
 

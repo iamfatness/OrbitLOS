@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CampaignSequenceProgress } from "./campaign-sequence-model";
+import type { CampaignSequenceKind, CampaignSequenceProgress } from "./campaign-sequence-model";
 
 export const campaignManagerUnavailable = "Campaign manager reporting is available to pilot brokerage admins.";
 export const campaignManagerViews = ["overdue", "paused", "replies", "conversions", "optOuts"] as const;
@@ -19,7 +19,7 @@ export type CampaignManagerRecord = {
 };
 export type CampaignManagerRow = CampaignManagerRecord & {
   overdue: { title: string; dueAt: string }[];
-  sequence?: CampaignSequenceProgress & { revision: number; held: boolean };
+  sequence?: CampaignSequenceProgress & { kind: CampaignSequenceKind; revision: number; held: boolean };
 };
 
 export type CampaignManagerPage = {

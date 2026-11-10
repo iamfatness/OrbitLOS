@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { campaignFollowUpRecipient, mockCampaignFollowUpPrefix } from "./call-campaign-model";
-import { sequenceSteps, sequenceTaskId, type CampaignSequenceConfig, type changeCampaignSequenceInput,
+import { sequenceSteps, sequenceTaskId, type CampaignSequenceConfig, type CampaignSequenceKind, type CampaignSequenceVersion, type changeCampaignSequenceInput,
   type recordSequenceMockInput, type saveCampaignSequenceInput } from "./campaign-sequence-model";
 import { campaignWeekdayAt } from "./campaign-timing";
 import { advanceLeadRevision, leadEvent } from "./lead-inbox";
@@ -13,42 +13,58 @@ const unavailable = "This follow-up step changed or is no longer assigned to you
 const sequenceDue = (now: string, delay: number) => delay === 0 ? now : campaignWeekdayAt(now, delay, "09:00");
 
 export function campaignSequenceConfig(db: Store, campaignId: string): CampaignSequenceConfig {
-  const latest = db.prepare("SELECT version, steps FROM campaign_sequence_versions ORDER BY version DESC LIMIT 1").get();
-  const attachment = db.prepare("SELECT version FROM campaign_sequence_attachments WHERE campaignId = ?").get(campaignId);
+  const latest: CampaignSequenceConfig["latest"] = {};
+  const versions = db.prepare(`SELECT kind, version, steps FROM campaign_sequence_versions
+    WHERE version IN (SELECT max(version) FROM campaign_sequence_versions GROUP BY kind)`).all();
+  for (const row of versions) {
+    const version = sequenceVersion(row);
+    latest[version.kind] = version;
+  }
+  const attachment = db.prepare(`SELECT version.kind, attachment.version FROM campaign_sequence_attachments attachment
+    JOIN campaign_sequence_versions version ON version.version = attachment.version WHERE attachment.campaignId = ?`).get(campaignId);
   return { attachedVersion: attachment ? Number(attachment.version) : null,
-    latest: latest ? { version: Number(latest.version), steps: sequenceSteps.parse(JSON.parse(String(latest.steps))) } : null };
+    attachedKind: (attachment?.kind ?? null) as CampaignSequenceKind | null, latest };
+}
+
+function sequenceVersion(row: Record<string, unknown>): CampaignSequenceVersion {
+  return { kind: row.kind as CampaignSequenceKind, version: Number(row.version), steps: sequenceSteps.parse(JSON.parse(String(row.steps))) };
 }
 
 export function saveCampaignSequence(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof saveCampaignSequenceInput>, now: string) {
   if (!db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(input.campaignId)) return { error: "This campaign is unavailable." };
   const current = campaignSequenceConfig(db, input.campaignId);
-  if (current.attachedVersion !== input.expectedVersion || (current.latest?.version ?? null) !== input.expectedTemplateVersion) {
-    return { error: "The New Lead sequence changed. Refresh the campaign and reopen its settings." };
+  const latest = current.latest[input.kind];
+  if (current.attachedVersion !== input.expectedVersion || (latest?.version ?? null) !== input.expectedTemplateVersion ||
+    (!input.steps && current.attachedKind && current.attachedKind !== input.kind)) {
+    return { error: "The campaign sequence changed. Refresh the campaign and reopen its settings." };
   }
   if (!input.steps) {
     db.prepare("DELETE FROM campaign_sequence_attachments WHERE campaignId = ?").run(input.campaignId);
-    if (current.attachedVersion !== null) accessEvent(db, staff, "Detached New Lead sequence", input.campaignId, now);
-    return { message: "Sequence detached for future CSV imports. Existing enrollments keep their steps." };
+    if (current.attachedVersion !== null) accessEvent(db, staff, `Detached ${input.kind} sequence`, input.campaignId, now);
+    return { message: "Sequence detached for future enrollments. Existing enrollments keep their steps." };
   }
   const steps = JSON.stringify(input.steps);
-  let version = current.latest?.version ?? 0;
-  if (!current.latest || steps !== JSON.stringify(current.latest.steps)) {
-    version++;
-    db.prepare("INSERT INTO campaign_sequence_versions (version, steps) VALUES (?, ?)").run(version, steps);
+  let version: number;
+  if (latest && steps === JSON.stringify(latest.steps)) version = latest.version;
+  else {
+    version = Number(db.prepare("SELECT coalesce(max(version), 0) + 1 AS version FROM campaign_sequence_versions").get()?.version);
+    db.prepare("INSERT INTO campaign_sequence_versions (version, steps, kind) VALUES (?, ?, ?)").run(version, steps, input.kind);
   }
   db.prepare(`INSERT INTO campaign_sequence_attachments (campaignId, version) VALUES (?, ?)
     ON CONFLICT(campaignId) DO UPDATE SET version = excluded.version`).run(input.campaignId, version);
-  if (version !== current.attachedVersion) accessEvent(db, staff, "Attached New Lead sequence", input.campaignId, now);
-  return { message: `New Lead sequence v${version} attached for new CSV leads.` };
+  if (version !== current.attachedVersion) accessEvent(db, staff, `Attached ${input.kind} sequence`, input.campaignId, now);
+  return { message: `${input.kind} sequence v${version} attached for future enrollments.` };
 }
 
-export function enrollCsvCampaignSequence(db: Store, campaignId: string, leadId: string, now: string) {
-  const template = db.prepare(`SELECT template.version, template.steps FROM campaign_sequence_attachments attachment
+export function attachedCampaignSequence(db: Store, campaignId: string) {
+  const row = db.prepare(`SELECT template.kind, template.version, template.steps FROM campaign_sequence_attachments attachment
     JOIN campaign_sequence_versions template ON template.version = attachment.version WHERE attachment.campaignId = ?`).get(campaignId);
-  if (!template) return;
-  const steps = sequenceSteps.parse(JSON.parse(String(template.steps)));
+  return row ? sequenceVersion(row) : null;
+}
+
+export function enrollCampaignSequence(db: Store, leadId: string, template: CampaignSequenceVersion, now: string) {
   db.prepare(`INSERT INTO campaign_sequence_enrollments (leadId, version, dueAt) VALUES (?, ?, ?)
-    ON CONFLICT(leadId) DO NOTHING`).run(leadId, template.version, sequenceDue(now, steps[0].delay));
+    ON CONFLICT(leadId) DO NOTHING`).run(leadId, template.version, sequenceDue(now, template.steps[0].delay));
 }
 
 export function stopCampaignSequence(db: Store, leadId: string, reason: string) {
@@ -57,8 +73,9 @@ export function stopCampaignSequence(db: Store, leadId: string, reason: string) 
 
 export function changeCampaignSequence(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof changeCampaignSequenceInput>, now: string) {
   const changed = "This lead’s sequence changed. Refresh the campaign before trying again.";
-  const run = db.prepare(`SELECT sequence.position, sequence.outcome, lead.email, lead.phone, lead.importedContactId AS contactId,
+  const run = db.prepare(`SELECT template.kind, sequence.position, sequence.outcome, lead.email, lead.phone, lead.importedContactId AS contactId,
     coalesce(follow.revision, 0) AS revision FROM campaign_sequence_enrollments sequence
+    JOIN campaign_sequence_versions template ON template.version = sequence.version
     JOIN call_campaign_members member ON member.leadId = sequence.leadId
     JOIN referral_leads lead ON lead.id = sequence.leadId LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
     WHERE member.campaignId = ? AND lead.id = ? AND sequence.dueAt IS NOT NULL
@@ -70,14 +87,14 @@ export function changeCampaignSequence(db: Store, staff: WorkspaceStaff | null, 
     outreachSuppressed(blockedOutreachKeys(db, [identity]), identity)) return { error: changed };
   db.prepare("UPDATE campaign_sequence_enrollments SET outcome = ? WHERE leadId = ?").run(pause ? "Paused" : null, input.leadId);
   advanceLeadRevision(db, input.leadId);
-  const action = pause ? "Paused New Lead sequence" : "Resumed New Lead sequence";
+  const action = `${pause ? "Paused" : "Resumed"} ${run.kind} sequence`;
   leadEvent(db, input.leadId, staff?.name ?? "Demo workspace", now, `${action} at step ${Number(run.position) + 1}.`, "Campaign");
   accessEvent(db, staff, action, input.leadId, now);
   return { message: pause ? "Sequence paused. The current step and schedule are saved." : "Sequence resumed from the saved step." };
 }
 
 function currentStep(db: Store, leadId: string, now: string) {
-  const run = db.prepare(`SELECT run.version, run.position, template.steps, lead.officerEmail, lead.email, lead.phone,
+  const run = db.prepare(`SELECT run.version, run.position, template.kind, template.steps, lead.officerEmail, lead.email, lead.phone,
     lead.importedContactId AS contactId FROM campaign_sequence_enrollments run
     JOIN campaign_sequence_versions template ON template.version = run.version JOIN referral_leads lead ON lead.id = run.leadId
     LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
@@ -86,7 +103,7 @@ function currentStep(db: Store, leadId: string, now: string) {
   if (!run) return null;
   const position = Number(run.position);
   const steps = sequenceSteps.parse(JSON.parse(String(run.steps)));
-  return { version: Number(run.version), position, step: steps[position], next: steps[position + 1],
+  return { version: Number(run.version), kind: String(run.kind), position, step: steps[position], next: steps[position + 1],
     officerEmail: run.officerEmail, email: String(run.email ?? ""), phone: String(run.phone ?? ""), contactId: run.contactId };
 }
 
@@ -124,7 +141,7 @@ export function recordSequenceMock(db: Store, staff: WorkspaceStaff | null, inpu
   if (recipient !== input.recipient) return { error: unavailable };
   const actor = staff?.name ?? "Demo workspace";
   const event = recipient ? `${mockCampaignFollowUpPrefix} · ${channel}\nTo: ${recipient}\n${channel === "Email" ? `Subject: ${title}\n` : ""}${body}` :
-    `New Lead sequence · Skipped ${channel.toLowerCase()} step because the lead has no valid recipient.`;
+    `${run.kind} sequence · Skipped ${channel.toLowerCase()} step because the lead has no valid recipient.`;
   leadEvent(db, input.leadId, actor, now, event, "Campaign");
   if (recipient) {
     db.prepare(`INSERT INTO lead_conversations (id, leadId, updatedAt) VALUES (?, ?, ?)

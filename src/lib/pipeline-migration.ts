@@ -5,7 +5,7 @@ import type { Contact } from "./model";
 import { contactDuplicate } from "./contact-csv";
 import { assignableCampaignLead, campaignOrigin, rehearsalBuyerKey, rehearsalReserveKey } from "./call-campaign-model";
 import { linkCampaignLead } from "./call-campaigns";
-import { enrollCsvCampaignSequence } from "./campaign-sequences";
+import { attachedCampaignSequence, enrollCampaignSequence } from "./campaign-sequences";
 import { leadContactFields } from "./lead-inbox-model";
 import { accessEvent } from "./workspace-access";
 import { firstContactDue, leadRouting } from "./lead-inbox";
@@ -79,6 +79,7 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
   }
   const ordered = [...input.rows].sort((a, b) => migrationTypes.indexOf(a.type) - migrationTypes.indexOf(b.type));
   const routing = campaignId ? readCampaignRouting(db, campaignId) : undefined;
+  const sequence = campaignId ? attachedCampaignSequence(db, campaignId) : null;
   const keys = ordered.map(migrationKey);
   const keySet = new Set(keys);
   if (keySet.size !== keys.length) return { error: "Each record type and external ID must appear only once in a file." };
@@ -293,7 +294,7 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
   const fingerprint = createHash("sha256").update(JSON.stringify({ origin: input.origin, batch, input: ordered, rows, matchedContacts: [...matchedContacts],
     ...(corrections ? { corrections: [...corrections].sort().map((key) => [key, undone.get(key)]) } : {}),
     resolvedOwners: [...resolvedOwners], ...(restoredCallAuthors.size ? { restoredCallAuthors: [...restoredCallAuthors] } : {}),
-    ...(campaignId ? { campaignId, routingRevision: routing?.revision } : {}) })).digest("hex");
+    ...(campaignId ? { campaignId, routingRevision: routing?.revision, sequenceVersion: sequence?.version } : {}) })).digest("hex");
   if (!input.preview) return { migration: { rows, fingerprint, ownership }, message: "Migration preview is ready." };
   if (input.preview !== fingerprint) return { error: "The preview changed. Review the latest results before importing." };
   if (rows.some((row) => row.status === "Review")) return { error: "Resolve or skip every flagged record before importing." };
@@ -329,7 +330,7 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
         if (campaignId) {
           const linked = linkCampaignLead(db, campaignId, id, now);
           if ("error" in linked) throw new Error(linked.error);
-          if (linked.added && !row.firstContactAt) enrollCsvCampaignSequence(db, campaignId, id, now);
+          if (linked.added && sequence && (sequence.kind !== "New Lead" || !row.firstContactAt)) enrollCampaignSequence(db, id, sequence, now);
           if (!rehearsalOwners.has(key)) campaignLeads.push(id);
         }
       } else if (row.type === "Task" && row.parentType === "Contact") {

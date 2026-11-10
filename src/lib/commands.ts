@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { campaignWorkPatch, insertContact, insertLoan, insertSubmission, leadContactCandidates, leadWorkRecord, loanWorkRecords,
+import { campaignWorkPatch, crmSegmentRows, insertContact, insertLoan, insertSubmission, leadContactCandidates, leadWorkRecord, loanWorkRecords,
   readCampaignNavigation, readCampaignQueue, readWorkspace, savedPricingRun, workspace, type SqlValue, type Store } from "./store";
 import { activityKinds, contactOutcomes, disclosureStatuses, dispositions, draftMilestones, followUpOutcomes, followUpPurposes,
   fundingReversalStage, leadSources, stages, type ActivityKind, type Condition, type Contact, type ContactActivity,
@@ -661,6 +661,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             const result = distributeCampaignLeads(db, staff, data.campaignId, staff ? leadMembers : undefined, now);
             message = `${result.assigned} routed · ${result.remaining} eligible ${result.remaining === 1 ? "lead remains" : "leads remain"} in the shared inbox.`;
           }
+          if (scopedLeadUpdates) return { message, campaignQueue: readCampaignQueue(db, data.campaignId, staff) };
           break;
         }
         case "saveCampaignRules":
@@ -697,6 +698,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           segmentPreview = result.preview;
+          if (scopedLeadUpdates) {
+            if (data.type === "saveCrmSegment") return { message, campaignWork: null, segments: crmSegmentRows(db) };
+            return { message, segmentPreview, campaignWork: result.leadIds ?
+              campaignWorkPatch(db, data.campaignId, result.leadIds, staff?.brokerage.role === "Admin") : null };
+          }
           break;
         }
         case "createCallCampaign":
@@ -716,6 +722,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (scopedLeadUpdates && data.type === "addCampaignLead") {
             return { message, campaignWork: campaignWorkPatch(db, data.campaignId, [data.leadId], staff?.brokerage.role === "Admin") };
           }
+          if (scopedLeadUpdates && data.type === "createCallCampaign") return { message, campaignQueue: readCampaignQueue(db, data.id, staff) };
           break;
         }
         case "rescheduleCampaignCallback": {

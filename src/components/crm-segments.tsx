@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import type { CallCampaign } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { segmentEnrollmentLimit, segmentKinds, type CrmSegment, type SegmentPreview } from "@/lib/crm-segment-model";
+import { segmentEnrollmentLimit, segmentKinds, sequenceKindForSegment, type CrmSegment, type SegmentPreview } from "@/lib/crm-segment-model";
 import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
@@ -38,7 +38,9 @@ export function CrmSegments({ segments, campaign, busy, save }: {
   const [selected, setSelected] = useState("");
   const [result, setResult] = useState<{ key: string; preview: SegmentPreview }>();
   const segment = segments.find((item) => item.id === selected);
-  const key = `${segment?.id}:${segment?.revision}:${campaign?.id}`;
+  const attachedKind = campaign?.sequenceConfig?.attachedKind;
+  const matchingSequence = segment && attachedKind === sequenceKindForSegment(segment.kind);
+  const key = `${segment?.id}:${segment?.revision}:${campaign?.id}:${campaign?.sequenceConfig?.attachedVersion}`;
   const preview = result?.key === key ? result.preview : undefined;
   const batch = Math.min(preview?.eligible ?? 0, segmentEnrollmentLimit);
   const run = (enroll: boolean) => {
@@ -62,8 +64,10 @@ export function CrmSegments({ segments, campaign, busy, save }: {
       <p className="muted">{segment.kind === "Quiet leads" ? "Existing leads keep their assigned officer." :
         "Enrolled borrowers get a returning-client refinance lead."}
         {campaign.routing?.enabled ? " Round robin routes unassigned leads when capacity is available." : " Unassigned leads enter the shared inbox."}</p>
+      {!preview && matchingSequence && <p className="muted">Eligible borrowers start {attachedKind} v{campaign.sequenceConfig?.attachedVersion}. Assigned steps appear in Today.</p>}
       <div><Button size="sm" variant="outline" disabled={busy} onClick={() => run(false)}>Preview segment</Button></div>
       {preview && <>
+        {preview.sequence && <p className="muted">Eligible borrowers start {preview.sequence.kind} v{preview.sequence.version}. Assigned steps appear in Today.</p>}
         <p role="status"><strong>{preview.eligible} eligible · {preview.excluded} excluded</strong></p>
         {preview.rows.length > 0 ? <ul className="document-list">{preview.rows.map((row) => <li className="document-item" key={row.id}>
           <div className="document-item-head"><strong>{row.name}</strong><span className={row.status === "Eligible" ? "pill" : "open-chip"}>{row.status}</span></div>

@@ -1,4 +1,5 @@
 import { campaignManagerQuery, campaignManagerUnavailable, type CampaignManagerPage, type CampaignManagerRow } from "./campaign-manager-model";
+import type { CampaignSequenceKind } from "./campaign-sequence-model";
 import { outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -18,6 +19,7 @@ type Candidate = Omit<CampaignManagerRow, "owner" | "overdue" | "archived" | "se
   optedOut: number;
   sequenceDueAt: string | null;
   sequenceTitle: string | null;
+  sequenceKind: CampaignSequenceKind | null;
   sequencePosition: number;
   sequencePaused: number;
   revision: number;
@@ -45,7 +47,7 @@ export function readCampaignManager(db: Store, input: unknown, staff: WorkspaceS
     (follow.replyReceivedAt IS NOT NULL OR EXISTS (SELECT 1 FROM lead_events event
       WHERE event.leadId = lead.id AND event.outcome = 'Reply received' AND event.at >= member.joinedAt)) AS replied,
     (member.lastOutcome IS 'Opted out' OR sequence.outcome IS 'Opted out') AS optedOut,
-    sequence.dueAt AS sequenceDueAt, json_extract(template.steps, '$[' || sequence.position || '].title') AS sequenceTitle,
+    template.kind AS sequenceKind, sequence.dueAt AS sequenceDueAt, json_extract(template.steps, '$[' || sequence.position || '].title') AS sequenceTitle,
     sequence.position AS sequencePosition, (sequence.outcome IS 'Paused') AS sequencePaused, coalesce(follow.revision, 0) AS revision,
     callback.dueAt AS callbackDueAt, (member.lastOutcome IS 'Requested callback') AS requestedCallback
     FROM call_campaign_members member
@@ -64,13 +66,13 @@ export function readCampaignManager(db: Store, input: unknown, staff: WorkspaceS
     const optedOut = Boolean(row.optedOut) || outreachSuppressed(suppression, row);
     const overdue: CampaignManagerRow["overdue"] = [];
     const open = !row.loanId && !row.resolvedAt && !optedOut;
-    const sequence = open && !row.replyReceivedAt && row.sequenceDueAt && row.sequenceTitle ? {
-      position: row.sequencePosition, title: row.sequenceTitle, dueAt: row.sequenceDueAt,
+    const sequence = open && !row.replyReceivedAt && row.sequenceKind && row.sequenceDueAt && row.sequenceTitle ? {
+      kind: row.sequenceKind, position: row.sequencePosition, title: row.sequenceTitle, dueAt: row.sequenceDueAt,
       paused: Boolean(row.sequencePaused), revision: row.revision, held: Boolean(row.heldAt),
     } : undefined;
     if (open && !row.heldAt) {
       if (sequence && !sequence.paused && sequence.dueAt < checkedAt) {
-        overdue.push({ title: `New Lead · ${sequence.title}`, dueAt: sequence.dueAt });
+        overdue.push({ title: `${sequence.kind} · ${sequence.title}`, dueAt: sequence.dueAt });
       }
       if (row.callbackDueAt && (!row.replyReceivedAt || row.requestedCallback)) {
         overdue.push({ title: row.requestedCallback ? "Campaign callback" : "Campaign call retry", dueAt: row.callbackDueAt });

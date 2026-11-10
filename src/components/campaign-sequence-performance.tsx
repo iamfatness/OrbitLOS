@@ -44,7 +44,7 @@ export function CampaignSequencePerformance({ brokerageId, campaignId, workspace
     <div className="loan-application-actions">
       {!!previous?.versions.length && <label className="field">Sequence version
         <select value={selectedVersion ?? ""} onChange={(event) => setQuery({ campaignId, version: Number(event.target.value) })}>
-          {previous.versions.map(({ version, enrolled }) => <option key={version} value={version}>Version {version} · {enrolled} enrolled</option>)}
+          {previous.versions.map(({ kind, version, enrolled }) => <option key={version} value={version}>{kind} v{version} · {enrolled} enrolled</option>)}
         </select>
       </label>}
       <Button size="sm" variant="outline" onClick={() => setQuery({ ...query, page: 1 })}>Refresh sequence report</Button>

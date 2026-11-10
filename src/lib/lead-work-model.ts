@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { CallCampaign, CallCampaignMember, CampaignLeadOption, CampaignQueueFile, CampaignRehearsal } from "./call-campaign-model";
 import type { CampaignResponseRecord } from "./campaign-response-model";
-import type { CrmSegment } from "./crm-segment-model";
+import type { CrmSegment, SegmentPreview } from "./crm-segment-model";
 import type { ConvertedLead } from "./lead-inbox-model";
 import { applyLoanMutation, campaignFileForLoan, type EditableLoan } from "./loan-work-model";
 import type { ManagerRecord } from "./manager-report-model";
@@ -44,6 +44,8 @@ export type CampaignMutationResult = {
   campaignWork: CampaignWorkPatch | null;
   message: string;
   migration?: MigrationReport;
+  segments?: CrmSegment[];
+  segmentPreview?: SegmentPreview;
 };
 
 export type CampaignQueueSnapshot = {

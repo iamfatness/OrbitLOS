@@ -1,6 +1,7 @@
 import { z } from "zod";
+import type { CampaignSequenceKind } from "./campaign-sequence-model";
 
-export const segmentKinds = ["Quiet leads", "Past clients at rate target"] as const;
+export const segmentKinds = ["Quiet leads", "Past clients at rate target", "Past clients"] as const;
 export const segmentEnrollmentLimit = 100;
 
 export const saveCrmSegmentInput = z.object({
@@ -13,8 +14,12 @@ export const enrollCrmSegmentInput = z.object({
 });
 
 export type CrmSegment = Omit<z.infer<typeof saveCrmSegmentInput>, "type">;
+export function sequenceKindForSegment(kind: CrmSegment["kind"]): CampaignSequenceKind {
+  return kind === "Quiet leads" ? "Cold Lead Reactivation" : "Past Client Outreach";
+}
 export interface SegmentPreview {
   fingerprint: string;
+  sequence?: { kind: CampaignSequenceKind; version: number };
   eligible: number;
   excluded: number;
   rows: {

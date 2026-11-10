@@ -67,7 +67,7 @@ export function CampaignManager({ brokerageId, campaignId, campaignName, version
             {work.title} · <time dateTime={work.dueAt}>{dateTime(work.dueAt, "medium")} ET</time>
           </li>)}</ul>}
           {row.sequence?.paused && <p className="muted">
-            Paused at step {row.sequence.position + 1} · {row.sequence.title} · Scheduled for {dateTime(row.sequence.dueAt)} ET.
+            {row.sequence.kind} · Paused at step {row.sequence.position + 1} · {row.sequence.title} · Scheduled for {dateTime(row.sequence.dueAt)} ET.
             {row.sequence.held && " Reactivate this lead to resume its sequence."}
           </p>}
           <div className="loan-application-actions"><Button size="sm" variant="outline" aria-label={`Open ${row.name}`} onClick={() => openRecord(row)}>

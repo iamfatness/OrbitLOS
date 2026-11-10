@@ -48,6 +48,7 @@ const { readCampaignCallbackPerformance } = await import("../src/lib/campaign-ca
 const { readCampaignCallbackExceptions } = await import("../src/lib/campaign-callback-exceptions.ts");
 const { readCampaignManager } = await import("../src/lib/campaign-manager.ts");
 const { readCampaignSequencePerformance } = await import("../src/lib/campaign-sequence-performance.ts");
+const { defaultCampaignSequenceSteps } = await import("../src/lib/campaign-sequence-model.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -91,7 +92,7 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
     { channel: "Email", title: "Follow up", delay: 1, body: "Fictional email draft" }];
   const attach = { type: "saveCampaignSequence", campaignId, expectedVersion: null, expectedTemplateVersion: null, steps };
   assert.match((await write(attach, officer)).error, /admin/);
-  assert.equal((await apply(attach)).campaignQueue.campaign.newLeadSequence.attachedVersion, 1);
+  assert.equal((await apply(attach)).campaignQueue.campaign.sequenceConfig.attachedVersion, 1);
   const csv = (indices) => ({ type: "migratePipeline", campaignId, origin: campaignOrigin(campaignId), decisions: {},
     rows: parseCampaignLeadCsv(["id,name,phone,email", ...indices.map((n) =>
       `${n},Fictional Sequence ${n},248555018${n},sequence-${n}@example.test`)].join("\n"), new Date().toISOString())
@@ -106,7 +107,7 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
   assert.equal((await importCsv(initial)).migration.rows[0].targetId, replyLead);
   assert.equal(db.prepare("SELECT count(*) AS count FROM campaign_sequence_enrollments").get().count, 3);
   const update = { ...attach, expectedVersion: 1, expectedTemplateVersion: 1, steps: [steps[1]] };
-  assert.equal((await apply(update)).campaignQueue.campaign.newLeadSequence.attachedVersion, 2);
+  assert.equal((await apply(update)).campaignQueue.campaign.sequenceConfig.attachedVersion, 2);
   assert.match((await write(update)).error, /changed/);
   const [newLead] = (await importCsv(csv([4]))).migration.rows.map(({ targetId }) => targetId);
   const queue = (actor = officer, now = new Date()) => readOfficerQueue(db, { horizon: 7 }, actor, staff.brokerage.id, now).items;
@@ -185,7 +186,7 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
   db.prepare("UPDATE referral_leads SET phone = '' WHERE id = ?").run(skippedLead);
   await apply({ type: "recordSequenceMock", leadId: skippedLead, version: 2, position: 0, recipient: null }, officer);
   assert.equal(performance(2).steps[0].touches, 0);
-  assert.equal((await apply({ ...update, expectedVersion: 2, expectedTemplateVersion: 2, steps: null })).campaignQueue.campaign.newLeadSequence.attachedVersion, null);
+  assert.equal((await apply({ ...update, expectedVersion: 2, expectedTemplateVersion: 2, steps: null })).campaignQueue.campaign.sequenceConfig.attachedVersion, null);
   assert.equal(stepFor(newLead).sequence.version, 2);
   const [afterDetach] = (await importCsv(csv([5]))).migration.rows.map(({ targetId }) => targetId);
   assert.equal(stepFor(afterDetach), undefined);
@@ -193,6 +194,93 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
   await apply({ type: "dismissReferral", referralId: newLead, revision: revision(newLead) }, officer);
   assert.deepEqual({ ...ended.get(newLead) }, { dueAt: null, outcome: "Archived" });
   assert.ok((await write(control(newLead, "Resume"))).error);
+});
+
+test("reusable reactivation and past-client sequences enroll the right audiences and keep their versions in Today", async (t) => {
+  const { db, staff } = fixture(t);
+  const officer = { ...staff, name: "Fictional outreach LO", email: "outreach-lo@example.test", brokerage: { ...staff.brokerage, role: "LO" } };
+  const [cold, reused, past] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+  const write = (input, actor = staff) => executeCommand(db, input, actor, undefined,
+    [staff, officer].map((member) => ({ ...member, status: "Active" })), { scopedLeadUpdates: true });
+  const apply = async (input, actor) => {
+    const result = await write(input, actor);
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  for (const [id, name] of [[cold, "Fictional cold outreach"], [reused, "Fictional reused outreach"], [past, "Fictional past clients"]]) {
+    const created = await apply({ type: "createCallCampaign", id, name });
+    assert.equal(created.campaignQueue.campaign.sequenceConfig.attachedKind, null);
+  }
+  const attach = (campaignId, kind, expectedVersion = null, expectedTemplateVersion = null, steps = defaultCampaignSequenceSteps[kind]) =>
+    ({ type: "saveCampaignSequence", campaignId, kind, expectedVersion, expectedTemplateVersion, steps });
+  assert.match((await write(attach(cold, "Cold Lead Reactivation"), officer)).error, /admin/);
+  const attachCold = await apply(attach(cold, "Cold Lead Reactivation"));
+  const attachReused = await apply(attach(reused, "Cold Lead Reactivation", null, 1));
+  assert.equal(attachReused.campaignQueue.campaign.sequenceConfig.attachedVersion, attachCold.campaignQueue.campaign.sequenceConfig.attachedVersion);
+  await apply(attach(past, "Past Client Outreach"));
+  await apply({ type: "saveCampaignRouting", campaignId: past, revision: 0, enabled: true, officers: [{ email: officer.email, limit: 5 }] });
+
+  const old = new Date(Date.now() - 15 * 86_400_000).toISOString();
+  const quietLead = crypto.randomUUID();
+  db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt)
+    VALUES (?, ?, 'Fictional dormant lead', 'dormant@example.test', '2485550141', 'Purchase', ?, ?, ?, ?)`)
+    .run(quietLead, quietLead, officer.name, officer.email, old, old);
+  const quietSegment = crypto.randomUUID();
+  const pastSegment = crypto.randomUUID();
+  await apply({ type: "saveCrmSegment", id: quietSegment, revision: 0, name: "Quiet outreach QA", kind: "Quiet leads", quietDays: 7 });
+  await apply({ type: "saveCrmSegment", id: pastSegment, revision: 0, name: "Past clients QA", kind: "Past clients", quietDays: 7 });
+  const enrollment = (campaignId, segmentId) => ({ type: "enrollCrmSegment", campaignId, segmentId });
+  assert.match((await write(enrollment(cold, pastSegment))).error, /Past Client Outreach/);
+  const stale = await apply(enrollment(cold, quietSegment));
+  assert.deepEqual(stale.segmentPreview.sequence, { kind: "Cold Lead Reactivation", version: 1 });
+  const revised = defaultCampaignSequenceSteps["Cold Lead Reactivation"].map((step, i) => i === 0 ? { ...step, title: "Reconnect about your mortgage" } : step);
+  const edited = await apply(attach(cold, "Cold Lead Reactivation", 1, 1, revised));
+  assert.equal(edited.campaignQueue.campaign.sequenceConfig.latest["Past Client Outreach"].version, 2);
+  assert.match((await write({ ...enrollment(cold, quietSegment), fingerprint: stale.segmentPreview.fingerprint })).error, /results changed/);
+  const quiet = await apply(enrollment(reused, quietSegment));
+  const quietResult = await apply({ ...enrollment(reused, quietSegment), fingerprint: quiet.segmentPreview.fingerprint });
+  assert.equal(quietResult.campaignWork.inboxLeads[0].officerEmail, officer.email);
+  await apply(attach(reused, "Cold Lead Reactivation", 1, 3, revised));
+
+  function funded(name, phone) {
+    const id = crypto.randomUUID();
+    insertContact(db, { id, name, email: `${name.toLowerCase().replaceAll(" ", "-")}@example.test`, phone, role: "Borrower" });
+    insertLoan(db, { id: crypto.randomUUID(), contactId: id, partnerId: null, officer: officer.name, officerEmail: officer.email,
+      address: "", amount: 300000, purpose: "Purchase", stage: "Funded", stageSince: old });
+    return id;
+  }
+  const returningContact = funded("Fictional past client", "2485550142");
+  const suppressed = funded("Fictional suppressed client", "2485550143");
+  optOutContact(db, suppressed, old);
+  const pastPreview = (await apply(enrollment(past, pastSegment))).segmentPreview;
+  assert.deepEqual(pastPreview.sequence, { kind: "Past Client Outreach", version: 2 });
+  assert.equal(pastPreview.eligible, 1);
+  assert.equal(pastPreview.rows.find(({ name }) => name === "Fictional suppressed client").status, "Opted out");
+  const pastResult = await apply({ ...enrollment(past, pastSegment), fingerprint: pastPreview.fingerprint });
+  const [returning] = pastResult.campaignWork.inboxLeads;
+  assert.equal(returning.importedContactId, returningContact);
+  assert.equal(returning.officerEmail, officer.email);
+  assert.equal(returning.purpose, "Refinance");
+  assert.match((await write({ ...enrollment(past, pastSegment), fingerprint: pastPreview.fingerprint })).error, /results changed/);
+
+  const queue = () => readOfficerQueue(db, { horizon: 7 }, officer, staff.brokerage.id).items;
+  const next = (id) => queue().find((item) => item.recordId === id && item.kind === "sequence");
+  assert.match(next(quietLead).title, /^Cold Lead Reactivation · Still considering/);
+  assert.equal(next(quietLead).sequence.version, 1);
+  assert.match(next(returning.id).title, /^Past Client Outreach · Check in/);
+  assert.equal(next(returning.id).sequence.version, 2);
+  assert.ok(!queue().some((item) => [quietLead, returning.id].includes(item.recordId) && item.kind === "lead"));
+  const { version, position, recipient } = next(quietLead).sequence;
+  await apply({ type: "recordSequenceMock", leadId: quietLead, version, position, recipient }, officer);
+  assert.equal(next(quietLead).sequence.channel, "Call");
+  assert.deepEqual(readCampaignSequencePerformance(db, { campaignId: reused }, staff, staff.brokerage.id).versions,
+    [{ kind: "Cold Lead Reactivation", version: 1, enrolled: 1 }]);
+  const csv = { type: "migratePipeline", campaignId: cold, origin: campaignOrigin(cold), decisions: {},
+    rows: parseCampaignLeadCsv("id,name,phone,email\nnew-cold,Fictional imported reactivation,2485550144,cold-import@example.test", new Date().toISOString())
+      .map((row) => ({ ...row, ownerEmail: officer.email })) };
+  const imported = await apply({ ...csv, preview: (await apply(csv)).migration.fingerprint });
+  assert.equal(next(imported.migration.rows[0].targetId).sequence.version, 3);
+  assert.match(next(imported.migration.rows[0].targetId).title, /Reconnect about your mortgage/);
 });
 
 test("migration results follow the current lead, loan and exact evidence behind a receipt", async (t) => {

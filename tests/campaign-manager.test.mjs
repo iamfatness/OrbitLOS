@@ -131,7 +131,7 @@ test("sequence performance isolates versions, attributes the first reply, and pa
     .run(JSON.stringify([{ ...defaultNewLeadSteps[2], title: "Revised email" }]));
   db.prepare("UPDATE campaign_sequence_enrollments SET version = 2 WHERE leadId = 'separate version'").run();
 
-  assert.deepEqual(read().versions, [{ version: 2, enrolled: 1 }, { version: 1, enrolled: 29 }]);
+  assert.deepEqual(read().versions, [{ kind: "New Lead", version: 2, enrolled: 1 }, { kind: "New Lead", version: 1, enrolled: 29 }]);
   assert.deepEqual(read().steps, [{ title: "Revised email", channel: "Email", touches: 0, replies: 0, stalled: 1 }]);
   const v1 = read({ version: 1 });
   assert.deepEqual(v1.steps.map(({ touches, replies, stalled }) => [touches, replies, stalled]), [[1, 0, 23], [1, 1, 0], [0, 0, 0]]);

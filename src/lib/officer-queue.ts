@@ -231,16 +231,19 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const showSequences = !calendar && !tasks && !coverage;
   const currentSequenceStep = "json_extract(template.steps, '$[' || run.position || ']')";
   const currentSequenceId = "(run.leadId || ':' || run.version || ':' || run.position)";
-  // A paused first sequence call still replaces its duplicate first-contact reminder.
+  // Returning audiences have their own cadence. New Lead only replaces a duplicate first call.
   const sequenceFirstCall = showSequences ? `AND NOT EXISTS (SELECT 1 FROM campaign_sequence_enrollments run
     JOIN campaign_sequence_versions template ON template.version = run.version
-    WHERE run.leadId = lead.id AND run.dueAt <= lead.dueAt AND json_extract(${currentSequenceStep}, '$.channel') = 'Call')` : "";
+    WHERE run.leadId = lead.id AND (template.kind <> 'New Lead' OR
+      (run.dueAt <= lead.dueAt AND json_extract(${currentSequenceStep}, '$.channel') = 'Call')))` : "";
   const receivedDocumentAt = "coalesce(request.submittedAt, request.requestedAt)";
   const fundingTask = `(task.id GLOB '${fundingTaskPrefix}borrower:*' OR task.id GLOB '${fundingTaskPrefix}realtor:*')`;
   const lastOutreach = `coalesce((SELECT event.at FROM lead_events event WHERE event.leadId = lead.id AND event.outcome IS NOT NULL
     ORDER BY event.at DESC, event.rowid DESC LIMIT 1), follow.firstContactAt)`;
   const quietDue = `coalesce(${addSqlHours(lastOutreach, policy?.quietHours ?? 0)}, lead.dueAt)`;
   const quietReady = `coalesce(follow.status, '') NOT IN ('Paused', 'Stopped') AND follow.replyReceivedAt IS NULL
+    AND NOT EXISTS (SELECT 1 FROM campaign_sequence_enrollments sequence JOIN campaign_sequence_versions template ON template.version = sequence.version
+      WHERE sequence.leadId = lead.id AND sequence.dueAt IS NOT NULL AND template.kind <> 'New Lead')
     AND NOT EXISTS (SELECT 1 FROM lead_events event WHERE event.leadId = lead.id AND event.outcome IN ('Connected', 'Reply received'))
     AND NOT EXISTS (SELECT 1 FROM lead_import_tasks callback WHERE callback.id = member.callbackTaskId AND callback.completedAt IS NULL)
     AND NOT EXISTS (SELECT 1 FROM campaign_follow_up_runs run WHERE run.leadId = lead.id AND run.campaignId = member.campaignId
@@ -283,7 +286,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const candidates = (completed ? completedWork : [
     ...(showSequences ? select("sequence", `${currentSequenceId} AS id, lead.id AS recordId, lead.id AS leadId, lead.name, run.dueAt,
       lead.email, lead.phone, lead.importedContactId AS contactId, member.campaignId, 'Prospecting' AS purpose,
-      'New Lead · ' || json_extract(${currentSequenceStep}, '$.title') AS title, ${currentSequenceStep} AS sequenceStep,
+      template.kind || ' · ' || json_extract(${currentSequenceStep}, '$.title') AS title, ${currentSequenceStep} AS sequenceStep,
       run.version AS sequenceVersion, run.position AS sequencePosition
       FROM campaign_sequence_enrollments run JOIN referral_leads lead ON lead.id = run.leadId
       JOIN call_campaign_members member ON member.leadId = lead.id JOIN campaign_sequence_versions template ON template.version = run.version

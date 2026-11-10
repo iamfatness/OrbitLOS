@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { readCsv } from "./contact-csv";
 import { leadContactFields, type LeadEvent } from "./lead-inbox-model";
-import type { CampaignSequenceConfig } from "./campaign-sequence-model";
+import type { CampaignSequenceConfig, CampaignSequenceKind, CampaignSequenceProgress } from "./campaign-sequence-model";
 import type { MigrationRow } from "./pipeline-migration-model";
 import type { DraftChannel, InboxLead, Loan, Workspace } from "./model";
 import { referralPhone } from "./referral-matches";
@@ -133,7 +133,7 @@ export interface CallCampaign extends CampaignRules {
   createdAt: string;
   automaticPaused: boolean;
   routing?: CampaignRouting;
-  newLeadSequence?: CampaignSequenceConfig;
+  sequenceConfig?: CampaignSequenceConfig;
 }
 
 export interface CallCampaignMember {
@@ -153,7 +153,8 @@ export interface CallCampaignMember {
   callbackPromise?: { requestEventId: string; originalDueAt: string; dueAt: string };
   followUpRunStatus: "Failed" | "Paused" | null;
   followUpRun?: { id: string; dueAt: string };
-  sequence?: import("./campaign-sequence-model").CampaignSequenceProgress;
+  sequenceKind?: CampaignSequenceKind;
+  sequence?: CampaignSequenceProgress;
   outreachSuppressed: boolean;
 }
 
@@ -175,8 +176,12 @@ export const openCampaignsInput = z.object({
 
 export type CampaignLeadOption = Pick<InboxLead, "id" | "name" | "phone">;
 
+export function sequenceReplacesFirstContact(kind?: CampaignSequenceKind) {
+  return kind !== undefined && kind !== "New Lead";
+}
+
 type CampaignQueueRecord = {
-  member: Pick<CallCampaignMember, "leadId" | "resolvedAt" | "outreachSuppressed" | "callbackDueAt" | "attempts" | "lastOutcome" | "followUpRunStatus">;
+  member: Pick<CallCampaignMember, "leadId" | "resolvedAt" | "outreachSuppressed" | "callbackDueAt" | "attempts" | "lastOutcome" | "followUpRunStatus" | "sequenceKind">;
   lead?: Pick<InboxLead, "officerEmail" | "heldAt" | "outreachSuppressed"> & { followUp: Pick<InboxLead["followUp"], "replyReceivedAt"> };
   optedOut: boolean;
 };
@@ -191,7 +196,7 @@ export function campaignCallQueues<T extends CampaignQueueRecord>(records: T[], 
     if (member.callbackDueAt) {
       const due = Date.parse(member.callbackDueAt);
       if (Number.isFinite(due) && (!replied || member.lastOutcome === "Requested callback")) scheduled.push({ record, due });
-    } else if (!replied && member.attempts === 0 && !member.followUpRunStatus) {
+    } else if (!replied && member.attempts === 0 && !member.followUpRunStatus && !sequenceReplacesFirstContact(member.sequenceKind)) {
       firstCalls.push(record);
     }
   }
