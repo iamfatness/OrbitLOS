@@ -17,7 +17,7 @@ The solo route has one available officer. Jordan is assigned to the admin and Ca
 
 Close with **Open Brokerage Owner Scorecard** at the bottom of the campaign guide. Click the funded count for the demo campaign to open Jordan's loan. The same view shows current overdue follow-ups and open conditions, along with projected and recorded funding for the selected dates.
 
-For the lender exception beat, open **Conditions** after the file reaches Clear to Close. On **Income**, expand **Simulate reopening (mock)** and confirm. In **Closing**, show **Record closing** disabled and use **Open reopened condition**. The borrower receives the replacement request in the open checklist. In the realtor tab, select **Refresh referrals** to show **Closing on hold**. After accepting, mock-sending, and clearing the replacement, select **Refresh referrals** again to show the return to Clear to Close. This can be shown on the same file or on a prepared sample if presentation time is tight.
+For the lender exception beat, select **Open campaign closing form** after the file reaches Clear to Close, then choose **Conditions** in the loan drawer. On **Income**, expand **Simulate reopening (mock)** and confirm. In **Closing**, show **Record closing** disabled and use **Open reopened condition**. The borrower receives the replacement request in the open checklist. In the realtor tab, select **Refresh referrals** to show **Closing on hold**. After accepting, mock-sending, and clearing the replacement, select **Refresh referrals** again to show the return to Clear to Close. This can be shown on the same file or on a prepared sample if presentation time is tight.
 
 To show how a processor handles several documents on one file, open **Conditions → Work documents in bulk** with two received sample PDFs. Choose **Accept and send to mock UWM**, select both, and confirm the review. Switch to **Check selected mock clearances**. Check one receipt first to show the other condition stays outstanding, then clear the second.
 
@@ -38,6 +38,28 @@ To show how a broker compares lenders, prepare a separate reviewed fictional fil
 For the CTO's exception question, use a separate fictional loan with a cleared condition. Open **Conditions → Mock UWM delivery timeline** and select a cleared document condition. **Replay older and duplicate updates** shows the previous open update being ignored and the duplicate clearance being recognized. The condition remains cleared. Open its exact row from the timeline. The same view shows the 1003 revision and the original document receipts.
 
 Sign in with the intended presenter account before starting the timer. Verify the campaign, browser tabs, and both prepared examples are visible to that account. Use sample data throughout. Describe provider results and signatures as simulations.
+
+## November 10 fresh-pilot rehearsal on the quote evidence release
+
+Worker `b60ee1f2-4a01-4f26-b5d2-cfd28b3c1190` from `71d599c` completed the live walkthrough in a fresh fictional QA pilot. Timing started at **Start in a fresh pilot** and includes setup, the actual CSV upload, UI observations, and browser control retries. Sign-in and narration were outside the timer.
+
+| Checkpoint | Elapsed |
+| --- | ---: |
+| Two-row CSV imported | 0:21 |
+| Borrower 1003 submitted and reviewed | 1:03 |
+| Mock pricing saved with ZIP 48304 and score 742 | 1:24 |
+| Mock UWM receipt and conditions opened | 1:31 |
+| Both sample PDFs cleared | 2:20 |
+| Realtor saw Clear to Close | 2:34 |
+| Reopened Income blocked closing and put the realtor on hold | 3:05 |
+| Replacement cleared and realtor status restored | 3:40 |
+| Closing and sample funding recorded | 3:47 |
+| Seven-step guide completed and owner scorecard opened | 4:25 |
+| Casey's separate refinance showed the confirmed property and ZIP 48084 | 5:43 |
+
+The CSV campaign showed two leads, one submitted 1003, and one funded loan. Its funded count opened Jordan's original loan and the scorecard showed $360,000 recorded. The rate-watch sample was a separate campaign and contributed one additional lead to the all-campaign total. Jordan's callback appeared with the requested November 17 date and note. The signed-in QA admin used separate borrower and realtor tabs. The presenter account and workspace were outside the rehearsal.
+
+On the same Worker, the separate disclosure QA file issued sample v4 and the fictional borrower recorded a mock signature. The signing target was November 17 from brokerage calendar v2. Staff raised Appraisal from $650 to $725 and opened the new review from Today. It showed estimated cash to close increasing from $94,405 to $94,480. Preparing v5 cleared the task and showed a pending signer. The v4 receipt stayed with v4 in the package history. [Release rehearsal](demo-rehearsal-log.md#current-cto-walkthrough-and-disclosure-backup)
 
 ## November 10 rehearsal on the question set release
 
