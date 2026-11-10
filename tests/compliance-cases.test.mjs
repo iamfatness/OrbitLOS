@@ -359,7 +359,8 @@ test("daily findings follow the current owner and hand off a revision-bound revi
   assert.deepEqual(work(review).counts, { cases: 1, files: 1 });
   assert.equal(work(review).items[0].id, finding.id);
   assert.equal(read(finding.id).reviewSubmission.note, request.note);
-  const returned = edit(submitted.item, { type: "updateStatus", status: "Awaiting evidence" });
+  const returned = edit(submitted.item, { type: "decideReview", decision: "Return for evidence", reason: "Attach the sample receipt.",
+    packageRevision: 1, submissionRevision: submitted.reviewSubmission.revision });
   assert.equal(returned.reviewSubmission, null);
   assert.equal(returned.history.find(({ action }) => action === "submitForReview").reviewNote, request.note);
   assert.deepEqual(work(review).counts, { cases: 0, files: 0 });
@@ -466,4 +467,53 @@ test("staff can record a sample observation without advancing the workflow or re
   const expired = work({ ...input, requestId: crypto.randomUUID(), expectedRevision: saved.item.revision }, officer);
   assert.match(expired.error, /sample package changed/);
   assert.equal(work({ type: "read", caseId: item.id }, officer).history[0].evidenceNote.note, input.note);
+});
+
+test("review decisions bind to one current request and package revision and retain both outcomes", (t) => {
+  const { db, work, addLoan, open, edit, read, admin, officer, processor, brokerageId } = fixture(t);
+  const loanId = addLoan();
+  const { item } = open(loanId);
+  const submit = (finding, packageRevision, note) => edit(finding, { type: "submitForReview", packageRevision, note }, officer);
+  const first = submit(item, 1, "Review the sample receipt.");
+  const decision = { type: "decideReview", caseId: item.id, expectedRevision: first.item.revision, requestId: crypto.randomUUID(),
+    packageRevision: 1, submissionRevision: first.reviewSubmission.revision, decision: "Return for evidence", reason: "Sample receipt page is missing." };
+  assert.equal(first.canDecideReview, false);
+  assert.equal(read(item.id, admin).canDecideReview, true);
+  assert.equal(read(item.id, officer).canUpdateStatus, false);
+  assert.deepEqual(work(decision, officer), unavailable);
+  assert.deepEqual(work(decision, processor), unavailable);
+  assert.deepEqual(work(decision, admin, undefined, `${brokerageId}-other`), unavailable);
+  assert.deepEqual(work({ ...decision, reason: " " }), unavailable);
+  assert.match(work({ ...decision, submissionRevision: 1 }).error, /current review request/);
+  assert.match(edit(first.item, { type: "updateStatus", status: "In progress" }).error, /sample review decision/);
+  const returned = work(decision);
+  assert.equal(returned.item.status, "Awaiting evidence");
+  assert.equal(returned.reviewDecision.actor, admin.email);
+  assert.equal(returned.reviewDecision.at, at);
+  assert.equal(returned.reviewDecision.reason, decision.reason);
+  assert.equal(returned.reviewSubmission, null);
+  assert.equal(work(decision).history.length, returned.history.length);
+  assert.deepEqual(work({ type: "daily", view: "mine" }, officer).items.map(({ id }) => id), [item.id]);
+
+  const resubmitted = submit(returned.item, 1, "The fictional receipt page is attached.");
+  assert.notEqual(resubmitted.reviewSubmission.revision, decision.submissionRevision);
+  assert.match(work({ ...decision, expectedRevision: resubmitted.item.revision, requestId: crypto.randomUUID() }).error, /current review request/);
+  const accepted = edit(resubmitted.item, { type: "decideReview", decision: "Accept sample review", reason: "The sample receipt matches the request.",
+    packageRevision: 1, submissionRevision: resubmitted.reviewSubmission.revision });
+  assert.equal(accepted.item.status, "In progress");
+  assert.equal(accepted.coverage.state, "Not evaluated");
+  assert.equal(accepted.sampleReview, null);
+  assert.deepEqual(accepted.history.filter((entry) => entry.reviewDecision).map((entry) => entry.reviewDecision.decision),
+    ["Accept sample review", "Return for evidence"]);
+  assert.deepEqual(work({ type: "daily", view: "review" }).counts, { cases: 0, files: 0 });
+
+  const newRequest = submit(accepted.item, 1, "Check one more sample observation.");
+  db.prepare("UPDATE disclosure_packages SET revision = 2 WHERE loanId = ?").run(loanId);
+  assert.match(edit(newRequest.item, { type: "decideReview", decision: "Accept sample review", reason: "Stale package decision.",
+    packageRevision: 1, submissionRevision: newRequest.reviewSubmission.revision }).error, /package changed/);
+  const current = read(item.id);
+  assert.equal(current.reviewDecision, null);
+  assert.equal(current.canDecideReview, false);
+  assert.equal(current.submitPackageRevision, 2);
+  assert.equal(current.history.filter((entry) => entry.reviewDecision).length, 2);
 });

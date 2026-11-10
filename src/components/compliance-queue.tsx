@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
-import { complianceAttentionLabels, complianceCaseKinds, complianceCaseStatuses, complianceCaseTarget, complianceTarget, type ComplianceAttention } from "@/lib/compliance-case-model";
+import { complianceAttentionLabels, complianceCaseKinds, complianceCaseStatuses, complianceCaseTarget, complianceTarget,
+  sampleReviewDecisions, type ComplianceAttention } from "@/lib/compliance-case-model";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -78,6 +79,8 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
 
   const title = detail?.item.title ?? (loanId ? "File compliance" : "Compliance work queue");
   const currentLoanId = detail?.item.loanId;
+  const evidenceForReview = detail?.reviewSubmission && detail.history.find((entry) =>
+    entry.evidenceNote?.packageRevision === detail.reviewSubmission?.packageRevision && entry.evidenceNote);
   const Heading = loanId || detail ? "h3" : "h2";
   return <section id={loanId ? initialCaseId ? complianceCaseTarget(initialCaseId) : complianceTarget : undefined} tabIndex={loanId ? -1 : undefined}
     className={`${loanId ? "details-section" : "integration manager-panel"} compliance-work record-form`} aria-labelledby={`${id}-heading`}>
@@ -137,7 +140,37 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
       {detail.reviewSubmission && <div className="document-item record-form">
         <strong>Submitted for review</strong>
         <p>{detail.reviewSubmission.note}</p>
-        <p className="muted">{detail.reviewSubmission.actor} · {dateTime(detail.reviewSubmission.at)} ET</p>
+        <p className="muted">{detail.reviewSubmission.actor} · {dateTime(detail.reviewSubmission.at)} ET
+          {typeof detail.reviewSubmission.packageRevision === "number" && ` · Package revision ${detail.reviewSubmission.packageRevision}`}</p>
+        {evidenceForReview?.evidenceNote && <div className="loan-task-copy">
+          <strong>Latest sample evidence note</strong>
+          <span>{evidenceForReview.evidenceNote.note}</span>
+          <span>{evidenceForReview.evidenceNote.source} · {dateTime(evidenceForReview.at)} ET</span>
+        </div>}
+      </div>}
+      {detail.canDecideReview && detail.reviewSubmission && <form className="document-item record-form"
+        key={`decision-${detail.reviewSubmission.revision}`} onSubmit={(event) => {
+          event.preventDefault();
+          const submission = detail.reviewSubmission;
+          if (!submission) return;
+          const values = new FormData(event.currentTarget);
+          const decision = values.get("decision");
+          const reason = values.get("reason");
+          if (decision && typeof reason === "string" && reason.trim()) void save({
+            type: "decideReview", decision, reason, packageRevision: submission.packageRevision, submissionRevision: submission.revision,
+          }, decision === "Return for evidence" ? "Finding returned for evidence." : "Sample review accepted.");
+        }}>
+        <label className="field">Sample review decision<select name="decision" required defaultValue="" disabled={pending}>
+          <option value="">Choose a decision</option>{sampleReviewDecisions.map((decision) => <option key={decision}>{decision}</option>)}
+        </select></label>
+        <label className="field">Reason for decision<textarea name="reason" required maxLength={1000} rows={3} disabled={pending} /></label>
+        <div><Button size="sm" type="submit" disabled={pending}>Record decision</Button></div>
+      </form>}
+      {detail.reviewDecision && <div className="document-item record-form">
+        <strong>{detail.reviewSubmission ? "Previous decision · " : ""}{detail.reviewDecision.decision === "Return for evidence" ?
+          "Returned for evidence" : "Sample review accepted"}</strong>
+        <p>{detail.reviewDecision.reason}</p>
+        <p className="muted">{detail.reviewDecision.actor} · {dateTime(detail.reviewDecision.at)} ET · Package revision {detail.reviewDecision.packageRevision}</p>
       </div>}
       {typeof detail.submitPackageRevision === "number" && <form className="document-item record-form" key={`submit-${detail.item.id}`} onSubmit={(event) => {
         event.preventDefault();
@@ -182,10 +215,14 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
       {!loanId && detail.item.parentCaseId && <Button size="sm" variant="outline" disabled={pending} onClick={() => open(detail.item.parentCaseId ?? undefined)}>Open related case</Button>}
       <details className="document-form"><summary>Case history</summary><ul className="loan-task-list">{detail.history.map((event) => <li key={event.revision} className="loan-task compliance-row">
         <div className="loan-task-copy"><strong>{({ recordSampleReview: "Recorded sample workbench review", recordEvidenceNote: "Recorded sample evidence note",
-          submitForReview: "Submitted for review", assign: "Changed case owner", updateStatus: "Changed workflow status" })[event.action] ?? event.action}</strong>
-          <span>{event.actor} · {dateTime(event.at)} ET · Revision {event.revision}</span>{event.reviewNote && <span>{event.reviewNote}</span>}
+          submitForReview: "Submitted for review", decideReview: "Recorded sample review decision",
+          assign: "Changed case owner", updateStatus: "Changed workflow status" })[event.action] ?? event.action}</strong>
+          <span>{event.actor} · {dateTime(event.at)} ET · Revision {event.revision}</span>
+          {event.reviewNote && <><span>Package revision {event.reviewPackageRevision}</span><span>{event.reviewNote}</span></>}
           {event.evidenceNote && <><span>{event.evidenceNote.source} · Package revision {event.evidenceNote.packageRevision}</span>
-            <span>{event.evidenceNote.note}</span></>}</div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
+            <span>{event.evidenceNote.note}</span></>}
+          {event.reviewDecision && <><span>{event.reviewDecision.decision} · Package revision {event.reviewDecision.packageRevision} · Request revision {event.reviewDecision.submissionRevision}</span>
+            <span>{event.reviewDecision.reason}</span></>}</div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
     </>}
     {message && <p role={message.error ? "alert" : "status"}>{message.text}</p>}
     {message?.error && detail && <Button size="sm" variant="outline" disabled={pending} onClick={() => { setMessage(undefined); refresh((value) => value + 1); }}>Reload case</Button>}

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { VersionedBrokerageMember } from "./brokerage-model";
-import { complianceAttention, complianceCaseKinds as kinds, complianceCaseStatuses as statuses, complianceWorkUnavailable, type ComplianceAttention } from "./compliance-case-model";
+import { complianceAttention, complianceCaseKinds as kinds, complianceCaseStatuses as statuses, complianceWorkUnavailable,
+  sampleReviewDecisions, type ComplianceAttention } from "./compliance-case-model";
 import { initializeComplianceInventory } from "./compliance-case-store";
 import { advanceInventory, currentPackage, inventoryAdvance, inventoryRead, readInventory, samplePackage, sampleWorkbenchReview } from "./compliance-inventory";
 import { advanceLeadBackfill, initializeComplianceLeadBackfill, leadBackfillAdvance, leadBackfillRead, readLeadBackfill } from "./compliance-lead-backfill";
@@ -11,6 +12,10 @@ import { loanAccess } from "./workspace-access";
 const id = z.string().min(1).max(100);
 const revision = z.number().int().positive();
 const change = { caseId: z.uuid(), expectedRevision: revision, requestId: z.uuid() };
+const decisionFields = {
+  decision: z.enum(sampleReviewDecisions), packageRevision: revision, submissionRevision: revision,
+  reason: z.string().trim().min(1).max(1000),
+};
 const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.string().max(800), snapshot: z.number().int().nonnegative() });
 const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
@@ -23,6 +28,7 @@ const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("assign"), ...change, ownerEmail: z.email() }),
   z.strictObject({ type: z.literal("updateStatus"), ...change, status: z.enum(statuses) }),
   z.strictObject({ type: z.literal("submitForReview"), ...change, packageRevision: revision, note: z.string().trim().min(1).max(1000) }),
+  z.strictObject({ type: z.literal("decideReview"), ...change, ...decisionFields }),
   z.strictObject({ type: z.literal("recordEvidenceNote"), ...change, packageRevision: revision,
     source: z.string().trim().min(1).max(120), note: z.string().trim().min(1).max(1000) }),
   z.strictObject({ type: z.literal("recordSampleReview"), ...change, packageRevision: revision }),
@@ -47,8 +53,9 @@ const pageSize = 20;
 const unavailable = { error: complianceWorkUnavailable };
 const changed = { error: "This compliance case changed. Reopen it before saving." };
 const coverage = { state: "Not evaluated", evaluatedFiles: 0, eligibleFiles: null, mode: "Fictional fixture", approval: "None" } as const;
-const submissionPayload = z.object({ request: z.object({ note: z.string() }) });
+const submissionPayload = z.object({ request: z.object({ note: z.string(), packageRevision: revision }) });
 const evidencePayload = z.object({ request: z.object({ source: z.string(), note: z.string(), packageRevision: revision }) });
+const decisionPayload = z.object({ request: z.object(decisionFields) });
 
 function currentMember(roster: readonly Member[], email: string) {
   return roster.find((member) => member.email === email && member.status === "Active");
@@ -133,11 +140,20 @@ function findCase(db: Store, brokerageId: string, caseId: string) {
 
 function currentReviewSubmission(db: Store, brokerageId: string, item: Case, packageRevision: SqlValue) {
   if (item.status !== "Awaiting review") return undefined;
-  return db.prepare(`SELECT actor, at, json_extract(payload, '$.request.note') AS note FROM compliance_case_events
+  return db.prepare(`SELECT revision, actor, at, json_extract(payload, '$.request.note') AS note FROM compliance_case_events
     WHERE brokerageId = ? AND caseId = ? AND action = 'submitForReview' AND json_extract(payload, '$.request.packageRevision') = ?
       AND revision > coalesce((SELECT max(revision) FROM compliance_case_events
-        WHERE brokerageId = ? AND caseId = ? AND action = 'updateStatus' AND json_extract(payload, '$.request.status') <> 'Awaiting review'), 0)
+        WHERE brokerageId = ? AND caseId = ? AND (action = 'decideReview'
+          OR (action = 'updateStatus' AND json_extract(payload, '$.request.status') <> 'Awaiting review'))), 0)
     ORDER BY revision DESC LIMIT 1`).get(brokerageId, item.id, packageRevision, brokerageId, item.id);
+}
+
+function lastReviewDecision(db: Store, brokerageId: string, item: Case) {
+  const row = db.prepare(`SELECT revision, actor, at, payload FROM compliance_case_events
+    WHERE brokerageId = ? AND caseId = ? AND action = 'decideReview' ORDER BY revision DESC LIMIT 1`).get(brokerageId, item.id);
+  if (typeof row?.payload !== "string") return null;
+  const parsed = decisionPayload.safeParse(JSON.parse(row.payload));
+  return parsed.success ? { ...parsed.data.request, revision: Number(row.revision), actor: String(row.actor), at: String(row.at) } : null;
 }
 
 function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], item: Case) {
@@ -145,7 +161,8 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
     WHERE brokerageId = ? AND caseId = ? ORDER BY revision DESC LIMIT 51`).all(staff.brokerage.id, item.id) as unknown as CaseEvent[];
   const packageRow = item.loanId ? currentPackage(db, item.loanId) : undefined;
   const packageState = !item.loanId ? null : !packageRow ? "Unavailable" :
-    packageRow.version !== item.packageVersion || packageRow.supersededAt ? "Superseded" : packageRow.reviewReason ? "Needs review" : "Current";
+    packageRow.version !== item.packageVersion || packageRow.supersededAt ? "Superseded" :
+      packageRow.reviewReason ? "Needs review" : samplePackage(db, item.loanId) ? "Current" : "Outside sample scope";
   const sampleReviewRevision = item.loanId && item.packageVersion && packageRow && packageState === "Current" &&
     sampleWorkbenchReview(db, item.loanId, item.packageVersion, packageRow.revision) ? Number(packageRow.revision) : null;
   const sampleReview = packageRow && packageState === "Current" ? db.prepare(`SELECT actor, at FROM compliance_case_events
@@ -156,11 +173,15 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
   const canUpdateStatus = admin || (projected.ownerState === "Assigned" && projected.ownerEmail === staff.email);
   const submitted = packageState === "Current" && packageRow ? currentReviewSubmission(db, staff.brokerage.id, item, packageRow.revision) : undefined;
   const currentPackageRevision = packageState === "Current" && typeof packageRow?.revision === "number" ? packageRow.revision : null;
+  const decision = item.loanId ? lastReviewDecision(db, staff.brokerage.id, item) : null;
   return { kind: "detail", item: projected, packageState, coverage, sampleReviewRevision,
-    canUpdateStatus,
+    canUpdateStatus: canUpdateStatus && !submitted,
     submitPackageRevision: canUpdateStatus && !submitted ? currentPackageRevision : null,
     evidencePackageRevision: canUpdateStatus ? currentPackageRevision : null,
-    reviewSubmission: submitted ? { actor: String(submitted.actor), at: String(submitted.at), note: String(submitted.note) } : null,
+    reviewSubmission: submitted ? { revision: Number(submitted.revision), packageRevision: currentPackageRevision,
+      actor: String(submitted.actor), at: String(submitted.at), note: String(submitted.note) } : null,
+    canDecideReview: admin && Boolean(submitted),
+    reviewDecision: decision && decision.packageRevision === currentPackageRevision ? decision : null,
     assignableOwners: admin ? roster.filter((member) => member.status === "Active" && mayOwn(db, staff, member, item.loanId))
       .map(({ email, name }) => ({ email, name })) : [],
     sampleReview: sampleReview ? { actor: String(sampleReview.actor), at: String(sampleReview.at), packageRevision: Number(packageRow?.revision), mode: "Sample workbench review" } : null,
@@ -168,8 +189,11 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
       const payload: unknown = JSON.parse(event.payload);
       const submission = event.action === "submitForReview" ? submissionPayload.safeParse(payload) : undefined;
       const evidence = event.action === "recordEvidenceNote" ? evidencePayload.safeParse(payload) : undefined;
+      const decision = event.action === "decideReview" ? decisionPayload.safeParse(payload) : undefined;
       return { ...event, payload, reviewNote: submission?.success ? submission.data.request.note : null,
-        evidenceNote: evidence?.success ? evidence.data.request : null };
+        reviewPackageRevision: submission?.success ? submission.data.request.packageRevision : null,
+        evidenceNote: evidence?.success ? evidence.data.request : null,
+        reviewDecision: decision?.success ? decision.data.request : null };
     }),
     moreHistory: history.length > 50 } as const;
 }
@@ -314,17 +338,27 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
       nextOwner = member.email;
       nextOwnerRevision = member.accessRevision ?? 0;
     } else if (data.type === "updateStatus") {
+      if (item.loanId && item.status === "Awaiting review") {
+        const pkg = samplePackage(db, item.loanId);
+        if (pkg && pkg.version === item.packageVersion && currentReviewSubmission(db, brokerageId, item, pkg.revision)) {
+          return { error: "Record a sample review decision to move this finding out of review." };
+        }
+      }
       nextStatus = data.status;
     } else {
-      const packageRow = item.loanId && currentPackage(db, item.loanId);
-      if (!item.loanId || !item.packageVersion || !packageRow || packageRow.supersededAt || packageRow.reviewReason || packageRow.version !== item.packageVersion ||
+      const packageRow = item.loanId && samplePackage(db, item.loanId);
+      if (!item.loanId || !item.packageVersion || !packageRow || packageRow.version !== item.packageVersion ||
         packageRow.revision !== data.packageRevision) {
-        if (data.type === "submitForReview" || data.type === "recordEvidenceNote") return { error: "The sample package changed. Open the current package before recording work." };
+        if (data.type !== "recordSampleReview") return { error: "The sample package changed. Open the current package before recording work." };
         return { error: "Review the current sample package in the disclosure workbench first." };
       }
       if (data.type === "submitForReview") {
         if (currentReviewSubmission(db, brokerageId, item, data.packageRevision)) return changed;
         nextStatus = "Awaiting review";
+      } else if (data.type === "decideReview") {
+        const submission = currentReviewSubmission(db, brokerageId, item, data.packageRevision);
+        if (submission?.revision !== data.submissionRevision) return { error: "Open the current review request before recording a decision." };
+        nextStatus = data.decision === "Return for evidence" ? "Awaiting evidence" : "In progress";
       } else if (data.type === "recordSampleReview") {
         const review = sampleWorkbenchReview(db, item.loanId, item.packageVersion, data.packageRevision);
         if (!review) return { error: "Review the current sample package in the disclosure workbench first." };
