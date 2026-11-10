@@ -110,7 +110,7 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
         throw new PricingError("configuration", "UWM stage pricing needs an EQ client ID and secret.");
       }
       const token = eqToken.safeParse(await readEq(await requestEq("https://sso.uwm.com/adfs/oauth2/token", {
-        method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
+        method: "POST", redirect: "manual", signal: AbortSignal.timeout(10_000),
         body: new URLSearchParams({
           grant_type: "client_credentials", client_id: env.UWM_EQ_CLIENT_ID,
           client_secret: env.UWM_EQ_CLIENT_SECRET, scope: "https://api.uwm.com/loanorigination-stg",
@@ -120,7 +120,7 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
       const headers = { Authorization: `Bearer ${token.data.access_token}`, "Content-Type": "application/json" };
       const [quoteResponse, disclaimerResponse] = await Promise.all([
         requestEq(`${eqStage}/public/products/v1/mortgage-price-quotes`, {
-          method: "POST", headers, redirect: "error", signal: AbortSignal.timeout(15_000),
+          method: "POST", headers, redirect: "manual", signal: AbortSignal.timeout(15_000),
           body: JSON.stringify({
             brokerAlias: env.UWM_EQ_BROKER_ALIAS || undefined, loanOfficer: env.UWM_EQ_LO_EMAIL || undefined,
             borrowerName: "Orbit Stage Scenario", loanTypeIds: ["0"], purposeTypeId: scenario.purpose === "Purchase" ? "1" : "3",
@@ -133,7 +133,7 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
             firstTimeHomeBuyer: scenario.purpose === "Purchase" ? scenario.firstTimeBuyer : undefined,
           }),
         }),
-        requestEq(`${eqStage}/public/products/v1/disclaimers`, { headers, redirect: "error", signal: AbortSignal.timeout(10_000) }),
+        requestEq(`${eqStage}/public/products/v1/disclaimers`, { headers, redirect: "manual", signal: AbortSignal.timeout(10_000) }),
       ]);
       const quotes = eqQuotes.safeParse(await readEq(quoteResponse));
       if (!quotes.success) throw new PricingError("invalid-response", "UWM stage returned a pricing response Orbit could not read.");

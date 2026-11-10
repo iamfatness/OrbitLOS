@@ -18,7 +18,7 @@ test("Public auth uses the verified grant and keeps environments separate", asyn
     assert.equal(url, "https://sso.dev.uwm.com/adfs/oauth2/token");
     assert.equal(init.body.get("grant_type"), "client_credentials");
     assert.equal(init.body.get("scope"), "https://api.uwm.com/loanorigination-int");
-    assert.equal(init.redirect, "error");
+    assert.equal(init.redirect, "manual");
     return Response.json({ access_token: "test" });
   });
   assert.equal(await uwmPublicToken({ UWM_ENVIRONMENT: "int", UWM_CLIENT_ID: "id", UWM_CLIENT_SECRET: "secret" }), "test");

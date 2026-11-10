@@ -49,7 +49,7 @@ export function uwmWorkspaceEnabled(env: UwmEnvironment, staff: WorkspaceStaff |
 export async function uwmJson(url: string, init: RequestInit = {}) {
   let response: Response;
   try {
-    response = await fetch(url, { ...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    response = await fetch(url, { ...init, redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(20_000) });
   } catch (error) {
     // Fetch errors contain transport details, never request headers or token bodies.
     console.error("UWM transport failure", { host: new URL(url).hostname,
