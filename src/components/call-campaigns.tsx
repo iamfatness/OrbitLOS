@@ -16,6 +16,7 @@ import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 import { CrmSegments } from "./crm-segments";
 import { CampaignAssignments } from "./campaign-assignments";
+import { CampaignSequence } from "./campaign-sequence";
 import { CampaignRouting, CampaignRoutingCapacity } from "./campaign-routing";
 import { CampaignResponse } from "./campaign-response";
 import { CampaignCallbackPerformance } from "./campaign-callback-performance";
@@ -496,6 +497,9 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
         {state.callCampaigns.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
       </select></label>}
       {campaign && <CampaignRulesForm key={campaign.id} campaign={campaign} canManage={canManage} busy={busy} save={save} />}
+      {canManage && campaign?.newLeadSequence && <CampaignSequence
+        key={`${campaign.id}:${campaign.newLeadSequence.attachedVersion}:${campaign.newLeadSequence.latest?.version}`}
+        campaignId={campaign.id} config={campaign.newLeadSequence} busy={busy} save={save} />}
       {canManage ? <form className="brokerage-form" onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;

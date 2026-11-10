@@ -62,6 +62,8 @@ import { addCampaignLeadInput, assignCampaignLeadsInput, createCallCampaignInput
   campaignManualHandoff, rescheduleCampaignCallbackInput, saveCampaignRoutingInput, saveCampaignRulesInput, unansweredCampaignCall } from "./call-campaign-model";
 import { assignCampaignLeads, createCallCampaign, linkCampaignLead, mayManageCampaigns, pauseCampaignRetries, recordCampaignCall, recordCampaignFollowUp, rescheduleCampaignCallback,
   saveCampaignRules, stopCampaignFollowUp } from "./call-campaigns";
+import { recordSequenceMockInput, saveCampaignSequenceInput } from "./campaign-sequence-model";
+import { recordSequenceMock, saveCampaignSequence } from "./campaign-sequences";
 import { enrollCrmSegmentInput, saveCrmSegmentInput, type SegmentPreview } from "./crm-segment-model";
 import { enrollCrmSegment, saveCrmSegment } from "./crm-segments";
 import { campaignRefillNotice, campaignReleaseRouting, captureCampaignOptOutCapacity, distributeCampaignLeads, readCampaignRouting,
@@ -199,6 +201,8 @@ const command = z.discriminatedUnion("type", [
   saveCampaignRoutingInput,
   routeCampaignQueueInput,
   saveCampaignRulesInput,
+  saveCampaignSequenceInput,
+  recordSequenceMockInput,
   pauseCampaignRetriesInput,
   recordCampaignCallInput,
   recordCampaignFollowUpInput,
@@ -418,6 +422,7 @@ function scopedLeadId(data: z.infer<typeof command>) {
     case "claimSharedRealtor":
     case "rescheduleCampaignCallback":
     case "recordCampaignFollowUp":
+    case "recordSequenceMock":
     case "completeLeadTask":
       return data.leadId;
     case "assignCampaignLeads":
@@ -660,6 +665,18 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "pauseCampaignRetries": {
           if (!mayManageCampaigns(staff)) throw new WorkspaceError("Only a pilot admin can edit campaign rules.");
           const result = data.type === "saveCampaignRules" ? saveCampaignRules(db, staff, data, now) : pauseCampaignRetries(db, staff, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          message = result.message;
+          break;
+        }
+        case "saveCampaignSequence": {
+          if (!mayManageCampaigns(staff)) throw new WorkspaceError("Only a pilot admin can edit campaign sequences.");
+          const result = saveCampaignSequence(db, staff, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          return { message: result.message, campaignQueue: readCampaignQueue(db, data.campaignId, staff) };
+        }
+        case "recordSequenceMock": {
+          const result = recordSequenceMock(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;

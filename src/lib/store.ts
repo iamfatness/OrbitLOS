@@ -25,6 +25,7 @@ import { processingActivityPrefix, type LoanProcessing } from "./processing-mode
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
 import { readPlaybook } from "./playbooks";
 import { assignableCampaignLead, defaultCampaignRules, type CallCampaign, type CallCampaignMember, type CampaignLeadOption, type CampaignQueueFile } from "./call-campaign-model";
+import { campaignSequenceConfig } from "./campaign-sequences";
 import { blockedOutreachKeys, indexPendingContactOutreach, initializeContactOutreachIndex, initializeLeadReplyIndex, initializeRealtorReplyIndex,
   migrateCampaignOptOuts, openCallbackPromise, outreachIdentityKeys, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import { initializeContactDuplicateQueue } from "./contact-duplicate-queue";
@@ -687,6 +688,17 @@ export function initializeStore(db: Store, seedDemo = true) {
         callbackTaskId TEXT REFERENCES lead_import_tasks(id) ON DELETE SET NULL
       );
       CREATE INDEX IF NOT EXISTS campaign_members_by_campaign ON call_campaign_members(campaignId, joinedAt);
+      CREATE TABLE IF NOT EXISTS campaign_sequence_versions (version INTEGER PRIMARY KEY, steps TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS campaign_sequence_attachments (
+        campaignId TEXT PRIMARY KEY REFERENCES call_campaigns(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL REFERENCES campaign_sequence_versions(version)
+      );
+      CREATE TABLE IF NOT EXISTS campaign_sequence_enrollments (
+        leadId TEXT PRIMARY KEY REFERENCES call_campaign_members(leadId) ON DELETE CASCADE,
+        version INTEGER NOT NULL REFERENCES campaign_sequence_versions(version),
+        position INTEGER NOT NULL DEFAULT 0, dueAt TEXT, outcome TEXT
+      );
+      CREATE INDEX IF NOT EXISTS campaign_sequence_due ON campaign_sequence_enrollments(dueAt, leadId) WHERE dueAt IS NOT NULL;
       CREATE TABLE IF NOT EXISTS campaign_follow_up_runs (
         id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES call_campaign_members(leadId) ON DELETE CASCADE,
         campaignId TEXT NOT NULL REFERENCES call_campaigns(id) ON DELETE CASCADE, callNumber INTEGER NOT NULL,
@@ -1351,6 +1363,7 @@ function campaignRows(db: Store, campaignId?: string, includeRouting = true, off
     .map((campaign) => {
       const routing = includeRouting && readCampaignRouting(db, campaign.id);
       return { ...campaign, automaticPaused: Boolean(campaign.automaticPaused),
+        ...(includeRouting && campaignId ? { newLeadSequence: campaignSequenceConfig(db, campaignId) } : {}),
         ...(routing ? { routing: { enabled: routing.enabled, revision: routing.revision, officers: routing.officers } } : {}) };
     });
 }

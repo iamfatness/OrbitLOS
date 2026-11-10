@@ -1,6 +1,7 @@
 import { isOpenOverdueCallbackPromise } from "./campaign-callback-exceptions";
 import { callbackExceptionChanged, callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
 import { carriedCallbackSource, openCarriedCallback } from "./carried-campaign-callback";
+import { isCurrentSequenceCall } from "./campaign-sequences";
 import { readEditableLoan } from "./editable-loan";
 import { leadTaskUnavailable, leadWorkRequest, leadWorkUnavailable, type LeadWorkRecord } from "./lead-work-model";
 import type { EditableLoan } from "./loan-work-model";
@@ -49,7 +50,8 @@ export function readEditableLead(db: Store, input: unknown, staff: WorkspaceStaf
       const { lead, member } = record;
       const current = task.kind === "campaign" ? member?.callbackTaskId === task.id && member.callbackDueAt &&
         (!task.expectedCallbackAt || (member.lastOutcome === "Requested callback" && member.callbackDueAt === task.expectedCallbackAt)) :
-        task.id === lead.id && !lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt;
+        task.kind === "sequence" ? isCurrentSequenceCall(db, leadId, task.id, new Date().toISOString()) :
+          task.id === lead.id && !lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt;
       if (!current || lead.outreachSuppressed) return { error: leadTaskUnavailable };
     }
     return record;

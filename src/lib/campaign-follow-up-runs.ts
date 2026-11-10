@@ -1,4 +1,5 @@
 import { advanceLeadRevision, leadEvent } from "./lead-inbox";
+import { stopCampaignSequence } from "./campaign-sequences";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
 import { playbookRunsUnavailable, recoveryBatchLimit, type CampaignPlaybookRun, type CampaignRecoveryCandidate, type CampaignRecoveryResult,
   type PlaybookAttempt, type PlaybookRunQuery, type PlaybookRunResult } from "./playbook-run-model";
@@ -29,6 +30,7 @@ export function supersedeCampaignFollowUp(db: Store, leadId: string, reason: str
 }
 
 export function stopAutomaticCampaignRetriesForReply(db: Store, leadId: string, at: string) {
+  stopCampaignSequence(db, leadId, "Reply received");
   db.prepare(`UPDATE lead_import_tasks SET completedAt = ? WHERE leadId = ? AND completedAt IS NULL AND id = (
     SELECT callbackTaskId FROM call_campaign_members WHERE leadId = ? AND lastOutcome IN ('Left message', 'No response')
   )`).run(at, leadId, leadId);

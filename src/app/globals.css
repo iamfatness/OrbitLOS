@@ -311,6 +311,8 @@ button:disabled { cursor: default; }
 .loan-task > svg { flex-shrink: 0; margin-top: 2px; }
 .loan-task-copy { display: grid; gap: 2px; flex: 1; min-width: 0; justify-items: start; overflow-wrap: anywhere; }
 .loan-task-copy span { font-size: 12px; }
+.sequence-task { flex-wrap: wrap; }
+.sequence-task > .document-form { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
 .loan-task.lender-return-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .lender-return-task > button { justify-self: start; }
 .lender-return-follow-up { grid-column: 1 / -1; display: grid; gap: 7px; }

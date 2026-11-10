@@ -16,8 +16,9 @@ import { Button } from "./ui/button";
 
 const todayViews = ["My Tasks", "Stalled loans", "My production", "Past-client opportunities"] as const;
 
-export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients }: {
+export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients }: {
   brokerageId: string; version: object; busy: boolean; openWork: (item: OfficerQueueItem) => void; openTasks: () => void;
+  save: (input: unknown) => Promise<void>;
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
   openReply: (id: string) => void; openFunding: (id: string) => void; openOpportunity: (item: RetentionOpportunity) => void;
   openPastClients: () => void; openStalled: (id: string) => void; refreshStalled: () => void;
@@ -83,10 +84,21 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
       <div className="section-heading"><h3>Work through {dateLabel(page.through)}</h3><span className="pill">{page.items.length} on this page</span></div>
       {page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
         const deadline = item.handoffDueAt ?? item.dueAt;
-        return <li className="loan-task" key={`${item.kind}:${item.id}`}>
+        const step = item.sequence;
+        const due = deadline <= page.checkedAt;
+        return <li className={step ? "loan-task sequence-task" : "loan-task"} key={`${item.kind}:${item.id}`}>
           <div className="loan-task-copy"><strong>{item.title}</strong><span>{item.name}</span>
+            {step && <span>Step {step.position + 1} · {step.channel}</span>}
             <span>{item.overdue ? "Overdue" : "Due"} · {deadline.length === 10 ? dateLabel(deadline) : `${dateTime(deadline)} ET`}</span></div>
-          <Button size="sm" variant="outline" onClick={() => openWork(item)}>{queueActionLabel(item)}</Button>
+          {step && step.channel !== "Call" ? <details className="document-form">
+            <summary>Preview mock {step.channel.toLowerCase()}</summary>
+            {step.recipient ? <><p className="muted">To {step.recipient}</p><p className="relationship-note">{step.body}</p></> :
+              <p className="muted">This lead has no valid recipient for this step.</p>}
+            <Button size="sm" variant="outline" disabled={busy || !due} onClick={async () => {
+              await save({ type: "recordSequenceMock", leadId: item.recordId, version: step.version, position: step.position, recipient: step.recipient });
+              setDeadlineRefresh((count) => count + 1);
+            }}>{step.recipient ? `Record mock ${step.channel.toLowerCase()}` : "Skip unavailable recipient"}</Button>
+          </details> : <Button size="sm" variant="outline" disabled={!!step && (busy || !due)} onClick={() => openWork(item)}>{queueActionLabel(item)}</Button>}
         </li>;
       })}</ul> : <p className="empty-inline">{page.next ? "No actionable items on this page. More work may be available on the next page." :
         query.after ? "No more actionable items in this window." : query.horizon === 1 ? "No work due today. Choose Next 7 days to see upcoming first contacts and follow-ups." :

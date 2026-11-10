@@ -5,6 +5,7 @@ import type { Contact } from "./model";
 import { contactDuplicate } from "./contact-csv";
 import { assignableCampaignLead, campaignOrigin, rehearsalBuyerKey, rehearsalReserveKey } from "./call-campaign-model";
 import { linkCampaignLead } from "./call-campaigns";
+import { enrollCsvCampaignSequence } from "./campaign-sequences";
 import { leadContactFields } from "./lead-inbox-model";
 import { accessEvent } from "./workspace-access";
 import { firstContactDue, leadRouting } from "./lead-inbox";
@@ -328,6 +329,7 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
         if (campaignId) {
           const linked = linkCampaignLead(db, campaignId, id, now);
           if ("error" in linked) throw new Error(linked.error);
+          if (linked.added && !row.firstContactAt) enrollCsvCampaignSequence(db, campaignId, id, now);
           if (!rehearsalOwners.has(key)) campaignLeads.push(id);
         }
       } else if (row.type === "Task" && row.parentType === "Contact") {

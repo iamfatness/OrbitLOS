@@ -873,7 +873,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   }
 
   function openTodayWork(item: OfficerQueueItem) {
-    if (item.kind === "lead" || item.kind === "campaign") {
+    if (item.kind === "lead" || item.kind === "campaign" || item.kind === "sequence") {
       return void openScopedLead({ leadId: item.recordId, task: { kind: item.kind, id: item.id } });
     }
     openDeadlineWork(item);
@@ -1246,7 +1246,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
 
           {section === "Today" && canOpenToday && <OfficerToday brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
-            version={queueVersion} busy={busy} openWork={openTodayWork} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
+            version={queueVersion} busy={busy} openWork={openTodayWork} save={save} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
             openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}
             openStalled={(loanId) => void openQueueLoan({ kind: "details", loanId }, { kind: "stalled" })}
             refreshStalled={() => setError((current) => current === stalledLoanUnavailable ? "" : current)}

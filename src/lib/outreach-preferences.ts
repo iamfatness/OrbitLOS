@@ -215,6 +215,8 @@ export function closeSuppressedOutreach(db: Store, now: string) {
   if (!suppressed.size) return;
   const stopSequence = db.prepare(`UPDATE lead_follow_up SET status = 'Stopped', nextAt = NULL, pausedAt = NULL, revision = revision + 1
     WHERE leadId = ? AND status IN ('Active', 'Paused')`);
+  const stopCampaignSequence = db.prepare(`UPDATE campaign_sequence_enrollments SET dueAt = NULL, outcome = 'Opted out'
+    WHERE leadId = ? AND dueAt IS NOT NULL`);
   const closeTask = db.prepare(`UPDATE lead_import_tasks SET completedAt = ? WHERE completedAt IS NULL
     AND id = (SELECT callbackTaskId FROM call_campaign_members WHERE leadId = ?)`);
   const retireFollowUp = db.prepare(`UPDATE campaign_follow_up_runs SET status = 'Superseded', reason = 'Borrower opted out of outreach.'
@@ -222,6 +224,7 @@ export function closeSuppressedOutreach(db: Store, now: string) {
   for (const lead of db.prepare("SELECT id, email, phone, importedContactId AS contactId FROM referral_leads WHERE resolvedAt IS NULL").all()) {
     if (!outreachSuppressed(suppressed, { ...lead, leadId: lead.id })) continue;
     stopSequence.run(lead.id);
+    stopCampaignSequence.run(lead.id);
     closeTask.run(now, lead.id);
     retireFollowUp.run(lead.id);
     closeCampaignCallbackPromise(db, String(lead.id), now, "Borrower opted out");

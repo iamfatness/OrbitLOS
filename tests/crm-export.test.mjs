@@ -71,6 +71,83 @@ function fixture(t) {
   return { db, staff };
 }
 
+test("new CSV leads keep their attached sequence version and stop on reply, conversion or opt-out", async (t) => {
+  const { db, staff } = fixture(t);
+  const officer = { ...staff, name: "Fictional officer", email: "sequence-officer@example.test", brokerage: { ...staff.brokerage, role: "LO" } };
+  const another = { ...officer, email: "another-officer@example.test" };
+  const campaignId = crypto.randomUUID();
+  const write = (data, actor = staff) => executeCommand(db, data, actor, undefined,
+    [staff, officer, another].map((person) => ({ ...person, status: "Active" })), { scopedLeadUpdates: true });
+  const apply = async (data, actor) => {
+    const result = await write(data, actor);
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  await apply({ type: "createCallCampaign", id: campaignId, name: "Fictional sequences" });
+  const steps = [{ channel: "Call", title: "Call new lead", delay: 0, body: "" },
+    { channel: "Text", title: "First text", delay: 0, body: "Fictional text draft" },
+    { channel: "Email", title: "Follow up", delay: 1, body: "Fictional email draft" }];
+  const attach = { type: "saveCampaignSequence", campaignId, expectedVersion: null, expectedTemplateVersion: null, steps };
+  assert.match((await write(attach, officer)).error, /admin/);
+  assert.equal((await apply(attach)).campaignQueue.campaign.newLeadSequence.attachedVersion, 1);
+  const csv = (indices) => ({ type: "migratePipeline", campaignId, origin: campaignOrigin(campaignId), decisions: {},
+    rows: parseCampaignLeadCsv(["id,name,phone,email", ...indices.map((n) =>
+      `${n},Fictional Sequence ${n},248555018${n},sequence-${n}@example.test`)].join("\n"), new Date().toISOString())
+      .map((row) => ({ ...row, ownerEmail: officer.email })) });
+  const importCsv = async (request) => {
+    const preview = await apply(request);
+    return apply({ ...request, preview: preview.migration.fingerprint });
+  };
+  const initial = csv([1, 2, 3]);
+  const [replyLead, convertedLead, optedLead] = (await importCsv(initial)).migration.rows.map(({ targetId }) => targetId);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM campaign_sequence_enrollments").get().count, 3);
+  assert.equal((await importCsv(initial)).migration.rows[0].targetId, replyLead);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM campaign_sequence_enrollments").get().count, 3);
+  const update = { ...attach, expectedVersion: 1, expectedTemplateVersion: 1, steps: [steps[1]] };
+  assert.equal((await apply(update)).campaignQueue.campaign.newLeadSequence.attachedVersion, 2);
+  assert.match((await write(update)).error, /changed/);
+  const [newLead] = (await importCsv(csv([4]))).migration.rows.map(({ targetId }) => targetId);
+  const queue = (actor = officer, now = new Date()) => readOfficerQueue(db, { horizon: 7 }, actor, staff.brokerage.id, now).items;
+  const stepFor = (id, actor, now) => queue(actor, now).find((item) => item.recordId === id && item.kind === "sequence");
+  const callStep = stepFor(replyLead);
+  assert.equal(callStep.sequence.version, 1);
+  assert.equal(callStep.sequence.channel, "Call");
+  assert.equal(stepFor(newLead).sequence.version, 2);
+  assert.equal(stepFor(replyLead, another), undefined);
+  assert.ok(!queue().some((item) => item.recordId === replyLead && item.kind === "lead"));
+  const open = { leadId: replyLead, task: { kind: "sequence", id: callStep.id } };
+  const { lead } = readEditableLead(db, open, officer, staff.brokerage.id);
+  assert.ok(readEditableLead(db, open, another, staff.brokerage.id).error);
+  await apply({ type: "recordCampaignCall", campaignId, leadId: replyLead, revision: lead.followUp.revision,
+    outcome: "Connected", callbackAt: null, note: "Fictional sequence call" }, officer);
+  assert.ok(readEditableLead(db, open, officer, staff.brokerage.id).error);
+  const { version, position, recipient } = stepFor(replyLead).sequence;
+  const mock = { type: "recordSequenceMock", leadId: replyLead, version, position, recipient };
+  assert.ok((await write(mock, another)).error);
+  assert.ok((await write({ ...mock, recipient: "someone-else@example.test" }, officer)).error);
+  await apply(mock, officer);
+  assert.ok((await write(mock, officer)).error);
+  const scheduled = stepFor(replyLead);
+  assert.equal(scheduled.sequence.channel, "Email");
+  assert.ok(scheduled.dueAt > new Date().toISOString());
+  assert.ok((await write({ ...mock, position: scheduled.sequence.position, recipient: scheduled.sequence.recipient }, officer)).error);
+  const thread = db.prepare("SELECT id, revision FROM lead_conversations WHERE leadId = ?").get(replyLead);
+  assert.ok(changeConversation(db, { ...thread, type: "message", direction: "Inbound", channel: "Email",
+    text: "Fictional reply to the mock sequence", eventId: crypto.randomUUID() }, officer, staff.brokerage.id).id);
+  await apply({ type: "convertReferral", referralId: convertedLead, contactId: null }, officer);
+  await apply({ type: "leadOptOut", leadId: optedLead }, officer);
+  const ended = db.prepare("SELECT dueAt, outcome FROM campaign_sequence_enrollments WHERE leadId = ?");
+  for (const [id, outcome] of [[replyLead, "Reply received"], [convertedLead, "Converted"], [optedLead, "Opted out"]]) {
+    assert.deepEqual({ ...ended.get(id) }, { dueAt: null, outcome });
+    assert.equal(stepFor(id), undefined);
+  }
+  assert.equal(db.prepare("SELECT count(*) AS count FROM lead_events WHERE leadId = ? AND text LIKE 'Mock campaign follow-up%'").get(replyLead).count, 1);
+  assert.equal((await apply({ ...update, expectedVersion: 2, expectedTemplateVersion: 2, steps: null })).campaignQueue.campaign.newLeadSequence.attachedVersion, null);
+  assert.equal(stepFor(newLead).sequence.version, 2);
+  const [afterDetach] = (await importCsv(csv([5]))).migration.rows.map(({ targetId }) => targetId);
+  assert.equal(stepFor(afterDetach), undefined);
+});
+
 test("migration results follow the current lead, loan and exact evidence behind a receipt", async (t) => {
   const { db, staff } = fixture(t);
   const at = "2026-11-09T15:00:00.000Z";

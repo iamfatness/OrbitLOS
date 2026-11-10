@@ -5,6 +5,8 @@ import type { BrokerageRole } from "./brokerage-model";
 import { carriedCallbackSource, openCarriedCallback } from "./carried-campaign-callback";
 import { coverageKinds, type CoverageItem, type CoverageWindow } from "./coverage-model";
 import { currentConversationContact, readOwnedConversationReplies } from "./conversations";
+import { campaignFollowUpRecipient } from "./call-campaign-model";
+import { sequenceStep } from "./campaign-sequence-model";
 import { reviewTarget } from "./loan-review-model";
 import { closingChecklistTarget, loanTaskTarget } from "./loan-workflow";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
@@ -31,6 +33,7 @@ const campaignCallbackSource = (join: "JOIN" | "CROSS JOIN" = "JOIN") => `FROM r
 type Candidate = Omit<CalendarItem, "overdue" | "target" | "owner"> & {
   owner: string | null;
   email?: string; phone?: string; contactId?: string; leadId?: string; purpose?: string; optedOut?: number; reason?: string;
+  sequenceStep?: string; sequenceVersion?: number; sequencePosition?: number;
 };
 type CampaignCallbackCandidate = Omit<CampaignCallbackPage["items"][number], "requested" | "loanId"> & {
   requested: number | null; loanId: string | null; email: string; phone: string; contactId: string | null;
@@ -225,6 +228,12 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
   const dueDocument = "request.dueOn IS NOT NULL AND request.status IN ('Requested', 'Needs replacement')";
   const lenderAlertTitle = "CASE alert.kind WHEN 'Reopened condition' THEN 'Reopened · ' || alert.message ELSE alert.message END";
   const openLeadDocument = "lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND lead.officerEmail IS NOT NULL";
+  const showSequences = !calendar && !tasks && !coverage;
+  const currentSequenceStep = "json_extract(template.steps, '$[' || run.position || ']')";
+  const currentSequenceId = "(run.leadId || ':' || run.version || ':' || run.position)";
+  const sequenceFirstCall = showSequences ? `AND NOT EXISTS (SELECT 1 FROM campaign_sequence_enrollments run
+    JOIN campaign_sequence_versions template ON template.version = run.version
+    WHERE run.leadId = lead.id AND run.dueAt <= lead.dueAt AND json_extract(${currentSequenceStep}, '$.channel') = 'Call')` : "";
   const receivedDocumentAt = "coalesce(request.submittedAt, request.requestedAt)";
   const fundingTask = `(task.id GLOB '${fundingTaskPrefix}borrower:*' OR task.id GLOB '${fundingTaskPrefix}realtor:*')`;
   const lastOutreach = `coalesce((SELECT event.at FROM lead_events event WHERE event.leadId = lead.id AND event.outcome IS NOT NULL
@@ -271,6 +280,15 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       WHERE alert.reviewedAt IS NOT NULL`, "alert.id", "alert.reviewedAt", "loan.officerEmail", "loan.officer"),
   ] : [];
   const candidates = (completed ? completedWork : [
+    ...(showSequences ? select("sequence", `${currentSequenceId} AS id, lead.id AS recordId, lead.id AS leadId, lead.name, run.dueAt,
+      lead.email, lead.phone, lead.importedContactId AS contactId, member.campaignId, 'Prospecting' AS purpose,
+      'New Lead · ' || json_extract(${currentSequenceStep}, '$.title') AS title, ${currentSequenceStep} AS sequenceStep,
+      run.version AS sequenceVersion, run.position AS sequencePosition
+      FROM campaign_sequence_enrollments run JOIN referral_leads lead ON lead.id = run.leadId
+      JOIN call_campaign_members member ON member.leadId = lead.id JOIN campaign_sequence_versions template ON template.version = run.version
+      LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
+      WHERE run.dueAt IS NOT NULL AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.replyReceivedAt IS NULL`,
+    currentSequenceId, "run.dueAt", "lead.officerEmail", "lead.officer") : []),
     ...(policy ? [
       ...select("lead-hold", `lead.id, lead.id AS recordId, lead.name, (lead.revisitDate || 'T17:00:00.000Z') AS dueAt,
         'Review lead on hold' AS title, lead.holdReason AS reason FROM referral_leads lead
@@ -291,7 +309,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
         CASE WHEN ${lastOutreach} IS NULL THEN 'First contact has not been logged' ELSE 'No reply logged after the last outreach' END AS reason
         FROM referral_leads lead LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
         LEFT JOIN call_campaign_members member ON member.leadId = lead.id
-        WHERE lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND ${quietReady}`,
+        WHERE lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND ${quietReady} ${sequenceFirstCall}`,
       "lead.id", quietDue, "lead.officerEmail", "lead.officer", false, [checkedAt]),
       ...select("application-review", `loan.id, loan.id AS recordId, contact.name, ${reviewDue} AS dueAt,
         CASE WHEN EXISTS (SELECT 1 FROM application_versions version WHERE version.loanId = app.loanId AND version.revision < app.revision)
@@ -317,7 +335,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       FROM referral_leads lead LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
       LEFT JOIN call_campaign_members member ON member.leadId = lead.id
       WHERE lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND follow.firstContactAt IS NULL AND follow.replyReceivedAt IS NULL
-      ${policy ? `AND NOT (${quietReady})` : ""}`,
+      ${policy ? `AND NOT (${quietReady})` : ""} ${sequenceFirstCall}`,
     "lead.id", "lead.dueAt", "lead.officerEmail", "lead.officer", false, policy ? [checkedAt] : []),
     ...select("campaign", `task.id, lead.id AS recordId, lead.id AS leadId, lead.name, task.dueAt, lead.email, lead.phone,
       lead.importedContactId AS contactId, member.campaignId,
@@ -447,6 +465,11 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     const blocked = !!row.optedOut || (row.purpose === "Prospecting" && outreachSuppressed(suppression, row));
     if (blocked && !completed) continue;
     const { kind, id, recordId, name, title, dueAt, campaignId, owner, reason } = row;
+    const step = row.sequenceStep ? sequenceStep.parse(JSON.parse(row.sequenceStep)) : undefined;
+    const sequence = step && row.sequenceVersion !== undefined && row.sequencePosition !== undefined ? {
+      ...step, version: row.sequenceVersion, position: row.sequencePosition,
+      recipient: step.channel === "Call" ? null : campaignFollowUpRecipient(step.channel, { email: row.email ?? "", phone: row.phone ?? "" }) || null,
+    } : undefined;
     const target = kind === "handoff" || kind === "playbook-handoff" ? "processing-handoff" : kind === "review" ? reviewTarget(id) :
       kind === "application-review" ? "loan-application" :
       kind === "appointment" ? appointmentTarget(id) : kind === "document" || kind === "document-review" ? `document-${id}` :
@@ -456,7 +479,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     // Use the return time for visibility and paging, and the playbook deadline for urgency.
     const handoffDueAt = kind === "handoff" && title === "Returned from processing" && handoffHours !== undefined ? afterHours(dueAt, handoffHours) : undefined;
     items.push({ kind, id, recordId, name, title, dueAt, owner: owner || "Unassigned", ...(campaignId ? { campaignId } : {}), ...(target ? { target } : {}),
-      ...(handoffDueAt ? { handoffDueAt } : {}), ...(reason ? { reason } : {}),
+      ...(handoffDueAt ? { handoffDueAt } : {}), ...(reason ? { reason } : {}), ...(sequence ? { sequence } : {}),
       ...(completed ? { completedAt: dueAt, blocked } : {}),
       overdue: !completed && !["appointment", "document-review", "lead-document-review", "uwm-alert"].includes(kind) && (kind !== "handoff" || !!handoffDueAt) &&
         (dateOnly ? dueAt < today : Date.parse(handoffDueAt ?? dueAt) < now.getTime()) });

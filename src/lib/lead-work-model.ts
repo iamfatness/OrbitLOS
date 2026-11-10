@@ -14,7 +14,7 @@ const workId = z.string().min(1).max(100);
 export const leadWorkRequest = z.object({
   leadId: workId,
   callbackPromiseId: z.uuid().optional(),
-  task: z.object({ kind: z.enum(["lead", "campaign", "lead-task"]), id: z.string().min(1).max(200), team: z.literal(true).optional(),
+  task: z.object({ kind: z.enum(["lead", "campaign", "lead-task", "sequence"]), id: z.string().min(1).max(200), team: z.literal(true).optional(),
     expectedCallbackAt: z.iso.datetime().optional() }).optional(),
 });
 export type LeadWorkRequest = z.infer<typeof leadWorkRequest>;

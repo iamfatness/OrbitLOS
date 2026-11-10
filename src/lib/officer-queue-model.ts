@@ -2,12 +2,13 @@ import { z } from "zod";
 import { conversationCursor, type ConversationReplyPage } from "./conversation-model";
 import { fundingCheckInTarget } from "./loan-workflow";
 import type { Contact, ContactActivity } from "./model";
+import type { DueSequenceStep } from "./campaign-sequence-model";
 
 export const officerQueueUnavailable = "This personal work queue is unavailable.";
 export const campaignCallbacksUnavailable = "This personal campaign callback queue is unavailable.";
 export const officerQueueKinds = ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document",
   "appointment", "review", "handoff", "uwm-alert", "document-review", "lead-hold", "loan-hold", "quiet-lead",
-  "application-review", "playbook-handoff", "funding", "lead-document", "lead-document-review"] as const;
+  "application-review", "playbook-handoff", "funding", "lead-document", "lead-document-review", "sequence"] as const;
 const queueDate = z.union([z.iso.date(), z.iso.datetime()]);
 export const officerQueueCursor = z.object({ kind: z.enum(officerQueueKinds), dueAt: queueDate, id: z.string().min(1).max(200) });
 const cursor = officerQueueCursor;
@@ -44,6 +45,7 @@ export type OfficerQueueQuery = z.infer<typeof officerQueueQuery>;
 export type OfficerQueueItem = z.infer<typeof cursor> & {
   recordId: string; name: string; title: string; overdue: boolean; campaignId?: string; target?: string; handoffDueAt?: string;
   completedAt?: string; blocked?: boolean; reason?: string;
+  sequence?: DueSequenceStep;
 };
 type DeadlinePage = { checkedAt: string; through: string; items: OfficerQueueItem[]; next: z.infer<typeof cursor> | null };
 export type OfficerQueuePage = DeadlinePage & { replies: ConversationReplyPage };
@@ -95,6 +97,7 @@ export function queueActionLabel(item: OfficerQueueItem) {
     case "uwm-alert": return "Open lender update";
     case "contact": return "Open follow-up";
     case "lead-task": return "Open lead task";
+    case "sequence": return "Log sequence call";
     case "conversation": return "Open conversation";
     case "lead":
     case "lead-hold":

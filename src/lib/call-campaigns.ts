@@ -2,7 +2,8 @@ import type { z } from "zod";
 import { assignableCampaignLead, campaignFollowUpAllowed, campaignFollowUpRecipient, defaultCampaignRules, localCampaignOfficers, mockCampaignFollowUpPrefix, unansweredCampaignCall,
   type assignCampaignLeadsInput, type createCallCampaignInput, type pauseCampaignRetriesInput, type recordCampaignCallInput, type recordCampaignFollowUpInput, type rescheduleCampaignCallbackInput,
   type saveCampaignRulesInput } from "./call-campaign-model";
-import { easternDate, easternDayStart } from "./client-retention";
+import { campaignWeekdayAt } from "./campaign-timing";
+import { completeSequenceCall, stopCampaignSequence } from "./campaign-sequences";
 import { advanceLeadRevision, leadEvent, updateInboxLead } from "./lead-inbox";
 import { leadContactFields } from "./lead-inbox-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
@@ -97,17 +98,6 @@ export function assignCampaignLeads(db: Store, staff: WorkspaceStaff | null, inp
   return { message: `${updates.length} ${updates.length === 1 ? "lead" : "leads"} assigned to ${officer.name}.` };
 }
 
-function retryDueAt(now: string, weekdays: number, time: string) {
-  const due = new Date(`${easternDate(new Date(now))}T00:00:00.000Z`);
-  while (weekdays > 0) {
-    due.setUTCDate(due.getUTCDate() + 1);
-    if (due.getUTCDay() !== 0 && due.getUTCDay() !== 6) weekdays--;
-  }
-  const [hour, minute] = time.split(":").map(Number);
-  const midnight = Date.parse(easternDayStart(due.toISOString().slice(0, 10)));
-  return new Date(midnight + (hour * 60 + minute) * 60_000).toISOString();
-}
-
 function completeCampaignTask(db: Store, taskId: string, now: string) {
   db.prepare("UPDATE lead_import_tasks SET completedAt = ? WHERE id = ? AND completedAt IS NULL").run(now, taskId);
 }
@@ -116,6 +106,7 @@ export function stopCampaignFollowUp(db: Store, staff: WorkspaceStaff | null, le
   preserveRequestedCallback = false) {
   const member = db.prepare("SELECT callbackTaskId, lastOutcome FROM call_campaign_members WHERE leadId = ?").get(leadId);
   if (!member) return;
+  stopCampaignSequence(db, leadId, reason === "1003 started" ? "Converted" : "Archived");
   closeCampaignAssignment(db, leadId, now);
   if (typeof member.callbackTaskId === "string" && (!preserveRequestedCallback || member.lastOutcome !== "Requested callback")) {
     completeCampaignTask(db, member.callbackTaskId, now);
@@ -154,7 +145,7 @@ export function recordCampaignCall(db: Store, staff: WorkspaceStaff | null, inpu
   const attemptLimitReached = callNumber >= Number(member.maxAttempts ?? defaultCampaignRules.maxAttempts);
   const wouldRetry = retryDays > 0 && !attemptLimitReached;
   const retryTime = typeof member.retryTime === "string" ? member.retryTime : defaultCampaignRules.retryTime;
-  const dueAt = input.callbackAt ? new Date(input.callbackAt).toISOString() : wouldRetry && !member.replyReceivedAt ? retryDueAt(now, retryDays, retryTime) : null;
+  const dueAt = input.callbackAt ? new Date(input.callbackAt).toISOString() : wouldRetry && !member.replyReceivedAt ? campaignWeekdayAt(now, retryDays, retryTime) : null;
   const title = input.callbackAt ? `Call back · ${member.name}` : `Retry call · ${member.name}`;
   const actor = staff?.name || "Demo workspace";
   supersedeCampaignFollowUp(db, input.leadId, input.outcome === "Opted out" ? "Borrower opted out of outreach." : "A newer campaign call replaced this follow-up.");
@@ -190,7 +181,7 @@ export function recordCampaignCall(db: Store, staff: WorkspaceStaff | null, inpu
   if (input.outcome === "Opted out") {
     optOutLead(db, input.leadId, now);
     accessEvent(db, staff, "Recorded brokerage outreach opt-out", input.leadId, now);
-  }
+  } else completeSequenceCall(db, input.leadId, now);
   return { message: followUp || "Campaign call outcome saved.", releasedCampaignSlot: !!exhaustedAt && !member.retryExhaustedAt };
 }
 

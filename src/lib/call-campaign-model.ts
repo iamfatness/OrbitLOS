@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { readCsv } from "./contact-csv";
 import { leadContactFields, type LeadEvent } from "./lead-inbox-model";
+import type { CampaignSequenceConfig } from "./campaign-sequence-model";
 import type { MigrationRow } from "./pipeline-migration-model";
 import type { DraftChannel, InboxLead, Loan, Workspace } from "./model";
 import { referralPhone } from "./referral-matches";
@@ -132,6 +133,7 @@ export interface CallCampaign extends CampaignRules {
   createdAt: string;
   automaticPaused: boolean;
   routing?: CampaignRouting;
+  newLeadSequence?: CampaignSequenceConfig;
 }
 
 export interface CallCampaignMember {
