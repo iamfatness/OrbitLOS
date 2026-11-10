@@ -98,7 +98,8 @@ export function applyCutoverOpenWork(db: Store, loanId: string, plan: NonNullabl
       status: file.status, conditions, syncedAt: null });
   }
   const action = "Restored fictional open work from cutover";
-  const summary = `${preview.documents} document requests · ${preview.conditions} lender conditions`;
+  const summary = [preview.documents ? `${preview.documents} document ${preview.documents === 1 ? "request" : "requests"}` : "",
+    preview.conditions ? `${preview.conditions} lender ${preview.conditions === 1 ? "condition" : "conditions"}` : ""].filter(Boolean).join(" · ");
   addApplicationActivity(db, loanId, `${action} · ${summary}`, now);
   accessEvent(db, staff, action, loanId, now);
   addLoanAuditEntry(db, loanId, staff, action, now, [{ field: "Restored document requests", before: null, after: preview.documents },

@@ -344,6 +344,7 @@ try {
       assert.ok((await change(sending, restore)).error);
       const retries = await Promise.all([change(receiving, restore), change(receiving, restore)]);
       assert.equal(retries.filter((reply) => reply.migrationChanged).length, 1);
+      assert.equal(retries.find((reply) => reply.migrationChanged)?.message, "Restored open work · 1 document request · 1 lender condition.");
       assert.match(retries.find((reply) => reply.error)?.error, /preview changed/);
       const resumed = await inBrokerage(receiving, officer, "readLoanForWork", loanId);
       assert.equal(resumed.loans[0].stage, "Lead");

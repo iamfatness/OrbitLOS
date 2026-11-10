@@ -1052,6 +1052,8 @@ SQLite tests verified that an import preserves existing blocks, rejects stale pr
 
 ## Processing work cutover
 
+On November 10, 2026, Worker `f8a16d3f-e51b-490d-b572-46077c591ec2` from `0ad43ce` took 100% of traffic after 45 staged assets matched twice. The owner used the hosted fictional Role Handoff QA workspace to import a contact, attach its MISMO draft, record its source inventory, and assign the existing QA loan officer. The live restore created one pending document request and one manual lender condition. **Open restored work** opened the exact lender file. The separate processor session was exercised in the local rehearsal.
+
 The built Worker rehearsal restored a pending Photo ID request and an open income condition on one linked fictional MISMO draft. Orbit retained the manual lender reference, status and document due date. Prior accepted documents, delivery history and UWM inventory stayed in the comparison for review. The restore kept the 1003 in draft and the pipeline stage intact. The assigned LO set the stage to Processing after reviewing the file. The assigned processor opened the exact condition from Processing, requested a pay stub and saw the queue change to borrower follow-up.
 
 The preview rejected a change in assignment and two simultaneous submissions produced one audited restore. The other fictional brokerage and the non-admin account were denied access to the restore. All 373 tests, lint, typecheck, the production build, and the working-day and concurrency rehearsals passed. [Design evidence](brand-ux-review.md#processing-work-cutover)
