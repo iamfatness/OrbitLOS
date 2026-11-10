@@ -39,6 +39,7 @@ import { readCampaignRouting } from "./campaign-routing";
 import { campaignResponses } from "./campaign-response";
 import { initializeProcessingConditions, reopenedMockUwmAtSql } from "./processing-conditions";
 import { initializeCallReportReadiness } from "./call-report-readiness";
+import { initializeComplianceCases } from "./compliance-case-store";
 import { serviceOrderKinds } from "./service-order-model";
 
 export type SqlValue = string | number | null;
@@ -1514,6 +1515,7 @@ export function initializeStore(db: Store, seedDemo = true) {
         FROM pending WHERE draft.id = pending.id AND pending.since IS NOT NULL`);
     }
     initializeCallReportReadiness(db);
+    initializeComplianceCases(db);
     migrateCampaignOptOuts(db);
     if (!seedDemo || db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();

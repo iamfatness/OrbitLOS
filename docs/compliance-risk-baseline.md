@@ -27,6 +27,14 @@ Use a fictional Michigan conventional purchase with a single brokerage, assigned
 
 RG-0 still needs named brokerage and legal reviewers, an agreed operational scope, and approved evidence and responsibility assignments. The fixture and design can progress while those decisions remain open.
 
+## RG-1 foundation
+
+The service in `src/lib/compliance-cases.ts` uses the existing workspace SQLite store. Its three case types have independent workflow status, ownership, optimistic revision checks, and append-only application history. The server caller must supply the authenticated staff session, its actual brokerage store and ID, and the directory's current roster. Brokerage admins see general workspace cases. LOs and processors can read findings for their assigned loans, and only a current case owner or admin can change workflow status. Restricted case rows are excluded before detail, counts, links, and paging. If the stored owner loses access, the projection routes work to an active admin or shows it needs assignment.
+
+The only case creation path is an explicit pilot-admin fixture for a fictional Michigan conventional purchase with a current sample disclosure package. Opening the same version reuses its case and shared review/gap. A new package version can open a distinct finding. The sample workbench review must match the latest package version and revision. Its provenance is retained separately from case workflow status and current coverage. Manual disclosure status and task completion provide no sample review. Both new and existing stores begin with coverage **Not evaluated**, with the eligible population unknown.
+
+RG-1 acceptance here covers foundational role and tenant scope, visibility, idempotent changes, stale queue pages, sample evidence and owner fallback. The remaining work includes a bounded inventory and backfill with health reporting, organization and rule scope, assigned reviewer capabilities, and the authenticated app adapter and role views. Keep legal approval, rule evaluation, operational evidence, and action enforcement for their gated stages.
+
 ## UX acceptance for the first queue
 
 - Owner opens **Review needed** and sees the same population in the filtered queue. Each row shows the issue, owner, timing, and next action. Coverage distinguishes waiting for evaluation, current results, and a failed or stale evaluation. [21st.dev dashboard patterns](https://21st.dev/community/components/explore/dashboard-component)
