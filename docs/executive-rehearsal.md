@@ -21,6 +21,8 @@ For the lender exception beat, open **Conditions** after the file reaches Clear 
 
 To show how a processor handles several documents on one file, open **Conditions → Work documents in bulk** with two received sample PDFs. Choose **Accept and send to mock UWM**, select both, and confirm the review. Switch to **Check selected mock clearances**. Check one receipt first to show the other condition stays outstanding, then clear the second.
 
+For a short evidence reuse example on a prepared fictional file, open **Use accepted evidence** on a second condition and choose the reviewed pay stub. Confirm the match. Show the source revision and original download alongside the condition. Record the fictional delivery and clearance separately. This is optional alongside the timed replacement flow.
+
 The live two-officer check used three fictional CSV rows and a one-lead cap per officer. Each officer received one lead and the third stayed shared. In **Call Campaigns → Unassigned**, show both caps and **0 open slots**, then use **Assign this lead**. The receiving officer can open that exact lead from **Today → Next 7 days** with the original deadline.
 
 ## Prepared CTO examples
