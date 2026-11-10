@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import type { CallCampaign } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { segmentEnrollmentLimit, segmentKinds, sequenceKindForSegment, type CrmSegment, type SegmentPreview } from "@/lib/crm-segment-model";
+import { crmSegmentFieldRecord, segmentEnrollmentLimit, segmentKinds, sequenceKindForSegment, type CrmSegment, type SegmentPreview } from "@/lib/crm-segment-model";
 import { CrmFieldFilterEditor } from "./crm-fields";
 import { Button } from "./ui/button";
 
@@ -31,7 +31,7 @@ function SegmentEditor({ segment, brokerageId, busy, save, onSaved }: {
         defaultValue={segment?.quietDays ?? 7} required /></label>}
     </div>
     <CrmFieldFilterEditor brokerageId={brokerageId} value={customFilter} change={setCustomFilter} disabled={busy}
-      scope={kind === "Quiet leads" ? "Matches values saved on leads." : "Matches values saved on borrower contacts."} />
+      records={[crmSegmentFieldRecord(kind)]} />
     <div><Button size="sm" variant="outline" disabled={busy} type="submit">{segment ? "Save segment changes" : "Save new segment"}</Button></div>
   </form>;
 }

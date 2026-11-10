@@ -20,6 +20,9 @@ export const enrollCrmSegmentInput = z.object({
   .refine(({ selectedIds }) => !selectedIds || new Set(selectedIds).size === selectedIds.length, "Select each borrower once.");
 
 export type CrmSegment = Omit<z.infer<typeof saveCrmSegmentInput>, "type">;
+export function crmSegmentFieldRecord(kind: CrmSegment["kind"]) {
+  return kind === "Quiet leads" ? "lead" : "contact";
+}
 export function sequenceKindForSegment(kind: CrmSegment["kind"]): CampaignSequenceKind {
   return kind === "Quiet leads" ? "Cold Lead Reactivation" : "Past Client Outreach";
 }

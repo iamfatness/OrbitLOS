@@ -2384,6 +2384,39 @@ try {
     assert.ok((await reportWork(owner, run)).error);
     assert.ok((await reportWork(owner, download)).error);
   });
+  await stage("Loan fields use assigned staff permissions and filter production exports", async () => {
+    const fields = (staff, input) => action(staff, "accessCrmFields", input);
+    const reportWork = (staff, input) => action(staff, "accessCustomReport", input);
+    const fieldId = randomUUID();
+    const create = { type: "saveField", fieldId, revision: 0,
+      definition: { label: "Fictional closing lane", kind: "Choice", options: ["Escalated QA", "Normal QA"], recordScope: "Loan file",
+        roles: ["LO", "Processor"], editRoles: ["Processor"] } };
+    assert.equal((await fields(owner, create)).kind, "savedField");
+    const record = { record: "loan", recordId: quoteFile.id };
+    const set = { ...record, type: "saveValue", fieldId, fieldRevision: 1, revision: 0, value: "Escalated QA" };
+    assert.ok((await fields(officer, set)).error);
+    assert.ok((await fields(competingOfficer, set)).error);
+    assert.equal((await fields(processor, set)).entries[0].value, "Escalated QA");
+    assert.equal((await fields(officer, { ...record, type: "values" })).entries[0].editable, false);
+    const snapshot = await borrower(quoteFile.token, { type: "read" });
+    assert.doesNotMatch(JSON.stringify(snapshot), /Fictional closing lane|Escalated QA/);
+    const { report } = await reportWork(owner, { type: "save", id: randomUUID(), revision: 0, definition: {
+      name: "Fictional loan lane", dataset: "Loan production", period: { kind: "Last 30 days" }, groupBy: "Current stage",
+      metrics: ["files"], columns: ["Purpose"], source: "", purpose: "", roles: ["LO", "Processor"],
+      customFilter: { fieldId, value: "Escalated QA" },
+    } });
+    const ref = { id: report.id, revision: report.revision };
+    const run = await reportWork(processor, { type: "run", ...ref });
+    assert.equal(run.totals.files, 1);
+    const download = { type: "export", ...ref, from: run.from, through: run.through };
+    const csv = await reportWork(processor, download);
+    assert.deepEqual(readCsv(csv.csv)[1].slice(4, 6), ["loan", quoteFile.id]);
+    assert.equal((await reportWork(competingOfficer, download)).count, 0);
+    assert.equal((await fields(owner, { ...create, revision: 1, definition: { ...create.definition, roles: ["LO"], editRoles: [] } })).kind, "savedField");
+    assert.deepEqual((await fields(processor, { ...record, type: "values" })).entries, []);
+    assert.ok((await reportWork(processor, download)).error);
+    assert.equal((await reportWork(officer, download)).count, 1);
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

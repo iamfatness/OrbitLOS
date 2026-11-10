@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { accessCrmFields } from "@/app/actions";
-import { crmFieldKinds, crmFieldRoles, crmFieldUnavailable, newCrmField, type CrmField, type CrmFieldDefinition,
-  type CrmFieldEntry, type CrmFieldFilter, type CrmFieldTarget } from "@/lib/crm-field-model";
+import { crmFieldAppliesTo, crmFieldKinds, crmFieldRoles, crmFieldScopes, crmFieldUnavailable, newCrmField,
+  type CrmField, type CrmFieldDefinition, type CrmFieldEntry, type CrmFieldFilter, type CrmFieldRecord, type CrmFieldTarget } from "@/lib/crm-field-model";
 import { Button } from "./ui/button";
 
 function useFields(brokerageId: string) {
@@ -31,12 +31,15 @@ function FieldValueControl({ field, value, change, disabled, required = false }:
     onChange={(event) => change(event.target.value)} disabled={disabled} required={required} />;
 }
 
-export function CrmFieldFilterEditor({ brokerageId, value, change, disabled, scope }: {
-  brokerageId: string; value?: CrmFieldFilter; change: (value: CrmFieldFilter | undefined) => void; disabled: boolean; scope: string;
+export function CrmFieldFilterEditor({ brokerageId, value, change, disabled, records }: {
+  brokerageId: string; value?: CrmFieldFilter; change: (value: CrmFieldFilter | undefined) => void; disabled: boolean; records: readonly CrmFieldRecord[];
 }) {
   const [result] = useFields(brokerageId);
-  const fields = result && "fields" in result ? result.fields : [];
+  const fields = result && "fields" in result ? result.fields.filter((field) => records.some((record) => crmFieldAppliesTo(field, record))) : [];
   const selected = fields.find((field) => field.id === value?.fieldId);
+  const loanFields = records.includes("loan");
+  const scope = loanFields ? "Match a borrower contact or an individual loan file." :
+    records.includes("lead") ? "Matches values saved on leads." : "Matches values saved on borrower contacts.";
   if (!value && !fields.length) return result && "error" in result ? <p className="muted" role="status">{result.error}</p> : null;
   return <div className="form-grid">
     <label className="field">CRM field filter<select value={value?.fieldId ?? ""} disabled={disabled} onChange={(event) => {
@@ -44,7 +47,9 @@ export function CrmFieldFilterEditor({ brokerageId, value, change, disabled, sco
     }}>
       <option value="">All field values</option>
       {value && !selected && <option value={value.fieldId}>{result ? "Unavailable CRM field" : "Loading field…"}</option>}
-      {fields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
+      {fields.map((field) => <option key={field.id} value={field.id}>
+        {field.label}{loanFields && (field.recordScope === "Loan file" ? " · Loan file" : " · Borrower contact")}
+      </option>)}
     </select><small className="muted">{scope}</small></label>
     {selected && value && <label className="field">Matches value
       <FieldValueControl field={selected} value={value.value} change={(text) => change({ ...value, value: text })} disabled={disabled} required />
@@ -104,8 +109,10 @@ function RecordFields({ brokerageId, target }: { brokerageId: string; target: Cr
 
   return <div className="record-form">
     {!result && !notice && <p className="muted" role="status">Loading record fields…</p>}
-    {result && !result.entries.length && <p className="empty-inline">No CRM fields are available for this record.</p>}
-    {result?.entries.map((entry) => result.editable ? <ValueEditor key={`${entry.field.id}:${entry.field.revision}:${entry.revision}:${retry}`}
+    {result && !result.entries.length && <p className="empty-inline">
+      {record === "loan" ? "No loan fields are available for this file." : "No CRM fields are available for this record."}
+    </p>}
+    {result?.entries.map((entry) => (entry.editable ?? result.editable) ? <ValueEditor key={`${entry.field.id}:${entry.field.revision}:${entry.revision}:${retry}`}
       entry={entry} busy={busy} save={save} /> :
       <p key={entry.field.id}><strong>{entry.field.label}</strong> · {entry.value ?? "No value"}</p>)}
     {notice && <p role="status">{notice}</p>}
@@ -117,7 +124,7 @@ function RecordFields({ brokerageId, target }: { brokerageId: string; target: Cr
 export function CrmFieldValues({ brokerageId, target }: { brokerageId: string; target: CrmFieldTarget }) {
   const [open, setOpen] = useState(false);
   return <details className="document-form" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>CRM fields</summary>
+    <summary>{target.record === "loan" ? "Loan fields" : "CRM fields"}</summary>
     {open && <RecordFields key={`${brokerageId}:${target.record}:${target.recordId}`} brokerageId={brokerageId} target={target} />}
   </details>;
 }
@@ -126,29 +133,48 @@ function SettingsEditor({ field, busy, save, archive, cancel }: {
   field: CrmField; busy: boolean; save: (definition: CrmFieldDefinition) => void; archive: () => void; cancel: () => void;
 }) {
   const [kind, setKind] = useState(field.kind);
+  const [recordScope, setRecordScope] = useState(field.recordScope ?? "Lead and borrower");
+  const [roles, setRoles] = useState(field.roles);
+  const [editRoles, setEditRoles] = useState(field.editRoles ?? field.roles.filter((role) => role === "LO"));
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const loan = recordScope === "Loan file";
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    save({ label: String(data.get("label")), kind, options: kind === "Choice" ?
+    save({ label: String(data.get("label")), kind, recordScope, options: kind === "Choice" ?
       String(data.get("options")).split(/\r?\n/).map((option) => option.trim()).filter(Boolean) : [],
-    roles: crmFieldRoles.filter((role) => data.has(role)) });
+    roles, ...(loan ? { editRoles: editRoles.filter((role) => roles.includes(role)) } : {}) });
   }
   return <form className="record-form document-item" onSubmit={submit}>
     <div className="form-grid">
       <label className="field">Field label<input name="label" maxLength={60} minLength={2} required defaultValue={field.label} disabled={busy} /></label>
       <label className="field">Field type<select value={kind} onChange={(event) => setKind(event.target.value as CrmField["kind"])}
         disabled={busy || field.revision > 0}>{crmFieldKinds.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label className="field">Applies to<select value={recordScope} onChange={(event) => setRecordScope(event.target.value as CrmField["recordScope"])}
+        disabled={busy || field.revision > 0}>{crmFieldScopes.map((item) => <option key={item}>{item}</option>)}</select></label>
     </div>
     {kind === "Choice" && <label className="field">Choices, one per line<textarea name="options" rows={4} maxLength={620}
       defaultValue={field.options.join("\n")} disabled={busy} required /></label>}
     <fieldset className="record-form">
-      <legend>Who can see this field</legend>
-      <p className="muted">Admins always have access. Processors can only view shared fields on assigned borrower records.</p>
-      {crmFieldRoles.map((role) => <label className="demo-confirm" key={role}>
-        <input type="checkbox" name={role} defaultChecked={field.roles.includes(role)} disabled={busy} />
-        {role === "LO" ? "Loan officers" : "Processors"}
-      </label>)}
+      <legend>Field permissions</legend>
+      <p className="muted">{loan ? "Admins can edit. Other staff need access to the specific loan." :
+        "Admins can edit. Processors can view shared fields on assigned borrower records."}</p>
+      {crmFieldRoles.map((role) => {
+        const label = role === "LO" ? "Loan officers" : "Processors";
+        return <div className="loan-application-actions" key={role}>
+          <label className="demo-confirm"><input type="checkbox" checked={roles.includes(role)} disabled={busy}
+            onChange={(event) => {
+              if (event.target.checked) setRoles(crmFieldRoles.filter((item) => roles.includes(item) || item === role));
+              else {
+                setRoles(roles.filter((item) => item !== role));
+                setEditRoles(editRoles.filter((item) => item !== role));
+              }
+            }} />{label}{loan && " can view"}</label>
+          {loan && <label className="demo-confirm"><input type="checkbox" checked={editRoles.includes(role)} disabled={busy || !roles.includes(role)}
+            onChange={(event) => setEditRoles(crmFieldRoles.filter((item) => item === role ? event.target.checked : editRoles.includes(item)))} />
+            {label} can edit</label>}
+        </div>;
+      })}
     </fieldset>
     <div className="loan-application-actions">
       <Button size="sm" type="submit" disabled={busy}>Save field</Button>
@@ -189,13 +215,14 @@ function FieldSettings({ brokerageId }: { brokerageId: string }) {
     }
   }
   return <div className="record-form">
-    <p className="muted">Add brokerage fields to leads and borrower contacts. Use the saved values in segment and report filters.</p>
+    <p className="muted">Add brokerage fields to leads and borrower contacts or individual loan files. Use the saved values in segment and report filters.</p>
     {!result && <p role="status">Loading CRM field settings…</p>}
     {result && "error" in result && <p role="status">{result.error}</p>}
     {result && "fields" in result && <>
       {fields.length ? <ul className="document-list">{fields.map((field) => <li className="document-item" key={field.id}>
-        <div className="document-item-head"><strong>{field.label}</strong><span className="pill">{field.kind}</span></div>
-        <div><Button size="sm" variant="ghost" onClick={() => setEdit(field)} disabled={busy}>Edit {field.label}</Button></div>
+        <div className="document-item-head"><strong>{field.label}</strong><span className="pill">{field.recordScope ?? "Lead and borrower"} · {field.kind}</span></div>
+        <div><Button size="sm" variant="ghost" onClick={() => setEdit(field)} disabled={busy}
+          aria-label={`Edit ${field.label} · ${field.recordScope ?? "Lead and borrower"}`}>Edit {field.label}</Button></div>
       </li>)}</ul> : <p className="empty-inline">No brokerage fields have been set up yet.</p>}
       {!edit && <div><Button size="sm" variant="outline" onClick={() => setEdit({ ...newCrmField, id: crypto.randomUUID(), revision: 0 })}>Add CRM field</Button></div>}
       {edit && <SettingsEditor key={`${edit.id}:${edit.revision}`} field={edit} busy={busy} cancel={() => setEdit(undefined)}

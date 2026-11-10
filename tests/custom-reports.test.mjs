@@ -16,6 +16,7 @@ const { customReportWork } = await import("../src/lib/custom-reports.ts");
 const { defaultCustomReport } = await import("../src/lib/custom-report-model.ts");
 const { crmFieldWork } = await import("../src/lib/crm-fields.ts");
 const { readCsv } = await import("../src/lib/contact-csv.ts");
+const { saveCrmSegment } = await import("../src/lib/crm-segments.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -177,6 +178,72 @@ test("oversized reports require a narrower export instead of returning partial d
   assert.match(download(report).error, /more than 2,000 report rows/);
   assert.equal(download(report, undefined, { metric: "cohortFunded" }).count, 0);
   assert.equal(db.prepare("SELECT count(*) AS total FROM workspace_access_history WHERE action = 'Prepared custom report CSV'").get().total, 1);
+});
+
+test("loan fields keep separate values for the same borrower and require record and field access", (t) => {
+  const { db, now, brokerageId, admin, officer, other, processor, work, save, run, records, download, file } = fixture(t);
+  const fields = (input, actor = admin, tenant = brokerageId) => crmFieldWork(db, input, actor, tenant);
+  const fieldId = crypto.randomUUID();
+  const config = { label: "Closing lane", kind: "Choice", options: ["Priority", "Standard"],
+    recordScope: "Loan file", roles: ["LO", "Processor"], editRoles: ["Processor"] };
+  const create = { type: "saveField", fieldId, revision: 0, definition: config };
+  assert.equal(fields(create).kind, "savedField");
+  assert.ok(!db.prepare("SELECT 1 FROM crm_fields WHERE id = ?").get(fieldId));
+  assert.ok(fields({ ...create, revision: 1, definition: { ...config, recordScope: "Lead and borrower", editRoles: undefined } }).error);
+  assert.ok(fields({ ...create, revision: 1, definition: { ...config, roles: ["LO"] } }).error);
+
+  const legacyId = crypto.randomUUID();
+  const legacy = { label: "Existing outreach tier", kind: "Short text", options: [], roles: ["LO"] };
+  db.prepare("INSERT INTO crm_fields (id, label, revision, definition) VALUES (?, ?, 1, ?)").run(legacyId, legacy.label, JSON.stringify(legacy));
+  assert.equal(fields({ ...create, fieldId: legacyId, revision: 1, definition: legacy }).field.revision, 1);
+  file("purchase", officer);
+  insertLoan(db, { id: "refinance", contactId: "contact-purchase", partnerId: null, officer: officer.name, officerEmail: officer.email,
+    amount: 300000, address: "", purpose: "Refinance", stage: "Processing", stageSince: now.toISOString() });
+  file("other", other);
+  db.prepare("INSERT INTO loan_processing VALUES ('purchase', ?, ?, 'Accepted', '', ?, 1)").run(processor.email, processor.name, now.toISOString());
+  const values = (recordId, actor = admin, record = "loan") => fields({ type: "values", record, recordId }, actor);
+  assert.deepEqual(values("purchase", officer).entries.map(({ field, editable }) => [field.id, editable]), [[fieldId, false]]);
+  assert.deepEqual(values("contact-purchase", officer, "contact").entries.map(({ field }) => field.id), [legacyId]);
+  assert.equal(values("purchase", processor).entries[0].editable, true);
+  assert.ok(values("purchase", other).error);
+  assert.ok(values("refinance", processor).error);
+  assert.ok(fields({ type: "values", record: "loan", recordId: "purchase" }, admin, "another-workspace").error);
+
+  const set = (recordId, value, options = {}) =>
+    ({ type: "saveValue", record: "loan", recordId, fieldId, fieldRevision: 1, revision: 0, value, ...options });
+  assert.ok(fields(set("purchase", "Priority"), officer).error);
+  assert.ok(fields(set("refinance", "Priority"), processor).error);
+  assert.ok(fields(set("contact-purchase", "Priority", { record: "contact" })).error);
+  assert.ok(fields(set("purchase", "Priority", { fieldId: legacyId })).error);
+  assert.equal(fields(set("purchase", "Priority"), processor).entries[0].value, "Priority");
+  assert.equal(values("refinance").entries[0].value, null);
+  assert.equal(fields(set("refinance", "Standard")).entries[0].value, "Standard");
+  assert.equal(fields(set("other", "Priority")).entries[0].value, "Priority");
+
+  const customFilter = { fieldId, value: "Priority" };
+  assert.ok(save({ ...defaultCustomReport, name: "Intake with loan field", customFilter }).error);
+  assert.ok(saveCrmSegment(db, admin, { id: crypto.randomUUID(), revision: 0, name: "Invalid loan segment", kind: "Past clients",
+    quietDays: 7, customFilter }, now.toISOString()).error);
+  const { report } = save({ ...defaultCustomReport, name: "Loan priority", dataset: "Loan production", groupBy: "None",
+    metrics: ["files"], roles: ["LO", "Processor"], customFilter });
+  assert.equal(run(report).totals.files, 2);
+  assert.equal(run(report, officer).totals.files, 1);
+  assert.equal(run(report, processor).totals.files, 1);
+  assert.deepEqual(records(report, "files", officer).rows.map(({ destination }) => destination.id), ["purchase"]);
+  assert.equal(download(report, processor).count, 1);
+  assert.equal(readCsv(download(report, officer).csv)[1][4], "purchase");
+  assert.ok(fields({ ...create, revision: 1, definition: { ...config, editRoles: [] } }).field);
+  assert.equal(values("purchase", processor).entries[0].editable, false);
+  assert.ok(fields(set("purchase", "Standard", { fieldRevision: 2, revision: 1 }), processor).error);
+  assert.equal(run(report, processor).totals.files, 1);
+  assert.ok(fields({ ...create, revision: 2, definition: { ...config, roles: ["LO"], editRoles: ["LO"] } }).field);
+  assert.deepEqual(values("purchase", processor).entries, []);
+  assert.equal(work({ type: "list" }, processor).reports.length, 0);
+  assert.ok(download(report, processor).error);
+  assert.equal(download(report, officer).count, 1);
+  db.prepare("DELETE FROM loans WHERE id = 'purchase'").run();
+  assert.ok(!db.prepare("SELECT 1 FROM crm_loan_field_values WHERE recordId = 'purchase'").get());
+  assert.equal(run(report, officer).totals.files, 0);
 });
 
 test("intake report uses current ownership for open and converted leads and keeps drilldowns within the shared role", (t) => {

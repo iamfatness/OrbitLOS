@@ -6,7 +6,7 @@ import { attachedCampaignSequence, enrollCampaignSequence } from "./campaign-seq
 import { rateTargetReached } from "./client-retention";
 import { crmFieldFilter } from "./crm-field-model";
 import { crmFieldValueTable, resolveCrmFieldFilter } from "./crm-fields";
-import { pilotSegmentLeadPrefix, segmentEnrollmentLimit, sequenceKindForSegment, type CrmSegment, type SegmentPreview,
+import { crmSegmentFieldRecord, pilotSegmentLeadPrefix, segmentEnrollmentLimit, sequenceKindForSegment, type CrmSegment, type SegmentPreview,
   type enrollCrmSegmentInput, type saveCrmSegmentInput } from "./crm-segment-model";
 import { firstContactDue, leadEvent, leadRouting } from "./lead-inbox";
 import { leadContactFields } from "./lead-inbox-model";
@@ -24,7 +24,7 @@ type SegmentMutation = { message: string; preview?: SegmentPreview; leadIds?: st
 const filterUnavailable = { error: "The segment’s CRM field is unavailable. Update its filter before continuing." };
 
 export function saveCrmSegment(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof saveCrmSegmentInput>, now: string): SegmentMutation {
-  const resolved = input.customFilter ? resolveCrmFieldFilter(db, input.customFilter) : null;
+  const resolved = input.customFilter ? resolveCrmFieldFilter(db, input.customFilter, [crmSegmentFieldRecord(input.kind)]) : null;
   if (input.customFilter && !resolved) return filterUnavailable;
   const customFilter = resolved ? JSON.stringify({ fieldId: resolved.field.id, value: resolved.value }) : null;
   const current = db.prepare("SELECT revision, name, kind, quietDays, customFilter FROM crm_segments WHERE id = ?").get(input.id);
@@ -77,10 +77,11 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
   if (!segment || !db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(input.campaignId)) {
     return { error: "Choose an available saved segment and call campaign." };
   }
+  const record = crmSegmentFieldRecord(segment.kind);
   const fieldFilter = segment.customFilter === null ? null :
-    resolveCrmFieldFilter(db, crmFieldFilter.parse(JSON.parse(segment.customFilter)));
+    resolveCrmFieldFilter(db, crmFieldFilter.parse(JSON.parse(segment.customFilter)), [record]);
   if (segment.customFilter !== null && !fieldFilter) return filterUnavailable;
-  const valueTable = crmFieldValueTable[segment.kind === "Quiet leads" ? "lead" : "contact"];
+  const valueTable = crmFieldValueTable[record];
   const matches = fieldFilter ? new Set(db.prepare(`SELECT recordId FROM ${valueTable} WHERE fieldId = ? AND value = ?`)
     .all(fieldFilter.field.id, fieldFilter.value).map(({ recordId }) => recordId)) : null;
   const attachment = attachedCampaignSequence(db, input.campaignId);

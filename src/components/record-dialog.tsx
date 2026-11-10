@@ -30,6 +30,7 @@ import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mock
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
 import { LoanAudit } from "./loan-audit";
+import { CrmFieldValues } from "./crm-fields";
 import { LoanBorrowerQuestions } from "./loan-borrower-questions";
 import { UwmDeliveryTimeline } from "./uwm-delivery-timeline";
 import { ManualLenderExport } from "./manual-lender-export";
@@ -662,6 +663,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         {stages.map((stage) => <option key={stage} disabled={!!reopenedClosing && stage !== loan.stage &&
           mockClearanceClosingStages.some((item) => item === stage)}>{stage}</option>)}
       </select></Field>
+      {(staff || process.env.NODE_ENV === "development") && <CrmFieldValues brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+        target={{ record: "loan", recordId: loan.id }} />}
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} preflightOpen={target === filePreflightTarget}
         preflightBrokerage={canOpenDisclosures ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         preapprovalBrokerage={staff ? !processor && (staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) ? staff.brokerage.id : undefined :

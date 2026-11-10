@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessCustomReport } from "@/app/actions";
-import { customReportChoices, customReportColumns, customReportDefinition, customReportLimit, customReportMetricLabels,
+import { customReportChoices, customReportColumns, customReportDefinition, customReportFieldRecords, customReportLimit, customReportMetricLabels,
   customReportPeriods, customReportRoles, defaultCustomReport, type CustomReport, type CustomReportCounts, type CustomReportDefinition,
   type CustomReportGroup, type CustomReportMetric, type CustomReportRecord, type CustomReportRecords, type CustomReportRun } from "@/lib/custom-report-model";
 import { leadSources } from "@/lib/model";
@@ -33,7 +33,7 @@ function ReportEditor({ edit, brokerageId, busy, change, save, cancel }: {
       <label className="field">Report type<select value={report.dataset} disabled={busy} onChange={(event) => {
         const dataset = event.target.value as CustomReportDefinition["dataset"];
         const choices = customReportChoices[dataset];
-        change({ dataset, groupBy: choices.groups.some((group) => group === report.groupBy) ? report.groupBy : "None",
+        change({ dataset, customFilter: undefined, groupBy: choices.groups.some((group) => group === report.groupBy) ? report.groupBy : "None",
           metrics: [...choices.metrics], roles: report.roles.filter((role) => dataset === "Loan production" || role === "LO") });
       }}><option>Intake cohort</option><option>Loan production</option></select></label>
       <label className="field">Date period<select value={report.period.kind} disabled={busy} onChange={(event) => {
@@ -59,7 +59,7 @@ function ReportEditor({ edit, brokerageId, busy, change, save, cancel }: {
         <option value="">All purposes</option><option>Purchase</option><option>Refinance</option></select></label>
     </div>
     <CrmFieldFilterEditor brokerageId={brokerageId} value={report.customFilter} change={(customFilter) => change({ customFilter })} disabled={busy}
-      scope={report.dataset === "Intake cohort" ? "Matches values saved on leads." : "Matches values saved on borrower contacts."} />
+      records={customReportFieldRecords[report.dataset]} />
     <div className="form-grid">
       <fieldset className="document-item" disabled={busy}><legend>Counts to show</legend>
         {metrics.map((metric) => <label className="demo-confirm" key={metric}><input type="checkbox" checked={report.metrics.includes(metric)}

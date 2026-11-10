@@ -345,7 +345,9 @@ Select **Download report CSV** for all matching events or **Download this count 
 
 Under **Contacts → Manage CRM fields**, admins can define a short text, choice, yes or no, number, or date field and choose which staff roles can see it. In an open lead or a borrower contact’s history, expand **CRM fields** to enter values. Converting a lead fills empty borrower fields and preserves existing borrower values. Processors can view shared fields on their assigned borrower records.
 
-In **Saved CRM segments** or **Custom reports**, choose a CRM field and the exact value to match. Quiet lead segments and intake reports use lead values. Past-client segments and production reports use borrower contact values. Segment enrollment still applies outreach eligibility. Revoking a role’s access also removes its access to reports that filter on that field. Update any saved filters that refer to an archived field before running them again.
+To track a value separately on each loan, choose **Applies to → Loan file** when creating the field. Set view and edit access separately for loan officers and processors. Staff need access to the specific loan as well as the field. On the loan’s **Overview**, expand **Loan fields** to enter the value. It stays on that file when the borrower opens another loan.
+
+In **Saved CRM segments** or **Custom reports**, choose a field and the exact value to match. Quiet lead segments and intake reports use lead values. Past-client segments use borrower contact values. Production reports can filter on a borrower contact or an individual loan file, and their CSVs use the same filter. Segment enrollment still applies outreach eligibility. Revoking a role’s view access also removes its access to reports that filter on that field. Update any saved filters that refer to an archived field before running them again.
 
 ## Prepare a quarterly call report review
 

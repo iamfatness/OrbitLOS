@@ -4,28 +4,39 @@ export const crmFieldUnavailable = "These CRM fields are unavailable in your wor
 export const crmFieldLimit = 20;
 export const crmFieldKinds = ["Short text", "Choice", "Yes or no", "Number", "Date"] as const;
 export const crmFieldRoles = ["LO", "Processor"] as const;
+export const crmFieldScopes = ["Lead and borrower", "Loan file"] as const;
+const crmFieldRecord = z.enum(["lead", "contact", "loan"]);
 const valueText = z.string().trim().max(120);
 const revision = z.number().int().nonnegative();
 const fieldId = z.uuid();
-const target = { record: z.enum(["lead", "contact"]), recordId: z.string().min(1).max(160) };
+const target = { record: crmFieldRecord, recordId: z.string().min(1).max(160) };
 export const crmFieldFilter = z.object({ fieldId, value: valueText.min(1) });
 export type CrmFieldFilter = z.infer<typeof crmFieldFilter>;
 export const crmFieldDefinition = z.object({
   label: z.string().trim().min(2).max(60), kind: z.enum(crmFieldKinds),
   options: z.array(z.string().trim().min(1).max(50)).max(12),
   roles: z.array(z.enum(crmFieldRoles)).max(2),
-}).superRefine(({ kind, options, roles }, ctx) => {
+  recordScope: z.enum(crmFieldScopes).default("Lead and borrower"),
+  editRoles: z.array(z.enum(crmFieldRoles)).max(2).optional(),
+}).superRefine(({ kind, options, roles, recordScope, editRoles }, ctx) => {
   if (kind === "Choice" ? options.length < 2 : options.length !== 0) {
     ctx.addIssue({ code: "custom", path: ["options"], message: "A choice field needs at least two options." });
   }
   if (new Set(options.map((option) => option.toLowerCase())).size !== options.length || new Set(roles).size !== roles.length) {
     ctx.addIssue({ code: "custom", message: "Use each option and role only once." });
   }
+  if (editRoles && (recordScope !== "Loan file" || new Set(editRoles).size !== editRoles.length || editRoles.some((role) => !roles.includes(role)))) {
+    ctx.addIssue({ code: "custom", message: "Choose edit access from the roles that can see this loan field." });
+  }
 });
 export type CrmFieldDefinition = z.infer<typeof crmFieldDefinition>;
 export type CrmField = CrmFieldDefinition & { id: string; revision: number };
-export type CrmFieldTarget = { record: "lead" | "contact"; recordId: string };
-export type CrmFieldEntry = { field: CrmField; value: string | null; revision: number };
+export type CrmFieldRecord = z.infer<typeof crmFieldRecord>;
+export type CrmFieldTarget = { record: CrmFieldRecord; recordId: string };
+export type CrmFieldEntry = { field: CrmField; value: string | null; revision: number; editable: boolean };
+export function crmFieldAppliesTo(field: Pick<CrmField, "recordScope">, record: CrmFieldRecord) {
+  return (field.recordScope === "Loan file") === (record === "loan");
+}
 
 export const crmFieldInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("list") }),
@@ -56,4 +67,4 @@ export function normalizeCrmFieldValue(field: Pick<CrmField, "kind" | "options">
   return text.length <= 120 ? text : undefined;
 }
 
-export const newCrmField: CrmFieldDefinition = { label: "", kind: "Choice", options: [], roles: ["LO"] };
+export const newCrmField: CrmFieldDefinition = { label: "", kind: "Choice", options: [], roles: ["LO"], recordScope: "Lead and borrower" };

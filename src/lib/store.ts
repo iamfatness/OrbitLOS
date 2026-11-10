@@ -805,6 +805,10 @@ export function initializeStore(db: Store, seedDemo = true) {
         id TEXT PRIMARY KEY, label TEXT NOT NULL, revision INTEGER NOT NULL, definition TEXT NOT NULL, archivedAt TEXT
       );
       CREATE UNIQUE INDEX IF NOT EXISTS active_crm_field_labels ON crm_fields(label COLLATE NOCASE) WHERE archivedAt IS NULL;
+      CREATE TABLE IF NOT EXISTS crm_loan_fields (
+        id TEXT PRIMARY KEY, label TEXT NOT NULL, revision INTEGER NOT NULL, definition TEXT NOT NULL, archivedAt TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS active_crm_loan_field_labels ON crm_loan_fields(label COLLATE NOCASE) WHERE archivedAt IS NULL;
       CREATE TABLE IF NOT EXISTS crm_lead_field_values (
         recordId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE,
         fieldId TEXT NOT NULL REFERENCES crm_fields(id), value TEXT, revision INTEGER NOT NULL,
@@ -815,8 +819,14 @@ export function initializeStore(db: Store, seedDemo = true) {
         fieldId TEXT NOT NULL REFERENCES crm_fields(id), value TEXT, revision INTEGER NOT NULL,
         PRIMARY KEY (recordId, fieldId)
       );
+      CREATE TABLE IF NOT EXISTS crm_loan_field_values (
+        recordId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+        fieldId TEXT NOT NULL REFERENCES crm_loan_fields(id), value TEXT, revision INTEGER NOT NULL,
+        PRIMARY KEY (recordId, fieldId)
+      );
       CREATE INDEX IF NOT EXISTS crm_lead_value_lookup ON crm_lead_field_values(fieldId, value, recordId);
       CREATE INDEX IF NOT EXISTS crm_contact_value_lookup ON crm_contact_field_values(fieldId, value, recordId);
+      CREATE INDEX IF NOT EXISTS crm_loan_value_lookup ON crm_loan_field_values(fieldId, value, recordId);
       CREATE TABLE IF NOT EXISTS call_campaign_rules (
         campaignId TEXT PRIMARY KEY REFERENCES call_campaigns(id) ON DELETE CASCADE,
         revision INTEGER NOT NULL, voicemailDays INTEGER NOT NULL, noResponseDays INTEGER NOT NULL, maxAttempts INTEGER NOT NULL,

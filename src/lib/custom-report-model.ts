@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { crmFieldFilter } from "./crm-field-model";
+import { crmFieldFilter, type CrmFieldRecord } from "./crm-field-model";
 import { easternDate } from "./client-retention";
 import { leadSources } from "./model";
 import { reportMonthDates, shiftReportDate, validReportRange } from "./report-date-range";
@@ -8,6 +8,9 @@ export const customReportUnavailable = "This custom report is unavailable in you
 export const customReportLimit = 30;
 export const customReportExportLimit = 2_000;
 export const customReportTypes = ["Intake cohort", "Loan production"] as const;
+export const customReportFieldRecords = {
+  "Intake cohort": ["lead"], "Loan production": ["contact", "loan"],
+} as const satisfies Record<(typeof customReportTypes)[number], readonly CrmFieldRecord[]>;
 export const customReportGroups = ["None", "Lead source", "Campaign", "Loan officer", "Purpose", "Current stage"] as const;
 export const customReportColumns = ["Lead source", "Loan officer", "Purpose", "Current status", "Loan amount"] as const;
 export const customReportRoles = ["LO", "Processor"] as const;
