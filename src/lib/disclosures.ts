@@ -2,7 +2,7 @@ import { addApplicationActivity, getApplication } from "./applications";
 import { applicationDraft } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate, easternDayStart } from "./client-retention";
-import { disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
+import { disclosureDeclinePrefix, disclosureDeclineTaskTitle, disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
   type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
   type DisclosureSource, type DisclosureWork } from "./disclosure-model";
 import { quoteFeeWorksheet, quoteSnapshot } from "./quote-worksheet-store";
@@ -27,8 +27,9 @@ function disclosureSource(db: Store, loanId: string) {
   return { source, draft: app.draft } as const;
 }
 
-type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote"> & {
+type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp"> & {
   loanId: string; runId: string; offerId: string; documents: string; signers: string; quote: string;
+  declineFollowUp: string | null;
 };
 
 function packageRows(db: Store, loanId: string, limit: number) {
@@ -43,6 +44,7 @@ export function readDisclosureWork(db: Store, loanId: string): DisclosureWork {
       version: item.version, revision: item.revision, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision,
       preparedAt: item.preparedAt, issuedAt: item.issuedAt, signBy: item.signBy, supersededAt: item.supersededAt, reviewReason: item.reviewReason,
       documents: JSON.parse(item.documents), signers: JSON.parse(item.signers), quote: JSON.parse(item.quote),
+      declineFollowUp: item.declineFollowUp ? JSON.parse(item.declineFollowUp) : null,
     })) };
 }
 
@@ -96,6 +98,7 @@ function applyDisclosureResponse(db: Store, item: PackageRow, signers: Disclosur
   db.prepare("UPDATE disclosure_packages SET signers = ?, revision = revision + 1 WHERE loanId = ? AND version = ?")
     .run(JSON.stringify(signers), item.loanId, item.version);
   if (response === "Declined" || signers.every(({ status }) => status === "Signed")) completeTask(db, disclosureSigningPrefix, item, now);
+  if (response === "Declined") createTask(db, disclosureDeclinePrefix, item, disclosureDeclineTaskTitle, now);
   addApplicationActivity(db, item.loanId, `Mock disclosure response · ${signer.role} ${response.toLowerCase()} package v${item.version} · ${via}.`, now);
 }
 
@@ -141,6 +144,24 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
     return { error: "Open an active, unfunded loan to work on a sample disclosure package." } as const;
   }
   const [latest] = packageRows(db, data.loanId, 1);
+  if (data.type === "reviewDisclosureDecline") {
+    if (!latest?.issuedAt || latest.version !== data.version) return { error: "Open the current sample package." } as const;
+    if (latest.declineFollowUp) {
+      const followUp = JSON.parse(latest.declineFollowUp) as NonNullable<DisclosurePackage["declineFollowUp"]>;
+      return followUp.note === data.note ? { message: "Decline follow-up already recorded." } as const :
+        { error: "Decline follow-up was already recorded. Refresh the loan." } as const;
+    }
+    const signers: DisclosureSigner[] = JSON.parse(latest.signers);
+    if (latest.revision !== data.revision || !signers.some(({ status }) => status === "Declined")) {
+      return { error: "Refresh the current sample package before recording decline follow-up." } as const;
+    }
+    const followUp = { at: now, actor: staff?.name ?? "Demo staff", note: data.note };
+    db.prepare("UPDATE disclosure_packages SET declineFollowUp = ?, revision = revision + 1 WHERE loanId = ? AND version = ?")
+      .run(JSON.stringify(followUp), data.loanId, latest.version);
+    completeTask(db, disclosureDeclinePrefix, latest, now);
+    addApplicationActivity(db, data.loanId, `Recorded staff follow-up on declined sample disclosure package v${latest.version}.`, now);
+    return { message: "Decline follow-up recorded." } as const;
+  }
   const source = disclosureSource(db, data.loanId);
   if (!source.source) return { error: source.error } as const;
   const today = easternDate(new Date(now));
@@ -156,6 +177,7 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
         .run(now, data.loanId, latest.version);
       completeTask(db, disclosureReviewPrefix, latest, now);
       completeTask(db, disclosureSigningPrefix, latest, now);
+      completeTask(db, disclosureDeclinePrefix, latest, now);
     }
     db.prepare(`INSERT INTO disclosure_packages (loanId, version, runId, offerId, applicationRevision, feeRevision,
       quote, documents, signers, preparedAt, signBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)

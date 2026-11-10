@@ -15,6 +15,15 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" 
 const cents = (value: number | null | undefined) => value == null ? "Not entered" : usd.format(value / 100);
 const stamp = (value?: string | null) => value ? `${dateTime(value)} ET` : "Pending";
 
+function DeclineFollowUp({ item }: { item: DisclosurePackage }) {
+  const followUp = item.declineFollowUp;
+  return followUp && <div>
+    <strong>Decline follow-up recorded</strong>
+    <p>{followUp.note}</p>
+    <p className="muted">{followUp.actor} · {stamp(followUp.at)}</p>
+  </div>;
+}
+
 function QuoteDetails({ quote }: { quote: QuoteOption }) {
   return <>
     <p>{quote.product} · {quote.rate.toFixed(3)}% · {money(quote.loanAmount)}</p>
@@ -65,6 +74,8 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
   const offer = run?.mode === "mock" ? run.offers.find(({ id }) => id === run.selectedId) : undefined;
   const worksheet = state.feeWorksheets.find((item) => item.runId === run?.id && item.offerId === offer?.id);
   const command = current ? { loanId: loan.id, version: current.version, revision: current.revision } : null;
+  const declined = current?.signers.find(({ status }) => status === "Declined");
+  const targetPassed = status === "Awaiting signatures" && current && current.signBy < today;
 
   return <section className="details-section document-section" id={disclosureTarget} tabIndex={-1} aria-label="Disclosure and Critical Dates">
     <div className="section-heading"><h3><ClipboardList size={17} /> Disclosure &amp; Critical Dates</h3><span className="pill">Mock signing</span></div>
@@ -72,7 +83,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     <div className="form-grid">
       <div><strong>1003 submitted</strong><p>{stamp(app?.submittedAt)}</p></div>
       <div><strong>1003 reviewed</strong><p>{stamp(app?.reviewedAt)}</p></div>
-      <div><strong>Sample signing target</strong><p>{current ? dateLabel(current.signBy) : "Unscheduled"}</p></div>
+      <div><strong>Sample signing target</strong><p>{current ? dateLabel(current.signBy) : "Unscheduled"}{targetPassed && " · Past due"}</p></div>
       <div><strong>Closing target</strong><p>{target ? dateLabel(target) : "Unscheduled"}</p></div>
       {closed && <div><strong>Closing recorded</strong><p>{dateLabel(closed)}</p></div>}
       {funded && <div><strong>Funding recorded</strong><p>{dateLabel(funded)}</p></div>}
@@ -100,6 +111,21 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
               {response === "Signed" ? "Simulate signature" : "Simulate decline"}
             </Button>)}</div>}
       </li>)}</ul>
+      {targetPassed && <p className="muted">The signing target has passed. The pending mock responses remain available.</p>}
+      {declined && <div className="work-queue">
+        {current.declineFollowUp ? <DeclineFollowUp item={current} /> : <>
+          <strong>Follow up with the {declined.role.toLowerCase()}</strong>
+          <p>Record how you handled the decline, or prepare a revised sample package. This version retains the response and its receipt.</p>
+          {editable && <form className="record-form" onSubmit={(event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            void save({ type: "reviewDisclosureDecline", ...command, note: data.get("declineNote") });
+          }}>
+            <label className="field">Internal follow-up note<textarea name="declineNote" rows={2} required maxLength={500} /></label>
+            <div><Button size="sm" type="submit" disabled={busy}>Record decline follow-up</Button></div>
+          </form>}
+        </>}
+      </div>}
       {editable && source && status === "Draft" && <div><Button size="sm" disabled={busy}
         onClick={() => void save({ type: "issueDisclosurePackage", ...command })}>Issue sample package</Button></div>}
     </section>}
@@ -112,7 +138,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     </div>}
     {editable && work && run && offer && <FeeWorksheetEditor key={`${run.id}:${offer.id}:${worksheet?.revision ?? 0}`}
       run={run} offer={offer} saved={worksheet} busy={busy} save={save} brokerageId={brokerageId} current={pricingInputsMatch(run, app)} />}
-    {editable && source && <details className="document-form" open={!current || Boolean(current.reviewReason)} key={current?.version ?? 0}>
+    {editable && source && <details className="document-form" open={!current || Boolean(current.reviewReason) || Boolean(declined)} key={current?.version ?? 0}>
       <summary>{current ? "Prepare revised sample package" : "Assemble sample package"}</summary>
       <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
@@ -134,7 +160,10 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
       <h4>Recent package history</h4>
       {previous.map((item) => <div className="document-item" key={item.version}>
         <p>v{item.version} · Superseded {stamp(item.supersededAt)}</p>
-        <p>{item.signers.map(({ role, status }) => `${role} ${status.toLowerCase()}`).join(" · ")}</p>
+        <ul>{item.signers.map(({ role, status, actedAt, receipt, respondedVia }) => <li key={role}>
+          {role} · {status}{actedAt && ` · ${stamp(actedAt)}`}{receipt && ` · ${receipt}`}{respondedVia && ` · ${respondedVia}`}
+        </li>)}</ul>
+        <DeclineFollowUp item={item} />
         <PackagePreview item={item} />
       </div>)}
     </section>}

@@ -161,6 +161,41 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(f.co({ ...response, version: 3 }, coToken).status, 404);
   assert.equal(f.primary({ ...response, version: 3, response: "Declined" }).statusView.loanStatus.disclosure.state, "Closed");
   assert.equal(disclosurePackageStatus(current()), "Declined");
+  const declines = () => queue().filter(({ id }) => id.startsWith("disclosure-decline:"));
+  assert.equal(declines().length, 1);
+  assert.equal(declines()[0].target, disclosureTarget);
+  assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-signing:")));
+  const declineReceipt = current().signers[0].receipt;
+  assert.equal(f.primary({ ...response, version: 3, response: "Declined" }).statusView.loanStatus.disclosure.signer.receipt, declineReceipt);
+  assert.equal(declines().length, 1);
+  assert.match((await f.run("completeTask", { id: declines()[0].id, completed: true })).error, /workbench/);
+
+  // Reopen a workspace written before decline follow-ups existed.
+  f.db.prepare("DELETE FROM tasks WHERE id = ?").run(declines()[0].id);
+  f.db.exec("ALTER TABLE disclosure_packages DROP COLUMN declineFollowUp");
+  initializeStore(f.db, false);
+  initializeStore(f.db, false);
+  assert.equal(declines().length, 1);
+
+  const followUp = { ...version(), note: "Fictional private discussion about a revised package." };
+  assert.ok((await f.run("reviewDisclosureDecline", followUp, f.outsider)).error);
+  assert.ok((await f.run("reviewDisclosureDecline", followUp, f.processor)).error);
+  assert.ok((await f.run("reviewDisclosureDecline", { ...followUp, revision: followUp.revision - 1 })).error);
+  await apply("reviewDisclosureDecline", followUp);
+  assert.equal(current().declineFollowUp.note, followUp.note);
+  assert.equal(current().declineFollowUp.actor, f.officer.name);
+  assert.equal(current().signers[0].receipt, declineReceipt);
+  assert.equal(declines().length, 0);
+  assert.equal((await f.run("reviewDisclosureDecline", followUp)).message, "Decline follow-up already recorded.");
+  assert.ok(!JSON.stringify(primaryPackage()).includes(followUp.note));
+  await apply("prepareDisclosurePackage", prepare(3, 2));
+  assert.equal(work().packages[1].declineFollowUp.note, followUp.note);
+  assert.equal(work().packages[1].signers[0].receipt, declineReceipt);
+  await apply("issueDisclosurePackage", version());
+  assert.equal(f.primary({ ...response, version: 4, response: "Declined" }).statusView.loanStatus.disclosure.state, "Closed");
+  assert.equal(declines().length, 1);
+  await apply("prepareDisclosurePackage", prepare(4, 2));
+  assert.equal(declines().length, 0);
 });
 
 test("joint borrower links isolate drafts and finalize only after both portions arrive", async (t) => {

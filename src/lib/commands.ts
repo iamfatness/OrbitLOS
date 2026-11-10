@@ -481,6 +481,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "prepareDisclosurePackage":
     case "issueDisclosurePackage":
     case "respondToDisclosurePackage":
+    case "reviewDisclosureDecline":
     case "simulateMissingUwmReceipt":
     case "reconcileMockUwmReceipt":
     case "applyDocumentPreset":
@@ -1551,7 +1552,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "prepareDisclosurePackage":
         case "issueDisclosurePackage":
-        case "respondToDisclosurePackage": {
+        case "respondToDisclosurePackage":
+        case "reviewDisclosureDecline": {
           const result = updateDisclosurePackage(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;

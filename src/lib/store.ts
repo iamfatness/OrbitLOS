@@ -3,6 +3,7 @@ import { carriedCallbacks } from "./carried-campaign-callback";
 import { contactCompletionSql } from "./record-history";
 import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
+import { disclosureDeclinePrefix, disclosureDeclineTaskTitle } from "./disclosure-model";
 import { closeReviewedApplicationFollowUps, createApplicationFollowUps } from "./tasks";
 import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
 import { approvedIncomeSql } from "./income-review-freshness";
@@ -241,7 +242,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       version INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, applicationRevision INTEGER NOT NULL, feeRevision INTEGER NOT NULL,
       quote TEXT NOT NULL, documents TEXT NOT NULL, signers TEXT NOT NULL, preparedAt TEXT NOT NULL, signBy TEXT NOT NULL,
-      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT,
+      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT,
       PRIMARY KEY (loanId, version)
     );
     CREATE TABLE IF NOT EXISTS mock_uwm_acceptances (
@@ -970,6 +971,18 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(applications)").all().some((column) => column.name === "correctionNote")) {
       db.exec("ALTER TABLE applications ADD COLUMN correctionNote TEXT NOT NULL DEFAULT ''");
+    }
+    if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "declineFollowUp")) {
+      db.exec("ALTER TABLE disclosure_packages ADD COLUMN declineFollowUp TEXT");
+      db.prepare(`INSERT OR IGNORE INTO tasks (id, loanId, title, dueAt)
+        SELECT ? || package.loanId || ':' || package.version, package.loanId, ?, json_extract(signer.value, '$.actedAt')
+        FROM disclosure_packages package
+        JOIN loans loan ON loan.id = package.loanId
+        JOIN json_each(package.signers) signer
+        WHERE package.issuedAt IS NOT NULL AND package.supersededAt IS NULL
+          AND loan.stage NOT IN ('Funded', 'Closed')
+          AND json_extract(signer.value, '$.status') = 'Declined' AND json_extract(signer.value, '$.actedAt') IS NOT NULL`)
+        .run(disclosureDeclinePrefix, disclosureDeclineTaskTitle);
     }
     const pricingColumns = new Set(db.prepare("PRAGMA table_info(pricing_runs)").all().map(({ name }) => name));
     for (const column of ["applicationRevision", "incomeReviewRevision"]) {

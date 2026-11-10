@@ -5,6 +5,8 @@ import type { FeeInputs, QuoteOption } from "./quote-worksheet";
 export const disclosureTarget = "loan-disclosures";
 export const disclosureReviewPrefix = "disclosure-review:";
 export const disclosureSigningPrefix = "disclosure-signing:";
+export const disclosureDeclinePrefix = "disclosure-decline:";
+export const disclosureDeclineTaskTitle = "Follow up on declined sample disclosure";
 export const sampleDisclosureDocuments = ["Sample loan terms", "Sample fee summary", "Sample borrower acknowledgment"] as const;
 export const disclosureSigners = ["Borrower", "Co-borrower"] as const;
 export const disclosureResponses = ["Signed", "Declined"] as const;
@@ -20,6 +22,7 @@ export const disclosureCommand = z.discriminatedUnion("type", [
     signBy: z.iso.date() }),
   z.object({ type: z.literal("issueDisclosurePackage"), ...current }),
   z.object({ type: z.literal("respondToDisclosurePackage"), ...current, signer: z.enum(disclosureSigners), response: z.enum(disclosureResponses) }),
+  z.object({ type: z.literal("reviewDisclosureDecline"), ...current, note: z.string().trim().min(1).max(500) }),
 ]);
 
 export type DisclosureCommand = z.infer<typeof disclosureCommand>;
@@ -40,6 +43,7 @@ export type DisclosurePackage = DisclosureSource & {
   version: number; revision: number; documents: DisclosureDocument[]; signers: DisclosureSigner[];
   preparedAt: string; signBy: string; issuedAt: string | null; supersededAt: string | null;
   reviewReason: string | null;
+  declineFollowUp: { at: string; actor: string; note: string } | null;
 };
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
@@ -61,5 +65,5 @@ export function disclosurePackageStatus(item: DisclosurePackage) {
 }
 
 export function disclosureTask(id: string) {
-  return id.startsWith(disclosureReviewPrefix) || id.startsWith(disclosureSigningPrefix);
+  return id.startsWith(disclosureReviewPrefix) || id.startsWith(disclosureSigningPrefix) || id.startsWith(disclosureDeclinePrefix);
 }

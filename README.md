@@ -185,6 +185,8 @@ In a fictional workspace, review the submitted 1003 and save a sample quote. Ope
 
 Open the issued package on the borrower’s existing application link. Each linked signer reviews the sample documents and records their own simulated response. The portal shows that signer’s receipt, and staff see the source and time on the loan. A package needing review or superseded by a draft cannot accept further responses.
 
+A mock decline closes the signing reminder and adds a follow-up in **Today**. Open **Disclosures** to record a private note or prepare a revised package. Both options clear the follow-up, and the original response and receipt stay in history. A missed signing target appears as past due while pending mock responses remain available.
+
 Edit the selected quote’s fee worksheet after preparing a package. **Today** shows a review task that opens **Disclosures**, where staff can compare the changed amounts and prepare a revised package. A revised package closes the review task and starts with pending signers. Earlier documents, fee estimates, and responses remain in the package history.
 
 ## Rehearse a missing mock lender receipt
