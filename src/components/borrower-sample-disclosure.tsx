@@ -7,6 +7,7 @@ import type { BorrowerDisclosure, BorrowerDisclosureResponse } from "@/lib/discl
 import { feeKeys, feeLabels } from "@/lib/quote-worksheet";
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { borrowerDisclosureTarget } from "@/lib/borrower-action-model";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
@@ -16,7 +17,8 @@ export function BorrowerSampleDisclosure({ item, busy, respond }: {
   const [confirmed, setConfirmed] = useState(false);
   const { signer, state, terms, fees, version } = item;
   const actionable = signer.status === "Pending" && state === "Available";
-  return <section className="application-panel application-receipt document-section" aria-label="Sample disclosure package">
+  return <section className="application-panel application-receipt document-section" aria-label="Sample disclosure package"
+    id={borrowerDisclosureTarget} tabIndex={-1} data-borrower-action-target>
     <div className="document-item-head">
       <h2><FileCheck2 size={19} /> Sample disclosure package</h2>
       <span className="pill">Mock signing · v{version}</span>

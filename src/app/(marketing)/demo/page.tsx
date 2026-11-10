@@ -30,6 +30,7 @@ export default function DemoPage() {
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>
           <li>Reuse sample brokerage fee templates by loan purpose and ZIP. Saved quotes keep their itemized amounts, and staff can trace the source and effective date.</li>
           <li>Assemble a sample disclosure package and track each mock response. Open a task from Today to follow up on a decline or compare changes and record the review with the revised package.</li>
+          <li>From Your next actions, borrowers open their own corrections, outstanding documents, and mock signatures. Dated requests appear first, and the list updates when an item is complete.</li>
           <li>Confirm the signed sample package from Closing. A replacement leaves the earlier confirmation and receipts in history.</li>
           <li>Download a versioned sample closing packet with the confirmed disclosure, mock signer receipts, and the checklist as it stood at preparation.</li>
           <li>Open a settlement exception on the exact funding cycle. Review the difference between sample purchase advice and receipts, and keep corrections in the cycle history.</li>

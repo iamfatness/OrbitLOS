@@ -145,6 +145,8 @@ On the loan, open **Document checklist** and choose **Request document** to add 
 
 The submitted borrower view and the staff loan’s **1003** and **Conditions** views check for handoff changes every 15 seconds while visible. Same-browser notifications and returning to a tab can refresh sooner. Staff automatic refresh waits while there are unsaved edits. A borrower who has submitted can see a correction request and resume the saved application from the open view.
 
+**Your next actions** opens the exact correction form, outstanding document request, or pending mock disclosure on each borrower’s own link. Dated work appears first. An upload that is processing or waiting for staff review leaves the to-do list, and a borrower’s mock signature clears only their own action.
+
 **Incoming loan work** in **Today → My Tasks** shows submitted 1003s, received documents, and returned processing handoffs for the signed-in officer’s active loans, separately from due work. In **Processing → Assigned files**, it shows received documents and handoffs ready to accept. The newest incoming page and **Ready to accept** check every 15 seconds while visible and the loan drawer is closed. Each action opens the current 1003, document request, or handoff. Handoff notes stay in staff views.
 
 Under **Lender submissions**, open **Request borrower document** on an outstanding mock UWM condition. Confirm the document type and edit the instructions before adding the request. The condition shows the checklist status and links to the review controls. Each condition has its own request, and **Sync UWM** preserves the link. UWM clearance remains a separate lender status.

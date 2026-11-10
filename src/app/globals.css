@@ -450,6 +450,11 @@ button:disabled { cursor: default; }
 .demo-confirm input { accent-color: var(--accent); margin-top: 3px; }
 .application-receipt { display: grid; gap: 7px; padding: 22px; }
 .borrower-status, .document-section, .document-list { display: grid; gap: 10px; }
+.borrower-action-center h2 { display: flex; align-items: center; gap: 7px; }
+.borrower-action-title { display: grid; gap: 3px; }
+.borrower-portal > .borrower-action-center { margin-bottom: 12px; }
+.borrower-portal [data-borrower-action-target] { scroll-margin-top: 78px; }
+.borrower-portal [data-borrower-action-target]:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 .borrower-next, .document-item { display: grid; min-width: 0; gap: 7px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: #faf8fd; overflow-wrap: anywhere; }
 .borrower-next { margin-top: 5px; }
 .document-section > .section-heading { margin-bottom: 0; }

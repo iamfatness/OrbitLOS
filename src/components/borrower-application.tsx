@@ -10,11 +10,13 @@ import { observeHandoffChecks } from "@/lib/tab-return";
 import { primaryJointDraft } from "@/lib/joint-application-model";
 import type { BorrowerPortalPreferences } from "@/lib/borrower-channel-model";
 import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
+import { borrowerActions, borrowerCorrectionTarget } from "@/lib/borrower-action-model";
 import { borrowerWeekendHours, sameBorrowerHours, type BorrowerHours } from "@/lib/borrower-hours";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
 import { BorrowerStatus } from "./borrower-status";
+import { BorrowerActionCenter } from "./borrower-action-center";
 import { BorrowerChannelOptions } from "./borrower-channel-preferences";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 
@@ -298,8 +300,8 @@ function BorrowerApplication({ token }: { token: string | null }) {
       {!view?.submittedAt && <p>Save your progress and return with this link.</p>}
     </div>
     {!jointWaiting && <aside className="application-warning">{view?.submittedAt ? (view.documentUploadsMode === "mock" ? "Use sample files. Verification and scanning are simulated." : view.documentUploadsMode === "live" ? "Use fictional PDFs when testing uploads." : "Use the built-in sample documents.") : "Fictional information only. Use a test tax ID such as 000-00-1234. Leave real tax IDs, account numbers, and documents out of the demo."}</aside>}
-    {application?.correctionNote && <aside className="application-warning"><strong>Corrections requested</strong><p>{application.correctionNote}</p>
-      <p>Your previous answers are filled in. Make the requested changes, then submit the 1003 again to return to your loan status and checklist.</p></aside>}
+    {application?.correctionNote && <BorrowerActionCenter actions={borrowerActions({ correction: application.correctionNote })}
+      correction={application.correctionNote} />}
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status" className="application-message">Opening your application…</p>}
@@ -311,7 +313,8 @@ function BorrowerApplication({ token }: { token: string | null }) {
     </section> : view?.submittedAt && "loanStatus" in view ? token && view.loanStatus && <BorrowerStatus token={token} status={view.loanStatus} submittedAt={view.submittedAt}
       busy={busy} attach={attach} uploadsMode={view.documentUploadsMode} refresh={() => void perform({ type: "status" }, () => setNotice("Loan status refreshed."))}
       respondToDisclosure={(input) => void perform(input, () => setNotice("Your sample disclosure response was recorded."))} />
-      : application && <section className="application-panel application-editor" aria-label="1003 application">
+      : application && <section className="application-panel application-editor" aria-label="1003 application"
+        id={borrowerCorrectionTarget} tabIndex={-1} data-borrower-action-target>
       <div className="application-steps">
         <p className="eyebrow">Application sections</p>
         <ol className="application-progress" aria-label="Application sections" role="list">

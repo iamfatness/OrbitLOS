@@ -5,6 +5,7 @@ import type { DocumentRequest } from "@/lib/document-model";
 import { demoPdfFixtures, maxPdfBytes, type DocumentUploadMode } from "@/lib/document-files-model";
 import { announceBorrowerChange } from "@/lib/borrower-change-signal";
 import { Button } from "./ui/button";
+import { borrowerDocumentVerificationTarget } from "@/lib/borrower-action-model";
 
 async function pdfResponse(response: Response) {
   const result = await response.json() as { error?: string; session?: string; demoCode?: string };
@@ -73,7 +74,7 @@ export function useBorrowerPdf(token: string, refresh: () => void, mode?: Docume
 }
 
 export function BorrowerPdfVerification({ pdf, busy, demo }: { pdf: ReturnType<typeof useBorrowerPdf>; busy: boolean; demo: boolean }) {
-  return <div className="borrower-next">
+  return <div className="borrower-next" id={borrowerDocumentVerificationTarget} tabIndex={-1} data-borrower-action-target>
     <strong>{demo ? "Try demo verification" : "Verify your email to upload PDFs"}</strong>
     <p>{demo ? "Orbit displays a demo code here. Use it to try a built-in PDF and mock scan." : "Orbit sends a code to the email address on your loan."}</p>
     {pdf.demoCode && <p>Demo code <strong>{pdf.demoCode}</strong></p>}

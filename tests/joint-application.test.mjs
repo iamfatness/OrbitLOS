@@ -4,6 +4,7 @@ import test from "node:test";
 import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
 const { applicationIssues, applicationSteps, sampleApplication } = await import("../src/lib/application-model.ts");
+const { borrowerActions, borrowerCorrectionTarget, borrowerDisclosureTarget, borrowerDocumentTarget } = await import("../src/lib/borrower-action-model.ts");
 const { disclosurePackageStatus, disclosureTarget, sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 const { blankFees } = await import("../src/lib/quote-worksheet.ts");
@@ -18,6 +19,24 @@ const { beginDocumentUpload, finishDocumentUpload, failDocumentUpload, issueDocu
 const { checkDocumentReminders, documentReminderPage } = await import("../src/lib/document-reminder-runs.ts");
 const { readClosingPacket } = await import("../src/lib/closing-packets.ts");
 const { closingPacketPdf } = await import("../src/lib/closing-packet-pdf.ts");
+
+test("borrower actions use the earliest dates and exclude completed or processing work", () => {
+  const document = { kind: "Pay stub", instructions: "", status: "Requested", replacementNote: "",
+    submittedAt: null, dueOn: null, revision: 1, pdfStatus: null, pdfUploadedAt: null };
+  const documents = [
+    { ...document, id: "undated" },
+    { ...document, id: "retry", pdfStatus: "Retry", dueOn: "2026-11-05" },
+    { ...document, id: "processing", pdfStatus: "Processing", dueOn: "2026-11-01" },
+    { ...document, id: "received", status: "Received" },
+    { ...document, id: "accepted", status: "Accepted" },
+    { ...document, id: "replacement", status: "Needs replacement", dueOn: "2026-11-03" },
+  ];
+  const disclosure = { state: "Available", signBy: "2026-11-05", signer: { status: "Pending" } };
+  assert.deepEqual(borrowerActions({ documents, disclosure }).map(({ kind }) => kind), ["Replacement", "Signature", "Retry", "Document"]);
+  assert.deepEqual(borrowerActions({ documents, disclosure, correction: "Confirm the purchase price." }).map(({ kind }) => kind), ["Correction"]);
+  assert.deepEqual(borrowerActions({ disclosure: { ...disclosure, state: "Awaiting revision" } }), []);
+  assert.deepEqual(borrowerActions({ disclosure: { ...disclosure, state: "Closed" } }), []);
+});
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -143,7 +162,11 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.match((await f.run("confirmClosingDisclosure", version())).error, /each mock signature/);
   const initialHandoff = loan().handoffVersion;
   const primaryPackage = () => f.primary({ type: "status" }).statusView.loanStatus.disclosure;
+  const primaryActions = () => borrowerActions(f.primary({ type: "status" }).statusView.loanStatus);
+  const jointActions = () => borrowerActions(f.co().value);
   assert.equal(primaryPackage().signer.status, "Pending");
+  assert.equal(primaryActions()[0].target, borrowerDisclosureTarget);
+  assert.equal(jointActions()[0].target, borrowerDisclosureTarget);
   assert.equal(primaryPackage().fees.items.settlement, 125_000);
   assert.ok(!JSON.stringify(primaryPackage()).includes(revisionNote));
   assert.doesNotMatch(JSON.stringify(primaryPackage()), /Co-borrower|applicationRevision|runId|feeOrigin|joint-borrower@example/);
@@ -153,6 +176,8 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(borrowerCommandResult(f.db, { ...response, token: f.primaryToken }, true, false, false).status, 404);
   const signature = f.primary(response).statusView.loanStatus.disclosure.signer;
   assert.equal(signature.status, "Signed");
+  assert.deepEqual(primaryActions(), []);
+  assert.equal(jointActions()[0].target, borrowerDisclosureTarget);
   assert.deepEqual(f.primary(response).statusView.loanStatus.disclosure.signer, signature);
   assert.equal(f.primary({ ...response, response: "Declined" }).status, 409);
   assert.equal(f.co().value.disclosure.signer.status, "Pending");
@@ -160,6 +185,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   const changed = readLoanHandoff(f.db, f.loanId, initialHandoff, f.officer, f.brokerage.id);
   assert.equal(changed.disclosureWork.packages[0].signers[0].respondedVia, "Borrower portal");
   assert.equal(f.co(response).value.disclosure.signer.status, "Signed");
+  assert.deepEqual(jointActions(), []);
   assert.equal(f.co(response, f.primaryToken).status, 404);
   assert.equal(disclosurePackageStatus(current()), "Mock signing complete");
   assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-signing:")));
@@ -367,6 +393,7 @@ test("the co-borrower can submit first, revoke and replace, then correct only th
   assert.doesNotMatch(JSON.stringify(f.primary()), /Private fictional correction|joint-borrower@example.test/);
   const correction = f.co().value;
   assert.equal(correction.correctionNote, note);
+  assert.equal(borrowerActions({ correction: correction.correctionNote })[0].target, borrowerCorrectionTarget);
   assert.equal(correction.confirmedDemo, false);
   assert.equal(correction.submittedAt, null);
   const revised = { ...coDraft, identity: { ...coDraft.identity, fields: { ...coDraft.identity.fields, cell: "248-555-0196" } } };
@@ -403,6 +430,8 @@ test("same-kind evidence, upload sessions, and replacement notes stay with each 
   assert.equal(primaryRequest.instructions, "Primary sample only");
   assert.equal(coRequest.instructions, "Co-borrower sample only");
   assert.notEqual(primaryRequest.id, coRequest.id);
+  assert.deepEqual(borrowerActions({ documents: [primaryRequest] }).map(({ target }) => target), [borrowerDocumentTarget(primaryRequest.id)]);
+  assert.deepEqual(borrowerActions(f.co().value).map(({ target }) => target), [borrowerDocumentTarget(coRequest.id)]);
   const sample = ({ id, revision }) => ({ type: "attachSample", requestId: id, revision, statusOnly: true });
   assert.equal(f.primary(sample(coRequest)).status, 404);
   assert.equal(f.co(sample(primaryRequest)).status, 404);
@@ -424,6 +453,7 @@ test("same-kind evidence, upload sessions, and replacement notes stay with each 
   assert.equal(beginDocumentUpload(f.db, access(f.primaryToken, primarySession, coRequest), now + 2).status, 404);
   const primaryUpload = access(f.primaryToken, primarySession, primaryRequest);
   const primaryLease = beginDocumentUpload(f.db, primaryUpload, now + 3);
+  assert.deepEqual(borrowerActions(f.primary({ type: "status" }).statusView.loanStatus), []);
   assert.ok(finishDocumentUpload(f.db, primaryUpload, primaryLease.objectId, now + 4).received);
   const coUpload = access(coToken, coSession, coRequest);
   const lease = beginDocumentUpload(f.db, coUpload, now + 3);

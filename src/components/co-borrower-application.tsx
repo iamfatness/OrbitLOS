@@ -14,6 +14,8 @@ import { Button } from "./ui/button";
 import { BorrowerDocumentChecklist } from "./borrower-status";
 import { BorrowerSampleDisclosure } from "./borrower-sample-disclosure";
 import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
+import { borrowerActions, borrowerCorrectionTarget } from "@/lib/borrower-action-model";
+import { BorrowerActionCenter } from "./borrower-action-center";
 
 async function requestCoBorrower(token: string, input: object, signal: AbortSignal): Promise<CoBorrowerApplication> {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete co-borrower link from your loan officer.");
@@ -142,7 +144,8 @@ function CoBorrowerForm({ token }: { token?: string }) {
       <p>{submitted ? "Return with this link to check the joint application’s progress." : "Enter your own information and return with this link to resume."}</p>
     </div>
     {!submitted && <aside className="application-warning">Use fictional answers and a sample tax ID such as 000-00-2345.</aside>}
-    {view?.correctionNote && !submitted && <aside className="application-warning"><strong>Corrections requested for your portion</strong><p>{view.correctionNote}</p></aside>}
+    {view?.correctionNote && !submitted && <BorrowerActionCenter actions={borrowerActions({ correction: view.correctionNote })}
+      correction={view.correctionNote} />}
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status">Opening your portion…</p>}
@@ -152,11 +155,14 @@ function CoBorrowerForm({ token }: { token?: string }) {
         awaitingOtherPortion ? "Your loan officer receives the joint 1003 once both portions are submitted." : "Your loan officer can review both portions on the loan."}</p>
       <div><Button variant="outline" size="sm" disabled={busy} onClick={refresh}>Refresh joint status</Button></div>
     </section>
+      {view?.complete && <BorrowerActionCenter actions={borrowerActions(view)}
+        processing={view.documents?.filter((request) => request.pdfStatus === "Processing").length} />}
       {view?.disclosure && <BorrowerSampleDisclosure key={view.disclosure.version} item={view.disclosure} busy={busy}
         respond={(input) => void perform(input, "Your sample disclosure response was recorded.")} />}
       {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}
         busy={busy} refresh={refresh} attach={attach} uploadsMode={view.documentUploadsMode} />}
-    </div> : view && <section className="application-panel" aria-label="Co-borrower portion">
+    </div> : view && <section className="application-panel" aria-label="Co-borrower portion"
+      id={borrowerCorrectionTarget} tabIndex={-1} data-borrower-action-target>
       <form className="application-form" onSubmit={submit} noValidate>
         <fieldset disabled={busy} className="application-step">
           <label className="field">Your application section · {step + 1} of {labels.length}

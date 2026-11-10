@@ -11,6 +11,8 @@ import type { DocumentUploadMode } from "@/lib/document-files-model";
 import { SharedPreapprovalDownload } from "./shared-preapproval";
 import { BorrowerSampleDisclosure } from "./borrower-sample-disclosure";
 import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
+import { borrowerActions, borrowerDocumentTarget, borrowerDocumentVerificationTarget } from "@/lib/borrower-action-model";
+import { BorrowerActionCenter } from "./borrower-action-center";
 
 const stageUpdates: Record<Stage, { label: string; next: string }> = {
   Lead: { label: "Getting started", next: "Your loan officer will review your application and share the next steps." },
@@ -31,9 +33,11 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
 }) {
   const stage = stageUpdates[status.stage];
   const pause = status.closingPause;
-  const waiting = status.documents.filter((item) => needsBorrowerDocument(item.status)).length;
+  const actions = borrowerActions(status);
+  const processing = status.documents.filter((item) => item.pdfStatus === "Processing").length;
   const received = status.documents.filter((item) => item.status === "Received").length;
-  const next = waiting > 0 ? (uploadsMode === "live" ? "Upload the requested PDFs." : "Attach the requested samples.") : received > 0
+  const next = actions.length ? "Open the items in Your next actions to keep the loan moving." : processing > 0
+    ? "Your uploads are processing. The checklist will update when they’re ready." : received > 0
     ? "Your loan team will review the documents you attached."
     : status.stage === "Application" && status.reviewed ? "Your loan officer reviewed your application and will post any additional requests here." : stage.next;
 
@@ -48,10 +52,11 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
       <div className="borrower-next">
         <div className="document-item-head"><strong>What’s next</strong><span className="pill">{pause?.label ?? stage.label}</span></div>
         {pause && <p>Lender review is still open. Your loan team will confirm the timing once it clears.</p>}
-        {(!pause || waiting > 0 || received > 0) && <p>{next}</p>}
+        {(!pause || actions.length > 0 || processing > 0 || received > 0) && <p>{next}</p>}
         <small className="muted">{pause ? "Status updated" : "Loan stage updated"} {dateTime(pause?.since ?? status.stageSince)} ET</small>
       </div>
     </section>
+    <BorrowerActionCenter actions={actions} processing={processing} />
     {status.disclosure && <BorrowerSampleDisclosure key={status.disclosure.version} item={status.disclosure} busy={busy} respond={respondToDisclosure} />}
     {status.quote && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-quote-heading">
       <div className="section-heading"><h2 id="borrower-quote-heading"><Calculator size={19} /> Your shared quote</h2><span className="pill">Sample pricing</span></div>
@@ -78,18 +83,20 @@ export function BorrowerDocumentChecklist({ token, documents, busy, refresh, att
 }) {
   const pdf = useBorrowerPdf(token, refresh, uploadsMode);
   const demo = uploadsMode === "mock";
-  const waiting = documents.filter((item) => needsBorrowerDocument(item.status)).length;
-  const received = documents.filter((item) => item.status === "Received").length;
+  const processing = documents.filter((item) => item.pdfStatus === "Processing").length;
+  const waiting = documents.filter((item) => needsBorrowerDocument(item.status) && item.pdfStatus !== "Processing").length;
+  const received = documents.filter((item) => item.status === "Received" && item.pdfStatus !== "Processing").length;
+  const accepted = documents.filter((item) => item.status === "Accepted" && item.pdfStatus !== "Processing").length;
   return <section className="application-panel application-receipt document-section" aria-labelledby="borrower-documents-heading">
       <div className="section-heading"><h2 id="borrower-documents-heading"><FileCheck2 size={19} /> Document checklist</h2></div>
       {uploadsMode && waiting > 0 && !pdf.session && <BorrowerPdfVerification pdf={pdf} busy={busy} demo={demo} />}
       {pdf.error && <p role="alert" className="application-message banner-error">{pdf.error}</p>}
       {pdf.notice && <p role="status" className="muted">{pdf.notice}</p>}
       <p role="status" className={documents.length ? "document-counts" : "muted"}>{documents.length
-        ? `${waiting} to attach · ${received} in review · ${documents.length - waiting - received} accepted`
+        ? `${waiting} to attach${processing ? ` · ${processing} processing` : ""} · ${received} in review · ${accepted} accepted`
         : "New document requests will appear here."}</p>
       {documents.length ? <ul className="document-list">{documents.map((request) =>
-        <li className="document-item" key={request.id}>
+          <li className="document-item" key={request.id} id={borrowerDocumentTarget(request.id)} tabIndex={-1} data-borrower-action-target>
           <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
           {request.instructions && <p>{request.instructions}</p>}
           {request.status === "Needs replacement" && <p><strong>From your loan team</strong> · {request.replacementNote}</p>}
@@ -98,6 +105,8 @@ export function BorrowerDocumentChecklist({ token, documents, busy, refresh, att
           {(pdf.processing === request.id || request.pdfStatus === "Processing") && <p role="status">PDF is processing. This checklist checks for updates automatically.</p>}
           {request.pdfStatus === "Retry" && <p className="muted">The last PDF upload needs a retry.</p>}
           {needsBorrowerDocument(request.status) ? <>
+            {uploadsMode && !pdf.session && request.pdfStatus !== "Processing" && <Button size="sm" variant="ghost"
+              onClick={() => document.getElementById(borrowerDocumentVerificationTarget)?.focus()}>Go to PDF verification</Button>}
             {uploadsMode && pdf.session && request.pdfStatus !== "Processing" && <BorrowerPdfForm key={request.revision} pdf={pdf} request={request} busy={busy} demo={demo} />}
             {uploadsMode !== "live" && !request.pdfUploadedAt && request.pdfStatus !== "Processing" && <Button size="sm" variant={demo ? "outline" : "default"} disabled={busy || pdf.busy} onClick={() => attach(request)}>
               {demo ? "Attach text sample" : request.status === "Needs replacement" ? "Attach replacement sample" : "Attach sample document"}
