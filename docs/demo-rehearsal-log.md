@@ -1023,3 +1023,11 @@ The local Worker preserved the exact DSCR and bank statement inputs and the simu
 The stage fixture saved an unsupported result and a manual offer with zero provider requests. The MISMO sample carries the standard loan and quote terms. Non-QM income calculations and assumptions stay on the pricing scenario until receiving-lender field mapping is verified.
 
 Playwright checked the LO at 900 × 1200 and 390 × 844 and the owner at 1440 × 1000. It reopened the prior DSCR coverage check after bank statement pricing, entered a manual offer, compared the chosen scenarios, and opened the matching export. Keyboard scrolling stayed inside the comparison and the wider lender inputs fit on the phone. All 371 tests, lint, typecheck, the production build, and the working-day and concurrency rehearsals passed. [Design evidence](brand-ux-review.md#non-qm-manual-pricing)
+
+## Shared inbound review and missed calls
+
+On November 10, 2026, Worker `1e2d88b8-3311-46b9-9f98-0ad2a84015cb` from `8c28037` took 100% of traffic after all 45 staged assets matched twice. The live Product and Demo pages returned 200 with the new copy. In the hosted fictional Role Handoff QA workspace, the admin matched a simulated missed call to the existing QA campaign lead. Today showed **Missed call** for that assigned lead and opened the original entry in its conversation.
+
+The local Worker exercised separate admin, assigned LO, unrelated LO and processor sessions. A missed call kept the original thread and promised callback through reassignment and conversion. An attached email reply stopped automated outreach and kept the promised callback. SQLite coverage verified legacy receipts, repeat source events, role scope, and opt-out enforcement when logging outreach. Phone, email and text remained simulated.
+
+The Impeccable source scan and Playwright checks covered the changed screens. At 1440 × 900, 900 × 1200, and 390 × 844, the owner and LO could reach the primary action without horizontal scrolling. The mobile actions measured 44 px, and keyboard activation and focus return passed. All 372 tests, lint, typecheck, the production build, and the working-day and concurrency rehearsals passed. [Design evidence](brand-ux-review.md#inbound-review-and-today)
