@@ -1,4 +1,13 @@
 import { env } from "cloudflare:workers";
+import { checkUwmPublicConnection, uwmConnectionSettings } from "./uwm-live";
+import { runtimeSetting } from "./staff-auth";
+
+function uwmSettings() {
+  return Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_INSIGHTS_CLIENT_ID", "UWM_INSIGHTS_CLIENT_SECRET", "UWM_CLIENT_ID",
+    "UWM_CLIENT_SECRET", "UWM_EQ_CLIENT_ID", "UWM_EQ_CLIENT_SECRET", "ORBIT_PRICING_MODE"].map((key) => [key, runtimeSetting(env, key)]));
+}
+export async function loadUwmConnection(staff: WorkspaceStaff | null) { return uwmConnectionSettings(uwmSettings(), staff); }
+export async function verifyUwmConnection(staff: WorkspaceStaff | null) { return checkUwmPublicConnection(uwmSettings(), staff); }
 import type { WorkspaceStaff } from "./staff-store";
 import type { WorkspaceMutationScope } from "./commands";
 import { demoBrokerageId, portalBrokerage } from "./brokerage-model";

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Orbit } from "@/components/orbit";
-import { currentStaff, loadWorkspace } from "@/lib/workspace-service";
+import { currentStaff, loadWorkspace, loadUwmConnection } from "@/lib/workspace-service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,5 +13,5 @@ export default async function Workspace({ searchParams }: { searchParams: Promis
   const initialGuide = guide === "campaign" ? "campaign" : guide === "1" ? "referral" : undefined;
   const deferred = Boolean(staff) && !initialGuide;
   return <Orbit key={`${staff?.brokerage.id ?? "local"}:${initialGuide ?? "daily"}`} initial={await loadWorkspace(staff, deferred)}
-    staff={staff} initialGuide={initialGuide} deferredWorkspace={deferred} />;
+    staff={staff} initialGuide={initialGuide} deferredWorkspace={deferred} uwmConnection={await loadUwmConnection(staff)} />;
 }

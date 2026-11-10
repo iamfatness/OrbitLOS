@@ -1,4 +1,5 @@
 "use client";
+import { UwmConnection, type UwmConnectionStatus } from "./uwm-connection";
 
 import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import {
@@ -159,8 +160,8 @@ function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
 
 const subscribeToControlsReady = () => () => {};
 
-export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
-  initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: GuideTrack; deferredWorkspace: boolean;
+export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConnection }: {
+  initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: GuideTrack; deferredWorkspace: boolean; uwmConnection: UwmConnectionStatus;
 }) {
   const processor = staff?.brokerage.role === "Processor";
   const canOpenToday = !processor && (Boolean(staff) || process.env.NODE_ENV === "development");
@@ -1212,7 +1213,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               aria-current={section === "Review Inbox" ? "page" : undefined} disabled={!controlsReady} onClick={() => navigate("Review Inbox", false)}>
               <Bell aria-hidden="true" />{reviewInbox.unread && <span aria-hidden="true">{reviewInbox.unread}</span>}
             </Button>}
-            <button className="connection-chip" disabled={!controlsReady} onClick={() => navigate("Integrations")}><span /> UWM mock</button>
+            <button className="connection-chip" disabled={!controlsReady} onClick={() => navigate("Integrations")}><span /> {uwmConnection.pricing === "UWM stage API" ? "UWM stage" : "UWM"}</button>
             {staff && <form method="post" action="/auth/logout"><Button type="submit" size="sm" variant="ghost"><LogOut /> Sign out</Button></form>}
           </div>
         </header>
@@ -1671,19 +1672,15 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           </fieldset>}
 
           {section === "Integrations" && <section className="integration">
-            <div className="integration-head"><span className="metric-icon lavender"><workspaceIcons.integrations size={20} aria-hidden="true" /></span><div><h2>United Wholesale Mortgage</h2></div><span className="pill">Mock connection</span></div>
-            <p className="integration-description">Import sample pipeline loans and refresh their lender status and underwriting conditions.</p>
-            <details className="document-form">
-              <summary>Connection settings</summary>
-              <p>Mode · Mock UWM</p><p>Credentials · Pending lender access. This pilot uses sample pricing, submissions, and conditions.</p>
-              <p className="muted">Access and role settings are available in Team.</p>
-            </details>
+            <div className="integration-head"><span className="metric-icon lavender"><workspaceIcons.integrations size={20} aria-hidden="true" /></span><div><h2>United Wholesale Mortgage</h2></div><span className="pill">{uwmConnection.pricing}</span></div>
+            <p className="integration-description">Pricing, pipeline access and lender actions have separate connection requirements.</p>
+            <UwmConnection connection={uwmConnection} brokerageId={staff?.brokerage.id} admin={admin} />
             <div className="integration-stats"><span><CircleCheck size={17} /> {uwmCount} linked loans</span><span><ArrowDownUp size={17} /> {state.uwmSyncedAt ? `Last sync ${dateTime(state.uwmSyncedAt)} ET` : "Waiting for first sync"}</span></div>
             <div className="loan-application-actions">{syncButton()}
-              {admin && <Button variant="outline" disabled={busy || !state.uwmSyncedAt || state.mockUwmChangesApplied}
+              {admin && uwmConnection.pipeline === "Sample pipeline" && <Button variant="outline" disabled={busy || !state.uwmSyncedAt || state.mockUwmChangesApplied}
                 onClick={() => void save({ type: "simulateUwmChanges" })}>Simulate UWM changes</Button>}
             </div>
-            {admin && <p className="muted">{state.mockUwmChangesApplied
+            {admin && uwmConnection.pipeline === "Sample pipeline" && <p className="muted">{state.mockUwmChangesApplied
               ? "Sample lender changes applied. Review Charlotte Kim’s alerts under Tasks. My Tasks shows alerts for your assigned loans."
               : "After the first sync, simulate three lender changes on Charlotte Kim’s loan. Assign her loan to yourself to see the alerts in My Tasks."}</p>}
           </section>}

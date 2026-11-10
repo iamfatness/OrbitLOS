@@ -98,6 +98,8 @@ async function requestEq(url: string, init: RequestInit) {
 }
 
 export function pricingProvider(env: Record<string, string | undefined> = process.env): PricingProvider {
+  env = { ...env, UWM_EQ_CLIENT_ID: env.UWM_CLIENT_ID || env.UWM_EQ_CLIENT_ID,
+    UWM_EQ_CLIENT_SECRET: env.UWM_CLIENT_SECRET || env.UWM_EQ_CLIENT_SECRET };
   const mode = env.ORBIT_PRICING_MODE;
   if (!mode || mode === "mock") return mockPricing;
   if (mode !== "uwm-stage") throw new PricingError("configuration", "Pricing mode is unavailable. Check the workspace configuration.");
@@ -110,7 +112,7 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
       const token = eqToken.safeParse(await readEq(await requestEq("https://sso.uwm.com/adfs/oauth2/token", {
         method: "POST", redirect: "error", signal: AbortSignal.timeout(10_000),
         body: new URLSearchParams({
-          grant_type: "client-credentials", client_id: env.UWM_EQ_CLIENT_ID,
+          grant_type: "client_credentials", client_id: env.UWM_EQ_CLIENT_ID,
           client_secret: env.UWM_EQ_CLIENT_SECRET, scope: "https://api.uwm.com/loanorigination-stg",
         }),
       })));

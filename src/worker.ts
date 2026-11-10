@@ -595,6 +595,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       { scopedLeadUpdates: true, scopedLoanUpdates: true, scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks",
         scopedTemplateUpdates: true, scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration",
         reviewRouting, campaignRefillRoster, campaignOptOutRoster,
+        uwmEnvironment: Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_INSIGHTS_CLIENT_ID", "UWM_INSIGHTS_CLIENT_SECRET",
+          "UWM_CLIENT_ID", "UWM_CLIENT_SECRET", "UWM_ENVIRONMENT", "ORBIT_PRICING_MODE", "UWM_EQ_CLIENT_ID",
+          "UWM_EQ_CLIENT_SECRET", "UWM_EQ_BROKER_ALIAS", "UWM_EQ_LO_EMAIL"].map((key) => [key, runtimeSetting(this.env, key)])),
         protectPilotLinks: staff?.brokerage.pilot ? this.#protectPilotLinks : undefined });
     if ("state" in result && input && typeof input === "object" && "type" in input && (input.type === "deleteLoan" || input.type === "loadGuidedDemo")) await this.#scheduleCleanup();
     if (staff?.brokerage.pilot && "referralLoanId" in result && result.referralLoanId && input && typeof input === "object" &&

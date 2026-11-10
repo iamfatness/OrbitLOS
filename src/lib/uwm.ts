@@ -34,7 +34,7 @@ interface UwmConditions {
   clearedConditions: UwmCondition[];
 }
 
-interface UwmConnector {
+export interface UwmConnector {
   listLoans(): Promise<{ data: { Loans: InsightsLoan[] } }>;
   getConditions(loanNumber: string): Promise<UwmConditions>;
 }
@@ -511,8 +511,11 @@ export function simulateMockUwmChanges(db: Store) {
 export async function syncUwm(db: Store, connector?: UwmConnector) {
   if (!connector) return db.transaction(() => saveMockUwmSync(db, changesApplied(db)));
   const { data: { Loans } } = await connector.listLoans();
-  const files = await Promise.all(Loans.map(async (loan) => ({
-    loan, conditions: normalizeConditions(await connector.getConditions(loan.LoanId)),
-  })));
+  const files: UwmFile[] = [];
+  for (let index = 0; index < Loans.length; index += 4) {
+    files.push(...await Promise.all(Loans.slice(index, index + 4).map(async (loan) => ({
+      loan, conditions: normalizeConditions(await connector.getConditions(loan.LoanId)),
+    }))));
+  }
   return db.transaction(() => saveUwmSync(db, files, false));
 }

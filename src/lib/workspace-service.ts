@@ -1,4 +1,8 @@
 import { mkdirSync } from "node:fs";
+import { checkUwmPublicConnection, uwmConnectionSettings } from "./uwm-live";
+
+export async function loadUwmConnection(staff: WorkspaceStaff | null) { return uwmConnectionSettings(process.env, staff); }
+export async function verifyUwmConnection(staff: WorkspaceStaff | null) { return checkUwmPublicConnection(process.env, staff); }
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";

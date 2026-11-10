@@ -31,6 +31,7 @@ import { approvedIncomeAmount, pricingInputError } from "./income-review-freshne
 import { repriceIncomeMessage } from "./income-review-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider, unsupportedPricingResult } from "./pricing-provider";
+import { UwmError, uwmInsightsConnector, uwmWorkspaceEnabled, uwmPricingEnvironment, type UwmEnvironment } from "./uwm-live";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 import { createFundingDrafts, createMilestoneDrafts, recordDraftCopy, supersedeFundingDrafts } from "./communications";
 import { draftChannels } from "./communication-templates";
@@ -569,10 +570,10 @@ function scopedLoanId(data: z.infer<typeof command>) {
 export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity,
   leadMembers: CampaignRehearsalMember[] = [], { scopedLeadUpdates = false, scopedLoanUpdates = false, scopedContactUpdates = false,
     scopedInboxUpdates = false, scopedTaskUpdates = false, scopedTemplateUpdates = false, scopedRealtorUpdates = false, scopedMigrationUpdates = false,
-    protectPilotLinks, reviewRouting, campaignRefillRoster, campaignOptOutRoster }:
+    protectPilotLinks, reviewRouting, campaignRefillRoster, campaignOptOutRoster, uwmEnvironment = process.env }:
   { scopedLeadUpdates?: boolean; scopedLoanUpdates?: boolean; scopedContactUpdates?: boolean; scopedInboxUpdates?: boolean; scopedTaskUpdates?: boolean;
     scopedTemplateUpdates?: boolean; scopedRealtorUpdates?: boolean; scopedMigrationUpdates?: boolean; protectPilotLinks?: ProtectPilotLinks;
-    reviewRouting?: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null }; campaignRefillRoster?: CampaignRefillRoster; campaignOptOutRoster?: CampaignOptOutRoster } = {}):
+    reviewRouting?: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null }; campaignRefillRoster?: CampaignRefillRoster; campaignOptOutRoster?: CampaignOptOutRoster; uwmEnvironment?: UwmEnvironment } = {}):
   Promise<WorkspaceMutationSuccess | LeadMutationResult | CampaignMutationResult | CampaignNavigationResult | CampaignQueueResult | LoanMutationResult |
     ContactMutationResult | LeadInboxMutation | TaskMutationResult | TemplateMutationResult | RealtorMutationResult | PlaybookSettingsMutation |
     MigrationMutationResult | { error: string; claimConflict?: true }> {
@@ -581,6 +582,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
   const data = parsed.data;
   try {
     authorizeLoanOfficer(db, data, staff);
+    const liveUwm = uwmWorkspaceEnabled(uwmEnvironment, staff);
+    if (liveUwm && (/Mock/.test(data.type) || ["simulateUwmChanges", "sendConditionDocument", "simulateDeliveryFailure", "sendApplication"].includes(data.type) ||
+      (data.type === "reviewDocument" && data.sendToMockUwm))) {
+      throw new WorkspaceError("This workspace uses live UWM data. Simulated lender actions are disabled. Live submission, document delivery and rate locks require UWM onboarding.");
+    }
     if (data.type === "openCampaigns") {
       const campaignNavigation = db.transaction(() => readCampaignNavigation(db, data.campaignId, staff, data.loadIntake));
       return { campaignNavigation, message: "Campaigns are up to date." };
@@ -618,7 +624,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       return { state: scopeWorkspace(readWorkspace(db, staff?.brokerage.role === "Admin"), staff), message: result.message };
     }
     if (data.type === "sync" || data.type === "simulateUwmChanges") {
-      const result = data.type === "sync" ? await syncUwm(db) : simulateMockUwmChanges(db);
+      if (staff && !isDemoStaff(staff) && !staff.brokerage.pilot && !liveUwm) {
+        throw new WorkspaceError("Configure this brokerage's UWM connection before syncing. Sample loans are available only in demo and pilot workspaces.");
+      }
+      const result = data.type === "sync" ? await syncUwm(db, liveUwm ? uwmInsightsConnector(uwmEnvironment) : undefined) : simulateMockUwmChanges(db);
       if ("error" in result) throw new WorkspaceError(result.error);
       return { state: scopeWorkspace(readWorkspace(db, staff?.brokerage.role === "Admin"), staff),
         message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions · ${result.alerts} new alerts` };
@@ -638,7 +647,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       if (simulate && (!data.scenario.nonAgency || (!isDemoStaff(staff) && !staff?.brokerage.pilot))) {
         throw new WorkspaceError("Unsupported EQ rehearsal is available for Non-QM scenarios in fictional workspaces.");
       }
-      const env = simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } : data.incomeReviewRevision === undefined && isDemoStaff(staff) ? process.env : {};
+      const env = simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } : uwmPricingEnvironment(uwmEnvironment, staff);
       const result = await pricingProvider(env).quote(data.scenario).catch((error: unknown) => {
         if (!(error instanceof PricingError) || error.code !== "unsupported") throw error;
         return unsupportedPricingResult(simulate, error.message);
@@ -2385,7 +2394,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
     });
   } catch (error) {
     if (error instanceof LeadClaimConflict) return { error: error.message, claimConflict: true };
-    if (error instanceof WorkspaceError || error instanceof PricingError) return { error: error.message };
+    if (error instanceof WorkspaceError || error instanceof PricingError || error instanceof UwmError) return { error: error.message };
     if (data.type === "runPricing") return { error: "Pricing could not be completed. Try again." };
     console.error("Orbit mutation failed", error);
     return { error: "Orbit could not save the change. Please try again." };

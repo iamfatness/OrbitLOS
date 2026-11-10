@@ -1,5 +1,13 @@
 "use server";
 
+import { verifyUwmConnection } from "@/lib/workspace-service";
+
+export async function checkUwmConnection(expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if (!staff || staff.brokerage.id !== expectedBrokerage) return { error: "Sign in to the intended brokerage before verifying UWM." };
+  return verifyUwmConnection(staff);
+}
+
 import { currentStaff, loadCampaignCallbackExceptions, loadCampaignCallbackPerformance, loadCampaignCallbacks, loadCampaignManager, loadCampaignSequencePerformance, loadConversations, loadCutoverApplicationComparison, loadCutoverFileInventory, loadCutoverFileLookup, loadCutoverHandoff, loadEditableLead, loadEditableLoan, loadFileExceptions, loadFundingDashboard, loadInboundReplies, loadLeadArchive, loadMigrationCutover, loadMigrationRecovery, loadOfficerQueue, loadPipelineExport, loadProcessorQueue, loadRecordHistory, loadSalesDashboard, loadWorkspaceCalendar, loadWorkspaceSearch,
   loadContactDirectory, loadDraftQueue, loadLeadInbox, loadLoanContactPicker, loadPipeline, loadRealtorQueueReport, loadReportingReadiness, loadSharedRealtorQueue, loadWorkspaceTasks, updateAppointments, updateConversation, updateCutoverFileInventory, updateFundingRecord, updateInboundReply, updateLoanReview, updateMigrationCutover, updateProcessingView, updateRealtorQueueAssignment, updateSalesSettings, updateStaffCoverage, updateWorkspace,
   loadUwmDelivery, workOnBrokerageFinance, workOnContactMerge, workOnOfficerDashboard, workOnPlaybookRun } from "@/lib/workspace-service";

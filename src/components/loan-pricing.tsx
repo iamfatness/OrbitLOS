@@ -299,7 +299,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   return <div className="pricing-panel" id="pricing-workbench" tabIndex={-1}>
     <header className="pricing-heading">
       <div><h3><Calculator size={18} /> Loan pricing</h3><p>Compare conventional pricing and sample Non-QM estimates.</p></div>
-      <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : "Mock pricing"}</span>
+      <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : current ? "Mock pricing" : "Pricing"}</span>
     </header>
     <LoanStageEditNotice area="fees" control={feeEdits} busy={busy} />
     {published?.reviewReason && <section className="quote-saved" aria-label="Shared quote review">

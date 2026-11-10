@@ -1,5 +1,7 @@
 # OrbitLOS
 
+UWM stage pricing is connected for the hosted demo and fictional pilots. **Integrations** displays connection capabilities and offers an administrator verification check. Pipeline imports still require separate broker-shop Insights credentials; lender submissions, documents and locks remain simulated until onboarding is complete. See [UWM connection and deployment](docs/uwm-connection.md).
+
 OrbitLOS combines loan origination and CRM in one workspace for wholesale mortgage brokers. The demo starts with fictional borrowers, realtor partners, and loans. See the [product vision and scope](PRODUCT-BRIEF.md) for the roadmap and MVP acceptance criteria.
 
 ## Run locally
