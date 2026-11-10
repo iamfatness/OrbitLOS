@@ -3,11 +3,16 @@ import { contactRoles, readCsv } from "./contact-csv";
 import { activityKinds, contactOutcomes, followUpOutcomes, followUpPurposes, leadSources } from "./model";
 import { leadOutcomes, outreachChannels } from "./lead-inbox-model";
 import { callOutcomes } from "./call-campaign-model";
+import { borrowerChannelBits, borrowerChannels } from "./borrower-channel-model";
+
+const channelFields = { Call: "blockCalls", Email: "blockEmail", Text: "blockTexts" } as const;
+const channelBlock = z.literal("Yes").optional();
+const channelBlockFields = { blockCalls: channelBlock, blockEmail: channelBlock, blockTexts: channelBlock };
 
 export const migrationColumns = ["type", "externalId", "parentId", "name", "email", "phone", "role", "ownerEmail",
   "purpose", "source", "zip", "createdAt", "dueAt", "completedAt", "text", "taskPurpose",
   "parentType", "realtorId", "firstContactAt", "heldAt", "holdReason", "revisitDate", "optedOut",
-  "activityKind", "activityOutcome", "leadEventKind", "leadOutcome", "leadEventActor"] as const;
+  "activityKind", "activityOutcome", "leadEventKind", "leadOutcome", "leadEventActor", ...Object.values(channelFields)] as const;
 export type MigrationColumn = (typeof migrationColumns)[number];
 export const requiredMigrationColumns: MigrationColumn[] = ["type", "externalId"];
 export const migrationTypes = ["Contact", "Lead", "Note", "Task", "Callback"] as const;
@@ -87,11 +92,11 @@ const callbackHistory = z.strictObject({
 });
 export type CallbackMigrationHistory = z.infer<typeof callbackHistory>;
 export const migrationRow = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("Contact"), ...identity, role: z.enum(contactRoles), optedOut }),
+  z.object({ type: z.literal("Contact"), ...identity, role: z.enum(contactRoles), optedOut, ...channelBlockFields }),
   z.object({ type: z.literal("Lead"), ...identity, parentId: z.union([z.literal(""), externalId]), ownerEmail: email,
     purpose: z.enum(["Purchase", "Refinance"]), source: z.enum(leadSources), zip: z.string().regex(/^([0-9]{5})?$/),
     createdAt: date, dueAt: optionalDate, realtorId: externalId.optional(), firstContactAt: date.optional(),
-    heldAt: date.optional(), holdReason: z.string().trim().min(1).max(160).optional(), revisitDate: z.iso.date().optional(), optedOut }),
+    heldAt: date.optional(), holdReason: z.string().trim().min(1).max(160).optional(), revisitDate: z.iso.date().optional(), optedOut, ...channelBlockFields }),
   z.object({ type: z.literal("Note"), externalId, parentId: externalId, createdAt: date, text: z.string().trim().min(1).max(1800),
     leadEventKind: z.enum(["Note", "Campaign", ...outreachChannels]).optional(), leadOutcome: z.enum([...leadOutcomes, "Opted out"]).optional(),
     leadEventActor: z.string().min(1).max(254).optional() }),
@@ -101,6 +106,9 @@ export const migrationRow = z.discriminatedUnion("type", [
     activityKind: z.enum(activityKinds).optional(), activityOutcome: z.enum(contactOutcomes).optional(), followUpHistory: followUpHistory.optional() }),
   z.object({ type: z.literal("Callback"), externalId, parentId: externalId, text: z.string().trim().min(1).max(200), callbackHistory }),
 ]).superRefine((row, context) => {
+  if (row.type === "Contact" && row.role === "Realtor" && migrationChannelMask(row)) {
+    context.addIssue({ code: "custom", path: ["role"], message: "Borrower contact restrictions require a borrower or co-borrower." });
+  }
   if (row.type === "Task" && row.parentType !== "Contact" && row.text.length > 120) {
     context.addIssue({ code: "custom", path: ["text"], message: "Lead task titles can contain up to 120 characters." });
   }
@@ -116,6 +124,15 @@ export const migrationRow = z.discriminatedUnion("type", [
   }
 });
 export type MigrationRow = z.infer<typeof migrationRow>;
+export function migrationChannelMask(row: MigrationRow) {
+  return row.type === "Contact" || row.type === "Lead"
+    ? borrowerChannels.reduce((mask, channel) => row[channelFields[channel]] === "Yes" ? mask | borrowerChannelBits[channel] : mask, 0) : 0;
+}
+
+export function migrationChannelFields(blocked: number) {
+  return Object.fromEntries(borrowerChannels.filter((channel) => (blocked & borrowerChannelBits[channel]) !== 0)
+    .map((channel) => [channelFields[channel], "Yes"])) as Partial<Record<(typeof channelFields)[keyof typeof channelFields], "Yes">>;
+}
 export const migrationKey = (row: MigrationRow) => `${row.type}:${row.externalId}`;
 export const migrationBatchRowLimit = 100;
 export const migrationFileByteLimit = 200_000;
@@ -158,6 +175,7 @@ export interface MigrationReport {
     detail: string;
     targetId?: string;
     correction?: boolean;
+    channelBlocks?: { requested: number; blocked: number; added: number };
     matches?: { id: string; label: string }[];
     campaignDuplicates?: { id: string; name: string; campaignName: string | null; canEnroll: boolean }[];
     campaignEnrollment?: { owner: string | null; firstContactDueAt: string };
@@ -190,6 +208,7 @@ export interface MigrationRecoveryReview {
     receipt: MigrationImportReceipt;
     fingerprint: string;
     rows: { key: string; label: string; result: "Candidate" | "Keep" | "No change" | "Removed"; reason: string; correction?: boolean; canOpen?: boolean;
+      channelBlocks?: { requested: number; blocked: number | null };
       removal?: { at: string; by: string } }[];
   };
 }
@@ -198,6 +217,7 @@ const aliases: Partial<Record<MigrationColumn, string[]>> = {
   type: ["record type", "object"], externalId: ["id", "record id", "source id"], parentId: ["parent", "related to id", "related id", "contact id"],
   name: ["full name"], ownerEmail: ["owner email", "assigned to"], createdAt: ["created date", "created"],
   dueAt: ["due date", "due"], completedAt: ["completed date"], text: ["body", "subject", "description"], zip: ["postal code", "zipcode"],
+  blockCalls: ["DoNotCall"], blockEmail: ["HasOptedOutOfEmail", "Email Opt Out"], blockTexts: ["Text Opt Out"],
 };
 const normalizeHeader = (value: string) => value.toLowerCase().replace(/[\s_-]/g, "");
 const escapedCell = /^(?:'|\s*[=+\-@])/;
@@ -221,6 +241,10 @@ export function migrationFile(input: string) {
   const mapping: Partial<Record<MigrationColumn, number>> = {};
   for (const column of migrationColumns) {
     const names = [column, ...aliases[column] ?? []].map(normalizeHeader);
+    if (Object.values(channelFields).some((field) => field === column) &&
+      header.filter((value) => names.includes(normalizeHeader(value))).length > 1) {
+      throw new Error(`Use one source column for ${column} so conflicting preferences can be reconciled before import.`);
+    }
     const index = header.findIndex((value) => names.includes(normalizeHeader(value)));
     if (index >= 0) mapping[column] = index;
   }
@@ -260,6 +284,17 @@ export function mappedMigrationRows(file: ReturnType<typeof migrationFile>, mapp
     const pick = (values: readonly string[], column: MigrationColumn, fallback: string) =>
       values.find((item) => item.toLowerCase() === value(column).toLowerCase()) ?? (value(column) || fallback);
     const type = pick(migrationTypes, "type", "");
+    const blocks = Object.fromEntries(Object.values(channelFields).map((column) => {
+      const flag = value(column).toLowerCase();
+      if (!["", "yes", "no", "true", "false", "1", "0"].includes(flag)) {
+        throw new Error(`CSV record ${index + 1} · ${column}: use Yes, No, True, False, 1, 0, or leave blank.`);
+      }
+      const positive = ["yes", "true", "1"].includes(flag);
+      if (positive && type !== "Contact" && type !== "Lead") {
+        throw new Error(`CSV record ${index + 1}: channel restrictions belong to a contact or lead.`);
+      }
+      return [column, positive ? "Yes" : undefined];
+    }));
     const actor = value("leadEventActor");
     if ((type === "Callback" || actor) && !file.batch) throw new Error(`CSV record ${index + 1} requires a numbered Orbit batch.`);
     if (actor && type !== "Note") throw new Error(`CSV record ${index + 1} has an event actor outside a note.`);
@@ -279,6 +314,7 @@ export function mappedMigrationRows(file: ReturnType<typeof migrationFile>, mapp
     }
     const parsed = migrationRow.safeParse({
       ...Object.fromEntries(migrationColumns.map((column) => [column, value(column)])),
+      ...blocks,
       type, role: pick(contactRoles, "role", "Borrower"),
       purpose: pick(["Purchase", "Refinance"], "purpose", "Purchase"), source: pick(leadSources, "source", "Imported CRM"),
       taskPurpose: value("taskPurpose") ? pick(followUpPurposes, "taskPurpose", "") : undefined,

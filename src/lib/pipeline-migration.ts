@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { currentChannelTarget, effectiveChannelBlocks, linkedChannelLeadIds, setContactChannelBlocks, storedChannelBlocks, type ChannelTarget } from "./borrower-channels";
+import { reconcileBorrowerSequences } from "./borrower-sequences";
 import type { Store } from "./store";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Contact } from "./model";
@@ -9,7 +11,7 @@ import { attachedCampaignSequence, enrollCampaignSequence } from "./campaign-seq
 import { leadContactFields } from "./lead-inbox-model";
 import { accessEvent } from "./workspace-access";
 import { firstContactDue, leadRouting } from "./lead-inbox";
-import { migrationKey, migrationTypes, type MigrationInput, type MigrationReport, type MigrationRow } from "./pipeline-migration-model";
+import { migrationChannelMask, migrationKey, migrationTypes, type MigrationInput, type MigrationReport, type MigrationRow } from "./pipeline-migration-model";
 import { optOutContact, optOutLead, outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import { distributeCampaignLeads, readCampaignRouting } from "./campaign-routing";
 import { recordMigrationReceipt } from "./migration-recovery";
@@ -21,6 +23,7 @@ const isPlanned = (id: string) => id.startsWith("planned:");
 type Result = MigrationReport["rows"][number];
 type CampaignLeadMatch = Pick<Contact, "id" | "name" | "email" | "phone" | "role"> & { campaignName: string | null; heldAt: string | null };
 const recordLabel = (row: MigrationRow) => "name" in row ? row.name : row.text;
+const channelKind = (row: MigrationRow) => row.type === "Contact" ? "contact" : "lead";
 
 function addCampaignEnrollmentDetails(db: Store, campaignId: string, rows: Result[]) {
   const enrolled = rows.filter(({ status }) => status === "Create");
@@ -74,8 +77,8 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
   if (campaignId && correctionKeys) return { error: "Reimport corrected CRM rows in Migration." };
   if (campaignId && (input.origin !== campaignOrigin(campaignId) || !db.prepare("SELECT 1 FROM call_campaigns WHERE id = ?").get(campaignId) ||
     input.rows.some((row) => row.type !== "Lead" || !!row.parentId || !!row.realtorId || !!row.heldAt ||
-      row.optedOut === "Yes" || !row.phone || !leadContactFields.phone.safeParse(row.phone).success))) {
-    return { error: "Choose an available call campaign and import only lead rows with a phone number." };
+      row.optedOut === "Yes" || migrationChannelMask(row) || !row.phone || !leadContactFields.phone.safeParse(row.phone).success))) {
+    return { error: "Choose an available call campaign and import only lead rows with a phone number. Import contact restrictions in Migration." };
   }
   const ordered = [...input.rows].sort((a, b) => migrationTypes.indexOf(a.type) - migrationTypes.indexOf(b.type));
   const routing = campaignId ? readCampaignRouting(db, campaignId) : undefined;
@@ -114,7 +117,10 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
         const status = priorStatus === "Skipped" || priorStatus === "Suppressed" ? priorStatus :
           !targetId && undone.has(key) ? "Undone" : "Previously imported";
         const detail = status === "Undone" ? "Removed by a confirmed import undo." : "Already reconciled in this batch.";
-        return { key, label: recordLabel(row), status, detail, targetId };
+        const requested = migrationChannelMask(row);
+        const target = requested && targetId ? currentChannelTarget(db, channelKind(row), targetId) : undefined;
+        const channelBlocks = target ? { requested, blocked: effectiveChannelBlocks(db, target), added: 0 } : undefined;
+        return { key, label: recordLabel(row), status, detail, targetId, ...(channelBlocks ? { channelBlocks } : {}) };
       });
       return { migration: { rows, fingerprint: String(previous.contentHash),
         batch: { completed: true, nextPart: nextPart <= importBatch.partCount ? nextPart : null } },
@@ -174,6 +180,10 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
     const decision = input.decisions[key];
     const review = (detail: string) => Object.assign(result, { status: "Review", detail, targetId: undefined });
     if (known) {
+      if (!corrections && decision === "skip" && migrationChannelMask(row)) {
+        Object.assign(result, { status: "Skipped", detail: "Restriction update excluded by reviewer.", targetId: undefined });
+        continue;
+      }
       Object.assign(result, { status: "Previously imported", detail: "Source ID already reconciled.", targetId: known });
       if (batch && !corrections && row.type === "Note" && row.leadEventKind === "Call" && row.leadEventActor && row.leadEventActor !== "CRM import" &&
         db.prepare(`SELECT 1 FROM lead_events WHERE id = ? AND leadId = ? AND at = ? AND kind = 'Call'
@@ -290,10 +300,28 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
     }
   }
   const rows = keys.map((key) => plan.get(key)!);
+  const channelTargets = new Map<string, ChannelTarget>();
+  for (const row of ordered) {
+    const requested = migrationChannelMask(row);
+    if (!requested) continue;
+    const result = plan.get(migrationKey(row))!;
+    if (!result.targetId || (result.status !== "Create" && result.status !== "Reuse contact" && result.status !== "Previously imported") ||
+      (result.status === "Previously imported" && corrections)) continue;
+    const target: ChannelTarget | undefined = isPlanned(result.targetId) ?
+      { kind: channelKind(row), id: result.targetId } : currentChannelTarget(db, channelKind(row), result.targetId);
+    if (!target) {
+      Object.assign(result, { status: "Review", detail: "The source ID no longer points to an available borrower. Verify the restriction separately, then skip this row.", targetId: undefined });
+      continue;
+    }
+    channelTargets.set(result.key, target);
+    const before = isPlanned(target.id) ? 0 : storedChannelBlocks(db, target);
+    result.channelBlocks = { requested, blocked: before | requested, added: requested & ~before };
+  }
   const ownership = missing.size ? { missing: [...missing.values()], eligible: [...owners.values()] } : undefined;
   const fingerprint = createHash("sha256").update(JSON.stringify({ origin: input.origin, batch, input: ordered, rows, matchedContacts: [...matchedContacts],
     ...(corrections ? { corrections: [...corrections].sort().map((key) => [key, undone.get(key)]) } : {}),
     resolvedOwners: [...resolvedOwners], ...(restoredCallAuthors.size ? { restoredCallAuthors: [...restoredCallAuthors] } : {}),
+    ...(channelTargets.size ? { channelTargets: [...channelTargets] } : {}),
     ...(campaignId ? { campaignId, routingRevision: routing?.revision, sequenceVersion: sequence?.version } : {}) })).digest("hex");
   if (!input.preview) return { migration: { rows, fingerprint, ownership }, message: "Migration preview is ready." };
   if (input.preview !== fingerprint) return { error: "The preview changed. Review the latest results before importing." };
@@ -303,6 +331,7 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
   }
 
   const campaignLeads: string[] = [];
+  const changedPreferenceLeads = new Set<string>();
   for (const row of ordered) {
     const key = migrationKey(row);
     const result = plan.get(key)!;
@@ -366,6 +395,32 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
     db.prepare("INSERT INTO migration_records (origin, recordKey, targetId) VALUES (?, ?, ?)").run(input.origin, key, id);
     targets.set(key, id);
     result.targetId = id;
+  }
+  for (const result of rows) {
+    const target = channelTargets.get(result.key);
+    if (!target || !result.channelBlocks || !result.targetId) continue;
+    const id = isPlanned(target.id) ? result.targetId : target.id;
+    const { kind } = target;
+    const before = storedChannelBlocks(db, { kind, id });
+    const blocked = before | result.channelBlocks.requested;
+    result.channelBlocks = { ...result.channelBlocks, blocked, added: blocked & ~before };
+    if (blocked === before) continue;
+    if (kind === "contact") {
+      setContactChannelBlocks(db, id, blocked);
+      for (const leadId of linkedChannelLeadIds(db, id)) changedPreferenceLeads.add(leadId);
+    } else {
+      db.prepare(`INSERT INTO borrower_lead_channels (leadId, blocked) VALUES (?, ?)
+        ON CONFLICT (leadId) DO UPDATE SET blocked = excluded.blocked`).run(id, blocked);
+      changedPreferenceLeads.add(id);
+    }
+    accessEvent(db, staff, "Imported borrower contact restrictions", id, now);
+  }
+  reconcileBorrowerSequences(db, [...changedPreferenceLeads], now);
+  for (const result of rows) {
+    const target = channelTargets.get(result.key);
+    if (target && result.channelBlocks && result.targetId) {
+      result.channelBlocks.blocked = effectiveChannelBlocks(db, { ...target, id: isPlanned(target.id) ? result.targetId : target.id });
+    }
   }
   const count = (status: Result["status"]) => rows.filter((row) => row.status === status).length;
   if (importBatch) {

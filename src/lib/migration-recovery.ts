@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { currentChannelTarget, effectiveChannelBlocks, leadChannelBlocksSql, readContactChannelBlocks } from "./borrower-channels";
 import { migrationRecoveryInput } from "./pipeline-migration-model";
 import type { MigrationImportReceipt, MigrationInput, MigrationRecoveryReview, MigrationReport, MigrationRow, UndoMigrationInput } from "./pipeline-migration-model";
 import { outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
@@ -9,7 +10,7 @@ import { accessEvent } from "./workspace-access";
 const tables = ["call_campaign_members", "activity", "tasks", "contact_activity", "lead_events", "lead_import_tasks", "referral_leads", "contacts"] as const;
 type Table = (typeof tables)[number];
 type ImportedRow = { recordKey: string; label: string; outcome: string; targetId: string | null; storage: string | null; baseline: string | null;
-  undoneAt: string | null; undoneBy: string | null };
+  undoneAt: string | null; undoneBy: string | null; requestedChannelBlocks: number | null; currentTargetId: string | null };
 type ReviewRow = NonNullable<MigrationRecoveryReview["preview"]>["rows"][number];
 const receiptQuery = `SELECT receipt.*, (SELECT count(*) FROM migration_import_rows
   WHERE importId = receipt.id AND outcome IN ('Corrected', 'Corrected using contact')) AS correctedCount
@@ -49,19 +50,20 @@ function recordSnapshot(db: Store, table: Table, id: string) {
 
 export function recordMigrationReceipt(db: Store, source: Pick<MigrationInput, "origin" | "batch">, input: MigrationRow[],
   results: MigrationReport["rows"], staff: WorkspaceStaff, now: string) {
-  if (!results.some(({ status }) => status === "Create" || status === "Reuse contact")) return;
+  if (!results.some(({ status, channelBlocks }) => status === "Create" || status === "Reuse contact" || channelBlocks?.added)) return;
   const id = crypto.randomUUID();
   db.prepare("INSERT INTO migration_imports (id, origin, importedAt, importedBy, part, partCount, recordCount) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(id, source.origin, now, staff.name, source.batch?.part ?? null, source.batch?.partCount ?? null, results.length);
-  const insert = db.prepare(`INSERT INTO migration_import_rows (importId, recordKey, label, outcome, targetId, storage, baseline)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`);
+  const insert = db.prepare(`INSERT INTO migration_import_rows (importId, recordKey, label, outcome, targetId, storage, baseline, requestedChannelBlocks)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const [index, result] of results.entries()) {
     const targetId = result.targetId ?? null;
     const storage = result.status === "Create" && targetId ? storageFor(db, input[index], targetId) : null;
     const baseline = storage && targetId ? recordSnapshot(db, storage, targetId).baseline : null;
-    const outcome = result.correction && result.status === "Create" ? "Corrected" :
+    const outcome = result.status === "Previously imported" && result.channelBlocks?.added ? "Updated preferences" :
+      result.correction && result.status === "Create" ? "Corrected" :
       result.correction && result.status === "Reuse contact" ? "Corrected using contact" : result.status;
-    insert.run(id, result.key, result.label.slice(0, 160), outcome, targetId, storage, baseline);
+    insert.run(id, result.key, result.label.slice(0, 160), outcome, targetId, storage, baseline, result.channelBlocks?.requested ?? null);
   }
 }
 
@@ -85,11 +87,12 @@ function importReceipt(db: Store, importId: string) {
 }
 
 function buildRecoveryPlan(db: Store, receipt: MigrationImportReceipt) {
-  const imported = db.prepare(`SELECT r.*, u.undoneAt, u.undoneBy FROM migration_import_rows r
+  const imported = db.prepare(`SELECT r.*, u.undoneAt, u.undoneBy, current.targetId AS currentTargetId FROM migration_import_rows r
+    LEFT JOIN migration_records current ON current.origin = ? AND current.recordKey = r.recordKey
     LEFT JOIN migration_import_undos u ON u.importId = r.importId AND EXISTS (
       SELECT 1 FROM migration_undone_records removed WHERE removed.undoId = u.id AND removed.recordKey = r.recordKey
     )
-    WHERE r.importId = ? ORDER BY r.recordKey`).all(receipt.id) as unknown as ImportedRow[];
+    WHERE r.importId = ? ORDER BY r.recordKey`).all(receipt.origin, receipt.id) as unknown as ImportedRow[];
   const suppression = outreachSuppressionKeys(db);
   const eligible = new Set<string>();
   const removals: { key: string; table: Table; id: string }[] = [];
@@ -107,6 +110,10 @@ function buildRecoveryPlan(db: Store, receipt: MigrationImportReceipt) {
     }
     if (outcome === "Reuse contact" || outcome === "Corrected using contact" || outcome === "Previously imported") {
       keep(outcome === "Previously imported" ? "Reconciled in an earlier import." : "Reused a contact that already existed.");
+      continue;
+    }
+    if (outcome === "Updated preferences") {
+      keep("Kept borrower contact restrictions on an existing record.");
       continue;
     }
     if (outcome !== "Create" && outcome !== "Corrected") {
@@ -153,6 +160,11 @@ function buildRecoveryPlan(db: Store, receipt: MigrationImportReceipt) {
       keep("This record carries an outreach opt-out.");
       continue;
     }
+    if ((table === "contacts" && readContactChannelBlocks(db, id)) ||
+        (table === "referral_leads" && db.prepare(`SELECT ${leadChannelBlocksSql} AS blocked FROM referral_leads lead WHERE id = ?`).get(id)?.blocked)) {
+      keep("This record carries borrower contact restrictions.");
+      continue;
+    }
     if (item.baseline !== baseline || db.prepare("SELECT 1 FROM workspace_access_history WHERE subject = ? AND createdAt >= ? LIMIT 1")
       .get(id, receipt.importedAt)) {
       keep("Staff changed or worked this record after import.");
@@ -172,9 +184,14 @@ function buildRecoveryPlan(db: Store, receipt: MigrationImportReceipt) {
   }
   const rows = imported.map(({ recordKey }) => results.get(recordKey)!);
   const fingerprint = createHash("sha256").update(JSON.stringify({ importId: receipt.id, rows, removals })).digest("hex");
-  const visibleRows = rows.map((row, index) => ({
-    ...row, canOpen: Boolean(imported[index].targetId && (row.result === "Candidate" || row.result === "Keep")),
-  }));
+  const visibleRows = rows.map((row, index) => {
+    const item = imported[index];
+    const requested = item.requestedChannelBlocks;
+    const target = requested && item.currentTargetId
+      ? currentChannelTarget(db, row.key.startsWith("Contact:") ? "contact" : "lead", item.currentTargetId) : undefined;
+    return { ...row, canOpen: Boolean(item.targetId && (row.result === "Candidate" || row.result === "Keep")),
+      ...(requested ? { channelBlocks: { requested, blocked: target ? effectiveChannelBlocks(db, target) : null } } : {}) };
+  });
   return { preview: { receipt, rows: visibleRows, fingerprint }, removals };
 }
 

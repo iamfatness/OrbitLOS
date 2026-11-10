@@ -47,6 +47,30 @@ export function readContactChannelBlocks(db: Store, contactId: string) {
   return Number(db.prepare("SELECT blocked FROM borrower_contact_channels WHERE contactId = ?").get(contactId)?.blocked ?? 0);
 }
 
+export type ChannelTarget = { kind: "contact" | "lead"; id: string };
+
+export function storedChannelBlocks(db: Store, { kind, id }: ChannelTarget) {
+  return kind === "contact" ? readContactChannelBlocks(db, id) :
+    Number(db.prepare("SELECT blocked FROM borrower_lead_channels WHERE leadId = ?").get(id)?.blocked ?? 0);
+}
+
+export function effectiveChannelBlocks(db: Store, target: ChannelTarget) {
+  return target.kind === "lead" ? Number(db.prepare(`SELECT ${leadChannelBlocksSql} AS blocked FROM referral_leads lead WHERE id = ?`).get(target.id)?.blocked ?? 0)
+    : readContactChannelBlocks(db, target.id);
+}
+
+export function currentChannelTarget(db: Store, kind: ChannelTarget["kind"], id: string): ChannelTarget | undefined {
+  if (kind === "lead") {
+    const lead = db.prepare(`SELECT lead.loanId, loan.contactId FROM referral_leads lead
+      LEFT JOIN loans loan ON loan.id = lead.loanId WHERE lead.id = ?`).get(id);
+    if (!lead) return;
+    if (!lead.loanId) return { kind, id };
+    if (typeof lead.contactId !== "string") return;
+    id = lead.contactId;
+  }
+  return db.prepare("SELECT 1 FROM contacts WHERE id = ? AND role <> 'Realtor'").get(id) ? { kind: "contact", id } : undefined;
+}
+
 export function setContactChannelBlocks(db: Store, contactId: string, blocked: number) {
   if (blocked) db.prepare(`INSERT INTO borrower_contact_channels (contactId, blocked) VALUES (?, ?)
     ON CONFLICT (contactId) DO UPDATE SET blocked = excluded.blocked`).run(contactId, blocked);

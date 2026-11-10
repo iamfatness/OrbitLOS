@@ -18,6 +18,7 @@ const { coBorrowerReviewStep, primaryJointDraft, sampleCoBorrower } = await impo
 const { campaignCallQueues, campaignOrigin, parseCampaignLeadCsv } = await import("../src/lib/call-campaign-model.ts");
 const { defaultCampaignSequenceSteps } = await import("../src/lib/campaign-sequence-model.ts");
 const { readCsv } = await import("../src/lib/contact-csv.ts");
+const { migrationFile, mappedMigrationRows } = await import("../src/lib/pipeline-migration-model.ts");
 const { applyLeadConversion } = await import("../src/lib/lead-work-model.ts");
 const { afterHours, defaultPlaybook, fundingTaskId } = await import("../src/lib/playbook-model.ts");
 const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exception-model.ts");
@@ -131,11 +132,12 @@ try {
     const { returnValue } = actionResult;
     assert.equal(returnValue.ok, true, name);
     const data = returnValue.data;
-    for (const field of ["mismoXml", "csv"]) {
-      const reference = /^\$([a-f0-9]+)$/.exec(data?.[field] ?? "");
-      if (!reference) continue;
-      assert.ok(textChunks.has(reference[1]), `The ${name} action must include its ${field} text chunk`);
-      data[field] = textChunks.get(reference[1]);
+    for (const [record, field] of [[data, "mismoXml"], [data, "csv"], ...(data?.batches ?? []).map((batch) => [batch, "csv"])]) {
+      const reference = /^\$([a-f0-9]+)$/.exec(record?.[field] ?? "");
+      if (reference) {
+        assert.ok(textChunks.has(reference[1]), `The ${name} action must include its ${field} text chunk`);
+        record[field] = textChunks.get(reference[1]);
+      }
     }
     return data;
   }
@@ -217,6 +219,94 @@ try {
     assert.ok((await action(owner, "saveOwnerReportView", settings)).message);
     assert.deepEqual((await action(owner, "readOwnerReport", { kind: "summary", ...filters })).views,
       [{ id: settings.id, name: settings.name, filters }]);
+  });
+
+  await stage("Two fictional brokerages reconcile CRM permissions, ownership, and separate LOS drafts", async () => {
+    const [sending, receiving] = [randomUUID(), randomUUID()];
+    for (const [id, name] of [[sending, "Fictional CRM Source"], [receiving, "Fictional CRM Destination"]]) {
+      const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
+        [owner.email], { type: "create", id, name, pilot: true });
+      assert.equal(created.created, id, created.error);
+      await post(`/api/brokerages?brokerage=${id}`, { type: "invite", email: officer.email, role: officer.role }, owner);
+    }
+    await directory.activateStaff({ name: officer.name, email: officer.email }, [owner.email]);
+    const inBrokerage = (id, actor, name, input, scope) => action(actor, name, input, scope, id, id);
+    const change = (id, input) => inBrokerage(id, owner, "mutate", input, "migration");
+    const parse = (csv) => {
+      const file = migrationFile(csv);
+      return { rows: mappedMigrationRows(file, file.mapping), origin: file.orbitSource, batch: file.batch };
+    };
+    const source = "fictional-salesforce-brokerage";
+    const crm = parse([
+      "Object,Id,Related Id,Full Name,Email,Phone,Role,Owner Email,Purpose,Source,Created Date,Due Date,Subject,Parent Type,Realtor Id,DoNotCall,HasOptedOutOfEmail,Text Opt Out,Opted Out",
+      "Contact,ARIVE-C,,Fictional Arive Buyer,cutover-arive@example.test,2025550161,Borrower,,,,,,,,,true,false,false,",
+      "Contact,LP-C,,Fictional LendingPad Buyer,cutover-lp@example.test,2025550162,Borrower,,,,,,,,,false,true,false,",
+      "Contact,R-C,,Fictional Cutover Realtor,cutover-realtor@example.test,,Realtor,,,,,,,,,,,,",
+      "Contact,STOP-C,,Fictional Suppressed Buyer,cutover-stop@example.test,2025550163,Borrower,,,,,,,,,,,,Yes",
+      `Lead,LP-L,LP-C,Fictional LendingPad Buyer,cutover-lp@example.test,2025550162,,former-lo@example.test,Refinance,Realtor referral,${dueAt},${dueAt},,,R-C,false,false,1,`,
+      `Task,T-1,LP-L,,,,,,,,${dueAt},${dueAt},Confirm the fictional refinance documents,Lead,,,,,`,
+    ].join("\n"));
+    const input = { type: "migratePipeline", ...crm, origin: source, decisions: {} };
+    const first = await change(sending, input);
+    assert.equal(first.migration.ownership.missing[0].email, "former-lo@example.test");
+    assert.ok(first.migration.rows.some(({ status }) => status === "Review"));
+    const mapped = { ...input, ownerMappings: { "former-lo@example.test": officer.email } };
+    const apply = async (id, data) => {
+      const preview = await change(id, data);
+      assert.ok(preview.migration, preview.error);
+      assert.ok(preview.migration.rows.every(({ status }) => status !== "Review"), JSON.stringify(preview.migration.rows));
+      const saved = await change(id, { ...data, preview: preview.migration.fingerprint });
+      assert.ok(saved.migration, saved.error);
+      return saved.migration;
+    };
+    const saved = await apply(sending, mapped);
+    const sourceIds = new Map(saved.rows.map(({ key, targetId }) => [key, targetId]));
+    const readLead = (id, actor, leadId) => inBrokerage(id, actor, "readInboxWork", { type: "open", id: leadId });
+    const assertLead = (lead) => {
+      assert.equal(lead.officerEmail, officer.email);
+      assert.equal(lead.outreachChannelBlocks, 6);
+      assert.equal(lead.importedTasks[0].title, "Confirm the fictional refinance documents");
+      assert.equal(lead.importedTasks[0].dueAt, dueAt);
+    };
+    assertLead((await readLead(sending, officer, sourceIds.get("Lead:LP-L"))).lead);
+    assert.ok((await readLead(receiving, officer, sourceIds.get("Lead:LP-L"))).error);
+    assert.ok((await inBrokerage(sending, officer, "readPipelineExport", sending)).error);
+    const snapshot = await inBrokerage(sending, owner, "readPipelineExport", sending);
+    assert.equal(snapshot.total, 6);
+    const numbered = parse(snapshot.batches[0].csv);
+    const transfer = { type: "migratePipeline", ...numbered, decisions: {} };
+    const received = await apply(receiving, transfer);
+    const destinationIds = new Map(received.rows.map(({ key, targetId }) => [key, targetId]));
+    const leadId = destinationIds.get(`Lead:${sourceIds.get("Lead:LP-L")}`);
+    assertLead((await readLead(receiving, officer, leadId)).lead);
+    assert.notEqual(leadId, sourceIds.get("Lead:LP-L"));
+    const receivingExport = await inBrokerage(receiving, owner, "readPipelineExport", receiving);
+    assert.equal(parse(receivingExport.batches[0].csv).rows.find(({ email }) => email === "cutover-stop@example.test").optedOut, "Yes");
+    const cutover = await action(owner, "readCutoverChecklist", receiving, undefined, numbered.origin, receiving);
+    assert.equal(cutover.evidence.batch.received, 1);
+    assert.equal(cutover.evidence.links, snapshot.total);
+
+    for (const [external, lastName, purpose, street, amount] of [
+      ["ARIVE-C", "Arive Buyer", "Purchase", "65 Fictional Oak Road", "325000"],
+      ["LP-C", "LendingPad Buyer", "Refinance", "86 Fictional Maple Road", "265000"],
+    ]) {
+      const existingContactId = destinationIds.get(`Contact:${sourceIds.get(`Contact:${external}`)}`);
+      const fields = { firstName: "Fictional", lastName, amount, purpose, occupancy: "Primary residence",
+        street, unit: "", city: "Royal Oak", state: "MI", zip: "48067" };
+      const request = { type: "importMismo", requestId: randomUUID(), fields, existingContactId, fictional: true };
+      const imported = await change(receiving, request);
+      assert.ok(imported.applicationLoanId, imported.error);
+      assert.equal((await change(receiving, request)).applicationLoanId, imported.applicationLoanId);
+      const result = await inBrokerage(receiving, owner, "readLoanForWork", imported.applicationLoanId);
+      assert.equal(result.loans[0].contactId, existingContactId);
+      assert.equal(result.loans[0].purpose, purpose);
+      assert.equal(result.loans[0].amount, Number(amount));
+      assert.equal(result.applications[0].submittedAt, null);
+      assert.ok((await inBrokerage(sending, owner, "readLoanForWork", imported.applicationLoanId)).error);
+    }
+    const finalCutover = await action(owner, "readCutoverChecklist", receiving, undefined, numbered.origin, receiving);
+    assert.equal(finalCutover.evidence.draftCount, 2);
+    assert.equal(finalCutover.evidence.readiness.counts["Needs review"], 2);
   });
 
   await stage("Quarter reviews keep the original CSV after corrections", async () => {

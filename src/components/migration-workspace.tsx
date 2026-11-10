@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { readMigrationRecovery, readPipelineExport } from "@/app/actions";
+import { borrowerChannelBlocked, borrowerChannels } from "@/lib/borrower-channel-model";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 import { MigrationCutoverChecklist } from "./migration-cutover";
@@ -14,6 +15,15 @@ import { LoanContactPicker } from "./loan-contact-picker";
 import { MigrationRecordLink } from "./migration-record-link";
 
 type Save = (input: unknown, after?: (result: WorkspaceMutationSuccess) => void, announce?: boolean) => Promise<void>;
+
+function ChannelEvidence({ requested, blocked, projected }: { requested: number; blocked: number | null; projected?: boolean }) {
+  const labels = (mask: number) => borrowerChannels.filter((channel) => borrowerChannelBlocked(mask, channel)).join(", ") || "None";
+  return <>
+    <small>Source blocks · {labels(requested)}</small>
+    <small>{projected ? "Record blocks after import" : "Blocked in Orbit"} · {blocked === null ? "Destination unavailable" : labels(blocked)}</small>
+    {!projected && (blocked === null || (blocked & requested) !== requested) && <small>Review current preferences</small>}
+  </>;
+}
 
 function PipelineMigration({ busy, save, brokerageId, openRecord }: {
   busy: boolean; save: Save; brokerageId: string; openRecord: (destination: MigrationDestination) => void;
@@ -34,8 +44,12 @@ function PipelineMigration({ busy, save, brokerageId, openRecord }: {
   const [exportMessage, setExportMessage] = useState("");
   const [exportError, setExportError] = useState("");
   const [copyMessage, setCopyMessage] = useState("");
+  const resultHeading = useRef<HTMLHeadingElement>(null);
   const ownership = report?.ownership;
   const undoRows = report?.rows.filter((row) => row.status === "Undone" || row.correction) ?? [];
+  const preferenceRows = report?.rows.filter((row) => row.channelBlocks).length ?? 0;
+
+  useEffect(() => { if (report) resultHeading.current?.focus(); }, [report]);
 
   async function downloadExport() {
     setExporting(true);
@@ -106,7 +120,7 @@ function PipelineMigration({ busy, save, brokerageId, openRecord }: {
     <h2>CRM import and export</h2>
     <div className="record-form">
       <h3>Export CRM records</h3>
-      <p className="muted">Contacts, open leads, activity, follow-ups and tracked callback promises. Up to 1,000 records and 2 MB.</p>
+      <p className="muted">Contacts, open leads, follow-ups, callback promises, and contact restrictions. Up to 1,000 records and 2 MB.</p>
       <div><Button variant="outline" size="sm" disabled={busy || exporting} onClick={() => void downloadExport()}>
         {exporting ? "Preparing export…" : "Download CRM export"}</Button></div>
       {exportMessage && <p role="status" className="muted">{exportMessage}</p>}
@@ -147,6 +161,9 @@ function PipelineMigration({ busy, save, brokerageId, openRecord }: {
     <details className="document-form"><summary>Source keys and staff ownership</summary>
       <p className="muted">Orbit exports include the source key. Active staff keep their records. Reassign missing owners in the preview or leave their work unassigned.</p>
     </details>
+    <details className="document-form"><summary>Import contact restrictions</summary>
+      <p className="muted">Map Do Not Call, Email Opt Out, or Text Opt Out to the matching channel. An affirmative value adds a block. Blank and negative values leave existing preferences in place. Use Opted Out for a brokerage-wide opt-out.</p>
+    </details>
     <details className="document-form">
       <summary>Paste CRM CSV</summary>
       <form className="record-form" onSubmit={(event) => {
@@ -161,8 +178,8 @@ function PipelineMigration({ busy, save, brokerageId, openRecord }: {
       </form>
     </details>
     {file?.batch && <p className="muted">Batch {file.batch.part} of {file.batch.partCount}</p>}
-    {file && <details open={!report || undefined} className="document-form">
-      <summary>Column mapping · {file.rows.length} records</summary>
+    {file && <details open={requiredMigrationColumns.some((column) => file.mapping[column] === undefined) || undefined} className="document-form">
+      <summary>Column mapping · {file.rows.length} {file.rows.length === 1 ? "record" : "records"}</summary>
       <div className="form-grid">
         {migrationColumns.map((column) => <label className="field" key={column}>{column.replace(/[A-Z]/g, (letter) => ` ${letter.toLowerCase()}`)}{requiredMigrationColumns.includes(column) ? " (required)" : ""}
           <select disabled={busy} value={mapping[column] ?? ""} onChange={(event) => {
@@ -189,12 +206,16 @@ function PipelineMigration({ busy, save, brokerageId, openRecord }: {
     {error && <p role="alert" className="application-error">{error}</p>}
     {file && <div><Button disabled={busy} variant="outline" onClick={() => run(false)}>{correctionKeys ? "Preview corrections" : "Preview migration"}</Button></div>}
     {report && <div className="record-form">
-      <h3>{correctionKeys ? applied ? "Correction reconciliation" : "Correction preview" : applied ? "Import reconciliation" : "Preview reconciliation"}</h3>
+      <div className="section-heading"><h3 ref={resultHeading} tabIndex={-1}>{correctionKeys ? applied ? "Correction reconciliation" : "Correction preview" : applied ? "Import reconciliation" : "Preview reconciliation"}</h3></div>
       {report.batch?.completed && <p role="status" className="muted">{report.batch.nextPart === null
         ? "All numbered batches received. Check source links and undone rows in the cutover checklist."
         : `Next, load batch ${report.batch.nextPart}.`}</p>}
       <p className="muted">{(["Create", "Reuse contact", "Previously imported", "Skipped", "Suppressed", "Undone", "Review"] as const)
-        .map((status) => `${report.rows.filter((row) => row.status === status).length} ${status === "Create" && applied ? "created" : status.toLowerCase()}`).join(" · ")}</p>
+        .flatMap((status) => {
+          const count = report.rows.filter((row) => row.status === status).length;
+          return count ? [`${count} ${status === "Create" ? applied ? "created" : "to create" : status.toLowerCase()}`] : [];
+        }).join(" · ")}</p>
+      {preferenceRows > 0 && <p className="muted">{preferenceRows} {preferenceRows === 1 ? "record has" : "records have"} channel restrictions from the source.</p>}
       {!applied && ownership && <fieldset className="record-form">
         <legend>Owner mapping</legend>
         <p className="muted">Choose one destination for each missing staff email. Unassigned leads go to the shared inbox. Admins can assign unassigned contact follow-ups later.{file?.batch && " Orbit remembers these choices for later batches in this export."}</p>
@@ -227,11 +248,14 @@ function PipelineMigration({ busy, save, brokerageId, openRecord }: {
           setStale(true);
         }}>Clear selection</Button>
       </div>}
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>Source record</th><th>Result</th><th>{applied ? "Orbit record" : "Resolution"}</th></tr></thead>
-        <tbody>{report.rows.map((row) => <tr key={row.key}>
-          <td>{row.label}<small>{row.key}</small></td><td>{applied && row.correction && (row.status === "Create" || row.status === "Reuse contact")
-            ? "Reimported" : applied && row.status === "Create" ? "Created" : row.status}<small>{row.detail}</small></td>
-          <td>{applied ? row.targetId && reportOrigin ? <MigrationRecordLink key={`${reportOrigin}:${row.targetId}`} brokerageId={brokerageId}
+      <div className="table-scroll migration-evidence" tabIndex={0} role="region" aria-label="CRM reconciliation records"><table className="data-table" role="table"><thead><tr role="row">
+        <th role="columnheader" scope="col">Source record</th><th role="columnheader" scope="col">Result</th><th role="columnheader" scope="col">{applied ? "Orbit record" : "Resolution"}</th></tr></thead>
+        <tbody role="rowgroup">{report.rows.map((row) => <tr key={row.key} role="row">
+          <td role="cell"><strong>{row.label}</strong><small>{row.key}</small></td><td role="cell">{row.status === "Previously imported" && row.channelBlocks?.added ?
+            applied ? "Preferences updated" : "Update preferences" : applied && row.correction && (row.status === "Create" || row.status === "Reuse contact")
+            ? "Reimported" : applied && row.status === "Create" ? "Created" : row.status}<small>{row.detail}</small>
+            {row.channelBlocks && <ChannelEvidence {...row.channelBlocks} projected={!applied} />}</td>
+          <td role="cell">{applied ? row.targetId && reportOrigin ? <MigrationRecordLink key={`${reportOrigin}:${row.targetId}`} brokerageId={brokerageId}
             query={{ type: "result", origin: reportOrigin, key: row.key, targetId: row.targetId }} busy={busy} open={openRecord}
             label={row.key.startsWith("Note:") || row.key.startsWith("Task:") ? "Open evidence" : "Open record"} /> : "—" : <div className="record-form">
             {correctionKeys && (row.status === "Undone" || row.correction) && <label>
@@ -307,19 +331,22 @@ function MigrationRecovery({ brokerageId, busy, save, openRecord }: {
           {receipt.origin}{receipt.part ? ` · Batch ${receipt.part} of ${receipt.partCount}` : ""}{receipt.correctedCount ? ` · ${receipt.correctedCount} corrected` : ""} · {receipt.recordCount} rows · {new Date(receipt.importedAt).toLocaleString()}
         </option>)}
       </select>
-    </label> : <p className="muted">Recovery receipts appear here after a CRM import creates or reuses records.</p>)}
+    </label> : <p className="muted">Recovery receipts appear here after an import creates or reuses records, or adds contact restrictions.</p>)}
     {preview && <div className="record-form">
       <h3>Recovery preview</h3>
       <p className="muted">Imported by {preview.receipt.importedBy}. Check the current record state before any correction.</p>
       <p role="status" className="muted">{candidates} undo candidates · {preview.rows.filter((row) => row.result === "Keep").length} to keep · {preview.rows.filter((row) => row.result === "No change").length} with no change · {preview.rows.filter((row) => row.result === "Removed").length} removed</p>
       <div><Button size="sm" variant="outline" disabled={busy || loading} onClick={() => void load(preview.receipt.id)}>Refresh recovery preview</Button></div>
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>Source record</th><th>Recovery status</th><th>Reason</th><th>Orbit record</th></tr></thead>
-        <tbody>{preview.rows.map((row) => <tr key={row.key}>
-          <td>{row.label}<small>{row.key}{row.correction && " · Corrected reimport"}</small></td><td>{row.result === "Candidate" ? "Undo candidate" : row.result}</td><td>{row.reason}
+      <div className="table-scroll migration-evidence" tabIndex={0} role="region" aria-label="CRM recovery records"><table className="data-table" role="table"><thead><tr role="row">
+        <th role="columnheader" scope="col">Source record</th><th role="columnheader" scope="col">Recovery result</th><th role="columnheader" scope="col">Orbit record</th></tr></thead>
+        <tbody role="rowgroup">{preview.rows.map((row) => <tr key={row.key} role="row">
+          <td role="cell"><strong>{row.label}</strong><small>{row.key}{row.correction && " · Corrected reimport"}</small></td>
+          <td role="cell">{row.result === "Candidate" ? "Undo candidate" : row.result}<small>{row.reason}</small>
+            {row.channelBlocks && <ChannelEvidence {...row.channelBlocks} />}
             {row.removal && <small>{row.removal.by} · {new Date(row.removal.at).toLocaleString()}</small>}</td>
-          {row.canOpen ? <td><MigrationRecordLink key={preview.receipt.id} brokerageId={brokerageId}
+          {row.canOpen ? <td role="cell"><MigrationRecordLink key={preview.receipt.id} brokerageId={brokerageId}
             query={{ type: "receipt", origin: preview.receipt.origin, key: row.key, receiptId: preview.receipt.id }} busy={busy || loading}
-            open={openRecord} label={row.key.startsWith("Note:") || row.key.startsWith("Task:") ? "Open evidence" : "Open record"} /></td> : <td>—</td>}
+            open={openRecord} label={row.key.startsWith("Note:") || row.key.startsWith("Task:") ? "Open evidence" : "Open record"} /></td> : <td role="cell">—</td>}
         </tr>)}</tbody></table></div>
       {candidates > 0 && <div className="record-form">
         <label><input type="checkbox" disabled={busy || loading} checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> I reviewed the undo candidates and want to remove them.</label>

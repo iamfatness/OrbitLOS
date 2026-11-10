@@ -965,6 +965,9 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.exec("ALTER TABLE loan_conversations ADD COLUMN sourceLeadId TEXT REFERENCES referral_leads(id) ON DELETE SET NULL");
     }
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS conversations_by_source_lead ON loan_conversations(sourceLeadId) WHERE sourceLeadId IS NOT NULL");
+    if (!db.prepare("PRAGMA table_info(migration_import_rows)").all().some(({ name }) => name === "requestedChannelBlocks")) {
+      db.exec("ALTER TABLE migration_import_rows ADD COLUMN requestedChannelBlocks INTEGER CHECK (requestedChannelBlocks BETWEEN 1 AND 7)");
+    }
     if (!db.prepare("PRAGMA table_info(inbound_replies)").all().some((column) => column.name === "leadConversationId")) {
       db.exec("ALTER TABLE inbound_replies ADD COLUMN leadConversationId TEXT REFERENCES lead_conversations(id) ON DELETE SET NULL");
     }

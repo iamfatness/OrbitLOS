@@ -3063,6 +3063,63 @@ test("CRM export round trips ownership, hold, suppression, and follow-ups into a
   assert.ok((await command(input)).migration.rows.every((row) => row.status === "Previously imported"));
 });
 
+test("CRM imports preserve channel restrictions, retain receipt evidence, and never reopen a blocked channel", async (t) => {
+  const { db, staff } = fixture(t);
+  const destination = fixture(t);
+  insertContact(db, { id: "existing", name: "Fictional Existing", email: "existing@example.test", phone: "202-555-0108", role: "Borrower" });
+  db.prepare("INSERT INTO borrower_contact_channels VALUES ('existing', 4)").run();
+  const csv = [
+    "Object,Id,Contact Id,Full Name,Email,Phone,Created Date,DoNotCall,HasOptedOutOfEmail,Text Opt Out",
+    "Contact,c-1,,Fictional Existing,existing@example.test,202-555-0108,,TRUE,False,0",
+    "Lead,l-1,c-1,Fictional Existing,existing@example.test,202-555-0108,2026-11-09,false,yes,",
+  ].join("\n");
+  const parse = (text) => {
+    const file = migrationFile(text);
+    return mappedMigrationRows(file, file.mapping);
+  };
+  assert.throws(() => parse(csv.replace("TRUE", "unknown")), /blockCalls/);
+  assert.throws(() => parse(csv.replace("Text Opt Out", "Block Calls")), /one source column/);
+  const rows = parse(csv);
+  const input = { type: "migratePipeline", origin: "fictional-salesforce", rows, decisions: { "Contact:c-1": "existing" } };
+  const command = (data) => executeCommand(db, data, staff);
+  const preview = await command(input);
+  assert.deepEqual(preview.migration.rows.map(({ channelBlocks }) => channelBlocks), [
+    { requested: 1, blocked: 5, added: 1 }, { requested: 2, blocked: 2, added: 2 },
+  ]);
+  db.prepare("UPDATE borrower_contact_channels SET blocked = 6 WHERE contactId = 'existing'").run();
+  assert.match((await command({ ...input, preview: preview.migration.fingerprint })).error, /preview changed/i);
+  db.prepare("UPDATE borrower_contact_channels SET blocked = 4 WHERE contactId = 'existing'").run();
+  const imported = await command({ ...input, preview: preview.migration.fingerprint });
+  const leadId = imported.migration.rows[1].targetId;
+  assert.equal(imported.migration.rows[1].channelBlocks.blocked, 7);
+  const [receipt] = reviewMigrationRecovery(db, staff).imports;
+  const review = () => reviewMigrationRecovery(db, staff, receipt.id).preview.rows;
+  assert.deepEqual(review().map(({ result, channelBlocks }) => [result, channelBlocks]), [
+    ["Keep", { requested: 1, blocked: 5 }], ["Keep", { requested: 2, blocked: 7 }],
+  ]);
+
+  const exported = exportPilotPipeline(db, staff);
+  const file = migrationFile(exported.batches[0].csv);
+  const transfer = { type: "migratePipeline", origin: file.orbitSource, batch: file.batch, rows: mappedMigrationRows(file, file.mapping), decisions: {} };
+  const receive = (data) => executeCommand(destination.db, data, destination.staff);
+  const restored = await receive({ ...transfer, preview: (await receive(transfer)).migration.fingerprint });
+  assert.equal(restored.state.inboxLeads[0].outreachChannelBlocks, 7);
+  assert.equal((await receive(transfer)).migration.batch.completed, true);
+
+  const loan = await command({ type: "convertReferral", referralId: leadId, contactId: null });
+  assert.ok(loan.referralLoanId, loan.error);
+  assert.equal(db.prepare("SELECT blocked FROM borrower_contact_channels WHERE contactId = 'existing'").get().blocked, 7);
+  db.prepare("UPDATE borrower_contact_channels SET blocked = 4 WHERE contactId = 'existing'").run();
+  assert.equal(review()[1].channelBlocks.blocked, 4);
+  const replay = await command(input);
+  assert.equal(replay.migration.rows[1].channelBlocks.added, 2);
+  assert.ok((await command({ ...input, preview: replay.migration.fingerprint })).message);
+  assert.equal(db.prepare("SELECT blocked FROM borrower_contact_channels WHERE contactId = 'existing'").get().blocked, 7);
+  assert.equal(reviewMigrationRecovery(db, staff).imports.length, 2);
+  const stable = await command(input);
+  assert.ok(stable.migration.rows.every(({ channelBlocks }) => channelBlocks?.added === 0));
+});
+
 test("numbered CRM batches restore tracked campaign promises, exact call evidence, and the mapped owner", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: new Date(promiseStart) });
   const source = await campaignRecoveryFixture(t);

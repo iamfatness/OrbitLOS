@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { callbackMigrationPromiseLimit, callbackMigrationSchedulingAttemptLimit, migrationBatchRowLimit, migrationCsv, migrationFileByteLimit,
+import { callbackMigrationPromiseLimit, callbackMigrationSchedulingAttemptLimit, migrationBatchRowLimit, migrationChannelFields, migrationCsv, migrationFileByteLimit,
   migrationRow, type MigrationRow } from "./pipeline-migration-model";
 import { outreachSuppressed, outreachSuppressionKeys } from "./outreach-preferences";
 import type { WorkspaceStaff } from "./staff-store";
@@ -29,12 +29,15 @@ export function exportPilotPipeline(db: Store, staff: WorkspaceStaff | null) {
 function readSnapshot(db: Store, origin: string) {
   const limit = recordLimit + 1;
   const suppression = outreachSuppressionKeys(db);
-  const contacts = db.prepare(`SELECT id AS externalId, name, email, phone, role FROM contacts ORDER BY id LIMIT ?`).all(limit);
+  const contacts = db.prepare(`SELECT contact.id AS externalId, contact.name, contact.email, contact.phone, contact.role, channels.blocked
+    FROM contacts contact LEFT JOIN borrower_contact_channels channels ON channels.contactId = contact.id
+    ORDER BY contact.id LIMIT ?`).all(limit);
   const leads = db.prepare(`SELECT lead.id AS externalId, lead.name, lead.email, lead.phone, lead.purpose, lead.zip, lead.createdAt, lead.dueAt,
     coalesce(lead.officerEmail, '') AS ownerEmail, coalesce(lead.importedContactId, '') AS parentId, lead.realtorId,
     coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
-    lead.heldAt, lead.holdReason, lead.revisitDate, follow.firstContactAt, member.lastOutcome
+    lead.heldAt, lead.holdReason, lead.revisitDate, follow.firstContactAt, member.lastOutcome, channels.blocked
     FROM referral_leads lead LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
+    LEFT JOIN borrower_lead_channels channels ON channels.leadId = lead.id
     LEFT JOIN call_campaign_members member ON member.leadId = lead.id WHERE lead.resolvedAt IS NULL ORDER BY lead.id LIMIT ?`).all(limit);
   const notes = db.prepare(`SELECT event.id AS externalId, event.leadId AS parentId, event.at AS createdAt, event.text,
     event.kind AS leadEventKind, event.outcome AS leadOutcome, event.actor AS leadEventActor FROM lead_events event
@@ -110,9 +113,9 @@ function readSnapshot(db: Store, origin: string) {
   const completionsByTask = byActivity(completions);
   const reschedulesByTask = byActivity(reschedules);
   const candidates = [
-    ...contacts.map((row) => ({ ...row, type: "Contact", optedOut: row.role !== "Realtor" &&
+    ...contacts.map(({ blocked, ...row }) => ({ ...row, ...migrationChannelFields(row.role === "Realtor" ? 0 : Number(blocked)), type: "Contact", optedOut: row.role !== "Realtor" &&
       outreachSuppressed(suppression, { ...row, contactId: row.externalId }) ? "Yes" : "" })),
-    ...leads.map((row) => ({ ...row, type: "Lead", realtorId: row.realtorId ?? undefined, firstContactAt: row.firstContactAt ?? undefined,
+    ...leads.map(({ blocked, ...row }) => ({ ...row, ...migrationChannelFields(Number(blocked)), type: "Lead", realtorId: row.realtorId ?? undefined, firstContactAt: row.firstContactAt ?? undefined,
       heldAt: row.heldAt ?? undefined, holdReason: row.holdReason ?? undefined, revisitDate: row.revisitDate ?? undefined,
       optedOut: row.lastOutcome === "Opted out" || outreachSuppressed(suppression, { ...row, leadId: row.externalId, contactId: row.parentId }) ? "Yes" : "" })),
     ...notes.map((row) => ({ ...row, type: "Note", leadOutcome: row.leadOutcome ?? undefined, leadEventActor: row.leadEventActor || undefined })),

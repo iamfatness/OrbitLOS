@@ -113,3 +113,9 @@ The Impeccable review moved source diagnostics behind a disclosure and collapsed
 The LO can see when outreach is in progress and reopen the same repeat application from Past Clients after conversion. The owner sees the campaign and loan status together, with separate actions for the original loan and the funded refinance. The realtor report uses the original intake and opens the purchase associated with that referral.
 
 Playwright exercised the report at desktop, portrait, and phone widths. The first phone review showed the officer's email running into their name and the conversion totals beyond the first visible columns. The final layout puts that metadata on its own line, explains when users can scroll across, and keeps keyboard focus and horizontal scrolling inside each table. The returning-client record stacks its actions on the phone. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
+
+## CRM migration preferences
+
+The preview shows the source restrictions and the blocks that will be written to the record. The receipt compares the same source restrictions with the current Orbit record. Preview moves focus to the result heading, and automatically mapped files keep the column editor collapsed.
+
+The first phone review placed the contact restrictions behind the horizontal edge of the reconciliation table. The final layout keeps the desktop table and stacks each source, result and action on a phone. The summary shows the results that need attention without listing empty categories. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
