@@ -76,6 +76,7 @@ import { fundingRecordAction, readFundingDashboard } from "./lib/funding-dashboa
 import { readCampaignCallbacks, readOfficerQueue, readWorkspaceCalendar, readWorkspaceTasks } from "./lib/officer-queue";
 import type { WorkspaceMutationScope } from "./lib/commands";
 import { readCampaignCallbackPerformance } from "./lib/campaign-callback-performance";
+import { readCampaignManager } from "./lib/campaign-manager";
 import { readCampaignCallbackExceptions } from "./lib/campaign-callback-exceptions";
 import { officerDashboardWork } from "./lib/officer-dashboard";
 import { workOnAppointment } from "./lib/appointments";
@@ -226,6 +227,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   campaignCallbackPerformance(input: unknown, staff: WorkspaceStaff) {
     return readCampaignCallbackPerformance(this.#store, input, staff, this.#id);
+  }
+
+  campaignManager(input: unknown, staff: WorkspaceStaff) {
+    return readCampaignManager(this.#store, input, staff, this.#id);
   }
 
   campaignCallbackExceptions(input: unknown, staff: WorkspaceStaff) {

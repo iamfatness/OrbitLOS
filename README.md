@@ -66,6 +66,8 @@ In **Call Campaigns → Campaign follow-up rules**, an admin can set the Eastern
 
 Pilot admins can open **Callback performance** to see whether a borrower-requested callback was attempted by its promised deadline, with the exact request and attempt in the call history. The report covers tracked requests logged in the last 30 days for the selected campaign. In the manager exception queue, **Overdue callbacks** brings open missed promises together across campaigns for review and reassignment.
 
+In **Call Campaigns → Manager view**, pilot admins can select the overdue, reply, conversion, and opt-out counts to open the leads behind them. Overdue includes open sequence steps, callbacks, and retries on campaign leads, including the shared queue. A conversion opens the linked 1003 file. Counts use the entire selected campaign and count each lead once per outcome. Campaign email and text are simulated.
+
 After conversion, open the carried task from the conversation and choose **Log callback outcome**. Connected, Left message, and No response each complete the task and record the same call in loan activity and the original campaign report. The report measures against the recorded promise, including a deadline already missed before rescheduling.
 
 Choose **Reschedule callback** on the loan task to change the time and record the reason. Today, Calendar, and My campaign callbacks use the new time. Moving it before the deadline updates the campaign’s measured time. Moving it after the deadline keeps the missed deadline visible alongside the new time.

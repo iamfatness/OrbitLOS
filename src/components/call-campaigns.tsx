@@ -6,6 +6,7 @@ import { demoBrokerageId } from "@/lib/brokerage-model";
 import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignFollowUpSource, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
   type CallCampaign, type CallCampaignMember, type CallOutcome, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import type { CampaignManagerRow } from "@/lib/campaign-manager-model";
 import { firstContactOverdue } from "@/lib/lead-inbox-model";
 import type { InboxLead, Workspace } from "@/lib/model";
 import type { CampaignCallbackItem } from "@/lib/officer-queue-model";
@@ -20,6 +21,7 @@ import { CampaignSequence } from "./campaign-sequence";
 import { CampaignRouting, CampaignRoutingCapacity } from "./campaign-routing";
 import { CampaignResponse } from "./campaign-response";
 import { CampaignCallbackPerformance } from "./campaign-callback-performance";
+import { CampaignManager } from "./campaign-manager";
 import { LeadTasks, leadTaskTarget } from "./lead-tasks";
 import { PersonalCampaignCallbacks } from "./personal-campaign-callbacks";
 import { CampaignFollowUp } from "./campaign-follow-up";
@@ -306,12 +308,13 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
   </li>;
 }
 
-export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, focusTaskId, now, busy, save, openLead, openLoan, openConversation, openCallback, convert }: {
+export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, focusTaskId, now, busy, save, openLead, openLoan, openConversation, openCallback, openManagerRecord, convert }: {
   state: Workspace; staff: WorkspaceStaff | null; selectedId: string; select: (id: string, alreadyLoaded?: boolean) => void; now: number; busy: boolean;
   focusLeadId?: string; focusTaskId?: string; save: Save; openLead: (id: string) => void; openLoan: (id: string) => void;
   convert: (id: string, after: () => void) => void;
   openConversation: (id: string) => void;
   openCallback: (item: CampaignCallbackItem) => void;
+  openManagerRecord: (row: CampaignManagerRow) => void;
 }) {
   const [view, setView] = useState<(typeof views)[number]>("Enrolled");
   const [applicationCall, setApplicationCall] = useState<CallContinuation>();
@@ -322,14 +325,14 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   const [segmentsOpen, setSegmentsOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [routingOpen, setRoutingOpen] = useState(false);
-  const [performance, setPerformance] = useState<"response" | "callbacks">();
+  const [performance, setPerformance] = useState<"response" | "callbacks" | "manager">();
   const [callbacksOpen, setCallbacksOpen] = useState(false);
   const [claimedLeadId, setClaimedLeadId] = useState<string>();
   const [callLeadId, setCallLeadId] = useState<string>();
   const attempt = useRef<{ id: string; name: string } | null>(null);
   const campaign = state.callCampaigns.find((entry) => entry.id === selectedId) ?? state.callCampaigns[0];
   const canManage = !staff || (staff.brokerage.pilot === true && staff.brokerage.role === "Admin");
-  const canReportCallbacks = canManage && (staff || process.env.NODE_ENV === "development");
+  const canReadManagerReports = canManage && (staff || process.env.NODE_ENV === "development");
   const inbox = new Map(state.inboxLeads.map((lead) => [lead.id, lead]));
   const enrolled = new Set(state.callCampaignMembers.map((entry) => entry.leadId));
   const available = canManage ? (state.campaignLeadOptions ?? state.inboxLeads.filter(assignableCampaignLead))
@@ -561,16 +564,21 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
             </Button>
             <Button size="sm" variant="outline" aria-expanded={assignmentOpen} onClick={() => setAssignmentOpen(!assignmentOpen)}>Assign leads</Button>
             <Button size="sm" variant="outline" aria-expanded={performance === "response"} onClick={() => setPerformance(performance === "response" ? undefined : "response")}>Response performance</Button>
-            {canReportCallbacks && <Button size="sm" variant="outline" aria-expanded={performance === "callbacks"}
+            {canReadManagerReports && <Button size="sm" variant="outline" aria-expanded={performance === "manager"}
+              onClick={() => setPerformance(performance === "manager" ? undefined : "manager")}>Manager view</Button>}
+            {canReadManagerReports && <Button size="sm" variant="outline" aria-expanded={performance === "callbacks"}
               onClick={() => setPerformance(performance === "callbacks" ? undefined : "callbacks")}>Callback performance</Button>}
           </>}
         </div>
         {canManage && performance === "response" && <CampaignResponse key={`${campaign.id}:${segmentId}`}
           records={state.campaignResponses.filter((record) => memberIds.has(record.leadId))} now={now} openLead={openLead} openLoan={openLoan} />}
-        {canReportCallbacks && performance === "callbacks" && <CampaignCallbackPerformance key={campaign.id}
+        {canReadManagerReports && performance === "callbacks" && <CampaignCallbackPerformance key={`callback-report:${campaign.id}`}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} campaignId={campaign.id} version={state} />}
+        {canReadManagerReports && performance === "manager" && <CampaignManager key={`manager-report:${campaign.id}`}
+          brokerageId={staff?.brokerage.id ?? demoBrokerageId} campaignId={campaign.id} campaignName={campaign.name}
+          version={state} openRecord={openManagerRecord} />}
         {canManage && assignmentOpen && <CampaignAssignments key={`${campaign.id}:${segmentId}:${view}`} campaignId={campaign.id} leads={assignmentLeads} staff={staff} busy={busy} save={save} />}
-        {showCapacity && campaign.routing && <CampaignRoutingCapacity key={campaign.id} campaignId={campaign.id}
+        {showCapacity && campaign.routing && <CampaignRoutingCapacity key={`routing-capacity:${campaign.id}`} campaignId={campaign.id}
           routing={campaign.routing} leads={routingLeads} staff={staff} busy={busy} save={save} />}
         {canManage && available.length > 0 && <form className="brokerage-form" key={campaign.id} onSubmit={(event) => {
           event.preventDefault();

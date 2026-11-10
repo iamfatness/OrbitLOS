@@ -39,6 +39,7 @@ import { readCampaignCallbacks, readOfficerQueue, readWorkspaceCalendar, readWor
 import type { WorkspaceMutationScope } from "./commands";
 import { campaignCallbacksUnavailable } from "./officer-queue-model";
 import { readCampaignCallbackPerformance } from "./campaign-callback-performance";
+import { readCampaignManager } from "./campaign-manager";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
 import { readCampaignCallbackExceptions } from "./campaign-callback-exceptions";
 import { callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
@@ -256,6 +257,11 @@ export async function loadCampaignCallbackPerformance(input: unknown, staff: Wor
   const viewer = staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null);
   if (viewer?.brokerage.role !== "Admin" || viewer.brokerage.pilot !== true) return { error: callbackPerformanceUnavailable };
   return readCampaignCallbackPerformance(database(), input, viewer, demoBrokerageId);
+}
+
+export async function loadCampaignManager(input: unknown, staff: WorkspaceStaff | null) {
+  const viewer = staff ?? (process.env.NODE_ENV === "development" ? localPilotAdmin : null);
+  return readCampaignManager(database(), input, viewer, demoBrokerageId);
 }
 
 export async function loadCampaignCallbackExceptions(input: unknown, staff: WorkspaceStaff | null) {

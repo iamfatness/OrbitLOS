@@ -1,6 +1,6 @@
 "use server";
 
-import { currentStaff, loadCampaignCallbackExceptions, loadCampaignCallbackPerformance, loadCampaignCallbacks, loadConversations, loadCutoverApplicationComparison, loadCutoverFileInventory, loadCutoverFileLookup, loadCutoverHandoff, loadEditableLead, loadEditableLoan, loadFileExceptions, loadFundingDashboard, loadInboundReplies, loadLeadArchive, loadMigrationCutover, loadMigrationRecovery, loadOfficerQueue, loadPipelineExport, loadProcessorQueue, loadRecordHistory, loadSalesDashboard, loadWorkspaceCalendar, loadWorkspaceSearch,
+import { currentStaff, loadCampaignCallbackExceptions, loadCampaignCallbackPerformance, loadCampaignCallbacks, loadCampaignManager, loadConversations, loadCutoverApplicationComparison, loadCutoverFileInventory, loadCutoverFileLookup, loadCutoverHandoff, loadEditableLead, loadEditableLoan, loadFileExceptions, loadFundingDashboard, loadInboundReplies, loadLeadArchive, loadMigrationCutover, loadMigrationRecovery, loadOfficerQueue, loadPipelineExport, loadProcessorQueue, loadRecordHistory, loadSalesDashboard, loadWorkspaceCalendar, loadWorkspaceSearch,
   loadContactDirectory, loadDraftQueue, loadLeadInbox, loadLoanContactPicker, loadPipeline, loadRealtorQueueReport, loadReportingReadiness, loadSharedRealtorQueue, loadWorkspaceTasks, updateAppointments, updateConversation, updateCutoverFileInventory, updateFundingRecord, updateInboundReply, updateLoanReview, updateMigrationCutover, updateProcessingView, updateRealtorQueueAssignment, updateSalesSettings, updateStaffCoverage, updateWorkspace,
   workOnBrokerageFinance, workOnContactMerge, workOnOfficerDashboard, workOnPlaybookRun } from "@/lib/workspace-service";
 import { demoBrokerageId } from "@/lib/brokerage-model";
@@ -8,6 +8,7 @@ import { fundingDashboardUnavailable } from "@/lib/funding-dashboard-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable, workspaceTasksUnavailable } from "@/lib/officer-queue-model";
 import type { WorkspaceMutationScope } from "@/lib/commands";
 import { callbackPerformanceUnavailable } from "@/lib/campaign-callback-performance-model";
+import { campaignManagerUnavailable } from "@/lib/campaign-manager-model";
 import { callbackExceptionUnavailable } from "@/lib/campaign-callback-exceptions-model";
 import { officerDashboardUnavailable } from "@/lib/officer-dashboard-model";
 import { processorQueueUnavailable } from "@/lib/processor-queue-model";
@@ -162,6 +163,12 @@ export async function readCampaignCallbackPerformance(input: unknown, expectedBr
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: callbackPerformanceUnavailable };
   return loadCampaignCallbackPerformance(input, staff);
+}
+
+export async function readCampaignManager(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: campaignManagerUnavailable };
+  return loadCampaignManager(input, staff);
 }
 
 export async function readCampaignCallbackExceptions(input: unknown, expectedBrokerage: string) {

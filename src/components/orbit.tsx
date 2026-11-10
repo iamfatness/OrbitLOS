@@ -1222,6 +1222,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             openCampaign={(campaignId, leadId) => openLeadWork(leadId, campaignId)} openConversation={(leadId) => openConversation({ leadId })} />}
           {section === "Call Campaigns" && !processor && <CallCampaigns state={state} staff={staff} selectedId={selectedCampaignId} select={selectCampaign}
             focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} now={taskNow} busy={busy} save={save} openLead={(id) => { navigate("Lead Inbox"); setFocusLeadId(id); }}
+            openManagerRecord={({ leadId, loanId, archived }) => {
+              if (loanId) void openQueueLoan({ kind: "details", loanId });
+              else if (archived) { navigate("Lead Inbox", false); setFocusArchivedLeadId(leadId); }
+              else void openScopedLead({ leadId }, true);
+            }}
             openCallback={({ leadId, loanId, taskId, dueAt, requested }) => loanId ?
               void openQueueLoan({ kind: "details", loanId, target: searchTaskTarget(taskId) },
                 { kind: "promised-callback", id: taskId, dueAt, source: "personal" }) :

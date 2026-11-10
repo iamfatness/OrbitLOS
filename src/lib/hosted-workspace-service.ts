@@ -7,6 +7,7 @@ import { googleSettings } from "./staff-auth";
 import { fundingDashboardUnavailable } from "./funding-dashboard-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
+import { campaignManagerUnavailable } from "./campaign-manager-model";
 import { callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
 import { officerDashboardUnavailable } from "./officer-dashboard-model";
 import { processorQueueUnavailable } from "./processor-queue-model";
@@ -123,6 +124,11 @@ export async function loadCampaignCallbacks(input: unknown, staff: WorkspaceStaf
 export async function loadCampaignCallbackPerformance(input: unknown, staff: WorkspaceStaff | null) {
   if (staff?.brokerage.role !== "Admin" || staff.brokerage.pilot !== true) return { error: callbackPerformanceUnavailable };
   return staffWorkspace(staff).campaignCallbackPerformance(input, staff);
+}
+
+export async function loadCampaignManager(input: unknown, staff: WorkspaceStaff | null) {
+  if (staff?.brokerage.role !== "Admin" || staff.brokerage.pilot !== true) return { error: campaignManagerUnavailable };
+  return staffWorkspace(staff).campaignManager(input, staff);
 }
 
 export async function loadCampaignCallbackExceptions(input: unknown, staff: WorkspaceStaff | null) {
