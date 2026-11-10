@@ -5,12 +5,33 @@ import { accessComplianceCases } from "@/app/actions";
 import { complianceAttentionLabels, complianceCaseKinds, complianceCaseStatuses, complianceCaseTarget, complianceTarget,
   sampleReviewDecisions, type ComplianceAttention } from "@/lib/compliance-case-model";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
+import type { SampleReceiptEvaluation } from "@/lib/sample-receipt-check";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 type Queue = Extract<ComplianceCaseResult, { kind: "list" }>;
 type Query = { type: "list"; loanId?: string; kind?: Queue["items"][number]["kind"]; status?: Queue["items"][number]["status"];
   attention?: ComplianceAttention; after?: NonNullable<Queue["next"]> };
+
+function ReceiptEvidence({ evidence }: { evidence: SampleReceiptEvaluation["basis"] }) {
+  return <details className="document-form compliance-inventory">
+    <summary>Evidence used</summary>
+    <ul className="loan-task-list">
+      <li className="loan-task compliance-row"><div className="loan-task-copy">
+        <strong>Disclosure workbench review</strong>
+        <span>{evidence.workbenchReview ?
+          `${evidence.workbenchReview.reviewer} · ${dateTime(evidence.workbenchReview.reviewedAt)} ET` : "Missing for this package revision"}</span>
+      </div></li>
+      <li className="loan-task compliance-row"><div className="loan-task-copy">
+        <strong>Review recorded on this finding</strong>
+        {evidence.caseEvidence ? <>
+          <span>{evidence.caseEvidence.recordedBy} · {dateTime(evidence.caseEvidence.recordedAt)} ET · Case revision {evidence.caseEvidence.revision}</span>
+          <span>Source review by {evidence.caseEvidence.reviewer} · {dateTime(evidence.caseEvidence.reviewedAt)} ET</span>
+        </> : <span>Missing for this package revision</span>}
+      </div></li>
+    </ul>
+  </details>;
+}
 
 export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, initialAttention, paused, openLoan, openDisclosures }: {
   brokerageId: string; admin: boolean; loanId?: string; initialCaseId?: string;
@@ -79,6 +100,9 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
 
   const title = detail?.item.title ?? (loanId ? "File compliance" : "Compliance work queue");
   const currentLoanId = detail?.item.loanId;
+  const receiptCheck = detail?.sampleReceiptCheck;
+  const savedCheck = receiptCheck?.latest;
+  const readyCheck = receiptCheck?.ready;
   const evidenceForReview = detail?.reviewSubmission && detail.history.find((entry) =>
     entry.evidenceNote?.packageRevision === detail.reviewSubmission?.packageRevision && entry.evidenceNote);
   const Heading = loanId || detail ? "h3" : "h2";
@@ -137,6 +161,19 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
             onClick={() => void save({ type: "recordSampleReview", packageRevision: detail.sampleReviewRevision }, "Sample workbench review recorded.")}>Record sample review</Button>}
         </div>
       </div>}
+      {receiptCheck && (readyCheck || savedCheck) && <section className="document-item record-form" aria-label="Sample receipt evidence check">
+        <div className="section-heading">
+          <strong>Sample receipt evidence check</strong>
+          {readyCheck && <Button size="sm" variant="outline" disabled={pending}
+            onClick={() => void save({ type: "evaluateSampleReceipt", ...readyCheck }, "Sample evidence check complete.")}>Run sample check</Button>}
+        </div>
+        {savedCheck ? <>
+          <p><strong>{savedCheck.outcome}</strong>{!savedCheck.current && " · Inputs changed since this check"}</p>
+          <p className="muted">Check v{savedCheck.version} · Sample package v{savedCheck.basis.packageVersion}, revision {savedCheck.basis.packageRevision}
+            {" · "}{dateTime(savedCheck.at)} ET</p>
+          <ReceiptEvidence evidence={savedCheck.basis} />
+        </> : <p className="muted">Compare the sample disclosure review with the evidence recorded on this finding.</p>}
+      </section>}
       {detail.reviewSubmission && <div className="document-item record-form">
         <strong>Submitted for review</strong>
         <p>{detail.reviewSubmission.note}</p>
@@ -215,14 +252,19 @@ export function ComplianceQueue({ brokerageId, admin, loanId, initialCaseId, ini
       {!loanId && detail.item.parentCaseId && <Button size="sm" variant="outline" disabled={pending} onClick={() => open(detail.item.parentCaseId ?? undefined)}>Open related case</Button>}
       <details className="document-form"><summary>Case history</summary><ul className="loan-task-list">{detail.history.map((event) => <li key={event.revision} className="loan-task compliance-row">
         <div className="loan-task-copy"><strong>{({ recordSampleReview: "Recorded sample workbench review", recordEvidenceNote: "Recorded sample evidence note",
-          submitForReview: "Submitted for review", decideReview: "Recorded sample review decision",
+          submitForReview: "Submitted for review", decideReview: "Recorded sample review decision", evaluateSampleReceipt: "Ran sample receipt evidence check",
           assign: "Changed case owner", updateStatus: "Changed workflow status" })[event.action] ?? event.action}</strong>
           <span>{event.actor} · {dateTime(event.at)} ET · Revision {event.revision}</span>
           {event.reviewNote && <><span>Package revision {event.reviewPackageRevision}</span><span>{event.reviewNote}</span></>}
           {event.evidenceNote && <><span>{event.evidenceNote.source} · Package revision {event.evidenceNote.packageRevision}</span>
             <span>{event.evidenceNote.note}</span></>}
           {event.reviewDecision && <><span>{event.reviewDecision.decision} · Package revision {event.reviewDecision.packageRevision} · Request revision {event.reviewDecision.submissionRevision}</span>
-            <span>{event.reviewDecision.reason}</span></>}</div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
+            <span>{event.reviewDecision.reason}</span></>}
+          {event.sampleEvaluation && <>
+            <span>{event.sampleEvaluation.outcome} · Check v{event.sampleEvaluation.version} · Sample package v{event.sampleEvaluation.basis.packageVersion}, revision {event.sampleEvaluation.basis.packageRevision}</span>
+            <ReceiptEvidence evidence={event.sampleEvaluation.basis} />
+          </>}
+        </div></li>)}</ul>{detail.moreHistory && <p className="muted">Showing the most recent 50 changes.</p>}</details>
     </>}
     {message && <p role={message.error ? "alert" : "status"}>{message.text}</p>}
     {message?.error && detail && <Button size="sm" variant="outline" disabled={pending} onClick={() => { setMessage(undefined); refresh((value) => value + 1); }}>Reload case</Button>}
