@@ -379,6 +379,69 @@ try {
       assert.equal(audit.loanAudit.filter(({ action: label }) => label === "Restored fictional open work from cutover").length, 1);
       const remaining = (await inventory()).openWork;
       assert.deepEqual([remaining.documents, remaining.conditions, remaining.review], [0, 0, 4]);
+
+      const token = resumed.applications[0].token;
+      const initial = await borrower(token, { type: "read" });
+      const step = applicationSteps.length - 1;
+      const submitted = await borrower(token, { type: "submit", revision: initial.revision, step,
+        draft: { ...sampleApplication(initial.draft), confirmedDemo: true } });
+      assert.ok(submitted.submittedAt, submitted.error);
+      const currentFile = () => inBrokerage(receiving, processor, "readLoanForWork", loanId);
+      const getDocument = async () => (await currentFile()).documentRequests.find(({ conditionId }) => conditionId === condition.id);
+      const getCondition = async () => (await currentFile()).submissions[0].conditions[0];
+      const receiveSample = async () => {
+        const current = await getDocument();
+        const result = await borrower(token, { type: "attachSample", statusOnly: true, requestId: current.id, revision: current.revision });
+        assert.equal(result.error, undefined);
+        const receivedDoc = await getDocument();
+        assert.equal(receivedDoc.status, "Received");
+        const reviewed = await followUp(processor, { type: "reviewDocument", requestId: receivedDoc.id, revision: receivedDoc.revision,
+          decision: "Accepted", replacementNote: "" });
+        assert.ok(reviewed.message, reviewed.error);
+        return getDocument();
+      };
+      const conditionTarget = { submissionId: lenderFile.id, conditionId: condition.id };
+      const recordDelivery = async (document, reference) => {
+        const delivery = await followUp(processor, { type: "recordManualDelivery", ...conditionTarget, revision: (await getCondition()).manual.revision,
+          documentRevision: document.revision, reference });
+        assert.ok(delivery.message, delivery.error);
+      };
+      const prior = await receiveSample();
+      await recordDelivery(prior, "CUTOVER-PRIOR-RECEIPT");
+      const replacement = await followUp(processor, { type: "reviewDocument", requestId: prior.id, revision: prior.revision,
+        decision: "Needs replacement", replacementNote: "Use the newer fictional pay stub." });
+      assert.ok(replacement.message, replacement.error);
+      const current = await receiveSample();
+      await recordDelivery(current, "CUTOVER-CURRENT-RECEIPT");
+      const cleared = await followUp(processor, { type: "recordManualClearance", ...conditionTarget,
+        revision: (await getCondition()).manual.revision, cleared: true, confirmation: "CUTOVER-CLEARANCE" });
+      assert.ok(cleared.message, cleared.error);
+
+      const documentedLender = { ...sourceInventory.lenderFiles[0], conditions: [{ ...sourceInventory.lenderFiles[0].conditions[0], status: "Cleared",
+        evidence: { receipts: [{ reference: "CUTOVER-PRIOR-RECEIPT", documentRevision: prior.revision, state: "Prior" },
+          { reference: "CUTOVER-CURRENT-RECEIPT", documentRevision: current.revision, state: "Current" }],
+        clearance: { at: (await getCondition()).satisfiedAt, reference: "CUTOVER-CLEARANCE" } } }] };
+      const documentedSource = { version: 1, documents: [sourceInventory.documents[0], { kind: current.kind, instructions: current.instructions,
+        status: "Accepted", dueOn: current.dueOn, evidence: { revision: current.revision, acceptedRevisions: [prior.revision, current.revision] } }],
+        lenderFiles: [documentedLender] };
+      const wrongReceipt = structuredClone(documentedSource);
+      wrongReceipt.lenderFiles[0].conditions[0].evidence.receipts[0].reference = "CUTOVER-UNAVAILABLE-RECEIPT";
+      const saveSource = (source, revision) => action(owner, "saveCutoverFileInventory", receiving, undefined,
+        { ...query, revision, source, fictional: true }, receiving);
+      const reconcile = (item, fileFingerprint) => action(owner, "saveCutoverReview", receiving, undefined,
+        { ...query, item, fileFingerprint, decision: "Reconciled", note: "Fictional origin evidence reviewed against the restored file.", revision: 0 }, receiving);
+      assert.ok((await saveSource(wrongReceipt, 1)).message);
+      const incomplete = await inventory();
+      assert.equal(incomplete.lender.rows.find(({ status }) => status === "Missing").evidence.find(({ status }) => status === "Missing").label,
+        "Receipt CUTOVER-UNAVAILABLE-RECEIPT");
+      assert.match((await reconcile("lender", incomplete.lender.fingerprint)).error, /resolve missing file inventory/i);
+      assert.ok((await saveSource(documentedSource, 2)).message);
+      const reconciled = await inventory();
+      assert.ok(reconciled.documents.rows.every(({ status }) => status === "Matched"));
+      assert.ok(reconciled.lender.rows.every(({ status }) => status === "Matched"));
+      assert.match((await reconcile("lender", incomplete.lender.fingerprint)).error, /comparison changed/i);
+      assert.ok((await reconcile("documents", reconciled.documents.fingerprint)).message);
+      assert.ok((await reconcile("lender", reconciled.lender.fingerprint)).message);
     }
     const finalCutover = await action(owner, "readCutoverChecklist", receiving, undefined, numbered.origin, receiving);
     assert.equal(finalCutover.evidence.draftCount, 2);

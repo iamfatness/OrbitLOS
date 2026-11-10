@@ -65,9 +65,70 @@ test("inventory schema distinguishes omitted and empty sections and bounds accep
   assert.equal(cutoverFileSource.safeParse({ version: 1, lenderFiles: [] }).success, true);
   assert.equal(cutoverFileSource.safeParse({ version: 1, documents: [{ ...photo, dueOn: "2026-02-30" }] }).success, false);
   assert.equal(cutoverFileSource.safeParse({ version: 1, documents: [{ ...photo, body: "never retain contents" }] }).success, false);
+  assert.equal(cutoverFileSource.safeParse({ version: 1, documents: [{ ...photo, evidence: { revision: 2, acceptedRevisions: [3] } }] }).success, false);
+  assert.equal(cutoverFileSource.safeParse({ version: 1, documents: [{ ...photo, evidence: { revision: 2, acceptedRevisions: [2, 2] } }] }).success, false);
+  const receipt = { reference: "SAMPLE-OLD", documentRevision: 2, state: "Prior" };
+  const duplicate = { ...file, conditions: [{ ...file.conditions[0], evidence: { receipts: [receipt, { ...receipt, state: "Current" }] } }] };
+  assert.equal(cutoverFileSource.safeParse({ version: 1, lenderFiles: [duplicate] }).success, false);
   assert.equal(cutoverFileSource.safeParse({ version: 1, lenderFiles: [file, { ...file, lender: "example  wholesale" }] }).success, false);
   assert.equal(cutoverFileSource.safeParse({ version: 1, documents: Array(101).fill(photo) }).success, false);
   assert.equal(cutoverFileSource.safeParse({ version: 1, documents: Array(100).fill({ ...photo, instructions: "ö".repeat(500) }) }).success, false);
+});
+
+test("accepted revision history explains missing proof and leaves older inventory comparisons stable", (t) => {
+  const { db, read, doc } = fixture(t);
+  doc({ id: "current", status: "Accepted", revision: 5 });
+  doc({ id: "outside", loanId: "other", status: "Accepted", revision: 2 });
+  const accepted = db.prepare("INSERT INTO document_acceptances VALUES (?, ?, 'Fictional processor', ?)");
+  accepted.run("current", 5, later);
+  accepted.run("outside", 2, at);
+  const basic = { ...photo, status: "Accepted" };
+  const legacy = read("documents", { documents: [basic] });
+  const source = { ...basic, evidence: { revision: 5, acceptedRevisions: [5, 2] } };
+  const missing = read("documents", { documents: [source] });
+  assert.equal(missing.rows[0].status, "Missing");
+  assert.equal(missing.rows[0].destination, "Accepted · No due date");
+  assert.deepEqual(missing.rows[0].evidence.map(({ label, status }) => [label, status]), [
+    ["Checklist revision", "Matched"], ["Accepted revision 2", "Missing"], ["Accepted revision 5", "Matched"],
+  ]);
+  accepted.run("current", 2, at);
+  const matched = read("documents", { documents: [source] });
+  assert.equal(matched.rows[0].status, "Matched");
+  assert.notEqual(matched.fingerprint, missing.fingerprint);
+  assert.equal(read("documents", { documents: [{ ...source, evidence: { revision: 5, acceptedRevisions: [2, 5] } }] }).fingerprint, matched.fingerprint);
+  assert.equal(read("documents", { documents: [basic] }).fingerprint, legacy.fingerprint);
+  assert.equal(read("documents", { documents: [{ ...source, evidence: { revision: 4 } }] }).rows[0].evidence[0].status, "Changed");
+});
+
+test("receipts compare by revision and current status across manual and archived mock deliveries", (t) => {
+  const { db, read, doc, submission } = fixture(t);
+  const prior = { reference: "SAMPLE-PRIOR", documentRevision: 2, state: "Prior" };
+  const current = { reference: "SAMPLE-CURRENT", documentRevision: 5, state: "Current" };
+  const manual = { owner: "Fictional processor", revision: 4, reopenedAt: later, confirmedDelivery: "CLEAR-SAMPLE", deliveries: [
+    { ...prior, at }, { ...current, at: later },
+  ] };
+  submission({ conditions: [{ ...condition, uploaded: true, satisfiedAt: later, manual }] });
+  submission({ id: "uwm", lender: "UWM", externalId: "MOCK-REF", syncedAt: at });
+  doc({ id: "manual-doc", status: "Accepted", revision: 5, submissionId: "file", conditionId: condition.id });
+  doc({ id: "uwm-doc", status: "Accepted", revision: 5, submissionId: "uwm", conditionId: condition.id });
+  db.prepare("INSERT INTO uwm_document_deliveries (requestId, receipt, sentAt, documentRevision) VALUES ('uwm-doc', 'MOCK-CURRENT', ?, 5)").run(later);
+  db.prepare("INSERT INTO uwm_document_delivery_history VALUES ('uwm-doc', 'MOCK-PRIOR', ?, 2)").run(at);
+  const manualSource = { ...file, conditions: [{ ...file.conditions[0], status: "Cleared",
+    evidence: { receipts: [prior, current], clearance: { at: "2026-11-09T10:00:00-05:00", reference: "CLEAR-SAMPLE" } } }] };
+  const mockSource = { ...file, lender: "UWM", reference: "MOCK-REF", conditions: [{ ...file.conditions[0], status: "Delivered",
+    evidence: { receipts: [{ ...prior, reference: "MOCK-PRIOR" }, { ...current, reference: "MOCK-CURRENT" }] } }] };
+  const both = [manualSource, mockSource];
+  const first = read("lender", { lenderFiles: both });
+  assert.ok(first.rows.every(({ status }) => status === "Matched"));
+  assert.ok(first.rows.some(({ evidence }) => evidence?.some(({ destination }) => destination === "Prior · Revision 2")));
+  assert.ok(first.rows.some(({ evidence }) => evidence?.some(({ destination }) => destination === `${later} · CLEAR-SAMPLE`)));
+  db.prepare("DELETE FROM uwm_document_delivery_history WHERE receipt = 'MOCK-PRIOR'").run();
+  const missing = read("lender", { lenderFiles: both });
+  assert.notEqual(missing.fingerprint, first.fingerprint);
+  assert.equal(missing.rows.find(({ status }) => status === "Missing").evidence.find(({ label }) => label === "Receipt MOCK-PRIOR").destination, null);
+  db.prepare("UPDATE document_requests SET revision = 6 WHERE id = 'uwm-doc'").run();
+  const stale = read("lender", { lenderFiles: both });
+  assert.equal(stale.rows.find(({ status }) => status === "Missing").evidence.find(({ label }) => label === "Receipt MOCK-CURRENT").destination, "Prior · Revision 5");
 });
 
 test("funding evidence validates dates, exact cents, and explicit follow-up absence", () => {

@@ -189,7 +189,7 @@ function draftReadiness(db: Store, scope: CutoverApplicationQuery, reviews?: Dra
       if (!source || source[cutoverFileSourceSection[item]] === undefined) return unresolved("Save the corresponding fictional source inventory.");
       const comparison = readFileComparison(db, scope.loanId, item, source);
       if (!comparison) return unresolved(cutoverFileComparisonUnavailable);
-      if (comparison.rows.some(({ status }) => status === "Missing")) return unresolved("Resolve missing file inventory rows before sign-off.");
+      if (comparison.rows.some(({ status }) => status === "Missing")) return unresolved("Resolve missing file inventory records or evidence before sign-off.");
       fingerprint = comparison.fingerprint;
       priorFingerprint = review?.fileFingerprint;
     }
@@ -390,7 +390,7 @@ export function saveMigrationCutover(db: Store, staff: WorkspaceStaff, brokerage
         if (!comparison) return { error: cutoverFileComparisonUnavailable };
         if (comparison.fingerprint !== fileFingerprint) return { error: "The file inventory comparison changed. Refresh it before saving." };
         if (comparison.rows.some(({ status }) => status === "Missing")) {
-          return { error: "Resolve missing file inventory before reconciling this draft." };
+          return { error: "Resolve missing file inventory records or evidence before reconciling this draft." };
         }
       }
       evidence.push(["fileFingerprint", decision === "Reconciled" ? fileFingerprint ?? null : null]);

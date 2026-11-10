@@ -50,7 +50,7 @@ function CutoverReviewList({ reviews, basis, disabled, record, openEvidence, app
       {openEvidence && <div><Button size="sm" variant="outline" disabled={disabled} onClick={() => openEvidence(target)}>
         Open {label.toLowerCase()}
       </Button></div>}
-      {openEvidence && fileItem && fileInventory && <FileInventoryComparison comparison={fileComparison} category={label}
+      {openEvidence && fileItem && fileInventory && <FileInventoryComparison comparison={fileComparison} category={label} item={fileItem}
         supplied={fileInventory.source?.[cutoverFileSourceSection[fileItem]] !== undefined} />}
       {openEvidence && item === "funding" && fileComparison?.rows.some(({ status }) => status === "Missing") &&
         <p className="muted">If funding is recorded and its follow-up is missing, check Automation run history in Playbooks.</p>}

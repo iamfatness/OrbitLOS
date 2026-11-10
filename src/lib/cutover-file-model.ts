@@ -4,15 +4,34 @@ export const cutoverFileSourceMaxBytes = 64 * 1024;
 export const cutoverFileDocumentLimit = 100;
 export const cutoverFileLenderLimit = 20;
 export const cutoverFileConditionLimit = 100;
+export const cutoverHistoryLimit = 300;
 export const cutoverFileComparisonUnavailable = "This file comparison is unavailable. Check that source evidence was supplied and the destination inventory fits the pilot limits.";
+
+const revision = z.int().nonnegative();
+export const cutoverDocumentEvidence = z.strictObject({
+  revision, acceptedRevisions: z.array(revision).max(cutoverHistoryLimit).optional(),
+}).refine(({ revision: current, acceptedRevisions }) => !acceptedRevisions ||
+  (new Set(acceptedRevisions).size === acceptedRevisions.length && acceptedRevisions.every((value) => value <= current)),
+"Include each accepted revision once, at or before the current revision.");
+export const cutoverDeliveryReceipt = z.strictObject({
+  reference: z.string().trim().min(1).max(240), documentRevision: revision.nullable(), state: z.enum(["Current", "Prior"]),
+});
+const clearanceEvidence = z.strictObject({
+  at: z.iso.datetime({ offset: true }), reference: z.string().trim().min(1).max(160).nullable(),
+});
+export const cutoverConditionEvidence = z.strictObject({
+  receipts: z.array(cutoverDeliveryReceipt).max(cutoverHistoryLimit).optional(), clearance: clearanceEvidence.nullable().optional(),
+}).refine(({ receipts, clearance }) => (receipts !== undefined || clearance !== undefined) &&
+  (!receipts || new Set(receipts.map(({ reference, documentRevision }) => JSON.stringify([reference, documentRevision]))).size === receipts.length),
+"Include delivery receipts or clearance evidence, with each receipt revision listed once.");
 
 export const cutoverFileDocument = z.strictObject({
   kind: z.string().trim().min(1).max(160), instructions: z.string().trim().max(500),
-  status: z.enum(["Requested", "Received", "Accepted", "Needs replacement"]), dueOn: z.iso.date().nullable(),
+  status: z.enum(["Requested", "Received", "Accepted", "Needs replacement"]), dueOn: z.iso.date().nullable(), evidence: cutoverDocumentEvidence.optional(),
 });
 const lenderCondition = z.strictObject({
   category: z.string().trim().min(1).max(160), description: z.string().trim().min(1).max(500),
-  status: z.enum(["Open", "Delivered", "Cleared"]),
+  status: z.enum(["Open", "Delivered", "Cleared"]), evidence: cutoverConditionEvidence.optional(),
 });
 export const cutoverFileLenderFields = {
   lender: z.string().trim().min(1).max(160), reference: z.string().trim().min(1).max(160), status: z.string().trim().min(1).max(160),
@@ -57,13 +76,22 @@ export const cutoverFileSource = z.strictObject({
   if (new Set(files.map(({ lender, reference }) => cutoverFileLenderKey(lender, reference))).size !== files.length) {
     context.addIssue({ code: "custom", path: ["lenderFiles"], message: "Include each lender reference once, with all its conditions together." });
   }
+  const historyCount = (documents ?? []).reduce((sum, doc) => sum + (doc.evidence?.acceptedRevisions?.length ?? 0), 0) +
+    files.reduce((sum, file) => sum + file.conditions.reduce((total, item) => total + (item.evidence?.receipts?.length ?? 0), 0), 0);
+  if (historyCount > cutoverHistoryLimit) {
+    context.addIssue({ code: "custom", message: `Include up to ${cutoverHistoryLimit} accepted revisions and delivery receipts in total.` });
+  }
 }).refine((source) => new TextEncoder().encode(JSON.stringify(source)).byteLength <= cutoverFileSourceMaxBytes, "Keep the fictional inventory under 64 KiB.");
 
 export type CutoverFileSource = z.infer<typeof cutoverFileSource>;
 export type CutoverFundingInventory = z.infer<typeof fundingInventory>;
+export type CutoverDocumentEvidence = z.infer<typeof cutoverDocumentEvidence>;
+export type CutoverConditionEvidence = z.infer<typeof cutoverConditionEvidence>;
+export type CutoverDeliveryReceipt = z.infer<typeof cutoverDeliveryReceipt>;
 export const cutoverFileSourceSection = { documents: "documents", lender: "lenderFiles", funding: "funding" } as const;
 export type CutoverFileItem = keyof typeof cutoverFileSourceSection;
 export type CutoverFileComparison = {
   fingerprint: string;
-  rows: { label: string; source: string | null; destination: string | null; status: "Matched" | "Changed" | "Missing" | "Added" }[];
+  rows: (CutoverEvidenceDifference & { evidence?: CutoverEvidenceDifference[] })[];
 };
+export type CutoverEvidenceDifference = { label: string; source: string | null; destination: string | null; status: "Matched" | "Changed" | "Missing" | "Added" };

@@ -52,11 +52,12 @@ export function planCutoverOpenWork(db: Store, scope: CutoverApplicationQuery, s
       if (primaryOnly && occurrences.get(key) === 1 && existing.some((row) => row.recipient === primaryDocumentRecipient && row.conditionId === null &&
         row.status === document.status && row.dueOn === document.dueOn &&
         cutoverFileText(String(row.instructions)) === cutoverFileText(document.instructions))) continue;
-      if (document.status === "Requested" && kind && primaryOnly && occurrences.get(key) === 1 && !existing.length &&
+      if (document.status === "Requested" && (document.evidence?.revision ?? 0) === 0 && kind && primaryOnly && occurrences.get(key) === 1 && !existing.length &&
         rows.length + pendingDocuments.length < cutoverFileDocumentLimit) {
         pendingDocuments.push({ kind, instructions: document.instructions, dueOn: document.dueOn });
       } else review++;
     }
+    review = Math.max(review, documents.rows.filter(({ source, status }) => source && status !== "Matched").length - pendingDocuments.length);
   }
   if (source.lenderFiles && !lender) review += source.lenderFiles.reduce((count, file) => count + file.conditions.length + 1, 0);
   if (source.lenderFiles && lender) {
@@ -76,7 +77,9 @@ export function planCutoverOpenWork(db: Store, scope: CutoverApplicationQuery, s
       }
     }
     const restored = pendingLenders.reduce((count, file) => count + file.conditions.length + 1, 0);
-    review += Math.max(0, lender.rows.filter(({ source, status }) => source && status !== "Matched").length - restored);
+    const pendingHistory = pendingLenders.reduce((count, file) => count + file.conditions.filter(({ evidence }) =>
+      Boolean(evidence?.receipts?.length || evidence?.clearance)).length, 0);
+    review += Math.max(0, lender.rows.filter(({ source, status }) => source && status !== "Matched").length - restored + pendingHistory);
   }
   const conditions = pendingLenders.reduce((count, file) => count + file.conditions.length, 0);
   const owner = loan.officerEmail ? String(loan.officer || loan.officerEmail) : null;

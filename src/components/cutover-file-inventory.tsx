@@ -1,16 +1,22 @@
 "use client";
 
 import { useRef, useState, type Ref } from "react";
-import { cutoverFileSource, cutoverFileSourceMaxBytes, type CutoverFileComparison, type CutoverFileSource } from "@/lib/cutover-file-model";
+import { cutoverFileSource, cutoverFileSourceMaxBytes, type CutoverEvidenceDifference, type CutoverFileComparison,
+  type CutoverFileItem, type CutoverFileSource } from "@/lib/cutover-file-model";
 import type { CutoverFileInventory, CutoverOpenWork } from "@/lib/migration-cutover-model";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
 const sample: CutoverFileSource = {
   version: 1,
-  documents: [{ kind: "Photo ID", instructions: "Provide the fictional sample identification.", status: "Requested", dueOn: null }],
+  documents: [{ kind: "Photo ID", instructions: "Provide the fictional sample identification.", status: "Requested", dueOn: null,
+    evidence: { revision: 0, acceptedRevisions: [] } },
+  { kind: "Pay stub", instructions: "Verify the fictional pay statement.", status: "Accepted", dueOn: null,
+    evidence: { revision: 5, acceptedRevisions: [2, 5] } }],
   lenderFiles: [{ lender: "Example Wholesale", reference: "SAMPLE-1003", status: "Acknowledged",
-    conditions: [{ category: "Income", description: "Review the fictional pay statement.", status: "Open" }] }],
+    conditions: [{ category: "Income", description: "Review the fictional pay statement.", status: "Delivered",
+      evidence: { receipts: [{ reference: "SAMPLE-PRIOR", documentRevision: 2, state: "Prior" },
+        { reference: "SAMPLE-CURRENT", documentRevision: 5, state: "Current" }], clearance: null } }] }],
   funding: { closingDate: "2026-06-12", fundingDate: "2026-06-15", fundedPrincipalCents: 28_000_000,
     borrowerFollowUp: { dueOn: "2026-06-22", status: "Open" }, realtorFollowUp: null, borrowerCallback: null },
 };
@@ -19,10 +25,12 @@ function summary(source: CutoverFileSource) {
   const documents = source.documents;
   const files = source.lenderFiles;
   const conditions = files?.reduce((total, file) => total + file.conditions.length, 0) ?? 0;
+  const versionEvidence = documents?.some(({ evidence }) => evidence) || files?.some(({ conditions }) => conditions.some(({ evidence }) => evidence));
   const count = (value: number, label: string) => `${value} ${label}${value === 1 ? "" : "s"}`;
   return [documents ? count(documents.length, "document request") : "Documents omitted",
     files ? `${count(files.length, "lender file")} · ${count(conditions, "condition")}` : "Lender files omitted",
-    source.funding ? "Closing and funding included" : "Closing and funding omitted"].join(" · ");
+    source.funding ? "Closing and funding included" : "Closing and funding omitted",
+    ...(versionEvidence ? ["Revision or delivery evidence included"] : [])].join(" · ");
 }
 
 export function FileInventoryUpload({ inventory, disabled, save }: {
@@ -68,6 +76,7 @@ export function FileInventoryUpload({ inventory, disabled, save }: {
       <summary>{inventory.source ? "Replace source inventory" : "Add source inventory"}</summary>
       <div className="record-form">
         <p className="muted">Use empty lists for no documents or lender files, and null values for no closing, funding, or follow-up records. Omit a category when its inventory is unavailable. Each upload replaces the prior inventory for this draft.</p>
+        <p className="muted">For a file in processing, the sample also shows how to include checklist revisions, accepted versions, current and prior receipts, and clearance references.</p>
         <div><Button size="sm" variant="outline" onClick={() => downloadSampleFile(JSON.stringify(sample, null, 2), "orbit-fictional-file-inventory.json", "application/json")}>Download sample inventory</Button></div>
         <label className="field">Fictional inventory JSON<input type="file" accept=".json,application/json" disabled={disabled} onChange={(event) => void load(event.target.files?.[0])} /></label>
         {error && <p role="alert">{error}</p>}
@@ -81,13 +90,26 @@ export function FileInventoryUpload({ inventory, disabled, save }: {
   </section>;
 }
 
-function ComparisonRows({ rows }: { rows: CutoverFileComparison["rows"] }) {
-  return <ul className="document-list">{rows.map(({ label, source, destination, status }, index) => <li className="document-item" key={`${label}:${index}`}>
-    <div className="document-item-head"><strong>{label}</strong><span className={status === "Changed" || status === "Missing" ? "open-chip" : "pill"}>{status}</span></div>
-    <dl className="details-grid cutover-file-values">
-      <div><dt>Source</dt><dd>{source ?? "No record"}</dd></div>
-      <div><dt>Orbit</dt><dd>{destination ?? "No record"}</dd></div>
-    </dl>
+function ComparisonValues({ source, destination }: Pick<CutoverEvidenceDifference, "source" | "destination">) {
+  return <dl className="cutover-file-values grid gap-3">
+    <div><dt>Source</dt><dd>{source ?? "No record"}</dd></div>
+    <div><dt>Orbit</dt><dd>{destination ?? "No record"}</dd></div>
+  </dl>;
+}
+
+function ComparisonRows({ rows, evidenceLabel }: { rows: CutoverFileComparison["rows"]; evidenceLabel: string }) {
+  return <ul className="document-list">{rows.map(({ label, source, destination, status, evidence }, index) => <li className="document-item cutover-comparison-row" key={`${label}:${index}`}>
+    <div className="document-item-head"><strong>{label}</strong><span className={status === "Changed" || status === "Missing" ? "open-chip" : "pill"}>
+      {status === "Missing" && destination ? "Evidence missing" : status}</span></div>
+    <ComparisonValues source={source} destination={destination} />
+    {evidence && <details className="document-form cutover-evidence-details">
+      <summary>{evidenceLabel}</summary>
+      <ul className="cutover-evidence-list">{evidence.map((item, position) => <li key={`${item.label}:${position}`}>
+        <div className="document-item-head"><strong>{item.label}</strong>
+          <span className={item.status === "Changed" || item.status === "Missing" ? "open-chip" : "pill"}>{item.status}</span></div>
+        <ComparisonValues source={item.source} destination={item.destination} />
+      </li>)}</ul>
+    </details>}
   </li>)}</ul>;
 }
 
@@ -118,25 +140,26 @@ export function CutoverOpenWorkPreview({ work, receipt, receiptRef, disabled, re
   </section>;
 }
 
-export function FileInventoryComparison({ comparison, supplied, category }: {
-  comparison: CutoverFileComparison | null; supplied: boolean; category: string;
+export function FileInventoryComparison({ comparison, supplied, category, item }: {
+  comparison: CutoverFileComparison | null; supplied: boolean; category: string; item: CutoverFileItem;
 }) {
   if (!comparison) return <p className="muted">{supplied ? "This inventory cannot be compared. Review the loan evidence and refresh the checklist." : "Include this category in the source inventory to compare it."}</p>;
   const differences = comparison.rows.filter(({ status }) => status !== "Matched");
   const matches = comparison.rows.filter(({ status }) => status === "Matched");
   const missing = differences.filter(({ status }) => status === "Missing").length;
+  const evidenceLabel = item === "documents" ? "Compare document revisions" : "Compare delivery evidence";
   return <section className="record-form" aria-label={`${category} comparison`}>
     <div className="loan-application-actions">
       <span className="pill">{matches.length} matched</span>
       <span className="pill">{differences.length - missing} changed or added</span>
-      <span className={missing ? "open-chip" : "pill"}>{missing} missing in Orbit</span>
+      <span className={missing ? "open-chip" : "pill"}>{missing} missing {missing === 1 ? "item" : "items"}</span>
     </div>
-    {missing > 0 && <p className="muted">Restore the missing source records on this loan before reconciling.</p>}
-    {differences.length > 0 && <ComparisonRows rows={differences} />}
+    {missing > 0 && <p className="muted">Resolve missing records or evidence before marking this comparison reconciled.</p>}
+    {differences.length > 0 && <ComparisonRows rows={differences} evidenceLabel={evidenceLabel} />}
     {!comparison.rows.length && <p className="empty-inline">The source and this loan have no records in this category.</p>}
     {matches.length > 0 && <details className="document-form">
       <summary>View matched records</summary>
-      <ComparisonRows rows={matches} />
+      <ComparisonRows rows={matches} evidenceLabel={evidenceLabel} />
     </details>}
   </section>;
 }
