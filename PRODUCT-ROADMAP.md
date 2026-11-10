@@ -37,6 +37,8 @@ R2's fictional rehearsals cover conventional purchase and no-cash-out refinance,
 
 R3's fictional acceptance covers CSV outreach, a portal realtor referral, and a past-client campaign. Owned replies and missed calls keep their history across reassignment and conversion. A reviewed email or text linked to an open lead stops automated follow-up and preserves any promised callback. The owner can open the funded referral purchase and the funded campaign refinance from their respective reports, and Returning clients links the two files. Provider delivery, dialer and sandbox acceptance stay in the integration lane. R4 starts with rehearsing representative brokerage imports, reconciling owners, contacts, in-flight files, open tasks and opt-outs. [Hosted inbound review](docs/demo-rehearsal-log.md#shared-inbound-review-and-missed-calls) · [CRM source acceptance](docs/demo-rehearsal-log.md#referral-and-past-client-source-acceptance)
 
+R4's first release preserves channel restrictions through CRM preview, receipts, conversion and re-export. Two fictional brokerages reconciled representative CRM records and separate MISMO drafts. Next, rehearse moving a file already in processing. Compare its owner, lender status, open conditions and document work against the source, then verify the assigned staff can resume it in Orbit. [Migration acceptance](docs/demo-rehearsal-log.md#crm-migration-and-channel-restrictions)
+
 ### R1 execution plan
 
 | Slice | Work | Release evidence |
