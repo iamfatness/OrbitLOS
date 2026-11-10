@@ -15,8 +15,9 @@ import { officerDashboardUnavailable } from "@/lib/officer-dashboard-model";
 import { processorQueueUnavailable } from "@/lib/processor-queue-model";
 import { salesDashboardUnavailable } from "@/lib/sales-dashboard-model";
 import { ownerScorecardUnavailable } from "@/lib/owner-scorecard-model";
-import { loadOwnerScorecard, updateOwnerScorecard, workOnCustomReport } from "@/lib/workspace-service";
+import { loadOwnerScorecard, updateOwnerScorecard, workOnCustomReport, workOnDisclosureCalendar } from "@/lib/workspace-service";
 import { customReportUnavailable } from "@/lib/custom-report-model";
+import { disclosureCalendarUnavailable } from "@/lib/disclosure-calendar-model";
 import { conversationsUnavailable } from "@/lib/conversation-model";
 import { inboundReplyUnavailable } from "@/lib/inbound-replies-model";
 import { appointmentsUnavailable } from "@/lib/appointment-model";
@@ -320,6 +321,12 @@ export async function accessCustomReport(input: unknown, expectedBrokerage: stri
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: customReportUnavailable };
   return workOnCustomReport(input, staff);
+}
+
+export async function accessDisclosureCalendar(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: disclosureCalendarUnavailable };
+  return workOnDisclosureCalendar(input, staff);
 }
 
 export async function saveSalesSetting(input: unknown, expectedBrokerage: string) {

@@ -34,9 +34,10 @@ function packetSnapshot(db: Store, loanId: string, work: DisclosureWork): Closin
     return serviceEvidence.length ? { ...item, serviceEvidence } : item;
   });
   const { version, revision, at, actor, applicationRevision, feeRevision, signers, changeReview, feeAllocations } = review;
-  const { documents, issuedAt, signBy, quote } = packageRow;
+  const { documents, issuedAt, signBy, quote, deadlineBasis } = packageRow;
   return { ...loan, disclosure: { version, revision, at, actor, applicationRevision, feeRevision, signers, changeReview,
-    documents, issuedAt, signBy, loanAmount: quote.loanAmount, product: quote.product, rate: quote.rate,
+    documents, issuedAt, signBy, ...(deadlineBasis ? { calendarVersion: deadlineBasis.version } : {}),
+    loanAmount: quote.loanAmount, product: quote.product, rate: quote.rate,
     cashToClose: quote.estimate?.cashToClose ?? null, ...(feeAllocations?.length ? { feeAllocations } : {}) }, checklist };
 }
 

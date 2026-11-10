@@ -35,6 +35,7 @@ import type { OwnerScorecardFilters } from "@/lib/owner-scorecard-model";
 import { currentReportMonth } from "@/lib/report-date-range";
 import { OfficerToday } from "./officer-today";
 import { currentCalendarWeek, WorkspaceCalendar } from "./workspace-calendar";
+import { DisclosureCalendar } from "./disclosure-calendar";
 import { StaffCoverage } from "./staff-coverage";
 import { LoanReviewQueue } from "./loan-reviews";
 import { ReviewInboxPanel, useReviewInbox } from "./review-inbox";
@@ -77,7 +78,7 @@ import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type Inc
 import { leadDocumentsUnavailable, type LeadDocumentLocation } from "@/lib/lead-document-model";
 import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
-import { disclosureTask } from "@/lib/disclosure-model";
+import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { staffQuestionTarget } from "@/lib/borrower-question-model";
@@ -1295,8 +1296,13 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             refreshStalled={() => setError((current) => current === stalledLoanUnavailable ? "" : current)}
             openOpportunity={(item) => void openQueueLoan({ kind: "details", loanId: item.loanId, target: searchTaskTarget(item.id) }, { kind: "retention", id: item.id })}
             openPastClients={() => navigate("Past Clients")} />}
-          {section === "Calendar" && canOpenCalendar && <WorkspaceCalendar brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-            canSeeTeam={admin} processor={processor} query={calendar} onChange={setCalendar} version={queueVersion} openWork={openDeadlineWork} />}
+          {section === "Calendar" && canOpenCalendar && <div className="record-form">
+            {admin && (!staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) &&
+              <DisclosureCalendar brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+                openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId, target: disclosureTarget })} />}
+            <WorkspaceCalendar brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+              canSeeTeam={admin} processor={processor} query={calendar} onChange={setCalendar} version={queueVersion} openWork={openDeadlineWork} />
+          </div>}
           {section === "Coverage" && canOpenCalendar && <StaffCoverage brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             staffEmail={staff?.email ?? localOfficer.email} admin={admin} onWorkSaved={() => setCalendar((current) => ({ ...current, after: undefined }))} />}
           {section === "Search" && canOpenCalendar && <WorkspaceSearch brokerageId={staff?.brokerage.id ?? demoBrokerageId} processor={processor}

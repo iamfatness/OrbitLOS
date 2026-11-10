@@ -73,6 +73,7 @@ export function closingPacketPdf({ version, preparedAt, preparedBy, snapshot }: 
   rows([`Package v${disclosure.version} / 1003 revision ${disclosure.applicationRevision} / Fee worksheet revision ${disclosure.feeRevision}`,
     `Confirmed by ${disclosure.actor} on ${stamp(disclosure.at)}`,
     `Issued: ${disclosure.issuedAt ? stamp(disclosure.issuedAt) : "Unissued"} / Signing target: ${day(disclosure.signBy)}`,
+    ...(disclosure.calendarVersion === undefined ? [] : [`Brokerage deadline calendar v${disclosure.calendarVersion}`]),
     `${disclosure.product} / ${disclosure.rate.toFixed(3)}% / ${requestedMoney(disclosure.loanAmount)}`,
     `Estimated cash to close: ${disclosure.cashToClose === null ? "Unavailable" : cents.format(disclosure.cashToClose / 100)}`,
     `Sample documents: ${disclosure.documents.join(", ")}`]);

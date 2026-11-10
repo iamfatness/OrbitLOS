@@ -279,8 +279,11 @@ export function initializeStore(db: Store, seedDemo = true) {
       version INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, applicationRevision INTEGER NOT NULL, feeRevision INTEGER NOT NULL,
       quote TEXT NOT NULL, documents TEXT NOT NULL, signers TEXT NOT NULL, preparedAt TEXT NOT NULL, signBy TEXT NOT NULL,
-      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT, changeReview TEXT,
+      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT, changeReview TEXT, deadlineBasis TEXT,
       PRIMARY KEY (loanId, version)
+    );
+    CREATE TABLE IF NOT EXISTS disclosure_calendar_versions (
+      version INTEGER PRIMARY KEY, rules TEXT NOT NULL, publishedAt TEXT NOT NULL, publishedBy TEXT NOT NULL, note TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS mock_uwm_acceptances (
       loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
@@ -1110,6 +1113,11 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "changeReview")) {
       db.exec("ALTER TABLE disclosure_packages ADD COLUMN changeReview TEXT");
     }
+    if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "deadlineBasis")) {
+      db.exec("ALTER TABLE disclosure_packages ADD COLUMN deadlineBasis TEXT");
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS disclosure_targets_for_calendar ON disclosure_packages(signBy, loanId)
+      WHERE supersededAt IS NULL AND reviewReason IS NULL AND deadlineBasis IS NOT NULL`);
     if (!db.prepare("PRAGMA table_info(closing_packets)").all().some(({ name }) => name === "pdf")) {
       db.exec("ALTER TABLE closing_packets ADD COLUMN pdf TEXT");
     }

@@ -34,6 +34,7 @@ export default function DemoPage() {
           <li>Share a saved comparison with cash to close, five-year borrowing cost, break-even, and an expiration date. A fee edit opens an LO review while the borrower keeps the shared version through its expiration.</li>
           <li>Reuse sample brokerage fee templates by purpose and ZIP. Record who pays and receives a fee, then follow the saved allocation into the sample disclosure and closing packet.</li>
           <li>Assemble a sample disclosure package and track each mock response. Open a task from Today to follow up on a decline or compare changes and record the review with the revised package.</li>
+          <li>Preview the disclosure deadline calendar with a fictional office closure. Open a draft that needs a revised signing target and see the original date retained on issued packages.</li>
           <li>From Your next actions, borrowers open their own corrections, outstanding documents, and mock signatures. Dated requests appear first, and the list updates when an item is complete.</li>
           <li>Ask a borrower a question from the loan. Review their answer from Incoming loan work, or send it back to their private action list for clarification.</li>
           <li>Confirm the signed sample package from Closing. A replacement leaves the earlier confirmation and receipts in history.</li>

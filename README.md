@@ -197,6 +197,8 @@ In **Realtors → Partner conversion**, filter the cohort by lead date, current 
 
 In a fictional workspace, review the submitted 1003 and save a sample quote. Open **Disclosures** on the loan to load and save sample fees, choose the sample documents and signing target, then prepare and issue the package. Record each borrower’s simulated signature or decline. The workbench keeps the issued fee snapshot, the target dates, and mock receipts with their package version.
 
+Brokerage admins can open **Calendar → Disclosure deadline calendar** to set open weekend days, add dated office closures, and choose the internal signing window. Preview how a change affects a test date and open sample packages before publishing with a reason. On the loan, use the suggested target or select **Manual date**. Calendar-based packages retain their version and date. A moved draft needs a revision before issue, while already-issued packages keep their dates and reminders.
+
 Open the issued package on the borrower’s existing application link. Each linked signer reviews the sample documents and records their own simulated response. The portal shows that signer’s receipt, and staff see the source and time on the loan. A package needing review or superseded by a draft cannot accept further responses.
 
 A mock decline closes the signing reminder and adds a follow-up in **Today**. Open **Disclosures** to record a private note or prepare a revised package. Both options clear the follow-up, and the original response and receipt stay in history. A missed signing target appears as past due while pending mock responses remain available.

@@ -61,6 +61,7 @@ import { readEditableLead } from "./editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./sales-dashboard";
 import { changeOwnerScorecardSettings, readOwnerScorecard } from "./owner-scorecard";
 import { customReportWork } from "./custom-reports";
+import { disclosureCalendarWork } from "./disclosure-calendar";
 import { changeConversation, readConversations } from "./conversations";
 import { changeInboundReply, readInboundReplies } from "./inbound-replies";
 import { workOnAppointment } from "./appointments";
@@ -387,6 +388,10 @@ export async function updateOwnerScorecard(input: unknown, staff: WorkspaceStaff
 
 export async function workOnCustomReport(input: unknown, staff: WorkspaceStaff | null) {
   return customReportWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
+}
+
+export async function workOnDisclosureCalendar(input: unknown, staff: WorkspaceStaff | null) {
+  return disclosureCalendarWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {

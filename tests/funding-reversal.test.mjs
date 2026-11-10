@@ -19,7 +19,7 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { quarterlyCallReport, emptyCallReportFacts, quarterRange } = await import("../src/lib/call-report-model.ts");
 const { callReportFiles } = await import("../src/lib/call-report.ts");
 const { reportingReadinessWork } = await import("../src/lib/call-report-readiness.ts");
-const { easternDate } = await import("../src/lib/client-retention.ts");
+const { easternDate, easternDayStart } = await import("../src/lib/client-retention.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
 const { contactFollowUpExceptions, fundingTaskId } = await import("../src/lib/playbook-model.ts");
 const { readRecordHistory } = await import("../src/lib/record-history.ts");
@@ -34,7 +34,9 @@ const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
 const { queueActionLabel } = await import("../src/lib/officer-queue-model.ts");
 const { sampleApplication } = await import("../src/lib/application-model.ts");
 const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
-const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
+const { readBorrowerDisclosure, readDisclosureWork } = await import("../src/lib/disclosures.ts");
+const { disclosureCalendarWork } = await import("../src/lib/disclosure-calendar.ts");
+const { defaultDisclosureCalendar, disclosureSigningDeadline } = await import("../src/lib/disclosure-calendar-model.ts");
 const { blankFees } = await import("../src/lib/quote-worksheet.ts");
 
 function fundingFixture(t) {
@@ -371,6 +373,81 @@ test("reporting readiness resumes a bounded legacy backfill and excludes reviewe
   assert.equal(work(query).blockers, 322);
   db.exec("DELETE FROM loans WHERE id = 'legacy-001'");
   assert.equal(work(query).blockers, 321);
+});
+
+test("internal signing targets count after the anchor and honor weekend, holiday, and year boundaries", () => {
+  const basis = { version: 2, anchorOn: "2026-11-05" };
+  const rules = { ...defaultDisclosureCalendar, saturday: true,
+    holidays: [{ on: "2026-11-06", label: "Office closure" }, { on: "2026-11-09", label: "Team holiday" }] };
+  assert.equal(disclosureSigningDeadline(defaultDisclosureCalendar, basis).signBy, "2026-11-09");
+  const target = disclosureSigningDeadline(rules, basis);
+  assert.equal(target.signBy, "2026-11-10");
+  assert.deepEqual(target.skipped.map(({ label }) => label), ["Office closure", "Sunday closed", "Team holiday"]);
+  assert.equal(disclosureSigningDeadline({ ...defaultDisclosureCalendar, holidays: [{ on: "2027-01-01", label: "Closed" }] },
+    { ...basis, anchorOn: "2026-12-31" }).signBy, "2027-01-05");
+});
+
+test("deadline calendar previews moved drafts and keeps issued mock targets and reminders pinned", async (t) => {
+  const { db, admin, officer, loanId, run, apply } = fundingFixture(t);
+  const calendar = (input, staff = admin, brokerageId = admin.brokerage.id) => disclosureCalendarWork(db, input, staff, brokerageId);
+  const read = () => readDisclosureWork(db, loanId);
+  const command = () => {
+    const [{ version, revision }] = read().packages;
+    return { version, revision };
+  };
+  const app = (await apply({ type: "startApplication" })).applications[0];
+  const draft = sampleApplication(borrowerCommandResult(db, { type: "read", token: app.token }).application.draft);
+  Object.assign(draft.propertyLocation, { city: "Bloomfield Hills", state: "MI", zip: "48304" });
+  const submitted = borrowerCommandResult(db, { type: "submit", token: app.token, step: 9, revision: app.revision, draft: { ...draft, confirmedDemo: true } });
+  const applicationRevision = submitted.application.revision;
+  await apply({ type: "reviewApplication", revision: applicationRevision });
+  const pricing = (await apply({ type: "runPricing", applicationRevision, scenario: { purpose: "Purchase", loanAmount: 350000, propertyValue: 450000,
+    purchasePrice: 450000, zip: "48304", creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+    propertyType: "Single family", firstTimeBuyer: false } })).pricingRuns[0];
+  const choice = { runId: pricing.id, offerId: pricing.offers[0].id };
+  await apply({ type: "selectOffer", ...choice });
+  await apply({ type: "saveFeeWorksheet", ...choice, feeRevision: 0, worksheet: { fees: blankFees(), purchasePrice: 45_000_000,
+    payoffs: null, deposit: 0, sellerCredits: 0, otherCredits: 0 } });
+  const prepare = ({ version, anchorOn, signBy }, previousVersion = null) => ({ type: "prepareDisclosurePackage", ...choice,
+    applicationRevision, feeRevision: 1, previousVersion, documents: sampleDisclosureDocuments, signBy, deadlineCalendar: { version, anchorOn } });
+  const first = read().suggestedDeadline;
+  assert.equal(first.version, 0);
+  assert.match((await run(prepare({ ...first, signBy: first.anchorOn }), officer)).error, /current calendar suggestion/);
+  await apply(prepare(first), officer);
+  const rules = { ...defaultDisclosureCalendar, holidays: [{ on: first.signBy, label: "Fictional office closure" }] };
+  const publish = { type: "publish", version: 0, rules, note: "Fictional office schedule change." };
+  assert.match(calendar(publish, officer).error, /admins/);
+  assert.match(calendar(publish, admin, crypto.randomUUID()).error, /admins/);
+  const preview = (version, rules) => calendar({ type: "preview", version, rules, anchorOn: first.anchorOn });
+  assert.equal(preview(0, rules).affected[0].loanId, loanId);
+  assert.equal(preview(0, rules).affected[0].state, "Draft");
+  assert.match(preview(0, { ...rules, holidays: [...rules.holidays, ...rules.holidays] }).error, /only once/);
+  assert.equal(calendar({ type: "read" }).current.version, 0);
+  assert.equal(calendar(publish).current.version, 1);
+  assert.equal(calendar(publish).current.version, 1);
+  assert.match(preview(0, rules).error, /calendar changed/);
+  assert.equal(read().packages[0].signBy, first.signBy);
+  assert.equal(read().draftTargetChanged.signBy, read().suggestedDeadline.signBy);
+  assert.match((await run({ type: "issueDisclosurePackage", ...command() }, officer)).error, /moved this draft/);
+  assert.match((await run(prepare(first, 1), officer)).error, /preview changed/);
+  const second = read().suggestedDeadline;
+  await apply(prepare(second, 1), officer);
+  await apply({ type: "issueDisclosurePackage", ...command() }, officer);
+  assert.equal(readBorrowerDisclosure(db, loanId, "Borrower").signBy, second.signBy);
+  const reminder = () => db.prepare("SELECT dueAt FROM tasks WHERE id = ?").get(`disclosure-signing:${loanId}:2`).dueAt;
+  assert.equal(reminder(), easternDayStart(second.signBy));
+  const revisedRules = { ...rules, signingDays: 4 };
+  assert.equal(preview(1, revisedRules).affected[0].state, "Issued");
+  assert.equal(calendar({ ...publish, version: 1, rules: revisedRules, note: "Extend the internal follow-up window." }).current.version, 2);
+  assert.equal(read().draftTargetChanged, null);
+  assert.deepEqual(read().packages.map(({ signBy, deadlineBasis }) => [signBy, deadlineBasis.version]), [[second.signBy, 1], [first.signBy, 0]]);
+  assert.equal(reminder(), easternDayStart(second.signBy));
+  assert.equal(readBorrowerDisclosure(db, loanId, "Borrower").signBy, second.signBy);
+  await apply({ type: "respondToDisclosurePackage", ...command(), signer: "Borrower", response: "Signed" }, officer);
+  assert.equal(read().packages[0].signers[0].status, "Signed");
+  assert.equal(preview(2, defaultDisclosureCalendar).checked, 0);
+  assert.deepEqual(calendar({ type: "read" }).history.map(({ version, publishedBy }) => [version, publishedBy]), [[2, admin.name], [1, admin.name]]);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM workspace_access_history WHERE action = 'Published disclosure deadline calendar'").get().total, 2);
 });
 
 test("quarter review uses a pinned prior ending, shows loan differences, and downloads immutable versions", async (t) => {

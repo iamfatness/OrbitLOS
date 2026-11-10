@@ -21,6 +21,7 @@ const { afterHours, defaultPlaybook, fundingTaskId } = await import("../src/lib/
 const { defaultManagerExceptionFilters } = await import("../src/lib/manager-exception-model.ts");
 const { reviewTarget } = await import("../src/lib/loan-review-model.ts");
 const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
+const { easternDayStart } = await import("../src/lib/client-retention.ts");
 const { shiftReportDate } = await import("../src/lib/report-date-range.ts");
 const { emptyCallReportFacts, quarterRange } = await import("../src/lib/call-report-model.ts");
 const { priorQuarter } = await import("../src/lib/call-report-quarter-model.ts");
@@ -1095,13 +1096,42 @@ try {
     const fees = Object.fromEntries(Object.entries(fee.inputs.fees).map(([key, amount]) => [key, amount ?? 0]));
     await loanAction(officer, loanId, "saveFeeWorksheet", { ...selection, feeRevision: fee.revision, worksheet: { ...fee.inputs, fees } });
     assert.match((await review(processor, decision)).error, /Preflight evidence changed/);
-    await loanAction(officer, loanId, "prepareDisclosurePackage", { ...selection, feeRevision: fee.revision + 1,
-      previousVersion: null, applicationRevision: app.revision, documents: sampleDisclosureDocuments, signBy: today });
+    const disclosureCalendar = (staff, input) => action(staff, "accessDisclosureCalendar", input);
+    const calendar = await disclosureCalendar(owner, { type: "read" });
+    assert.equal(calendar.current.version, 0);
+    assert.ok((await disclosureCalendar(officer, { type: "read" })).error);
+    const prepare = ({ version, anchorOn, signBy }, previousVersion = null) => ({ ...selection, feeRevision: fee.revision + 1,
+      previousVersion, applicationRevision: app.revision, documents: sampleDisclosureDocuments, signBy, deadlineCalendar: { version, anchorOn } });
+    const before = (await file(officer, loanId)).disclosureWork.suggestedDeadline;
+    await loanAction(officer, loanId, "prepareDisclosurePackage", prepare(before));
     const version = async () => {
       const [{ version, revision }] = (await file(officer, loanId)).disclosureWork.packages;
       return { version, revision };
     };
+    const rules = { ...calendar.current.rules, holidays: [{ on: before.signBy, label: "Fictional office closure" }] };
+    const preview = { type: "preview", version: 0, rules, anchorOn: before.anchorOn };
+    const moved = await disclosureCalendar(owner, preview);
+    assert.equal(moved.affected.find((item) => item.loanId === loanId).state, "Draft");
+    assert.notEqual(moved.after.signBy, moved.before.signBy);
+    const publish = { type: "publish", version: 0, rules, note: "Add the fictional closure for internal scheduling." };
+    assert.equal((await disclosureCalendar(owner, publish)).current.version, 1);
+    assert.ok((await action(owner, "accessDisclosureCalendar", { type: "read" }, undefined, randomUUID())).error);
+    assert.match((await action(officer, "mutate", { type: "issueDisclosurePackage", loanId, ...await version() })).error, /moved this draft/);
+    const after = (await file(officer, loanId)).disclosureWork.suggestedDeadline;
+    assert.equal(after.signBy, moved.after.signBy);
+    await loanAction(officer, loanId, "prepareDisclosurePackage", prepare(after, 1));
     await loanAction(officer, loanId, "issueDisclosurePackage", await version());
+    const issued = await file(officer, loanId);
+    const pinned = issued.disclosureWork.packages[0];
+    const reminder = `disclosure-signing:${loanId}:2`;
+    assert.equal(pinned.deadlineBasis.version, 1);
+    assert.equal(issued.tasks.find(({ id }) => id === reminder).dueAt, easternDayStart(after.signBy));
+    const longer = { ...rules, signingDays: 4 };
+    assert.equal((await disclosureCalendar(owner, { ...preview, version: 1, rules: longer })).affected.find((item) => item.loanId === loanId).state, "Issued");
+    assert.equal((await disclosureCalendar(owner, { ...publish, version: 1, rules: longer, note: "Extend the fictional follow-up window." })).current.version, 2);
+    const afterPublish = await file(officer, loanId);
+    assert.equal(afterPublish.disclosureWork.packages[0].signBy, after.signBy);
+    assert.equal(afterPublish.tasks.find(({ id }) => id === reminder).dueAt, easternDayStart(after.signBy));
     await loanAction(officer, loanId, "respondToDisclosurePackage", { ...await version(), signer: "Borrower", response: "Signed" });
     assert.equal((await preflight()).preflight.checks.find(({ id }) => id === "disclosures").target, "closing-disclosure-review");
     await loanAction(officer, loanId, "confirmClosingDisclosure", await version());

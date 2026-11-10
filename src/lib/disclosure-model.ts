@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
 import type { AllocatedFeeLine, FeeInputs, QuoteOption } from "./quote-worksheet";
+import { disclosureCalendarReference, type DisclosureCalendarBasis, type DisclosureDeadline } from "./disclosure-calendar-model";
 
 export const disclosureTarget = "loan-disclosures";
 export const disclosureReviewPrefix = "disclosure-review:";
@@ -20,7 +21,8 @@ export const disclosureCommand = z.discriminatedUnion("type", [
     applicationRevision: z.number().int().nonnegative(), runId: loanId, offerId: loanId, feeRevision: version,
     documents: z.array(z.enum(sampleDisclosureDocuments)).min(1, "Choose at least one sample document.").max(sampleDisclosureDocuments.length)
       .refine((items) => new Set(items).size === items.length, "Choose each sample document once."),
-    signBy: z.iso.date(), reviewedPackageRevision: version.optional(), revisionNote: z.string().trim().min(1).max(500).optional() }),
+    signBy: z.iso.date(), deadlineCalendar: disclosureCalendarReference.optional(),
+    reviewedPackageRevision: version.optional(), revisionNote: z.string().trim().min(1).max(500).optional() }),
   z.object({ type: z.literal("issueDisclosurePackage"), ...current }),
   z.object({ type: z.literal("respondToDisclosurePackage"), ...current, signer: z.enum(disclosureSigners), response: z.enum(disclosureResponses) }),
   z.object({ type: z.literal("reviewDisclosureDecline"), ...current, note: z.string().trim().min(1).max(500) }),
@@ -43,6 +45,7 @@ export type DisclosureSource = { applicationRevision: number; feeRevision: numbe
 export type DisclosurePackage = DisclosureSource & {
   version: number; revision: number; documents: DisclosureDocument[]; signers: DisclosureSigner[];
   preparedAt: string; signBy: string; issuedAt: string | null; supersededAt: string | null;
+  deadlineBasis: DisclosureCalendarBasis | null;
   reviewReason: string | null;
   declineFollowUp: { at: string; actor: string; note: string } | null;
   changeReview: { fromVersion: number; reason: string; at: string; actor: string; note: string } | null;
@@ -50,6 +53,8 @@ export type DisclosurePackage = DisclosureSource & {
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
   closingReviews: ClosingDisclosureReview[];
+  suggestedDeadline: DisclosureDeadline;
+  draftTargetChanged: { version: number; signBy: string } | null;
 };
 export type ClosingDisclosureReview = {
   version: number; revision: number; at: string; actor: string;

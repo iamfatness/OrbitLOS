@@ -2,6 +2,8 @@ import { addApplicationActivity, getApplication } from "./applications";
 import { applicationDraft } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate, easternDayStart } from "./client-retention";
+import { changedDisclosureTarget, currentDisclosureCalendar } from "./disclosure-calendar";
+import { disclosureSigningDeadline, storedDisclosureCalendarBasis, type DisclosureCalendarBasis } from "./disclosure-calendar-model";
 import { disclosureDeclinePrefix, disclosureDeclineTaskTitle, disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
   type ClosingDisclosureReview, type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
   type DisclosureSource, type DisclosureWork } from "./disclosure-model";
@@ -28,10 +30,11 @@ function disclosureSource(db: Store, loanId: string) {
   return { source, draft: app.draft } as const;
 }
 
-type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp" | "changeReview"> & {
+type PackageRow = Omit<DisclosurePackage, "documents" | "signers" | "quote" | "declineFollowUp" | "changeReview" | "deadlineBasis"> & {
   loanId: string; runId: string; offerId: string; documents: string; signers: string; quote: string;
   declineFollowUp: string | null;
   changeReview: string | null;
+  deadlineBasis: string | null;
 };
 
 function packageRows(db: Store, loanId: string, limit: number) {
@@ -39,10 +42,14 @@ function packageRows(db: Store, loanId: string, limit: number) {
     .all(loanId, limit) as unknown as PackageRow[];
 }
 
-export function readDisclosureWork(db: Store, loanId: string): DisclosureWork {
+export function readDisclosureWork(db: Store, loanId: string, now = new Date()): DisclosureWork {
   const current = disclosureSource(db, loanId);
   const rows = packageRows(db, loanId, 6);
   const latest = rows[0];
+  const calendar = currentDisclosureCalendar(db);
+  const suggestedDeadline = disclosureSigningDeadline(calendar.rules, { version: calendar.version, anchorOn: easternDate(now) });
+  const draftTargetChanged = latest && !latest.issuedAt
+    ? changedDisclosureTarget(storedDisclosureCalendarBasis(latest.deadlineBasis), latest.signBy, calendar) : null;
   const closingReviews = db.prepare(`SELECT review.version, review.revision, review.reviewedAt AS at, review.actor,
       package.applicationRevision, package.feeRevision, package.signers, package.changeReview, package.quote
     FROM closing_disclosure_reviews review
@@ -58,11 +65,12 @@ export function readDisclosureWork(db: Store, loanId: string): DisclosureWork {
           row.version === latest.version && row.revision === latest.revision && matchesSource(latest, current.source)),
       };
     }) as ClosingDisclosureReview[];
-  return { source: current.source ?? null, unavailable: current.error ?? null, closingReviews, packages: rows
+  return { source: current.source ?? null, unavailable: current.error ?? null, closingReviews, suggestedDeadline, draftTargetChanged, packages: rows
     .map((item) => ({
       version: item.version, revision: item.revision, applicationRevision: item.applicationRevision, feeRevision: item.feeRevision,
       preparedAt: item.preparedAt, issuedAt: item.issuedAt, signBy: item.signBy, supersededAt: item.supersededAt, reviewReason: item.reviewReason,
       documents: JSON.parse(item.documents), signers: JSON.parse(item.signers), quote: JSON.parse(item.quote),
+      deadlineBasis: storedDisclosureCalendarBasis(item.deadlineBasis),
       declineFollowUp: item.declineFollowUp ? JSON.parse(item.declineFollowUp) : null,
       changeReview: item.changeReview ? JSON.parse(item.changeReview) : null,
     })) };
@@ -212,6 +220,16 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
   if (data.type === "prepareDisclosurePackage") {
     if ((latest?.version ?? null) !== data.previousVersion) return { error: "The package changed. Refresh the loan and try again." } as const;
     if (data.signBy < today) return { error: "Choose a signing target of today or later." } as const;
+    let deadlineBasis: DisclosureCalendarBasis | null = null;
+    if (data.deadlineCalendar) {
+      const calendar = currentDisclosureCalendar(db);
+      if (data.deadlineCalendar.version !== calendar.version || data.deadlineCalendar.anchorOn !== today) {
+        return { error: "The signing date preview changed. Refresh the loan to use the current calendar." } as const;
+      }
+      const { signBy, ...basis } = disclosureSigningDeadline(calendar.rules, data.deadlineCalendar);
+      if (signBy !== data.signBy) return { error: "Use the current calendar suggestion or choose a manual date." } as const;
+      deadlineBasis = basis;
+    }
     const { quote, applicationRevision, feeRevision } = source.source;
     if (data.applicationRevision !== applicationRevision || data.feeRevision !== feeRevision ||
       data.runId !== quote.runId || data.offerId !== quote.offerId) return { error: "The application, quote, or fee worksheet changed. Refresh the loan first." } as const;
@@ -231,12 +249,13 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
       completeTask(db, disclosureDeclinePrefix, latest, now);
     }
     db.prepare(`INSERT INTO disclosure_packages (loanId, version, runId, offerId, applicationRevision, feeRevision,
-      quote, documents, signers, preparedAt, signBy, changeReview) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      quote, documents, signers, preparedAt, signBy, changeReview, deadlineBasis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(data.loanId, version, quote.runId, quote.offerId, applicationRevision, feeRevision, JSON.stringify(quote),
         JSON.stringify(data.documents), JSON.stringify(disclosureNames(source.draft)), now, data.signBy,
-        changeReview ? JSON.stringify(changeReview) : null);
+        changeReview ? JSON.stringify(changeReview) : null, deadlineBasis ? JSON.stringify(deadlineBasis) : null);
     if (changeReview) addApplicationActivity(db, data.loanId, `Reviewed sample disclosure changes from v${changeReview.fromVersion} for v${version} · ${changeReview.reason}.`, now);
-    addApplicationActivity(db, data.loanId, `Prepared sample disclosure package v${version} · Fee worksheet v${feeRevision}.`, now);
+    addApplicationActivity(db, data.loanId, `Prepared sample disclosure package v${version} · Fee worksheet v${feeRevision} · Signing target ${data.signBy} (${deadlineBasis
+      ? `calendar v${deadlineBasis.version}` : "manual"}).`, now);
     return { message: `Sample disclosure package v${version} prepared.` } as const;
   }
   if (!latest || latest.version !== data.version || latest.revision !== data.revision) {
@@ -248,6 +267,10 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
   if (data.type === "issueDisclosurePackage") {
     if (latest.issuedAt) return { error: "This sample package was already issued." } as const;
     if (latest.signBy < today) return { error: "Prepare a package with a current signing target before issuing it." } as const;
+    const basis = storedDisclosureCalendarBasis(latest.deadlineBasis);
+    if (basis && changedDisclosureTarget(basis, latest.signBy, currentDisclosureCalendar(db))) {
+      return { error: "The deadline calendar moved this draft’s signing target. Prepare a revised package before issuing it." } as const;
+    }
     db.prepare("UPDATE disclosure_packages SET issuedAt = ?, revision = revision + 1 WHERE loanId = ? AND version = ?")
       .run(now, data.loanId, latest.version);
     createTask(db, disclosureSigningPrefix, latest, "Check sample disclosure signatures", easternDayStart(latest.signBy));

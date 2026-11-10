@@ -1,7 +1,9 @@
 "use client";
 
 import { ClipboardList } from "lucide-react";
+import { useState } from "react";
 import { dateLabel, easternDate } from "@/lib/client-retention";
+import type { DisclosureDeadline } from "@/lib/disclosure-calendar-model";
 import { disclosurePackageStatus, disclosureResponses, disclosureTarget, sampleDisclosureDocuments,
   type DisclosurePackage, type DisclosureSource } from "@/lib/disclosure-model";
 import type { Loan, Workspace } from "@/lib/model";
@@ -67,10 +69,35 @@ function PackagePreview({ item }: { item: DisclosurePackage }) {
     <summary>Preview sample package v{item.version}</summary>
     <div className="record-form">
       <p>Reviewed 1003 revision {item.applicationRevision} · Fee worksheet revision {item.feeRevision}</p>
+      <p>Sample signing target {dateLabel(item.signBy)} · {item.deadlineBasis ? `Brokerage calendar v${item.deadlineBasis.version}` : "Manual date"}</p>
+      {item.deadlineBasis && <p className="muted">{item.deadlineBasis.days} open days after {dateLabel(item.deadlineBasis.anchorOn)}.
+        {item.deadlineBasis.skipped.length > 0 && ` Skipped ${item.deadlineBasis.skipped.map(({ on, label }) => `${dateLabel(on)} · ${label}`).join(", ")}.`}</p>}
       <ul>{item.documents.map((document) => <li key={document}>{document}</li>)}</ul>
       <QuoteDetails quote={item.quote} />
     </div>
   </details>;
+}
+
+function SigningTarget({ current, suggestion, today, busy, refresh }: {
+  current?: DisclosurePackage; suggestion: DisclosureDeadline; today: string; busy: boolean; refresh?: () => void;
+}) {
+  const [mode, setMode] = useState(current && !current.deadlineBasis ? "manual" : "calendar");
+  const currentSuggestion = suggestion.anchorOn === today;
+  return <div className="record-form">
+    <label className="field">Signing target basis<select name="dateBasis" value={mode} disabled={busy}
+      onChange={(event) => setMode(event.target.value)}>
+      <option value="calendar">Brokerage calendar</option><option value="manual">Manual date</option>
+    </select></label>
+    {mode === "calendar" ? <>
+      <input type="hidden" name="signBy" value={suggestion.signBy} />
+      <p><strong>Suggested signing target {dateLabel(suggestion.signBy)}</strong> · Brokerage calendar v{suggestion.version}</p>
+      <p className="muted">{suggestion.days} open days after {dateLabel(suggestion.anchorOn)}{suggestion.skipped.length > 0 &&
+        ` · Skipped ${suggestion.skipped.map(({ on, label }) => `${dateLabel(on)} · ${label}`).join(", ")}`}</p>
+      {!currentSuggestion && <p>Refresh the loan to calculate the date from today.</p>}
+    </> : <label className="field">Sample signing target<input name="signBy" type="date" min={today} required
+      defaultValue={current && current.signBy >= today ? current.signBy : today} /></label>}
+    {refresh && <div><Button size="sm" variant="outline" disabled={busy} onClick={refresh}>Refresh signing target</Button></div>}
+  </div>;
 }
 
 export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, save, open, refresh }: {
@@ -97,6 +124,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     current.feeRevision !== source.feeRevision || current.quote.runId !== source.quote.runId || current.quote.offerId !== source.quote.offerId);
   const reviewReason = current?.reviewReason ?? (sourceChanged ? "Application or quote changed" : null);
   const needsChangeNote = Boolean(reviewReason);
+  const shifted = work?.draftTargetChanged;
 
   return <section className="details-section document-section" id={disclosureTarget} tabIndex={-1} aria-label="Disclosure and Critical Dates">
     <div className="section-heading"><h3><ClipboardList size={17} /> Disclosure &amp; Critical Dates</h3><span className="pill">Mock signing</span></div>
@@ -104,7 +132,8 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     <div className="form-grid">
       <div><strong>1003 submitted</strong><p>{stamp(app?.submittedAt)}</p></div>
       <div><strong>1003 reviewed</strong><p>{stamp(app?.reviewedAt)}</p></div>
-      <div><strong>Sample signing target</strong><p>{current ? dateLabel(current.signBy) : "Unscheduled"}{targetPassed && " · Past due"}</p></div>
+      <div><strong>Sample signing target</strong><p>{current ? dateLabel(current.signBy) : "Unscheduled"}{targetPassed && " · Past due"}</p>
+        {current?.deadlineBasis && <small>Brokerage calendar v{current.deadlineBasis.version}</small>}</div>
       <div><strong>Closing target</strong><p>{target ? dateLabel(target) : "Unscheduled"}</p></div>
       {closed && <div><strong>Closing recorded</strong><p>{dateLabel(closed)}</p></div>}
       {funded && <div><strong>Funding recorded</strong><p>{dateLabel(funded)}</p></div>}
@@ -148,7 +177,8 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
           </form>}
         </>}
       </div>}
-      {editable && source && !reviewReason && status === "Draft" && <div><Button size="sm" disabled={busy}
+      {shifted && <p role="status">Calendar v{shifted.version} moves this draft’s target to {dateLabel(shifted.signBy)}. Prepare a revised package before issuing.</p>}
+      {editable && source && !reviewReason && !shifted && status === "Draft" && <div><Button size="sm" disabled={busy}
         onClick={() => void save({ type: "issueDisclosurePackage", ...command })}>Issue sample package</Button></div>}
     </section>}
     {work && !source && <div className="work-queue">
@@ -160,20 +190,21 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
     </div>}
     {editable && work && run && offer && <FeeWorksheetEditor key={`${run.id}:${offer.id}:${worksheet?.revision ?? 0}`}
       run={run} offer={offer} saved={worksheet} busy={busy} save={save} brokerageId={brokerageId} current={pricingInputsMatch(run, app)} />}
-    {editable && source && <details className="document-form" open={!current || Boolean(reviewReason) || Boolean(declined)} key={current?.version ?? 0}>
+    {editable && source && work && <details className="document-form" open={!current || Boolean(reviewReason) || Boolean(declined) || Boolean(shifted)} key={current?.version ?? 0}>
       <summary>{current ? "Prepare revised sample package" : "Assemble sample package"}</summary>
       <form className="record-form" onSubmit={(event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
+        const { version, anchorOn } = work.suggestedDeadline;
         void save({ type: "prepareDisclosurePackage", loanId: loan.id, previousVersion: current?.version ?? null,
           applicationRevision: source.applicationRevision, feeRevision: source.feeRevision, runId: source.quote.runId,
           offerId: source.quote.offerId, documents: data.getAll("documents"), signBy: data.get("signBy"),
+          ...(data.get("dateBasis") === "calendar" ? { deadlineCalendar: { version, anchorOn } } : {}),
           ...(needsChangeNote ? { reviewedPackageRevision: current?.revision, revisionNote: data.get("revisionNote") } : {}) });
       }}>
         <p>Reviewed 1003 revision {source.applicationRevision} · Fee worksheet revision {source.feeRevision} · {source.quote.product}</p>
         {needsChangeNote && <label className="field">Internal change-review note<textarea name="revisionNote" rows={2} required maxLength={500} /></label>}
-        <label className="field">Sample signing target<input name="signBy" type="date" min={today} required
-          defaultValue={current && current.signBy >= today ? current.signBy : today} /></label>
+        <SigningTarget current={current} suggestion={work.suggestedDeadline} today={today} busy={busy} refresh={refresh} />
         <fieldset disabled={busy}><legend>Package documents</legend>{sampleDisclosureDocuments.map((document) =>
           <label className="disclosure-document-choice" key={document}><input name="documents" type="checkbox" value={document}
             defaultChecked={!current || current.documents.includes(document)} />{document}</label>)}</fieldset>

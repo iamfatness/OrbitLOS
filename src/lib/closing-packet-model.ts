@@ -17,7 +17,7 @@ export type ClosingPacketSnapshot = {
   borrower: string; property: string; officer: string;
   targetDate: string | null; closingDate: string | null; fundingDate: string | null;
   disclosure: Omit<ClosingDisclosureReview, "current"> & {
-    documents: DisclosureDocument[]; issuedAt: string | null; signBy: string;
+    documents: DisclosureDocument[]; issuedAt: string | null; signBy: string; calendarVersion?: number;
     loanAmount: number; product: string; rate: number; cashToClose: number | null;
   };
   checklist: (Pick<ClosingItem, "title" | "owner" | "dueDate" | "completedAt"> & {
