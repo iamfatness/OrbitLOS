@@ -50,7 +50,10 @@ export async function uwmJson(url: string, init: RequestInit = {}) {
   let response: Response;
   try {
     response = await fetch(url, { ...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(20_000) });
-  } catch {
+  } catch (error) {
+    // Fetch errors contain transport details, never request headers or token bodies.
+    console.error("UWM transport failure", { host: new URL(url).hostname,
+      reason: error instanceof Error ? error.message : "Unknown transport failure" });
     throw new UwmError("UWM could not be reached. Try again shortly.");
   }
   if (!response.ok) {
