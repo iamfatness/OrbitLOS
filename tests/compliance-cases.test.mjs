@@ -403,3 +403,67 @@ test("queue pages use stable ties, reject changed filters or revisions, and reco
   assert.match(work({ ...input, after: first.next }).error, /queue changed/);
   assert.deepEqual(work({ ...input, status: "Open" }).counts, { cases: 20, files: 20 });
 });
+
+test("brokerage overview counts reconcile with scoped queues and keep inventory separate from evaluation", (t) => {
+  const { db, roster, brokerageId, work, addLoan, addPackage, open, edit, admin, officer, processor } = fixture(t);
+  const overview = { type: "overview" };
+  const queue = (attention) => ({ type: "list", attention });
+  const firstLoan = addLoan();
+  const first = open(firstLoan).item;
+  edit(first, { type: "updateStatus", status: "Awaiting evidence" });
+  addPackage(firstLoan, 2);
+  const latest = open(firstLoan, 2).item;
+  edit(latest, { type: "updateStatus", status: "Awaiting evidence" });
+  const needsReview = open(addLoan()).item;
+  edit(needsReview, { type: "updateStatus", status: "Awaiting review" });
+  const restricted = open(addLoan()).item;
+  edit(restricted, { type: "updateStatus", status: "Awaiting review" });
+  db.prepare("UPDATE compliance_cases SET confidentiality = 'Restricted' WHERE brokerageId = ? AND id = ?").run(brokerageId, restricted.id);
+  db.prepare("UPDATE loans SET officerEmail = ? WHERE id = ?").run(processor.email, needsReview.loanId);
+  assert.deepEqual(work(overview, officer), unavailable);
+  assert.deepEqual(work(overview, processor), unavailable);
+  assert.deepEqual(work(overview, admin, roster, `${brokerageId}-other`), unavailable);
+  assert.deepEqual(work({ ...queue("review"), loanId: firstLoan }, officer), unavailable);
+  const snapshot = work(overview);
+  assert.deepEqual(snapshot.findings, { cases: 3, files: 2 });
+  assert.deepEqual(snapshot.attention, [
+    { key: "review", cases: 1, files: 1 },
+    { key: "evidence", cases: 2, files: 1 },
+    { key: "ownership", cases: 1, files: 1 },
+  ]);
+  for (const { key, cases, files } of snapshot.attention) assert.deepEqual(work(queue(key)).counts, { cases, files });
+  assert.deepEqual(work(queue("ownership")).items.map(({ id, ownerState }) => [id, ownerState]), [[needsReview.id, "Backup review"]]);
+  assert.deepEqual(work(queue("review")).items.map(({ id }) => id), [needsReview.id]);
+  assert.deepEqual(snapshot.inventory, { state: "Not started", scanned: null, asOf: null });
+  assert.equal(snapshot.fileTotal, 3);
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'compliance_inventory'").get(), undefined);
+  work({ type: "advanceInventory", revision: 0 });
+  assert.equal(work(overview).inventory.scanned, 3);
+  assert.equal(work(overview).coverage.state, "Not evaluated");
+  assert.equal(work(overview).coverage.eligibleFiles, null);
+  addLoan();
+  assert.deepEqual(work(overview).inventory, { state: "Stale", scanned: null, asOf: at });
+  assert.equal(work(overview).fileTotal, 4);
+});
+
+test("staff can record a sample observation without advancing the workflow or recording verified evidence", (t) => {
+  const { work, addLoan, addPackage, open, officer, processor } = fixture(t);
+  const loanId = addLoan();
+  const { item } = open(loanId);
+  const input = { type: "recordEvidenceNote", caseId: item.id, expectedRevision: item.revision, requestId: crypto.randomUUID(),
+    source: "Fictional closing workbench", note: "Reviewed the sample receipt and could not confirm delivery.", packageRevision: 1 };
+  assert.deepEqual(work(input, processor), unavailable);
+  const saved = work(input, officer);
+  assert.equal(saved.item.status, "Open");
+  assert.equal(saved.sampleReview, null);
+  assert.equal(saved.reviewSubmission, null);
+  assert.equal(saved.coverage.state, "Not evaluated");
+  assert.equal(saved.history[0].actor, officer.email);
+  assert.equal(saved.history[0].at, at);
+  assert.deepEqual(saved.history[0].evidenceNote, { source: input.source, note: input.note, packageRevision: 1 });
+  assert.equal(work(input, officer).history.length, saved.history.length);
+  addPackage(loanId, 2);
+  const expired = work({ ...input, requestId: crypto.randomUUID(), expectedRevision: saved.item.revision }, officer);
+  assert.match(expired.error, /sample package changed/);
+  assert.equal(work({ type: "read", caseId: item.id }, officer).history[0].evidenceNote.note, input.note);
+});
