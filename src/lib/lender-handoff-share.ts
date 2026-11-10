@@ -4,6 +4,7 @@ import { approvedSecondReview, handoffCheckpointError } from "./application-revi
 import { addApplicationActivity } from "./applications";
 import { portalBrokerage } from "./brokerage-model";
 import { prepareLenderExport } from "./lender-export";
+import { mismoArtifactDigest } from "./mismo-artifact";
 import { defaultLenderExportProfile, lenderExportProfiles } from "./lender-export-model";
 import { lenderPackageFilename, lenderPackageReference, lenderPackageUnavailable, lenderShareStaffInput, type LenderPackageManifest, type LenderPackageStatus,
   type LenderSharePage, type PackageDownloadInput, type SharedLenderPackageInput } from "./lender-handoff-share-model";
@@ -211,9 +212,13 @@ export function lenderPackageAccess(db: Store, input: SharedLenderPackageInput, 
     if (!file) return unavailable;
     const filename = lenderPackageFilename(applicationRevision, reference, input.slot);
     if (input.slot > 0) return file.objectId ? { objectId: String(file.objectId), filename } : unavailable;
+    const artifact = db.prepare(`SELECT link.xml, event.exportDigest FROM lender_package_links link
+      JOIN application_handoff_events event ON event.activityId = link.id AND event.outcome = 'Export prepared'
+      AND event.loanId = link.loanId AND event.applicationRevision = link.applicationRevision AND event.lenderRevision = link.lenderRevision
+      WHERE link.id = ?`).get(share.id);
+    if (typeof artifact?.xml !== "string" || mismoArtifactDigest(artifact.xml) !== artifact.exportDigest) return unavailable;
     recordDownload(db, share, file, now);
-    const row = db.prepare("SELECT xml FROM lender_package_links WHERE id = ?").get(share.id);
-    return { xml: String(row?.xml), filename };
+    return { xml: artifact.xml, filename };
   });
 }
 

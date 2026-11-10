@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { applicationDraft, type ApplicationDraft } from "./application-model";
 import { getApplication } from "./applications";
 import { easternDate } from "./client-retention";
 import { coBorrowerDocumentRecipient, type DocumentRecipient } from "./document-model";
 import { mismoNamespace } from "./mismo-rehearsal-model";
+import { fictionalMismoNotice, mismoArtifactDigest } from "./mismo-artifact";
 import { afterHours } from "./playbook-model";
 import { readPlaybook } from "./playbooks";
 import { defaultLenderExportProfile, lenderExportProfiles, type ExportName, type LenderExportProfile, type ManualLenderRejection, type exportReviewedApplication } from "./lender-export-model";
@@ -220,7 +220,7 @@ export function reviewedApplicationXml(draft: ApplicationDraft, details: LenderD
   const xml = container("MESSAGE", [container("DEAL_SETS", [container("DEAL_SET", [container("DEALS", [deal])])])], {
     xmlns: mismoNamespace, "xmlns:xlink": "http://www.w3.org/1999/xlink", MISMOReferenceModelIdentifier: "3.4.032420160128",
   });
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!-- OrbitLOS pilot manual handoff. Fictional data. -->\n${xml}\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${fictionalMismoNotice}\n${xml}\n`;
 }
 
 export function prepareLenderExport(db: Store, input: z.infer<typeof exportReviewedApplication>, staff: StaffIdentity, now: string) {
@@ -245,7 +245,7 @@ export function prepareLenderExport(db: Store, input: z.infer<typeof exportRevie
   try { xml = reviewedApplicationXml(draft, details, input.names, receivedDate, input.loanId); }
   catch (error) { return { error: error instanceof Error ? error.message : "Orbit could not prepare the XML." }; }
 
-  const digest = createHash("sha256").update(xml).digest("hex");
+  const digest = mismoArtifactDigest(xml);
   const profileNote = profile === defaultLenderExportProfile ? "" : ` · ${lenderExportProfiles[profile].label}`;
   const quoteNote = quote.basis ? ` · ${quote.basis.lender} · ${quote.basis.product} at ${quote.basis.rate.toFixed(3)}%` : "";
   const message = `Prepared MISMO 3.4 XML for manual handoff · Application revision ${input.revision} · Lender details revision ${input.lenderRevision}${profileNote}${quoteNote} · ${staff.email}`;

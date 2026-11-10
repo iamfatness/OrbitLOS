@@ -12,6 +12,7 @@ const { loadProtectedPilotScenario } = await import("../src/lib/pilot.ts");
 const { hasPreparedLenderExport, prepareLenderExport } = await import("../src/lib/lender-export.ts");
 const { lenderExportIssues } = await import("../src/lib/lender-export-profile.ts");
 const { lenderDetailsSchema } = await import("../src/lib/urla.ts");
+const { prepareUwmXmlUpload, uwmXmlUploadSuccessStatus } = await import("../src/lib/uwm-origination-blob.ts");
 
 test("fictional wholesale checks gate both export paths and pin the exact XML and profile", async (t) => {
   const sqlite = new DatabaseSync(":memory:");
@@ -72,10 +73,29 @@ test("fictional wholesale checks gate both export paths and pin the exact XML an
   const exportEvent = db.prepare("SELECT exportProfile, exportDigest FROM application_handoff_events WHERE activityId = ?").get(current.eventId);
   assert.equal(exportEvent.exportProfile, profile);
   assert.equal(exportEvent.exportDigest, createHash("sha256").update(xml).digest("hex"));
+  const storageOrigin = "https://uwm-fixture.invalid";
+  const signedUrl = `${storageOrigin}/synthetic/loan.xml?signature=fictional`;
+  const upload = { storageOrigin, signedUrl, bytes: new TextEncoder().encode(xml), digest: exportEvent.exportDigest };
+  const network = t.mock.method(globalThis, "fetch", () => assert.fail("Fixture preparation must never send a request"));
+  const request = prepareUwmXmlUpload(upload);
+  assert.deepEqual([request.method, request.url, request.redirect, request.headers.get("x-ms-blob-type"),
+    request.headers.get("authorization"), uwmXmlUploadSuccessStatus], ["PUT", signedUrl, "manual", "BlockBlob", null, 201]);
+  assert.deepEqual(new Uint8Array(await request.arrayBuffer()), upload.bytes);
+  assert.throws(() => prepareUwmXmlUpload({ ...upload, bytes: new TextEncoder().encode(`${xml} `) }), /do not match/);
+  for (const url of [`${storageOrigin}.example.org/file.xml?signature=fictional`, `${storageOrigin}/file.xml`,
+    `${signedUrl}#fragment`, "https://login@uwm-fixture.invalid/file.xml?signature=fictional", signedUrl.replace("https:", "http:")]) {
+    assert.throws(() => prepareUwmXmlUpload({ ...upload, signedUrl: url }), /approved storage origin/);
+  }
+  assert.equal(network.mock.callCount(), 0);
+
   const packagePage = await work({ ...share, lenderRevision: 1 });
   assert.equal(packagePage.createdId, share.shareId, packagePage.error);
   assert.match(packagePage.shares[0].files[0].label, /Fictional Wholesale/);
-  assert.equal(lenderPackageAccess(db, { type: "download", slot: 0, token: share.token, code: share.code }, now).xml, xml);
+  const download = { type: "download", slot: 0, token: share.token, code: share.code };
+  assert.equal(lenderPackageAccess(db, download, now).xml, xml);
+  db.prepare("UPDATE lender_package_links SET xml = ? WHERE id = ?").run(`${xml} `, share.shareId);
+  assert.equal(lenderPackageAccess(db, download, now).status, 404);
+  assert.equal(db.prepare("SELECT downloads FROM lender_package_files WHERE shareId = ? AND slot = 0").get(share.shareId).downloads, 1);
 });
 
 test("only current approved sample artifacts can be shared and expiration and revocation deny all files", async (t) => {

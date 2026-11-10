@@ -36,6 +36,8 @@ Operational brokerages use manual lender quotes until production pricing is auth
 | Float and lock | Confirm authorized loan/product identifiers, prerequisites, requested actions and actual terms, expiry and recovery evidence. |
 | AUS and credit | Confirm DU and LPA access, valid credit-vendor references, borrower authorization, findings access and applicable compliance decisions. |
 
+The [origination onboarding checklist](uwm-origination-onboarding.md) includes an offline check for the reviewed MISMO artifact and documented upload request.
+
 Sources: existing `UWM-API-Reference.md`, [Public authentication](https://developers.uwm.com/portal/auth/docs/107), [Insights authentication](https://developers.uwm.com/portal/insights/docs/153), [Insights endpoint](https://developers.uwm.com/portal/insights/docs/154), [conditions](https://developers.uwm.com/portal/condition/docs/160).
 
 ## Operational pricing before lender onboarding

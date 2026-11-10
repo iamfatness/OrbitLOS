@@ -1,0 +1,23 @@
+# UWM loan origination onboarding
+
+Orbit can prepare and fingerprint a reviewed fictional MISMO 3.4 export. The Blob upload contract can be checked offline. The current export is a sample and needs UWM schema validation before it can serve as a lender submission artifact. Automated dispatch is disabled. [UWM import workflow](https://developers.uwm.com/portal/loan-origination/docs/34) · [MISMO elements](https://developers.uwm.com/portal/loan-origination/docs/38)
+
+## Fixture available now
+
+Run `node --test tests/lender-handoff-share.test.mjs` to generate a fictional reviewed 1003, verify the stored export digest, and construct the documented raw XML `PUT` with `x-ms-blob-type: BlockBlob`. The offline test rejects altered bytes, an unapproved origin and unsigned URLs. The request uses manual redirect handling. A `201` confirms Blob upload only. [UWM XML upload](https://developers.uwm.com/portal/loan-origination/docs/41)
+
+An exported fictional XML and its recorded `application_handoff_events.exportDigest` can also be checked with `node scripts/check-uwm-origination-fixture.mjs <fictional-mismo.xml> <recorded-sha256>`. Use the digest for the exact `Export prepared` event. The script uses a reserved fixture origin and reports only aggregate request metadata.
+
+Shared XML downloads also compare the stored bytes with the original export event. Re-create a fictional package from the current reviewed 1003 if its export digest is missing or the file no longer matches it.
+
+## Evidence to collect with UWM
+
+| Gate | Confirm before wiring the next step |
+| --- | --- |
+| Entitlement and branch mapping | Confirm the sandbox environment, authorization grant for writes, enrolled shop, branch `entityId`, allowed `contactId` and alternative contacts. Obtain expected response examples with identifiers and secrets removed. [Public authentication](https://developers.uwm.com/portal/auth/docs/107) · [Broker associations](https://developers.uwm.com/portal/loan-origination/docs/86) · [Alternative contacts](https://developers.uwm.com/portal/loan-origination/docs/87) |
+| Create and upload | Confirm exact create fields, types, success status, `data.transactionId`, `data.uri`, `data.fileName`, signed storage origin, URL expiry, limits, and whether a failed request can be safely replayed. Keep the storage URL short-lived and exclude it from logs. [Create transaction](https://developers.uwm.com/portal/loan-origination/docs/88) · [Upload XML](https://developers.uwm.com/portal/loan-origination/docs/41) |
+| Scan and revise | Confirm scan body and the exact distinction between invalid XML, missing required fields and recommendations. Exercise a passing and failing fictional XML, plus any supported PATCH correction. Pin the validated bytes to the reviewed source revision. [Scan XML](https://developers.uwm.com/portal/loan-origination/docs/161) · [Modify XML](https://developers.uwm.com/portal/loan-origination/docs/90) |
+| Commit and correlate | Confirm the request body, update status restrictions, and completion webhook registration, authentication, stable identifier and retry contract. A `200` commit acknowledgment leaves the attempt pending. Verify `TransactionId` and final `LoanNumber` separately against authenticated completion evidence. [Create loan](https://developers.uwm.com/portal/loan-origination/docs/91) · [Modify loan](https://developers.uwm.com/portal/loan-origination/docs/92) · [Webhook setup](https://developers.uwm.com/portal/loan-origination/docs/108) |
+| Recovery and acceptance | Exercise timeout after commit, duplicate or out-of-order completion, missing result, a result for another shop or transaction, and conflicting final outcomes. Require a documented status lookup, safe replay, or partner escalation. Preserve the original attempt and resolve it only on matching evidence. [Transaction lifecycle](https://developers.uwm.com/portal/loan-origination/docs/39) · [Orbit sandbox acceptance](lender-sandbox-acceptance.md) |
+
+Reuse the existing export event as the artifact identity. A future authorized intent should reference its event ID, application revision, lender-details revision, profile and digest. Record tenant, provider, environment and actor on the intent. Preserve provider transaction and permanent lender loan identifiers as separate fields. Validate current approvals and source revisions again before dispatch. Keep the manual handoff available while the API gates are unresolved.
