@@ -504,23 +504,25 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <div className="section-heading"><h3>Compare lenders for this scenario</h3><span className="pill">Fictional</span></div>
         <p className="muted">These fixed-rate offers use the same {cash(current.scenario.loanAmount)} loan assumptions. A manual offer goes to the manual lender handoff.</p>
         <ManualOfferForm key={current.id} run={current} busy={busy} current={isCurrent(current)} save={save} />
-        {current.offers.some(({ manual }) => manual) && <div className="table-scroll"><table className="data-table">
-          <thead><tr><th>Lender and source</th><th>Fixed-rate terms</th><th>Fee worksheet</th><th>Choice</th></tr></thead>
-          <tbody>{[current.offers.find((offer) => !offer.manual && offer.id === current.selectedId) ?? current.offers.find(({ manual }) => !manual),
+        {current.offers.some(({ manual }) => manual) && <div className="lender-comparison-grid">
+          {[current.offers.find((offer) => !offer.manual && offer.id === current.selectedId) ?? current.offers.find(({ manual }) => !manual),
             ...current.offers.filter(({ manual }) => manual)].flatMap((offer) => offer ? [offer] : []).map((offer) => {
             const choice = option(current, offer);
             const chosen = saved?.id === current.id && selected?.id === offer.id;
             const manualExpired = !!offer.manual && offer.manual.expiresOn < expiryRange.today;
-            return <tr key={offer.id}>
-              <td><strong>{offer.manual?.lender ?? "UWM Easy Qualifier"}</strong><small>{offer.product} · {offer.years}-year fixed</small>
-                <small>{offer.manual ? `Manual · ${offer.manual.reference} · ${dateLabel(offer.manual.quotedOn)} through ${dateLabel(offer.manual.expiresOn)}` : "Mock provider offer"}</small></td>
-              <td><Terms offer={offer} /></td><td>{choice.worksheet ? "Saved" : "Not entered"}</td>
-              <td>{manualExpired ? "Expired" : chosen ? <><span>Chosen quote</span>{offer.manual && handoffAction}</> : <Button size="sm" variant="outline" disabled={busy || !isCurrent(current) || feeEdits.blocked}
+            const lender = offer.manual?.lender ?? "UWM Easy Qualifier";
+            return <article className="pricing-option" aria-label={lender} key={offer.id}>
+              <div className="document-item-head"><h4>{lender}</h4>{chosen && <span className="pill">Chosen quote</span>}</div>
+              <p>{offer.product}{!offer.product.includes(`${offer.years}-year`) && ` · ${offer.years}-year fixed`}</p>
+              <p className="muted">{offer.manual ? `Manual · ${offer.manual.reference} · ${dateLabel(offer.manual.quotedOn)} through ${dateLabel(offer.manual.expiresOn)}` : "Mock provider offer"}</p>
+              <Terms offer={offer} />
+              <p className="muted">{choice.worksheet ? "Fee worksheet saved" : "Fee worksheet pending"}</p>
+              <div>{manualExpired ? <span className="pill">Expired</span> : chosen ? offer.manual && handoffAction : <Button size="sm" variant="outline" disabled={busy || !isCurrent(current) || feeEdits.blocked}
                 aria-label={`Choose ${offer.manual?.lender ?? "UWM"} quote`}
-                onClick={() => void feeEdits.save({ type: "selectOffer", loanId: loan.id, runId: current.id, offerId: offer.id })}>Choose quote</Button>}</td>
-            </tr>;
-          })}</tbody>
-        </table></div>}
+                onClick={() => void feeEdits.save({ type: "selectOffer", loanId: loan.id, runId: current.id, offerId: offer.id })}>Choose quote</Button>}</div>
+            </article>;
+          })}
+        </div>}
       </section>}
     </section>}
   </div>;
