@@ -73,11 +73,19 @@ test("the EQ sandbox adapter maps conventional quotes and reports provider failu
     [new Response(null, { status: 429 }), "throttled"],
     [new Response("invalid JSON"), "invalid-response"],
     [Response.json({ validQuoteItems: [], errorMessages: ["Fixture rejection"] }), "rejected"],
+    [Response.json({ validQuoteItems: null, errorMessages: ["Fixture rejection"] }), "rejected"],
+    [Response.json({ errorMessages: ["Fixture rejection"] }), "rejected"],
+    [Response.json({ validQuoteItems: null, errorMessages: [] }), "invalid-response"],
+    [Response.json({ validQuoteItems: [{ mortgageProductId: "7", mortgageProductName: "Fixture", actualTermYears: 30, quotePricePoints: [] }] }), "invalid-response"],
     [new Error("Fixture timeout"), "unavailable"],
   ]) {
     quoteFailure = response;
     await assert.rejects(provider.quote(scenario), { code });
   }
+  quoteFailure = Response.json({ validQuoteItems: [], errorMessages: [] });
+  const empty = await provider.quote(scenario);
+  assert.equal(empty.mode, "stage");
+  assert.deepEqual(empty.offers, []);
 });
 
 test("a stage unsupported result persists the exact scenario for a manual quote without provider requests", async (t) => {

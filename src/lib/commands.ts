@@ -667,7 +667,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           `${simulate ? "Simulated EQ coverage check" : "EQ stage coverage check"} · ${data.scenario.nonAgency?.program} · Unsupported`, quotedAt);
         if (staff?.brokerage.pilot) accessEvent(db, staff, result.outcome === "unsupported" ? "Recorded unsupported pricing scenario" : "Ran sample pricing", data.loanId, quotedAt);
         return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message: result.outcome === "unsupported" ?
-          "EQ cannot price this scenario. Add a manual lender offer to continue." : `${result.offers.length} pricing options returned.` };
+          "EQ cannot price this scenario. Add a manual lender offer to continue." : result.mode === "stage" && !result.offers.length ?
+            "UWM stage returned no displayable pricing options for this scenario." : `${result.offers.length} pricing options returned.` };
       });
     }
     const now = new Date().toISOString();
