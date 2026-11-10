@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BorrowerPortalPreferences } from "./borrower-channel-model";
 import type { BorrowerLoanStatus } from "./document-model";
 import type { DocumentUploadMode } from "./document-files-model";
 import { blankBorrower, blankUrla, normalizeUrla, sampleUrla, urlaDetailsSchema, type LenderDetails } from "./urla";
@@ -242,4 +243,5 @@ export function secondReviewBlocker(required: boolean, application?: Pick<StaffA
   return application.secondReviewApproved ? null : "The current 1003 needs an approved second review before handoff.";
 }
 
-export type BorrowerResult = { application: BorrowerApplication } | { statusView: BorrowerStatusRefresh } | { status: number; error: string };
+export type BorrowerResult = { application: BorrowerApplication } | { statusView: BorrowerStatusRefresh } |
+  { preferences: BorrowerPortalPreferences } | { status: number; error: string };

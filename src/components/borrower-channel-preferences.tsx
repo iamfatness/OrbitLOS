@@ -27,16 +27,20 @@ function PreferenceForm({ target, recordId, blocked, optedOut, busy, save }: {
     void save({ type: "saveBorrowerChannels", target, recordId, expected: blocked, blocked: draft });
   }}>
     <p className="muted">{optedOut ? "The brokerage-wide outreach opt-out is active." : "Sequences skip channels the borrower blocks. Email and text are simulated."}</p>
-    <fieldset className="loan-application-actions borrower-channel-options" disabled={busy || optedOut}>
-      <legend>Outreach channels</legend>
-      {borrowerChannels.map((channel) => <label className="demo-confirm" key={channel}>
-        <input type="checkbox" checked={!optedOut && !borrowerChannelBlocked(draft, channel)}
-          onChange={(event) => {
-            const accepts = event.target.checked;
-            setDraft((current) => accepts ? current & ~borrowerChannelBits[channel] : current | borrowerChannelBits[channel]);
-          }} />{labels[channel]}
-      </label>)}
-    </fieldset>
+    <BorrowerChannelOptions blocked={draft} optedOut={optedOut} busy={busy} onChange={setDraft} />
     {!optedOut && <div><Button size="sm" type="submit" disabled={busy || draft === blocked}>Save contact preferences</Button></div>}
   </form>;
+}
+
+export function BorrowerChannelOptions({ blocked, optedOut, busy, onChange }: {
+  blocked: number; optedOut?: boolean; busy: boolean; onChange: (blocked: number) => void;
+}) {
+  return <fieldset className="loan-application-actions borrower-channel-options" disabled={busy || optedOut}>
+    <legend>Outreach channels</legend>
+    {borrowerChannels.map((channel) => <label className="demo-confirm" key={channel}>
+      <input type="checkbox" checked={!optedOut && !borrowerChannelBlocked(blocked, channel)}
+        onChange={(event) => onChange(event.target.checked ? blocked & ~borrowerChannelBits[channel] : blocked | borrowerChannelBits[channel])} />
+      {labels[channel]}
+    </label>)}
+  </fieldset>;
 }

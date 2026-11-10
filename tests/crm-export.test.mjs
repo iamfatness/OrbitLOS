@@ -49,6 +49,7 @@ const { readCampaignCallbackExceptions } = await import("../src/lib/campaign-cal
 const { readCampaignManager } = await import("../src/lib/campaign-manager.ts");
 const { readCampaignSequencePerformance } = await import("../src/lib/campaign-sequence-performance.ts");
 const { defaultCampaignSequenceSteps } = await import("../src/lib/campaign-sequence-model.ts");
+const { borrowerHttp } = await import("../src/lib/borrower-http.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -260,6 +261,84 @@ test("borrower channel preferences skip campaign steps without recording touches
   assert.equal(db.prepare("SELECT blocked FROM borrower_contact_channels WHERE contactId = ?").get(contactId).blocked, 7);
   await apply(prefs(contactId, 7, 5, "contact"), officer);
   assert.equal(db.prepare("SELECT blocked FROM borrower_contact_channels WHERE contactId = ?").get(contactId).blocked, 5);
+});
+
+test("the borrower portal updates only its contact, skips linked outreach, and records the exact changes for staff", async (t) => {
+  const { db, staff } = fixture(t);
+  const now = new Date().toISOString();
+  const owner = { ...staff, email: "portal-owner@example.test", brokerage: { ...staff.brokerage, role: "LO" } };
+  const other = { ...owner, email: "portal-other@example.test" };
+  const add = (name, email, phone) => {
+    const id = crypto.randomUUID();
+    const loanId = crypto.randomUUID();
+    insertContact(db, { id, name, email, phone, role: "Borrower" });
+    insertLoan(db, { id: loanId, contactId: id, officer: owner.name, officerEmail: owner.email, partnerId: null,
+      stage: "Lead", stageSince: now, amount: 250000, purpose: "Purchase", address: "" });
+    assert.equal(startApplication(db, loanId, now, staff.brokerage.id), true);
+    return { id, loanId, token: db.prepare("SELECT token FROM applications WHERE loanId = ?").get(loanId).token };
+  };
+  const borrower = add("Fictional Portal Borrower", "portal-borrower@example.test", "2485550181");
+  const another = add("Fictional Other Borrower", "portal-other-borrower@example.test", "2485550182");
+  const command = (input) => borrowerCommandResult(db, { token: borrower.token, ...input });
+  const preferences = { type: "contactPreferences" };
+  const save = (expected, blocked) => ({ type: "saveContactPreferences", expected, blocked });
+  const draftBefore = command({ type: "read" }).application;
+  const apply = async (input) => {
+    const result = await executeCommand(db, input, staff, undefined, [staff, owner], { scopedLeadUpdates: true });
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  const campaignId = crypto.randomUUID();
+  await apply({ type: "createCallCampaign", id: campaignId, name: "Fictional portal preferences" });
+  await apply({ type: "saveCampaignSequence", campaignId, expectedVersion: null, expectedTemplateVersion: null,
+    steps: [{ channel: "Call", title: "First call", delay: 0, body: "" },
+      { channel: "Text", title: "First text", delay: 0, body: "Fictional text" },
+      { channel: "Email", title: "First email", delay: 0, body: "Fictional email" }] });
+  const request = { type: "migratePipeline", campaignId, origin: campaignOrigin(campaignId), decisions: {},
+    rows: parseCampaignLeadCsv("id,name,phone,email\nreturning,Fictional Portal Borrower,2485550181,portal-borrower@example.test", now)
+      .map((row) => ({ ...row, ownerEmail: owner.email })) };
+  const imported = await apply({ ...request, preview: (await apply(request)).migration.fingerprint });
+  const leadId = imported.migration.rows[0].targetId;
+  assert.equal(db.prepare("SELECT importedContactId FROM referral_leads WHERE id = ?").get(leadId).importedContactId, borrower.id);
+  const next = () => readOfficerQueue(db, { horizon: 7 }, owner, staff.brokerage.id).items.find(({ recordId, kind }) => recordId === leadId && kind === "sequence");
+  assert.equal(next().sequence.channel, "Call");
+
+  const url = "https://orbit.example.test/api/demo-application";
+  const http = (input, origin = "https://orbit.example.test") => borrowerHttp(new Request(url, {
+    method: "POST", headers: { Origin: origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...input, token: borrower.token }),
+  }), async (input) => borrowerCommandResult(db, input));
+  assert.equal((await http(save(0, 5), "https://other.example.test")).status, 403);
+  const result = await http(save(0, 5));
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(await result.json(), { blocked: 5, optedOut: false });
+  assert.deepEqual(command(save(0, 5)), { preferences: { blocked: 5, optedOut: false } });
+  assert.equal(command(save(0, 2)).status, 409);
+  assert.equal(command({ ...save(5, 2), contactId: another.id }).status, 400);
+  assert.deepEqual(command({ ...preferences, token: another.token }), { preferences: { blocked: 0, optedOut: false } });
+  assert.deepEqual(command({ type: "read" }).application, draftBefore);
+  assert.equal(next().sequence.channel, "Email");
+  assert.equal(db.prepare("SELECT count(*) AS count FROM campaign_sequence_touches").get().count, 0);
+
+  const history = (record, id, actor = owner) => readRecordHistory(db, actor, { record, id });
+  for (const [record, id] of [["loan", borrower.loanId], ["contact", borrower.id]]) {
+    const events = history(record, id).events.filter(({ text }) => text.startsWith("Borrower updated contact preferences"));
+    assert.equal(events.length, 1);
+    assert.equal(events[0].text, "Borrower updated contact preferences · Calls blocked · Texts blocked");
+    assert.ok(events[0].createdAt >= now);
+    assert.ok(history(record, id, other).error);
+  }
+  assert.deepEqual(command(save(5, 4)), { preferences: { blocked: 4, optedOut: false } });
+  assert.ok(history("contact", borrower.id).events.some(({ text }) => text === "Borrower updated contact preferences · Calls allowed"));
+  assert.equal(next().sequence.channel, "Email");
+  optOutContact(db, borrower.id, now);
+  assert.deepEqual(command(preferences), { preferences: { blocked: 4, optedOut: true } });
+  assert.equal(command(save(4, 0)).status, 409);
+  db.prepare("UPDATE applications SET revokedAt = ? WHERE loanId = ?").run(now, borrower.loanId);
+  db.prepare("UPDATE applications SET expiresAt = ? WHERE loanId = ?").run(now, another.loanId);
+  assert.equal(command(preferences).status, 404);
+  assert.equal(command({ ...save(0, 7), token: another.token }).status, 404);
 });
 
 test("reusable reactivation and past-client sequences enroll the right audiences and keep their versions in Today", async (t) => {

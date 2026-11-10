@@ -20,6 +20,10 @@ import type { LoanNextActionState } from "./loan-workflow";
 import { activeCoBorrowerLink, jointApplication, staffJointApplications } from "./joint-application";
 import { coBorrowerCommand, coBorrowerSubmissionIssues, jointLinkUnavailable, primaryJointDraft, type CoBorrowerApplication } from "./joint-application-model";
 import { readClosingPauses } from "./processing-conditions";
+import { borrowerChannelActivityPrefix, borrowerChannelBlocked, borrowerChannelMask, borrowerChannels } from "./borrower-channel-model";
+import { linkedChannelLeadIds, readContactChannelBlocks, setContactChannelBlocks } from "./borrower-channels";
+import { reconcileBorrowerSequenceChannels } from "./borrower-sequences";
+import { loanOutreachSuppressed } from "./outreach-preferences";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
@@ -166,12 +170,38 @@ const write = {
 const borrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
   z.object({ type: z.literal("status"), token }),
+  z.strictObject({ type: z.literal("contactPreferences"), token }),
+  z.strictObject({ type: z.literal("saveContactPreferences"), token, expected: borrowerChannelMask, blocked: borrowerChannelMask }),
   z.object({ type: z.literal("save"), ...write }),
   z.object({ type: z.literal("submit"), ...write }),
   z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision: z.number().int().nonnegative(), statusOnly: z.boolean().optional() }),
 ]);
 const borrowerLink = "FROM applications WHERE token = ? AND expiresAt > ? AND revokedAt IS NULL";
 const borrowerLinkUnavailable = { status: 404, error: "This application link is invalid or expired. Ask your loan officer for a new link." };
+
+function borrowerContactPreferences(db: Store, data: Extract<z.infer<typeof borrowerCommand>,
+  { type: "contactPreferences" | "saveContactPreferences" }>, now: string): BorrowerResult {
+  const row = db.prepare(`SELECT loanId ${borrowerLink}`).get(data.token, now);
+  const contact = row && db.prepare(`SELECT contact.id FROM loans loan JOIN contacts contact ON contact.id = loan.contactId
+    WHERE loan.id = ? AND contact.role <> 'Realtor'`).get(row.loanId);
+  if (!row || !contact) return borrowerLinkUnavailable;
+  const loanId = String(row.loanId);
+  const contactId = String(contact.id);
+  const blocked = readContactChannelBlocks(db, contactId);
+  const optedOut = loanOutreachSuppressed(db, loanId);
+  if (data.type === "contactPreferences") return { preferences: { blocked, optedOut } };
+  if (optedOut) return { status: 409, error: "An outreach opt-out is active. Ask your loan team if you need to change it." };
+  if (blocked === data.blocked) return { preferences: { blocked, optedOut } };
+  if (blocked !== data.expected) return { status: 409, error: "Your contact preferences changed. Refresh preferences and try again." };
+  setContactChannelBlocks(db, contactId, data.blocked);
+  reconcileBorrowerSequenceChannels(db, linkedChannelLeadIds(db, contactId), now);
+  const labels = { Call: "Calls", Email: "Email", Text: "Texts" };
+  const changes = borrowerChannels.filter((channel) => borrowerChannelBlocked(blocked ^ data.blocked, channel))
+    .map((channel) => `${labels[channel]} ${borrowerChannelBlocked(data.blocked, channel) ? "blocked" : "allowed"}`);
+  db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)")
+    .run(`${borrowerChannelActivityPrefix}${crypto.randomUUID()}`, loanId, `Borrower updated contact preferences · ${changes.join(" · ")}`, now);
+  return { preferences: { blocked: data.blocked, optedOut } };
+}
 
 function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string): BorrowerLoanStatus | null {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
@@ -280,6 +310,7 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
   const data = parsed.data;
   const now = new Date().toISOString();
   return db.transaction(() => {
+    if (data.type === "contactPreferences" || data.type === "saveContactPreferences") return borrowerContactPreferences(db, data, now);
     if (data.type === "status" || (data.type === "attachSample" && data.statusOnly)) {
       const row = db.prepare(`SELECT loanId, submittedAt, reviewedAt, correctionNote, revision ${borrowerLink}`)
         .get(data.token, now) as BorrowerStatusRow | undefined;

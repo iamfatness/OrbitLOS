@@ -8,10 +8,12 @@ import { portalTokenPattern } from "@/lib/brokerage-model";
 import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-change-signal";
 import { observeHandoffChecks } from "@/lib/tab-return";
 import { primaryJointDraft } from "@/lib/joint-application-model";
+import type { BorrowerPortalPreferences } from "@/lib/borrower-channel-model";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
 import { Button } from "./ui/button";
 import { BorrowerStatus } from "./borrower-status";
+import { BorrowerChannelOptions } from "./borrower-channel-preferences";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 
 type SubmittedView = Exclude<BorrowerStatusRefresh, { kind: "resume" }>;
@@ -48,6 +50,62 @@ async function requestApplication<Result = BorrowerApplication>(token: string, i
     throw new Error(typeof error === "string" ? error : "Orbit could not save the application. Try again.");
   }
   return result as Result;
+}
+
+function PortalContactPreferences({ token }: { token: string }) {
+  const [saved, setSaved] = useState<BorrowerPortalPreferences>();
+  const [draft, setDraft] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const pending = useRef<AbortController | null>(null);
+  useEffect(() => () => pending.current?.abort(), []);
+
+  async function update(save: boolean) {
+    if (pending.current || (save && (!saved || saved.optedOut || draft === saved.blocked))) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    pending.current = controller;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const input = save && saved ? { type: "saveContactPreferences", expected: saved.blocked, blocked: draft } : { type: "contactPreferences" };
+      const preferences = await requestApplication<BorrowerPortalPreferences>(token, input, signal);
+      if (signal.aborted) return;
+      setSaved(preferences);
+      setDraft(preferences.blocked);
+      if (save) {
+        setNotice("Contact preferences saved.");
+        void announceBorrowerChange(token);
+      }
+    } catch (failure) {
+      if (!signal.aborted) setError(failure instanceof Error ? failure.message : "Could not load or save contact preferences. Try again.");
+    } finally {
+      pending.current = null;
+      if (!signal.aborted) setBusy(false);
+    }
+  }
+
+  return <details className="application-panel application-receipt document-form borrower-preferences-panel" onToggle={(event) => {
+    if (event.currentTarget.open && !saved && !error) void update(false);
+  }}>
+    <summary>Contact preferences</summary>
+    <form className="record-form" onSubmit={(event) => { event.preventDefault(); void update(true); }}>
+      <p>Choose how your loan team can reach you for follow-up. Email and text are simulated in this demo.</p>
+      {busy && !saved && <p role="status">Loading contact preferences…</p>}
+      {error && <p role="alert" className="banner-error">{error}</p>}
+      {notice && <p role="status">{notice}</p>}
+      {saved && <>
+        {saved.optedOut && <p>An outreach opt-out is active. Ask your loan team if you need to change it.</p>}
+        <BorrowerChannelOptions blocked={draft} optedOut={saved.optedOut} busy={busy} onChange={setDraft} />
+      </>}
+      <div className="loan-application-actions">
+        {saved && !saved.optedOut && <Button size="sm" type="submit" disabled={busy || draft === saved.blocked}>Save contact preferences</Button>}
+        {error && <Button size="sm" variant="outline" onClick={() => void update(false)} disabled={busy}>Refresh preferences</Button>}
+      </div>
+    </form>
+  </details>;
 }
 
 export function BorrowerApplicationForm() {
@@ -213,6 +271,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status" className="application-message">Opening your application…</p>}
+    {view && token && <PortalContactPreferences token={token} />}
     {jointWaiting ? <section className="pipeline relationship-panel" aria-label="Joint application progress">
       <h2>Waiting for the co-borrower</h2>
       <p>Your loan officer can review the joint application after both portions are submitted. Return with this link to check progress.</p>

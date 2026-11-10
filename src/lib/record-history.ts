@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { borrowerChannelActivityPrefix } from "./borrower-channel-model";
 import type { ConversationEvent } from "./conversation-model";
 import { currentConversationContact, relationshipConversationAccess } from "./conversations";
 import type { Activity, ContactActivity } from "./model";
@@ -88,8 +89,9 @@ export function readRecordHistory(db: Store, staff: WorkspaceStaff | null, input
       args.push(...visibleArgs, ...visibleArgs);
     }
     if (fullContact) {
-      sources.push(`${loanEvents} WHERE event.loanId IN (${linkedLoans}) AND event.kind <> 'Note'`);
-      args.push(...linkArgs);
+      sources.push(`${loanEvents} WHERE event.loanId IN (${linkedLoans}) AND (event.kind <> 'Note' OR
+        (event.id GLOB '${borrowerChannelActivityPrefix}*' AND event.loanId IN (SELECT id FROM loans WHERE contactId = ?)))`);
+      args.push(...linkArgs, id);
       correspondence.push(conversationEvents("Loan", `loan_conversations thread JOIN loans loan ON loan.id = thread.loanId
         JOIN conversation_events event ON event.conversationId = thread.id`,
       `thread.contactId = ? AND ${currentConversationContact} AND thread.loanId IN (${linkedLoans})`));
