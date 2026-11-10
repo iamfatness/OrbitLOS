@@ -99,11 +99,13 @@ test("owner inventory backfills bounded batches, resumes after initialization an
   const { addLoan, work, db, officer, processor, admin, brokerageId } = fixture(t);
   const get = (bucket, after) => work({ type: "inventory", bucket, after });
   const scan = (revision) => work({ type: "advanceInventory", revision });
-  assert.equal(get().state, "Not started");
-  assert.equal(get().scanned, null);
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'compliance_inventory'").get(), undefined);
   assert.deepEqual(work({ type: "inventory" }, officer), unavailable);
   assert.deepEqual(work({ type: "advanceInventory", revision: 0 }, processor), unavailable);
   assert.deepEqual(work({ type: "inventory" }, admin, undefined, `${brokerageId}-other`), unavailable);
+  assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'compliance_inventory'").get(), undefined);
+  assert.equal(get().state, "Not started");
+  assert.equal(get().scanned, null);
   const sampleReviewNeeded = Array.from({ length: 27 }, () => addLoan());
   addLoan({ state: "" });
   addLoan({ state: "OH" });

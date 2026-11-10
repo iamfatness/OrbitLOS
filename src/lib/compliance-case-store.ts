@@ -24,6 +24,10 @@ export function initializeComplianceCases(db: Store) {
       FOREIGN KEY (brokerageId, caseId) REFERENCES compliance_cases(brokerageId, id)
     );
   `);
+}
+
+export function initializeComplianceInventory(db: Store) {
+  if (db.prepare("SELECT 1 FROM settings WHERE key = 'complianceInventorySchema:1'").get()) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS compliance_inventory (
       brokerageId TEXT PRIMARY KEY, generation TEXT NOT NULL, revision INTEGER NOT NULL,
@@ -56,4 +60,5 @@ export function initializeComplianceCases(db: Store) {
         BEGIN UPDATE compliance_inventory SET stale = 1, revision = revision + 1 WHERE stale = 0; END;`);
     }
   }
+  db.prepare("INSERT INTO settings (key, value) VALUES ('complianceInventorySchema:1', '1')").run();
 }

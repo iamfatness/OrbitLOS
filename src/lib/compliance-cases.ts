@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import { complianceCaseKinds as kinds, complianceCaseStatuses as statuses, complianceWorkUnavailable } from "./compliance-case-model";
+import { initializeComplianceInventory } from "./compliance-case-store";
 import { advanceInventory, currentPackage, inventoryAdvance, inventoryRead, readInventory, samplePackage, sampleWorkbenchReview } from "./compliance-inventory";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -160,6 +161,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   return db.transaction(() => {
     if (data.type === "inventory" || data.type === "advanceInventory") {
       if (staff.brokerage.role !== "Admin") return unavailable;
+      initializeComplianceInventory(db);
       return data.type === "inventory" ? readInventory(db, brokerageId, data) : advanceInventory(db, brokerageId, data.revision, now);
     }
     if (data.type === "list") return list(db, staff, roster, data);
