@@ -52,6 +52,7 @@ export default function DemoPage() {
           <li>Recover a missing mock UWM receipt from Today. Open the mock UWM delivery timeline to see which 1003 revision arrived and why older or duplicate updates left a cleared condition in place.</li>
           <li>Issue a fictional preapproval PDF from the reviewed purchase 1003. Share the current version separately with the borrower and their realtor.</li>
           <li>Turn a past-client rate-watch follow-up into a refinance 1003 with the confirmed property address. Open both loans from the returning-client report.</li>
+          <li>Open the Today and Lead Inbox badges to see due work, incoming reviews, and leads needing first contact. Owners can see unassigned leads that need routing.</li>
           <li>Log borrower or lender follow-up from Today. Managers can find overdue returns without a contact attempt and reassign the file with its activity and revised 1003 intact.</li>
           <li>See requests and sample PDFs update in open borrower and staff views across separate browser sessions. Reopen the lender checklist from the guide to review attachments already received.</li>
           <li>Preview a brokerage document checklist with rules for occupancy and the selected borrower’s employment. See what matches the reviewed 1003 before adding missing requests.</li>

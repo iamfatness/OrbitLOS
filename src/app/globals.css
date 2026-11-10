@@ -74,6 +74,7 @@ button:disabled { cursor: default; }
 .nav-item:disabled, .shell .brand:disabled, .connection-chip:disabled, .guide-controls .view-toggle button:disabled { opacity: .6; cursor: wait; }
 .sidebar :focus-visible { outline: 2px solid #d9c7ff; outline-offset: 1px; }
 .nav-count { margin-left: auto; padding: 1px 6px; border-radius: 20px; background: #44315e; color: #fff; font-size: 12px; font-variant-numeric: tabular-nums; }
+.nav-attention-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .sidebar-bottom { margin-top: auto; flex-shrink: 0; }
 .demo-label { color: #cec1e0; font-size: 12px; display: flex; align-items: center; gap: 8px; padding: 12px 8px; overflow-wrap: anywhere; }
 .demo-label > span, .connection-chip > span { width: 7px; height: 7px; background: #8060dc; border-radius: 50%; }

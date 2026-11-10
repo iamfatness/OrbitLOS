@@ -1,5 +1,5 @@
 import { leadRouting } from "./lead-inbox";
-import { leadInboxRequest, leadInboxUnavailable, type InboxLeadSummary, type LeadInboxPage } from "./lead-inbox-model";
+import { leadAttentionView, leadInboxRequest, leadInboxUnavailable, type InboxLeadSummary, type LeadInboxPage } from "./lead-inbox-model";
 import { leadWorkUnavailable, type LeadWorkRecord } from "./lead-work-model";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
 import { canClaimSharedRealtor } from "./realtor-claim-model";
@@ -13,8 +13,9 @@ type LeadRow = Omit<InboxLeadSummary, "outreachSuppressed" | "followUp"> & Inbox
 };
 const pageSize = 25;
 const scanSize = 100;
-const overdueWhere = `lead.heldAt IS NULL AND follow.firstContactAt IS NULL AND follow.replyReceivedAt IS NULL
-  AND coalesce(member.lastOutcome, '') <> 'Opted out' AND julianday(lead.dueAt) <= julianday(?)`;
+const firstContactWhere = `lead.heldAt IS NULL AND follow.firstContactAt IS NULL AND follow.replyReceivedAt IS NULL
+  AND coalesce(member.lastOutcome, '') <> 'Opted out'`;
+const overdueWhere = `${firstContactWhere} AND julianday(lead.dueAt) <= julianday(?)`;
 const tables = `FROM referral_leads lead LEFT JOIN lead_follow_up follow ON follow.leadId = lead.id
   LEFT JOIN call_campaign_members member ON member.leadId = lead.id`;
 
@@ -42,9 +43,11 @@ function summaries(db: Store, rows: LeadRow[]): InboxLeadSummary[] {
   }));
 }
 
-function countOverdue(db: Store, where: string, args: SqlValue[]) {
+function countEligibleLeads(db: Store, where: string, args: SqlValue[], limit = -1) {
   if (!db.prepare("SELECT 1 FROM outreach_opt_outs LIMIT 1").get()) {
-    return Number(db.prepare(`SELECT count(*) AS total ${tables} WHERE ${where}`).get(...args)?.total);
+    const query = limit < 0 ? `SELECT count(*) AS total ${tables} WHERE ${where}` :
+      `SELECT count(*) AS total FROM (SELECT 1 ${tables} WHERE ${where} LIMIT ?)`;
+    return Number(db.prepare(query).get(...args, ...(limit < 0 ? [] : [limit]))?.total);
   }
   let count = 0;
   let after: LeadCursor | undefined;
@@ -52,8 +55,18 @@ function countOverdue(db: Store, where: string, args: SqlValue[]) {
     const batch = readInboxBatch(db, where, args, after, scanSize);
     count += summaries(db, batch).filter((lead) => !lead.outreachSuppressed).length;
     after = batch.length === scanSize ? batch.at(-1) : undefined;
-  } while (after);
-  return count;
+  } while (after && (limit < 0 || count < limit));
+  return limit < 0 ? count : Math.min(count, limit);
+}
+
+function firstContactScope(staff: WorkspaceStaff | null) {
+  return staff?.brokerage.role === "LO" ? { where: `${firstContactWhere} AND lead.officerEmail = ?`, args: [staff.email] } :
+    { where: firstContactWhere, args: [] };
+}
+
+export function countLeadAttention(db: Store, staff: WorkspaceStaff, limit: number) {
+  const scope = firstContactScope(staff);
+  return countEligibleLeads(db, `lead.resolvedAt IS NULL AND ${scope.where}`, scope.args, limit);
 }
 
 export function readLeadInbox(db: Store, input: unknown, staff: WorkspaceStaff | null, now = new Date()):
@@ -72,19 +85,21 @@ export function readLeadInbox(db: Store, input: unknown, staff: WorkspaceStaff |
   const clock = now.toISOString();
   const admin = !staff || staff.brokerage.role === "Admin";
   const policy = readRealtorClaimPolicy(db);
-  const metadata = { overdue: after ? null : countOverdue(db, `${scope.where} AND ${overdueWhere}`, [...scope.args, clock]),
+  const metadata = { overdue: after ? null : countEligibleLeads(db, `${scope.where} AND ${overdueWhere}`, [...scope.args, clock]),
     routing: admin ? leadRouting(db) : null, claimPolicy: staff && admin ? policy : undefined, canClaimRealtor: canClaimSharedRealtor(staff, policy) };
   if (view === "Archived" || view === "Shared realtor referrals") return { kind: "list", leads: [], next: null, ...metadata };
+  const attention = firstContactScope(staff);
   const extra = {
     "All open": "1", Mine: "lead.officerEmail = ?", Unassigned: "lead.officerEmail IS NULL",
+    [leadAttentionView]: attention.where,
     "First contact overdue": overdueWhere, "Mock step due": `lead.heldAt IS NULL AND member.leadId IS NULL
       AND follow.status = 'Active' AND julianday(follow.nextAt) <= julianday(?)`,
     "On hold": "lead.heldAt IS NOT NULL", "Opted out": "1",
   }[view];
   const where = `${scope.where} AND (${extra})`;
-  const args = [...scope.args, ...(view === "Mine" ? [staff?.email ?? null] :
+  const args = [...scope.args, ...(view === leadAttentionView ? attention.args : view === "Mine" ? [staff?.email ?? null] :
     view === "First contact overdue" || view === "Mock step due" ? [clock] : [])];
-  const filter = view === "Opted out" ? true : view === "First contact overdue" || view === "Mock step due" ? false : null;
+  const filter = view === "Opted out" ? true : view === leadAttentionView || view === "First contact overdue" || view === "Mock step due" ? false : null;
   const leads: InboxLeadSummary[] = [];
   let cursor = after;
   const limit = filter === null ? pageSize + 1 : scanSize;

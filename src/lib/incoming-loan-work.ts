@@ -11,7 +11,7 @@ const pageSize = 8;
 const sparseReceivedLimit = 32;
 
 export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  localName?: string, now = new Date()): IncomingLoanWorkPage | { error: string } {
+  localName?: string, now = new Date(), limit = pageSize): IncomingLoanWorkPage | { error: string } {
   const parsed = incomingLoanWorkQuery.safeParse(input);
   if (!parsed.success || !staff || staff.brokerage.id !== brokerageId) return { error: incomingLoanWorkUnavailable };
   const { view, after } = parsed.data;
@@ -87,13 +87,13 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
     .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(leadDocuments ? [staff.email] : []), ...documentArgs,
-      ...(after ? [after.receivedAt, after.kind, after.id] : []), pageSize + 1) as unknown as
+      ...(after ? [after.receivedAt, after.kind, after.id] : []), limit + 1) as unknown as
       (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline" | "returnEventId" | "returnFollowUp"> & {
         loanId: string; linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
         returnEventId: string | null; returnFollowUp: string | null;
       })[];
   const checkedAt = now.toISOString();
-  const items = rows.slice(0, pageSize).map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
+  const items = rows.slice(0, limit).map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
     const work = { ...item, linkedCondition: Boolean(linkedCondition) };
     if (kind === "lead-document") return { ...work, kind, leadId: loanId };
     return { ...work, kind, loanId, ...(returnStatus ? { returnStatus } : {}),
@@ -101,5 +101,5 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       ...(returnEventId ? { returnEventId } : {}), ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}) };
   });
   const last = items.at(-1);
-  return { items, next: rows.length > pageSize && last ? { id: last.id, kind: last.kind, receivedAt: last.receivedAt } : null };
+  return { items, next: rows.length > limit && last ? { id: last.id, kind: last.kind, receivedAt: last.receivedAt } : null };
 }

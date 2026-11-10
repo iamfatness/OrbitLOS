@@ -290,8 +290,10 @@ function list(db: Store, staff: WorkspaceStaff, query: Extract<ConversationQuery
     next: rows.length > consumed && last ? { id: last.id, at: due ? `${last.dueOn}T00:00:00.000Z` : last.updatedAt } : null };
 }
 
-export function readOwnedConversationReplies(db: Store, staff: WorkspaceStaff, after: ConversationCursor | undefined, now: Date, localName?: string): ConversationReplyPage {
-  const { rows, next } = list(db, staff, { type: "list", filter: "Needs reply", mine: true, after }, now, { limit: 5, localName, callbacks: true });
+export function readOwnedConversationReplies(db: Store, staff: WorkspaceStaff, after: ConversationCursor | undefined, now: Date, localName?: string,
+  limit?: number): ConversationReplyPage {
+  const { rows, next } = list(db, staff, { type: "list", filter: "Needs reply", mine: true, after }, now,
+    { limit: limit ?? 5, localName, callbacks: limit === undefined });
   return { items: rows, next };
 }
 

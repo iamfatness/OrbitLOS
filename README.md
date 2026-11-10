@@ -295,6 +295,8 @@ The fictional XML maps core borrower, property, employment, income, asset, liabi
 
 ## Start with My Tasks today
 
+The sidebar shows a **Today** count for your due work, incoming reviews, and replies, and a **Lead Inbox** count for prospects needing first contact. Selecting a badge opens the matching view. LOs count their assigned leads. Owners can also see team and unassigned prospects that need routing. Held, contacted, converted, and opted-out leads are excluded.
+
 First contacts and campaign callbacks open the current lead and campaign directly. If the lead moved to another officer or the task closed, refresh **My Tasks** to update the queue. A rescheduled callback opens with its latest due time.
 
 Open **Today** to see your overdue and upcoming first contacts, callbacks, loan tasks, closing dates, and mock lock expirations. Choose **Due today** or **Next 7 days**. Select a row to open the lead, campaign, follow-up, or loan workbench. **Refresh My Tasks** reads the current queue. Use **Open full task queue** for the broader workflow and records added since the workspace opened.

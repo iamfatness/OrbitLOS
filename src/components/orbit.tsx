@@ -44,6 +44,7 @@ import { ManageBorrowerQuestionSets } from "./borrower-question-sets";
 import { StaffCoverage } from "./staff-coverage";
 import { LoanReviewQueue } from "./loan-reviews";
 import { ReviewInboxPanel, useReviewInbox } from "./review-inbox";
+import { useActionCounts } from "./use-action-counts";
 import { reviewTarget } from "@/lib/loan-review-model";
 import { WorkspaceSearch, type SearchSelection } from "./workspace-search";
 import { searchRecordUnavailable, searchTaskTarget, type SearchContact, type SearchRecord } from "@/lib/workspace-search-model";
@@ -62,7 +63,7 @@ import { PastClients } from "./past-client-crm";
 import { ReferralQueue } from "./referral-queue";
 import { LeadInbox } from "./lead-inbox";
 import { RealtorQueueReport } from "./realtor-queue-report";
-import { firstContactOverdue } from "@/lib/lead-inbox-model";
+import { firstContactOverdue, leadAttentionView } from "@/lib/lead-inbox-model";
 import { DemoGuide, type GuideTrack } from "./demo-guide";
 import { UwmAlertQueue } from "./uwm-alert-queue";
 import { workspaceIcons } from "./workspace-icons";
@@ -167,6 +168,9 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [workspaceStatus, setWorkspaceStatus] = useState<"cold" | "loading" | "failed" | "ready">(deferredWorkspace ? "cold" : "ready");
   const [reviewVersion, setReviewVersion] = useState(0);
   const queueVersion = useMemo(() => ({ state, reviewVersion }), [state, reviewVersion]);
+  const actionCounts = useActionCounts(staff?.brokerage.id ?? demoBrokerageId, staff?.email,
+    controlsReady && canOpenToday && workspaceStatus === "ready", queueVersion);
+  const [attentionVisit, setAttentionVisit] = useState<{ section: Section; visit: number }>();
   const [searchSelection, setSearchSelection] = useState<SearchSelection>({ query: "", filter: "All records" });
   const [searchContact, setSearchContact] = useState<SearchContact>();
   const [contactToolsOpen, setContactToolsOpen] = useState(false);
@@ -593,10 +597,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     else loadCampaigns(id);
   }
 
-  function navigate(next: Section, refresh = true, campaignId?: string) {
+  function navigate(next: Section, refresh = true, campaignId?: string, attention = false) {
     openingRecord.current = false;
     if (next !== "Call Campaigns") deferredCampaignLoad.current = undefined;
     setSection(next);
+    setAttentionVisit((last) => attention ? { section: next, visit: (last?.visit ?? 0) + 1 } : undefined);
     if (next !== "Contacts") setContactToolsOpen(false);
     setGuideCallbackId(undefined);
     setFocusContactTask(undefined);
@@ -1111,17 +1116,24 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         <Button className="mobile-nav-toggle" ref={mobileMenu} variant="outline" size="sm" type="button" disabled={!controlsReady}
           aria-expanded={mobileNavOpen} aria-controls="workspace-navigation" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
           {mobileNavOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />} Menu
+          {!!(actionCounts?.today || actionCounts?.leads) && !mobileNavOpen && <span className="nav-attention-dot" aria-label="Actions waiting" />}
         </Button>
         <nav id="workspace-navigation" aria-label="Workspace navigation" data-expanded={mobileNavOpen}>
           {navigation.map(({ title, items }) => (
             <div className="nav-group" key={title}>
               <p className="workspace-label">{title}</p>
-              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => (
-                <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
-                  disabled={!controlsReady} onClick={() => navigate(label)}>
-                  <Icon size={20} aria-hidden="true" /><span>{label}</span>{label === "Tasks" && workspaceStatus === "ready" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
-                </button>
-              ))}
+              {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
+                const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads : undefined;
+                const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
+                const reason = label === "Today" ? "actions due or ready" : "leads needing first contact";
+                return <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
+                  aria-label={count ? `${label}, ${count} ${reason}` : undefined}
+                  disabled={!controlsReady} onClick={() => navigate(label, true, undefined, Boolean(attention))}>
+                  <Icon size={20} aria-hidden="true" /><span>{label}</span>
+                  {count && <small className="nav-count" aria-hidden="true">{count}</small>}
+                  {label === "Tasks" && workspaceStatus === "ready" && openTasks > 0 && <small className="nav-count" aria-label={`${openTasks} open`}>{openTasks}</small>}
+                </button>;
+              })}
             </div>
           ))}
           {staff && <p className="mobile-workspace-label">{staff.brokerage.name} · {staff.brokerage.role}</p>}
@@ -1259,7 +1271,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             </section>
           }
 
-          {section === "Lead Inbox" && <LeadInbox version={state} staff={staff} now={taskNow} busy={busy}
+          {section === "Lead Inbox" && <LeadInbox key={attentionVisit?.section === "Lead Inbox" ? attentionVisit.visit : 0}
+            initialView={attentionVisit?.section === "Lead Inbox" ? leadAttentionView : undefined} version={state} staff={staff} now={taskNow} busy={busy}
             focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} focusDocumentId={focusLeadDocumentId} focusArchivedLeadId={focusArchivedLeadId}
             save={(input, after) => save(input, after, true, "inbox")}
             convert={(id, contactId, allowDuplicate, after, intakeReview) => convertLead(id, contactId, allowDuplicate, "inbox", after, intakeReview)}
@@ -1294,7 +1307,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
             {admin && <CrmFieldSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           </>}
 
-          {section === "Today" && canOpenToday && <OfficerToday brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+          {section === "Today" && canOpenToday && <OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
+            brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
             version={queueVersion} busy={busy} openWork={openTodayWork} save={save} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
             openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}

@@ -50,20 +50,20 @@ const addSqlHours = (time: string, hours: number) =>
   `strftime('%Y-%m-%dT%H:%M:%fZ', ${time}, '+${Number.isFinite(hours) ? hours : 0} hours')`;
 
 export function readOfficerQueue(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  now = new Date(), localName?: string): OfficerQueuePage | { error: string } {
+  now = new Date(), localName?: string, limit?: number): OfficerQueuePage | { error: string } {
   if (!staff || staff.brokerage.id !== brokerageId || (staff.brokerage.role !== "LO" && staff.brokerage.role !== "Admin")) {
     return { error: officerQueueUnavailable };
   }
   const parsed = officerQueueQuery.safeParse(input);
   if (!parsed.success) return { error: "Choose a valid date window and work queue page." };
   const page = readDeadlines(db, { email: staff.email, role: staff.brokerage.role }, now,
-    shiftReportDate(easternDate(now), parsed.data.horizon - 1), parsed.data.after, { localName });
+    shiftReportDate(easternDate(now), parsed.data.horizon - 1), parsed.data.after, { localName, limit });
   const items = page.items.map((row) => {
     const item: OfficerQueueItem & { owner?: string } = { ...row };
     delete item.owner;
     return item;
   });
-  return { ...page, items, replies: readOwnedConversationReplies(db, staff, parsed.data.replyAfter, now, localName) };
+  return { ...page, items, replies: readOwnedConversationReplies(db, staff, parsed.data.replyAfter, now, localName, limit) };
 }
 
 export function readCampaignCallbacks(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
@@ -152,8 +152,9 @@ export function readCoverageDeadlines(db: Store, window: CoverageWindow, now: Da
 }
 
 function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole }, now: Date, through: string, after: CalendarQuery["after"],
-  { localName, calendar, coverage, tasks }: { localName?: string; calendar?: CalendarQuery; coverage?: { target?: Pick<CoverageItem, "kind" | "id"> };
-    tasks?: WorkspaceTaskList }): CalendarPage {
+  { localName, calendar, coverage, tasks, limit = pageSize }: { localName?: string; calendar?: CalendarQuery; coverage?: { target?: Pick<CoverageItem, "kind" | "id"> };
+    tasks?: WorkspaceTaskList; limit?: number }): CalendarPage {
+  const scanLimit = Math.max(scanSize, limit);
   const checkedAt = now.toISOString();
   const today = easternDate(now);
   const throughInstant = easternDayStart(shiftReportDate(through, 1));
@@ -212,7 +213,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     }
     const params: SqlValue[] = [...whereParams, ...(team ? [] : [subject.email, ...(localName ? [localName] : [])]), ...deadlineParams,
       ...(coverage?.target ? [coverage.target.id] : []),
-      ...cursorParams, scanSize + 1];
+      ...cursorParams, scanLimit + 1];
     const rows = db.prepare(`SELECT ${ownerName} AS owner, ${typeof query === "string" ? query : query(loanJoin)} ${team ? "" : `AND ${owner}`}
       ${deadlineRange} ${coverage?.target ? `AND ${id} = ?` : ""} ${cursor}
       ORDER BY ${due} ${completed ? "DESC" : "ASC"}, ${id} ${completed ? "DESC" : "ASC"} LIMIT ?`).all(...params);
@@ -476,7 +477,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       return completed ? -order : order;
     });
 
-  const scan = candidates.slice(0, scanSize);
+  const scan = candidates.slice(0, scanLimit);
   const suppression = blockedOutreachKeys(db, scan.filter((item) => item.purpose === "Prospecting"));
   const handoffHours = scan.some((item) => item.kind === "handoff") ? readPlaybook(db).handoffHours : undefined;
   const items: CalendarItem[] = [];
@@ -507,7 +508,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
       ...(completed ? { completedAt: dueAt, blocked } : {}),
       overdue: !completed && !["appointment", "document-review", "lead-document-review", "uwm-alert"].includes(kind) && (kind !== "handoff" || !!handoffDueAt) &&
         (dateOnly ? dueAt < today : Date.parse(handoffDueAt ?? dueAt) < now.getTime()) });
-    if (items.length === pageSize) break;
+    if (items.length === limit) break;
   }
   const last = candidates[consumed - 1];
   return { checkedAt, through, items, next: last && consumed < candidates.length ? { kind: last.kind, dueAt: last.dueAt, id: last.id } : null };

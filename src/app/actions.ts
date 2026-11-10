@@ -52,6 +52,8 @@ import { loadManagerExceptionWork } from "@/lib/workspace-service";
 import { managerExceptionsUnavailable } from "@/lib/manager-exception-model";
 import { loadMigrationRecord } from "@/lib/workspace-service";
 import { loadIncomingLoanWork, loadLoanHandoff, saveManualReturnFollowUp } from "@/lib/workspace-service";
+import { loadActionCounts } from "@/lib/workspace-service";
+import { actionCountsUnavailable } from "@/lib/workspace-action-counts";
 import { incomingLoanWorkUnavailable } from "@/lib/incoming-loan-work-model";
 import { manualReturnFollowUpUnavailable } from "@/lib/lender-export-model";
 import { migrationRecordUnavailable } from "@/lib/migration-record-model";
@@ -169,6 +171,12 @@ export async function readMyTasksToday(input: unknown, expectedBrokerage: string
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: officerQueueUnavailable };
   return loadOfficerQueue(input, staff);
+}
+
+export async function readSidebarActionCounts(expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: actionCountsUnavailable };
+  return loadActionCounts(staff);
 }
 
 export async function readMyCampaignCallbacks(input: unknown, expectedBrokerage: string) {

@@ -332,14 +332,15 @@ function ArchivedLeads({ brokerageId, busy, restore, focusId }: {
   </section>;
 }
 
-export function LeadInbox({ version, staff, now, busy, focusLeadId, focusTaskId, focusDocumentId, focusArchivedLeadId, save, convert, openCampaign, openConversation }: {
+export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId, focusTaskId, focusDocumentId, focusArchivedLeadId, save, convert, openCampaign, openConversation }: {
   version: object; staff: WorkspaceStaff | null;
   now: number; busy: boolean; focusLeadId?: string; focusTaskId?: string; focusArchivedLeadId?: string; save: Save; convert: Convert;
+  initialView?: LeadInboxView;
   focusDocumentId?: string;
   openCampaign: (campaignId: string, leadId: string) => void;
   openConversation: (leadId: string) => void;
 }) {
-  const [view, setView] = useState<LeadInboxView>(focusArchivedLeadId ? "Archived" : "All open");
+  const [view, setView] = useState<LeadInboxView>(focusArchivedLeadId ? "Archived" : initialView ?? "All open");
   const [selection, setSelection] = useState<{ from?: string; id?: string }>();
   const [retry, setRetry] = useState(0);
   const [result, setResult] = useState<{ view: LeadInboxView; version: object; retry: number; page?: LeadInboxPage; error?: string }>();

@@ -281,6 +281,10 @@ try {
   const campaignCallbackAt = new Date(now + 86_400_000).toISOString();
   const callbackPerformance = (staff = owner) => action(staff, "readCampaignCallbackPerformance", { campaignId });
   const leadId = await stage("Owner imports and routes CRM work", async () => {
+    const sidebar = (staff) => action(staff, "readSidebarActionCounts", brokerage);
+    const ownerBefore = await sidebar(owner), officerBefore = await sidebar(officer);
+    assert.ok((await sidebar(processor)).error);
+    assert.ok((await action(owner, "readSidebarActionCounts", randomUUID())).error);
     await write(owner, { type: "createCallCampaign", id: campaignId, name: "Fictional migrated pipeline" });
     await write(owner, { type: "saveCampaignRules", campaignId, revision: 0, voicemailDays: 1, noResponseDays: 2, maxAttempts: 3, retryTime: "15:30" });
     await write(owner, { type: "saveCampaignRouting", campaignId, revision: 0, enabled: true,
@@ -294,6 +298,11 @@ try {
       { type: "Task", externalId: "callback", parentId: "referral", dueAt, completedAt: "", text: "Call migrated borrower", taskPurpose: "Loan service" },
     ] });
     const id = result.rows.find(({ key }) => key === "Lead:referral").targetId;
+    assert.equal((await sidebar(owner)).leads, ownerBefore.leads + 1);
+    assert.equal((await sidebar(officer)).leads, officerBefore.leads);
+    const firstContacts = { type: "list", view: "Needs first contact" };
+    assert.ok((await action(owner, "readInboxWork", firstContacts)).leads.some((lead) => lead.id === id));
+    assert.ok(!(await action(officer, "readInboxWork", firstContacts)).leads.some((lead) => lead.id === id));
     const importedLead = { type: "result", origin: "working-day", key: "Lead:referral", targetId: id };
     assert.deepEqual((await action(owner, "openMigrationRecord", importedLead)).destination, { kind: "lead", id });
     assert.ok((await action(officer, "openMigrationRecord", importedLead)).error);
@@ -310,6 +319,7 @@ try {
     const current = await workspace(owner);
     const selected = current.inboxLeads.find(({ id: currentId }) => currentId === id);
     assert.equal(selected.officerEmail, officer.email);
+    assert.equal((await sidebar(officer)).leads, officerBefore.leads + 1);
     assert.deepEqual(new Set(current.inboxLeads.filter(({ campaignId: campaign }) => campaign === campaignId)
       .map(({ officerEmail }) => officerEmail)), new Set([officer.email, owner.email, null]));
     const automatic = current.inboxLeads.find(({ campaignId: campaign, officerEmail }) => campaign === campaignId && officerEmail === owner.email);
@@ -321,6 +331,7 @@ try {
     assert.equal(easternTime.format(new Date(retry.dueAt)), "15:30");
     await write(owner, { type: "recordCampaignCall", campaignId, leadId: id, revision: selected.followUp.revision,
       outcome: "Requested callback", note: "Fictional borrower requested a follow-up.", callbackAt: campaignCallbackAt, simulateFollowUpFailure: true });
+    assert.equal((await sidebar(officer)).leads, officerBefore.leads);
     const promised = await callbackPerformance();
     assert.equal(promised.counts.Upcoming, 1);
     assert.equal(promised.items[0].dueAt, campaignCallbackAt);

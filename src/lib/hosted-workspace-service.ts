@@ -14,6 +14,7 @@ import { questionSetsUnavailable } from "./borrower-question-set-model";
 import { stageEditUnavailable } from "./loan-stage-edit-model";
 import { closingGateUnavailable } from "./closing-gate-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
+import { actionCountsUnavailable } from "./workspace-action-counts";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
 import { campaignManagerUnavailable } from "./campaign-manager-model";
 import { callbackExceptionUnavailable } from "./campaign-callback-exceptions-model";
@@ -127,6 +128,11 @@ export async function loadFundingDashboard(input: unknown, staff: WorkspaceStaff
 export async function loadOfficerQueue(input: unknown, staff: WorkspaceStaff | null) {
   if (!staff || staff.brokerage.role === "Processor") return { error: officerQueueUnavailable };
   return staffWorkspace(staff).officerQueue(input, staff);
+}
+
+export async function loadActionCounts(staff: WorkspaceStaff | null) {
+  if (!staff || staff.brokerage.role === "Processor") return { error: actionCountsUnavailable };
+  return staffWorkspace(staff).actionCounts(staff);
 }
 
 export async function loadCampaignCallbacks(input: unknown, staff: WorkspaceStaff | null) {

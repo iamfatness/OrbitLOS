@@ -40,6 +40,7 @@ import { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationComparis
   saveCutoverFileInventory, saveMigrationCutover } from "./migration-cutover";
 import { fundingRecordAction, readFundingDashboard } from "./funding-dashboard";
 import { readCampaignCallbacks, readOfficerQueue, readWorkspaceCalendar, readWorkspaceTasks } from "./officer-queue";
+import { readActionCounts } from "./workspace-action-counts";
 import type { WorkspaceMutationScope } from "./commands";
 import { campaignCallbacksUnavailable } from "./officer-queue-model";
 import { readCampaignCallbackPerformance } from "./campaign-callback-performance";
@@ -270,6 +271,11 @@ export async function loadFundingDashboard(input: unknown, staff: WorkspaceStaff
 
 export async function loadOfficerQueue(input: unknown, staff: WorkspaceStaff | null) {
   return readOfficerQueue(database(), input, staff ?? localAdmin, demoBrokerageId, new Date(), staff ? undefined : localAdmin.name);
+}
+
+export async function loadActionCounts(staff: WorkspaceStaff | null) {
+  const db = database();
+  return db.transaction(() => readActionCounts(db, staff ?? localAdmin, demoBrokerageId, new Date(), staff ? undefined : localAdmin.name));
 }
 
 export async function loadCampaignCallbacks(input: unknown, staff: WorkspaceStaff | null) {

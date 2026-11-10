@@ -14,7 +14,8 @@ export function firstContactOverdue(lead: Pick<InboxLeadSummary, "heldAt" | "out
   return !lead.heldAt && !lead.outreachSuppressed && !lead.followUp.firstContactAt && !lead.followUp.replyReceivedAt && Date.parse(lead.dueAt) <= now;
 }
 
-export const leadInboxViews = ["All open", "Mine", "Unassigned", "Shared realtor referrals", "First contact overdue", "Mock step due",
+export const leadAttentionView = "Needs first contact";
+export const leadInboxViews = ["All open", "Mine", "Unassigned", "Shared realtor referrals", leadAttentionView, "First contact overdue", "Mock step due",
   "On hold", "Opted out", "Archived"] as const;
 export type LeadInboxView = (typeof leadInboxViews)[number];
 const inboxCursor = z.object({ dueAt: z.string().max(80), id: z.string().min(1).max(100) });

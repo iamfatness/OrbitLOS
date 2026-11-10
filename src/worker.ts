@@ -76,6 +76,7 @@ import { cutoverCallbackItem, cutoverReviewInput, cutoverUnavailable, type Cutov
   type MigrationCutover } from "./lib/migration-cutover-model";
 import { fundingRecordAction, readFundingDashboard } from "./lib/funding-dashboard";
 import { readCampaignCallbacks, readOfficerQueue, readWorkspaceCalendar, readWorkspaceTasks } from "./lib/officer-queue";
+import { readActionCounts } from "./lib/workspace-action-counts";
 import type { WorkspaceMutationScope } from "./lib/commands";
 import { readCampaignCallbackPerformance } from "./lib/campaign-callback-performance";
 import { readCampaignManager } from "./lib/campaign-manager";
@@ -215,6 +216,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   officerQueue(input: unknown, staff: WorkspaceStaff) {
     return readOfficerQueue(this.#store, input, staff, this.#id);
+  }
+
+  actionCounts(staff: WorkspaceStaff) {
+    return this.#store.transaction(() => readActionCounts(this.#store, staff, this.#id));
   }
 
   workspaceTasks(input: unknown, staff: WorkspaceStaff) {
