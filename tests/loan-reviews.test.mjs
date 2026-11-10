@@ -37,7 +37,7 @@ const { blankLenderDetails } = await import("../src/lib/urla.ts");
 const at = "2026-11-08T15:00:00.000Z";
 const today = "2026-11-08";
 
-function fixture(t) {
+function fixture(t, pilot = false) {
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => sqlite.close());
   const db = { exec: (sql) => sqlite.exec(sql), prepare: (sql) => sqlite.prepare(sql), transaction(fn) {
@@ -47,7 +47,7 @@ function fixture(t) {
   } };
   initializeStore(db, false);
   const id = crypto.randomUUID();
-  const person = (role, name) => ({ email: `${name}@example.test`, name, brokerage: { id, name: "Fictional brokerage", role } });
+  const person = (role, name) => ({ email: `${name}@example.test`, name, brokerage: { id, name: "Fictional brokerage", role, pilot } });
   const admin = person("Admin", "admin");
   const officer = person("LO", "officer");
   const outsider = person("LO", "outsider");
@@ -393,8 +393,8 @@ test("matching disclosure templates pin documents and provenance through edits, 
 
 const reviewTime = "2026-11-09T03:30:00.000Z";
 
-function secondReviewFixture(t) {
-  const base = fixture(t);
+function secondReviewFixture(t, pilot = false) {
+  const base = fixture(t, pilot);
   const { db, admin, officer, work } = base;
   const formerReviewer = { name: "Former reviewer", email: "former-reviewer@example.test", role: "Admin", status: "Active", accessRevision: 1 };
   const roster = [...base.roster, formerReviewer];
@@ -686,7 +686,7 @@ test("the processing checkpoint requires a staff-reviewed 1003 and approval of i
 });
 
 test("the mock UWM checkpoint gates initial and revised sends while manual MISMO export still works", async (t) => {
-  const { db, admin, command, save, submit, review, work, create, approve } = secondReviewFixture(t);
+  const { db, admin, command, save, submit, review, work, create, approve } = secondReviewFixture(t, true);
   const token = db.prepare("SELECT token FROM applications WHERE loanId = 'loan'").get().token;
   const borrower = () => borrowerCommandResult(db, { type: "read", token });
   const draft = { ...sampleApplication(borrower().application.draft), confirmedDemo: true };
@@ -749,7 +749,7 @@ test("the mock UWM checkpoint gates initial and revised sends while manual MISMO
 });
 
 test("enabling the checkpoint preserves an existing mock UWM receipt and survives legacy playbook saves", async (t) => {
-  const { db, officer, command, save, submit, review } = secondReviewFixture(t);
+  const { db, officer, command, save, submit, review } = secondReviewFixture(t, true);
   const send = () => command({ type: "sendApplication", loanId: "loan", revision: 7 });
   assert.equal(readPlaybook(db).requireSecondReview, false);
   assert.match((await save({ requireSecondReview: true }, officer)).error, /only a brokerage admin/i);
@@ -1022,7 +1022,7 @@ test("a missing required reviewer keeps the captured routing deadline without a 
 });
 
 test("an exact mock UWM receipt leaves only an assigned or ready processor handoff in the approval queue", async (t) => {
-  const context = secondReviewFixture(t);
+  const context = secondReviewFixture(t, true);
   const { db, command, save, submit, review } = context;
   submit(7);
   assert.ok((await review(7)).state);

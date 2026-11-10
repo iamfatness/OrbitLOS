@@ -248,13 +248,17 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
     event.preventDefault();
     if (formOutdated || incomeOutdated || (bank && !form.selfEmployed)) return;
     const selectedMode = (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value");
+    const manual = !canRehearseUnsupported || selectedMode === "manual";
+    const rehearse = !manual && selectedMode === "unsupported";
+    const sample = !manual && selectedMode === "sample";
     setPricing(true);
     setPreview(false);
     try {
       await save({ type: "runPricing", loanId: loan.id, scenario, applicationRevision: formRevision, incomeReviewRevision: useIncomeRevision,
-        simulateUnsupportedEq: selectedMode === "unsupported" ? true : undefined, sampleOnly: selectedMode === "sample" ? true : undefined }, ({ state: updated }) => {
+        simulateUnsupportedEq: rehearse ? true : undefined, sampleOnly: sample ? true : undefined,
+        manualLender: manual ? true : undefined }, ({ state: updated }) => {
         const result = updated.pricingRuns.find(({ loanId }) => loanId === loan.id);
-        if (result?.outcome === "unsupported") focusRun.current = result.id;
+        if (result?.mode === "manual" || result?.outcome === "unsupported") focusRun.current = result.id;
         setResultsRunId(undefined);
       });
     }
@@ -299,8 +303,10 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
 
   return <div className="pricing-panel" id="pricing-workbench" tabIndex={-1}>
     <header className="pricing-heading">
-      <div><h3><Calculator size={18} /> Loan pricing</h3><p>Compare conventional pricing and sample Non-QM estimates.</p></div>
-      <span className="pill"><FlaskConical size={13} /> {current?.mode === "stage" ? "UWM stage" : current ? "Mock pricing" : "Pricing"}</span>
+      <div><h3><Calculator size={18} /> Loan pricing</h3><p>{canRehearseUnsupported ? "Compare conventional pricing and sample Non-QM estimates." :
+        "Enter terms from your lender’s portal and choose a quote for the handoff."}</p></div>
+      <span className="pill">{canRehearseUnsupported && <FlaskConical size={13} />} {current?.mode === "stage" ? "UWM stage" :
+        current?.mode === "manual" || !canRehearseUnsupported ? "Manual lender" : current ? "Sample pricing" : "Pricing"}</span>
     </header>
     <LoanStageEditNotice area="fees" control={feeEdits} busy={busy} />
     {published?.reviewReason && <section className="quote-saved" aria-label="Shared quote review">
@@ -380,7 +386,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       {form.purpose === "Purchase" && !dscr && <label className="demo-confirm"><input type="checkbox" checked={form.firstTimeBuyer} onChange={(event) => change("firstTimeBuyer", event.target.checked)} /> First-time homebuyer</label>}
       {(dscr || bank) && <fieldset className="pricing-program-fields">
         <legend>{dscr ? "Rental income and expenses" : "Bank statement income and expenses"}</legend>
-        <p className="muted">Sample inputs and quotes for the demo.</p>
+        {canRehearseUnsupported && <p className="muted">Sample inputs and quotes for the demo.</p>}
         {bank && <label className="demo-confirm"><input type="checkbox" checked={form.selfEmployed} required
           onChange={(event) => change("selfEmployed", event.target.checked)} /> Self-employed borrower</label>}
         <div className="form-grid">
@@ -408,10 +414,13 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       {formOutdated && <p className="quote-disclaimer">Load the current 1003 inputs before running pricing again.</p>}
       <div className="pricing-actions">
         <Button size="sm" variant="outline" disabled={busy} onClick={loadCurrentApplication}>{application ? "Load current 1003 inputs" : "Reload loan inputs"}</Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>
-        <Button type="submit" disabled={busy || formOutdated || incomeOutdated}><Calculator /> {pricing ? "Pricing…" : "Run pricing"}</Button>
+        {canRehearseUnsupported && <Button size="sm" variant="outline" disabled={busy} onClick={loadSample}>Load sample scenario</Button>}
+        <Button type="submit" disabled={busy || formOutdated || incomeOutdated}><Calculator /> {pricing ? "Saving…" :
+          canRehearseUnsupported ? "Run pricing" : "Start manual quote"}</Button>
         {canRunSamplePricing && form.program === "Conventional" && form.purpose === "Purchase" &&
           <Button type="submit" value="sample" size="sm" variant="outline" disabled={busy || formOutdated || incomeOutdated}>Run sample pricing</Button>}
+        {canRehearseUnsupported && <Button type="submit" value="manual" size="sm" variant="outline"
+          disabled={busy || formOutdated || incomeOutdated}>Start manual quote</Button>}
         {canRehearseUnsupported && (dscr || bank) && <Button type="submit" value="unsupported" size="sm" variant="outline"
           disabled={busy || formOutdated || incomeOutdated || (bank && !form.selfEmployed)}>Rehearse unsupported EQ</Button>}
         {current && supportsManualOffers(current) && <Button type="button" variant="outline"
@@ -436,7 +445,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         <p>{nonAgencyManualHandoffMessage}</p>
         <Button size="sm" variant="outline" onClick={() => openManualOffers(saved)}>Open manual offers for this scenario</Button>
       </div>}
-      <p className="muted timestamp">{selected.manual ? `Manual sample · Quote ${selected.manual.reference} · Through ${dateLabel(selected.manual.expiresOn)}` :
+      <p className="muted timestamp">{selected.manual ? `Manual lender · Quote ${selected.manual.reference} · Through ${dateLabel(selected.manual.expiresOn)}` :
         `${saved.mode === "mock" ? "Sample pricing" : "UWM stage"} · Priced ${dateTime(saved.quotedAt)} ET`}</p>
       {saved.incomeReviewRevision && <p className="muted">Income worksheet v{saved.incomeReviewRevision} · {cash(saved.scenario.monthlyIncome ?? null)} monthly</p>}
       {saved.incomeReviewRevision && openIncome && <div><Button size="sm" variant="outline" type="button" disabled={busy}
@@ -447,7 +456,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         : saved.incomeReviewCurrent === false ? repriceIncomeMessage : "This quote needs to be repriced from the current 1003 before sharing or locking."}</p>
         : savedAssumptionsChanged && <p className="quote-disclaimer">The current pricing form differs from this saved quote. Review the assumptions before sharing.</p>}
       {preview && <div className="quote-preview">
-        <p className="eyebrow">{selected.manual ? "MANUAL LENDER SAMPLE" : saved.mode === "mock" ? "SAMPLE BORROWER QUOTE" : "UWM STAGE QUOTE"}</p>
+        <p className="eyebrow">{selected.manual ? "MANUAL LENDER QUOTE" : saved.mode === "mock" ? "SAMPLE BORROWER QUOTE" : "UWM STAGE QUOTE"}</p>
         <strong>{offerDisplayName(selected)}</strong>
         <p className="muted">{cash(saved.scenario.loanAmount)} loan · {saved.scenario.purpose}</p>
         {primary && presentation ? <>
@@ -491,10 +500,10 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         </div> : <p className="muted">The borrower can see a shared quote after submitting their 1003.</p>)}
       </div>}
     </section>}
-    <UwmRateLock loanId={loan.id} submissions={state.submissions.filter((item) => item.loanId === loan.id)}
+    {canRehearseUnsupported && <UwmRateLock loanId={loan.id} submissions={state.submissions.filter((item) => item.loanId === loan.id)}
       application={application} openApplication={openApplication}
       rate={state.mockUwmRates.find((item) => item.loanId === loan.id)} saved={saved} offer={selected} needsReprice={savedNeedsReprice}
-      amountIssue={rateAmountIssue} use1003Amount={canUse1003Amount && !quoteAmountIssue ? use1003Amount : undefined} busy={busy} save={save} />
+      amountIssue={rateAmountIssue} use1003Amount={canUse1003Amount && !quoteAmountIssue ? use1003Amount : undefined} busy={busy} save={save} />}
     {published && <section className="quote-saved" aria-label="Shared borrower quote">
       <div className="section-heading"><h3>Shared with borrower</h3>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "withdrawQuote", loanId: loan.id, publishedAt: published.publishedAt })}>Remove shared quote</Button></div>
@@ -522,7 +531,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
           if (!offer) return null;
           const scenario = run.scenario;
           return <tr key={run.id}>
-            <td>{scenario.nonAgency?.program ?? "Conventional"}<small>{offer.manual ? "Manual sample" : run.mode === "mock" ? "Sample pricing" : "UWM stage"} · {dateTime(run.quotedAt)} ET</small></td>
+            <td>{scenario.nonAgency?.program ?? "Conventional"}<small>{offer.manual ? "Manual lender" : run.mode === "mock" ? "Sample pricing" : "UWM stage"} · {dateTime(run.quotedAt)} ET</small></td>
             <td>{scenario.purpose} · {scenario.occupancy}<small>{cash(scenario.loanAmount)} loan · {cash(scenario.propertyValue)} value · ZIP {scenario.zip}</small>
               <small>Credit score {scenario.creditScore} · {scenario.propertyType}</small>
               {scenario.nonAgency && <small>{scenario.nonAgency.program === "DSCR" ? `${cash(scenario.nonAgency.monthlyRent)} monthly rent` :
@@ -536,14 +545,16 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
       </table></div>
     </details>}
     {current && <section className="pricing-results" aria-label="Pricing results">
-      <div className="section-heading"><h3>Pricing options</h3><span className="pill">
-        {current.outcome === "unsupported" ? "EQ unsupported" : `${current.offers.filter(({ manual }) => !manual).length} returned`}</span></div>
+      <div className="section-heading"><h3>{current.mode === "manual" ? "Lender offers" : "Pricing options"}</h3><span className="pill">
+        {current.mode === "manual" ? `${current.offers.length} entered` : current.outcome === "unsupported" ? "EQ unsupported" :
+          `${current.offers.filter(({ manual }) => !manual).length} returned`}</span></div>
       <p className="muted timestamp">{current.scenario.nonAgency?.program ?? "Conventional"} · {cash(current.scenario.loanAmount)} · {current.scenario.purpose} · {dateTime(current.quotedAt)} ET</p>
       {current.incomeReviewRevision && <p className="muted">Income worksheet v{current.incomeReviewRevision} · {cash(current.scenario.monthlyIncome ?? null)} monthly</p>}
       {current.id !== saved?.id && current.incomeReviewRevision && openIncome && <div><Button size="sm" variant="outline" type="button" disabled={busy}
         onClick={() => openIncome(current.incomeReviewRevision ?? undefined)}>View quote worksheet v{current.incomeReviewRevision}</Button></div>}
       {current.reference && <p className="muted timestamp">EQ scenario {current.reference}</p>}
-      {current.outcome !== "unsupported" && !current.offers.some(({ manual }) => !manual) && <p className="empty-inline">UWM returned no displayable pricing for this scenario.</p>}
+      {current.mode === "stage" && current.outcome !== "unsupported" && !current.offers.some(({ manual }) => !manual) &&
+        <p className="empty-inline">UWM returned no displayable pricing for this scenario.</p>}
       {current.offers.filter(({ manual }) => !manual).map((offer) => {
         const isSaved = saved?.id === current.id && saved.selectedId === offer.id;
         return <article className="pricing-option" key={offer.id}>
@@ -554,15 +565,15 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
           {isSaved && handoffAction}
         </article>;
       })}
-      {current.outcome !== "unsupported" && <details className="pricing-disclosures"><summary>Pricing disclosures</summary>
+      {current.outcome !== "unsupported" && current.notices.length > 0 && <details className="pricing-disclosures"><summary>Pricing disclosures</summary>
         {current.notices.map((notice, index) => <p key={index} className="quote-disclaimer">{notice}</p>)}</details>}
       {supportsManualOffers(current) && <section className="quote-saved" ref={lenderComparison} tabIndex={-1} aria-label="Compare lenders for this scenario">
-        <div className="section-heading"><h3>Compare lenders for this scenario</h3><span className="pill">Fictional</span></div>
+        <div className="section-heading"><h3>Compare lenders for this scenario</h3><span className="pill">{current.mode === "manual" ? "Manual lender" : "Fictional"}</span></div>
         {current.outcome === "unsupported" && <p role="status" className="quote-disclaimer">
           {current.mode === "mock" ? "Simulated EQ response. " : ""}EQ pricing is unavailable for {current.scenario.nonAgency?.program}. Add a manual offer using these saved inputs.
         </p>}
         <p className="muted">{current.scenario.nonAgency?.program ?? "Conventional"} · {cash(current.scenario.loanAmount)} loan · {current.scenario.purpose}. A manual offer goes to the manual lender handoff.</p>
-        <ManualOfferForm key={current.id} run={current} busy={busy} current={isCurrent(current)} save={save} />
+        <ManualOfferForm key={current.id} run={current} busy={busy} current={isCurrent(current)} fictional={canRehearseUnsupported} save={save} />
         {current.offers.some(({ manual }) => manual) && <div className="lender-comparison-grid">
           {[current.offers.find((offer) => !offer.manual && offer.id === current.selectedId) ?? current.offers.find(({ manual }) => !manual),
             ...current.offers.filter(({ manual }) => manual)].flatMap((offer) => offer ? [offer] : []).map((offer) => {

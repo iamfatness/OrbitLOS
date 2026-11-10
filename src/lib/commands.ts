@@ -15,7 +15,7 @@ import { leadWorkUnavailable, type CampaignMutationResult, type CampaignNavigati
 import { readEditableLoan } from "./editable-loan";
 import type { LoanMutationResult } from "./loan-work-model";
 import { hasReopenedMockUwmCondition, reconcileMockApplicationReceipt, refreshMockUwmClearance, reopenMockUwmCondition, replayMockUwmConditionDelivery, sendMockConditionDocument,
-  simulateMockUwmChanges, submitMockApplication, syncUwm, uwmSubmissionConditions } from "./uwm";
+  simulateMockUwmChanges, submitMockApplication, syncMockUwm, syncUwm, uwmSubmissionConditions } from "./uwm";
 import { mockUwmReceiptTaskPrefix, pendingMockUwmAcceptance } from "./uwm-handoff-recovery";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
 import { manualHandoffNeedsApproval, manualHandoffOutcomes, requestedLoanAmount, reusablePropertyAddress } from "./application-model";
@@ -31,7 +31,7 @@ import { approvedIncomeAmount, pricingInputError } from "./income-review-freshne
 import { repriceIncomeMessage } from "./income-review-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider, unsupportedPricingResult } from "./pricing-provider";
-import { UwmError, uwmInsightsConnector, uwmWorkspaceEnabled, uwmPricingEnvironment, type UwmEnvironment } from "./uwm-live";
+import { fictionalUwmWorkspace, UwmError, uwmInsightsConnector, uwmWorkspaceEnabled, uwmPricingEnvironment, type UwmEnvironment } from "./uwm-live";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 import { createFundingDrafts, createMilestoneDrafts, recordDraftCopy, supersedeFundingDrafts } from "./communications";
 import { draftChannels } from "./communication-templates";
@@ -320,7 +320,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("createTask"), loanId: id, title: z.string().trim().min(1, "Enter a task title.").max(120),
     days: z.union([z.literal(1), z.literal(3), z.literal(7)]), purpose: z.enum(followUpPurposes).default("Loan service") }),
   z.object({ type: z.literal("runPricing"), loanId: id, scenario: pricingScenario, applicationRevision: z.number().int().nonnegative().nullable(),
-    incomeReviewRevision: z.number().int().positive().optional(), simulateUnsupportedEq: z.literal(true).optional(), sampleOnly: z.literal(true).optional() }),
+    incomeReviewRevision: z.number().int().positive().optional(), simulateUnsupportedEq: z.literal(true).optional(),
+    sampleOnly: z.literal(true).optional(), manualLender: z.literal(true).optional() }),
   addManualQuoteInput,
   mockCreditInput,
   mockAusInput,
@@ -365,6 +366,13 @@ const command = z.discriminatedUnion("type", [
 
 class WorkspaceError extends Error {}
 class LeadClaimConflict extends WorkspaceError {}
+
+const simulatedLenderActions = new Set<z.infer<typeof command>["type"]>([
+  "simulateUwmChanges", "sendApplication", "simulateMissingUwmReceipt", "reconcileMockUwmReceipt",
+  "sendConditionDocument", "simulateDeliveryFailure", "refreshMockUwmClearance", "reopenMockUwmCondition", "replayMockUwmConditionDelivery",
+  "floatMockRate", "lockMockRate", "extendMockLock", "cancelMockLock",
+  "runMockCredit", "runMockAus", "runMockPairedAus", "retryMockCreditAus",
+]);
 
 function stageOverrideFor(db: Store, staff: WorkspaceStaff | null, area: StageEditArea,
   data: { loanId: string; stageOverride?: StageEditOverride }) {
@@ -582,10 +590,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
   const data = parsed.data;
   try {
     authorizeLoanOfficer(db, data, staff);
-    const liveUwm = uwmWorkspaceEnabled(uwmEnvironment, staff);
-    if (liveUwm && (/Mock/.test(data.type) || ["simulateUwmChanges", "sendConditionDocument", "simulateDeliveryFailure", "sendApplication"].includes(data.type) ||
-      (data.type === "reviewDocument" && data.sendToMockUwm))) {
-      throw new WorkspaceError("This workspace uses live UWM data. Simulated lender actions are disabled. Live submission, document delivery and rate locks require UWM onboarding.");
+    const fictionalUwm = fictionalUwmWorkspace(staff);
+    if (!fictionalUwm && (simulatedLenderActions.has(data.type) || (data.type === "reviewDocument" && data.sendToMockUwm) ||
+      (data.type === "processDocumentBatch" && data.action !== "accept"))) {
+      throw new WorkspaceError("Simulated lender actions are disabled outside fictional workspaces. Use the lender portal while onboarding is pending.");
     }
     if (data.type === "openCampaigns") {
       const campaignNavigation = db.transaction(() => readCampaignNavigation(db, data.campaignId, staff, data.loadIntake));
@@ -624,10 +632,11 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       return { state: scopeWorkspace(readWorkspace(db, staff?.brokerage.role === "Admin"), staff), message: result.message };
     }
     if (data.type === "sync" || data.type === "simulateUwmChanges") {
-      if (staff && !isDemoStaff(staff) && !staff.brokerage.pilot && !liveUwm) {
+      if (!fictionalUwm && !uwmWorkspaceEnabled(uwmEnvironment, staff)) {
         throw new WorkspaceError("Configure this brokerage's UWM connection before syncing. Sample loans are available only in demo and pilot workspaces.");
       }
-      const result = data.type === "sync" ? await syncUwm(db, liveUwm ? uwmInsightsConnector(uwmEnvironment) : undefined) : simulateMockUwmChanges(db);
+      const result = data.type === "simulateUwmChanges" ? simulateMockUwmChanges(db) :
+        fictionalUwm ? syncMockUwm(db) : await syncUwm(db, uwmInsightsConnector(uwmEnvironment));
       if ("error" in result) throw new WorkspaceError(result.error);
       return { state: scopeWorkspace(readWorkspace(db, staff?.brokerage.role === "Admin"), staff),
         message: `UWM sync complete · ${result.imported} imported · ${result.updated} refreshed · ${result.conditions} conditions · ${result.alerts} new alerts` };
@@ -644,21 +653,26 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       if (currentRevision() !== data.applicationRevision) throw new WorkspaceError("The 1003 changed. Reload its inputs before running pricing.");
       checkReviewedIncome();
       const simulate = data.simulateUnsupportedEq === true;
+      if (data.manualLender && (simulate || data.sampleOnly)) throw new WorkspaceError("Choose one pricing mode.");
       if (data.sampleOnly && (!staff?.brokerage.pilot || data.scenario.purpose !== "Purchase" || data.scenario.nonAgency || simulate)) {
         throw new WorkspaceError("Sample disclosure pricing is available for conventional purchases in fictional pilot workspaces.");
       }
       if (simulate && (!data.scenario.nonAgency || (!isDemoStaff(staff) && !staff?.brokerage.pilot))) {
         throw new WorkspaceError("Unsupported EQ rehearsal is available for Non-QM scenarios in fictional workspaces.");
       }
-      const env = data.sampleOnly ? { ORBIT_PRICING_MODE: "mock" } : simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } : uwmPricingEnvironment(uwmEnvironment, staff);
-      const result = await pricingProvider(env).quote(data.scenario).catch((error: unknown) => {
-        if (!(error instanceof PricingError) || error.code !== "unsupported") throw error;
-        return unsupportedPricingResult(simulate, error.message);
-      });
+      const result = data.manualLender ? { provider: "Manual lender", mode: "manual" as const, reference: null, offers: [], notices: [], outcome: undefined } :
+        await pricingProvider(data.sampleOnly ? { ORBIT_PRICING_MODE: "mock" } : simulate ? { ORBIT_PRICING_MODE: "uwm-stage" } :
+          uwmPricingEnvironment(uwmEnvironment, staff)).quote(data.scenario).catch((error: unknown) => {
+            if (!(error instanceof PricingError) || error.code !== "unsupported") throw error;
+            return unsupportedPricingResult(simulate, error.message);
+          });
       return db.transaction(() => {
         authorizeLoanOfficer(db, data, staff);
         if (currentRevision() !== data.applicationRevision) throw new WorkspaceError("The 1003 changed while pricing. Reload its inputs and try again.");
         checkReviewedIncome();
+        if (data.manualLender && !db.prepare("SELECT 1 FROM loans WHERE id = ? AND disposition = 'Active' AND stage NOT IN ('Funded', 'Closed')").get(data.loanId)) {
+          throw new WorkspaceError("Start a manual quote on an active loan.");
+        }
         const quotedAt = new Date().toISOString();
         db.prepare(`INSERT INTO pricing_runs
           (id, loanId, provider, mode, reference, scenario, offers, notices, quotedAt, applicationRevision, incomeReviewRevision, outcome)
@@ -668,10 +682,13 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             data.applicationRevision, data.incomeReviewRevision ?? null, result.outcome ?? null);
         if (result.outcome === "unsupported") addApplicationActivity(db, data.loanId,
           `${simulate ? "Simulated EQ coverage check" : "EQ stage coverage check"} · ${data.scenario.nonAgency?.program} · Unsupported`, quotedAt);
-        if (staff?.brokerage.pilot) accessEvent(db, staff, result.outcome === "unsupported" ? "Recorded unsupported pricing scenario" :
+        if (data.manualLender) addApplicationActivity(db, data.loanId, "Started manual lender pricing", quotedAt);
+        else if (staff?.brokerage.pilot) accessEvent(db, staff, result.outcome === "unsupported" ? "Recorded unsupported pricing scenario" :
           result.mode === "mock" ? "Ran sample pricing" : "Ran UWM stage pricing", data.loanId, quotedAt);
-        return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message: result.outcome === "unsupported" ?
-          "EQ cannot price this scenario. Add a manual lender offer to continue." : `${result.offers.length} pricing options returned.` };
+        return { state: scopeWorkspace(workspace(db, staff?.brokerage.role === "Admin"), staff), message: data.manualLender ?
+          "Scenario saved. Add the lender’s terms." : result.outcome === "unsupported" ?
+          "EQ cannot price this scenario. Add a manual lender offer to continue." : result.mode === "stage" && !result.offers.length ?
+            "UWM stage returned no displayable pricing options for this scenario." : `${result.offers.length} pricing options returned.` };
       });
     }
     const now = new Date().toISOString();

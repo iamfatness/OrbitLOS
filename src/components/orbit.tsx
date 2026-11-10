@@ -1151,7 +1151,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   }
 
   function syncButton() {
-    if (!admin) return null;
+    if (!admin || uwmConnection.pipeline === "Insights credentials required") return null;
     return <Button variant="outline" onClick={() => void sync()} disabled={busy}><RefreshCw className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync UWM"}</Button>;
   }
 
@@ -1707,7 +1707,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           manualReturn ? { kind: "manual-return-work", ...manualReturn, personal: false } : undefined)}
         assignmentChanged={invalidateWorkspace}
         assignmentVersion={state}
-        separateSamplePricing={uwmConnection.pricing === "UWM stage API"}
+        separateSamplePricing={uwmConnection.pricing !== "Sample pricing"}
         appointmentChanged={() => setCalendar((current) => ({ ...current, after: undefined }))}
         reviewChanged={() => {
           setReviewVersion((version) => version + 1);

@@ -417,7 +417,8 @@ export function refreshMockUwmClearance(db: Store, loanId: string, submissionId:
   return { message: count ? `Mock UWM cleared ${count} ${label}.` : "No new mock UWM clearances for this submission.", cleared: count };
 }
 
-function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
+function saveUwmSync(db: Store, files: UwmFile[], insightsSnapshot?: string) {
+  const mock = insightsSnapshot === undefined;
   const now = new Date().toISOString();
   if (mock) clearPendingMockDeliveries(db, now, null);
   let imported = 0;
@@ -444,10 +445,22 @@ function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
   }
 
   const findSubmission = db.prepare("SELECT id, loanId, status, conditions FROM submissions WHERE lender = 'UWM' AND externalId = ?");
+  const observe = insightsSnapshot === undefined ? undefined : db.prepare(`INSERT INTO uwm_insights_observations (submissionId, snapshotId, observedAt)
+    VALUES (?, ?, ?) ON CONFLICT(submissionId) DO UPDATE SET snapshotId = excluded.snapshotId, observedAt = excluded.observedAt`);
+  if (observe) {
+    const priorSource = db.prepare("SELECT 1 FROM uwm_insights_observations WHERE submissionId = ?");
+    for (const { loan } of files) {
+      const existing = findSubmission.get(loan.LoanId);
+      if (existing && !priorSource.get(existing.id)) {
+        return { error: "A UWM reference is already linked without verified Insights history. Review the existing submission before syncing." } as const;
+      }
+    }
+  }
   for (const { loan, conditions } of files) {
     const existing = findSubmission.get(loan.LoanId) as SavedUwmSubmission | undefined;
     if (existing) {
       refresh(existing, loan.LoanStatusDescription, conditions);
+      if (insightsSnapshot !== undefined) observe?.run(existing.id, insightsSnapshot, now);
       continue;
     }
     const contactId = crypto.randomUUID();
@@ -464,6 +477,7 @@ function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
       id: crypto.randomUUID(), loanId, lender: "UWM", externalId: loan.LoanId, status: loan.LoanStatusDescription, conditions, syncedAt: now,
     };
     insertSubmission(db, submission);
+    if (insightsSnapshot !== undefined) observe?.run(submission.id, insightsSnapshot, now);
     if (mock) recordMockConditionChanges(db, submission.id, conditions, [], now);
     alerts += recordUwmAlerts(db, submission, null, now).count;
     conditionCount += conditions.length;
@@ -482,6 +496,9 @@ function saveUwmSync(db: Store, files: UwmFile[], mock: boolean) {
     }
   }
   db.prepare("INSERT INTO settings VALUES ('uwmSyncedAt', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(now);
+  if (insightsSnapshot !== undefined) {
+    db.prepare("INSERT INTO settings VALUES ('uwmInsightsSnapshot', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(insightsSnapshot);
+  }
   return { imported, updated, conditions: conditionCount, alerts };
 }
 
@@ -489,7 +506,7 @@ function saveMockUwmSync(db: Store, changed: boolean) {
   return saveUwmSync(db, mockLoans.map((loan) => ({
     loan: changed && loan.LoanId === mockUpdateLoan ? { ...loan, LoanStatusDescription: "Wholesale - Underwriting" } : loan,
     conditions: normalizeConditions(mockConditions(loan.LoanId, changed)),
-  })), true);
+  })));
 }
 
 function changesApplied(db: Store) {
@@ -508,14 +525,23 @@ export function simulateMockUwmChanges(db: Store) {
   });
 }
 
-export async function syncUwm(db: Store, connector?: UwmConnector) {
-  if (!connector) return db.transaction(() => saveMockUwmSync(db, changesApplied(db)));
+export function syncMockUwm(db: Store) {
+  return db.transaction(() => saveMockUwmSync(db, changesApplied(db)));
+}
+
+export async function syncUwm(db: Store, connector: UwmConnector) {
+  const currentSnapshot = () => db.prepare("SELECT value FROM settings WHERE key = 'uwmInsightsSnapshot'").get()?.value;
+  const previousSnapshot = currentSnapshot();
   const { data: { Loans } } = await connector.listLoans();
+  if (!Loans.length || new Set(Loans.map(({ LoanId }) => LoanId)).size !== Loans.length) {
+    return { error: "UWM Insights returned an empty or duplicate pipeline. No changes were saved." } as const;
+  }
   const files: UwmFile[] = [];
   for (let index = 0; index < Loans.length; index += 4) {
     files.push(...await Promise.all(Loans.slice(index, index + 4).map(async (loan) => ({
       loan, conditions: normalizeConditions(await connector.getConditions(loan.LoanId)),
     }))));
   }
-  return db.transaction(() => saveUwmSync(db, files, false));
+  return db.transaction(() => currentSnapshot() === previousSnapshot ? saveUwmSync(db, files, crypto.randomUUID()) :
+    { error: "Another UWM Insights sync saved a newer snapshot. Refresh the pipeline before syncing again." } as const);
 }

@@ -7,15 +7,15 @@ import { manualQuoteLimit, type ManualQuoteDetails } from "@/lib/manual-pricing-
 import type { PricingRun } from "@/lib/pricing-model";
 import { Button } from "./ui/button";
 
-export function ManualOfferForm({ run, busy, current, save }: { run: PricingRun; busy: boolean; current: boolean;
+export function ManualOfferForm({ run, busy, current, fictional, save }: { run: PricingRun; busy: boolean; current: boolean; fictional: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void> }) {
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const today = easternDate();
   const capped = run.offers.filter(({ manual }) => manual).length >= manualQuoteLimit;
-  if (!current || capped) return <p className="muted">{capped ? "Run sample pricing again to start a comparison with room for more manual offers." :
-    "Price the current 1003 inputs or rehearse EQ coverage again before adding a manual offer."}</p>;
+  if (!current || capped) return <p className="muted">{capped ? "Start a new comparison to add more offers." :
+    "Load the current 1003 inputs and start a new quote."}</p>;
   return <details className="document-form"><summary>Add a manual lender offer</summary>
-    <p className="muted">Use a fictional fixed-rate offer for the scenario above. Orbit calculates principal and interest and keeps the quoted terms and source reference.</p>
+    <p className="muted">{fictional ? "Use a fictional fixed-rate offer." : "Enter the fixed-rate terms from your lender."} Orbit calculates principal and interest and keeps the source reference.</p>
     <form className="record-form manual-quote-form" onSubmit={(event) => {
       event.preventDefault();
       if (busy) return;
@@ -34,7 +34,7 @@ export function ManualOfferForm({ run, busy, current, save }: { run: PricingRun;
       });
     }}>
       <fieldset className="form-grid" disabled={busy}>
-        <label className="field manual-offer-text">Fictional lender name<input name="lender" required minLength={2} maxLength={100} /></label>
+        <label className="field manual-offer-text">{fictional ? "Fictional lender name" : "Lender name"}<input name="lender" required minLength={2} maxLength={100} /></label>
         <label className="field manual-offer-text">Lender quote reference<input name="reference" required maxLength={100} /></label>
         <label className="field manual-offer-text">Product name<input name="product" required minLength={2} maxLength={100} /></label>
         <label className="field">Fixed term (years)<input type="number" name="years" min={5} max={40} step={1} defaultValue={30} required /></label>
@@ -45,7 +45,7 @@ export function ManualOfferForm({ run, busy, current, save }: { run: PricingRun;
         <label className="field">Points or credit (%)<input type="number" name="adjustment" min="-10" max="10" step="0.001" />
           <small>Positive points, negative credit, or zero for neither. Leave blank when unknown.</small></label>
       </fieldset>
-      <label className="demo-confirm"><input type="checkbox" required disabled={busy} /> These fictional terms use the same loan assumptions.</label>
+      <label className="demo-confirm"><input type="checkbox" required disabled={busy} /> {fictional ? "These fictional terms use the same loan assumptions." : "These terms match the loan assumptions above."}</label>
       <div><Button type="submit" size="sm" disabled={busy}>Add manual offer to comparison</Button></div>
     </form>
   </details>;

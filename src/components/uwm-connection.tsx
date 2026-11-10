@@ -19,8 +19,9 @@ export function UwmConnection({ connection, brokerageId, admin }: { connection: 
   return <div className="document-form">
     <p>Pricing · {connection.pricing}</p><p>Pipeline and conditions · {connection.pipeline}</p>
     <p>Submissions, document delivery and locks · {connection.lenderActions}</p>
-    <p className="muted">Stage pricing comes from UWM&apos;s test environment. It is not a production offer or rate lock.</p>
-    {admin && brokerageId && <Button variant="outline" disabled={busy} onClick={() => void verify()}>{busy ? "Verifying UWM…" : "Verify UWM connection"}</Button>}
+    {connection.pricing === "UWM stage API" && <p className="muted">Stage pricing comes from UWM&apos;s test environment. It is not a production offer or rate lock.</p>}
+    {connection.lenderActions === "Onboarding required" && <p className="muted">Use your lender’s portal to price, submit, deliver documents, and lock. Record the quote and lender reference on the loan in Orbit.</p>}
+    {admin && brokerageId && connection.pricing === "UWM stage API" && <Button variant="outline" disabled={busy} onClick={() => void verify()}>{busy ? "Verifying UWM…" : "Verify UWM connection"}</Button>}
     {message && <p role="status">{message}</p>}
   </div>;
 }

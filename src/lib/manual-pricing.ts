@@ -12,9 +12,9 @@ import { latestPricingUnsupported, savedPricingRun, type Store } from "./store";
 export function addManualQuote(db: Store, input: z.infer<typeof addManualQuoteInput>, now: string) {
   const run = db.prepare(`SELECT run.offers, run.scenario, run.applicationRevision, run.incomeReviewRevision
     FROM pricing_runs run JOIN loans loan ON loan.id = run.loanId
-    WHERE run.id = ? AND loan.id = ? AND (run.mode = 'mock' OR run.outcome = 'unsupported') AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')`)
+    WHERE run.id = ? AND loan.id = ? AND (run.mode IN ('mock', 'manual') OR run.outcome = 'unsupported') AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')`)
     .get(input.runId, input.loanId);
-  if (!run) return { error: "Run sample pricing or save an unsupported EQ scenario on an active loan before adding a manual offer." };
+  if (!run) return { error: "Start a manual quote on an active loan before adding a lender offer." };
   const offers = JSON.parse(String(run.offers)) as PricingOffer[];
   const prior = offers.find(({ id }) => id === input.offerId);
   const details = input.details;
@@ -25,7 +25,7 @@ export function addManualQuote(db: Store, input: z.infer<typeof addManualQuoteIn
   if (details.quotedOn > today || details.expiresOn < today || details.expiresOn < details.quotedOn) {
     return { error: "Use a quote date on or before today and an expiration on or after today." };
   }
-  if (offers.filter(({ manual }) => manual).length >= manualQuoteLimit) return { error: "This scenario already has six manual offers. Run pricing again to start a new comparison." };
+  if (offers.filter(({ manual }) => manual).length >= manualQuoteLimit) return { error: "This scenario already has six manual offers. Start another comparison to add more." };
   const { loanAmount } = JSON.parse(String(run.scenario)) as { loanAmount: number };
   const adjustment = details.adjustment;
   const offer: PricingOffer = { id: input.offerId, product: details.product, years: details.years, rate: details.rate, apr: details.apr,

@@ -34,7 +34,7 @@ test("the EQ sandbox adapter maps conventional quotes and reports provider failu
     zip: "48067", creditScore: 750, monthlyIncome: 7500, occupancy: "Primary residence", propertyType: "Single family", firstTimeBuyer: true });
   let quoteFailure;
   const fetch = t.mock.method(globalThis, "fetch", async (url, options) => {
-    assert.equal(options.redirect, "error");
+    assert.equal(options.redirect, "manual");
     if (url === "https://sso.uwm.com/adfs/oauth2/token") {
       assert.equal(options.body.get("scope"), "https://api.uwm.com/loanorigination-stg");
       return Response.json({ access_token: "synthetic-token" });
@@ -68,15 +68,24 @@ test("the EQ sandbox adapter maps conventional quotes and reports provider failu
     }],
   });
   for (const [response, code] of [
+    [new Response(null, { status: 302, headers: { Location: "https://redirect.example.test/" } }), "unavailable"],
     [new Response(null, { status: 403 }), "authentication"],
     [new Response(null, { status: 429 }), "throttled"],
     [new Response("invalid JSON"), "invalid-response"],
     [Response.json({ validQuoteItems: [], errorMessages: ["Fixture rejection"] }), "rejected"],
+    [Response.json({ validQuoteItems: null, errorMessages: ["Fixture rejection"] }), "rejected"],
+    [Response.json({ errorMessages: ["Fixture rejection"] }), "rejected"],
+    [Response.json({ validQuoteItems: null, errorMessages: [] }), "invalid-response"],
+    [Response.json({ validQuoteItems: [{ mortgageProductId: "7", mortgageProductName: "Fixture", actualTermYears: 30, quotePricePoints: [] }] }), "invalid-response"],
     [new Error("Fixture timeout"), "unavailable"],
   ]) {
     quoteFailure = response;
     await assert.rejects(provider.quote(scenario), { code });
   }
+  quoteFailure = Response.json({ validQuoteItems: [], errorMessages: [] });
+  const empty = await provider.quote(scenario);
+  assert.equal(empty.mode, "stage");
+  assert.deepEqual(empty.offers, []);
 });
 
 test("a stage unsupported result persists the exact scenario for a manual quote without provider requests", async (t) => {

@@ -109,6 +109,7 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
 }) {
   const loanId = request.loanId;
   const pdfLabel = brokerageId === demoBrokerageId || pilot ? "demo PDF" : "PDF";
+  const canSendMock = openCondition && (brokerageId === demoBrokerageId || pilot);
   return <div className="document-item" id={`document-${request.id}`} tabIndex={-1}>
         <div className="document-item-head"><strong>{request.kind}</strong><DocumentStatusPill status={request.status} /></div>
         {(showRecipient || documentRecipient(request) !== primaryDocumentRecipient) && <small className="muted">For {documentRecipient(request).toLowerCase()}</small>}
@@ -147,11 +148,11 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
             {entry.receipt} · {dateTime(entry.sentAt)} ET{entry.documentRevision !== null && ` · Revision ${entry.documentRevision}`}
           </li>)}</ul>
         </details>}
-        {request.uwmReceipt && request.submissionId && openCondition &&
+        {request.uwmReceipt && request.submissionId && canSendMock &&
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ type: "refreshMockUwmClearance", loanId, submissionId: request.submissionId })}>
             <RefreshCw /> Check UWM clearance (mock)
           </Button>}
-        {request.status === "Accepted" && !request.uwmReceipt && openCondition && <div className="loan-application-actions">
+        {request.status === "Accepted" && !request.uwmReceipt && canSendMock && <div className="loan-application-actions">
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
             type: "sendConditionDocument", loanId, requestId: request.id, revision: request.revision,
           })}>
@@ -163,11 +164,11 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
             })}>Simulate delivery failure</Button>}
         </div>}
         {(request.status === "Received" || (request.status === "Accepted" && replaceable)) && <div className="document-review">
-          {request.status === "Received" && <Button size="sm" variant={compact && openCondition ? "default" : "outline"} disabled={busy} onClick={() => void save({
+          {request.status === "Received" && <Button size="sm" variant={compact && canSendMock ? "default" : "outline"} disabled={busy} onClick={() => void save({
             type: "reviewDocument", loanId, requestId: request.id, revision: request.revision, decision: "Accepted", replacementNote: "",
-            sendToMockUwm: compact && openCondition,
-          })}>{compact && openCondition ? "Accept & send to UWM (mock)" : request.pdfUploadedAt ? `Accept ${pdfLabel}` : "Accept sample"}</Button>}
-          {request.status === "Received" && compact && openCondition && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({
+            sendToMockUwm: Boolean(compact && canSendMock),
+          })}>{compact && canSendMock ? "Accept & send to UWM (mock)" : request.pdfUploadedAt ? `Accept ${pdfLabel}` : "Accept sample"}</Button>}
+          {request.status === "Received" && compact && canSendMock && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save({
             type: "reviewDocument", loanId, requestId: request.id, revision: request.revision, decision: "Accepted", replacementNote: "",
           })}>Accept only</Button>}
           <details className="document-form">

@@ -64,12 +64,12 @@ const eqPoint = z.object({
   interestRate: metrics, principalAndInterest: metrics, annualPercentageRate: z.number().nonnegative().nullish(),
   finalPrice: z.object({ percent: z.number(), amount: z.number(), display: z.boolean().optional() }).nullish(),
 });
-const eqQuotes = z.object({
+const eqErrors = z.object({ errorMessages: z.array(z.string()).nullish() });
+const eqQuotes = eqErrors.extend({
   validQuoteItems: z.array(z.object({
     mortgageProductId: z.number(), mortgageProductName: z.string(),
     actualTermYears: z.number().positive(), quotePricePoints: z.array(z.unknown()),
   })),
-  errorMessages: z.array(z.string()).nullish(),
   obfuscatedScenarioId: z.number().nullish(),
 });
 const eqDisclaimers = z.array(z.object({ DisclaimerHeader: z.string(), DisclaimerDescription: z.array(z.string()) }));
@@ -78,13 +78,16 @@ const eqToken = z.object({ access_token: z.string().min(1) });
 const eqStage = "https://stg.api.uwm.com";
 const occupancyCodes = { "Primary residence": "1", "Investment property": "2", "Second home": "3" };
 
-async function readEq(response: Response) {
+type EqStep = "token" | "quote" | "disclosures";
+
+async function readEq(response: Response, step: EqStep) {
   if (response.status === 429) throw new PricingError("throttled", "UWM is limiting pricing requests. Try again in a minute.");
   if (response.status === 401 || response.status === 403) throw new PricingError("authentication", "UWM stage denied access. Check the EQ credentials and permissions.");
   if (!response.ok) throw new PricingError("unavailable", "UWM stage could not return pricing for this scenario.");
   try {
     return await response.json();
   } catch {
+    console.warn("UWM EQ response could not be parsed", { step, status: response.status });
     throw new PricingError("invalid-response", "UWM stage returned a pricing response Orbit could not read.");
   }
 }
@@ -115,7 +118,7 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
           grant_type: "client_credentials", client_id: env.UWM_EQ_CLIENT_ID,
           client_secret: env.UWM_EQ_CLIENT_SECRET, scope: "https://api.uwm.com/loanorigination-stg",
         }),
-      })));
+      }), "token"));
       if (!token.success) throw new PricingError("invalid-response", "UWM stage returned an invalid token response.");
       const headers = { Authorization: `Bearer ${token.data.access_token}`, "Content-Type": "application/json" };
       const [quoteResponse, disclaimerResponse] = await Promise.all([
@@ -135,10 +138,20 @@ export function pricingProvider(env: Record<string, string | undefined> = proces
         }),
         requestEq(`${eqStage}/public/products/v1/disclaimers`, { headers, redirect: "manual", signal: AbortSignal.timeout(10_000) }),
       ]);
-      const quotes = eqQuotes.safeParse(await readEq(quoteResponse));
-      if (!quotes.success) throw new PricingError("invalid-response", "UWM stage returned a pricing response Orbit could not read.");
-      if (quotes.data.errorMessages?.length) throw new PricingError("rejected", "UWM stage could not price these inputs. Review the scenario before retrying.");
-      const disclaimers = eqDisclaimers.safeParse(await readEq(disclaimerResponse));
+      const payload = await readEq(quoteResponse, "quote");
+      const errors = eqErrors.safeParse(payload);
+      if (errors.success && errors.data.errorMessages?.length) {
+        void disclaimerResponse.body?.cancel().catch(() => {});
+        throw new PricingError("rejected", "UWM stage could not price these inputs. Review the scenario before retrying.");
+      }
+      const quotes = eqQuotes.safeParse(payload);
+      if (!quotes.success) {
+        void disclaimerResponse.body?.cancel().catch(() => {});
+        console.warn("UWM EQ quote response shape changed", { issues: quotes.error.issues.slice(0, 5)
+          .map(({ code, path }) => ({ code, path: path.join(".") })) });
+        throw new PricingError("invalid-response", "UWM stage returned a pricing response Orbit could not read.");
+      }
+      const disclaimers = eqDisclaimers.safeParse(await readEq(disclaimerResponse, "disclosures"));
       if (!disclaimers.success || !disclaimers.data.length) throw new PricingError("invalid-response", "UWM stage pricing disclosures could not be loaded.");
       const offers = quotes.data.validQuoteItems.flatMap((product, productIndex) =>
         product.quotePricePoints.flatMap((item, pointIndex) => {

@@ -162,6 +162,7 @@
 .marketing-request-form > p { font-size: .88rem; }
 .marketing-request-form label { display: block; font-size: .9rem; font-weight: 650; }
 .marketing-request-form input, .marketing-request-form select, .marketing-request-form textarea { display: block; width: 100%; min-height: 46px; background: #fff; padding: 10px 12px; border: 1px solid #cfc3df; border-radius: 7px; margin-top: 6px; font: inherit; font-size: 16px; font-weight: 400; color: var(--site-ink); }
+.marketing-request-form :is(input, textarea)::placeholder { color: var(--site-muted); }
 .marketing-request-form textarea { resize: vertical; }
 .marketing-request-form .marketing-button { background: var(--site-accent); color: white; }
 .marketing-request-form .marketing-button:disabled { opacity: .65; cursor: wait; }
@@ -268,7 +269,7 @@
 .orbit-management { background: var(--orbit-night); color: #fff; }
 .orbit-management .marketing-kicker, .orbit-management em, .orbit-management svg { color: var(--orbit-lilac); font-style: normal; }
 .orbit-management .orbit-role-grid article { border-color: #594568; }
-.orbit-management .orbit-role-grid p, .orbit-management .orbit-pilot-note { color: #d8cce6; }
+.orbit-management .marketing-section > p:not(.marketing-kicker), .orbit-management .orbit-role-grid p, .orbit-management .orbit-pilot-note { color: #d8cce6; }
 .orbit-tool-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 44px 36px; margin-top: 40px; }
 .orbit-tool-grid h3 { margin: 16px 0 10px; }
 .orbit-tool-grid p { color: var(--site-muted); font-size: 15px; }

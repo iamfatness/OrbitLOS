@@ -13,19 +13,20 @@ import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
 
-export function DocumentBatch({ loanId, requests, submissions, brokerageId, busy, save, open }: {
+export function DocumentBatch({ loanId, requests, submissions, brokerageId, busy, save, open, canSimulate }: {
   loanId: string; requests: LoanDocumentRequest[]; submissions: Submission[]; brokerageId: string; busy: boolean; save: Save;
-  open: (target: string) => void;
+  open: (target: string) => void; canSimulate: boolean;
 }) {
   const [action, setAction] = useState<DocumentBatchAction>();
   const rows = requests.map((request) => ({ request, ...batchDocumentCondition(request, submissions) }));
-  const choices = documentBatchActions.map((key) => ({ key, items: rows.filter(({ request, openMock }) => documentBatchEligible(key, request, openMock)) }));
+  const choices = documentBatchActions.filter((key) => canSimulate || key === "accept")
+    .map((key) => ({ key, items: rows.filter(({ request, openMock }) => documentBatchEligible(key, request, openMock)) }));
   const choice = choices.find(({ key }) => key === action) ?? choices.find(({ items }) => items.length);
   if (!choice) return null;
   return <details className="document-form document-batch" aria-label="Document batch actions">
     <summary><FileCheck2 size={16} /> Work documents in bulk</summary>
     <div className="record-form">
-      <p className="muted">Review evidence and select the exact documents to update. Mock delivery and clearance are separate actions.</p>
+      <p className="muted">Review evidence and select the exact documents to update.{canSimulate && " Mock delivery and clearance are separate actions."}</p>
       <label className="field">Batch action<select disabled={busy} value={choice.key} onChange={(event) => setAction(event.target.value as DocumentBatchAction)}>
         {choices.map(({ key, items }) => <option key={key} value={key}>{documentBatchLabels[key]} ({items.length})</option>)}
       </select></label>
