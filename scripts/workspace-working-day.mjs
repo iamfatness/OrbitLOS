@@ -2070,7 +2070,7 @@ try {
     const history = await action(officer, "readHistoryPage", { record: "loan", id: loanId });
     assert.equal(history.events.filter(({ text }) => text.includes(`Applied ${config.title} · Version 1`)).length, 1);
   });
-  const jointFile = await stage("Separate borrower links produce one reviewable joint 1003 with isolated corrections", async () => {
+  const jointFile = await stage("Separate borrower links produce a reviewable joint 1003 and recover a lender rejection", async () => {
     const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Joint Primary",
       borrowerEmail: "working-day-joint-primary@example.test", start1003: true, partnerId: null, officer: officer.name,
       address: "", amount: 0, purpose: "Purchase", stage: "Lead" });
@@ -2132,8 +2132,22 @@ try {
     assert.match(checked.mismoXml, /<LicenseIdentifier>999991<\/LicenseIdentifier>/);
     assert.deepEqual((await file(officer, loanId)).applications[0].manualHandoff.exportProfiles, [profile]);
     const note = "Fictional correction for the co-borrower phone.";
-    await loanAction(officer, loanId, "requestApplicationCorrection", { revision: app.revision, recipient: "Co-borrower", note });
+    const eventId = randomUUID();
+    const lenderReason = "Fictional lender response JB-87";
+    const rejection = { type: "requestApplicationCorrection", loanId, revision: app.revision, recipient: "Co-borrower", note,
+      lenderRejection: { eventId, exportId: profileExport.eventId, lenderRevision: 1, profile,
+        lender: "Fictional Wholesale Desk", reference: "JOINT-REJECT", reason: lenderReason } };
+    assert.match((await write(officer, rejection)).message, /co-borrower can reopen/);
+    assert.match((await write(officer, rejection)).message, /already recorded/);
+    assert.match((await action(officer, "mutate", { ...rejection, recipient: "Primary borrower" })).error, /new lender rejection/);
+    const waitingFor = (await incoming(officer, "today")).items.find((item) => item.id === eventId);
+    assert.equal(waitingFor.returnStatus, "Waiting on co-borrower");
+    const ownerWork = (await fileExceptions("Manual lender returns")).items.find((item) => item.id === eventId);
+    assert.equal(ownerWork.status, "Waiting on co-borrower");
+    assert.equal(ownerWork.action, "Open co-borrower corrections");
+    assert.equal((await file(officer, loanId)).submissions.length, 0);
     assert.equal((await co({ type: "read" })).correctionNote, note);
+    assert.doesNotMatch(JSON.stringify(await co({ type: "read" })), /JB-87|JOINT-REJECT/);
     assert.doesNotMatch(JSON.stringify(await borrower(primaryToken, { type: "read" })), /correction for the co-borrower phone/);
     await loanAction(officer, loanId, "revokeJointLink", { token: firstCoToken });
     assert.equal((await postResponse("/api/joint-application", { type: "read", token: firstCoToken })).status, 404);
@@ -2149,6 +2163,7 @@ try {
     assert.equal(revised.draft.urla.additional[0].identity.fields.cell, "248-555-0157");
     assert.deepEqual(revised.draft.urla.primary, app.draft.urla.primary);
     assert.equal(revised.reviewedAt, null);
+    assert.equal((await incoming(officer, "today")).items.find((item) => item.id === eventId).returnStatus, manualReturnStatus.review);
     return { loanId, primaryToken, coToken: replacement };
   });
   await stage("A reusable question set adds selected questions to separate borrower portals", async () => {
@@ -2281,7 +2296,7 @@ try {
     const codeField = initialPage.match(/<input\b[^>]*type="password"[^>]*>/)?.[0];
     assert.match(codeField, /\bdisabled/);
     assert.doesNotMatch(codeField, /\bname=/);
-    const { loanId, primaryToken } = jointFile;
+    const { loanId, primaryToken, coToken } = jointFile;
     const current = await file(officer, loanId);
     const [application] = current.applications;
     await loanAction(officer, loanId, "reviewApplication", { revision: application.revision });
@@ -2348,13 +2363,59 @@ try {
     assert.deepEqual(new Uint8Array(await pdf.arrayBuffer()), demoDocumentPdf("replacement"));
     const staffRead = await post(staffPath, { type: "read", loanId }, officer);
     assert.deepEqual(staffRead.shares[0].files.map(({ downloads }) => downloads), [1, 1]);
-    await loanAction(officer, loanId, "requestApplicationCorrection", { revision: application.revision,
-      recipient: "Co-borrower", note: "Reopen this fictional application to expire the previous handoff." });
+    const lenderFile = { lender: share.recipient, externalId: "JOINT-ACKNOWLEDGED" };
+    const acknowledgment = { type: "recordManualHandoff", loanId, revision: application.revision, lenderRevision: share.lenderRevision,
+      profile: share.profile, eventId: randomUUID(), outcome: "Acknowledged", note: "", lenderFile };
+    const acknowledged = await write(officer, acknowledgment);
+    const submissionId = acknowledged.loanWork.applications[0].manualHandoff.submissionId;
+    assert.equal(acknowledged.loanWork.manualReturn, undefined);
+    const conditionId = randomUUID();
+    await loanAction(officer, loanId, "saveManualCondition", { submissionId, conditionId, revision: 0, category: "Income",
+      owner: "Loan officer", description: "Fictional joint income evidence" });
+    const note = "Confirm the primary borrower’s fictional phone number.";
+    const responseId = randomUUID();
+    const lenderReturn = { type: "requestApplicationCorrection", loanId, revision: application.revision,
+      recipient: "Primary borrower", note, lenderReturn: { eventId: responseId, submissionId, lenderRevision: share.lenderRevision } };
+    assert.match((await write(officer, lenderReturn)).message, /primary borrower can reopen/);
+    assert.match((await write(officer, lenderReturn)).message, /already recorded/);
+    assert.match((await action(officer, "mutate", { ...lenderReturn, recipient: "Co-borrower" })).error, /new lender return/);
+    assert.equal((await fileExceptions("Manual lender returns")).items.find((item) => item.id === submissionId).action, "Open primary borrower corrections");
+    assert.equal((await incoming(officer, "today")).items.find((item) => item.id === submissionId).returnStatus, "Waiting on primary borrower");
     assert.equal((await get(1)).status, 404);
     assert.equal((await post(staffPath, { type: "read", loanId }, officer)).shares[0].status, "File changed");
     assert.equal((await post(staffPath, { type: "revoke", loanId, shareId: share.shareId }, officer)).shares[0].status, "Revoked");
     assert.equal(await directory.brokerageForPortal(token), null);
     assert.equal((await postResponse(publicPath, read)).status, 404);
+    const primary = await borrower(primaryToken, { type: "read" });
+    const co = await post("/api/joint-application", { type: "read", token: coToken });
+    assert.equal(primary.correctionNote, note);
+    assert.ok(co.submittedAt);
+    assert.equal(co.complete, false);
+    assert.ok(!JSON.stringify(co).includes(note));
+    primary.draft.phone = "248-555-0182";
+    const corrected = await borrower(primaryToken, { type: "submit", revision: primary.revision, step: applicationSteps.length - 1, draft: primary.draft });
+    const revised = (await file(officer, loanId)).applications[0];
+    assert.deepEqual(revised.draft.urla.additional, application.draft.urla.additional);
+    assert.equal(revised.versions.length, 3);
+    assert.equal((await incoming(officer, "today")).items.find((item) => item.id === submissionId).returnStatus, manualReturnStatus.review);
+    await loanAction(officer, loanId, "reviewApplication", { revision: corrected.revision });
+    const [pendingRevisedReview] = (await review({ type: "loan" })).reviews;
+    const { review: revisedReview } = await review({ type: "detail", id: pendingRevisedReview.id });
+    assert.equal(revisedReview.applicationRevision, corrected.revision);
+    const reapproved = await review({ type: "decide", id: pendingRevisedReview.id, revision: revisedReview.revision,
+      eventId: randomUUID(), decision: "Approved", note: "Verified the corrected joint 1003." });
+    assert.equal(reapproved.kind, "saved", reapproved.error);
+    const revisedAck = { ...acknowledgment, revision: corrected.revision, eventId: randomUUID() };
+    assert.match((await action(officer, "mutate", revisedAck)).error, /Prepare the MISMO export/);
+    const correctedExport = await loanAction(officer, loanId, "exportReviewedApplication", { revision: corrected.revision,
+      lenderRevision: share.lenderRevision, profile: share.profile, eventId: randomUUID(), names: share.names });
+    assert.match(correctedExport.mismoXml, /2485550182/);
+    assert.match(correctedExport.mismoXml, /2485550157/);
+    const reacknowledged = await write(officer, revisedAck);
+    assert.equal(reacknowledged.loanWork.submissions.length, 1);
+    assert.equal(reacknowledged.loanWork.submissions[0].conditions[0].id, conditionId);
+    assert.equal(reacknowledged.loanWork.manualReturn, undefined);
+    assert.ok(!(await fileExceptions("Manual lender returns")).items.some((item) => item.loanId === loanId));
   });
   await stage("Processor prepares income and an LO prices from the exact approved worksheet", async () => {
     const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Income Review",

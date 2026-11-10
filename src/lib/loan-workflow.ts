@@ -9,6 +9,7 @@ import { disclosureTarget, disclosureTask } from "./disclosure-model";
 import { mockUwmReceiptTaskPrefix } from "./uwm-handoff-recovery";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "./shared-quote-model";
 import { manualLenderAcknowledgmentTarget } from "./lender-export-model";
+import { jointBorrowerPortionsTarget } from "./joint-application-model";
 
 export const workFilters = ["Overdue", "Stalled", "Unassigned", "Paused or ended"] as const;
 export type WorkFilter = (typeof workFilters)[number];
@@ -137,7 +138,7 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
   };
   if (application?.joint && !application.submittedAt && !pastClient) return {
     title: application.correctionNote ? "Follow up on joint 1003 correction" : "Follow up on joint 1003",
-    target: "loan-application", dueAt: null, blocker: application.joint.primarySubmittedAt ? "Waiting on co-borrower" :
+    target: jointBorrowerPortionsTarget, dueAt: null, blocker: application.joint.primarySubmittedAt ? "Waiting on co-borrower" :
       application.joint.submittedAt ? "Waiting on primary borrower" : "Waiting on both borrowers",
   };
   if (application?.correctionNote && !pastClient) return {

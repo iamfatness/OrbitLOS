@@ -293,6 +293,8 @@ Orbit checks the reviewed application and saved lender revisions on the server. 
 
 For a fictional lender rejection before the first acknowledgment, open **Record rejection before acknowledgment** after preparing the current export. Enter the staff-only reason and separate instructions for the borrower. The existing application link reopens, and the file stays in **Today** and owner **Exceptions** through corrected 1003 review, a revised export, and lender acknowledgment.
 
+On a joint 1003, select the primary borrower or co-borrower when recording a lender rejection or return. Only that portion reopens. The other borrower stays submitted, and the response in **Today** or **Exceptions** opens the joint portions with the correction status. A new reviewed export is required before the revised lender acknowledgment.
+
 The fictional XML maps core borrower, property, employment, income, asset, liability, and loan details. Use the review list in Orbit to identify fields to finish in the receiving system. The pilot download excludes taxpayer and account identifiers and signatures. Validate the lender's accepted profile and import behavior with approved test files before a live upload. [Fannie Mae 1003 and ULAD resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
 
 ## Start with My Tasks today

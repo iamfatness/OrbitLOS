@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { applicationDraft, type ApplicationDraft } from "./application-model";
 import { getApplication } from "./applications";
 import { easternDate } from "./client-retention";
+import { coBorrowerDocumentRecipient, type DocumentRecipient } from "./document-model";
 import { mismoNamespace } from "./mismo-rehearsal-model";
 import { afterHours } from "./playbook-model";
 import { readPlaybook } from "./playbooks";
@@ -24,19 +25,21 @@ export function hasPreparedLenderExport(db: Store, input: { loanId: string; revi
       ...(input.profile ? [defaultLenderExportProfile, input.profile] : [])));
 }
 
-export function recordManualLenderReturn(db: Store, input: { loanId: string; revision: number; note: string;
+export function recordManualLenderReturn(db: Store, input: { loanId: string; revision: number; note: string; recipient: DocumentRecipient;
   lenderReturn: { eventId: string; submissionId: string; lenderRevision: number } }, now: string) {
   const { loanId, revision, lenderReturn: { eventId, submissionId, lenderRevision } } = input;
   const outcome = "Returned for changes";
-  const detail = `Manual handoff · ${outcome} · Application revision ${revision} · ${input.note}`;
-  const previous = db.prepare(`SELECT activity.loanId, activity.text, event.applicationRevision, event.lenderRevision, event.outcome, event.submissionId
+  const forCoBorrower = input.recipient === coBorrowerDocumentRecipient;
+  const evidence = forCoBorrower ? JSON.stringify({ recipient: input.recipient }) : null;
+  const detail = `Manual handoff · ${outcome} · Application revision ${revision} · ${forCoBorrower ? "Co-borrower · " : ""}${input.note}`;
+  const previous = db.prepare(`SELECT activity.loanId, activity.text, event.applicationRevision, event.lenderRevision, event.outcome, event.submissionId, event.responseEvidence
     FROM activity LEFT JOIN application_handoff_events event ON event.activityId = activity.id WHERE activity.id = ?`).get(eventId);
   if (previous) {
     return previous.loanId === loanId && previous.text === detail && previous.applicationRevision === revision &&
-      previous.lenderRevision === lenderRevision && previous.outcome === outcome && previous.submissionId === submissionId ?
+      previous.lenderRevision === lenderRevision && previous.outcome === outcome && previous.submissionId === submissionId && previous.responseEvidence === evidence ?
       { alreadyRecorded: true as const } : { error: "Start a new lender return entry." };
   }
-  const eligible = db.prepare(`SELECT loan.stage FROM loans loan JOIN applications app ON app.loanId = loan.id
+  const eligible = db.prepare(`SELECT 1 FROM loans loan JOIN applications app ON app.loanId = loan.id
     JOIN submissions file ON file.loanId = loan.id AND file.id = ? AND file.syncedAt IS NULL
     LEFT JOIN application_lender_details details ON details.loanId = loan.id
     LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id
@@ -54,20 +57,21 @@ export function recordManualLenderReturn(db: Store, input: { loanId: string; rev
   }
   db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(eventId, loanId, detail, now);
   const dueAt = afterHours(now, readPlaybook(db).manualReturnHours);
-  db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId, followUpDueAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(eventId, loanId, revision, lenderRevision, outcome, submissionId, dueAt);
+  db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId, followUpDueAt, responseEvidence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(eventId, loanId, revision, lenderRevision, outcome, submissionId, dueAt, evidence);
   db.prepare("UPDATE submissions SET status = ? WHERE id = ?").run(outcome, submissionId);
-  if (eligible.stage === "Clear to Close") db.prepare("UPDATE loans SET stage = 'Underwriting', stageSince = ? WHERE id = ?").run(now, loanId);
   return { alreadyRecorded: false as const };
 }
 
 export function recordManualLenderRejection(db: Store, input: {
-  loanId: string; revision: number; note: string; lenderRejection: ManualLenderRejection;
+  loanId: string; revision: number; note: string; recipient: DocumentRecipient; lenderRejection: ManualLenderRejection;
 }, now: string) {
-  const { loanId, revision, note, lenderRejection: rejection } = input;
+  const { loanId, revision, note, recipient, lenderRejection: rejection } = input;
   const { eventId, exportId, lenderRevision, profile, lender, reference, reason, manualQuote } = rejection;
-  const evidence = JSON.stringify({ exportId, lender, reference, reason, manualQuote, borrowerInstructions: note });
-  const detail = `Manual handoff · Rejected before acknowledgment · Application revision ${revision} · ${lender}${reference ? ` · ${reference}` : ""} · ${reason}`;
+  const forCoBorrower = recipient === coBorrowerDocumentRecipient;
+  const evidence = JSON.stringify({ exportId, lender, reference, reason, manualQuote, borrowerInstructions: note,
+    ...(forCoBorrower ? { recipient } : {}) });
+  const detail = `Manual handoff · Rejected before acknowledgment · Application revision ${revision} · ${lender}${reference ? ` · ${reference}` : ""} · ${forCoBorrower ? "Co-borrower · " : ""}${reason}`;
   const previous = db.prepare(`SELECT activity.loanId, event.applicationRevision, event.lenderRevision, event.outcome, event.exportProfile,
       event.responseEvidence
     FROM activity LEFT JOIN application_handoff_events event ON event.activityId = activity.id WHERE activity.id = ?`).get(eventId);
@@ -77,7 +81,7 @@ export function recordManualLenderRejection(db: Store, input: {
       previous.responseEvidence === evidence ?
       { alreadyRecorded: true as const } : { error: "Start a new lender rejection entry." };
   }
-  const eligible = db.prepare(`SELECT loan.stage FROM loans loan JOIN applications app ON app.loanId = loan.id
+  const eligible = db.prepare(`SELECT 1 FROM loans loan JOIN applications app ON app.loanId = loan.id
     LEFT JOIN application_lender_details details ON details.loanId = loan.id
     LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id
     LEFT JOIN closing_progress closing ON closing.loanId = loan.id
@@ -106,7 +110,6 @@ export function recordManualLenderRejection(db: Store, input: {
     (activityId, loanId, applicationRevision, lenderRevision, outcome, followUpDueAt, exportProfile, exportDigest, quoteBasis, responseEvidence)
     VALUES (?, ?, ?, ?, 'Rejected', ?, ?, ?, ?, ?)`)
     .run(eventId, loanId, revision, lenderRevision, dueAt, profile, prepared.exportDigest, basis, evidence);
-  if (eligible.stage === "Clear to Close") db.prepare("UPDATE loans SET stage = 'Underwriting', stageSince = ? WHERE id = ?").run(now, loanId);
   return { alreadyRecorded: false as const };
 }
 

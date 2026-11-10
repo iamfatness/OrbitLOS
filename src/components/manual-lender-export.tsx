@@ -5,6 +5,7 @@ import { Download } from "lucide-react";
 import { submittedRequestedLoanAmount, type StaffApplication } from "@/lib/application-model";
 import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
+import { documentRecipients } from "@/lib/document-model";
 import type { Submission } from "@/lib/model";
 import { defaultLenderExportProfile, lenderExportProfile, lenderExportProfiles, manualLenderAcknowledgmentTarget, mismoHandoffCoverage,
   suggestExportName, type ExportName } from "@/lib/lender-export-model";
@@ -63,7 +64,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const acknowledgmentAttempt = useRef<{ key: string; id: string } | null>(null);
   const linkedAttempt = useRef<{ key: string; id: string } | null>(null);
-  const returnAttempt = useRef<{ note: string; id: string } | null>(null);
+  const returnAttempt = useRef<{ key: string; id: string } | null>(null);
   const rejectionAttempt = useRef<{ key: string; id: string } | null>(null);
   const ready = application.reviewedAt && application.submittedAt && !application.correctionNote && application.draft?.confirmedDemo;
   const details = manualQuote ? manualQuoteLenderDetails(application.lender?.details ?? blankLenderDetails(), manualQuote) : application.lender?.details;
@@ -80,6 +81,12 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
     handoff?.exportProfiles ? handoff.exportProfiles.includes(profile) :
     handoff?.exportPrepared && profile === defaultLenderExportProfile;
   const initialCampaignHandoff = campaignManual && !manualQuote && !linkedFile && !previousFile;
+  const correctionRecipient = application.joint && <label className="field">Correction recipient
+    <select name="recipient" defaultValue="" required disabled={busy || correctionBlocked}>
+      <option value="" disabled>Choose a borrower</option>
+      {documentRecipients.map((recipient) => <option key={recipient}>{recipient}</option>)}
+    </select>
+  </label>;
 
   return <details className="application-review" id="manual-lender-export">
     <summary>Manual lender export</summary>
@@ -183,15 +190,20 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
           <summary>Record lender return for corrections</summary>
           <form onSubmit={(event) => {
             event.preventDefault();
-            const note = String(new FormData(event.currentTarget).get("borrowerInstructions") ?? "").trim();
+            const fields = new FormData(event.currentTarget);
+            const note = String(fields.get("borrowerInstructions") ?? "").trim();
+            const recipient = fields.get("recipient") ?? undefined;
             if (!note) return;
-            if (returnAttempt.current?.note !== note) returnAttempt.current = { note, id: crypto.randomUUID() };
-            void correctionSave({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note,
+            const key = JSON.stringify({ note, recipient });
+            if (returnAttempt.current?.key !== key) returnAttempt.current = { key, id: crypto.randomUUID() };
+            void correctionSave({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note, recipient,
               lenderReturn: { eventId: returnAttempt.current.id, submissionId: linkedFile.id, lenderRevision: application.lender?.revision ?? 0 } });
           }}>
+            {correctionRecipient}
             <label className="field">Instructions for the borrower<textarea name="borrowerInstructions" required rows={3} maxLength={500} disabled={correctionBlocked} /></label>
-            <p className="muted">The borrower can reopen their existing link. The lender checklist and its history stay on this loan.</p>
-            <div><Button size="sm" type="submit" disabled={busy || correctionBlocked}>Record return and reopen 1003</Button></div>
+            <p className="muted">{application.joint ? "Only the selected borrower’s portion reopens." : "The borrower can reopen their existing link."} The lender checklist and its history stay on this loan.</p>
+            <div><Button size="sm" type="submit" disabled={busy || correctionBlocked}>
+              {application.joint ? "Record return and reopen portion" : "Record return and reopen 1003"}</Button></div>
           </form>
         </details>}
       </> : <form className="record-form" onSubmit={(event) => {
@@ -221,23 +233,27 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
           if (correctionBlocked) return;
           const fields = new FormData(event.currentTarget);
           const note = String(fields.get("borrowerInstructions") ?? "").trim();
+          const recipient = fields.get("recipient") ?? undefined;
           const lenderRejection = { exportId: prepared.eventId, lenderRevision: application.lender?.revision ?? 0, profile,
             lender: String(fields.get("lender") ?? "").trim(), reference: String(fields.get("reference") ?? "").trim(),
             reason: String(fields.get("reason") ?? "").trim(), manualQuote: reference };
           if (!note || !lenderRejection.lender || !lenderRejection.reason) return;
-          const key = JSON.stringify({ note, lenderRejection });
+          const key = JSON.stringify({ note, recipient, lenderRejection });
           if (rejectionAttempt.current?.key !== key) rejectionAttempt.current = { key, id: crypto.randomUUID() };
-          void correctionSave({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note,
+          void correctionSave({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note, recipient,
             lenderRejection: { ...lenderRejection, eventId: rejectionAttempt.current.id } });
         }}>
-          <p className="muted">Reopens the 1003. The borrower can use their existing application link.</p>
+          <p className="muted">{application.joint ? "Only the selected borrower’s portion reopens. They can use their existing link." :
+            "Reopens the 1003. The borrower can use their existing application link."}</p>
           <div className="form-grid">
             <label className="field">Lender name<input name="lender" required maxLength={160} defaultValue={manualQuote?.lender} readOnly={!!manualQuote} /></label>
             <label className="field">Lender reference (optional)<input name="reference" maxLength={160} /></label>
           </div>
           <label className="field">Lender rejection reason (staff only)<textarea name="reason" required rows={3} maxLength={500} /></label>
+          {correctionRecipient}
           <label className="field">Instructions for the borrower<textarea name="borrowerInstructions" required rows={3} maxLength={500} /></label>
-          <div><Button size="sm" type="submit" disabled={busy || correctionBlocked}>Record rejection and reopen 1003</Button></div>
+          <div><Button size="sm" type="submit" disabled={busy || correctionBlocked}>
+            {application.joint ? "Record rejection and reopen portion" : "Record rejection and reopen 1003"}</Button></div>
         </form>
       </details>}
   </details>;

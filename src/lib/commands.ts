@@ -345,7 +345,7 @@ const command = z.discriminatedUnion("type", [
     previousAmount: z.number().int().min(0).max(1_000_000_000) }),
   z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
     note: z.string().trim().min(1).max(500), stageOverride: stageEditOverride.optional(),
-    recipient: z.enum(["Primary borrower", "Co-borrower"]).default("Primary borrower"),
+    recipient: z.enum(documentRecipients).default(primaryDocumentRecipient),
     lenderReturn: z.object({ eventId: z.uuid(), submissionId: id, lenderRevision: z.number().int().nonnegative() }).optional(),
     lenderRejection: manualLenderRejection.optional() }),
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema,
@@ -1852,9 +1852,6 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (pendingMockUwmAcceptance(db, data.loanId)) throw new WorkspaceError("Recover the missing mock UWM receipt before reopening the 1003.");
           const coBorrower = data.recipient === "Co-borrower";
           const joint = jointApplication(db, data.loanId);
-          if (coBorrower && (!joint?.submittedAt || !joint.primarySubmittedAt || data.lenderReturn || data.lenderRejection)) {
-            throw new WorkspaceError("Choose a submitted co-borrower portion on the current joint 1003.");
-          }
           if (data.lenderRejection) {
             if (data.lenderReturn || (!isDemoStaff(staff) && !staff?.brokerage.pilot)) {
               throw new WorkspaceError("Lender rejection is available for an unacknowledged export in a fictional workspace.");
@@ -1875,9 +1872,15 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             }
             accessEvent(db, staff, "Recorded manual lender return", data.loanId, now);
           }
+          if (coBorrower && (!joint?.submittedAt || !joint.primarySubmittedAt)) {
+            throw new WorkspaceError("Choose a submitted co-borrower portion on the current joint 1003.");
+          }
           const application = getApplication(db, data.loanId);
           if (!application?.submittedAt || application.revision !== data.revision) throw new WorkspaceError("Refresh the submitted application before requesting corrections.");
           const override = stageOverrideFor(db, staff, "application", data);
+          if (data.lenderReturn || data.lenderRejection) {
+            db.prepare("UPDATE loans SET stage = 'Underwriting', stageSince = ? WHERE id = ? AND stage = 'Clear to Close'").run(now, data.loanId);
+          }
           saveApplicationVersion(db, application);
           if (joint) reopenJointBorrower(db, data.loanId, data.recipient, data.note, now);
           db.prepare(`UPDATE applications SET correctionNote = ?, submittedAt = NULL, reviewedAt = NULL,
@@ -1889,10 +1892,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
           addApplicationActivity(db, data.loanId, coBorrower ? "Loan officer requested co-borrower corrections." : "Loan officer requested 1003 corrections.", now);
           auditStageOverride(db, staff, data.loanId, "Requested borrower corrections", now, override);
-          message = data.lenderRejection ? "Lender rejection recorded. The borrower can reopen the same link to correct the 1003." :
-            data.lenderReturn ? "Lender return recorded. The borrower can reopen the same link to correct the 1003." :
-            coBorrower ? "The co-borrower can reopen their link to correct and resubmit their portion." :
-              "The borrower can reopen the same link to correct and resubmit the 1003.";
+          const recorded = data.lenderRejection ? "Lender rejection recorded. " : data.lenderReturn ? "Lender return recorded. " : "";
+          const correction = joint ? `The ${data.recipient.toLowerCase()} can reopen their link to correct and resubmit their portion.` :
+            "The borrower can reopen the same link to correct and resubmit the 1003.";
+          message = recorded + correction;
           break;
         }
         case "saveLenderDetails": {

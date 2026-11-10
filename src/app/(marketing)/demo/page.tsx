@@ -60,7 +60,7 @@ export default function DemoPage() {
           <li>Work documents in bulk from Conditions. Review the selected evidence, accept and send it to mock UWM, then choose which receipts to check for clearance.</li>
           <li>Link an already accepted document to another condition on the same loan. Open the original revision from the condition and record delivery separately.</li>
           <li>Give two borrowers separate links to save and submit their own portions. Review the combined fictional 1003 on one loan.</li>
-          <li>Assign document requests to each borrower on a joint loan. Each private checklist shows that person’s evidence and mock upload status.</li>
+          <li>Use two private links on a joint loan. Rehearse a fictional lender rejection or return, reopen just the affected borrower’s portion, and confirm the revised joint MISMO handoff.</li>
           <li>Run mock DU and LPA together on the same 1003 and sample credit report. Review separate findings and retry either service independently.</li>
           <li>Review a fictional income worksheet against the submitted 1003, accepted documents, and mock verification returns. Open the exact income worksheet from its mock quote.</li>
           <li>Run the fictional wholesale profile checks and download the reviewed MISMO export. Share it with an expiring link, or rehearse a rejection before acknowledgment. Use Today to follow the borrower’s correction through review and revised acknowledgment.</li>

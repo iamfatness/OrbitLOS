@@ -14,6 +14,7 @@ const { borrowerCommandResult, coBorrowerCommandResult, getApplication, staffApp
 const { coBorrowerReviewStep, primaryJointDraft, sampleCoBorrower } = await import("../src/lib/joint-application-model.ts");
 const { jointApplication } = await import("../src/lib/joint-application.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
+const { loanStageEditWork } = await import("../src/lib/loan-stage-edits.ts");
 const { readEditableLoan, readLoanHandoff } = await import("../src/lib/editable-loan.ts");
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { beginDocumentUpload, finishDocumentUpload, failDocumentUpload, issueDocumentCode, verifyDocumentCode } = await import("../src/lib/document-files.ts");
@@ -579,6 +580,38 @@ test("the co-borrower can submit first, revoke and replace, then correct only th
     VALUES (?, ?, ?, 'Assigned', '', ?, 1)`).run(f.loanId, f.processor.email, f.processor.name, f.now);
   assert.equal(readEditableLoan(f.db, f.loanId, f.processor, f.brokerage.id).applications[0].joint.token, undefined);
   assert.ok(readEditableLoan(f.db, f.loanId, f.outsider, f.brokerage.id).error);
+});
+
+test("a joint lender rejection respects the closing-stage edit lock before reopening a portion", async (t) => {
+  const f = fixture(t);
+  await f.enable();
+  const initial = f.primary().application;
+  const co = f.co().value;
+  f.primary(f.primaryWrite(f.primarySample(initial.draft), initial.revision));
+  assert.equal(f.co(f.coWrite(f.coSample(co.draft), co.revision)).value.complete, true);
+  const { revision } = getApplication(f.db, f.loanId);
+  assert.ok((await f.run("reviewApplication", { revision })).message);
+  const exportId = crypto.randomUUID();
+  const names = [{ first: "Fictional", middle: "", last: "Primary", suffix: "" }, { first: "Jordan", middle: "", last: "Sample", suffix: "" }];
+  assert.ok((await f.run("exportReviewedApplication", { revision, lenderRevision: 0, eventId: exportId, names })).mismoXml);
+  f.db.prepare("UPDATE loans SET stage = 'Clear to Close' WHERE id = ?").run(f.loanId);
+  const admin = { ...f.officer, email: "joint-admin@example.test", brokerage: { ...f.brokerage, role: "Admin" } };
+  const policy = loanStageEditWork(f.db, { type: "publish", revision: 0, rules: { application: ["Clear to Close"], fees: [] },
+    reason: "Require approval for fictional 1003 edits after clearance." }, admin, f.brokerage.id);
+  assert.equal(policy.revision, 1);
+  const eventId = crypto.randomUUID();
+  const input = { revision, recipient: "Co-borrower", note: "Confirm your fictional phone number.",
+    lenderRejection: { eventId, exportId, lenderRevision: 0, profile: "basic", lender: "Fictional Wholesale",
+      reference: "LOCKED-JOINT", reason: "Fictional lender validation response." } };
+  assert.match((await f.run("requestApplicationCorrection", input)).error, /locked at Clear to Close/);
+  assert.equal(getApplication(f.db, f.loanId).revision, revision);
+  assert.ok(jointApplication(f.db, f.loanId).submittedAt);
+  assert.equal(f.count("application_handoff_events", "AND outcome = 'Rejected'"), 0);
+  const approved = { ...input, stageOverride: { revision: policy.revision, stage: "Clear to Close", reason: "Verified the fictional lender rejection." } };
+  assert.match((await f.run("requestApplicationCorrection", approved, admin)).message, /co-borrower can reopen/);
+  assert.equal(f.db.prepare("SELECT stage FROM loans WHERE id = ?").get(f.loanId).stage, "Underwriting");
+  assert.match((await f.run("requestApplicationCorrection", approved, admin)).message, /already recorded/);
+  assert.equal(f.count("application_handoff_events", "AND outcome = 'Rejected'"), 1);
 });
 
 test("same-kind evidence, upload sessions, and replacement notes stay with each borrower", async (t) => {

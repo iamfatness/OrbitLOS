@@ -8,6 +8,7 @@ import { dateTime, initials, money, requestedMoney, stageDays } from "@/lib/util
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
 import { JointBorrowerLinks } from "./joint-borrower-links";
+import { jointBorrowerPortionsTarget } from "@/lib/joint-application-model";
 import { FollowUpPurposeField, LoanTaskRow } from "./loan-task";
 import { carriedCallbackOutcomes } from "@/lib/campaign-callback-performance-model";
 import { LoanPricing } from "./loan-pricing";
@@ -314,7 +315,8 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
     sameManualQuote(manualQuote, application?.manualHandoff?.acknowledgedQuote) ? acknowledgedFile : undefined;
   const processingPending = state.loanProcessing.some((item) => item.loanId === loanId && item.processorEmail &&
     (item.status === "Assigned" || item.status === "Ready for processing"));
-  const showCheckpoint = requireSecondReview && (!blocker || processingPending || (!currentSent && !linkedFile));
+  const showCheckpoint = requireSecondReview && (!application?.joint || !!application.submittedAt) &&
+    (!blocker || processingPending || (!currentSent && !linkedFile));
   const status = application?.correctionNote ? "Corrections requested" : application?.submittedAt && !application.reviewedAt
     ? "Needs review" : pendingReceipt ? "Receipt pending · Mock UWM" : currentSent ? "Sent to UWM · Mock" : application?.reviewedAt
       ? (application.uwmReference ? "Ready to send to existing file" : "Reviewed") : application?.joint ? "Collecting joint 1003" : "Draft";
@@ -341,11 +343,12 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
       <p className="muted">Create a link for a borrower to complete a sample application. Use fictional information.</p>
       {!processor && <Button size="sm" disabled={busy} onClick={() => run("startApplication")}><Plus /> Start 1003</Button>}
     </div> : <div className="loan-application-box">
-      <p className="muted">Borrower link · <strong>{linkStatus}</strong>{linkStatus === "Active" && ` · Expires ${dateTime(application.expiresAt)} ET`}</p>
+      <p className="muted">{application.joint ? "Primary borrower link" : "Borrower link"} · <strong>{linkStatus}</strong>{linkStatus === "Active" && ` · Expires ${dateTime(application.expiresAt)} ET`}</p>
       <div className="loan-application-actions">
         {linkStatus === "Active" ? <>
-          <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> {application.submittedAt ? "Open borrower status" : "Open borrower view"}</a></Button>
-          <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> Copy link</Button>
+          <Button asChild size="sm" variant="outline"><a href={path} target="_blank" rel="noopener noreferrer"><ExternalLink /> {application.joint ?
+            "Open primary borrower view" : application.submittedAt ? "Open borrower status" : "Open borrower view"}</a></Button>
+          <Button size="sm" variant="outline" onClick={() => void copy()}><Copy /> {application.joint ? "Copy primary borrower link" : "Copy link"}</Button>
           {!processor && <Button size="sm" variant="ghost" disabled={busy}
             aria-expanded={confirmingRevocation === application.token}
             onClick={() => setConfirmingRevocation(application.token)}>Revoke borrower link</Button>}
@@ -379,7 +382,7 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
           type: "reconcileMockUwmReceipt", loanId, revision: pendingReceipt.revision,
         })}>Check mock UWM for receipt</Button></div>}
       </div>}
-      {application.correctionNote && <p className="muted">Waiting on the borrower · {application.correctionNote}</p>}
+      {application.correctionNote && !application.joint && <p className="muted">Waiting on the borrower · {application.correctionNote}</p>}
       {!application.submittedAt ? <p className="muted timestamp">Last saved {dateTime(application.updatedAt)} ET</p> : <>
         <p className="muted">Received {dateTime(application.submittedAt)} ET</p>
         {loan && requestedAmount !== null && <section className="document-item" id={loanAmountComparisonTarget}
@@ -491,7 +494,7 @@ function loanSection(target?: string) {
   if (!target) return "Overview";
   if (target === "loan-scenarios") return "Scenarios";
   if (target === disclosureTarget) return "Disclosures";
-  if (target === "loan-application" || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
+  if (target === "loan-application" || target === jointBorrowerPortionsTarget || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
     target === manualLenderAcknowledgmentTarget) return "1003";
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
     target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";

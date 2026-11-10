@@ -33,7 +33,10 @@ export const latestManualReturnFollowUp = `(SELECT json_object('at', entry.creat
   WHERE followUp.returnEventId = page.returnEventId ORDER BY followUp.rowid DESC LIMIT 1)`;
 
 export function manualReturnPhase(requireApproval: boolean) {
-  return `CASE WHEN app.submittedAt IS NULL THEN '${manualReturnStatus.borrower}'
+  return `CASE WHEN app.submittedAt IS NULL THEN coalesce((SELECT CASE
+      WHEN joint.primarySubmittedAt IS NOT NULL AND joint.submittedAt IS NULL THEN '${manualReturnStatus.coBorrower}'
+      WHEN joint.submittedAt IS NOT NULL AND joint.primarySubmittedAt IS NULL THEN '${manualReturnStatus.primaryBorrower}' END
+    FROM joint_applications joint WHERE joint.loanId = app.loanId), '${manualReturnStatus.borrower}')
     WHEN app.reviewedAt IS NULL THEN '${manualReturnStatus.review}'
     ${requireApproval ? `WHEN NOT ${approvedSecondReview} THEN '${manualReturnStatus.approval}'` : ""}
     WHEN ${currentManualExportPrepared}

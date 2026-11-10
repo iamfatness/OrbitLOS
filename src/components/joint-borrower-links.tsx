@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Copy, ExternalLink } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
+import { jointBorrowerPortionsTarget } from "@/lib/joint-application-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -24,14 +25,16 @@ export function JointBorrowerLinks({ application, mayManage, canEnable, busy, sa
 
   const link = joint.revokedAt ? "Revoked" : joint.expiresAt <= new Date().toISOString() ? "Expired" : "Active";
   const path = joint.token ? `/co-borrower#${joint.token}` : "";
-  return <section className="document-item record-form" aria-label="Joint borrower portions">
+  const primaryCorrection = joint.primarySubmittedAt ? "" : application.correctionNote;
+  return <section className="document-item record-form" id={jointBorrowerPortionsTarget} tabIndex={-1} aria-label="Joint borrower portions">
     <div className="document-item-head"><strong>Joint borrower portions</strong><span className="pill">
       {application.submittedAt ? "Both submitted" : `${Number(!!joint.primarySubmittedAt) + Number(!!joint.submittedAt)} of 2 submitted`}
     </span></div>
     <ul className="loan-task-list">
-      <li>Primary borrower · {joint.primarySubmittedAt ? "Submitted" : "Waiting for submission"}</li>
-      <li>Co-borrower · {joint.submittedAt ? "Submitted" : "Waiting for submission"}</li>
+      <li>Primary borrower · {primaryCorrection ? "Correction requested" : joint.primarySubmittedAt ? "Submitted" : "Waiting for submission"}</li>
+      <li>Co-borrower · {joint.correctionNote ? "Correction requested" : joint.submittedAt ? "Submitted" : "Waiting for submission"}</li>
     </ul>
+    {primaryCorrection && <p className="muted">Primary borrower correction · {primaryCorrection}</p>}
     {joint.correctionNote && <p className="muted">Co-borrower correction · {joint.correctionNote}</p>}
     {mayManage && joint.token && <>
       <p className="muted">Co-borrower link · <strong>{link}</strong>{link === "Active" && ` · Expires ${dateTime(joint.expiresAt)} ET`}</p>

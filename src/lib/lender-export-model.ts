@@ -1,9 +1,12 @@
 import { z } from "zod";
+import { jointBorrowerPortionsTarget } from "./joint-application-model";
 import { loanReviewsTarget } from "./loan-review-model";
 import { manualQuoteReference } from "./manual-pricing-model";
 
 export const manualReturnStatus = {
   borrower: "Waiting on borrower",
+  primaryBorrower: "Waiting on primary borrower",
+  coBorrower: "Waiting on co-borrower",
   review: "Corrected 1003 ready for review",
   approval: "Awaiting second review",
   export: "Ready for revised export",
@@ -33,6 +36,8 @@ export const manualReturnFollowUpUnavailable = "This lender return is unavailabl
 
 export const manualReturnSteps = {
   [manualReturnStatus.borrower]: { action: "Open borrower corrections", target: "loan-application" },
+  [manualReturnStatus.primaryBorrower]: { action: "Open primary borrower corrections", target: jointBorrowerPortionsTarget },
+  [manualReturnStatus.coBorrower]: { action: "Open co-borrower corrections", target: jointBorrowerPortionsTarget },
   [manualReturnStatus.review]: { action: "Review corrected 1003", target: "loan-application" },
   [manualReturnStatus.approval]: { action: "Open second review", target: loanReviewsTarget },
   [manualReturnStatus.export]: { action: "Open revised export", target: "manual-lender-export" },

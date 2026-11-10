@@ -338,7 +338,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
       <form className="application-form" onSubmit={submit} noValidate>
         <fieldset disabled={busy} className="application-step">
           <div className="application-step-meta"><small>Step {step + 1} of {applicationSteps.length}</small>
-            {step === 0 && <Button variant="outline" size="sm" onClick={() => {
+            {step === 0 && !application.correctionNote && <Button variant="outline" size="sm" onClick={() => {
               setView({ ...application, draft: sampleAnswers(application) });
               setNotice("Sample answers loaded. Save or continue to keep them.");
               setError("");

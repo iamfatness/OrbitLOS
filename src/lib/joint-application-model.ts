@@ -17,6 +17,7 @@ export const coBorrowerSections = [
 ] as const satisfies readonly (readonly [BorrowerSection, string])[];
 export const coBorrowerReviewStep = coBorrowerSections.length;
 export const jointLinkUnavailable = "This co-borrower link is invalid or expired. Ask your loan officer for a new link.";
+export const jointBorrowerPortionsTarget = "joint-borrower-portions";
 
 export const jointLinkCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("enableJointApplication"), loanId, revision }),
