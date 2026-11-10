@@ -169,7 +169,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [reviewVersion, setReviewVersion] = useState(0);
   const queueVersion = useMemo(() => ({ state, reviewVersion }), [state, reviewVersion]);
   const actionCounts = useActionCounts(staff?.brokerage.id ?? demoBrokerageId, staff?.email,
-    controlsReady && canOpenToday && workspaceStatus === "ready", queueVersion);
+    controlsReady && canOpenToday, queueVersion);
   const [attentionVisit, setAttentionVisit] = useState<{ section: Section; visit: number }>();
   const [searchSelection, setSearchSelection] = useState<SearchSelection>({ query: "", filter: "All records" });
   const [searchContact, setSearchContact] = useState<SearchContact>();
@@ -1125,7 +1125,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
               {items.filter(({ label }) => (label !== "Today" || canOpenToday) && ((label !== "Calendar" && label !== "Coverage" && label !== "Reviews") || canOpenCalendar) && (label !== "Processing" || canOpenProcessing) && (label !== "Team" || staff) && (label !== "Reports" || canOpenReports) && (label !== "Migration" || canMigrate) && (admin || (label !== "Realtors" && label !== "Playbooks")) && (!processor || (label !== "Lead Inbox" && label !== "Demo Guide" && label !== "Call Campaigns"))).map(({ label, icon: Icon }) => {
                 const attention = label === "Today" ? actionCounts?.today : label === "Lead Inbox" ? actionCounts?.leads : undefined;
                 const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
-                const reason = label === "Today" ? "actions due or ready" : "leads needing first contact";
+                const reason = label === "Today" ? (attention === 1 ? "action due or ready" : "actions due or ready") :
+                  (attention === 1 ? "lead needs first contact" : "leads need first contact");
                 return <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
                   aria-label={count ? `${label}, ${count} ${reason}` : undefined}
                   disabled={!controlsReady} onClick={() => navigate(label, true, undefined, Boolean(attention))}>

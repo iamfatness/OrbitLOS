@@ -13,7 +13,7 @@ export function useActionCounts(brokerageId: string, email: string | undefined, 
     let active = true;
     let pending = false;
     async function read(isCurrent = () => true) {
-      if (pending || document.hidden) return;
+      if (pending) return;
       pending = true;
       try {
         const counts = await readSidebarActionCounts(brokerageId);
