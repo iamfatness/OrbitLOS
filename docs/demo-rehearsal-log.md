@@ -1070,6 +1070,8 @@ The comparison accepts optional metadata alongside the earlier inventory fields.
 
 ## Cutover recovery and handoff reference
 
+On November 10, 2026, Worker `15612f7d-b942-49be-a710-65446dfcaf53` from `a6225e8` took 100% of traffic after all 45 staged assets matched twice. The live Product and Demo pages returned 200 with the updated copy. The owner downloaded the report from the fictional Role Handoff QA workspace. The downloaded HTML included the review reference and excluded the raw lender receipt and borrower email. The restore itself ran locally against the built Worker.
+
 The two-brokerage local restore recovered the linked MISMO draft, two accepted revisions, prior and current lender receipts, clearance and both original sign-offs. The downloaded handoff matched the original review reference. The drill preserved the second brokerage's later change and the directory's link and staff revocations. It checked the later journaled sign-off against current evidence and recorded it as a new review. A repeat after restart kept the same new review. Reopening the condition made the sign-off stale and blocked reuse of the former evidence. [Recovery procedure and boundary](workspace-recovery.md)
 
 The handoff identifies the source coverage and recorded reviews with a stable reference while keeping review notes and the file evidence in Orbit. All 376 tests, lint, typecheck, the production build, and the working-day, concurrency and extended recovery rehearsals passed. [Design evidence](brand-ux-review.md#cutover-handoff-review-reference)
