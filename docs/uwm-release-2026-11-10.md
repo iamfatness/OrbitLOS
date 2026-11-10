@@ -21,3 +21,9 @@ Hosted verification caught a runtime difference: Workers does not implement `red
 This is a real connection to UWM's **stage environment**, not production loan data. Pipeline and single-loan conditions need separate broker-shop Insights credentials and an Orbit brokerage mapping. The connector is implemented but not live-validated without those credentials. Submission, supporting-document delivery, AUS and rate locks remain simulated; they need their respective user authorization, contracts and webhook onboarding before replacement.
 
 Dev/stage/production hosting and CI promotion are a future milestone. Isolate Worker names, storage and secrets, then add build/test, staged smoke, promotion and rollback gates. This release retains the existing current-app topology.
+
+## Stage pricing response update
+
+Worker `c4e178d4-84ee-4127-bf02-6e5aa9108398` serves source `f9d2b48`. The parser checks documented UWM rejection messages before validating quote items. An accepted response with no displayable offers has its own message. Malformed responses are rejected and the diagnostic records the step, status, or schema paths and issue codes. It excludes response bodies and scenario inputs.
+
+All 385 tests passed, including fixture coverage for missing or null items on a rejection, an accepted empty result, malformed offer fields, and redirects. Lint, typecheck, and the Cloudflare build passed. All 46 staged assets matched twice and the public landing, Product, Demo, and login routes returned HTTP 200 after promotion. A fresh signed-in fictional conventional purchase returned 35 stage offers. A separate fictional purchase that UWM declined displayed the rejection message and preserved the preceding quote. The original reported response was not reproduced.
