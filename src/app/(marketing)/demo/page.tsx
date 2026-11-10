@@ -63,7 +63,7 @@ export default function DemoPage() {
           <li>Assign document requests to each borrower on a joint loan. Each private checklist shows that person’s evidence and mock upload status.</li>
           <li>Run mock DU and LPA together on the same 1003 and sample credit report. Review separate findings and retry either service independently.</li>
           <li>Review a fictional income worksheet against the submitted 1003, accepted documents, and mock verification returns. Open the exact income worksheet from its mock quote.</li>
-          <li>Run the fictional wholesale profile checks before downloading a reviewed MISMO export. Open the fields that need attention, then share the XML and selected sample PDFs with an expiring link. Record a lender return and confirm receipt of the corrected file.</li>
+          <li>Run the fictional wholesale profile checks and download the reviewed MISMO export. Share it with an expiring link, or rehearse a rejection before acknowledgment. Use Today to follow the borrower’s correction through review and revised acknowledgment.</li>
           <li>When the brokerage requires a second 1003 review, open it from the guide. The manager queue distinguishes a corrected revision that needs approval from a file whose current revision already has a lender receipt.</li>
           <li>Compare the recorded Pipeline amount with a corrected 1003 request. Use the reviewed amount from the loan and see the change in its audit history.</li>
           <li>Keep alternative quotes for comparison. If the saved quote differs from the reviewed 1003, load the 1003 amount in pricing before sending to mock UWM.</li>

@@ -27,6 +27,8 @@ export const lastManualLenderSubmission = `(SELECT event.submissionId FROM appli
   JOIN submissions file ON file.id = event.submissionId AND file.loanId = event.loanId AND file.syncedAt IS NULL
   WHERE event.loanId = app.loanId AND event.outcome = 'Acknowledged'
   ORDER BY event.applicationRevision DESC, event.lenderRevision DESC, activity.rowid DESC LIMIT 1)`;
+export const hasRecordedLenderRejection = `EXISTS (SELECT 1 FROM application_handoff_events event
+  WHERE event.loanId = app.loanId AND event.outcome = 'Rejected')`;
 
 export const pendingRequiredApproval = `app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND NOT ${approvedSecondReview}
   AND (coalesce(processing.processorEmail IS NOT NULL AND processing.status IN ('Assigned', 'Ready for processing'), 0)
@@ -37,7 +39,8 @@ export const openSecondReview = `pending.loanId = app.loanId AND pending.categor
   AND pending.status IN ('Requested', 'Changes requested')`;
 
 export function manualLenderClosingBlocker(db: Store, loanId: string) {
-  const row = db.prepare(`SELECT 1 FROM applications app WHERE app.loanId = ? AND ${lastManualLenderSubmission} IS NOT NULL
+  const row = db.prepare(`SELECT 1 FROM applications app WHERE app.loanId = ?
+    AND (${lastManualLenderSubmission} IS NOT NULL OR ${hasRecordedLenderRejection})
     AND (${currentManualLenderSubmission} IS NULL OR NOT ${currentManualExportPrepared})
     AND NOT EXISTS (SELECT 1 FROM application_versions version WHERE version.loanId = app.loanId
       AND version.revision = app.revision AND version.uwmReceipt IS NOT NULL)`).get(loanId);

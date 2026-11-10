@@ -18,7 +18,7 @@ export const stalledLoanCutoff = (now: number) => now - stalledLoanDays * day;
 
 type LoanActionRecord = Pick<Loan, "id" | "stage" | "contactId" | "officer" | "disposition" | "dispositionReason" | "revisitDate">;
 export type LoanNextActionState = {
-  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "uwmPendingReceipt" | "correctionNote" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "joint"> & {
+  applications: (Pick<Workspace["applications"][number], "loanId" | "submittedAt" | "reviewedAt" | "secondReviewApproved" | "revision" | "uwmReference" | "uwmPendingReceipt" | "correctionNote" | "manualHandoff" | "lastManualSubmissionId" | "manualLenderRejected" | "currentManualExportPrepared" | "joint"> & {
     versions: Pick<Workspace["applications"][number]["versions"][number], "revision" | "uwmReceipt">[];
   })[];
   contacts: Pick<Workspace["contacts"][number], "id" | "outreachSuppressed">[];
@@ -77,7 +77,7 @@ export function canRecordFundingCheckIn(loan: Pick<Loan, "id" | "disposition">, 
 }
 
 export function manualLenderClosingAction(application: LoanNextActionState["applications"][number] | undefined) {
-  if (!application?.lastManualSubmissionId ||
+  if ((!application?.lastManualSubmissionId && !application?.manualLenderRejected) ||
     (application.manualHandoff?.submissionId && !application.manualHandoff.acknowledgmentOutdated &&
       (application.currentManualExportPrepared || application.manualHandoff.exportPrepared)) ||
     application.versions.some(({ revision, uwmReceipt }) => revision === application.revision && uwmReceipt)) return null;

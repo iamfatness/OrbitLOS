@@ -13,7 +13,7 @@ export const manualReturnStatus = {
 export type ManualReturnStatus = (typeof manualReturnStatus)[keyof typeof manualReturnStatus];
 export const manualLenderAcknowledgmentTarget = "manual-lender-acknowledgment";
 export const currentManualAcknowledgmentRequired = "Record lender acknowledgment for the current MISMO handoff before advancing closing or funding.";
-export const manualReturnAssignment = z.object({ eventId: z.uuid(), submissionId: z.string().min(1).max(100) });
+export const manualReturnAssignment = z.object({ eventId: z.uuid(), submissionId: z.string().min(1).max(100).nullable() });
 export type ManualReturnAssignment = z.infer<typeof manualReturnAssignment>;
 
 export const manualReturnParties = ["Borrower", "Lender"] as const;
@@ -54,6 +54,13 @@ export const lenderExportProfiles = {
   "fictional-wholesale-v1": { label: "Fictional Wholesale · Registration v1", description: "Requires a known property, originator and company IDs, complete loan terms, and purchase or refinance details." },
 } as const satisfies Record<LenderExportProfile, { label: string; description: string }>;
 export const defaultLenderExportProfile: LenderExportProfile = "basic";
+export const manualLenderRejection = z.object({
+  eventId: z.uuid(), exportId: z.uuid(), lenderRevision: z.number().int().nonnegative(), profile: lenderExportProfile,
+  lender: z.string().trim().min(1).max(160), reference: z.string().trim().max(160), reason: z.string().trim().min(1).max(500),
+  manualQuote: manualQuoteReference.optional(),
+});
+export type ManualLenderRejection = z.infer<typeof manualLenderRejection>;
+export type PreparedLenderExport = { eventId: string; profile: LenderExportProfile; quote?: z.infer<typeof manualQuoteReference> };
 
 export const exportReviewedApplication = z.object({
   type: z.literal("exportReviewedApplication"), loanId: z.string().min(1).max(100),

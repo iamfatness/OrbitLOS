@@ -114,7 +114,8 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   const repeatOption: ReturningClientOption = pastClientLoan(loan) || records.closingProgress[0]?.fundingDate ?
     returningClientOption(db, loanId, staff) : { kind: "unavailable" };
   const application = records.applications[0];
-  const manualReturn = staff.brokerage.role !== "Processor" && application?.lastManualSubmissionId && !application.manualHandoff?.submissionId ?
+  const manualReturn = staff.brokerage.role !== "Processor" &&
+    (application?.lastManualSubmissionId || application?.manualLenderRejected) && !application.manualHandoff?.submissionId ?
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
   const disclosureWork = canUseSampleDisclosures(staff) ? readDisclosureWork(db, loanId) : undefined;
   return {

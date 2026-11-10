@@ -5,10 +5,10 @@ import { easternDate } from "./client-retention";
 import { mismoNamespace } from "./mismo-rehearsal-model";
 import { afterHours } from "./playbook-model";
 import { readPlaybook } from "./playbooks";
-import { defaultLenderExportProfile, lenderExportProfiles, type ExportName, type LenderExportProfile, type exportReviewedApplication } from "./lender-export-model";
+import { defaultLenderExportProfile, lenderExportProfiles, type ExportName, type LenderExportProfile, type ManualLenderRejection, type exportReviewedApplication } from "./lender-export-model";
 import { lenderExportIssues } from "./lender-export-profile";
-import { manualQuoteLenderDetails, type ManualQuoteBasis } from "./manual-pricing-model";
-import { manualQuoteForHandoff } from "./manual-pricing";
+import { manualQuoteLenderDetails, sameManualQuote, type ManualQuoteBasis } from "./manual-pricing-model";
+import { manualQuoteForHandoff, selectedManualQuote } from "./manual-pricing";
 import { mismoBorrower, mismoFinances, mortgage, usage } from "./mismo-borrower-export";
 import { container, contactPoint, fields, indicator, label, mismoAddress, partyRole, relationship } from "./mismo-xml";
 import type { StaffIdentity } from "./staff-store";
@@ -57,6 +57,55 @@ export function recordManualLenderReturn(db: Store, input: { loanId: string; rev
   db.prepare(`INSERT INTO application_handoff_events (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId, followUpDueAt)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(eventId, loanId, revision, lenderRevision, outcome, submissionId, dueAt);
   db.prepare("UPDATE submissions SET status = ? WHERE id = ?").run(outcome, submissionId);
+  if (eligible.stage === "Clear to Close") db.prepare("UPDATE loans SET stage = 'Underwriting', stageSince = ? WHERE id = ?").run(now, loanId);
+  return { alreadyRecorded: false as const };
+}
+
+export function recordManualLenderRejection(db: Store, input: {
+  loanId: string; revision: number; note: string; lenderRejection: ManualLenderRejection;
+}, now: string) {
+  const { loanId, revision, note, lenderRejection: rejection } = input;
+  const { eventId, exportId, lenderRevision, profile, lender, reference, reason, manualQuote } = rejection;
+  const evidence = JSON.stringify({ exportId, lender, reference, reason, manualQuote, borrowerInstructions: note });
+  const detail = `Manual handoff · Rejected before acknowledgment · Application revision ${revision} · ${lender}${reference ? ` · ${reference}` : ""} · ${reason}`;
+  const previous = db.prepare(`SELECT activity.loanId, event.applicationRevision, event.lenderRevision, event.outcome, event.exportProfile,
+      event.responseEvidence
+    FROM activity LEFT JOIN application_handoff_events event ON event.activityId = activity.id WHERE activity.id = ?`).get(eventId);
+  if (previous) {
+    return previous.loanId === loanId && previous.applicationRevision === revision && previous.lenderRevision === lenderRevision &&
+      previous.outcome === "Rejected" && previous.exportProfile === profile &&
+      previous.responseEvidence === evidence ?
+      { alreadyRecorded: true as const } : { error: "Start a new lender rejection entry." };
+  }
+  const eligible = db.prepare(`SELECT loan.stage FROM loans loan JOIN applications app ON app.loanId = loan.id
+    LEFT JOIN application_lender_details details ON details.loanId = loan.id
+    LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id
+    LEFT JOIN closing_progress closing ON closing.loanId = loan.id
+    WHERE loan.id = ? AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')
+      AND app.revision = ? AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND app.uwmReference IS NULL
+      AND coalesce(details.revision, 0) = ? AND profile.closingDate IS NULL AND closing.fundingDate IS NULL
+      AND NOT EXISTS (SELECT 1 FROM application_handoff_events accepted WHERE accepted.loanId = loan.id
+        AND accepted.outcome = 'Acknowledged' AND accepted.submissionId IS NOT NULL)`).get(loanId, revision, lenderRevision);
+  if (!eligible) return { error: "Open the current reviewed, unacknowledged manual handoff before recording a rejection." };
+  const selected = selectedManualQuote(db, loanId)?.basis;
+  if (!sameManualQuote(selected, manualQuote) || (selected && lender.toLowerCase() !== selected.lender.toLowerCase())) {
+    return { error: "The selected lender or quote changed. Review the current export before recording a rejection." };
+  }
+  const basis = selected ? JSON.stringify(selected) : null;
+  const prepared = db.prepare(`SELECT event.activityId, event.exportDigest FROM application_handoff_events event
+    JOIN activity entry ON entry.id = event.activityId
+    WHERE event.loanId = ? AND event.applicationRevision = ? AND event.lenderRevision = ?
+      AND event.outcome = 'Export prepared' AND coalesce(event.exportProfile, ?) = ? AND event.quoteBasis IS ?
+    ORDER BY entry.rowid DESC LIMIT 1`).get(loanId, revision, lenderRevision, defaultLenderExportProfile, profile, basis);
+  if (prepared?.activityId !== exportId || !prepared.exportDigest) {
+    return { error: "The prepared MISMO export changed. Refresh the loan before recording a rejection." };
+  }
+  const dueAt = afterHours(now, readPlaybook(db).manualReturnHours);
+  db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(eventId, loanId, detail, now);
+  db.prepare(`INSERT INTO application_handoff_events
+    (activityId, loanId, applicationRevision, lenderRevision, outcome, followUpDueAt, exportProfile, exportDigest, quoteBasis, responseEvidence)
+    VALUES (?, ?, ?, ?, 'Rejected', ?, ?, ?, ?, ?)`)
+    .run(eventId, loanId, revision, lenderRevision, dueAt, profile, prepared.exportDigest, basis, evidence);
   if (eligible.stage === "Clear to Close") db.prepare("UPDATE loans SET stage = 'Underwriting', stageSince = ? WHERE id = ?").run(now, loanId);
   return { alreadyRecorded: false as const };
 }

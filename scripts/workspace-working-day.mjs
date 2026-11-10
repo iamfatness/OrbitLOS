@@ -2798,6 +2798,142 @@ try {
   }
   await stage("Conventional purchase uses a quoted manual MISMO handoff through funding", () => verifyQuotedManualFile("Purchase"));
   await stage("No-cash-out refinance uses a quoted manual MISMO handoff through funding", () => verifyQuotedManualFile("Refinance"));
+  await stage("A rejected manual export stays in Today and Exceptions through revised acknowledgment", async () => {
+    const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Cedar Refinance",
+      borrowerEmail: "working-day-cedar-refinance@example.test", start1003: true, partnerId: null, officer: officer.name,
+      address: "", amount: 350000, purpose: "Refinance", stage: "Lead" });
+    const loanId = created.loanWork.loanId;
+    const { token } = (await file(officer, loanId)).applications[0];
+    const initial = await borrower(token, { type: "read" });
+    const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+    const step = applicationSteps.length - 1;
+    const submitted = await borrower(token, { type: "submit", revision: initial.revision, step, draft });
+    await loanAction(officer, loanId, "reviewApplication", { revision: submitted.revision });
+    const names = [{ first: "Fictional", middle: "Cedar", last: "Refinance", suffix: "" }];
+    const exportApplication = (revision, eventId) => write(officer, { type: "exportReviewedApplication", loanId, revision, lenderRevision: 0, eventId, names });
+    const staleExportId = randomUUID();
+    const exportId = randomUUID();
+    await exportApplication(submitted.revision, staleExportId);
+    await exportApplication(submitted.revision, exportId);
+    assert.deepEqual((await file(officer, loanId)).applications[0].manualHandoff.preparedExports, [{ eventId: exportId, profile: "basic" }]);
+    const note = "Update the fictional property street address and resubmit.";
+    const reason = "Private wholesale response W-42.";
+    const eventId = randomUUID();
+    const response = { eventId, exportId, lenderRevision: 0, profile: "basic", lender: "Fictional Cedar Wholesale", reference: "CEDAR-REJECT", reason };
+    const reject = { type: "requestApplicationCorrection", loanId, revision: submitted.revision, note, lenderRejection: response };
+    assert.match((await action(officer, "mutate", { ...reject, lenderRejection: { ...response, exportId: staleExportId } })).error, /prepared MISMO export changed/i);
+    assert.ok((await action(competingOfficer, "mutate", reject)).error);
+    assert.match((await write(officer, reject)).message, /rejection recorded/i);
+    assert.match((await write(officer, reject)).message, /already recorded/i);
+    assert.ok((await action(officer, "mutate", { ...reject, note: "Different borrower instructions." })).error);
+    const rejected = await file(officer, loanId);
+    assert.equal(rejected.applications[0].manualLenderRejected, true);
+    assert.equal(rejected.applications[0].lastManualSubmissionId, undefined);
+    assert.equal(rejected.submissions.length, 0);
+    const history = await action(officer, "readHistoryPage", { record: "loan", id: loanId });
+    assert.equal(history.events.filter((entry) => entry.text.includes(reason)).length, 1);
+    const reopened = await borrower(token, { type: "read" });
+    assert.equal(reopened.correctionNote, note);
+    for (const payload of [reopened, await borrower(token, { type: "status" })]) {
+      assert.ok(!JSON.stringify(payload).includes(reason));
+      assert.ok(!JSON.stringify(payload).includes("CEDAR-REJECT"));
+    }
+    const todayItem = async () => (await incoming(officer, "today")).items.find((item) => item.id === eventId);
+    const ownerItem = async () => (await fileExceptions("Manual lender returns")).items.find((item) => item.id === eventId);
+    assert.equal((await todayItem()).returnStatus, "Waiting on borrower");
+    assert.equal((await ownerItem()).target, "loan-application");
+    assert.equal((await ownerItem()).returnSubmissionId, null);
+    assert.deepEqual(rejected.manualReturn, { eventId, submissionId: null, status: "Waiting on borrower" });
+    const followUp = { loanId, eventId, submissionId: null, entryId: randomUUID(), party: "Borrower", channel: "Call", note: "Confirmed the sample correction." };
+    assert.equal((await action(officer, "logLenderReturnFollowUp", followUp)).followUp?.note, followUp.note);
+    assert.equal((await ownerItem()).returnFollowUp?.note, followUp.note);
+    assert.match((await action(officer, "mutate", { type: "recordClosing", loanId, closingDate: today, revision: 0 })).error, /current MISMO handoff/);
+    const corrected = await borrower(token, { type: "submit", revision: reopened.revision, step,
+      draft: { ...reopened.draft, propertyAddress: "96 Corrected Fictional Lane" } });
+    assert.equal((await todayItem()).returnStatus, "Corrected 1003 ready for review");
+    await loanAction(officer, loanId, "reviewApplication", { revision: corrected.revision });
+    assert.equal((await todayItem()).returnStatus, "Awaiting second review");
+    const review = (staff, input) => action(staff, "workOnLoanReview", { loanId, ...input });
+    const [pending] = (await review(owner, { type: "loan" })).reviews;
+    const { review: outdated } = await review(owner, { type: "detail", id: pending.id });
+    assert.equal(outdated.evidenceChanged, true);
+    const resubmitted = await review(officer, { type: "resubmit", id: pending.id, revision: outdated.revision,
+      eventId: randomUUID(), dueOn: today, note: "Resubmitted the corrected sample 1003 for approval." });
+    assert.equal(resubmitted.kind, "saved", resubmitted.error);
+    const { review: current } = await review(owner, { type: "detail", id: pending.id });
+    assert.equal(current.applicationRevision, corrected.revision);
+    const approved = await review(owner, { type: "decide", id: pending.id, revision: current.revision, eventId: randomUUID(),
+      decision: "Approved", note: "Reviewed the revised sample 1003." });
+    assert.equal(approved.kind, "saved", approved.error);
+    assert.equal((await todayItem()).returnStatus, "Ready for revised export");
+    const replacement = await exportApplication(corrected.revision, randomUUID());
+    assert.match(replacement.mismoXml, /96 Corrected Fictional Lane/);
+    assert.equal((await ownerItem()).target, "manual-lender-acknowledgment");
+    const accepted = await loanAction(officer, loanId, "recordManualHandoff", { eventId: randomUUID(),
+      revision: corrected.revision, lenderRevision: 0, outcome: "Acknowledged", note: "",
+      lenderFile: { lender: response.lender, externalId: "CEDAR-ACK" } });
+    assert.equal(accepted.loanWork.submissions.length, 1);
+    assert.equal(accepted.loanWork.manualReturn, undefined);
+    assert.equal(await todayItem(), undefined);
+    assert.equal(await ownerItem(), undefined);
+  });
+  await stage("A conventional no-cash-out refinance reaches funding through mock UWM", async () => {
+    const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Lake Refinance",
+      borrowerEmail: "working-day-lake-refinance@example.test", start1003: true, partnerId: null, officer: officer.name,
+      address: "", amount: 350000, purpose: "Refinance", stage: "Lead" });
+    const loanId = created.loanWork.loanId;
+    const { token } = (await file(officer, loanId)).applications[0];
+    const initial = await borrower(token, { type: "read" });
+    const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+    assert.equal(draft.purpose, "Refinance");
+    const { revision } = await borrower(token, { type: "submit", revision: initial.revision, step: applicationSteps.length - 1, draft });
+    await loanAction(officer, loanId, "reviewApplication", { revision });
+    await loanAction(officer, loanId, "saveLenderDetails", { revision: 0, details: {
+      supplement: { fields: { mortgage: "Conventional", mortgageLien: "First lien", refinance: "No cash out",
+        refinanceProgram: "Full documentation", mortgagePayoffs: "345000" } },
+    } });
+    const scenario = { purpose: "Refinance", loanAmount: Number(draft.loanAmount), propertyValue: Number(draft.estimatedValue),
+      purchasePrice: null, zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+      propertyType: "Single family", firstTimeBuyer: false };
+    const pricing = await loanAction(officer, loanId, "runPricing", { scenario, applicationRevision: revision });
+    const run = pricing.state.pricingRuns.find((item) => item.loanId === loanId);
+    assert.equal(run.mode, "mock");
+    const quote = { runId: run.id, offerId: run.offers[0].id };
+    await loanAction(officer, loanId, "selectOffer", quote);
+    const review = (input) => action(owner, "workOnLoanReview", { loanId, ...input });
+    const [pending] = (await review({ type: "loan" })).reviews;
+    const { review: current } = await review({ type: "detail", id: pending.id });
+    const approval = await review({ type: "decide", id: pending.id, revision: current.revision, eventId: randomUUID(),
+      decision: "Approved", note: "Verified the fictional refinance for mock lender delivery." });
+    assert.equal(approval.kind, "saved", approval.error);
+    await loanAction(officer, loanId, "simulateMissingUwmReceipt", { revision, quote });
+    await loanAction(officer, loanId, "reconcileMockUwmReceipt", { revision });
+    const received = await file(officer, loanId);
+    assert.equal(received.submissions.length, 1);
+    const [submission] = received.submissions;
+    assert.equal(submission.lender, "UWM");
+    assert.match(submission.externalId, /^DEMO-/);
+    const conditionIds = submission.conditions.filter(({ satisfiedAt }) => !satisfiedAt).map(({ id }) => id);
+    assert.equal(conditionIds.length, 2);
+    await loanAction(officer, loanId, "requestSuggestedUwmDocuments", { submissionId: submission.id, conditionIds });
+    const requested = (await file(officer, loanId)).documentRequests;
+    for (const request of requested) {
+      await borrower(token, { type: "attachSample", statusOnly: true, requestId: request.id, revision: request.revision });
+      const currentRequest = (await file(officer, loanId)).documentRequests.find(({ id }) => id === request.id);
+      await loanAction(officer, loanId, "reviewDocument", { requestId: request.id, revision: currentRequest.revision,
+        decision: "Accepted", replacementNote: "", sendToMockUwm: true });
+    }
+    await loanAction(officer, loanId, "refreshMockUwmClearance", { submissionId: submission.id });
+    const ready = await file(officer, loanId);
+    assert.ok(ready.submissions[0].conditions.every(({ satisfiedAt }) => satisfiedAt));
+    assert.equal(closingReviewReady(ready.loans[0], ready), true);
+    await loanAction(officer, loanId, "markClearToClose");
+    await loanAction(officer, loanId, "recordClosing", { revision: 0, closingDate: today });
+    await loanAction(officer, loanId, "recordFunding", { revision: 0, fundingDate: today });
+    const funded = await file(officer, loanId);
+    assert.equal(funded.loans[0].stage, "Funded");
+    assert.equal(funded.closingProgress[0].fundingDate, today);
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

@@ -105,12 +105,13 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
     names: [{ first: "Fictional", middle: "", last: "Borrower", suffix: "" }] };
   const exportResult = await command("exportReviewedApplication", manualExport);
   assert.ok(exportResult.mismoXml?.includes("MISMOReferenceModelIdentifier"));
-  assert.deepEqual(exportResult.state.applications[0].manualHandoff, { exportPrepared: true, outcome: null });
+  assert.deepEqual(exportResult.state.applications[0].manualHandoff, { exportPrepared: true, outcome: null,
+    preparedExports: [{ eventId: manualExport.eventId, profile: "basic" }] });
   const acknowledgment = { revision: first.revision, lenderRevision: 0, eventId: crypto.randomUUID(), outcome: "Acknowledged", note: "Fictional response" };
   assert.equal((await apply("recordManualHandoff", acknowledgment)).applications[0].manualHandoff.outcome, "Acknowledged");
   await apply("recordManualHandoff", { ...acknowledgment, eventId: crypto.randomUUID(), outcome: "Returned for changes" });
   assert.deepEqual((await apply("recordManualHandoff", acknowledgment)).applications[0].manualHandoff,
-    { exportPrepared: true, outcome: "Returned for changes" });
+    { exportPrepared: true, outcome: "Returned for changes", preparedExports: [{ eventId: manualExport.eventId, profile: "basic" }] });
   const changed = await apply("saveLenderDetails", { revision: 0, details: blankLenderDetails() });
   assert.equal(changed.applications[0].manualHandoff, undefined);
   assert.match((await command("recordManualHandoff", acknowledgment)).error, /Lender details changed/);

@@ -84,3 +84,8 @@ Chrome's native 200% site zoom changed the signed-in desktop viewport from 1419 
 ## Final review route
 
 Compare homepage/product/demo entry → sign-in → owner dashboard → LO Today and loan drawer → processor queue/conditions → communications/calendar/search → borrower/realtor portals. Capture desktop and narrow-screen evidence on the final candidate, including non-happy-path states. Tie blockers and fixes to D08, D12, D13, and D15 of the [demo checklist](demo-completion-checklist.md). Do not mark visual acceptance complete from this source review alone.
+## Manual lender rejection
+
+The LO records the lender response from the prepared export, then follows the correction through Today. The owner sees the same phase, deadline and assignee in Exceptions. The borrower opens the existing application link and sees only their instructions. The processor keeps the existing role-based work queue.
+
+The Impeccable review kept the less common rejection action collapsed beside acknowledgment. UI UX Pro Max's form and responsive guidance informed the field labels and layout. The 21st.dev form reference informed required-field validation and focus. The first phone review showed a clipped lender name, so the lender fields now stack on narrow screens. The owner filter now says **Manual lender responses**, and the action appears once on each response card. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) · [21st.dev form validation](https://preview.21st.dev/blog/react-form-components)

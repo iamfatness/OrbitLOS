@@ -581,6 +581,7 @@ button:disabled { cursor: default; }
   .topbar > span > .muted, .topbar .slash { display: none; }
   .application-shell { width: calc(100% - 20px); }
   .borrower-portal .form-grid, .referral-intake-form > .form-grid, .pricing-program-fields > .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .lender-rejection-form .form-grid { grid-template-columns: minmax(0, 1fr); width: 100%; }
   .application-actions > .spacer { display: none; }
   .task-form { grid-template-columns: minmax(0, 1fr) auto; }
   .task-form > .field:first-child { grid-column: 1 / -1; }

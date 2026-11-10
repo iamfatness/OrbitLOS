@@ -1,7 +1,8 @@
 import { incomingLoanWorkProcessingStatuses, incomingLoanWorkQuery, incomingLoanWorkUnavailable, type IncomingLoanWorkItem,
   type IncomingLoanWorkPage } from "./incoming-loan-work-model";
 import { activeProcessingLoan, processingAcceptanceReady } from "./loan-processing";
-import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
+import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnLender, manualReturnPhase, manualReturnTitle, manualReturnWorkId,
+  pendingManualReturn } from "./manual-lender-work";
 import { readPlaybook } from "./playbooks";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -35,18 +36,19 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const contacts = "JOIN contacts contact ON contact.id = loan.contactId";
   const assigned = `processing.processorEmail IS NOT NULL AND processing.status IN (${incomingLoanWorkProcessingStatuses.map((status) => `'${status}'`).join(", ")})`;
   const scope = processing ? `${assigned}${team ? "" : " AND processing.processorEmail = ?"}` : owned;
+  const manualReturn = `(${manualReturnWorkId}) IS NOT NULL`;
   const applications = processing ? "" : `UNION ALL
-    SELECT CASE WHEN returnFile.id IS NULL THEN 'application' ELSE 'lender-return' END, coalesce(returnFile.id, loan.id), loan.id, contact.name,
+    SELECT CASE WHEN ${manualReturn} THEN 'lender-return' ELSE 'application' END, coalesce(${manualReturnWorkId}, loan.id), loan.id, contact.name,
       coalesce(app.reviewedAt, app.submittedAt, returnEntry.createdAt), app.revision,
-      CASE WHEN returnFile.id IS NOT NULL THEN 'Manual lender return'
+      CASE WHEN ${manualReturn} THEN ${manualReturnTitle}
         WHEN EXISTS (SELECT 1 FROM application_versions version WHERE version.loanId = app.loanId AND version.revision < app.revision)
         THEN 'Corrected 1003' ELSE 'Submitted 1003' END, NULL, 0,
-      returnFile.lender || ' · ' || returnFile.externalId,
-      CASE WHEN returnFile.id IS NOT NULL THEN ${manualReturnPhase(requireApproval)} END,
-      CASE WHEN returnFile.id IS NOT NULL THEN ${manualReturnDueAt} END,
-      CASE WHEN returnFile.id IS NOT NULL THEN returned.activityId END
+      ${manualReturnLender},
+      CASE WHEN ${manualReturn} THEN ${manualReturnPhase(requireApproval)} END,
+      CASE WHEN ${manualReturn} THEN ${manualReturnDueAt} END,
+      CASE WHEN ${manualReturn} THEN returned.activityId END, returnFile.id
     FROM loans loan CROSS JOIN applications app ON app.loanId = loan.id ${contacts} ${pendingManualReturn}
-    WHERE ${activeProcessingLoan} AND ${owned} AND (returnFile.id IS NOT NULL OR (app.submittedAt IS NOT NULL AND app.reviewedAt IS NULL))`;
+    WHERE ${activeProcessingLoan} AND ${owned} AND (${manualReturn} OR (app.submittedAt IS NOT NULL AND app.reviewedAt IS NULL))`;
   const handoffs = processing ? `FROM loan_processing processing CROSS JOIN loans loan ON loan.id = processing.loanId
     LEFT JOIN applications app ON app.loanId = loan.id ${contacts}
     WHERE ${activeProcessingLoan} AND processing.status = 'Ready for processing' AND ${scope}
@@ -60,24 +62,24 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision,
       request.kind || CASE WHEN request.recipient = 'Co-borrower' THEN ' · Co-borrower' ELSE '' END AS title,
       ${team ? "processing.processorName" : "NULL"} AS assignee, request.conditionId IS NOT NULL AS linkedCondition, NULL AS note,
-      NULL AS returnStatus, NULL AS returnDueAt, NULL AS returnEventId
+      NULL AS returnStatus, NULL AS returnDueAt, NULL AS returnEventId, NULL AS returnSubmissionId
     ${from} ${contacts}
     WHERE ${activeProcessingLoan} AND ${scope} AND request.status = 'Received'
     ${applications}
     UNION ALL
     SELECT 'handoff', loan.id, loan.id, contact.name, processing.updatedAt, processing.revision,
       '${processing ? "Ready to accept" : "Returned from processing"}', ${processing && !team ? "loan.officer" : "processing.processorName"}, 0,
-      nullif(processing.note, ''), NULL, NULL, NULL
+      nullif(processing.note, ''), NULL, NULL, NULL, NULL
     ${handoffs}
     ${leadDocuments ? `UNION ALL
     SELECT 'lead-document', request.id, lead.id, lead.name, coalesce(request.submittedAt, request.requestedAt),
-      request.revision, request.kind || ' · Lead', NULL, 0, NULL, NULL, NULL, NULL
+      request.revision, request.kind || ' · Lead', NULL, 0, NULL, NULL, NULL, NULL, NULL
     FROM referral_leads lead JOIN lead_document_requests request ON request.leadId = lead.id
     WHERE lead.officerEmail = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND request.status = 'Received'` : ""}
   ), borrower_answers AS (
     SELECT 'question', question.id, loan.id, contact.name, question.answeredAt, question.revision,
       CASE WHEN question.recipient = 'Co-borrower' THEN 'Co-borrower answer' ELSE 'Borrower answer' END,
-      ${team ? "processing.processorName" : "NULL"}, 0, NULL, NULL, NULL, NULL
+      ${team ? "processing.processorName" : "NULL"}, 0, NULL, NULL, NULL, NULL, NULL
     FROM borrower_questions question JOIN loans loan ON loan.id = question.loanId ${contacts}
     ${processing ? "JOIN loan_processing processing ON processing.loanId = loan.id" : ""}
     WHERE ${activeProcessingLoan} AND ${scope} AND question.status = 'Answered' AND question.answeredAt IS NOT NULL
@@ -90,15 +92,15 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       ...(after ? [after.receivedAt, after.kind, after.id] : []), limit + 1) as unknown as
       (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline" | "returnEventId" | "returnFollowUp"> & {
         loanId: string; linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
-        returnEventId: string | null; returnFollowUp: string | null;
+        returnEventId: string | null; returnFollowUp: string | null; returnSubmissionId: string | null;
       })[];
   const checkedAt = now.toISOString();
-  const items = rows.slice(0, limit).map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
+  const items = rows.slice(0, limit).map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnSubmissionId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
     const work = { ...item, linkedCondition: Boolean(linkedCondition) };
     if (kind === "lead-document") return { ...work, kind, leadId: loanId };
     return { ...work, kind, loanId, ...(returnStatus ? { returnStatus } : {}),
       ...(returnDueAt ? { returnDeadline: { dueAt: returnDueAt, overdue: returnDueAt < checkedAt } } : {}),
-      ...(returnEventId ? { returnEventId } : {}), ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}) };
+      ...(returnEventId ? { returnEventId, returnSubmissionId } : {}), ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}) };
   });
   const last = items.at(-1);
   return { items, next: rows.length > limit && last ? { id: last.id, kind: last.kind, receivedAt: last.receivedAt } : null };

@@ -708,10 +708,12 @@ test("the mock UWM checkpoint gates initial and revised sends while manual MISMO
   assert.match((await send(7)).error, /approved second review/i);
   assert.deepEqual(files(), []);
   assert.deepEqual(receipts(), []);
+  const exportId = crypto.randomUUID();
   const exported = await command({ type: "exportReviewedApplication", loanId: "loan", revision: 7, lenderRevision: 0,
-    eventId: crypto.randomUUID(), names: [{ first: "Fictional", middle: "", last: "Borrower", suffix: "" }] });
+    eventId: exportId, names: [{ first: "Fictional", middle: "", last: "Borrower", suffix: "" }] });
   assert.match(exported.mismoXml, /MISMOReferenceModelIdentifier/);
-  assert.deepEqual(exported.state.applications[0].manualHandoff, { exportPrepared: true, outcome: null });
+  assert.deepEqual(exported.state.applications[0].manualHandoff, { exportPrepared: true, outcome: null,
+    preparedExports: [{ eventId: exportId, profile: "basic" }] });
 
   approveCurrent();
   const initial = await send(7);

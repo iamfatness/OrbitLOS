@@ -231,11 +231,13 @@ export interface StaffApplication {
   draftHasPropertyStreet?: boolean;
   lender: { details: LenderDetails; revision: number } | null;
   manualHandoff?: { exportPrepared: boolean; exportProfiles?: import("./lender-export-model").LenderExportProfile[];
+    preparedExports?: import("./lender-export-model").PreparedLenderExport[];
     preparedQuotes?: import("./manual-pricing-model").PreparedManualQuote[]; acknowledgedQuote?: import("./manual-pricing-model").ManualQuoteBasis;
     acknowledgmentOutdated?: true; outcome: (typeof manualHandoffOutcomes)[number] | null; submissionId?: string };
   currentManualExportPrepared?: boolean;
   lastExportProfile?: import("./lender-export-model").LenderExportProfile;
   lastManualSubmissionId?: string;
+  manualLenderRejected?: true;
 }
 
 export function submittedRequestedLoanAmount(application?: Pick<StaffApplication, "submittedAt" | "correctionNote" | "draft">) {

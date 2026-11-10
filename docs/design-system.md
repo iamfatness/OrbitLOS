@@ -68,7 +68,9 @@ Retain information that changes a decision: required format, deadline/timezone, 
 
 ## Design gate for each release
 
-Before implementation, document the job, primary action, and next handoff for the LO and owner. Include processors, borrowers, and realtors when they touch the workflow. Compare the current layout with the existing Orbit components, then apply the relevant Impeccable and UI UX Pro Max review guidance. Use 21st.dev as a focused reference for new patterns. [Reference review](brand-ux-review.md)
+At roadmap planning, identify the work the LO or owner should be able to finish and the next handoff. Cover both business growth, such as acting on a referral, and daily operations, such as clearing a closing blocker. Include processors, borrowers, and realtors where they participate.
+
+Before implementation, review the current path with Impeccable and UI UX Pro Max. Use 21st.dev to compare a specific interaction when the existing components need a new pattern. During implementation, use the Orbit components and tokens for shared labels, feedback, and controls. Review changes with a focused Impeccable detector scan and resolve findings against the rendered experience. [Reference review](brand-ux-review.md)
 
 Verify the rendered candidate on desktop, 900 × 1200 portrait, and 390 × 844 phone widths. Walk through the applicable empty, loading, successful, blocked, stale, and error states with keyboard and touch behavior. On returning to a queue, verify the prior filters and meaningful focus remain. Compare the role views for terminology, count definitions, status and action hierarchy. Log before and after evidence, the decision it changed, and any limitation with the release. [Product roadmap design gate](../PRODUCT-ROADMAP.md#design-and-usability-gate-for-every-release)
 

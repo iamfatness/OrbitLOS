@@ -16,7 +16,7 @@ import { borrowerDocuments } from "./borrower-documents";
 import { accessEvent } from "./workspace-access";
 import { loanAuditSnapshot, recordLoanAudit } from "./loan-audit";
 import { zipCityState } from "./zip-city-state";
-import { approvedSecondReview, currentManualExportPrepared, currentManualLenderSubmission, lastManualLenderSubmission } from "./application-review-checkpoint";
+import { approvedSecondReview, currentManualExportPrepared, currentManualLenderSubmission, hasRecordedLenderRejection, lastManualLenderSubmission } from "./application-review-checkpoint";
 import type { LoanNextActionState } from "./loan-workflow";
 import { activeCoBorrowerLink, jointApplication, staffJointApplications } from "./joint-application";
 import { coBorrowerCommand, coBorrowerSubmissionIssues, jointLinkUnavailable, primaryJointDraft, type CoBorrowerApplication } from "./joint-application-model";
@@ -34,7 +34,7 @@ import { defaultLenderExportProfile, lenderExportProfile } from "./lender-export
 import { sameManualQuote, type ManualQuoteBasis } from "./manual-pricing-model";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "lastExportProfile" |
-  "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt"> & { draft: string; step: number };
+  "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt" | "manualLenderRejected"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
 export function getApplication(db: Store, loanId: string) {
@@ -49,7 +49,8 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     details: lenderDetailsSchema.parse(JSON.parse(String(item.details))), revision: Number(item.revision),
   }]));
   const handoffs = new Map<string, NonNullable<StaffApplication["manualHandoff"]>>();
-  for (const event of db.prepare(`SELECT event.loanId, event.outcome, event.submissionId, event.exportProfile, event.quoteBasis FROM application_handoff_events event
+  for (const event of db.prepare(`SELECT event.loanId, event.outcome, event.submissionId, event.exportProfile, event.quoteBasis,
+    event.activityId, event.exportDigest FROM application_handoff_events event
     JOIN activity ON activity.id = event.activityId
     JOIN applications app ON app.loanId = event.loanId AND app.revision = event.applicationRevision AND app.reviewedAt IS NOT NULL
     LEFT JOIN application_lender_details details ON details.loanId = event.loanId
@@ -59,6 +60,11 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     const basis = event.quoteBasis ? JSON.parse(String(event.quoteBasis)) as ManualQuoteBasis : null;
     if (event.outcome === "Export prepared") {
       const profile = lenderExportProfile.safeParse(event.exportProfile ?? defaultLenderExportProfile);
+      if (profile.success && event.exportDigest &&
+        !handoff.preparedExports?.some((item) => item.profile === profile.data && sameManualQuote(item.quote, basis))) {
+        (handoff.preparedExports ??= []).push({ eventId: String(event.activityId), profile: profile.data,
+          ...(basis ? { quote: { runId: basis.runId, offerId: basis.offerId } } : {}) });
+      }
       if (!basis) {
         handoff.exportPrepared = true;
         if (profile.success && !handoff.exportProfiles?.includes(profile.data)) (handoff.exportProfiles ??= []).push(profile.data);
@@ -76,14 +82,14 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
   return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved,
     pending.revision AS pendingRevision, pending.attemptedAt AS pendingAttemptedAt,
     ${currentManualLenderSubmission} AS currentManualFile, ${currentManualExportPrepared} AS currentManualExportPrepared,
-    ${lastManualLenderSubmission} AS lastManualSubmissionId,
+    ${lastManualLenderSubmission} AS lastManualSubmissionId, ${hasRecordedLenderRejection} AS manualLenderRejected,
     (SELECT event.exportProfile FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
       WHERE event.loanId = app.loanId AND event.outcome = 'Export prepared'
       ORDER BY event.applicationRevision DESC, event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS lastExportProfile
     FROM applications app LEFT JOIN mock_uwm_acceptances pending ON pending.loanId = app.loanId AND pending.reconciledAt IS NULL
     ${loanId ? "WHERE app.loanId = ?" : ""}`).all(...args).map((value) => {
     const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null; lastExportProfile: string | null;
-      currentManualFile: string | null; currentManualExportPrepared: number;
+      currentManualFile: string | null; currentManualExportPrepared: number; manualLenderRejected: number;
       pendingRevision: number | null; pendingAttemptedAt: string | null };
     const draft = JSON.parse(row.draft);
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
@@ -113,6 +119,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       manualHandoff, ...(row.currentManualExportPrepared ? { currentManualExportPrepared: true } : {}),
       ...(lastExportProfile.success ? { lastExportProfile: lastExportProfile.data } : {}),
       ...(typeof lastManualSubmissionId === "string" ? { lastManualSubmissionId } : {}),
+      ...(row.manualLenderRejected ? { manualLenderRejected: true } : {}),
       revision: row.revision, correctionNote: row.correctionNote, versions,
       previousAnswers: prior ? applicationDraft.parse(JSON.parse(String(prior.draft))) : null,
       ...(joint ? { joint } : {}),
@@ -124,7 +131,7 @@ type ActionApplication = LoanNextActionState["applications"][number] & { request
 type ActionApplicationRow = Omit<ActionApplication, "versions" | "secondReviewApproved" | "lastManualSubmissionId" | "requestedAmount" | "uwmPendingReceipt"> & {
   requestedAmount: string | null;
   secondReviewApproved: number; uwmReceipt: string | null; uwmSentAt: string | null;
-  manualSubmissionId: string | null; exportPrepared: number; lastManualSubmissionId: string | null;
+  manualSubmissionId: string | null; exportPrepared: number; lastManualSubmissionId: string | null; rejected: number;
   pendingRevision: number | null; pendingAttemptedAt: string | null;
 };
 
@@ -135,19 +142,20 @@ export function loanActionApplications(db: Store, loanIds: string[]): ActionAppl
     CASE WHEN app.submittedAt IS NOT NULL AND coalesce(app.correctionNote, '') = '' THEN json_extract(app.draft, '$.loanAmount') END AS requestedAmount,
     ${approvedSecondReview} AS secondReviewApproved, version.uwmReceipt, version.uwmSentAt,
     ${currentManualLenderSubmission} AS manualSubmissionId, ${currentManualExportPrepared} AS exportPrepared,
-    ${lastManualLenderSubmission} AS lastManualSubmissionId,
+    ${lastManualLenderSubmission} AS lastManualSubmissionId, ${hasRecordedLenderRejection} AS rejected,
     pending.revision AS pendingRevision, pending.attemptedAt AS pendingAttemptedAt
     FROM applications app LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
     LEFT JOIN mock_uwm_acceptances pending ON pending.loanId = app.loanId AND pending.reconciledAt IS NULL
     WHERE app.loanId IN (SELECT value FROM json_each(?))`).all(JSON.stringify(loanIds)) as unknown as ActionApplicationRow[];
   return rows.map(({ secondReviewApproved, uwmReceipt, uwmSentAt, manualSubmissionId, exportPrepared,
-    lastManualSubmissionId, pendingRevision, pendingAttemptedAt, ...app }) => ({
+    lastManualSubmissionId, rejected, pendingRevision, pendingAttemptedAt, ...app }) => ({
     ...app, requestedAmount: requestedLoanAmount(app.requestedAmount), secondReviewApproved: Boolean(secondReviewApproved),
     versions: typeof uwmReceipt === "string" && typeof uwmSentAt === "string"
       ? [{ revision: app.revision, uwmReceipt: { reference: uwmReceipt, sentAt: uwmSentAt } }] : [],
     ...(manualSubmissionId ? { manualHandoff: { outcome: "Acknowledged", submissionId: manualSubmissionId, exportPrepared: Boolean(exportPrepared) } } : {}),
     ...(exportPrepared ? { currentManualExportPrepared: true } : {}),
     ...(lastManualSubmissionId ? { lastManualSubmissionId } : {}),
+    ...(rejected ? { manualLenderRejected: true } : {}),
     ...(pendingRevision !== null && pendingAttemptedAt ? {
       uwmPendingReceipt: { revision: pendingRevision, attemptedAt: pendingAttemptedAt },
     } : {}),

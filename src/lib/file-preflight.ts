@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { currentManualExportPrepared, currentManualLenderSubmission, handoffCheckpointError, lastManualLenderSubmission } from "./application-review-checkpoint";
+import { currentManualExportPrepared, currentManualLenderSubmission, handoffCheckpointError, hasRecordedLenderRejection, lastManualLenderSubmission } from "./application-review-checkpoint";
 import { applicationDraft, requestedLoanAmount } from "./application-model";
 import { disclosurePackageStatus, disclosureTarget } from "./disclosure-model";
 import { readDisclosureWork } from "./disclosures";
@@ -24,7 +24,8 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
   };
   const app = db.prepare(`SELECT app.revision, app.submittedAt, app.reviewedAt, app.correctionNote, app.draft, loan.amount,
       app.uwmReference, version.uwmReceipt, version.uwmSentAt, ${currentManualLenderSubmission} AS manualFile,
-      ${lastManualLenderSubmission} AS previousManualFile, ${currentManualExportPrepared} AS manualExportPrepared
+      ${lastManualLenderSubmission} AS previousManualFile, ${currentManualExportPrepared} AS manualExportPrepared,
+      ${hasRecordedLenderRejection} AS lenderRejected
     FROM applications app JOIN loans loan ON loan.id = app.loanId
     LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
     WHERE app.loanId = ?`).get(loanId);
@@ -73,7 +74,7 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
     WHERE loanId = ? AND ((id = ? AND syncedAt IS NULL) OR (lender = 'UWM' AND syncedAt IS NOT NULL AND externalId = ?))
     ORDER BY syncedAt IS NULL, id LIMIT 1`).get(loanId, app?.manualExportPrepared ? app.manualFile : null,
     app?.uwmReceipt ? app.uwmReference : null) as LenderFile | undefined : undefined;
-  const manualPath = applicationReady && (manualQuote || app?.previousManualFile || app?.manualExportPrepared);
+  const manualPath = applicationReady && (manualQuote || app?.previousManualFile || app?.lenderRejected || app?.manualExportPrepared);
   const manualEvidence = app?.manualExportPrepared
     ? "Record acknowledgment for the current MISMO export."
     : "Prepare the MISMO export for the current 1003, lender details, and selected terms.";

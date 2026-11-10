@@ -74,7 +74,8 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
         onClick={() => open(item)}>{action}</Button>
       {item.kind !== "lead-document" && item.returnEventId && <div className="lender-return-follow-up">
         <LenderReturnFollowUp brokerageId={brokerageId} loanId={item.loanId} name={item.name}
-          lenderReturn={{ eventId: item.returnEventId, submissionId: item.id }} latest={item.returnFollowUp} paused={paused}
+          lenderReturn={{ eventId: item.returnEventId, submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId }}
+          latest={item.returnFollowUp} paused={paused}
           onSaved={() => setAttempt((current) => current + 1)} />
       </div>}
     </li>;})}</ul> : <p className="empty-inline">{after ? "No more incoming items need attention." : view === "today" ?

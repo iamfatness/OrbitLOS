@@ -989,3 +989,11 @@ The built Worker completed a conventional purchase and a no-cash-out refinance t
 Playwright checked the owner's desktop and the LO's portrait and phone views. The LO opened the required export from Closing, downloaded the revised XML with a 6.125% purchase rate, recorded the acknowledgment and saw Clear to Close become available. The phone check led to a scroll offset that keeps the export heading visible below the sticky drawer header. [Design evidence](brand-ux-review.md#manual-lender-closing)
 
 All 369 tests, source lint, typecheck, the production build, and the working-day and concurrency rehearsals passed. The MISMO checks used fictional lender requirements and synthetic files. Hosted provider activity remained simulated.
+
+## Manual lender rejection and mock refinance
+
+The built Worker recorded a rejection against the current prepared MISMO export, denied a stale export and another LO, and replayed the same event without a duplicate. The borrower used the existing link, saw their correction instructions, and submitted the update. The LO's Today and owner Exceptions tracked the response until staff resubmitted the earlier review with the corrected evidence, an owner approved it, and the revised file was acknowledged. Closing stayed blocked during recovery. The first linked lender file appeared at acknowledgment.
+
+A separate fictional conventional no-cash-out refinance used a mock quote, second review, original receipt recovery, and two borrower documents. Mock UWM cleared the conditions, then the LO marked Clear to Close, recorded closing and recorded funding.
+
+Playwright checked the rejection on a 900 × 1200 portrait desktop and a 390 × 844 phone, including focus on a missing field. A separate phone context checked borrower privacy. The 1440 × 1000 owner session opened the exact correction and restored focus and the filter after closing the loan. The LO found the case in Today. Impeccable's source scan covered the three changed workflow components. Typecheck, source lint, all 369 tests, the 32-stage working-day rehearsal, concurrency and the production build passed. [Design evidence](brand-ux-review.md#manual-lender-rejection)

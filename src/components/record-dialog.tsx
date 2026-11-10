@@ -441,7 +441,7 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
       </details>}
       <ManualLenderExport key={`export:${loanId}:${application.revision}:${manualQuote?.offerId ?? "general"}`}
         application={application} busy={busy} save={save} openConditions={openConditions}
-        canRecordReturn={canRecordReturn} handoffBlocker={blocker} openReviews={openReviews}
+        canRecordReturn={canRecordReturn} canRecordRejection={canRecordReturn && jointLinks} handoffBlocker={blocker} openReviews={openReviews}
         shareBrokerage={shareBrokerage}
         linkedFile={linkedFile}
         previousFile={acknowledgedFile ?? state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}

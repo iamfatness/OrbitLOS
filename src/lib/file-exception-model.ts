@@ -15,6 +15,7 @@ export type FileException = z.infer<typeof cursor> & {
   owner: string | null; ownerAvailable: boolean; nextParty: string | null; dueOn: string | null; dueAt?: string; reopenedAt: string | null;
   evidence: string | null; overdue: boolean; escalated: boolean;
   returnEventId?: string;
+  returnSubmissionId?: string | null;
   returnDueAt?: string;
   returnFollowUp?: ManualReturnFollowUp;
 };

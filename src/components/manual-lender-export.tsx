@@ -30,7 +30,7 @@ function focusExportIssue(issue: LenderExportIssue) {
   field.scrollIntoView({ block: "center" });
 }
 
-export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, openConditions,
+export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, canRecordRejection, openConditions,
   shareBrokerage, handoffBlocker, openReviews, correctionSave, correctionBlocked, manualQuote, manualQuoteCurrent, openPricing }: {
   application: StaffApplication;
   busy: boolean;
@@ -41,6 +41,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   linkedFile?: Submission;
   previousFile?: Submission;
   canRecordReturn: boolean;
+  canRecordRejection: boolean;
   openConditions: (id: string) => void;
   shareBrokerage?: string;
   handoffBlocker: string | null;
@@ -63,6 +64,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   const acknowledgmentAttempt = useRef<{ key: string; id: string } | null>(null);
   const linkedAttempt = useRef<{ key: string; id: string } | null>(null);
   const returnAttempt = useRef<{ note: string; id: string } | null>(null);
+  const rejectionAttempt = useRef<{ key: string; id: string } | null>(null);
   const ready = application.reviewedAt && application.submittedAt && !application.correctionNote && application.draft?.confirmedDemo;
   const details = manualQuote ? manualQuoteLenderDetails(application.lender?.details ?? blankLenderDetails(), manualQuote) : application.lender?.details;
   const issues = ready && application.draft ? lenderExportIssues(application.draft, details, names, profile) : [];
@@ -73,6 +75,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   const valid = !issues.length && !quoteIssue;
   const handoff = application.manualHandoff;
   const reference = manualQuote ? { runId: manualQuote.runId, offerId: manualQuote.offerId } : undefined;
+  const prepared = handoff?.preparedExports?.find((item) => item.profile === profile && sameManualQuote(item.quote, reference));
   const exportPrepared = manualQuote ? handoff?.preparedQuotes?.some((item) => item.profile === profile && sameManualQuote(item, manualQuote)) :
     handoff?.exportProfiles ? handoff.exportProfiles.includes(profile) :
     handoff?.exportPrepared && profile === defaultLenderExportProfile;
@@ -210,5 +213,32 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
         <div><Button size="sm" type="submit" disabled={busy || !!handoffBlocker || !!quoteIssue}>Record lender acknowledgment</Button></div>
       </form>}
     </section>}
+    {ready && canRecordRejection && !linkedFile && !previousFile && !application.uwmReference && !application.uwmPendingReceipt && prepared &&
+      <details className="document-form lender-rejection-form">
+        <summary>Record rejection before acknowledgment</summary>
+        <form className="record-form" onSubmit={(event) => {
+          event.preventDefault();
+          if (correctionBlocked) return;
+          const fields = new FormData(event.currentTarget);
+          const note = String(fields.get("borrowerInstructions") ?? "").trim();
+          const lenderRejection = { exportId: prepared.eventId, lenderRevision: application.lender?.revision ?? 0, profile,
+            lender: String(fields.get("lender") ?? "").trim(), reference: String(fields.get("reference") ?? "").trim(),
+            reason: String(fields.get("reason") ?? "").trim(), manualQuote: reference };
+          if (!note || !lenderRejection.lender || !lenderRejection.reason) return;
+          const key = JSON.stringify({ note, lenderRejection });
+          if (rejectionAttempt.current?.key !== key) rejectionAttempt.current = { key, id: crypto.randomUUID() };
+          void correctionSave({ type: "requestApplicationCorrection", loanId: application.loanId, revision: application.revision, note,
+            lenderRejection: { ...lenderRejection, eventId: rejectionAttempt.current.id } });
+        }}>
+          <p className="muted">Reopens the 1003. The borrower can use their existing application link.</p>
+          <div className="form-grid">
+            <label className="field">Lender name<input name="lender" required maxLength={160} defaultValue={manualQuote?.lender} readOnly={!!manualQuote} /></label>
+            <label className="field">Lender reference (optional)<input name="reference" maxLength={160} /></label>
+          </div>
+          <label className="field">Lender rejection reason (staff only)<textarea name="reason" required rows={3} maxLength={500} /></label>
+          <label className="field">Instructions for the borrower<textarea name="borrowerInstructions" required rows={3} maxLength={500} /></label>
+          <div><Button size="sm" type="submit" disabled={busy || correctionBlocked}>Record rejection and reopen 1003</Button></div>
+        </form>
+      </details>}
   </details>;
 }

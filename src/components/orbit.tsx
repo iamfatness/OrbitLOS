@@ -676,7 +676,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       { kind: "promised-callback"; id: string; dueAt: string; source?: "personal" | "manager" } |
       { kind: "guide-conditions"; submissionId: string; conditionId?: string } |
       { kind: "file-exception"; item: FileException } |
-      { kind: "manual-return-work"; submissionId: string; eventId?: string; personal: boolean } |
+      { kind: "manual-return-work"; submissionId: string | null; eventId?: string; personal: boolean } |
       { kind: "incoming-loan-work"; item: IncomingLoanWorkItem; view: IncomingLoanWorkQuery["view"] }) {
     if (pending.current) return;
     loanReadVersion.current += 1;
@@ -960,7 +960,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   function openIncomingLoanWork(item: IncomingLoanWorkItem, view: IncomingLoanWorkQuery["view"]) {
     if (item.kind === "lead-document") return void openLeadDocumentWork(item.leadId, item.id);
     if (item.kind === "lender-return") return void openQueueLoan({ kind: "details", loanId: item.loanId },
-      { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: true });
+      { kind: "manual-return-work", submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId,
+        eventId: item.returnEventId, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` :
       item.kind === "question" ? staffQuestionTarget(item.id) : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
@@ -1093,7 +1094,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
     exceptionTrigger.current = trigger ?? null;
     void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
       item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
-        item.kind === "Manual lender returns" ? { kind: "manual-return-work", submissionId: item.id, eventId: item.returnEventId, personal: false } :
+        item.kind === "Manual lender returns" ? { kind: "manual-return-work",
+          submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId, eventId: item.returnEventId, personal: false } :
           staff && (item.kind === "Unassigned handoffs" || item.kind === "Disclosure reviews" || item.kind === "Reopened conditions") ?
             { kind: "file-exception", item } : undefined);
   }

@@ -99,8 +99,8 @@ import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEve
 import { stageEditOverride, type StageEditArea, type StageEditOverride } from "./loan-stage-edit-model";
 import { auditStageOverride, authorizeStageEdit } from "./loan-stage-edits";
 
-import { exportReviewedApplication, lenderExportProfile } from "./lender-export-model";
-import { hasPreparedLenderExport, prepareLenderExport, recordManualLenderReturn } from "./lender-export";
+import { exportReviewedApplication, lenderExportProfile, manualLenderRejection } from "./lender-export-model";
+import { hasPreparedLenderExport, prepareLenderExport, recordManualLenderRejection, recordManualLenderReturn } from "./lender-export";
 import { fundingCheckInActivityTitle, fundingTaskId, reversedFundingTaskPrefix, savePlaybookInput } from "./playbook-model";
 import { readPlaybook, recordedFundingCheckIn, retireFundingFollowUps, writePlaybook } from "./playbooks";
 import { startFundingPlaybook, supersedeFundingPlaybook } from "./playbook-runs";
@@ -346,7 +346,8 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("requestApplicationCorrection"), loanId: id, revision: z.number().int().nonnegative(),
     note: z.string().trim().min(1).max(500), stageOverride: stageEditOverride.optional(),
     recipient: z.enum(["Primary borrower", "Co-borrower"]).default("Primary borrower"),
-    lenderReturn: z.object({ eventId: z.uuid(), submissionId: id, lenderRevision: z.number().int().nonnegative() }).optional() }),
+    lenderReturn: z.object({ eventId: z.uuid(), submissionId: id, lenderRevision: z.number().int().nonnegative() }).optional(),
+    lenderRejection: manualLenderRejection.optional() }),
   z.object({ type: z.literal("saveLenderDetails"), loanId: id, revision: z.number().int().nonnegative(), details: lenderDetailsSchema,
     stageOverride: stageEditOverride.optional() }),
   z.object({ type: z.literal("sendApplication"), loanId: id, revision: z.number().int().nonnegative(),
@@ -513,7 +514,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "recordManualHandoff":
       return data.lenderFile ? data.loanId : undefined;
     case "requestApplicationCorrection":
-      return data.lenderReturn ? data.loanId : undefined;
+      return data.lenderReturn || data.lenderRejection ? data.loanId : undefined;
     case "markClearToClose":
     case "addManualQuote":
     case "useReviewedLoanAmount":
@@ -1851,10 +1852,21 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (pendingMockUwmAcceptance(db, data.loanId)) throw new WorkspaceError("Recover the missing mock UWM receipt before reopening the 1003.");
           const coBorrower = data.recipient === "Co-borrower";
           const joint = jointApplication(db, data.loanId);
-          if (coBorrower && (!joint?.submittedAt || !joint.primarySubmittedAt || data.lenderReturn)) {
+          if (coBorrower && (!joint?.submittedAt || !joint.primarySubmittedAt || data.lenderReturn || data.lenderRejection)) {
             throw new WorkspaceError("Choose a submitted co-borrower portion on the current joint 1003.");
           }
-          if (data.lenderReturn) {
+          if (data.lenderRejection) {
+            if (data.lenderReturn || (!isDemoStaff(staff) && !staff?.brokerage.pilot)) {
+              throw new WorkspaceError("Lender rejection is available for an unacknowledged export in a fictional workspace.");
+            }
+            const result = recordManualLenderRejection(db, { ...data, lenderRejection: data.lenderRejection }, now);
+            if ("error" in result) throw new WorkspaceError(result.error);
+            if (result.alreadyRecorded) {
+              message = "Lender rejection already recorded.";
+              break;
+            }
+            accessEvent(db, staff, "Recorded manual lender rejection", data.loanId, now);
+          } else if (data.lenderReturn) {
             const result = recordManualLenderReturn(db, { ...data, lenderReturn: data.lenderReturn }, now);
             if ("error" in result) throw new WorkspaceError(result.error);
             if (result.alreadyRecorded) {
@@ -1877,7 +1889,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
           addApplicationActivity(db, data.loanId, coBorrower ? "Loan officer requested co-borrower corrections." : "Loan officer requested 1003 corrections.", now);
           auditStageOverride(db, staff, data.loanId, "Requested borrower corrections", now, override);
-          message = data.lenderReturn ? "Lender return recorded. The borrower can reopen the same link to correct the 1003." :
+          message = data.lenderRejection ? "Lender rejection recorded. The borrower can reopen the same link to correct the 1003." :
+            data.lenderReturn ? "Lender return recorded. The borrower can reopen the same link to correct the 1003." :
             coBorrower ? "The co-borrower can reopen their link to correct and resubmit their portion." :
               "The borrower can reopen the same link to correct and resubmit the 1003.";
           break;

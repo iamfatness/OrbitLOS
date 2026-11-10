@@ -12,6 +12,7 @@ export type IncomingLoanWorkItem = Omit<IncomingCursor, "kind"> & {
   name: string; title: string; revision: number; assignee: string | null; linkedCondition: boolean; note: string | null;
   returnStatus?: ManualReturnStatus;
   returnEventId?: string;
+  returnSubmissionId?: string | null;
   returnDeadline?: { dueAt: string; overdue: boolean };
   returnFollowUp?: ManualReturnFollowUp;
 } & ({ kind: "lead-document"; leadId: string } | { kind: Exclude<IncomingCursor["kind"], "lead-document">; loanId: string });

@@ -291,6 +291,8 @@ Open a reviewed pilot 1003 and expand **Manual lender export**. Choose **General
 
 Orbit checks the reviewed application and saved lender revisions on the server. The preparation event records the chosen profile and exact XML digest. A new 1003 or lender detail revision requires a current export before acknowledging a linked lender file. The profile's rules are fictional. Verify the receiving lender's import requirements and validate against its specification before a real handoff. [Fannie Mae Form 1003 and MISMO mapping resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
 
+For a fictional lender rejection before the first acknowledgment, open **Record rejection before acknowledgment** after preparing the current export. Enter the staff-only reason and separate instructions for the borrower. The existing application link reopens, and the file stays in **Today** and owner **Exceptions** through corrected 1003 review, a revised export, and lender acknowledgment.
+
 The fictional XML maps core borrower, property, employment, income, asset, liability, and loan details. Use the review list in Orbit to identify fields to finish in the receiving system. The pilot download excludes taxpayer and account identifiers and signatures. Validate the lender's accepted profile and import behavior with approved test files before a live upload. [Fannie Mae 1003 and ULAD resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
 
 ## Start with My Tasks today

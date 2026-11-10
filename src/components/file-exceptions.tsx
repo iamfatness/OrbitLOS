@@ -60,32 +60,34 @@ export function FileExceptions({ brokerageId, version, busy, open, assign, stand
       <Button size="sm" variant="outline" onClick={() => setQuery({ ...query, after: undefined })}><RefreshCw /> Refresh file exceptions</Button></div>
     <p className="muted">Find files that need an assignment, evidence, or a review. Open an item to act on the loan.</p>
     <label className="field playbook-filter">File exception type<select id={standalone ? "owner-exception-filter" : undefined} value={query.filter} onChange={(event) => setQuery({ filter: event.target.value as FileExceptionQuery["filter"] })}>
-      {fileExceptionFilters.map((filter) => <option key={filter}>{filter}</option>)}
+      {fileExceptionFilters.map((filter) => <option key={filter} value={filter}>
+        {filter === "Manual lender returns" ? "Manual lender responses" : filter}</option>)}
     </select></label>
     {!data && <p className="muted" role="status">Loading file exceptions…</p>}
     {data && "error" in data && <p role="alert">{data.error}</p>}
     {page && <>
       {page.items.length ? <ul className="playbook-exceptions">{page.items.map((item) => <li className="document-item" key={`${item.kind}:${item.parentId}:${item.id}`}>
         <div className="document-item-head"><strong>{item.title} · {item.borrower}</strong><span className="pill">{item.status}</span></div>
-        <p>{item.action}</p>
+        {item.kind !== "Manual lender returns" && <p>{item.action}</p>}
         <p className="muted">{item.owner ? `Staff owner · ${item.owner}${item.ownerAvailable ? "" : " · Owner unavailable"}` : "Staff owner · Unassigned"}
           {item.dueOn ? ` · Due ${dateLabel(item.dueOn)}` : item.kind === "Required 1003 approvals" ? " · Due date pending" : null}
           {item.dueAt && ` · Due ${dateTime(item.dueAt)} ET`}
-          {item.reopenedAt && ` · ${item.kind === "Manual lender returns" ? "Returned" : "Reopened"} ${dateTime(item.reopenedAt)} ET`}</p>
+          {item.reopenedAt && ` · ${item.returnSubmissionId === null ? "Rejected" : item.returnEventId ? "Returned" : "Reopened"} ${dateTime(item.reopenedAt)} ET`}</p>
         {item.returnDueAt && <p className={item.overdue ? "open-chip" : "muted"}>
           {item.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDueAt)} ET
         </p>}
         {item.returnFollowUp ? <div><p className="muted">{lenderReturnFollowUpLabel(item.returnFollowUp)}</p><p>{item.returnFollowUp.note}</p></div> :
           item.returnEventId && <p className="muted">No follow-up logged yet.</p>}
         {(item.evidence || item.nextParty || item.overdue || item.escalated) && <p className="muted">
-          {[item.evidence, item.nextParty && `${item.kind === "Manual lender returns" ? "Lender file" : "Manual condition next party"} · ${item.nextParty}`, item.overdue && !item.returnDueAt && "Overdue", item.escalated && "Escalated"].filter(Boolean).join(" · ")}
+          {[item.evidence, item.nextParty && `${item.returnEventId ? "Lender" : "Manual condition next party"} · ${item.nextParty}`, item.overdue && !item.returnDueAt && "Overdue", item.escalated && "Escalated"].filter(Boolean).join(" · ")}
         </p>}
         <div className="loan-application-actions"><Button size="sm" variant="outline" disabled={busy}
           aria-label={`${fileExceptionAction(item)} for ${item.borrower} · ${item.title}`} onClick={(event) => open(item, event.currentTarget)}>
           {fileExceptionAction(item)}
         </Button>
           {assign && item.returnEventId && <Button size="sm" variant="outline" disabled={busy} aria-label={`Reassign loan for ${item.borrower}`}
-            onClick={() => assign(item.loanId, { eventId: item.returnEventId!, submissionId: item.id })}>Reassign loan</Button>}
+            onClick={() => assign(item.loanId, { eventId: item.returnEventId!,
+              submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId })}>Reassign loan</Button>}
         </div>
       </li>)}</ul> : <p className="empty-inline" role="status">{query.after ? "No more exceptions on this page." :
         query.filter === "All file exceptions" ? "You're caught up. No open file exceptions." : "No open file exceptions match this filter."}</p>}

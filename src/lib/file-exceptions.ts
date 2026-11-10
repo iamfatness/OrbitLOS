@@ -12,7 +12,8 @@ import type { SqlValue, Store } from "./store";
 import { conditionTarget } from "./uwm-alert-model";
 import { openSecondReview, pendingRequiredApproval } from "./application-review-checkpoint";
 import { readPlaybook } from "./playbooks";
-import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnPhase, pendingManualReturn } from "./manual-lender-work";
+import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnLender, manualReturnPhase, manualReturnTitle, manualReturnWorkId,
+  pendingManualReturn } from "./manual-lender-work";
 import { manualReturnSteps, type ManualReturnStatus } from "./lender-export-model";
 
 const limit = 20;
@@ -113,15 +114,15 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
         AND package.reviewReason IS NOT NULL AND package.supersededAt IS NULL`, "task.dueAt", "loan.id", "task.id");
   }
 
-  add("Manual lender returns", `${loanColumns}, 'Manual lender return' AS title, ${manualReturnPhase(requireApproval)} AS status,
-    NULL AS dueOn, returnEntry.createdAt AS reopenedAt, returnFile.lender || ' · ' || returnFile.externalId AS nextParty,
+  add("Manual lender returns", `${loanColumns}, ${manualReturnTitle} AS title, ${manualReturnPhase(requireApproval)} AS status,
+    NULL AS dueOn, returnEntry.createdAt AS reopenedAt, ${manualReturnLender} AS nextParty,
     loan.officer AS ownerName, loan.officerEmail AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision,
-    0 AS escalated, app.revision AS version, 0 AS changed, NULL AS requestStatus
+    0 AS escalated, app.revision AS version, 0 AS changed, returned.outcome AS requestStatus
     FROM loans loan JOIN applications app ON app.loanId = loan.id ${loanJoins} ${pendingManualReturn}
-    WHERE ${activePipeline} AND returnFile.id IS NOT NULL${overdueReturns ? ` AND ${manualReturnDueAt} < ?` : ""}
+    WHERE ${activePipeline} AND (${manualReturnWorkId}) IS NOT NULL${overdueReturns ? ` AND ${manualReturnDueAt} < ?` : ""}
       ${filter === unattendedManualReturnFilter ? `AND NOT EXISTS (SELECT 1 FROM manual_return_follow_ups followUp
         WHERE followUp.returnEventId = returned.activityId)` : ""}`,
-  manualReturnDueAt, "loan.id", "returnFile.id", overdueReturns ? [checkedAt] : [], "returned.activityId");
+  manualReturnDueAt, "loan.id", manualReturnWorkId, overdueReturns ? [checkedAt] : [], "returned.activityId");
 
   if (showCheckpoint) {
     add("Required 1003 approvals", `${loanColumns}, 'Required 1003 approval' AS title,
@@ -226,7 +227,7 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const evidence = version === null ? null : `${manual ? "Current 1003" : internalReview ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
-      ...(returnEventId ? { returnEventId, returnDueAt: sortOn } : {}),
+      ...(returnEventId ? { returnEventId, returnSubmissionId: requestStatus === "Rejected" ? null : id, returnDueAt: sortOn } : {}),
       ...(dueAt ? { dueAt } : {}),
       ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}),
       ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: returnEventId || dueAt ? sortOn < checkedAt : !!dueOn && dueOn < today,
