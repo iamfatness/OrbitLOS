@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { conversationCursor, type ConversationReplyPage } from "./conversation-model";
 import { fundingCheckInTarget } from "./loan-workflow";
+import { disclosureTarget } from "./disclosure-model";
 import type { Contact, ContactActivity } from "./model";
 import type { DueSequenceStep } from "./campaign-sequence-model";
 
@@ -105,7 +106,8 @@ export function queueActionLabel(item: OfficerQueueItem) {
     case "campaign": return item.campaignId ? "Open campaign" : "Open lead";
     case "lock": return "Open pricing";
     case "funding": return item.target === fundingCheckInTarget ? "Record check-in" : item.completedAt ? "Open loan" : "Preview draft";
-    case "loan": return item.target === fundingCheckInTarget ? "Record check-in" : "Open loan task";
+    case "loan": return item.target === fundingCheckInTarget ? "Record check-in" :
+      item.target === disclosureTarget ? "Open disclosures" : "Open loan task";
     case "loan-hold": return "Open loan hold";
     default: return "Open closing";
   }

@@ -48,7 +48,7 @@ export function saveFeeWorksheet(db: Store, data: z.infer<typeof saveFeeWorkshee
   if (origin && (origin.id !== before?.origin?.id || origin.revision !== before.origin.revision)) {
     addApplicationActivity(db, loanId, `Saved sample fees from ${origin.title} · Version ${origin.revision} · Effective ${origin.effectiveOn}`, now);
   }
-  return { message: "Sample fee worksheet saved." };
+  return { message: "Sample fee worksheet saved.", revision: feeRevision + 1 };
 }
 
 export function quoteSnapshot(db: Store, loanId: string, choice: z.infer<typeof quoteSelection>, application: PricingApplication) {

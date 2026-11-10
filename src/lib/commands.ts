@@ -57,6 +57,8 @@ import { updateProcessingInput } from "./processing-model";
 import { updateProcessing } from "./loan-processing";
 import { quoteSelection, saveFeeWorksheetInput, type QuoteOption } from "./quote-worksheet";
 import { archiveSharedQuote, quoteSnapshot, saveFeeWorksheet } from "./quote-worksheet-store";
+import { disclosureCommand, disclosureTask } from "./disclosure-model";
+import { flagDisclosureReview, updateDisclosurePackage } from "./disclosures";
 
 import { migrationInput, undoMigrationInput, type MigrationReport } from "./pipeline-migration-model";
 import { migratePipeline } from "./pipeline-migration";
@@ -289,6 +291,7 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("extendMockLock"), ...lockChange, days: z.literal(mockLockExtensionPeriods) }),
   z.object({ type: z.literal("cancelMockLock"), ...lockChange }),
   saveFeeWorksheetInput,
+  ...disclosureCommand.options,
   z.object({ type: z.literal("publishQuote"), loanId: id, runId: id, offerId: id, feeRevision: z.number().int().nonnegative().default(0),
     alternatives: z.array(quoteSelection).max(2).default([]) }),
   z.object({ type: z.literal("withdrawQuote"), loanId: id, publishedAt: z.iso.datetime() }),
@@ -471,6 +474,9 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "runMockPairedAus":
     case "retryMockCreditAus":
     case "saveFeeWorksheet":
+    case "prepareDisclosurePackage":
+    case "issueDisclosurePackage":
+    case "respondToDisclosurePackage":
     case "applyDocumentPreset":
     case "applyDocumentTemplate":
     case "sendConditionDocument":
@@ -1478,6 +1484,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "completeTask": {
           const task = db.prepare("SELECT loanId, title, completedAt, purpose FROM tasks WHERE id = ?").get(data.id);
           if (!task) throw new WorkspaceError("This task no longer exists.");
+          if (disclosureTask(data.id)) throw new WorkspaceError("Open the disclosure workbench to resolve this task.");
           if (data.id.startsWith(reversedFundingTaskPrefix)) throw new WorkspaceError("This completed task belongs to a reversed funding entry.");
           message = data.completed ? "Task completed." : "Task reopened.";
           if (data.completed !== Boolean(task.completedAt)) {
@@ -1507,6 +1514,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const lastSaved = savedPricingRun(db, data.loanId);
           if (lastSaved?.id !== data.runId || lastSaved.selectedId !== offer.id) {
             db.prepare("UPDATE pricing_runs SET selectedId = ?, selectedAt = ? WHERE id = ?").run(offer.id, now, data.runId);
+            flagDisclosureReview(db, data.loanId, "Selected quote changed", now);
             addApplicationActivity(db, data.loanId, `Saved ${run.mode === "mock" ? "sample" : "stage"} quote · ${offer.product} at ${offer.rate.toFixed(3)}%`, now);
           }
           message = "Quote saved on the loan.";
@@ -1528,6 +1536,16 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         }
         case "saveFeeWorksheet": {
           const result = saveFeeWorksheet(db, data, now);
+          if ("error" in result) throw new WorkspaceError(result.error);
+          if (result.revision !== undefined) flagDisclosureReview(db, data.loanId, "Fees changed", now,
+            { runId: data.runId, offerId: data.offerId, feeRevision: result.revision });
+          message = result.message;
+          break;
+        }
+        case "prepareDisclosurePackage":
+        case "issueDisclosurePackage":
+        case "respondToDisclosurePackage": {
+          const result = updateDisclosurePackage(db, staff, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;
           break;
@@ -1649,6 +1667,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           db.prepare(`UPDATE applications SET correctionNote = ?, submittedAt = NULL, reviewedAt = NULL,
             revision = revision + 1, step = ?, updatedAt = ? WHERE loanId = ?`)
             .run(coBorrower ? "Co-borrower corrections requested." : data.note, coBorrower ? application.step : 0, now, data.loanId);
+          flagDisclosureReview(db, data.loanId, "1003 reopened for correction", now);
           db.prepare(`UPDATE tasks SET completedAt = ? WHERE loanId = ? AND completedAt IS NULL
             AND (id = ? OR instr(id, ?) = 1)`).run(now, data.loanId, "application-follow-up:" + data.loanId, "application-correction:" + data.loanId + ":");
           addApplicationActivity(db, data.loanId, coBorrower ? "Loan officer requested co-borrower corrections." : "Loan officer requested 1003 corrections.", now);

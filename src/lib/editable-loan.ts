@@ -14,6 +14,7 @@ import { loanAccess, scopeJointLinks } from "./workspace-access";
 import { searchTaskTarget } from "./workspace-search-model";
 import { readManualReturnWork } from "./manual-lender-work";
 import { processingActivityPrefix } from "./processing-model";
+import { canUseSampleDisclosures, readDisclosureWork } from "./disclosures";
 
 export const loanWorkUnavailable = "This loan is unavailable in your workspace.";
 
@@ -87,6 +88,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
   return {
     ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
+    ...(canUseSampleDisclosures(staff) ? { disclosureWork: readDisclosureWork(db, loanId) } : {}),
     applications: scopeJointLinks(records.applications, staff),
     repeatOption,
     ...(manualReturn ? { manualReturn } : {}),

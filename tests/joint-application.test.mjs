@@ -4,6 +4,10 @@ import test from "node:test";
 import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
 const { applicationIssues, applicationSteps, sampleApplication } = await import("../src/lib/application-model.ts");
+const { disclosurePackageStatus, disclosureTarget, sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
+const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
+const { blankFees } = await import("../src/lib/quote-worksheet.ts");
+const { easternDate } = await import("../src/lib/client-retention.ts");
 const { borrowerCommandResult, coBorrowerCommandResult, getApplication, staffApplications, startApplication } = await import("../src/lib/applications.ts");
 const { coBorrowerReviewStep, primaryJointDraft, sampleCoBorrower } = await import("../src/lib/joint-application-model.ts");
 const { jointApplication } = await import("../src/lib/joint-application.ts");
@@ -52,6 +56,86 @@ function fixture(t) {
   const count = (table, filter = "") => db.prepare(`SELECT count(*) AS total FROM ${table} WHERE loanId = ? ${filter}`).get(loanId).total;
   return { db, officer, processor, outsider, brokerage, loanId, now, primaryToken, primary, co, run, enable, primaryWrite, primarySample, coSample, coWrite, count };
 }
+
+test("sample disclosure packages pin reviewed joint signers and fees and route one actionable revision task", async (t) => {
+  const f = fixture(t);
+  const loan = (actor = f.officer) => readEditableLoan(f.db, f.loanId, actor, f.brokerage.id);
+  const work = () => loan().disclosureWork;
+  const apply = async (type, input, actor = f.officer) => {
+    const result = await f.run(type, input, actor, { scopedLoanUpdates: true });
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  assert.match(work().unavailable, /review the current 1003/);
+  await f.enable();
+  const primary = f.primary().application;
+  const co = f.co().value;
+  assert.ok(f.primary(f.primaryWrite(f.primarySample(primary.draft), primary.revision)).application.submittedAt);
+  assert.equal(f.co(f.coWrite(f.coSample(co.draft), co.revision)).value.complete, true);
+  const application = f.primary().application;
+  await apply("reviewApplication", { revision: application.revision });
+  const scenario = { purpose: "Purchase", loanAmount: Number(application.draft.loanAmount), propertyValue: 450000,
+    purchasePrice: null, zip: "48304", creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+    propertyType: "Single family", firstTimeBuyer: false };
+  const priced = await apply("runPricing", { scenario, applicationRevision: application.revision });
+  const run = (priced.loanWork ?? priced.state).pricingRuns[0];
+  const choice = { runId: run.id, offerId: run.offers[0].id };
+  await apply("selectOffer", choice);
+  assert.match(work().unavailable, /fee worksheet/);
+  const worksheet = { fees: { ...blankFees(), settlement: 100_000 }, purchasePrice: 45_000_000, payoffs: null,
+    deposit: 0, sellerCredits: 0, otherCredits: 0 };
+  await apply("saveFeeWorksheet", { ...choice, feeRevision: 0, worksheet });
+  const prepare = (previousVersion, feeRevision = 1) => ({ ...choice, previousVersion, feeRevision,
+    applicationRevision: application.revision, documents: sampleDisclosureDocuments, signBy: easternDate() });
+  assert.ok((await f.run("prepareDisclosurePackage", prepare(null), f.outsider)).error);
+  assert.ok((await f.run("prepareDisclosurePackage", prepare(null), f.processor)).error);
+  const nonPilot = { ...f.officer, brokerage: { ...f.brokerage, pilot: false } };
+  assert.match((await f.run("prepareDisclosurePackage", prepare(null), nonPilot)).error, /fictional/);
+  await apply("prepareDisclosurePackage", prepare(null));
+  assert.ok((await f.run("prepareDisclosurePackage", prepare(null))).error);
+  const current = () => work().packages[0];
+  const version = () => ({ version: current().version, revision: current().revision });
+  assert.equal(disclosurePackageStatus(current()), "Draft");
+  assert.deepEqual(current().signers.map(({ role, status }) => [role, status]), [["Borrower", "Pending"], ["Co-borrower", "Pending"]]);
+  assert.ok(!loan(f.outsider).disclosureWork);
+  assert.ok((await f.run("respondToDisclosurePackage", { ...version(), signer: "Borrower", response: "Signed" })).error);
+  await apply("issueDisclosurePackage", version());
+  assert.equal(disclosurePackageStatus(current()), "Awaiting signatures");
+  const issueRevision = version();
+  await apply("respondToDisclosurePackage", { ...version(), signer: "Borrower", response: "Signed" });
+  assert.ok(current().signers[0].receipt.startsWith("Mock receipt "));
+  assert.equal(current().signers[1].status, "Pending");
+  assert.ok((await f.run("respondToDisclosurePackage", { ...issueRevision, signer: "Co-borrower", response: "Signed" })).error);
+  const queue = () => readOfficerQueue(f.db, { horizon: 7 }, f.officer, f.brokerage.id).items;
+  assert.equal(queue().find(({ id }) => id.startsWith("disclosure-signing:")).target, disclosureTarget);
+
+  await apply("saveFeeWorksheet", { runId: run.id, offerId: run.offers[1].id, feeRevision: 0, worksheet });
+  assert.equal(current().reviewReason, null);
+  const changedFees = { ...worksheet, fees: { ...worksheet.fees, settlement: 125_000 } };
+  await apply("saveFeeWorksheet", { ...choice, feeRevision: 1, worksheet: changedFees });
+  await apply("saveFeeWorksheet", { ...choice, feeRevision: 1, worksheet: changedFees });
+  assert.equal(disclosurePackageStatus(current()), "Review required");
+  assert.equal(current().quote.estimate.inputs.fees.settlement, 100_000);
+  assert.equal(work().source.quote.estimate.inputs.fees.settlement, 125_000);
+  const reviews = queue().filter(({ id }) => id.startsWith("disclosure-review:"));
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].target, disclosureTarget);
+  assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-signing:")));
+  assert.match((await f.run("completeTask", { id: reviews[0].id, completed: true })).error, /workbench/);
+  assert.match((await f.run("respondToDisclosurePackage", { ...version(), signer: "Co-borrower", response: "Signed" })).error, /revised/);
+  assert.ok((await f.run("prepareDisclosurePackage", prepare(1))).error);
+  await apply("prepareDisclosurePackage", prepare(1, 2));
+  assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-review:")));
+  assert.deepEqual(current().signers.map(({ status }) => status), ["Pending", "Pending"]);
+  assert.equal(work().packages[1].signers[0].status, "Signed");
+  assert.equal(disclosurePackageStatus(work().packages[1]), "Superseded");
+  await apply("issueDisclosurePackage", version());
+  await apply("respondToDisclosurePackage", { ...version(), signer: "Borrower", response: "Signed" });
+  await apply("respondToDisclosurePackage", { ...version(), signer: "Co-borrower", response: "Signed" });
+  assert.equal(disclosurePackageStatus(current()), "Mock signing complete");
+  assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-signing:")));
+  assert.doesNotMatch(JSON.stringify(f.primary({ type: "status" })), /Sample disclosure package|Mock receipt/);
+});
 
 test("joint borrower links isolate drafts and finalize only after both portions arrive", async (t) => {
   const f = fixture(t);

@@ -236,6 +236,14 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, dueAt TEXT NOT NULL, completedAt TEXT
     );
+    CREATE TABLE IF NOT EXISTS disclosure_packages (
+      loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+      runId TEXT NOT NULL, offerId TEXT NOT NULL, applicationRevision INTEGER NOT NULL, feeRevision INTEGER NOT NULL,
+      quote TEXT NOT NULL, documents TEXT NOT NULL, signers TEXT NOT NULL, preparedAt TEXT NOT NULL, signBy TEXT NOT NULL,
+      issuedAt TEXT, supersededAt TEXT, reviewReason TEXT,
+      PRIMARY KEY (loanId, version)
+    );
     CREATE TABLE IF NOT EXISTS communication_drafts (${communicationDraftColumns});
     CREATE TABLE IF NOT EXISTS past_client_profiles (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,

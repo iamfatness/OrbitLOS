@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { executeCommand } from "./commands";
+import { disclosureCommand } from "./disclosure-model";
 import { contactMergeWork } from "./contact-merge";
 import { borrowerCommandResult, coBorrowerCommandResult } from "./applications";
 import { reserveAddressLookup } from "./places";
@@ -156,8 +157,9 @@ export async function updateWorkspace(input: unknown, staff: WorkspaceStaff | nu
       brokerage: { id: demoBrokerageId, name: "Local rehearsal", role: "Admin", pilot: true },
     });
   }
-  const actor = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" &&
-    "type" in input && input.type === "runPricing" && "incomeReviewRevision" in input ? localPilotAdmin : staff;
+  const localScopedLoan = !staff && process.env.NODE_ENV === "development" && input && typeof input === "object" && "type" in input &&
+    (input.type === "runPricing" && "incomeReviewRevision" in input || input.type === "saveFeeWorksheet" || disclosureCommand.safeParse(input).success);
+  const actor = localScopedLoan ? localPilotAdmin : staff;
   return executeCommand(database(), input, actor, undefined, [], { scopedLeadUpdates: true, scopedLoanUpdates: true,
     scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks", scopedTemplateUpdates: true,
     scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration" });

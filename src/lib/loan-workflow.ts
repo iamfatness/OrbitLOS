@@ -5,6 +5,7 @@ import { afterHours, fundingTaskAudience, fundingTaskId } from "./playbook-model
 import type { BrokerageRole } from "./brokerage-model";
 import { secondReviewBlocker } from "./application-model";
 import { loanReviewsTarget } from "./loan-review-model";
+import { disclosureTarget, disclosureTask } from "./disclosure-model";
 
 export const workFilters = ["Overdue", "Stalled", "Unassigned", "Paused or ended"] as const;
 export type WorkFilter = (typeof workFilters)[number];
@@ -55,6 +56,7 @@ export function isStalledLoan(loan: Pick<Loan, "disposition" | "stage" | "stageS
 }
 
 export function loanTaskTarget(id: string, readOnly = false) {
+  if (disclosureTask(id)) return disclosureTarget;
   if (id.startsWith("first-contact:") || id.startsWith("outreach:")) return "loan-activity";
   if (id.startsWith("application-")) return "loan-application";
   if (id.startsWith("rate-watch:") || id.startsWith("closing-anniversary:")) return "loan-retention";

@@ -294,6 +294,7 @@ export interface Workspace {
   closingPlans: ClosingPlan[];
   closingItems: ClosingItem[];
   closingProgress: ClosingProgress[];
+  disclosureWork?: import("./disclosure-model").DisclosureWork;
   returningClientLoans: { fundedLoanId: string; loanId: string }[];
   loanProcessing: LoanProcessing[];
   processingActivity?: Pick<Activity, "id" | "text" | "createdAt">[];
