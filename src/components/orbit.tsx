@@ -717,7 +717,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
         const current = item.kind === "application" ? application?.loanId === item.id && application.revision === item.revision &&
           application.submittedAt && !application.reviewedAt : item.kind === "document" ?
           result.documentRequests.some((request) => request.id === item.id && request.revision === item.revision && request.status === "Received") :
-          item.kind === "question" ? result.borrowerQuestions.some((question) =>
+          item.kind === "question" ? result.borrowerQuestions?.some((question) =>
             question.id === item.id && question.revision === item.revision && question.status === "Answered") :
           assigned?.loanId === item.id && assigned.revision === item.revision && !!assigned.processorEmail &&
           (view === "today" ? assigned.status === "Returned to LO" : assigned.status === "Ready for processing" && readyToAccept);

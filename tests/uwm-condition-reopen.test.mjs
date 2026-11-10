@@ -69,6 +69,9 @@ test("a scoped loan save preserves unrelated files and returns current revisions
   assert.deepEqual(saved.loanWork.loans.map(({ id }) => id), [loan.id]);
   assert.equal(saved.loanWork.closingItems[0].revision, 1);
   const updated = applyLoanMutation(state, saved.loanWork);
+  const previousWorker = { ...saved.loanWork };
+  delete previousWorker.borrowerQuestions;
+  assert.equal(applyLoanMutation(state, previousWorker).closingItems.find(({ id }) => id === itemId).revision, 1);
   assert.equal(updated.loans.find(({ id }) => id === other.id), other);
   assert.equal(updated.closingItems.find(({ id }) => id === itemId).title, input.title);
   assert.equal(updated.contacts, state.contacts);

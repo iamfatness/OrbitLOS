@@ -721,7 +721,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         applicationReviewRevision={application?.reviewedAt && application.submittedAt ? application.revision : null}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
-      {canOpenDisclosures && <LoanBorrowerQuestions key={loan.id} loanId={loan.id}
+      {canOpenDisclosures && (!staff || state.borrowerQuestions !== undefined) && <LoanBorrowerQuestions key={loan.id} loanId={loan.id}
         questions={(state.borrowerQuestions ?? []).filter((item) => item.loanId === loan.id)}
         canRequest={Object.values(checklistLinks).some(Boolean) && !pausedLoan(loan) && !pastClientLoan(loan)}
         joint={joint} busy={busy} save={save} />}
