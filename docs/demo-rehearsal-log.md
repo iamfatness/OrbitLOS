@@ -992,6 +992,8 @@ All 369 tests, source lint, typecheck, the production build, and the working-day
 
 ## Manual lender rejection and mock refinance
 
+On November 10, 2026, Worker `dad1bf20-4e03-4b5d-bd1b-595525d1b266` from `f765c5d` took 100% of traffic. The landing, Product and Demo pages returned HTTP 200 with the updated workflow copy on Product and Demo. All 44 staged assets matched the build twice. In the hosted fictional workspaces, the LO could open Incoming loan work and the owner could select **Manual lender responses** and see its empty state. The rejection and funding walkthroughs used the local built Worker.
+
 The built Worker recorded a rejection against the current prepared MISMO export, denied a stale export and another LO, and replayed the same event without a duplicate. The borrower used the existing link, saw their correction instructions, and submitted the update. The LO's Today and owner Exceptions tracked the response until staff resubmitted the earlier review with the corrected evidence, an owner approved it, and the revised file was acknowledged. Closing stayed blocked during recovery. The first linked lender file appeared at acknowledgment.
 
 A separate fictional conventional no-cash-out refinance used a mock quote, second review, original receipt recovery, and two borrower documents. Mock UWM cleared the conditions, then the LO marked Clear to Close, recorded closing and recorded funding.
