@@ -855,3 +855,11 @@ On November 10, 2026, Worker `be19d44a-f01f-4716-af95-a0644ce1d38a` from `780b0b
 The built Worker verified field creation and scoped edits, carryover through conversion, a filtered drilldown to the converted loan, zero matches for the other LO, and access revocation before counts or drilldowns. SQLite tests also covered processor read scope, opt-out exclusion, stale selection, an archived filter, preservation of an existing borrower value, and merge undo. All 354 tests, lint, typecheck, production build, and both local Worker rehearsals passed.
 
 Both staged marketing pages showed the new copy, and all 44 browser assets matched twice before promotion. Public landing, Product, and Demo returned HTTP 200 after promotion. Provider workflows remained mocked. QA used the fictional brokerage. The report filter matches one typed value, and report exports and loan-level fields are separate work.
+
+## Scoped custom report CSVs
+
+On November 10, 2026, Worker `2ac3ad8e-aeb5-4b53-b82e-464059f80199` from `a38899c` served CSV downloads for saved custom reports and their count drilldowns. In the fictional QA brokerage, Chrome saved the full Priority outreach report and the Imported CRM inquiries count. Both files contained the same header and one event for Casey Campaign Reserve. Jordan's lead was absent. The completed guide still opened the Owner Scorecard with mock UWM enabled.
+
+The built Worker verified that the assigned LO downloaded the exact converted loan, the other LO received a header-only file, and cross-brokerage, revoked field sharing, and archived filters rejected export. SQLite tests checked multi-page parity, saved columns, date and revision checks, formula-safe escaping, audit attribution, and the 2,000-row limit. All 356 tests, lint, typecheck, the production build, and both Worker rehearsals passed.
+
+Both staged public pages displayed the updated CSV copy and all 44 assets matched twice. Public landing, Product, and Demo returned HTTP 200 after promotion. Provider workflows stayed mocked.
