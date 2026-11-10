@@ -1048,13 +1048,13 @@ try {
     assert.equal(received.length, 2);
     assert.ok(received.every(({ status }) => status === "Received"));
     const selection = received.map(({ id, revision }) => ({ requestId: id, revision }));
-    const batch = { type: "processDocumentBatch", loanId, action: "accept-and-send", items: selection, reviewed: true, batchId: randomUUID() };
-    assert.ok((await action(competingOfficer, "mutate", batch)).error);
-    const staleBatch = { ...batch, items: [{ ...selection[0], revision: selection[0].revision - 1 }, selection[1]] };
+    const bulkReview = { type: "processDocumentBatch", loanId, action: "accept-and-send", items: selection, reviewed: true, batchId: randomUUID() };
+    assert.ok((await action(competingOfficer, "mutate", bulkReview)).error);
+    const staleBatch = { ...bulkReview, items: [{ ...selection[0], revision: selection[0].revision - 1 }, selection[1]] };
     assert.match((await action(processor, "mutate", staleBatch)).error, /changed/i);
     assert.ok((await file(processor, loanId)).documentRequests.every(({ status }) => status === "Received"));
-    assert.match((await write(processor, batch)).message, /Accepted and sent 2 documents/);
-    assert.match((await write(processor, batch)).message, /Accepted and sent 2 documents/);
+    assert.match((await write(processor, bulkReview)).message, /Accepted and sent 2 documents/);
+    assert.match((await write(processor, bulkReview)).message, /Accepted and sent 2 documents/);
     const deliveries = (await file(processor, loanId)).documentRequests;
     const selectClear = ({ id, revision, uwmReceipt }) => ({ requestId: id, revision, receipt: uwmReceipt });
     assert.match((await loanAction(processor, loanId, "processDocumentBatch", {
