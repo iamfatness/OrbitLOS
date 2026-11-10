@@ -12,12 +12,15 @@ const id = z.string().min(1).max(100);
 const revision = z.number().int().positive();
 const change = { caseId: z.uuid(), expectedRevision: revision, requestId: z.uuid() };
 const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.string().max(800), snapshot: z.number().int().nonnegative() });
+const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("list"), loanId: id.optional(), kind: z.enum(kinds).optional(), status: z.enum(statuses).optional(), after: cursor.optional() }),
+  z.strictObject({ type: z.literal("daily"), view: z.enum(["mine", "review"]), after: dailyCursor.optional() }),
   z.strictObject({ type: z.literal("read"), caseId: z.uuid(), loanId: id.optional() }),
   z.strictObject({ type: z.literal("openFixture"), loanId: id, packageVersion: revision }),
   z.strictObject({ type: z.literal("assign"), ...change, ownerEmail: z.email() }),
   z.strictObject({ type: z.literal("updateStatus"), ...change, status: z.enum(statuses) }),
+  z.strictObject({ type: z.literal("submitForReview"), ...change, packageRevision: revision, note: z.string().trim().min(1).max(1000) }),
   z.strictObject({ type: z.literal("recordSampleReview"), ...change, packageRevision: revision }),
   inventoryRead,
   inventoryAdvance,
@@ -40,6 +43,7 @@ const pageSize = 20;
 const unavailable = { error: complianceWorkUnavailable };
 const changed = { error: "This compliance case changed. Reopen it before saving." };
 const coverage = { state: "Not evaluated", evaluatedFiles: 0, eligibleFiles: null, mode: "Fictional fixture", approval: "None" } as const;
+const submissionPayload = z.object({ request: z.object({ note: z.string() }) });
 
 function currentMember(roster: readonly Member[], email: string) {
   return roster.find((member) => member.email === email && member.status === "Active");
@@ -67,6 +71,15 @@ function findCase(db: Store, brokerageId: string, caseId: string) {
     .get(brokerageId, caseId) as Case | undefined;
 }
 
+function currentReviewSubmission(db: Store, brokerageId: string, item: Case, packageRevision: SqlValue) {
+  if (item.status !== "Awaiting review") return undefined;
+  return db.prepare(`SELECT actor, at, json_extract(payload, '$.request.note') AS note FROM compliance_case_events
+    WHERE brokerageId = ? AND caseId = ? AND action = 'submitForReview' AND json_extract(payload, '$.request.packageRevision') = ?
+      AND revision > coalesce((SELECT max(revision) FROM compliance_case_events
+        WHERE brokerageId = ? AND caseId = ? AND action = 'updateStatus' AND json_extract(payload, '$.request.status') <> 'Awaiting review'), 0)
+    ORDER BY revision DESC LIMIT 1`).get(brokerageId, item.id, packageRevision, brokerageId, item.id);
+}
+
 function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], item: Case) {
   const history = db.prepare(`SELECT revision, actor, at, action, payload FROM compliance_case_events
     WHERE brokerageId = ? AND caseId = ? ORDER BY revision DESC LIMIT 51`).all(staff.brokerage.id, item.id) as unknown as CaseEvent[];
@@ -80,13 +93,58 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
     ORDER BY revision DESC LIMIT 1`).get(staff.brokerage.id, item.id, packageRow.revision) : undefined;
   const projected = projection(db, staff, roster, item);
   const admin = staff.brokerage.role === "Admin";
+  const canUpdateStatus = admin || (projected.ownerState === "Assigned" && projected.ownerEmail === staff.email);
+  const submitted = packageState === "Current" && packageRow ? currentReviewSubmission(db, staff.brokerage.id, item, packageRow.revision) : undefined;
   return { kind: "detail", item: projected, packageState, coverage, sampleReviewRevision,
-    canUpdateStatus: admin || (projected.ownerState === "Assigned" && projected.ownerEmail === staff.email),
+    canUpdateStatus,
+    submitPackageRevision: canUpdateStatus && packageState === "Current" && typeof packageRow?.revision === "number" && !submitted
+      ? packageRow.revision : null,
+    reviewSubmission: submitted ? { actor: String(submitted.actor), at: String(submitted.at), note: String(submitted.note) } : null,
     assignableOwners: admin ? roster.filter((member) => member.status === "Active" && mayOwn(db, staff, member, item.loanId))
       .map(({ email, name }) => ({ email, name })) : [],
     sampleReview: sampleReview ? { actor: String(sampleReview.actor), at: String(sampleReview.at), packageRevision: Number(packageRow?.revision), mode: "Sample workbench review" } : null,
-    history: history.slice(0, 50).map((event) => ({ ...event, payload: JSON.parse(event.payload) as unknown })),
+    history: history.slice(0, 50).map((event) => {
+      const payload: unknown = JSON.parse(event.payload);
+      const submission = event.action === "submitForReview" ? submissionPayload.safeParse(payload) : undefined;
+      return { ...event, payload, reviewNote: submission?.success ? submission.data.request.note : null };
+    }),
     moreHistory: history.length > 50 } as const;
+}
+
+function daily(db: Store, staff: WorkspaceStaff, roster: readonly Member[], data: Extract<ComplianceRequest, { type: "daily" }>) {
+  const { view, after } = data;
+  if (view === "review" && staff.brokerage.role !== "Admin") return unavailable;
+  const members = roster.filter(({ status }) => status === "Active").map(({ email, role, accessRevision }) => ({ email, role, rev: accessRevision ?? 0 }));
+  const scope = `WITH active AS (
+    SELECT value ->> 'email' AS email, value ->> 'role' AS role, value ->> 'rev' AS rev, key AS priority FROM json_each(?)
+  ), work AS (
+    SELECT finding.*, finding.rowid AS sequence, contact.name AS borrower FROM compliance_cases finding
+    JOIN loans loan ON loan.id = finding.loanId JOIN contacts contact ON contact.id = loan.contactId
+    LEFT JOIN loan_processing processing ON processing.loanId = loan.id
+    LEFT JOIN active owner ON owner.email = finding.ownerEmail AND owner.rev = finding.ownerAccessRevision
+    WHERE finding.brokerageId = ? AND finding.confidentiality = 'General' AND finding.kind = 'Operational finding'
+    AND ${view === "review" ? "finding.status = 'Awaiting review'" : `finding.status <> 'Awaiting review' AND (
+      CASE WHEN owner.role = 'Admin' OR (owner.role = 'LO' AND loan.officerEmail = owner.email)
+        OR (owner.role = 'Processor' AND processing.processorEmail = owner.email) THEN owner.email
+      ELSE (SELECT email FROM active WHERE role = 'Admin' AND email <> finding.ownerEmail ORDER BY priority LIMIT 1) END
+    ) = ?`}
+  )`;
+  const args = [JSON.stringify(members), staff.brokerage.id, ...(view === "mine" ? [staff.email] : [])];
+  const counts = db.prepare(`${scope} SELECT count(*) AS cases, count(DISTINCT loanId) AS files,
+    total(revision) AS revisions, total(sequence) AS sequences, max(updatedAt) AS newest FROM work`).get(...args)!;
+  const snapshot = JSON.stringify([view, staff.brokerage.id, staff.email, staff.brokerage.role, staff.brokerage.accessRevision ?? 0,
+    counts.cases, counts.files, counts.revisions, counts.sequences, counts.newest]);
+  if (after && (after.snapshot !== snapshot ||
+    !db.prepare(`${scope} SELECT 1 FROM work WHERE id = ? AND openedAt = ?`).get(...args, after.id, after.openedAt))) {
+    return { error: "This compliance work changed. Reload the first page." };
+  }
+  const rows = db.prepare(`${scope} SELECT ${columns}, borrower FROM work
+    ${after ? "WHERE (openedAt < ? OR (openedAt = ? AND id > ?))" : ""} ORDER BY openedAt DESC, id LIMIT ?`)
+    .all(...args, ...(after ? [after.openedAt, after.openedAt, after.id] : []), pageSize + 1) as unknown as (Case & { borrower: string })[];
+  const items = rows.slice(0, pageSize).map(({ borrower, ...item }) => ({ ...projection(db, staff, roster, item), borrower }));
+  const last = items.at(-1);
+  return { kind: "daily", counts: { cases: Number(counts.cases), files: Number(counts.files) }, items,
+    next: last && rows.length > pageSize ? { id: last.id, openedAt: last.openedAt, snapshot } : null } as const;
 }
 
 function list(db: Store, staff: WorkspaceStaff, roster: readonly Member[], data: Extract<ComplianceRequest, { type: "list" }>) {
@@ -173,6 +231,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
       return data.type === "leadBackfill" ? readLeadBackfill(db, brokerageId, data) : advanceLeadBackfill(db, brokerageId, data.revision, now);
     }
     if (data.type === "list") return list(db, staff, roster, data);
+    if (data.type === "daily") return daily(db, staff, roster, data);
     if (data.type === "openFixture") return openFixture(db, staff, roster, data, now);
     const item = findCase(db, brokerageId, data.caseId);
     const isAdmin = staff.brokerage.role === "Admin";
@@ -180,7 +239,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     if (data.type === "read") return data.loanId && data.loanId !== item.loanId ? unavailable : detail(db, staff, roster, item);
     const owner = currentMember(roster, item.ownerEmail);
     const owns = owner?.email === actor.email && (owner.accessRevision ?? 0) === item.ownerAccessRevision;
-    if (!isAdmin && (data.type !== "updateStatus" || !owns)) return unavailable;
+    if (!isAdmin && ((data.type !== "updateStatus" && data.type !== "submitForReview") || !owns)) return unavailable;
     const replay = db.prepare(`SELECT actor, json_extract(payload, '$.request') AS request FROM compliance_case_events
       WHERE brokerageId = ? AND caseId = ? AND requestId = ?`)
       .get(brokerageId, item.id, data.requestId);
@@ -202,12 +261,18 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
       const packageRow = item.loanId && currentPackage(db, item.loanId);
       if (!item.loanId || !item.packageVersion || !packageRow || packageRow.supersededAt || packageRow.reviewReason || packageRow.version !== item.packageVersion ||
         packageRow.revision !== data.packageRevision) {
+        if (data.type === "submitForReview") return { error: "The sample package changed. Open the current package before requesting review." };
         return { error: "Review the current sample package in the disclosure workbench first." };
       }
-      const review = sampleWorkbenchReview(db, item.loanId, item.packageVersion, data.packageRevision);
-      if (!review) return { error: "Review the current sample package in the disclosure workbench first." };
-      sampleEvidence = { mode: "Sample workbench review", packageVersion: item.packageVersion,
-        reviewedAt: String(review.reviewedAt), reviewer: String(review.actor) };
+      if (data.type === "submitForReview") {
+        if (currentReviewSubmission(db, brokerageId, item, data.packageRevision)) return changed;
+        nextStatus = "Awaiting review";
+      } else {
+        const review = sampleWorkbenchReview(db, item.loanId, item.packageVersion, data.packageRevision);
+        if (!review) return { error: "Review the current sample package in the disclosure workbench first." };
+        sampleEvidence = { mode: "Sample workbench review", packageVersion: item.packageVersion,
+          reviewedAt: String(review.reviewedAt), reviewer: String(review.actor) };
+      }
     }
     db.prepare(`UPDATE compliance_cases SET ownerEmail = ?, ownerAccessRevision = ?, status = ?, revision = revision + 1, updatedAt = ?
       WHERE brokerageId = ? AND id = ? AND revision = ?`).run(nextOwner, nextOwnerRevision, nextStatus, now, brokerageId, item.id, item.revision);
