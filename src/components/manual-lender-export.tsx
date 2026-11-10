@@ -7,6 +7,7 @@ import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { documentRecipients } from "@/lib/document-model";
 import type { Submission } from "@/lib/model";
+import { nonAgencyManualHandoffMessage } from "@/lib/pricing-model";
 import { defaultLenderExportProfile, lenderExportProfile, lenderExportProfiles, manualLenderAcknowledgmentTarget, mismoHandoffCoverage,
   suggestExportName, type ExportName } from "@/lib/lender-export-model";
 import { exportCorrectionsTarget, exportNamesTarget, lenderExportIssues, lenderFieldPrefix, type LenderExportIssue } from "@/lib/lender-export-profile";
@@ -32,7 +33,7 @@ function focusExportIssue(issue: LenderExportIssue) {
 }
 
 export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, canRecordRejection, openConditions,
-  shareBrokerage, handoffBlocker, openReviews, correctionSave, correctionBlocked, manualQuote, manualQuoteCurrent, openPricing }: {
+  shareBrokerage, handoffBlocker, openReviews, correctionSave, correctionBlocked, manualQuote, manualQuoteNeeded, manualQuoteCurrent, openPricing }: {
   application: StaffApplication;
   busy: boolean;
   save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
@@ -48,6 +49,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   handoffBlocker: string | null;
   openReviews?: () => void;
   manualQuote?: ManualQuoteBasis;
+  manualQuoteNeeded: boolean;
   manualQuoteCurrent: boolean;
   openPricing: () => void;
 }) {
@@ -70,7 +72,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   const details = manualQuote ? manualQuoteLenderDetails(application.lender?.details ?? blankLenderDetails(), manualQuote) : application.lender?.details;
   const issues = ready && application.draft ? lenderExportIssues(application.draft, details, names, profile) : [];
   const requested = submittedRequestedLoanAmount(application);
-  const quoteIssue = manualQuote ? !manualQuoteCurrent ? "Reprice from the current 1003 before using this manual quote." :
+  const quoteIssue = manualQuoteNeeded ? nonAgencyManualHandoffMessage : manualQuote ? !manualQuoteCurrent ? "Reprice from the current 1003 before using this manual quote." :
     manualQuote.expiresOn < easternDate() ? "This manual quote expired. Choose a current offer in Pricing." :
       requested !== null && Math.round(requested * 100) !== Math.round(manualQuote.loanAmount * 100) ? "Choose a manual offer for the exact amount on the reviewed 1003." : null : null;
   const valid = !issues.length && !quoteIssue;
@@ -166,7 +168,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
       <div className="document-item-head"><strong>Fictional lender acknowledgment</strong><span className="pill">Demo</span></div>
       <p className="muted">{exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
           "Prepare the MISMO download for this profile to enable acknowledgment."}</p>
-      <div><Button size="sm" disabled={busy || !exportPrepared || !!handoffBlocker} onClick={() => {
+      <div><Button size="sm" disabled={busy || !exportPrepared || !!handoffBlocker || !!quoteIssue} onClick={() => {
         const lenderRevision = application.lender?.revision ?? 0;
         const key = `${profile}:${lenderRevision}`;
         if (acknowledgmentAttempt.current?.key !== key) acknowledgmentAttempt.current = { key, id: crypto.randomUUID() };

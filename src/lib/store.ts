@@ -646,7 +646,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS pricing_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       provider TEXT NOT NULL, mode TEXT NOT NULL, reference TEXT, scenario TEXT NOT NULL,
-      offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT
+      offers TEXT NOT NULL, notices TEXT NOT NULL, quotedAt TEXT NOT NULL, selectedId TEXT, selectedAt TEXT, outcome TEXT
     );
     CREATE INDEX IF NOT EXISTS pricing_by_loan ON pricing_runs(loanId, quotedAt);
     CREATE TABLE IF NOT EXISTS loan_income_worksheets (
@@ -1197,6 +1197,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.exec("ALTER TABLE closing_packets ADD COLUMN pdf TEXT");
     }
     const pricingColumns = new Set(db.prepare("PRAGMA table_info(pricing_runs)").all().map(({ name }) => name));
+    if (!pricingColumns.has("outcome")) db.exec("ALTER TABLE pricing_runs ADD COLUMN outcome TEXT");
     for (const column of ["applicationRevision", "incomeReviewRevision"]) {
       if (!pricingColumns.has(column)) db.exec(`ALTER TABLE pricing_runs ADD COLUMN ${column} INTEGER`);
     }
@@ -1510,8 +1511,14 @@ export function insertSubmission(db: Store, submission: Submission) {
 
 export function savedPricingRun(db: Store, loanId: string) {
   return db.prepare(`SELECT id, offers, selectedId, mode, quotedAt, applicationRevision, incomeReviewRevision,
-    json_extract(scenario, '$.loanAmount') AS quotedAmount FROM pricing_runs
+    json_extract(scenario, '$.loanAmount') AS quotedAmount, json_extract(scenario, '$.nonAgency.program') AS nonAgencyProgram FROM pricing_runs
     WHERE loanId = ? AND selectedId IS NOT NULL ORDER BY selectedAt DESC, rowid DESC LIMIT 1`).get(loanId);
+}
+
+export function latestPricingUnsupported(db: Store, loanId: string, revision: number | null) {
+  const latest = db.prepare(`SELECT outcome FROM pricing_runs WHERE loanId = ? AND applicationRevision IS ?
+    ORDER BY quotedAt DESC, rowid DESC LIMIT 1`).get(loanId, revision);
+  return latest?.outcome === "unsupported";
 }
 
 function rows<T>(db: Store, query: string, ...params: SqlValue[]) {
@@ -1583,11 +1590,13 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
       FROM pricing_runs run
       WHERE ${loanId ? "run.loanId = ? AND " : ""}(run.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = run.loanId ORDER BY latest.quotedAt DESC, latest.rowid DESC LIMIT 1)
          OR run.selectedId IS NOT NULL
+         OR (run.outcome = 'unsupported' AND run.id IN (SELECT recent.id FROM pricing_runs recent
+           WHERE recent.loanId = run.loanId AND recent.outcome = 'unsupported' ORDER BY recent.quotedAt DESC, recent.rowid DESC LIMIT 2))
          OR EXISTS (SELECT 1 FROM loan_scenario_plans plan JOIN json_each(plan.plan, '$.options') option
            WHERE plan.loanId = run.loanId AND json_extract(option.value, '$.quoteSource.runId') = run.id))
       ORDER BY run.quotedAt DESC, run.rowid DESC
-    `, ...args).map((run) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices),
-      incomeReviewCurrent: Boolean(run.incomeReviewCurrent) })),
+    `, ...args).map(({ outcome, ...run }) => ({ ...run, scenario: JSON.parse(run.scenario), offers: JSON.parse(run.offers), notices: JSON.parse(run.notices),
+      ...(outcome === "unsupported" ? { outcome } : {}), incomeReviewCurrent: Boolean(run.incomeReviewCurrent) })),
     feeWorksheets: rows<Omit<FeeWorksheet, "inputs" | "origin"> & { inputs: string; origin: string | null }>(db, `SELECT pricing_runs.loanId, worksheet.*
       FROM fee_worksheets worksheet JOIN pricing_runs ON pricing_runs.id = worksheet.runId ${where("pricing_runs.loanId")}`, ...args)
       .map(({ inputs, origin, ...row }) => ({ ...row, inputs: JSON.parse(inputs), ...(origin ? { origin: JSON.parse(origin) } : {}) })),

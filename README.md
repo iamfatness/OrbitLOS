@@ -295,6 +295,8 @@ For a fictional lender rejection before the first acknowledgment, open **Record 
 
 On a joint 1003, select the primary borrower or co-borrower when recording a lender rejection or return. Only that portion reopens. The other borrower stays submitted, and the response in **Today** or **Exceptions** opens the joint portions with the correction status. A new reviewed export is required before the revised lender acknowledgment.
 
+In Pricing, select DSCR or Bank statement and enter the sample scenario inputs. Use **Rehearse unsupported EQ** in a fictional workspace to save the outcome and the inputs without making a provider request. Open **Add a manual lender offer**, enter the terms, and choose the offer to prepare the sample MISMO handoff. The recent coverage checks reopen a current unsupported scenario, and saved estimates remain available for comparison. After a 1003 correction, load the current inputs before pricing and choosing fresh terms.
+
 The fictional XML maps core borrower, property, employment, income, asset, liability, and loan details. Use the review list in Orbit to identify fields to finish in the receiving system. The pilot download excludes taxpayer and account identifiers and signatures. Validate the lender's accepted profile and import behavior with approved test files before a live upload. [Fannie Mae 1003 and ULAD resources](https://singlefamily.fanniemae.com/delivering/uniform-mortgage-data-program/uniform-residential-loan-application)
 
 ## Start with My Tasks today

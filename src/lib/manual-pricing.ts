@@ -5,16 +5,16 @@ import { easternDate } from "./client-retention";
 import { pricingInputError } from "./income-review-freshness";
 import { findPricingOffer, manualQuoteBasis, manualQuoteChanged, manualQuoteLimit, sameManualQuote,
   type addManualQuoteInput, type ManualQuoteReference } from "./manual-pricing-model";
-import type { PricingOffer } from "./pricing-model";
+import { nonAgencyManualHandoffMessage, type PricingOffer } from "./pricing-model";
 import { principalAndInterest } from "./pricing-provider";
-import { savedPricingRun, type Store } from "./store";
+import { latestPricingUnsupported, savedPricingRun, type Store } from "./store";
 
 export function addManualQuote(db: Store, input: z.infer<typeof addManualQuoteInput>, now: string) {
   const run = db.prepare(`SELECT run.offers, run.scenario, run.applicationRevision, run.incomeReviewRevision
     FROM pricing_runs run JOIN loans loan ON loan.id = run.loanId
-    WHERE run.id = ? AND loan.id = ? AND run.mode = 'mock' AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')`)
+    WHERE run.id = ? AND loan.id = ? AND (run.mode = 'mock' OR run.outcome = 'unsupported') AND loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')`)
     .get(input.runId, input.loanId);
-  if (!run) return { error: "Run sample Easy Qualifier pricing on an active loan before adding a manual offer." };
+  if (!run) return { error: "Run sample pricing or save an unsupported EQ scenario on an active loan before adding a manual offer." };
   const offers = JSON.parse(String(run.offers)) as PricingOffer[];
   const prior = offers.find(({ id }) => id === input.offerId);
   const details = input.details;
@@ -36,17 +36,18 @@ export function addManualQuote(db: Store, input: z.infer<typeof addManualQuoteIn
   return { added: true };
 }
 
-export function selectedManualQuote(db: Store, loanId: string) {
-  const run = savedPricingRun(db, loanId);
+export function selectedManualQuote(run: ReturnType<typeof savedPricingRun>) {
   const basis = run && manualQuoteBasis(String(run.id), Number(run.quotedAmount), findPricingOffer(run.offers, run.selectedId));
   return run && basis ? { run, basis } : undefined;
 }
 
 export function manualQuoteForHandoff(db: Store, loanId: string, reference: ManualQuoteReference | undefined, now: string) {
-  const selected = selectedManualQuote(db, loanId);
+  const run = savedPricingRun(db, loanId);
+  const selected = selectedManualQuote(run);
   if (!sameManualQuote(selected?.basis, reference)) return { error: manualQuoteChanged };
-  if (!selected) return { basis: null };
   const application = getApplication(db, loanId);
+  if (!selected) return run?.nonAgencyProgram || (!run && latestPricingUnsupported(db, loanId, application?.revision ?? null)) ?
+    { error: nonAgencyManualHandoffMessage } : { basis: null };
   const freshness = pricingInputError(db, loanId, { applicationRevision: selected.run.applicationRevision,
     incomeReviewRevision: selected.run.incomeReviewRevision }, application);
   if (freshness) return { error: freshness };

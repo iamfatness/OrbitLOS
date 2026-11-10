@@ -9,7 +9,8 @@ import { loanAmountComparisonTarget } from "./loan-workflow";
 import type { Condition } from "./model";
 import { findPricingOffer } from "./manual-pricing-model";
 import { feeLabels, missingFees } from "./quote-worksheet";
-import { savedPricingRun, type Store } from "./store";
+import { latestPricingUnsupported, savedPricingRun, type Store } from "./store";
+import { nonAgencyManualHandoffMessage } from "./pricing-model";
 import { conditionTarget, submissionTarget } from "./uwm-alert-model";
 
 const evidenceLimit = 40;
@@ -45,6 +46,8 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
   const disclosure = readDisclosureWork(db, loanId);
   const pricing = savedPricingRun(db, loanId);
   const manualQuote = pricing && findPricingOffer(pricing.offers, pricing.selectedId)?.manual;
+  const needsManualOffer = applicationReady && !manualQuote && (pricing?.nonAgencyProgram ||
+    (!pricing && latestPricingUnsupported(db, loanId, Number(app?.revision))));
   const source = disclosure.source;
   const selectedSample = pricing?.mode === "mock" && typeof pricing.selectedId === "string";
   const estimate = source?.quote.estimate;
@@ -81,9 +84,10 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
   const lenderEvidence = lender && [lender.lender, lender.externalId,
     lender.syncedAt === null && manualQuote ? `Quote ${manualQuote.reference} · ${manualQuote.rate.toFixed(3)}%` :
       lender.syncedAt !== null && app?.uwmReceipt ? `Receipt ${app.uwmReceipt}` : null].filter(Boolean).join(" · ");
-  add("lender", "Lender acknowledgment", lenderEvidence || (manualPath ? manualEvidence :
+  add("lender", "Lender acknowledgment", lenderEvidence || (needsManualOffer ? nonAgencyManualHandoffMessage : manualPath ? manualEvidence :
     "Record the current 1003’s mock UWM receipt or manual lender acknowledgment."), Boolean(lender),
-  lender ? submissionTarget(lender.id) : manualPath ? (app?.manualExportPrepared ? manualLenderAcknowledgmentTarget : "manual-lender-export") : "loan-application");
+  lender ? submissionTarget(lender.id) : needsManualOffer ? "loan-pricing" :
+    manualPath ? (app?.manualExportPrepared ? manualLenderAcknowledgmentTarget : "manual-lender-export") : "loan-application");
   const conditions = lender ? JSON.parse(lender.conditions) as Condition[] : [];
   const outstanding = conditions.filter(({ satisfiedAt }) => !satisfiedAt);
   if (lender) {

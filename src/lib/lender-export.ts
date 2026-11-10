@@ -13,7 +13,7 @@ import { manualQuoteForHandoff, selectedManualQuote } from "./manual-pricing";
 import { mismoBorrower, mismoFinances, mortgage, usage } from "./mismo-borrower-export";
 import { container, contactPoint, fields, indicator, label, mismoAddress, partyRole, relationship } from "./mismo-xml";
 import type { StaffIdentity } from "./staff-store";
-import type { Store } from "./store";
+import { savedPricingRun, type Store } from "./store";
 import { blankLenderDetails, lenderDetailsSchema, readAddress, type LenderDetails } from "./urla";
 import type { z } from "zod";
 
@@ -91,7 +91,7 @@ export function recordManualLenderRejection(db: Store, input: {
       AND NOT EXISTS (SELECT 1 FROM application_handoff_events accepted WHERE accepted.loanId = loan.id
         AND accepted.outcome = 'Acknowledged' AND accepted.submissionId IS NOT NULL)`).get(loanId, revision, lenderRevision);
   if (!eligible) return { error: "Open the current reviewed, unacknowledged manual handoff before recording a rejection." };
-  const selected = selectedManualQuote(db, loanId)?.basis;
+  const selected = selectedManualQuote(savedPricingRun(db, loanId))?.basis;
   if (!sameManualQuote(selected, manualQuote) || (selected && lender.toLowerCase() !== selected.lender.toLowerCase())) {
     return { error: "The selected lender or quote changed. Review the current export before recording a rejection." };
   }

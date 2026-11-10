@@ -13,10 +13,10 @@ export function ManualOfferForm({ run, busy, current, save }: { run: PricingRun;
   const today = easternDate();
   const capped = run.offers.filter(({ manual }) => manual).length >= manualQuoteLimit;
   if (!current || capped) return <p className="muted">{capped ? "Run sample pricing again to start a comparison with room for more manual offers." :
-    "Run sample pricing from the current 1003 before adding a manual offer."}</p>;
+    "Price the current 1003 inputs or rehearse EQ coverage again before adding a manual offer."}</p>;
   return <details className="document-form"><summary>Add a manual lender offer</summary>
     <p className="muted">Use a fictional fixed-rate offer for the scenario above. Orbit calculates principal and interest and keeps the quoted terms and source reference.</p>
-    <form className="record-form" onSubmit={(event) => {
+    <form className="record-form manual-quote-form" onSubmit={(event) => {
       event.preventDefault();
       if (busy) return;
       const form = event.currentTarget;
@@ -34,9 +34,9 @@ export function ManualOfferForm({ run, busy, current, save }: { run: PricingRun;
       });
     }}>
       <fieldset className="form-grid" disabled={busy}>
-        <label className="field">Fictional lender name<input name="lender" required minLength={2} maxLength={100} /></label>
-        <label className="field">Lender quote reference<input name="reference" required maxLength={100} /></label>
-        <label className="field">Product name<input name="product" required minLength={2} maxLength={100} /></label>
+        <label className="field manual-offer-text">Fictional lender name<input name="lender" required minLength={2} maxLength={100} /></label>
+        <label className="field manual-offer-text">Lender quote reference<input name="reference" required maxLength={100} /></label>
+        <label className="field manual-offer-text">Product name<input name="product" required minLength={2} maxLength={100} /></label>
         <label className="field">Fixed term (years)<input type="number" name="years" min={5} max={40} step={1} defaultValue={30} required /></label>
         <label className="field">Note rate (%)<input type="number" name="rate" min="0.001" max="25" step="0.001" required /></label>
         <label className="field">APR (%)<input type="number" name="apr" min="0.001" max="25" step="0.001" /></label>

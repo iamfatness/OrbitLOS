@@ -2995,6 +2995,92 @@ try {
     assert.equal(funded.loans[0].stage, "Funded");
     assert.equal(funded.closingProgress[0].fundingDate, today);
   });
+  await stage("DSCR and bank statement comparisons recover unsupported EQ through a revised manual handoff", async () => {
+    const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Summit Investor",
+      borrowerEmail: "working-day-summit-investor@example.test", start1003: true, partnerId: null, officer: officer.name,
+      address: "", amount: 350000, purpose: "Refinance", stage: "Lead" });
+    const loanId = created.loanWork.loanId;
+    const { token } = (await file(officer, loanId)).applications[0];
+    const initial = await borrower(token, { type: "read" });
+    const step = applicationSteps.length - 1;
+    const draft = { ...sampleApplication(initial.draft), occupancy: "Investment property", confirmedDemo: true };
+    const submitted = await borrower(token, { type: "submit", revision: initial.revision, step, draft });
+    await loanAction(officer, loanId, "reviewApplication", { revision: submitted.revision });
+    const common = { monthlyTaxes: 450, monthlyInsurance: 125, monthlyHoa: 0, reservesMonths: 6, refinanceType: "Rate and term" };
+    const base = { purpose: "Refinance", loanAmount: Number(draft.loanAmount), propertyValue: Number(draft.estimatedValue),
+      purchasePrice: null, zip: draft.propertyLocation.zip, creditScore: 760, occupancy: "Investment property",
+      propertyType: "Single family", firstTimeBuyer: false };
+    const dscr = { ...base, nonAgency: { ...common, program: "DSCR", monthlyRent: 3600 } };
+    const bank = { ...base, nonAgency: { ...common, program: "Bank statement", source: { type: "Business", expensePercent: 50, ownershipPercent: 100 },
+      statementMonths: 12, averageMonthlyDeposits: 19000, monthlyDebts: 850, selfEmployed: true } };
+    const price = async (scenario, applicationRevision, simulateUnsupportedEq) => (await loanAction(officer, loanId, "runPricing",
+      { scenario, applicationRevision, simulateUnsupportedEq })).state.pricingRuns.find((item) => item.loanId === loanId);
+    const names = [{ first: "Fictional", middle: "Summit", last: "Investor", suffix: "" }];
+    const xml = (revision, manualQuote) => ({ type: "exportReviewedApplication", loanId, revision, lenderRevision: 0,
+      eventId: randomUUID(), names, manualQuote });
+    const review = (input, staff = owner) => action(staff, "workOnLoanReview", { loanId, ...input });
+    const preflight = async () => (await review({ type: "preflight" })).preflight.checks.find(({ id }) => id === "lender");
+    const add = async (run, reference, rate) => {
+      const quote = { runId: run.id, offerId: randomUUID() };
+      const details = { lender: "Fictional Summit Wholesale", reference, product: `${run.scenario.nonAgency.program} fixed`,
+        years: 30, rate, apr: null, adjustment: null, quotedOn: today, expiresOn: shiftReportDate(today, 7) };
+      await loanAction(officer, loanId, "addManualQuote", { ...quote, details });
+      await loanAction(officer, loanId, "selectOffer", quote);
+      return quote;
+    };
+    const unsupported = await price(dscr, submitted.revision, true);
+    assert.equal(unsupported.outcome, "unsupported");
+    assert.equal(unsupported.mode, "mock");
+    assert.deepEqual(unsupported.offers, []);
+    assert.deepEqual(unsupported.scenario, dscr);
+    assert.equal((await preflight()).target, "loan-pricing");
+    const send = { type: "sendApplication", loanId, revision: submitted.revision };
+    assert.match((await action(officer, "mutate", send)).error, /manual lender offer/);
+    assert.match((await action(officer, "mutate", xml(submitted.revision))).error, /manual lender offer/);
+    const sample = await price(dscr, submitted.revision);
+    assert.ok(sample.offers.every((item) => item.product.startsWith("DSCR")));
+    const sampleChoice = { runId: sample.id, offerId: sample.offers[0].id };
+    await loanAction(officer, loanId, "selectOffer", sampleChoice);
+    assert.match((await action(officer, "mutate", { ...send, quote: sampleChoice })).error, /manual lender offer/);
+    const dscrManual = await add(unsupported, "SUMMIT-DSCR", 7.125);
+    assert.match((await write(officer, xml(submitted.revision, dscrManual))).mismoXml, /<NoteRatePercent>7\.125<\/NoteRatePercent>/);
+    const bankResult = await price(bank, submitted.revision, true);
+    assert.equal(bankResult.outcome, "unsupported");
+    assert.deepEqual(bankResult.scenario, bank);
+    const bankManual = await add(bankResult, "SUMMIT-BANK", 7.375);
+    const comparison = (await file(owner, loanId)).pricingRuns;
+    assert.ok(comparison.some(({ id, selectedId }) => id === unsupported.id && selectedId === dscrManual.offerId));
+    assert.ok(comparison.some(({ id, selectedId }) => id === bankResult.id && selectedId === bankManual.offerId));
+    assert.equal((await file(officer, loanId)).submissions.length, 0);
+    await loanAction(officer, loanId, "requestApplicationCorrection", { revision: submitted.revision, note: "Confirm the fictional requested loan amount." });
+    const reopened = await borrower(token, { type: "read" });
+    const corrected = await borrower(token, { type: "submit", revision: reopened.revision, step, draft: { ...reopened.draft, loanAmount: "340000" } });
+    await loanAction(officer, loanId, "reviewApplication", { revision: corrected.revision });
+    assert.match((await action(officer, "mutate", xml(corrected.revision, bankManual))).error, /current 1003/);
+    const revised = await price({ ...bank, loanAmount: 340000 }, corrected.revision, true);
+    const revisedManual = await add(revised, "SUMMIT-BANK-REVISED", 7.5);
+    const [pending] = (await review({ type: "loan" })).reviews;
+    const { review: outdated } = await review({ type: "detail", id: pending.id });
+    const resubmitted = await review({ type: "resubmit", id: pending.id, revision: outdated.revision, eventId: randomUUID(),
+      dueOn: outdated.dueOn, note: "Resubmitted the corrected fictional investment loan." }, officer);
+    assert.equal(resubmitted.kind, "saved", resubmitted.error);
+    const { review: current } = await review({ type: "detail", id: pending.id });
+    const approval = await review({ type: "decide", id: pending.id, revision: current.revision, eventId: randomUUID(),
+      decision: "Approved", note: "Verified the revised fictional handoff." });
+    assert.equal(approval.kind, "saved", approval.error);
+    const replacement = await write(officer, xml(corrected.revision, revisedManual));
+    assert.match(replacement.mismoXml, /<NoteRatePercent>7\.5<\/NoteRatePercent>/);
+    assert.match(replacement.mismoXml, /<NoteAmount>340000<\/NoteAmount>/);
+    await loanAction(officer, loanId, "recordManualHandoff", { revision: corrected.revision, lenderRevision: 0, profile: "basic",
+      eventId: randomUUID(), outcome: "Acknowledged", note: "", manualQuote: revisedManual,
+      lenderFile: { lender: "Fictional Summit Wholesale", externalId: "SUMMIT-MANUAL-ACK" } });
+    const ownerFile = await file(owner, loanId);
+    assert.equal(ownerFile.submissions.length, 1);
+    assert.equal(ownerFile.submissions[0].syncedAt, null);
+    assert.equal(ownerFile.applications[0].manualHandoff.acknowledgedQuote.reference, "SUMMIT-BANK-REVISED");
+    const history = await action(owner, "readHistoryPage", { record: "loan", id: loanId });
+    assert.ok(history.events.some(({ text }) => text.includes("Bank statement · Unsupported")));
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

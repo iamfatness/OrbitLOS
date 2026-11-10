@@ -1,4 +1,4 @@
-import { insertContact, insertLoan, insertSubmission, savedPricingRun, type Store } from "./store";
+import { insertContact, insertLoan, insertSubmission, latestPricingUnsupported, savedPricingRun, type Store } from "./store";
 import type { Condition, Stage, Submission } from "./model";
 import { addApplicationActivity, getApplication, saveApplicationVersion } from "./applications";
 import { createRealtorLenderDraft, restoreClearToCloseDrafts, supersedeClearToCloseDrafts } from "./communications";
@@ -8,7 +8,7 @@ import { findPricingOffer, manualQuoteRouteMessage } from "./manual-pricing-mode
 import { reopenedMockUwmAtSql } from "./processing-conditions";
 import { requestedLoanAmount } from "./application-model";
 import { pricingInputError } from "./income-review-freshness";
-import { mockUwmAmountMismatch } from "./pricing-model";
+import { mockUwmAmountMismatch, nonAgencyManualHandoffMessage } from "./pricing-model";
 import { closeMockUwmAcceptance, pendingMockUwmAcceptance, saveMockUwmAcceptance } from "./uwm-handoff-recovery";
 import { latestMockConditionUpdate, nextMockConditionUpdate, receiveMockConditionUpdate, recordMockConditionChanges } from "./uwm-condition-events";
 
@@ -278,8 +278,10 @@ export function submitMockApplication(db: Store, loanId: string, revision: numbe
   const application = getApplication(db, loanId);
   const saved = savedPricingRun(db, loanId);
   const manualQuote = saved && findPricingOffer(saved.offers, saved.selectedId)?.manual;
+  const manualOnly = saved?.nonAgencyProgram || (!saved && latestPricingUnsupported(db, loanId, revision));
   if (quote) {
     if (manualQuote) return { error: manualQuoteRouteMessage } as const;
+    if (manualOnly) return { error: nonAgencyManualHandoffMessage } as const;
     if (saved?.mode !== "mock" || saved.id !== quote.runId || saved.selectedId !== quote.offerId || saved.applicationRevision !== revision) {
       return { error: "The saved mock quote changed. Refresh pricing and review the current quote before sending." } as const;
     }
@@ -300,6 +302,7 @@ export function submitMockApplication(db: Store, loanId: string, revision: numbe
     if (typeof receipt === "string") return { reference, receipt, action: "retry" } as const;
   }
   if (manualQuote) return { error: manualQuoteRouteMessage } as const;
+  if (manualOnly) return { error: nonAgencyManualHandoffMessage } as const;
   const checkpoint = handoffCheckpointError(db, loanId);
   if (checkpoint) return { error: checkpoint } as const;
   if (saved?.mode === "mock" && saved.applicationRevision === revision && typeof saved.quotedAmount === "number") {

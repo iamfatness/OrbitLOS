@@ -1,6 +1,6 @@
 import { addApplicationActivity, getApplication } from "./applications";
 import { requestedLoanAmount } from "./application-model";
-import { mockRateQuoteTermsLabel, mockRateStatus, mockUwmAmountMismatch, mockUwmRateReceiptIssue,
+import { mockRateQuoteTermsLabel, mockRateStatus, mockUwmAmountMismatch, mockUwmRateReceiptIssue, nonAgencyManualHandoffMessage,
   type MockLockExtensionPeriod, type MockLockPeriod, type MockUwmRate, type PricingOffer } from "./pricing-model";
 import { pricingInputError } from "./income-review-freshness";
 import { findPricingOffer } from "./manual-pricing-model";
@@ -18,6 +18,7 @@ function uwmFile(db: Store, loanId: string, submissionId: string) {
 }
 
 function rateQuoteError(db: Store, loanId: string, run: NonNullable<ReturnType<typeof savedPricingRun>>, fileReference: string) {
+  if (run.nonAgencyProgram) return nonAgencyManualHandoffMessage;
   const application = getApplication(db, loanId);
   const freshness = pricingInputError(db, loanId, { applicationRevision: run.applicationRevision, incomeReviewRevision: run.incomeReviewRevision }, application);
   if (freshness) return freshness;

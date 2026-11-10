@@ -29,7 +29,7 @@ import { ConditionEvidencePicker } from "./condition-evidence";
 import { DocumentFollowUp } from "./document-follow-up";
 import { borrowerChecklistLinks, conditionDocumentBatchLimit, documentRecipient, needsBorrowerDocument, suggestedConditionDocument,
   type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
-import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mockUwmQuoteAmountIssue, pricingInputsMatch } from "@/lib/pricing-model";
+import { latestSelectedPricingRun, mockRateQuoteTermsLabel, mockRateStatus, mockUwmQuoteAmountIssue, nonAgencyManualHandoffMessage, pricingInputsMatch } from "@/lib/pricing-model";
 import { manualQuoteBasis, sameManualQuote } from "@/lib/manual-pricing-model";
 import type { ReviewedIncomeSource } from "@/lib/income-review-model";
 import { CallReportLoanFacts } from "./call-report";
@@ -308,6 +308,9 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
   const pendingReceipt = application?.uwmPendingReceipt;
   const chosen = latestSelectedPricingRun(state.pricingRuns, loanId);
   const manualQuote = chosen && manualQuoteBasis(chosen.id, chosen.scenario.loanAmount, chosen.offers.find((offer) => offer.id === chosen.selectedId));
+  const latest = state.pricingRuns.find((item) => item.loanId === loanId);
+  const manualQuoteNeeded = !manualQuote && (!!chosen?.scenario.nonAgency ||
+    (!chosen && latest?.outcome === "unsupported" && latest.applicationRevision === application?.revision));
   const quoteAmountIssue = currentSent ? null : mockUwmQuoteAmountIssue(chosen, application);
   const acknowledgedFile = state.submissions.find((file) =>
     file.id === application?.manualHandoff?.submissionId && file.loanId === loanId && file.syncedAt === null);
@@ -403,14 +406,14 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
         {application.reviewedAt ? !processor && (manualQuote ? <div className="document-item">
           <p>Selected manual lender offer · {manualQuote.lender}</p>
           <Button size="sm" variant="outline" disabled={busy} onClick={openManual}>Open selected lender handoff</Button>
-        </div> : !currentSent && !pendingReceipt && (quoteAmountIssue ? <div className="document-item">
-          <p>{quoteAmountIssue}</p>
-          <Button size="sm" variant="outline" disabled={busy} onClick={openPricing}>Review quote amount</Button>
+        </div> : !currentSent && !pendingReceipt && (manualQuoteNeeded || quoteAmountIssue ? <div className="document-item">
+          <p>{manualQuoteNeeded ? nonAgencyManualHandoffMessage : quoteAmountIssue}</p>
+          <Button size="sm" variant="outline" disabled={busy} onClick={openPricing}>{manualQuoteNeeded ? "Open manual pricing" : "Review quote amount"}</Button>
         </div> : !blocker && <Button size="sm" disabled={busy}
           onClick={() => void save({ type: "sendApplication", loanId, revision: application.revision })}>
           <Send /> {application.uwmReference ? "Send to existing UWM file (mock)" : "Send to UWM (mock)"}</Button>)) :
           <Button size="sm" disabled={busy} onClick={() => void save({ type: "reviewApplication", loanId, revision: application.revision })}><CheckCircle2 /> Mark reviewed</Button>}
-        {shareBrokerage && !processor && canRecordReturn && application.reviewedAt && !manualQuote && !currentSent && !pendingReceipt && !blocker && !quoteAmountIssue &&
+        {shareBrokerage && !processor && canRecordReturn && application.reviewedAt && !manualQuote && !manualQuoteNeeded && !currentSent && !pendingReceipt && !blocker && !quoteAmountIssue &&
           <details className="document-form">
             <summary>Rehearse a missing mock UWM acknowledgment</summary>
             <p>Orbit will open a receipt review task. Use it to check the mock lender before sending again.</p>
@@ -448,7 +451,7 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
         shareBrokerage={shareBrokerage}
         linkedFile={linkedFile}
         previousFile={acknowledgedFile ?? state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
-        manualQuote={manualQuote} manualQuoteCurrent={!!chosen && pricingInputsMatch(chosen, application)} openPricing={openPricing}
+        manualQuote={manualQuote} manualQuoteNeeded={manualQuoteNeeded} manualQuoteCurrent={!!chosen && pricingInputsMatch(chosen, application)} openPricing={openPricing}
         campaignManual={campaignManual} correctionSave={applicationEdits.save} correctionBlocked={applicationEdits.blocked} />
       <LenderApplicationDetails key={`lender:${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy || applicationEdits.blocked} save={applicationEdits.save} markDraftChanged={markDraftChanged} />
@@ -1112,6 +1115,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           })} />}
         {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+          canRehearseUnsupported={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
           openApplication={() => show({ kind: "details", loanId: loan.id, campaignLender, target: "loan-application" })}
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?

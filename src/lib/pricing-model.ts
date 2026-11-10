@@ -24,6 +24,7 @@ const nonAgencyScenario = z.discriminatedUnion("program", [
 ]);
 export const pricingPrograms = ["Conventional", "DSCR", "Bank statement"] as const;
 export type PricingProgram = (typeof pricingPrograms)[number];
+export const nonAgencyManualHandoffMessage = "Choose a manual lender offer for this Non-QM scenario before preparing the handoff.";
 
 export const pricingScenario = z.object({
   purpose: z.enum(["Purchase", "Refinance"]),
@@ -82,6 +83,11 @@ export interface PricingResult {
   reference: string | null;
   offers: PricingOffer[];
   notices: string[];
+  outcome?: "unsupported";
+}
+
+export function supportsManualOffers(run: Pick<PricingResult, "mode" | "outcome"> | undefined) {
+  return run?.mode === "mock" || run?.outcome === "unsupported";
 }
 
 export interface PricingRun extends PricingResult {
@@ -122,7 +128,7 @@ export function mockUwmAmountMismatch(quoted: number, requested: number | null, 
 
 export function mockUwmQuoteAmountIssue(run: PricingRun | undefined,
   application?: Pick<StaffApplication, "revision" | "correctionNote" | "submittedAt" | "draft">, action?: MockUwmQuoteAction) {
-  return run?.mode === "mock" && !run.offers.some((offer) => offer.id === run.selectedId && offer.manual) && quoteMatchesApplication(run.applicationRevision, application)
+  return run?.mode === "mock" && !run.scenario.nonAgency && !run.offers.some((offer) => offer.id === run.selectedId && offer.manual) && quoteMatchesApplication(run.applicationRevision, application)
     ? mockUwmAmountMismatch(run.scenario.loanAmount, submittedRequestedLoanAmount(application), action) : null;
 }
 

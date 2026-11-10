@@ -11,7 +11,7 @@ import { manualQuoteForHandoff, selectedManualQuote } from "./manual-pricing";
 import type { ProtectPilotLinks } from "./pilot";
 import { readPlaybook } from "./playbooks";
 import type { WorkspaceStaff } from "./staff-store";
-import type { SqlValue, Store } from "./store";
+import { savedPricingRun, type SqlValue, type Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
 
 const staffUnavailable = "Lender packages are available to the loan owner or an admin in a fictional pilot.";
@@ -35,7 +35,7 @@ function reviewedFile(db: Store, loanId: string, now: string) {
       AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND coalesce(app.correctionNote, '') = ''
       AND json_extract(app.draft, '$.confirmedDemo') = 1${readPlaybook(db).requireSecondReview ? ` AND ${approvedSecondReview}` : ""}`).get(loanId);
   if (!file) return undefined;
-  const manual = selectedManualQuote(db, loanId)?.basis;
+  const manual = selectedManualQuote(savedPricingRun(db, loanId))?.basis;
   const quote = manual && manualQuoteForHandoff(db, loanId, manual, now);
   if (quote && "error" in quote) return undefined;
   return { ...file, quoteBasis: quote?.basis ? JSON.stringify(quote.basis) : null } as Row;

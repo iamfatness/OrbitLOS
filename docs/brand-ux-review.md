@@ -95,3 +95,9 @@ The Impeccable review kept the less common rejection action collapsed beside ack
 The LO records a lender response and chooses which borrower needs to act. The owner opens the same correction from Exceptions and sees who is waiting and who has submitted. The selected borrower uses their private link to change and resubmit their saved portion.
 
 The baseline phone view offered one generic borrower instruction field. The revised form requires a recipient on joint files and puts that choice immediately before the borrower message. Today, Exceptions and the loan's next action open the joint portions. The desktop owner review showed a second-review prompt above the active correction, so the checkpoint now appears once both portions are submitted. The borrower view keeps its correction instructions and saved answers together. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
+
+## Non-QM manual pricing
+
+The LO keeps the scenario inputs when EQ is unsupported and enters a manual offer against those inputs. The owner can compare the chosen and earlier terms, and the reviewed loan points to manual MISMO or to the missing manual offer. The coverage check remains an internal loan event.
+
+The initial browser pass found that the comparison table widened the desktop loan drawer and lender names clipped on the phone. The table now scrolls inside a keyboard-focusable region, the long text fields span the phone form, and the unsupported result receives focus at the manual offer section. The heading and badges distinguish the unsupported outcome, estimates, and manual terms. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
