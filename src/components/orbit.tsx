@@ -1296,6 +1296,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor}
+            mockServices={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
             reviewingLoan={!!modal || busy} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "processing")}
             version={state} openTasks={() => navigate("Tasks")} openReply={(id) => openConversation({ id })}
             openLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })}

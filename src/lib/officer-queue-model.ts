@@ -10,7 +10,7 @@ export const officerQueueUnavailable = "This personal work queue is unavailable.
 export const campaignCallbacksUnavailable = "This personal campaign callback queue is unavailable.";
 export const officerQueueKinds = ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document",
   "appointment", "review", "handoff", "uwm-alert", "document-review", "lead-hold", "loan-hold", "quiet-lead",
-  "application-review", "playbook-handoff", "funding", "lead-document", "lead-document-review", "sequence"] as const;
+  "application-review", "playbook-handoff", "funding", "lead-document", "lead-document-review", "sequence", "service-order"] as const;
 const queueDate = z.union([z.iso.date(), z.iso.datetime()]);
 export const officerQueueCursor = z.object({ kind: z.enum(officerQueueKinds), dueAt: queueDate, id: z.string().min(1).max(200) });
 const cursor = officerQueueCursor;
@@ -26,7 +26,7 @@ export type CampaignCallbackPage = {
 };
 export const calendarUnavailable = "This workspace calendar is unavailable.";
 export const calendarGroups = {
-  All: ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document", "lead-document", "appointment", "review"],
+  All: ["lead", "lead-task", "campaign", "contact", "conversation", "loan", "closing", "checklist", "lock", "document", "lead-document", "appointment", "review", "service-order"],
   Outreach: ["lead", "lead-task", "campaign", "contact"],
   Conversations: ["conversation"],
   Appointments: ["appointment"],
@@ -35,6 +35,7 @@ export const calendarGroups = {
   Closings: ["closing", "checklist"],
   "Rate locks": ["lock"],
   "Loan tasks": ["loan"],
+  "Service orders": ["service-order"],
 } satisfies Record<string, readonly (typeof officerQueueKinds)[number][]>;
 export const calendarGroupNames = Object.keys(calendarGroups) as (keyof typeof calendarGroups)[];
 const calendarDate = z.iso.date().refine((value) => value >= "1900-01-01" && value <= "9998-12-31");
@@ -67,6 +68,7 @@ export const workspaceTaskGroups = {
   Documents: ["document", "document-review", "lead-document", "lead-document-review"],
   "Lender updates": ["uwm-alert", "lock"],
   Closing: ["closing", "checklist"],
+  "Service orders": ["service-order"],
   Conversations: ["conversation"],
 } satisfies Record<string, readonly (typeof officerQueueKinds)[number][]>;
 export const workspaceTaskGroupNames = Object.keys(workspaceTaskGroups) as (keyof typeof workspaceTaskGroups)[];
@@ -92,6 +94,7 @@ export function queueActionLabel(item: OfficerQueueItem) {
     case "application-review": return "Review 1003";
     case "playbook-handoff": return "Open processing handoff";
     case "appointment": return "Open appointment";
+    case "service-order": return "Open service order";
     case "document":
     case "document-review": return "Open document request";
     case "lead-document":

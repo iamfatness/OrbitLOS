@@ -35,6 +35,8 @@ import { UwmDeliveryTimeline } from "./uwm-delivery-timeline";
 import { ManualLenderExport } from "./manual-lender-export";
 import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@/lib/lender-export-model";
 import { ClosingWorkbench } from "./closing-workbench";
+import { LoanServiceOrders } from "./loan-service-orders";
+import { serviceOrdersTarget, serviceOrderTargetPrefix } from "@/lib/service-order-model";
 import { DisclosureWorkbench } from "./disclosure-workbench";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
@@ -469,7 +471,8 @@ function loanSection(target?: string) {
   if (target === disclosureTarget) return "Disclosures";
   if (target === "loan-application" || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
     target === manualLenderAcknowledgmentTarget) return "1003";
-  if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-")) return "Conditions";
+  if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
+    target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";
   if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet" || target === sharedQuoteReviewTarget) return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
@@ -537,7 +540,7 @@ function CarriedCallbackRescheduleForm({ loanId, taskId, dueAt, revision, busy, 
 }
 
 function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, openConversation, openRateWatchRefinance, appointmentChanged, reviewChanged,
-  markDraftChanged, openDisclosure }: {
+  markDraftChanged, openScopedLoan }: {
   target?: string; campaignLender?: CampaignLenderPath; loan: Loan; state: Workspace; staff: WorkspaceStaff | null;
   busy: boolean; save: Save; show: (modal: Modal) => void;
   openConversation: (subject: ConversationSubject) => void;
@@ -545,7 +548,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   appointmentChanged: () => void;
   reviewChanged: () => void;
   markDraftChanged: (editor: Node) => void;
-  openDisclosure: (destination?: string) => void;
+  openScopedLoan: (destination?: string) => void;
 }) {
   const processor = staff?.brokerage.role === "Processor";
   const canOpenReviews = Boolean(staff) || process.env.NODE_ENV === "development";
@@ -595,8 +598,11 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const checklistLinks = borrowerChecklistLinks(application);
   const joint = !!application?.joint;
   const open = (destination: string) => {
-    if (!state.disclosureWork && (destination === disclosureTarget || !staff && canOpenDisclosures && loanSection(destination) === "Closing")) {
-      openDisclosure(destination);
+    const needsDisclosures = !state.disclosureWork &&
+      (destination === disclosureTarget || !staff && canOpenDisclosures && loanSection(destination) === "Closing");
+    const needsServiceOrders = !staff && state.serviceOrders === undefined && loanSection(destination) === "Conditions";
+    if (needsDisclosures || needsServiceOrders) {
+      openScopedLoan(destination);
     }
     else show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
   };
@@ -673,7 +679,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </>}
       {section === "Disclosures" && canOpenDisclosures &&
         <DisclosureWorkbench loan={loan} state={state} busy={busy} readOnly={processor} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-          save={save} open={open} refresh={openDisclosure} />}
+          save={save} open={open} refresh={openScopedLoan} />}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
         brokerageId={staff?.brokerage.id ?? demoBrokerageId}
@@ -712,6 +718,10 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           canSimulate={!processor && (!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot)}
           onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
+      {state.serviceOrders !== undefined && <LoanServiceOrders key={loan.id} loanId={loan.id}
+        orders={state.serviceOrders.filter((item) => item.loanId === loan.id)} busy={busy}
+        owner={state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail)?.processorName || loan.officer || "Unassigned"}
+        editable={!pausedLoan(loan) && !pastClientLoan(loan)} save={save} />}
       <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} joint={joint} requests={requests} inlineRequests={inlineRequests}
         openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
         customTemplates={!pausedLoan(loan) && !pastClientLoan(loan) && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot :
@@ -1032,7 +1042,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           save={save} show={show} target={target} campaignLender={campaignLender} openConversation={openConversation}
           openRateWatchRefinance={openRateWatchRefinance}
           appointmentChanged={appointmentChanged} reviewChanged={reviewChanged} markDraftChanged={markDraftChanged}
-          openDisclosure={(destination = disclosureTarget) => openContactLoan(loan.id, destination)} />}
+          openScopedLoan={(destination = disclosureTarget) => openContactLoan(loan.id, destination)} />}
         {modal.kind === "assignment" && staff?.brokerage.role === "Admin" && <LoanAssignmentEditor key={modal.loanId}
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
           manualReturn={modal.manualReturn}

@@ -20,6 +20,8 @@ import { afterHours, fundingTaskPrefix } from "./playbook-model";
 import { readPlaybook } from "./playbooks";
 import { contactCompletionSql } from "./record-history";
 import { shiftReportDate } from "./report-date-range";
+import { serviceOrderTarget } from "./service-order-model";
+import { openServiceOrderSql, serviceOrderOwnerEmailSql, serviceOrderOwnerSql } from "./service-orders";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 
@@ -172,7 +174,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     if (kinds && !kinds.includes(kind)) return [];
     if (coverage?.target && kind !== coverage.target.kind) return [];
     if (processor && !(tasks && ["handoff", "application-review", "playbook-handoff"].includes(kind)) &&
-      !["closing", "checklist", "conversation", "document", "document-review", "appointment", "review"].includes(kind)) return [];
+      !["closing", "checklist", "conversation", "document", "document-review", "appointment", "review", "service-order"].includes(kind)) return [];
     const sharedLead = (kind === "lead" || kind === "quiet-lead") && tasks?.scope === "Available";
     const owner = sharedLead ? `(${ownerEmail} = ? OR (${ownerEmail} IS NULL AND lead.realtorId IS NULL))` :
       kind === "quiet-lead" && tasks && subject.role === "Admin" ? `(${ownerEmail} = ? OR ${ownerEmail} IS NULL)` :
@@ -397,6 +399,12 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
         AND NOT ((task.id GLOB 'application-follow-up:*' OR task.id GLOB 'application-correction:*') AND
           EXISTS (SELECT 1 FROM applications app WHERE app.loanId = loan.id AND ${firstReview}))` : ""}`,
     "task.id", "task.dueAt", "loan.officerEmail", "loan.officer", false, [], `tasks task WHERE ${openLoanTask}`),
+    ...select("service-order", (join) => `service.id, loan.id AS recordId, contact.name, service.dueOn AS dueAt,
+      CASE service.status WHEN 'Received' THEN 'Review mock ' ELSE 'Follow up on mock ' END || lower(service.kind) AS title
+      FROM service_orders service ${join} loans loan ON loan.id = service.loanId JOIN contacts contact ON contact.id = loan.contactId
+      LEFT JOIN loan_processing processing ON processing.loanId = loan.id
+      WHERE ${dueForLoan} AND ${openServiceOrderSql}${processor ? " AND processing.processorEmail IS NOT NULL" : ""}`,
+    "service.id", "service.dueOn", serviceOrderOwnerEmailSql, serviceOrderOwnerSql, true, [], `service_orders service WHERE ${openServiceOrderSql}`),
     ...select("handoff", `loan.id, loan.id AS recordId, contact.name, handoff.updatedAt AS dueAt,
       CASE handoff.status WHEN 'Returned to LO' THEN 'Returned from processing' ELSE handoff.status END AS title
       FROM loans loan JOIN loan_processing handoff ON handoff.loanId = loan.id JOIN contacts contact ON contact.id = loan.contactId
@@ -487,7 +495,7 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     } : undefined;
     const target = kind === "handoff" || kind === "playbook-handoff" ? "processing-handoff" : kind === "review" ? reviewTarget(id) :
       kind === "application-review" ? "loan-application" :
-      kind === "appointment" ? appointmentTarget(id) : kind === "document" || kind === "document-review" ? `document-${id}` :
+      kind === "appointment" ? appointmentTarget(id) : kind === "service-order" ? serviceOrderTarget(id) : kind === "document" || kind === "document-review" ? `document-${id}` :
       kind === "loan" || kind === "funding" ? loanTaskTarget(id, processor || completed) : kind === "loan-hold" ? "loan-workflow" :
       kind === "checklist" && (calendar || tasks) ? closingChecklistTarget(id) :
       kind === "closing" || kind === "checklist" ? "closing-workbench" : undefined;

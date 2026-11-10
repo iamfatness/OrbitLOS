@@ -9,6 +9,8 @@ import type { SqlValue, Store } from "./store";
 import { conditionTarget } from "./uwm-alert-model";
 import { closingChecklistTarget } from "./loan-workflow";
 import { shiftReportDate } from "./report-date-range";
+import { canUseServiceOrders, readServiceOrderQueue } from "./service-orders";
+import { serviceOrdersUnavailable } from "./service-order-model";
 import { changeDashboardView, readDashboardViews } from "./dashboard-views";
 
 const pageSize = 20;
@@ -149,6 +151,11 @@ export function readProcessorQueue(db: Store, input: unknown, staff: WorkspaceSt
   const parsed = processorQueueQuery.safeParse(input);
   if (!parsed.success) return { error: "Choose a valid processing queue page." };
   if (!canUseProcessingFilters(staff, parsed.data)) return { error: processorQueueUnavailable };
+  if (parsed.data.serviceOrders) {
+    if (!canUseServiceOrders(staff)) return { error: serviceOrdersUnavailable };
+    return { checkedAt: now.toISOString(), files: [], next: null, views: [],
+      serviceOrders: readServiceOrderQueue(db, parsed.data.serviceOrders, staff, now) };
+  }
   const { readyOnly, after, exception, replyAfter, workload } = parsed.data;
   const processor = staff.brokerage.role === "Processor";
   const views = readDashboardViews(db, processingViewScope(staff), processingViewFilters);

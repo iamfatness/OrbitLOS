@@ -243,6 +243,16 @@ export function initializeStore(db: Store, seedDemo = true) {
       questionId TEXT NOT NULL REFERENCES borrower_questions(id) ON DELETE CASCADE,
       revision INTEGER NOT NULL, answer TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (questionId, revision)
     );
+    CREATE TABLE IF NOT EXISTS service_orders (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK(kind IN ('Appraisal', 'Title')),
+      status TEXT NOT NULL DEFAULT 'Ordered' CHECK(status IN ('Ordered', 'Received', 'Completed', 'Cancelled')),
+      dueOn TEXT NOT NULL, originalDueOn TEXT NOT NULL, createdAt TEXT NOT NULL, createdBy TEXT NOT NULL, note TEXT NOT NULL,
+      returns TEXT NOT NULL DEFAULT '[]', revision INTEGER NOT NULL DEFAULT 0, cancellation TEXT, lastCommand TEXT
+    );
+    CREATE INDEX IF NOT EXISTS service_orders_by_loan ON service_orders(loanId);
+    CREATE UNIQUE INDEX IF NOT EXISTS open_service_orders_by_kind ON service_orders(loanId, kind) WHERE status IN ('Ordered', 'Received');
+    CREATE INDEX IF NOT EXISTS open_service_orders_by_due ON service_orders(dueOn, id) WHERE status IN ('Ordered', 'Received');
     CREATE TABLE IF NOT EXISTS document_checklist_templates (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, purpose TEXT NOT NULL, revision INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0
     );

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { conversationCursor, type ConversationReplyPage } from "./conversation-model";
 import type { LoanProcessing } from "./processing-model";
+import { serviceOrderQueueQuery, type ServiceOrderQueuePage } from "./service-order-model";
 
 export const processorQueueUnavailable = "This processing queue is unavailable.";
 export const processingExceptions = ["Unassigned", "Stalled handoffs", "Aging conditions"] as const;
@@ -18,9 +19,12 @@ export const processingViewFilters = z.object({ ...queueFilters, workload: z.obj
 export const processorQueueQuery = z.object({
   ...queueFilters, after: cursor.optional(), replyAfter: conversationCursor.optional(),
   workload: z.object({ ...workloadFilters, after: workloadCursor.optional() }).optional(),
+  serviceOrders: serviceOrderQueueQuery.optional(),
 }).refine(({ exception, after }) => !after || Boolean(after.conditionId) === (exception === "Aging conditions"))
   .refine(({ readyOnly, exception, replyAfter }) => !replyAfter || (!readyOnly && !exception))
-  .refine(({ workload, readyOnly, exception, after, replyAfter }) => !workload || (!readyOnly && !exception && !after && !replyAfter));
+  .refine(({ workload, readyOnly, exception, after, replyAfter }) => !workload || (!readyOnly && !exception && !after && !replyAfter))
+  .refine(({ serviceOrders, readyOnly, exception, after, replyAfter, workload }) =>
+    !serviceOrders || (!readyOnly && !exception && !after && !replyAfter && !workload));
 export type ProcessorQueueQuery = z.infer<typeof processorQueueQuery>;
 export const processingViewChange = z.discriminatedUnion("type", [
   z.object({ type: z.literal("saveView"), id: z.uuid(), name: z.string().trim().min(1).max(80), filters: processingViewFilters }),
@@ -44,4 +48,4 @@ export type ProcessorQueueFile = z.infer<typeof cursor> & {
   closing: { count: number; dueDate: string; target?: string } | null;
 };
 export type ProcessorQueuePage = { checkedAt: string; files: ProcessorQueueFile[]; next: z.infer<typeof cursor> | null; views: SavedProcessingView[];
-  handoffHours?: number; replies?: ConversationReplyPage; workload?: ProcessingWorkload };
+  handoffHours?: number; replies?: ConversationReplyPage; workload?: ProcessingWorkload; serviceOrders?: ServiceOrderQueuePage };

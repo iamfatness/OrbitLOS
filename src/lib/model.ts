@@ -321,6 +321,7 @@ export interface Workspace {
   applications: StaffApplication[];
   documentRequests: LoanDocumentRequest[];
   borrowerQuestions?: import("./borrower-question-model").StaffBorrowerQuestion[];
+  serviceOrders?: import("./service-order-model").ServiceOrder[];
   pricingRuns: PricingRun[];
   feeWorksheets: FeeWorksheet[];
   publishedQuotes: PublishedQuote[];

@@ -36,6 +36,9 @@ export function applyLoanMutation(state: Workspace, work: EditableLoan): Workspa
     ...(work.borrowerQuestions && (work.borrowerQuestions.length || state.borrowerQuestions) ? {
       borrowerQuestions: replace(state.borrowerQuestions ?? [], work.borrowerQuestions),
     } : {}),
+    ...(work.serviceOrders && (work.serviceOrders.length || state.serviceOrders) ? {
+      serviceOrders: replace(state.serviceOrders ?? [], work.serviceOrders),
+    } : {}),
     submissions: replace(state.submissions, work.submissions),
     communicationDrafts: replace(state.communicationDrafts, work.communicationDrafts)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
