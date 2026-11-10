@@ -60,7 +60,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F14 | Hosted fictional lead upload and lender download links with separate codes, document revisions, and conversion history | Verify stronger recipient identity, authorized delivery, and live scanning before real use. |
 | F15 | Broker financial visibility and a separate planned non-del channel | Specify investor price, margin policy and registry evidence with a non-del broker. |
 | F16 | Reviewed 1003 revisions, closing checklist and dates, version-specific disclosure confirmation, and downloadable internal sample closing packets that preserve each evidence snapshot | Validate actual document generation, approval, and applicable UCD contracts. |
-| F17 | Funding and restricted expected versus received financial entries | Reconcile fictional purchase advice, receipt and reversal with reviewer history. |
+| F17 | Funding, restricted compensation entries, and owner-only reconciliation of sample purchase advice and partial receipts with review and reversal history | Validate external evidence contracts and workflow with a non-delegated pilot. |
 | F18 | Brokerage membership and assigned processor scope | Rehearse one contract processor across two brokerages with isolated files and fees. |
 | F19 | Workspace admin, invitations, roles and offboarding | Define seat entitlements and scoped support access, then rehearse role onboarding. |
 
