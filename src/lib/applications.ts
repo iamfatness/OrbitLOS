@@ -24,6 +24,8 @@ import { borrowerChannelActivityPrefix, borrowerChannelBlocked, borrowerChannelM
 import { linkedChannelLeadIds, readBorrowerHours, readContactChannelBlocks, setBorrowerHours, setContactChannelBlocks } from "./borrower-channels";
 import { reconcileBorrowerSequences } from "./borrower-sequences";
 import { borrowerHoursInput, borrowerHoursLabel, sameBorrowerHours } from "./borrower-hours";
+import { borrowerDisclosureResponse } from "./disclosure-model";
+import { readBorrowerDisclosure, respondToBorrowerDisclosure } from "./disclosures";
 import { loanOutreachSuppressed } from "./outreach-preferences";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "versions" | "previousAnswers" | "secondReviewApproved"> & { draft: string; step: number };
@@ -171,6 +173,7 @@ const write = {
 const borrowerCommand = z.discriminatedUnion("type", [
   z.object({ type: z.literal("read"), token }),
   z.object({ type: z.literal("status"), token }),
+  borrowerDisclosureResponse,
   z.strictObject({ type: z.literal("contactPreferences"), token }),
   z.strictObject({ type: z.literal("saveContactPreferences"), token, expected: borrowerChannelMask, blocked: borrowerChannelMask,
     hours: z.strictObject({ expected: borrowerHoursInput.nullable(), value: borrowerHoursInput.nullable() }).optional() }),
@@ -214,7 +217,7 @@ function borrowerContactPreferences(db: Store, data: Extract<z.infer<typeof borr
   return view(data.blocked, nextHours);
 }
 
-function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string): BorrowerLoanStatus | null {
+function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string, sampleSigning: boolean): BorrowerLoanStatus | null {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
   const published = loan && !row.correctionNote && db.prepare(`SELECT quote.product, quote.rate, quote.principalAndInterest,
     quote.quotedAt, quote.publishedAt, quote.presentation FROM published_quotes quote
@@ -229,16 +232,18 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
   const preapproval = loan && row.reviewedAt && !row.correctionNote &&
     readSharedPreapprovalLetters(db, [row.loanId], "Borrower", token, now).get(row.loanId);
   const closingPause = loan?.stage === "Clear to Close" ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
+  const disclosure = loan && sampleSigning ? readBorrowerDisclosure(db, row.loanId, "Borrower") : undefined;
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: borrowerDocuments(db, row.loanId, primaryDocumentRecipient),
     quote: published && currentAlternatives ? { ...published, presentation: borrowerQuotePresentation(presentation) } as unknown as BorrowerQuote : null,
     ...(preapproval ? { preapproval } : {}),
     ...(closingPause ? { closingPause } : {}),
+    ...(disclosure ? { disclosure } : {}),
   } : null;
 }
 
-function borrowerResult(db: Store, row: ApplicationRow, now: string): BorrowerResult {
+function borrowerResult(db: Store, row: ApplicationRow, now: string, sampleSigning: boolean): BorrowerResult {
   const joint = jointApplication(db, row.loanId);
   const stored = applicationDraft.parse(JSON.parse(row.draft));
   const draft = joint ? primaryJointDraft(stored) : stored;
@@ -246,7 +251,7 @@ function borrowerResult(db: Store, row: ApplicationRow, now: string): BorrowerRe
   return { application: {
     draft,
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt ?? joint?.primarySubmittedAt ?? null,
-    loanStatus: readBorrowerLoanStatus(db, row, row.token, now),
+    loanStatus: readBorrowerLoanStatus(db, row, row.token, now, sampleSigning),
     correctionNote: !joint?.primarySubmittedAt && row.correctionNote ? row.correctionNote : undefined,
     ...(joint ? { separateJoint: true } : {}),
   } };
@@ -315,17 +320,22 @@ function attachBorrowerSample(db: Store, row: Pick<BorrowerStatusRow, "loanId" |
   return null;
 }
 
-export function borrowerCommandResult(db: Store, input: unknown, allowSample = true, pilot = false): BorrowerResult {
+export function borrowerCommandResult(db: Store, input: unknown, allowSample = true, pilot = false, sampleSigning = true): BorrowerResult {
   const parsed = borrowerCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check the length of your answers and use valid amounts, then try again." };
   const data = parsed.data;
   const now = new Date().toISOString();
   return db.transaction(() => {
     if (data.type === "contactPreferences" || data.type === "saveContactPreferences") return borrowerContactPreferences(db, data, now);
-    if (data.type === "status" || (data.type === "attachSample" && data.statusOnly)) {
+    if (data.type === "status" || data.type === "respondToSampleDisclosure" || (data.type === "attachSample" && data.statusOnly)) {
       const row = db.prepare(`SELECT loanId, submittedAt, reviewedAt, correctionNote, revision ${borrowerLink}`)
         .get(data.token, now) as BorrowerStatusRow | undefined;
       if (!row) return borrowerLinkUnavailable;
+      if (data.type === "respondToSampleDisclosure") {
+        if (!sampleSigning || !row.submittedAt) return { status: 404, error: "This sample package is unavailable." };
+        const failure = respondToBorrowerDisclosure(db, row.loanId, "Borrower", data, now);
+        if (failure) return failure;
+      }
       if (!row.submittedAt) {
         const submittedAt = jointApplication(db, row.loanId)?.primarySubmittedAt;
         return { statusView: submittedAt ? { kind: "joint-waiting", submittedAt } : { kind: "resume" } };
@@ -334,14 +344,14 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
         const failure = attachBorrowerSample(db, row, data, allowSample, now);
         if (failure) return failure;
       }
-      const loanStatus = readBorrowerLoanStatus(db, row, data.token, now);
+      const loanStatus = readBorrowerLoanStatus(db, row, data.token, now, sampleSigning);
       return loanStatus ? { statusView: { kind: "status", submittedAt: row.submittedAt, loanStatus } } : borrowerLinkUnavailable;
     }
     const row = db.prepare(`SELECT * ${borrowerLink}`).get(data.token, now) as ApplicationRow | undefined;
     if (!row) return borrowerLinkUnavailable;
-    if (data.type === "read") return borrowerResult(db, row, now);
+    if (data.type === "read") return borrowerResult(db, row, now, sampleSigning);
     if (data.type === "attachSample") {
-      return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row, now);
+      return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row, now, sampleSigning);
     }
     const submitted = data.type === "submit";
     const joint = jointApplication(db, row.loanId);
@@ -370,12 +380,12 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     }
     if (primaryReady) {
       const stored = primaryJointDraft(applicationDraft.parse(JSON.parse(row.draft)));
-      return isDeepStrictEqual(draft, stored) ? borrowerResult(db, row, now) : alreadySubmitted;
+      return isDeepStrictEqual(draft, stored) ? borrowerResult(db, row, now, sampleSigning) : alreadySubmitted;
     }
     if (row.submittedAt) {
-      return isDeepStrictEqual(JSON.parse(JSON.stringify(draft)), JSON.parse(row.draft)) ? borrowerResult(db, row, now) : alreadySubmitted;
+      return isDeepStrictEqual(JSON.parse(JSON.stringify(draft)), JSON.parse(row.draft)) ? borrowerResult(db, row, now, sampleSigning) : alreadySubmitted;
     }
-    if (!submitted) return borrowerResult(db, saveBorrowerDraft(db, row, draft, data.step, now, false), now);
+    if (!submitted) return borrowerResult(db, saveBorrowerDraft(db, row, draft, data.step, now, false), now, sampleSigning);
     const issues = applicationIssues(draft, !!joint);
     if (issues.length) return invalidApplication(issues);
     const combined = joint?.submittedAt ? combinedJointDraft(draft, borrowerDetailsSchema.parse(JSON.parse(joint.draft))) : draft;
@@ -385,11 +395,11 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     }
     const next = joint && !joint.submittedAt ? saveBorrowerDraft(db, row, draft, data.step, now, false) :
       finishApplication(db, row, combined, data.step, now, pilot);
-    return borrowerResult(db, next, now);
+    return borrowerResult(db, next, now, sampleSigning);
   });
 }
 
-export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false, now = new Date().toISOString()):
+export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false, now = new Date().toISOString(), sampleSigning = true):
   { value: CoBorrowerApplication } | { status: number; error: string } {
   const parsed = coBorrowerCommand.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Check the length and format of your answers." };
@@ -402,12 +412,18 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
     const view = (draft = current, revision = row.revision, step = row.step, updatedAt = row.updatedAt,
       submittedAt = row.submittedAt, complete = Boolean(application.submittedAt), confirmedDemo = Boolean(row.confirmedDemo)): { value: CoBorrowerApplication } => {
       const closingPause = complete && submittedAt ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
+      const disclosure = complete && submittedAt && sampleSigning ? readBorrowerDisclosure(db, row.loanId, "Co-borrower") : undefined;
       return { value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
         ...(complete && submittedAt ? { documents: borrowerDocuments(db, row.loanId, coBorrowerDocumentRecipient) } : {}),
         ...(closingPause ? { closingPause } : {}),
+        ...(disclosure ? { disclosure } : {}),
         ...(row.correctionNote && !submittedAt ? { correctionNote: row.correctionNote } : {}) } };
     };
     if (data.type === "read") return view();
+    if (data.type === "respondToSampleDisclosure") {
+      if (!sampleSigning || !row.submittedAt || !application.submittedAt) return { status: 404, error: "This sample package is unavailable." };
+      return respondToBorrowerDisclosure(db, row.loanId, "Co-borrower", data, now) ?? view();
+    }
     if (data.type === "attachSample") {
       const ready = row.submittedAt && application.submittedAt;
       return attachBorrowerSample(db, { loanId: row.loanId, submittedAt: ready }, data, true, now, coBorrowerDocumentRecipient) ?? view();

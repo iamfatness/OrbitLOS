@@ -12,7 +12,7 @@ const { borrowerCommandResult, coBorrowerCommandResult, getApplication, staffApp
 const { coBorrowerReviewStep, primaryJointDraft, sampleCoBorrower } = await import("../src/lib/joint-application-model.ts");
 const { jointApplication } = await import("../src/lib/joint-application.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
-const { readEditableLoan } = await import("../src/lib/editable-loan.ts");
+const { readEditableLoan, readLoanHandoff } = await import("../src/lib/editable-loan.ts");
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { beginDocumentUpload, finishDocumentUpload, failDocumentUpload, issueDocumentCode, verifyDocumentCode } = await import("../src/lib/document-files.ts");
 const { checkDocumentReminders, documentReminderPage } = await import("../src/lib/document-reminder-runs.ts");
@@ -117,6 +117,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(disclosurePackageStatus(current()), "Review required");
   assert.equal(current().quote.estimate.inputs.fees.settlement, 100_000);
   assert.equal(work().source.quote.estimate.inputs.fees.settlement, 125_000);
+  assert.equal(f.primary({ type: "status" }).statusView.loanStatus.disclosure.state, "Awaiting revision");
   const reviews = queue().filter(({ id }) => id.startsWith("disclosure-review:"));
   assert.equal(reviews.length, 1);
   assert.equal(reviews[0].target, disclosureTarget);
@@ -130,11 +131,36 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(work().packages[1].signers[0].status, "Signed");
   assert.equal(disclosurePackageStatus(work().packages[1]), "Superseded");
   await apply("issueDisclosurePackage", version());
-  await apply("respondToDisclosurePackage", { ...version(), signer: "Borrower", response: "Signed" });
-  await apply("respondToDisclosurePackage", { ...version(), signer: "Co-borrower", response: "Signed" });
+  const response = { type: "respondToSampleDisclosure", version: 2, response: "Signed", confirmedDemo: true };
+  const initialHandoff = loan().handoffVersion;
+  const primaryPackage = () => f.primary({ type: "status" }).statusView.loanStatus.disclosure;
+  assert.equal(primaryPackage().signer.status, "Pending");
+  assert.equal(primaryPackage().fees.items.settlement, 125_000);
+  assert.doesNotMatch(JSON.stringify(primaryPackage()), /Co-borrower|applicationRevision|runId|feeOrigin|joint-borrower@example/);
+  assert.equal(f.primary({ ...response, version: 1 }).status, 409);
+  assert.equal(f.primary({ ...response, signer: "Co-borrower" }).status, 400);
+  assert.equal(f.primary({ ...response, confirmedDemo: false }).status, 400);
+  assert.equal(borrowerCommandResult(f.db, { ...response, token: f.primaryToken }, true, false, false).status, 404);
+  const signature = f.primary(response).statusView.loanStatus.disclosure.signer;
+  assert.equal(signature.status, "Signed");
+  assert.deepEqual(f.primary(response).statusView.loanStatus.disclosure.signer, signature);
+  assert.equal(f.primary({ ...response, response: "Declined" }).status, 409);
+  assert.equal(f.co().value.disclosure.signer.status, "Pending");
+  assert.doesNotMatch(JSON.stringify(f.co().value.disclosure), new RegExp(signature.receipt));
+  const changed = readLoanHandoff(f.db, f.loanId, initialHandoff, f.officer, f.brokerage.id);
+  assert.equal(changed.disclosureWork.packages[0].signers[0].respondedVia, "Borrower portal");
+  assert.equal(f.co(response).value.disclosure.signer.status, "Signed");
+  assert.equal(f.co(response, f.primaryToken).status, 404);
   assert.equal(disclosurePackageStatus(current()), "Mock signing complete");
   assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-signing:")));
-  assert.doesNotMatch(JSON.stringify(f.primary({ type: "status" })), /Sample disclosure package|Mock receipt/);
+  await apply("prepareDisclosurePackage", prepare(2, 2));
+  assert.equal(primaryPackage().state, "Awaiting revision");
+  await apply("issueDisclosurePackage", version());
+  const coToken = jointApplication(f.db, f.loanId).token;
+  await apply("revokeJointLink", { token: coToken });
+  assert.equal(f.co({ ...response, version: 3 }, coToken).status, 404);
+  assert.equal(f.primary({ ...response, version: 3, response: "Declined" }).statusView.loanStatus.disclosure.state, "Closed");
+  assert.equal(disclosurePackageStatus(current()), "Declined");
 });
 
 test("joint borrower links isolate drafts and finalize only after both portions arrive", async (t) => {

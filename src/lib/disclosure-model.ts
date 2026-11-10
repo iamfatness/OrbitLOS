@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { QuoteOption } from "./quote-worksheet";
+import { portalTokenPattern } from "./brokerage-model";
+import type { FeeInputs, QuoteOption } from "./quote-worksheet";
 
 export const disclosureTarget = "loan-disclosures";
 export const disclosureReviewPrefix = "disclosure-review:";
@@ -22,10 +23,16 @@ export const disclosureCommand = z.discriminatedUnion("type", [
 ]);
 
 export type DisclosureCommand = z.infer<typeof disclosureCommand>;
+export const borrowerDisclosureResponse = z.strictObject({
+  type: z.literal("respondToSampleDisclosure"), token: z.string().regex(portalTokenPattern),
+  version, response: z.enum(disclosureResponses), confirmedDemo: z.literal(true),
+});
+export type BorrowerDisclosureResponse = Omit<z.infer<typeof borrowerDisclosureResponse>, "token">;
 export type DisclosureDocument = (typeof sampleDisclosureDocuments)[number];
 export type DisclosureSigner = {
   role: (typeof disclosureSigners)[number]; name: string;
   status: "Pending" | (typeof disclosureResponses)[number]; actedAt: string | null; receipt: string | null;
+  respondedVia?: "Staff simulation" | "Borrower portal";
 };
 
 export type DisclosureSource = { applicationRevision: number; feeRevision: number; quote: QuoteOption };
@@ -36,6 +43,13 @@ export type DisclosurePackage = DisclosureSource & {
 };
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
+};
+export type BorrowerDisclosure = {
+  version: number; signBy: string; issuedAt: string; documents: DisclosureDocument[];
+  state: "Available" | "Awaiting revision" | "Closed";
+  signer: Pick<DisclosureSigner, "status" | "actedAt" | "receipt">;
+  terms: Pick<QuoteOption, "product" | "rate" | "loanAmount">;
+  fees: { closingCosts: number; cashToClose: number; items: FeeInputs["fees"] } | null;
 };
 
 export function disclosurePackageStatus(item: DisclosurePackage) {

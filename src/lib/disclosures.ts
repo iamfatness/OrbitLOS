@@ -2,7 +2,8 @@ import { addApplicationActivity, getApplication } from "./applications";
 import { applicationDraft } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate, easternDayStart } from "./client-retention";
-import { disclosureReviewPrefix, disclosureSigningPrefix, type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
+import { disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
+  type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
   type DisclosureSource, type DisclosureWork } from "./disclosure-model";
 import { quoteFeeWorksheet, quoteSnapshot } from "./quote-worksheet-store";
 import { savedPricingRun, type Store } from "./store";
@@ -81,10 +82,62 @@ function disclosureNames(draft: string): DisclosureSigner[] {
   return joint ? [primary, { ...primary, role: "Co-borrower", name: joint }] : [primary];
 }
 
+function activeDisclosureLoan(db: Store, loanId: string) {
+  const loan = db.prepare("SELECT disposition, stage FROM loans WHERE id = ?").get(loanId);
+  return loan?.disposition === "Active" && loan.stage !== "Funded" && loan.stage !== "Closed";
+}
+
+function applyDisclosureResponse(db: Store, item: PackageRow, signers: DisclosureSigner[], signer: DisclosureSigner,
+  response: BorrowerDisclosureResponse["response"], via: NonNullable<DisclosureSigner["respondedVia"]>, now: string) {
+  signer.status = response;
+  signer.actedAt = now;
+  signer.receipt = `Mock receipt ${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  signer.respondedVia = via;
+  db.prepare("UPDATE disclosure_packages SET signers = ?, revision = revision + 1 WHERE loanId = ? AND version = ?")
+    .run(JSON.stringify(signers), item.loanId, item.version);
+  if (response === "Declined" || signers.every(({ status }) => status === "Signed")) completeTask(db, disclosureSigningPrefix, item, now);
+  addApplicationActivity(db, item.loanId, `Mock disclosure response · ${signer.role} ${response.toLowerCase()} package v${item.version} · ${via}.`, now);
+}
+
+export function readBorrowerDisclosure(db: Store, loanId: string, role: DisclosureSigner["role"]): BorrowerDisclosure | undefined {
+  const item = db.prepare("SELECT * FROM disclosure_packages WHERE loanId = ? AND issuedAt IS NOT NULL ORDER BY version DESC LIMIT 1")
+    .get(loanId) as PackageRow | undefined;
+  if (!item?.issuedAt) return;
+  const signers: DisclosureSigner[] = JSON.parse(item.signers);
+  const signer = signers.find((item) => item.role === role);
+  if (!signer) return;
+  const source = disclosureSource(db, loanId).source;
+  const { product, rate, loanAmount, estimate }: DisclosurePackage["quote"] = JSON.parse(item.quote);
+  const documents: DisclosurePackage["documents"] = JSON.parse(item.documents);
+  return {
+    version: item.version, signBy: item.signBy, issuedAt: item.issuedAt, documents,
+    state: item.reviewReason || item.supersededAt || !source || !matchesSource(item, source) ? "Awaiting revision" :
+      signers.some(({ status }) => status === "Declined") || !activeDisclosureLoan(db, loanId) ? "Closed" : "Available",
+    signer: { status: signer.status, actedAt: signer.actedAt, receipt: signer.receipt },
+    terms: { product, rate, loanAmount },
+    fees: estimate && documents.includes("Sample fee summary") ?
+      { closingCosts: estimate.closingCosts, cashToClose: estimate.cashToClose, items: estimate.inputs.fees } : null,
+  };
+}
+
+export function respondToBorrowerDisclosure(db: Store, loanId: string, role: DisclosureSigner["role"], input: BorrowerDisclosureResponse, now: string) {
+  const unavailable = { status: 409, error: "This sample package changed. Refresh your loan status to see what is available." };
+  const [item] = packageRows(db, loanId, 1);
+  if (!item?.issuedAt || item.version !== input.version || item.reviewReason || item.supersededAt || !activeDisclosureLoan(db, loanId)) return unavailable;
+  const source = disclosureSource(db, loanId).source;
+  if (!source || !matchesSource(item, source)) return unavailable;
+  const signers: DisclosureSigner[] = JSON.parse(item.signers);
+  const signer = signers.find((item) => item.role === role);
+  if (!signer) return unavailable;
+  if (signer.status === input.response) return null;
+  if (signer.status !== "Pending" || signers.some(({ status }) => status === "Declined")) return unavailable;
+  applyDisclosureResponse(db, item, signers, signer, input.response, "Borrower portal", now);
+  return null;
+}
+
 export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null, data: DisclosureCommand, now: string) {
   if (!canUseSampleDisclosures(staff)) return { error: "Sample disclosure packages are available in fictional workspaces." } as const;
-  const loan = db.prepare("SELECT disposition, stage FROM loans WHERE id = ?").get(data.loanId);
-  if (!loan || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
+  if (!activeDisclosureLoan(db, data.loanId)) {
     return { error: "Open an active, unfunded loan to work on a sample disclosure package." } as const;
   }
   const [latest] = packageRows(db, data.loanId, 1);
@@ -131,12 +184,6 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
   if (!latest.issuedAt || !signer || signer.status !== "Pending" || signers.some(({ status }) => status === "Declined")) {
     return { error: "This signer has no pending action on the current sample package." } as const;
   }
-  signer.status = data.response;
-  signer.actedAt = now;
-  signer.receipt = `Mock receipt ${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-  db.prepare("UPDATE disclosure_packages SET signers = ?, revision = revision + 1 WHERE loanId = ? AND version = ?")
-    .run(JSON.stringify(signers), data.loanId, latest.version);
-  if (data.response === "Declined" || signers.every(({ status }) => status === "Signed")) completeTask(db, disclosureSigningPrefix, latest, now);
-  addApplicationActivity(db, data.loanId, `Mock disclosure response · ${signer.role} ${signer.status.toLowerCase()} package v${latest.version}.`, now);
+  applyDisclosureResponse(db, latest, signers, signer, data.response, "Staff simulation", now);
   return { message: `Mock response recorded for the ${signer.role.toLowerCase()}.` } as const;
 }

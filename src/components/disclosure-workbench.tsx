@@ -91,7 +91,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
       <ul className="loan-task-list">{current.signers.map((signer) => <li className="loan-task" key={signer.role}>
         <div className="loan-task-copy"><strong>{signer.role} · {signer.name}</strong>
           <span>{signer.status}{signer.actedAt && ` · ${stamp(signer.actedAt)}`}</span>
-          {signer.receipt && <span>{signer.receipt}</span>}
+          {signer.receipt && <span>{signer.receipt}{signer.respondedVia && ` · ${signer.respondedVia}`}</span>}
         </div>
         {editable && source && status === "Awaiting signatures" && signer.status === "Pending" &&
           <div className="loan-application-actions">{disclosureResponses.map((response) =>

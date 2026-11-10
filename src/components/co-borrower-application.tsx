@@ -12,6 +12,8 @@ import { OrbitRings, PortalHeader } from "./orbit-brand";
 import { QuestionnaireAnswers, QuestionnaireFields, type ChangeAnswers } from "./urla-fields";
 import { Button } from "./ui/button";
 import { BorrowerDocumentChecklist } from "./borrower-status";
+import { BorrowerSampleDisclosure } from "./borrower-sample-disclosure";
+import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
 
 async function requestCoBorrower(token: string, input: object, signal: AbortSignal): Promise<CoBorrowerApplication> {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete co-borrower link from your loan officer.");
@@ -37,7 +39,7 @@ export function CoBorrowerApplicationForm() {
 
 const labels = [...coBorrowerSections.map(([, label]) => label), "Review"];
 type CoBorrowerAction = { type: "read" } | { type: "attachSample"; requestId: string; revision: number } |
-  { type: "save" | "submit"; step: number; revision: number; draft: BorrowerDetails; confirmedDemo: boolean };
+  { type: "save" | "submit"; step: number; revision: number; draft: BorrowerDetails; confirmedDemo: boolean } | BorrowerDisclosureResponse;
 
 function CoBorrowerForm({ token }: { token?: string }) {
   const [view, setView] = useState<CoBorrowerApplication>();
@@ -80,7 +82,8 @@ function CoBorrowerForm({ token }: { token?: string }) {
     }
     const stop = observeHandoffChecks(document, window, refresh, mockHandoff);
     const stopChanges = observeBorrowerChange(token, "checklist-changed", () => void refresh(() => active));
-    return () => { active = false; stop(); stopChanges(); reading?.abort(); };
+    const stopDisclosures = observeBorrowerChange(token, "disclosure-changed", () => void refresh(() => active));
+    return () => { active = false; stop(); stopChanges(); stopDisclosures(); reading?.abort(); };
   }, [mockHandoff, submitted, token]);
 
   async function perform(input: CoBorrowerAction, success: string, move = false) {
@@ -96,7 +99,7 @@ function CoBorrowerForm({ token }: { token?: string }) {
       if (!controller.signal.aborted && window.location.hash.slice(1) === token) {
         setView(next);
         setNotice(success);
-        if (input.type === "attachSample") void announceBorrowerChange(token);
+        if (input.type === "attachSample" || input.type === "respondToSampleDisclosure") void announceBorrowerChange(token);
         if (move) window.scrollTo(0, 0);
       }
     } catch (failure) {
@@ -149,6 +152,8 @@ function CoBorrowerForm({ token }: { token?: string }) {
         awaitingOtherPortion ? "Your loan officer receives the joint 1003 once both portions are submitted." : "Your loan officer can review both portions on the loan."}</p>
       <div><Button variant="outline" size="sm" disabled={busy} onClick={refresh}>Refresh joint status</Button></div>
     </section>
+      {view?.disclosure && <BorrowerSampleDisclosure key={view.disclosure.version} item={view.disclosure} busy={busy}
+        respond={(input) => void perform(input, "Your sample disclosure response was recorded.")} />}
       {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}
         busy={busy} refresh={refresh} attach={attach} uploadsMode={view.documentUploadsMode} />}
     </div> : view && <section className="application-panel" aria-label="Co-borrower portion">

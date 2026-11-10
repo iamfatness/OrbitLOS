@@ -835,11 +835,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return recordPilotMeasurement(this.#store, staff, input);
   }
   borrower(input: unknown, pilot = false) {
+    const fictional = pilot || this.#id === demoBrokerageId;
     return borrowerCommandResult(this.#store, input,
-      pilot || this.#id === demoBrokerageId || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot);
+      fictional || runtimeSetting(this.env, "ORBIT_DOCUMENT_UPLOADS") !== "enabled", pilot, fictional);
   }
   coBorrower(input: unknown, pilot = this.#id !== demoBrokerageId) {
-    return coBorrowerCommandResult(this.#store, input, pilot);
+    return coBorrowerCommandResult(this.#store, input, pilot, undefined, pilot || this.#id === demoBrokerageId);
   }
   async #resolveLeadOwner(email: string | null, emails: string[], adminEmail?: string) {
     if (!email) return null;

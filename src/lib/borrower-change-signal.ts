@@ -5,6 +5,16 @@ const checklistWrites = new Set([
   "requestDocument", "requestSuggestedUwmDocuments", "applyDocumentPreset", "applyDocumentTemplate", "setDocumentDeadline",
   "reviewDocument", "reopenMockUwmCondition",
 ]);
+const disclosureWrites = new Set(["prepareDisclosurePackage", "issueDisclosurePackage", "respondToDisclosurePackage",
+  "saveFeeWorksheet", "selectOffer", "requestApplicationCorrection"]);
+
+export function borrowerDisclosureTokens(input: unknown, applications: readonly StaffApplication[]) {
+  if (!input || typeof input !== "object" || !("type" in input) || typeof input.type !== "string" ||
+    !disclosureWrites.has(input.type) || !("loanId" in input) || typeof input.loanId !== "string") return [];
+  const app = applications.find((item) => item.loanId === input.loanId);
+  return [...(app && !app.revokedAt ? [app.token] : []),
+    ...(app?.joint?.token && !app.joint.revokedAt ? [app.joint.token] : [])];
+}
 
 export function borrowerChecklistTokens(input: unknown, applications: readonly StaffApplication[], requests: readonly LoanDocumentRequest[] = []) {
   if (!input || typeof input !== "object" || !("type" in input) || typeof input.type !== "string" ||
@@ -33,7 +43,7 @@ export async function borrowerChangeChannel(token: string) {
   }
 }
 
-type BorrowerChange = "changed" | "checklist-changed";
+type BorrowerChange = "changed" | "checklist-changed" | "disclosure-changed";
 
 export async function announceBorrowerChange(token: string, change: BorrowerChange = "changed") {
   const channel = await borrowerChangeChannel(token);

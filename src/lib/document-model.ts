@@ -83,6 +83,7 @@ export interface BorrowerLoanStatus {
   documents: DocumentRequest[];
   quote: BorrowerQuote | null;
   preapproval?: SharedPreapprovalLetter;
+  disclosure?: import("./disclosure-model").BorrowerDisclosure;
 }
 
 export function needsBorrowerDocument(status: DocumentStatus) {

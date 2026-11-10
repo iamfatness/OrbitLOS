@@ -183,6 +183,8 @@ In **Realtors → Partner conversion**, filter the cohort by lead date, current 
 
 In a fictional workspace, review the submitted 1003 and save a sample quote. Open **Disclosures** on the loan to load and save sample fees, choose the sample documents and signing target, then prepare and issue the package. Record each borrower’s simulated signature or decline. The workbench keeps the issued fee snapshot, the target dates, and mock receipts with their package version.
 
+Open the issued package on the borrower’s existing application link. Each linked signer reviews the sample documents and records their own simulated response. The portal shows that signer’s receipt, and staff see the source and time on the loan. A package needing review or superseded by a draft cannot accept further responses.
+
 Edit the selected quote’s fee worksheet after preparing a package. **Today** shows a review task that opens **Disclosures**, where staff can compare the changed amounts and prepare a revised package. A revised package closes the review task and starts with pending signers. Earlier documents, fee estimates, and responses remain in the package history.
 
 ## Rehearse a brokerage migration

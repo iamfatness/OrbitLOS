@@ -9,6 +9,8 @@ import { Button } from "./ui/button";
 import { BorrowerPdfForm, BorrowerPdfVerification, useBorrowerPdf } from "./borrower-pdf";
 import type { DocumentUploadMode } from "@/lib/document-files-model";
 import { SharedPreapprovalDownload } from "./shared-preapproval";
+import { BorrowerSampleDisclosure } from "./borrower-sample-disclosure";
+import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
 
 const stageUpdates: Record<Stage, { label: string; next: string }> = {
   Lead: { label: "Getting started", next: "Your loan officer will review your application and share the next steps." },
@@ -22,9 +24,10 @@ const stageUpdates: Record<Stage, { label: string; next: string }> = {
 };
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-export function BorrowerStatus({ token, status, submittedAt, busy, refresh, attach, uploadsMode }: {
+export function BorrowerStatus({ token, status, submittedAt, busy, refresh, attach, uploadsMode, respondToDisclosure }: {
   token: string; status: BorrowerLoanStatus; submittedAt: string; busy: boolean; refresh: () => void; attach: (request: DocumentRequest) => void;
   uploadsMode?: DocumentUploadMode;
+  respondToDisclosure: (input: BorrowerDisclosureResponse) => void;
 }) {
   const stage = stageUpdates[status.stage];
   const pause = status.closingPause;
@@ -49,6 +52,7 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
         <small className="muted">{pause ? "Status updated" : "Loan stage updated"} {dateTime(pause?.since ?? status.stageSince)} ET</small>
       </div>
     </section>
+    {status.disclosure && <BorrowerSampleDisclosure key={status.disclosure.version} item={status.disclosure} busy={busy} respond={respondToDisclosure} />}
     {status.quote && <section className="application-panel application-receipt document-section" aria-labelledby="borrower-quote-heading">
       <div className="section-heading"><h2 id="borrower-quote-heading"><Calculator size={19} /> Your shared quote</h2><span className="pill">Sample pricing</span></div>
       <div className="borrower-next">

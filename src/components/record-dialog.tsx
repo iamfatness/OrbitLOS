@@ -855,7 +855,8 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
   const returnSection = modal.kind === "details" ? loanSection(target) : undefined;
   const processingHandoff = modal.kind === "details" && target === "processing-handoff";
-  const returnLoanId = refreshLoanOnReturn && (processingHandoff || returnSection === "1003" || returnSection === "Conditions") ? loan?.id : undefined;
+  const returnLoanId = refreshLoanOnReturn && (processingHandoff || returnSection === "1003" || returnSection === "Conditions" ||
+    returnSection === "Disclosures") ? loan?.id : undefined;
   const returnApplication = returnLoanId ? state.applications.find((application) => application.loanId === returnLoanId) : undefined;
   const returnToken = returnApplication?.token;
   const returnJointToken = returnApplication?.joint?.token;

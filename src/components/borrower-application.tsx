@@ -9,6 +9,7 @@ import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-ch
 import { observeHandoffChecks } from "@/lib/tab-return";
 import { primaryJointDraft } from "@/lib/joint-application-model";
 import type { BorrowerPortalPreferences } from "@/lib/borrower-channel-model";
+import type { BorrowerDisclosureResponse } from "@/lib/disclosure-model";
 import { borrowerWeekendHours, sameBorrowerHours, type BorrowerHours } from "@/lib/borrower-hours";
 import { ApplicationAnswers, ApplicationFields } from "./application-fields";
 import type { UpdateDraft } from "./application-address";
@@ -21,6 +22,7 @@ type SubmittedView = Exclude<BorrowerStatusRefresh, { kind: "resume" }>;
 type ApplicationView = BorrowerApplication | SubmittedView;
 type BorrowerAction = { type: "save" | "submit"; step: number; revision: number; draft: BorrowerApplication["draft"] }
   | { type: "status" }
+  | BorrowerDisclosureResponse
   | { type: "attachSample"; requestId: string; revision: number; statusOnly: true };
 
 function applicationView(application: BorrowerApplication): ApplicationView {
@@ -201,12 +203,14 @@ function BorrowerApplication({ token }: { token: string | null }) {
       }
     }
     const stopChanges = observeBorrowerChange(token, "checklist-changed", () => void refreshStatus(() => active));
+    const stopDisclosures = observeBorrowerChange(token, "disclosure-changed", () => void refreshStatus(() => active));
     const stopChecks = observeHandoffChecks(document, window, refreshStatus, mockHandoff);
     return () => {
       active = false;
       statusRead.current?.abort();
       queuedStatusRead.current = null;
       stopChanges();
+      stopDisclosures();
       stopChecks();
     };
   }, [mockHandoff, submitted, token]);
@@ -223,7 +227,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
     setNotice("");
     try {
       let next: ApplicationView;
-      if (input.type === "status" || input.type === "attachSample") {
+      if (input.type === "status" || input.type === "attachSample" || input.type === "respondToSampleDisclosure") {
         const status = await requestApplication<BorrowerStatusRefresh>(token, input, signal);
         if (!isCurrent()) return;
         if (status.kind === "resume") {
@@ -237,7 +241,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
       }
       if (!isCurrent()) return;
       setView(next);
-      if (input.type === "submit" || input.type === "attachSample") void announceBorrowerChange(token);
+      if (input.type === "submit" || input.type === "attachSample" || input.type === "respondToSampleDisclosure") void announceBorrowerChange(token);
       onSuccess(next);
     } catch (failure) {
       if (isCurrent()) setError(failure instanceof Error ? failure.message : "Could not save the application. Try again.");
@@ -305,7 +309,8 @@ function BorrowerApplication({ token }: { token: string | null }) {
       <p>Your loan officer can review the joint application after both portions are submitted. Return with this link to check progress.</p>
       <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void perform({ type: "status" }, () => setNotice("Joint application progress refreshed."))}>Refresh joint status</Button></div>
     </section> : view?.submittedAt && "loanStatus" in view ? token && view.loanStatus && <BorrowerStatus token={token} status={view.loanStatus} submittedAt={view.submittedAt}
-      busy={busy} attach={attach} uploadsMode={view.documentUploadsMode} refresh={() => void perform({ type: "status" }, () => setNotice("Loan status refreshed."))} />
+      busy={busy} attach={attach} uploadsMode={view.documentUploadsMode} refresh={() => void perform({ type: "status" }, () => setNotice("Loan status refreshed."))}
+      respondToDisclosure={(input) => void perform(input, () => setNotice("Your sample disclosure response was recorded."))} />
       : application && <section className="application-panel application-editor" aria-label="1003 application">
       <div className="application-steps">
         <p className="eyebrow">Application sections</p>
