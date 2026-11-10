@@ -101,3 +101,9 @@ The baseline phone view offered one generic borrower instruction field. The revi
 The LO keeps the scenario inputs when EQ is unsupported and enters a manual offer against those inputs. The owner can compare the chosen and earlier terms, and the reviewed loan points to manual MISMO or to the missing manual offer. The coverage check remains an internal loan event.
 
 The initial browser pass found that the comparison table widened the desktop loan drawer and lender names clipped on the phone. The table now scrolls inside a keyboard-focusable region, the long text fields span the phone form, and the unsupported result receives focus at the manual offer section. The heading and badges distinguish the unsupported outcome, estimates, and manual terms. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
+
+## Inbound review and Today
+
+The owner chooses the matching record and attaches the event. Today gives the assigned LO the missed-call label, the linked record, and the promised time when one exists. Both views use Orbit's existing work cards and buttons.
+
+The Impeccable review moved source diagnostics behind a disclosure and collapsed the simulator after a successful save so the matching decision takes focus. Closing review returns focus to the originating control. UI UX Pro Max's responsive and touch guidance informed the stacked phone card and 44 px primary controls. The portrait review exposed a clipped sidebar label and wordmark, so the narrow desktop sidebar now gives its labels more room. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)

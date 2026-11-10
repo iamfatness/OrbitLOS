@@ -34,7 +34,7 @@ const tools = [
   {icon:Wallet,title:"Manual lender quote comparison",text:"Compare sample conventional, DSCR and bank-statement terms. When the simulated EQ check returns unsupported, use its saved inputs to record a manual offer and prepare a sample MISMO handoff. Closing points to the updated handoff when terms change."},
   {icon:Search,title:"Workspace search",text:"Find loans by borrower, property, or lender reference. Processors can find documents and conversations for their assigned files."},
   {icon:ShieldCheck,title:"File preflight and reviews",text:"Check the reviewed 1003, sample fees, disclosures, and lender evidence before closing. Open the fee or condition that needs attention and assign a teammate to review the current evidence. Their decision stays in the history when the file changes."},
-  {icon:Workflow,title:"Consistent follow-up",text:"Open the prefilled 1003 from the original campaign. Recover interrupted callbacks and reuse a confirmed property address on a post-funding or rate-watch refinance. Staff can see whether the draft has an address while the borrower’s answers stay private until submission."},
+  {icon:Workflow,title:"Consistent follow-up",text:"Route simulated replies and missed calls to the assigned loan officer’s Today queue. Keep the conversation when a lead becomes a loan, and reuse a confirmed property address on a post-funding or rate-watch refinance."},
   {icon:ArrowDownUp,title:"Pipeline migration",text:"Map owners and carry callback history. Open the current lead, loan, or task evidence from an import receipt. Download a cutover handoff with open checks and reviewer attribution."},
 ];
 export default function Product(){return <>

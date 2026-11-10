@@ -211,7 +211,7 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
       </>}
       {thread && <>
         <p className="muted">{thread.thread.leadId ? "Lead" : thread.thread.loanId ? `${thread.thread.audience} · ${thread.thread.loanName}’s loan` :
-          `${thread.thread.audience} · Contact conversation`} · {thread.thread.owner} · {thread.thread.status}
+          `${thread.thread.audience} · Contact conversation`} · {thread.thread.owner} · {thread.thread.missedCall ? "Missed call" : thread.thread.status}
           {thread.thread.unread && " · Unread"}{thread.thread.dueOn && ` · Follow up ${dateLabel(thread.thread.dueOn)}`}
           {thread.thread.outreachBlocked && " · Outreach opted out"}{thread.thread.held && " · On hold"}</p>
         <div>{thread.thread.loanId && <Button size="sm" variant="outline" onClick={() => openLoan(thread.thread.loanId!)}>Open linked loan</Button>}
@@ -229,7 +229,8 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
           <p className="muted">This conversation is managed by {thread.thread.owner}.</p>}
         <h4>Conversation history</h4>
         {thread.events.length ? <ul className="loan-task-list">{thread.events.map((event) => <li key={event.id} className="document-item record-form">
-          <strong>{event.kind === "State" ? "Status or ownership update" : event.kind === "Note" ? "Internal note" : `${event.kind} ${event.channel}`}</strong>
+          <strong>{event.kind === "State" ? "Status or ownership update" : event.kind === "Note" ? "Internal note" :
+            event.kind === "Inbound" && event.channel === "Call" && event.origin === "Simulated" ? "Missed call" : `${event.kind} ${event.channel}`}</strong>
           <small className="muted">{event.origin} · {event.actor} · {dateTime(event.at)} ET</small>
           <p className="whitespace-pre-wrap break-words">{event.text}</p>
         </li>)}</ul> : <p className="empty-inline">No entries yet.</p>}
@@ -242,7 +243,7 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
     {!current && <p role="status" className="muted">Loading conversations…</p>}
     {current && "error" in current && <p role="alert">{current.error}</p>}
     {list && (list.rows.length ? <ul className="loan-task-list">{list.rows.map((row) => <li key={row.id} className="document-item record-form">
-      <div className="document-item-head"><strong>{row.name}</strong><span className="pill">{row.status}{row.unread && " · Unread"}</span></div>
+      <div className="document-item-head"><strong>{row.name}</strong><span className="pill">{row.missedCall ? "Missed call" : row.status}{row.unread && " · Unread"}</span></div>
       <p className="muted">{row.leadId ? "Lead" : row.loanId ? `${row.audience} · ${row.loanName}’s loan` : `${row.audience} · Contact conversation`} · {row.owner}
         {row.dueOn && ` · Follow up ${dateLabel(row.dueOn)}`}{row.outreachBlocked && " · Outreach opted out"}{row.held && " · On hold"}</p>
       <div><Button size="sm" variant="outline" disabled={saving} onClick={() => select({ id: row.id })}>Open conversation</Button></div>

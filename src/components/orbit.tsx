@@ -218,7 +218,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [taskOfficer, setTaskOfficer] = useState(processorTaskEntry ? "mine" : "");
   const [guideCallbackId, setGuideCallbackId] = useState<string>();
   const [conversationFocus, setConversationFocus] = useState<ConversationFocus | null>(null);
-  const [communicationView, setCommunicationView] = useState<"Conversations" | "Reply review">("Conversations");
+  const [communicationView, setCommunicationView] = useState<"Conversations" | "Inbound review">("Conversations");
   const [focusLeadId, setFocusLeadId] = useState<string>();
   const [focusArchivedLeadId, setFocusArchivedLeadId] = useState<string>();
   const [focusLeadTaskId, setFocusLeadTaskId] = useState<string>();
@@ -1511,9 +1511,9 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
           {section === "Communications" && <div className="record-form">
             {canReviewReplies && <div className="view-toggle" role="group" aria-label="Communications view">
               <button type="button" aria-pressed={communicationView === "Conversations"} onClick={() => setCommunicationView("Conversations")}>Conversations</button>
-              <button type="button" aria-pressed={communicationView === "Reply review"} onClick={() => setCommunicationView("Reply review")}>Reply review</button>
+              <button type="button" aria-pressed={communicationView === "Inbound review"} onClick={() => setCommunicationView("Inbound review")}>Inbound review</button>
             </div>}
-            {canReviewReplies && communicationView === "Reply review" ? <InboundReplyQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            {canReviewReplies && communicationView === "Inbound review" ? <InboundReplyQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId}
               openConversation={(id) => { setConversationFocus({ id }); setCommunicationView("Conversations"); }} /> :
               <><ConversationQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} signedIn={Boolean(staff)} team={admin}
                 version={state} focus={conversationFocus} setFocus={setConversationFocus} openPipeline={() => navigate("Pipeline")}

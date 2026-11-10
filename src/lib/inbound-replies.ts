@@ -91,21 +91,24 @@ export function readInboundReplies(db: Store, input: unknown, staff: WorkspaceSt
 }
 
 function simulate(db: Store, event: Extract<InboundReplyInput, { type: "simulate" }>, now: string): InboundReplyChange {
-  const { channel, sourceId, sender, text } = event;
+  const { channel, sourceId, sender } = event;
+  const label = channel === "Call" ? "missed call" : "reply";
+  const text = channel === "Call" ? "Incoming call went unanswered." : event.text;
+  if (!text) return { error: "Enter the fictional reply." };
   const [senderKey] = outreachIdentityKeys(channel === "Email" ? { email: sender } : { phone: sender });
   if (!senderKey || (channel === "Email" && !z.email().safeParse(sender).success)) {
     return { error: channel === "Email" ? "Enter a valid fictional email address." : "Enter a fictional phone number with 10 to 15 digits." };
   }
   const previous = db.prepare("SELECT id, senderKey, text FROM inbound_replies WHERE channel = ? AND sourceId = ?").get(channel, sourceId);
   if (typeof previous?.id === "string") {
-    if (previous.senderKey !== senderKey || previous.text !== text) return { error: "This source ID already belongs to a different reply." };
+    if (previous.senderKey !== senderKey || previous.text !== text) return { error: "This source ID already belongs to a different inbound event." };
     db.prepare("UPDATE inbound_replies SET replayCount = replayCount + 1 WHERE id = ?").run(previous.id);
-    return { id: previous.id, message: "Duplicate replay recorded. The original reply was kept." };
+    return { id: previous.id, message: `Duplicate replay recorded. The original ${label} was kept.` };
   }
   const id = crypto.randomUUID();
   db.prepare("INSERT INTO inbound_replies (id, channel, sourceId, senderKey, text, at) VALUES (?, ?, ?, ?, ?, ?)")
     .run(id, channel, sourceId, senderKey, text, now);
-  return { id, message: "Simulated reply queued for review." };
+  return { id, message: `Simulated ${label} queued for review.` };
 }
 
 function leadMatchesSender(db: Store, leadId: string, key: string) {
@@ -126,15 +129,16 @@ function alreadyLinkedLead(db: Store, reply: SavedReply, leadId: string) {
 export function changeInboundReply(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): InboundReplyChange {
   if (!permitted(staff, brokerageId)) return { error: inboundReplyUnavailable };
   const parsed = inboundReplyInput.safeParse(input);
-  if (!parsed.success) return { error: "Check the simulated reply and try again." };
+  if (!parsed.success) return { error: "Check the inbound event and try again." };
   const action = parsed.data;
   const at = now.toISOString();
   return db.transaction(() => {
     if (action.type === "simulate") return simulate(db, action, at);
     const reply = db.prepare("SELECT * FROM inbound_replies WHERE id = ?").get(action.id) as unknown as SavedReply | undefined;
     if (!reply) return { error: "This simulated reply is unavailable." };
-    const linked = (conversationId: string) => ({ id: reply.id, conversationId, message: "Reply linked to the conversation." });
-    if (action.type === "dismiss" && reply.status === "Dismissed") return { id: reply.id, message: "Reply dismissed." };
+    const label = reply.channel === "Call" ? "Missed call" : "Reply";
+    const linked = (conversationId: string) => ({ id: reply.id, conversationId, message: `${label} linked to the conversation.` });
+    if (action.type === "dismiss" && reply.status === "Dismissed") return { id: reply.id, message: `${label} dismissed.` };
     if (action.type === "attach" && reply.status === "Linked" && reply.conversationId && db.prepare(`SELECT 1 FROM loan_conversations thread
       JOIN loans loan ON loan.id = thread.loanId WHERE thread.id = ? AND thread.loanId = ? AND thread.audience = ? AND thread.contactId = ?
       AND ${currentConversationContact}`).get(reply.conversationId, action.loanId, action.audience, action.contactId)) return linked(reply.conversationId);
@@ -145,11 +149,11 @@ export function changeInboundReply(db: Store, input: unknown, staff: WorkspaceSt
     if (action.type === "attachContact" && reply.status === "Linked" && reply.contactConversationId &&
       db.prepare("SELECT 1 FROM contact_conversations WHERE id = ? AND contactId = ?")
         .get(reply.contactConversationId, action.contactId)) return linked(reply.contactConversationId);
-    if (reply.status !== "Pending" || reply.revision !== action.revision) return { error: "This reply changed. Refresh it before continuing." };
+    if (reply.status !== "Pending" || reply.revision !== action.revision) return { error: "This inbound event changed. Refresh it before continuing." };
     if (action.type === "dismiss") {
       db.prepare("UPDATE inbound_replies SET status = 'Dismissed', resolvedAt = ?, resolvedBy = ?, revision = revision + 1 WHERE id = ?")
         .run(at, staff.email, reply.id);
-      return { id: reply.id, message: "Reply dismissed." };
+      return { id: reply.id, message: `${label} dismissed.` };
     }
     if (action.type === "attachLead") {
       if (!leadMatchesSender(db, action.leadId, reply.senderKey)) return { error: "The sender no longer matches that open lead. Refresh the candidates." };

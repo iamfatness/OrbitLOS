@@ -591,7 +591,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
     CREATE INDEX IF NOT EXISTS contact_conversation_events_by_thread ON contact_conversation_events(conversationId, at DESC, id DESC);
     CREATE TABLE IF NOT EXISTS inbound_replies (
-      id TEXT PRIMARY KEY, channel TEXT NOT NULL CHECK (channel IN ('Email','Text')), sourceId TEXT NOT NULL,
+      id TEXT PRIMARY KEY, channel TEXT NOT NULL CHECK (channel IN ('Email','Text','Call')), sourceId TEXT NOT NULL,
       senderKey TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Linked','Dismissed')),
       replayCount INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1,
@@ -964,10 +964,31 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!db.prepare("PRAGMA table_info(inbound_replies)").all().some((column) => column.name === "leadConversationId")) {
       db.exec("ALTER TABLE inbound_replies ADD COLUMN leadConversationId TEXT REFERENCES lead_conversations(id) ON DELETE SET NULL");
     }
-    db.exec("CREATE INDEX IF NOT EXISTS inbound_replies_by_lead_conversation ON inbound_replies(leadConversationId) WHERE leadConversationId IS NOT NULL");
     if (!db.prepare("PRAGMA table_info(inbound_replies)").all().some((column) => column.name === "contactConversationId")) {
       db.exec("ALTER TABLE inbound_replies ADD COLUMN contactConversationId TEXT REFERENCES contact_conversations(id) ON DELETE SET NULL");
     }
+    const inboundSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'inbound_replies'").get()?.sql;
+    if (typeof inboundSchema === "string" && !inboundSchema.includes("'Call'")) {
+      db.exec(`CREATE TABLE inbound_replies_next (
+        id TEXT PRIMARY KEY, channel TEXT NOT NULL CHECK (channel IN ('Email','Text','Call')), sourceId TEXT NOT NULL,
+        senderKey TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending','Linked','Dismissed')),
+        replayCount INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1,
+        conversationId TEXT REFERENCES loan_conversations(id) ON DELETE SET NULL,
+        resolvedAt TEXT, resolvedBy TEXT,
+        leadConversationId TEXT REFERENCES lead_conversations(id) ON DELETE SET NULL,
+        contactConversationId TEXT REFERENCES contact_conversations(id) ON DELETE SET NULL,
+        UNIQUE(channel, sourceId)
+      );
+      INSERT INTO inbound_replies_next (id, channel, sourceId, senderKey, text, at, status, replayCount, revision,
+        conversationId, resolvedAt, resolvedBy, leadConversationId, contactConversationId)
+      SELECT id, channel, sourceId, senderKey, text, at, status, replayCount, revision,
+        conversationId, resolvedAt, resolvedBy, leadConversationId, contactConversationId FROM inbound_replies;
+      DROP TABLE inbound_replies;
+      ALTER TABLE inbound_replies_next RENAME TO inbound_replies;
+      CREATE INDEX inbound_replies_by_status ON inbound_replies(status, at DESC, id DESC);`);
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS inbound_replies_by_lead_conversation ON inbound_replies(leadConversationId) WHERE leadConversationId IS NOT NULL");
     db.exec("CREATE INDEX IF NOT EXISTS inbound_replies_by_contact_conversation ON inbound_replies(contactConversationId) WHERE contactConversationId IS NOT NULL");
     const mismoColumns = new Set(db.prepare("PRAGMA table_info(mismo_rehearsals)").all().map(({ name }) => name));
     if (!mismoColumns.has("existingContactId")) {

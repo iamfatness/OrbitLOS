@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { conversationAudiences, type ConversationSubject } from "./conversation-model";
 
-export const inboundReplyUnavailable = "The simulated reply review queue is unavailable in this workspace.";
+export const inboundReplyUnavailable = "Inbound review is unavailable in this workspace.";
 export const inboundReplyStatuses = ["Pending", "Linked", "Dismissed"] as const;
-export const inboundReplyChannels = ["Email", "Text"] as const;
+export const inboundReplyChannels = ["Email", "Text", "Call"] as const;
+export const inboundReplyLabel = (channel: (typeof inboundReplyChannels)[number]) => channel === "Call" ? "Missed call" : `${channel} reply`;
 const id = z.string().min(1).max(160);
 const receiptId = z.uuid();
 const cursor = z.object({ at: z.iso.datetime(), id: receiptId });
@@ -16,7 +17,7 @@ export const inboundReplyQuery = z.discriminatedUnion("type", [
 export const inboundReplyInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("simulate"), channel: z.enum(inboundReplyChannels),
     sourceId: z.string().trim().min(1).max(100).regex(/^[\w.:-]+$/),
-    sender: z.string().trim().min(1).max(254), text: z.string().trim().min(1).max(1200) }),
+    sender: z.string().trim().min(1).max(254), text: z.string().trim().min(1).max(1200).optional() }),
   z.object({ type: z.literal("attach"), id: receiptId, revision, loanId: id, contactId: id, audience: z.enum(conversationAudiences) }),
   z.object({ type: z.literal("attachLead"), id: receiptId, revision, leadId: id }),
   z.object({ type: z.literal("attachContact"), id: receiptId, revision, contactId: id }),

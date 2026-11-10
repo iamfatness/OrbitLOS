@@ -30,17 +30,21 @@ const leadSource = "FROM lead_conversations thread JOIN referral_leads lead ON l
 const contactSource = "FROM contact_conversations thread JOIN contacts recipient ON recipient.id = thread.contactId WHERE 1";
 const contactScope = (staff: WorkspaceStaff) => relationshipScope(staff, "thread.ownerEmail");
 const contactAudience = "CASE recipient.role WHEN 'Realtor' THEN 'Realtor' ELSE 'Borrower' END";
+const missedCallColumn = (events: string) => `CASE WHEN thread.status = 'Needs reply' THEN (
+  SELECT event.channel = 'Call' AND event.origin = 'Simulated' FROM ${events} event
+  WHERE event.conversationId = thread.id AND event.kind = 'Inbound' ORDER BY event.at DESC, event.id DESC LIMIT 1
+) END AS pendingMissedCall`;
 const sharedColumns = "thread.id, thread.status, thread.unread, thread.dueOn, thread.updatedAt, thread.revision";
-const threadColumns = `${sharedColumns}, thread.loanId, thread.contactId, thread.audience, thread.ownerRole, NULL AS leadId, thread.sourceLeadId,
+const threadColumns = `${sharedColumns}, ${missedCallColumn("conversation_events")}, thread.loanId, thread.contactId, thread.audience, thread.ownerRole, NULL AS leadId, thread.sourceLeadId,
   recipient.name, borrower.name AS loanName, recipient.email, recipient.phone, recipient.id AS outreachContactId,
   (thread.sourceLeadId IS NOT NULL AND loan.disposition <> 'Active') AS onHold, 0 AS campaignOptedOut,
   CASE thread.ownerRole WHEN 'Processor' THEN coalesce(nullif(processing.processorName, ''), 'Unassigned processor')
     ELSE coalesce(nullif(loan.officer, ''), 'Unassigned loan officer') END AS owner`;
-const leadColumns = `${sharedColumns}, NULL AS loanId, NULL AS contactId, 'Borrower' AS audience, 'Loan officer' AS ownerRole,
+const leadColumns = `${sharedColumns}, ${missedCallColumn("lead_conversation_events")}, NULL AS loanId, NULL AS contactId, 'Borrower' AS audience, 'Loan officer' AS ownerRole,
   lead.id AS leadId, NULL AS sourceLeadId, lead.name, lead.name AS loanName, lead.email, lead.phone, lead.importedContactId AS outreachContactId,
   lead.heldAt IS NOT NULL AS onHold, EXISTS(SELECT 1 FROM call_campaign_members member WHERE member.leadId = lead.id AND member.lastOutcome = 'Opted out') AS campaignOptedOut,
   coalesce(nullif(lead.officer, ''), 'Unassigned loan officer') AS owner`;
-const contactColumns = `${sharedColumns}, NULL AS loanId, recipient.id AS contactId, ${contactAudience} AS audience, 'Loan officer' AS ownerRole,
+const contactColumns = `${sharedColumns}, ${missedCallColumn("contact_conversation_events")}, NULL AS loanId, recipient.id AS contactId, ${contactAudience} AS audience, 'Loan officer' AS ownerRole,
   NULL AS leadId, NULL AS sourceLeadId, recipient.name, recipient.name AS loanName, recipient.email, recipient.phone,
   recipient.id AS outreachContactId, 0 AS onHold, 0 AS campaignOptedOut, thread.ownerName AS owner`;
 
@@ -50,7 +54,8 @@ const contactStorage = { table: "contact_conversations", events: "contact_conver
 const storage = (row: ThreadRow) => row.loanId ? loanStorage : row.leadId ? leadStorage : contactStorage;
 
 type ThreadRow = Omit<ConversationRow, "unread" | "outreachBlocked" | "held"> & {
-  unread: number; onHold: number; campaignOptedOut: number; sourceLeadId: string | null; outreachContactId: string | null; email: string; phone: string;
+  unread: number; onHold: number; campaignOptedOut: number; sourceLeadId: string | null; outreachContactId: string | null;
+  pendingMissedCall: number | null; email: string; phone: string;
 };
 type Thread = ThreadRow & {
   unread: number; ownerEmail: string | null; officerEmail: string | null; processorEmail: string | null; officer: string; processorName: string | null;
@@ -170,7 +175,7 @@ function ensureContactConversation(db: Store, staff: WorkspaceStaff, contactId: 
 
 // Inbound review owns the transaction that links the receipt and appends this entry.
 export function appendReviewedReply(db: Store, staff: WorkspaceStaff, subject: ConversationSubject | { leadId: string } | { contactId: string },
-  reply: { id: string; channel: "Email" | "Text"; text: string; at: string }, now: string) {
+  reply: { id: string; channel: NonNullable<ConversationEvent["channel"]>; text: string; at: string }, now: string) {
   const leadId = "leadId" in subject ? subject.leadId : null;
   const id = "leadId" in subject ? ensureLeadConversation(db, staff, subject.leadId, now) :
     "loanId" in subject ? ensureConversation(db, staff, subject, now) : ensureContactConversation(db, staff, subject.contactId, now);
@@ -190,7 +195,16 @@ export function appendReviewedReply(db: Store, staff: WorkspaceStaff, subject: C
   db.prepare(`INSERT INTO ${events} (id, conversationId, kind, channel, origin, text, actor, actorEmail, at, request)
     VALUES (?, ?, 'Inbound', ?, 'Simulated', ?, ?, ?, ?, ?)`)
     .run(crypto.randomUUID(), id, reply.channel, reply.text, staff.name, staff.email, reply.at, JSON.stringify({ type: "reviewedReply", receiptId: reply.id }));
+  if (leadId && reply.channel !== "Call") stopLeadOutreachForReply(db, leadId, reply.at, now);
   return id;
+}
+
+function stopLeadOutreachForReply(db: Store, leadId: string, receivedAt: string, now: string) {
+  db.prepare(`INSERT INTO lead_follow_up (leadId, status, revision, replyReceivedAt) VALUES (?, 'Stopped', 1, ?)
+    ON CONFLICT(leadId) DO UPDATE SET replyReceivedAt = excluded.replyReceivedAt,
+    status = CASE WHEN status = 'Completed' THEN status ELSE 'Stopped' END, nextAt = NULL, pausedAt = NULL, revision = revision + 1
+    WHERE lead_follow_up.replyReceivedAt IS NULL OR lead_follow_up.replyReceivedAt > excluded.replyReceivedAt`).run(leadId, receivedAt);
+  stopAutomaticCampaignRetriesForReply(db, leadId, now);
 }
 
 function identity(row: ThreadRow) {
@@ -203,6 +217,7 @@ function publicRow(row: ThreadRow, blocked: Set<string>, campaignCallback?: Conv
   const { id, loanId, leadId, contactId, audience, name, loanName, ownerRole, owner, status, unread, dueOn, updatedAt, revision } = row;
   return { id, loanId, leadId, contactId, audience, name, loanName, ownerRole, owner, status, unread: Boolean(unread), dueOn, updatedAt, revision,
     held: Boolean(row.onHold), outreachBlocked: Boolean(row.campaignOptedOut || (prospecting(row) && outreachSuppressed(blocked, identity(row)))),
+    ...(row.pendingMissedCall ? { missedCall: true as const } : {}),
     ...(campaignCallback ? { campaignCallback } : {}) };
 }
 
@@ -457,13 +472,7 @@ export function changeConversation(db: Store, input: unknown, staff: WorkspaceSt
       WHERE id = ?`).run(status, unread, dueOn, ...(row.loanId ? [ownerRole] : []), at, row.id);
     db.prepare(`INSERT INTO ${eventsTable} (id, conversationId, kind, channel, origin, text, actor, actorEmail, at, request) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(data.eventId, row.id, kind, channel, origin, text, staff.name, staff.email, at, request);
-    if (replyLeadId) {
-      db.prepare(`INSERT INTO lead_follow_up (leadId, status, revision, replyReceivedAt) VALUES (?, 'Stopped', 1, ?)
-        ON CONFLICT(leadId) DO UPDATE SET replyReceivedAt = excluded.replyReceivedAt,
-        status = CASE WHEN status = 'Completed' THEN status ELSE 'Stopped' END, nextAt = NULL, pausedAt = NULL, revision = revision + 1
-        WHERE lead_follow_up.replyReceivedAt IS NULL`).run(replyLeadId, at);
-      stopAutomaticCampaignRetriesForReply(db, replyLeadId, at);
-    }
+    if (replyLeadId) stopLeadOutreachForReply(db, replyLeadId, at, at);
     return success;
   });
 }

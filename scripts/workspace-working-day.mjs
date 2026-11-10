@@ -467,6 +467,14 @@ try {
     assert.ok((await compactReplies(processor)).error);
     const openedReply = await action(officer, "readConversationWork", { type: "thread", id: linked.conversationId });
     assert.deepEqual(openedReply.thread.campaignCallback, freshReply.campaignCallback);
+    const missedCall = await action(owner, "saveInboundReplyWork", { type: "simulate", channel: "Call", sourceId: "working-day-missed-call",
+      sender: (await action(officer, "readLeadForWork", secondTask)).lead.phone });
+    assert.ok(missedCall.id, missedCall.error);
+    const attachedCall = await action(owner, "saveInboundReplyWork", { type: "attachLead", id: missedCall.id, revision: 1, leadId: secondLeadId });
+    assert.equal(attachedCall.conversationId, linked.conversationId);
+    const missedCallWork = (await compactReplies(officer)).page.items.find(({ id }) => id === linked.conversationId);
+    assert.equal(missedCallWork.missedCall, true);
+    assert.deepEqual(missedCallWork.campaignCallback, freshReply.campaignCallback);
     assert.equal((await action(officer, "readLeadForWork", { ...secondTask, task: { ...secondTask.task, expectedCallbackAt: secondCallbackAt } })).member.callbackDueAt, secondCallbackAt);
     assert.ok((await action(officer, "readLeadForWork", { ...secondTask, task: { ...secondTask.task, expectedCallbackAt: campaignCallbackAt } })).error);
     const campaignRefresh = { type: "refreshCampaignQueue", campaignId: secondCampaignId };
@@ -526,6 +534,9 @@ try {
     assert.equal(callbackForNewOwner.member?.callbackDueAt, secondCallbackAt);
     const converted = await write(officer, { type: "convertReferral", referralId: secondLeadId, contactId: null });
     const callbackLoanId = converted.referralLoanId;
+    const carriedCall = (await compactReplies(officer)).page.items.find(({ id }) => id === linked.conversationId);
+    assert.equal(carriedCall.missedCall, true);
+    assert.equal(carriedCall.loanId, callbackLoanId);
     const loanTask = { loanId: callbackLoanId, taskId: secondTask.task.id, dueAt: secondCallbackAt };
     const [loanException] = (await callbackExceptions(owner, { campaignId: secondCampaignId, ownerEmail: officer.email })).items;
     assert.equal(loanException?.id, missed.id);

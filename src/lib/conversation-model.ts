@@ -53,6 +53,7 @@ export type ConversationRow = {
   id: string; name: string; loanName: string; ownerRole: (typeof conversationOwners)[number]; owner: string;
   status: (typeof conversationStates)[number]; unread: boolean; dueOn: string | null; updatedAt: string; revision: number;
   campaignCallback?: ConversationCallback;
+  missedCall?: true;
 };
 export type ConversationReplyPage = { items: ConversationRow[]; next: ConversationCursor | null };
 export type ConversationEvent = ConversationCursor & {

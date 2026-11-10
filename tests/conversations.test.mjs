@@ -370,6 +370,8 @@ test("an inbound receipt matches both an open lead and a loan and follows the ch
   assert.equal(save(attach).conversationId, linked.conversationId);
   assert.equal(review(id).reply.conversationId, linked.conversationId);
   assert.ok(read({ type: "thread", id: linked.conversationId }, other).error);
+  assert.deepEqual({ ...db.prepare("SELECT status, replyReceivedAt FROM lead_follow_up WHERE leadId = ?").get(leadId) },
+    { status: "Stopped", replyReceivedAt: now.toISOString() });
   const before = read({ type: "thread", id: linked.conversationId }, lo);
   assert.equal(before.thread.leadId, leadId);
   assert.equal(before.thread.unread, true);
@@ -391,6 +393,56 @@ test("an inbound receipt matches both an open lead and a loan and follows the ch
   assert.equal(after.thread.loanId, converted.referralLoanId);
   assert.deepEqual(after.events, before.events);
   assert.equal(db.prepare("SELECT leadConversationId FROM inbound_replies WHERE id = ?").get(id).leadConversationId, null);
+});
+
+test("a missed call upgrades existing receipts, follows ownership through conversion and never counts as a reply", async (t) => {
+  const { db, lead, lo, other, admin, brokerage, now, read } = fixture(t);
+  const leadId = lead("Fictional missed call");
+  db.prepare("UPDATE referral_leads SET phone = '+1 (248) 555-0199' WHERE id = ?").run(leadId);
+  const save = (input, staff = admin, at = now) => changeInboundReply(db, input, staff, brokerage.id, at);
+  const review = (id) => readInboundReplies(db, { type: "reply", id }, admin, brokerage.id);
+  const today = (staff) => read({ type: "myReplies" }, staff).page.items;
+  const previous = save({ type: "simulate", channel: "Text", sourceId: "old-text", sender: "2485550199", text: "Legacy pending receipt." });
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'inbound_replies'").get().sql;
+  db.exec(`ALTER TABLE inbound_replies RENAME TO test_saved_receipts;
+    ${schema.replace(",'Call'", "")};
+    INSERT INTO inbound_replies SELECT * FROM test_saved_receipts;
+    DROP TABLE test_saved_receipts;`);
+  initializeStore(db, false);
+  assert.equal(review(previous.id).reply.text, "Legacy pending receipt.");
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+
+  const input = { type: "simulate", channel: "Call", sourceId: "missed-call", sender: "248-555-0199" };
+  assert.ok(save(input, lo).error);
+  const { id } = save(input);
+  assert.equal(save(input).id, id);
+  assert.ok(save({ ...input, sender: "2485550101" }).error);
+  assert.deepEqual(review(id).matches.map(({ leadId }) => leadId), [leadId]);
+  assert.deepEqual(today(lo), []);
+  const attach = { type: "attachLead", id, revision: 1, leadId };
+  const { conversationId } = save(attach);
+  assert.ok(conversationId);
+  assert.equal(save(attach).conversationId, conversationId);
+  assert.equal(db.prepare("SELECT replyReceivedAt FROM lead_follow_up WHERE leadId = ?").get(leadId)?.replyReceivedAt, undefined);
+  assert.equal(today(lo)[0].missedCall, true);
+  assert.deepEqual(today(other), []);
+  db.prepare("UPDATE referral_leads SET officerEmail = ?, officer = ? WHERE id = ?").run(other.email, other.name, leadId);
+  assert.deepEqual(today(lo), []);
+  assert.equal(today(other)[0].id, conversationId);
+  const result = await executeCommand(db, { type: "convertReferral", referralId: leadId, contactId: null }, other);
+  assert.ok(result.referralLoanId, result.error);
+  assert.equal(today(other)[0].missedCall, true);
+  assert.equal(today(other)[0].loanId, result.referralLoanId);
+  assert.equal(review(id).reply.conversationId, conversationId);
+  const thread = read({ type: "thread", id: conversationId }, other);
+  assert.deepEqual(thread.events.map(({ kind, channel, origin }) => [kind, channel, origin]), [["Inbound", "Call", "Simulated"]]);
+  const callback = { type: "message", id: conversationId, eventId: crypto.randomUUID(), revision: thread.thread.revision,
+    channel: "Call", direction: "Outbound", text: "Fictional callback logged." };
+  db.prepare("INSERT INTO outreach_opt_outs (source, identityKey, recordedAt) VALUES ('test', ?, ?)").run(`lead:${leadId}`, now.toISOString());
+  assert.match(changeConversation(db, callback, other, brokerage.id, now).error, /unavailable/);
+  db.prepare("DELETE FROM outreach_opt_outs WHERE source = 'test'").run();
+  assert.equal(changeConversation(db, callback, other, brokerage.id, now).id, conversationId);
+  assert.deepEqual(today(other), []);
 });
 
 test("lead reply matches normalize phone numbers and page across a bounded backfill", (t) => {

@@ -9,14 +9,14 @@ export function ConversationReplies({ page, today, after, open, onPage, showOwne
   page: ConversationReplyPage; today: string; after?: ConversationCursor; open: (id: string) => void;
   onPage: (after?: ConversationCursor) => void; showOwner?: boolean;
 }) {
-  return <section className="work-queue record-form" aria-label="Replies needing attention">
-    <div className="section-heading"><h3>Replies needing attention</h3>{page.items.length > 0 &&
+  return <section className="work-queue record-form" aria-label="Replies and missed calls">
+    <div className="section-heading"><h3>Replies and missed calls</h3>{page.items.length > 0 &&
       <span className="pill">{page.items.length} on this page</span>}</div>
     {page.items.length ? <ul className="loan-task-list">{page.items.map((reply) => {
       const context = reply.leadId ? "Lead conversation" : reply.loanId ? `${reply.audience} · ${reply.loanName}’s loan` : `${reply.audience} contact conversation`;
-      return <li className="loan-task" key={reply.id}>
+      return <li className="loan-task conversation-reply-task" key={reply.id}>
         <div className="loan-task-copy"><strong>{reply.name}</strong>
-          <span>{context}{reply.unread && " · Unread"}{reply.held && " · On hold"}{reply.outreachBlocked && " · Outreach opted out"}</span>
+          <span>{reply.missedCall && "Missed call · "}{context}{reply.unread && " · Unread"}{reply.held && " · On hold"}{reply.outreachBlocked && " · Outreach opted out"}</span>
           {showOwner && <span>Processor · {reply.owner}</span>}
           {reply.campaignCallback && <span>Promised callback · {dateTime(reply.campaignCallback.dueAt)} ET</span>}
           {reply.dueOn && <span>Follow-up {reply.dueOn < today ? "overdue since" : "scheduled for"} {dateLabel(reply.dueOn)}</span>}
@@ -24,10 +24,10 @@ export function ConversationReplies({ page, today, after, open, onPage, showOwne
         <Button size="sm" variant="outline" onClick={() => open(reply.id)}
           aria-label={`Open conversation for ${reply.name} · ${context}`}>Open conversation</Button>
       </li>;
-    })}</ul> : <p className="muted">{after ? "No more replies on this page." : "No replies need attention."}</p>}
+    })}</ul> : <p className="muted">{after ? "No more items on this page." : "No replies or missed calls need attention."}</p>}
     {(after || page.next) && <div className="loan-application-actions">
-      {after && <Button size="sm" variant="outline" onClick={() => onPage()}>Newest replies</Button>}
-      {page.next && <Button size="sm" variant="outline" onClick={() => onPage(page.next ?? undefined)}>Older replies</Button>}
+      {after && <Button size="sm" variant="outline" onClick={() => onPage()}>Newest items</Button>}
+      {page.next && <Button size="sm" variant="outline" onClick={() => onPage(page.next ?? undefined)}>Older items</Button>}
     </div>}
   </section>;
 }

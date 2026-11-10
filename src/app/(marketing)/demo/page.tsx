@@ -30,6 +30,7 @@ export default function DemoPage() {
           <li>Set weekday and weekend contact hours in the borrower portal. Check that an out-of-hours sequence step waits for the next opening in the borrower’s time zone.</li>
           <li>Use Next call to work assigned leads one at a time. See the last call note, the scheduled callback, and any earlier promise deadline before logging the next outcome.</li>
           <li>Start a shared conversation from the lead and open its call history in Communications, even if another tab already converted it to a loan. Record simulated follow-up with brokerage opt-outs enforced.</li>
+          <li>In Communications, attach a simulated missed call to its lead. Open the callback from the assigned officer’s Today queue. A linked email or text reply stops the lead’s remaining automated follow-up and keeps any promised callback visible.</li>
           <li>Request sample documents before the 1003, adjust deadlines from Calendar, and review uploads from My Tasks. Managers can reassign leads with open requests, and the checklist follows the lead into the loan.</li>
           <li>Preview branch ZIP routing on separate purchase and refinance intake profiles. See the original destination on the lead and choose which answers should prefill the 1003.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>
