@@ -3,13 +3,14 @@ import { closingGateInput, closingGateLabels, closingGatePhases, closingGatePoli
   type ClosingGateBlocker, type ClosingGateCheck, type ClosingGateOverride, type ClosingGatePhase, type ClosingGateResult,
   type ClosingGateRule, type ClosingGateSettings } from "./closing-gate-model";
 import { addLoanAuditEntry } from "./loan-audit";
-import { closingChecklistTarget } from "./loan-workflow";
+import { closingChecklistListTarget, closingChecklistTarget } from "./loan-workflow";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { conditionTarget } from "./uwm-alert-model";
 import { accessEvent, loanAccess } from "./workspace-access";
 
 const visibleLimit = 20;
+const missingChecklist = "missing-checklist";
 const defaults: ClosingGateSettings = { kind: "settings", revision: 0, rules: { closing: [], funding: [] },
   reason: "", publishedAt: null, publishedBy: null };
 type GateRow = Omit<ClosingGateBlocker, "rule" | "target"> & { evidence: string | null };
@@ -34,15 +35,16 @@ export const closingGateSources = {
       (SELECT condition.value FROM json_each(CASE WHEN json_valid(file.conditions) THEN file.conditions ELSE '[]' END) condition
         WHERE json_extract(condition.value, '$.id') = item.conditionId LIMIT 1))`,
     processor: "lower(trim(item.manualOwner)) = 'processor'" },
-  checklist: { joins: "JOIN closing_items item ON item.loanId = loan.id", match: "item.completedAt IS NULL",
-    id: "item.id", parent: "loan.id", title: "item.title", due: "item.dueDate", evidence: "json_array(item.revision, item.owner)",
+  checklist: { joins: "LEFT JOIN closing_items item ON item.loanId = loan.id", match: "item.completedAt IS NULL",
+    id: `coalesce(item.id, '${missingChecklist}')`, parent: "loan.id", title: "coalesce(item.title, 'Closing checklist has no items')",
+    due: "coalesce(item.dueDate, plan.targetDate)", evidence: "json_array(item.revision, item.owner)",
     processor: "lower(trim(item.owner)) = 'processor'" },
 } satisfies Record<ClosingGateRule, Record<string, string>>;
 
 export function closingGateTarget(rule: ClosingGateRule, parentId: string, id: string) {
   switch (rule) {
     case "conditions": return conditionTarget(parentId, id);
-    case "checklist": return closingChecklistTarget(id);
+    case "checklist": return id === missingChecklist ? closingChecklistListTarget : closingChecklistTarget(id);
     case "1003": return "loan-application";
   }
 }

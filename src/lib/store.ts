@@ -343,7 +343,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, owner TEXT NOT NULL, dueDate TEXT NOT NULL, completedAt TEXT, revision INTEGER NOT NULL DEFAULT 1
     );
-    CREATE INDEX IF NOT EXISTS closing_gate_open_items ON closing_items(loanId, dueDate, id) WHERE completedAt IS NULL;
+    CREATE INDEX IF NOT EXISTS closing_items_by_loan ON closing_items(loanId, completedAt, dueDate, id);
     CREATE TABLE IF NOT EXISTS closing_progress (
       loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE,
       fundingDate TEXT, disclosureStatus TEXT NOT NULL DEFAULT 'Not started', disclosureDate TEXT,

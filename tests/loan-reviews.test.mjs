@@ -92,6 +92,7 @@ test("closing and funding policies link to current evidence and audit only a suc
   assert.ok(readFileExceptions(db, { filter: "Closing and funding holds" }, officer, id).error);
 
   await ok("saveClosingTarget", { previous: null, targetDate: today });
+  assert.deepEqual(work(read, officer).closing.blockers.map(({ target }) => target), ["loan-application", "closing-checklist-items"]);
   const checklist = { itemId: crypto.randomUUID(), revision: 0, title: "Review fictional escrow statement", owner: "Processor", dueDate: today };
   await ok("saveClosingItem", checklist);
   assert.deepEqual(exceptions().map(({ target, owner, dueOn }) => [target, owner, dueOn]).sort(), [
