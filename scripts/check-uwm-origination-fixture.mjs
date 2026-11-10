@@ -22,7 +22,7 @@ try {
     throw new Error("Use XML exported from an OrbitLOS fictional application.");
   }
   const storageOrigin = "https://uwm-fixture.invalid";
-  const request = prepareUwmXmlUpload({ signedUrl: `${storageOrigin}/fixture.xml?signature=fictional`, storageOrigin, bytes, digest });
+  const request = prepareUwmXmlUpload({ signedUrl: `${storageOrigin}/fixture.xml?sig=fictional`, storageOrigin, bytes, digest });
   console.log(JSON.stringify({ artifactDigestMatched: true, bytes: bytes.byteLength, method: request.method,
     blobType: request.headers.get("x-ms-blob-type"), documentedUploadStatus: uwmXmlUploadSuccessStatus, outboundRequests: 0 }));
 } catch (error) {

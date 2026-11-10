@@ -74,7 +74,7 @@ test("fictional wholesale checks gate both export paths and pin the exact XML an
   assert.equal(exportEvent.exportProfile, profile);
   assert.equal(exportEvent.exportDigest, createHash("sha256").update(xml).digest("hex"));
   const storageOrigin = "https://uwm-fixture.invalid";
-  const signedUrl = `${storageOrigin}/synthetic/loan.xml?signature=fictional`;
+  const signedUrl = `${storageOrigin}/synthetic/loan.xml?sig=fictional`;
   const upload = { storageOrigin, signedUrl, bytes: new TextEncoder().encode(xml), digest: exportEvent.exportDigest };
   const network = t.mock.method(globalThis, "fetch", () => assert.fail("Fixture preparation must never send a request"));
   const request = prepareUwmXmlUpload(upload);
@@ -82,8 +82,8 @@ test("fictional wholesale checks gate both export paths and pin the exact XML an
     request.headers.get("authorization"), uwmXmlUploadSuccessStatus], ["PUT", signedUrl, "manual", "BlockBlob", null, 201]);
   assert.deepEqual(new Uint8Array(await request.arrayBuffer()), upload.bytes);
   assert.throws(() => prepareUwmXmlUpload({ ...upload, bytes: new TextEncoder().encode(`${xml} `) }), /do not match/);
-  for (const url of [`${storageOrigin}.example.org/file.xml?signature=fictional`, `${storageOrigin}/file.xml`,
-    `${signedUrl}#fragment`, "https://login@uwm-fixture.invalid/file.xml?signature=fictional", signedUrl.replace("https:", "http:")]) {
+  for (const url of [`${storageOrigin}.example.org/file.xml?sig=fictional`, `${storageOrigin}/file.xml`, `${storageOrigin}/file.xml?unsigned=true`,
+    `${signedUrl}&sig=another`, `${signedUrl}#fragment`, "https://login@uwm-fixture.invalid/file.xml?sig=fictional", signedUrl.replace("https:", "http:")]) {
     assert.throws(() => prepareUwmXmlUpload({ ...upload, signedUrl: url }), /approved storage origin/);
   }
   assert.equal(network.mock.callCount(), 0);
@@ -96,6 +96,11 @@ test("fictional wholesale checks gate both export paths and pin the exact XML an
   db.prepare("UPDATE lender_package_links SET xml = ? WHERE id = ?").run(`${xml} `, share.shareId);
   assert.equal(lenderPackageAccess(db, download, now).status, 404);
   assert.equal(db.prepare("SELECT downloads FROM lender_package_files WHERE shareId = ? AND slot = 0").get(share.shareId).downloads, 1);
+  db.prepare("UPDATE lender_package_links SET xml = ? WHERE id = ?").run(xml, share.shareId);
+  db.prepare("UPDATE application_handoff_events SET exportDigest = NULL WHERE activityId = ?").run(share.shareId);
+  assert.equal(lenderPackageAccess(db, download, now).xml, xml);
+  db.prepare("UPDATE application_handoff_events SET applicationRevision = applicationRevision - 1 WHERE activityId = ?").run(share.shareId);
+  assert.equal(lenderPackageAccess(db, download, now).status, 404);
 });
 
 test("only current approved sample artifacts can be shared and expiration and revocation deny all files", async (t) => {

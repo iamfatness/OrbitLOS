@@ -8,7 +8,7 @@ Run `node --test tests/lender-handoff-share.test.mjs` to generate a fictional re
 
 An exported fictional XML and its recorded `application_handoff_events.exportDigest` can also be checked with `node scripts/check-uwm-origination-fixture.mjs <fictional-mismo.xml> <recorded-sha256>`. Use the digest for the exact `Export prepared` event. The script uses a reserved fixture origin and reports only aggregate request metadata.
 
-Shared XML downloads also compare the stored bytes with the original export event. Re-create a fictional package from the current reviewed 1003 if its export digest is missing or the file no longer matches it.
+Shared XML downloads compare the stored bytes with the original export digest when present. Older packages without a digest remain available through the authorized manual download. A future provider upload requires a newly reviewed artifact with a matching digest. An export with a mismatched digest or revision is unavailable. The offline fixture also requires a single nonempty Azure signature parameter and a separately configured storage origin. [Azure SAS signature fields](https://learn.microsoft.com/en-us/rest/api/storageservices/create-service-sas#specify-the-signature)
 
 ## Evidence to collect with UWM
 
