@@ -419,6 +419,8 @@ Use `npm run build:cloudflare` for a hosted build. To preview it locally, set a 
 
 Build from a clean checkout with Node 24, `npm ci`, and `npm run build:cloudflare`. Set `ORBIT_DEMO_INBOX` in the deployment environment or in the ignored `.orbit/release.env` file. Then run `npm run deploy:cloudflare`. The script supplies the verified address privately to the restricted email binding and tags the Worker version with the Git commit when the checkout is clean. The first deployment requires configured staff sign-in. A local shared-password preview uses the `DEMO_PASSWORD` Worker secret.
 
+For an update to the live demo, use `npm run deploy:cloudflare -- --upload-only` and stage the uploaded version at 0% traffic alongside the current release at 100%. Run `node scripts/check-cloudflare-assets.mjs <candidate-version-id>` from the built checkout. It waits for two consecutive checks where the staged JavaScript and CSS match the local build. Promote after the gate passes, then open a fresh signed-in Chrome tab and verify the workflow. Keep the previous version ID for rollback.
+
 ### Google sign-in for staff
 
 Orbit follows Pal Panel's verified-email sign-in pattern. Each approved staff member gets an individual eight-hour session. **Sign out** revokes that session. Orbit checks brokerage membership on every staff request. Removing an address from the configured demo allowlist removes its bootstrap demo access.
