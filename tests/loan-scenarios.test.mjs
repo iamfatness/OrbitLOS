@@ -6,6 +6,8 @@ registerHooks({resolve(specifier,context,next){try{return next(specifier,context
 const {initializeStore,insertContact,insertLoan}=await import('../src/lib/store.ts');
 const {loanScenarioWork}=await import('../src/lib/loan-scenarios.ts');
 const {blankScenarioOption,sampleScenarioPlan,scenarioPlanSchema,scenarioSchedule,compareLoanScenarios}=await import('../src/lib/loan-scenario-model.ts');
+const {compareQuoteCosts}=await import('../src/lib/quote-cost-comparison.ts');
+const {sustainedCostBreakEven}=await import('../src/lib/loan-amortization.ts');
 
 test('fixed-rate amortization rounds cents, handles zero rates and pays off at term',()=>{
  const option={...blankScenarioOption(30_000_000),rate:6,years:30};
@@ -42,6 +44,59 @@ test('cost break-even uses interest and fees rather than treating principal as a
  const unequal={...plan,options:[plan.options[0],{...plan.options[1],loanAmount:29_000_000}]};
  assert.equal(compareLoanScenarios(unequal)[1].breakEvenMonths,null);
  const late=compareLoanScenarios({...plan,holdingMonths:480});assert.equal(late[0].balance,0);
+});
+
+function savedQuote({rate=0,years=10,loanAmount=120000,points=0,lenderCredit=0}={}){
+ const {payment}=scenarioSchedule({...blankScenarioOption(loanAmount*100),rate,years});
+ return {product:`Sample ${years}-year fixed`,rate,years,loanAmount,principalAndInterest:payment/100,purpose:'Purchase',
+  estimate:{points,lenderCredit,inputs:{purchasePrice:15_000_000,payoffs:null,deposit:150000,sellerCredits:100000,otherCredits:50000,
+   fees:{origination:85000,appraisal:60000,creditReport:0,settlement:80000,government:25000,other:0,prepaid:100000,escrow:150000}}}};
+}
+
+test('saved quote costs distinguish five-year interest, principal and qualifying upfront charges',()=>{
+ const primary=savedQuote({lenderCredit:50000}), alternative=savedQuote({points:100000});
+ const [base, next]=compareQuoteCosts({primary,alternatives:[alternative]});
+ assert.equal(base.cost,200000);
+ assert.equal(base.interest,0);
+ assert.equal(base.principalPaid,6_000_000);
+ assert.equal(base.borrowingCost,200000);
+ assert.equal(next.borrowingCost,350000);
+ assert.equal(next.breakEven,'No sustained break-even');
+ assert.equal(compareQuoteCosts({primary,alternatives:[primary]})[1].breakEven,'Same upfront cost');
+ const short=savedQuote({years:4});
+ assert.equal(compareQuoteCosts({primary:short,alternatives:[]})[0].principalPaid,12_000_000);
+});
+
+test('saved quote break-even works in either direction and requires a sustained crossover',()=>{
+ const primary=savedQuote({rate:6}), points=savedQuote({rate:5.75,points:100000});
+ const [, lowerRate]=compareQuoteCosts({primary,alternatives:[points]});
+ assert.match(lowerRate.breakEven,/^This offer breaks even in month \d+/);
+ assert.equal(compareQuoteCosts({primary:points,alternatives:[primary]})[1].breakEven,
+  lowerRate.breakEven.replace('This offer','Selected offer'));
+ const rows=(costs)=>costs.map(cost=>({cost}));
+ assert.equal(sustainedCostBreakEven(rows([10,11,15,17]),rows([0,12,14,19])),3);
+ assert.equal(sustainedCostBreakEven(rows([10,11,15,17]),rows([0,12,14])),null);
+});
+
+test('saved quote costs keep unknown inputs explicit and only compare equivalent loan bases',()=>{
+ const primary=savedQuote(), incomplete=structuredClone(primary);
+ incomplete.estimate.inputs.fees.creditReport=null;
+ const [,missing,noWorksheet,unsupported]=compareQuoteCosts({primary,alternatives:[incomplete,{...primary,estimate:null},
+  {...primary,product:'Sample ARM'}]});
+ assert.equal(missing.borrowingCost,undefined);
+ assert.equal(missing.principalPaid,6_000_000);
+ assert.equal(noWorksheet.reason,'Fee worksheet pending.');
+ assert.equal(unsupported.interest,undefined);
+ assert.equal(compareQuoteCosts({primary,alternatives:[{...primary,principalAndInterest:1001}]})[1].interest,undefined);
+ assert.equal(compareQuoteCosts({primary,alternatives:[savedQuote({lenderCredit:300000})]})[1].borrowingCost,undefined);
+ assert.equal(compareQuoteCosts({primary,alternatives:[savedQuote({loanAmount:119999})]})[1].breakEven,'Different loan amounts');
+ const otherPurchase=structuredClone(primary);
+ otherPurchase.estimate.inputs.purchasePrice+=100;
+ assert.equal(compareQuoteCosts({primary,alternatives:[otherPurchase]})[1].breakEven,'Different purchase prices');
+ const refinance=structuredClone(primary);
+ refinance.purpose='Refinance'; refinance.estimate.inputs.purchasePrice=null; refinance.estimate.inputs.payoffs=11_000_000;
+ const otherPayoff=structuredClone(refinance);otherPayoff.estimate.inputs.payoffs+=100;
+ assert.equal(compareQuoteCosts({primary:refinance,alternatives:[otherPayoff]})[1].breakEven,'Different refinance payoffs');
 });
 
 test('scenario validation rejects impossible credits, incomplete recommendations and duplicate options',()=>{

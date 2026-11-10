@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fixedLoanSchedule, sustainedCostBreakEven } from "./loan-amortization";
 import type { PricingOffer, PricingRun } from "./pricing-model";
 import { missingFees, quoteSelection, type FeeInputs } from "./quote-worksheet";
 
@@ -43,21 +44,10 @@ export const scenarioRequest = z.discriminatedUnion("type", [
 export type ScenarioRecord = { plan: ScenarioPlan; revision: number; updatedAt: string; updatedBy: string; applicationRevision: number | null };
 export type ScenarioResponse = { record: ScenarioRecord | null; currentApplicationRevision: number | null; canEdit: boolean };
 
-// Amounts are integer cents; interest and scheduled payments round to cents each month.
 export function scenarioSchedule(option: LoanScenarioOption) {
-  const months = option.years * 12, rate = option.rate / 1200;
-  const payment = Math.round(rate === 0 ? option.loanAmount / months : option.loanAmount * rate / -Math.expm1(-months * Math.log1p(rate)));
-  let balance = option.loanAmount, interest = 0, mi = 0;
-  const rows = [{ balance, interest, mi, cost: option.fees + Math.round(option.loanAmount * option.pointsPercent / 100) - option.lenderCredit }];
-  for (let month = 1; month <= months; month++) {
-    const charge = Math.round(balance * rate);
-    const paid = month === months ? balance + charge : Math.min(payment, balance + charge);
-    interest += charge;
-    if (balance > 0 && month <= option.miMonths) mi += option.monthlyMi;
-    balance = Math.max(0, balance + charge - paid);
-    rows.push({ balance, interest, mi, cost: rows[0].cost + interest + mi });
-  }
-  return { payment, rows };
+  return fixedLoanSchedule({
+    ...option, upfrontCost: option.fees + Math.round(option.loanAmount * option.pointsPercent / 100) - option.lenderCredit,
+  });
 }
 
 export function compareLoanScenarios(plan: ScenarioPlan) {
@@ -72,12 +62,7 @@ export function compareLoanScenarios(plan: ScenarioPlan) {
     const monthly = schedule.payment + option.monthlyTaxes + option.monthlyInsurance + option.monthlyHoa + option.monthlyMi;
     let breakEvenMonths: number | null = null;
     if (index > 0 && option.loanAmount === plan.options[0].loanAmount && schedule.rows[0].cost > baseline.rows[0].cost) {
-      const length = Math.max(schedule.rows.length, baseline.rows.length);
-      let lastMoreExpensive = 0;
-      for (let month = 1; month < length; month++) {
-        if (schedule.rows[Math.min(month, schedule.rows.length - 1)].cost > baseline.rows[Math.min(month, baseline.rows.length - 1)].cost) lastMoreExpensive = month;
-      }
-      if (lastMoreExpensive < length - 1) breakEvenMonths = lastMoreExpensive + 1;
+      breakEvenMonths = sustainedCostBreakEven(schedule.rows, baseline.rows);
     }
     return { id: option.id, principalAndInterest: schedule.payment, monthly, points, closingCosts, cashToClose,
       interest: horizon.interest, mortgageInsurance: horizon.mi, borrowingCost: horizon.cost,

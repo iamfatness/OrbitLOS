@@ -23,6 +23,7 @@ const { applicationIssues, blankApplication, sampleApplication } = await import(
 const { zipCityState } = await import("../src/lib/zip-city-state.ts");
 const { blankLenderDetails } = await import("../src/lib/urla.ts");
 const { readOfficerQueue } = await import("../src/lib/officer-queue.ts");
+const { compareQuoteCosts } = await import("../src/lib/quote-cost-comparison.ts");
 
 test("sample application answers preserve the property ZIP and its locality from intake", () => {
   const draft = blankApplication();
@@ -194,8 +195,20 @@ test("corrected 1003s update the same mock UWM file and require fresh quotes", a
   assert.equal(db.prepare("SELECT count(*) AS count FROM workspace_access_history WHERE subject = ? AND action = 'Sent updated 1003 to mock UWM'").get(loanId).count, 1);
   assert.equal(read().loanStatus.quote, null);
   assert.match((await command("publishQuote", { ...selection(fresh), alternatives: [{ ...selection(original), feeRevision: 0 }] })).error, /Reprice/);
-  await apply("publishQuote", { ...selection(fresh), alternatives: [{ runId: fresh.id, offerId: fresh.offers[1].id, feeRevision: 0 }] });
-  assert.equal(read().loanStatus.quote.presentation.primary.loanAmount, 340000);
+  const worksheet = { purchasePrice: 45_000_000, payoffs: null, deposit: 0, sellerCredits: 0, otherCredits: 0,
+    fees: { origination: 100000, appraisal: 65000, creditReport: 0, settlement: 120000, government: 25000, prepaid: 0, escrow: 0, other: 0 } };
+  const alternativeChoice = { runId: fresh.id, offerId: fresh.offers[1].id };
+  await apply("saveFeeWorksheet", { ...selection(fresh), feeRevision: 0, worksheet });
+  await apply("saveFeeWorksheet", { ...alternativeChoice, feeRevision: 0, worksheet });
+  await apply("publishQuote", { ...selection(fresh), feeRevision: 1, alternatives: [{ ...alternativeChoice, feeRevision: 1 }] });
+  const presentation = read().loanStatus.quote.presentation;
+  const publishedCosts = compareQuoteCosts(presentation);
+  assert.equal(presentation.primary.loanAmount, 340000);
+  assert.ok(publishedCosts.every(({ borrowingCost }) => borrowingCost > 0));
+  assert.match(publishedCosts[1].breakEven, /breaks even in month/);
+  await apply("saveFeeWorksheet", { ...alternativeChoice, feeRevision: 1,
+    worksheet: { ...worksheet, fees: { ...worksheet.fees, appraisal: 70000 } } });
+  assert.deepEqual(compareQuoteCosts(read().loanStatus.quote.presentation), publishedCosts);
   assert.deepEqual(status(), { kind: "status", submittedAt: corrected.submittedAt, loanStatus: read().loanStatus });
   await apply("selectOffer", selection(alternative));
   const mismatchedRate = /\$340,000\.01 and the 1003 requests \$340,000.*before floating or locking/;

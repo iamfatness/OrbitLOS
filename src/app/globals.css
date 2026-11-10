@@ -190,6 +190,15 @@ button:disabled { cursor: default; }
 .quote-comparison-scroll .data-table th, .quote-comparison-scroll .data-table td { min-width: 8rem; }
 .quote-comparison-scroll .data-table th small { display: block; margin-top: 3px; }
 .quote-comparison-hint { display: none; }
+.quote-cost-comparison { display: grid; gap: 8px; }
+.quote-cost-comparison > h4, .quote-cost-comparison > p { margin: 0; }
+.quote-cost-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: 8px; }
+.quote-cost-option > p { margin: 0; }
+.quote-cost-metrics { display: grid; gap: 4px; margin: 0; font-size: 13px; }
+.quote-cost-metrics > div { display: flex; justify-content: space-between; gap: 8px; }
+.quote-cost-metrics dd { margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.quote-cost-total { border-top: 1px solid var(--line); padding-top: 5px; font-weight: 700; }
+.quote-break-even { display: grid; gap: 2px; background: #f6f3fc; border-radius: 7px; padding: 7px; font-size: 13px; }
 @media (max-width: 720px) { .quote-comparison-hint { display: block; } }
 .pilot-benchmark-table .data-table { white-space: normal; }
 .pilot-benchmark-table td { font-variant-numeric: tabular-nums; }

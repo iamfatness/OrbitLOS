@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { PricingOffer, PricingRun } from "@/lib/pricing-model";
+import { compareQuoteCosts } from "@/lib/quote-cost-comparison";
 import { blankFees, estimateFees, feeKeys, feeLabels, missingFees,
   type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
 import { FeeTemplatePicker } from "./fee-templates";
@@ -127,6 +128,7 @@ function ItemizedFees({ option }: { option: QuoteOption }) {
 
 export function SampleQuotePresentation({ quote }: { quote: QuotePresentation }) {
   const options = [quote.primary, ...quote.alternatives];
+  const costs = options.length > 1 ? compareQuoteCosts(quote) : [];
   const partial = (option: QuoteOption) => option.estimate && missingFees(option.estimate.inputs.fees).length ? " · Known fees only" : "";
   const comparisons = [
     { label: "Loan amount", display: (option: QuoteOption) => usd.format(option.loanAmount) },
@@ -150,6 +152,30 @@ export function SampleQuotePresentation({ quote }: { quote: QuotePresentation })
         <tbody>{comparisons.map((item) => <tr key={item.label}><th scope="row">{item.label}</th>
           {options.map((option, index) => <td key={index}>{item.display(option)}</td>)}</tr>)}</tbody>
         </table></div>
+        <section className="quote-cost-comparison" aria-label="Five-year cost comparison">
+          <h4>Five-year cost comparison</h4>
+          <div className="quote-cost-options">
+            {costs.map((cost, index) => {
+              const option = options[index];
+              return <article className="document-item quote-cost-option" key={index}>
+                <p className="eyebrow">{index === 0 ? "Selected" : `Alternative ${index}`}</p>
+                <p><strong>{option.product} · {option.rate.toFixed(3)}%</strong></p>
+                <dl className="quote-cost-metrics">
+                  {option.estimate && <div><dt>{cashLabel(option)}{partial(option)}</dt><dd>{formatFee(Math.abs(option.estimate.cashToClose))}</dd></div>}
+                  {cost.cost !== undefined && <div><dt>Upfront loan costs</dt><dd>{formatFee(cost.cost)}</dd></div>}
+                  {cost.interest !== undefined && <div><dt>Interest in five years</dt><dd>{formatFee(cost.interest)}</dd></div>}
+                  {cost.principalPaid !== undefined && <div><dt>Principal paid in five years</dt><dd>{formatFee(cost.principalPaid)}</dd></div>}
+                  <div className="quote-cost-total"><dt>Estimated five-year borrowing cost</dt>
+                    <dd>{cost.borrowingCost === undefined ? "Unavailable" : formatFee(cost.borrowingCost)}</dd></div>
+                </dl>
+                {cost.reason && <p className="muted">{cost.reason}</p>}
+                {cost.breakEven && <p className="quote-break-even"><strong>Break-even vs. selected</strong><span>{cost.breakEven}</span></p>}
+              </article>;
+            })}
+          </div>
+          <p className="muted">Sample borrowing cost includes interest, points, and itemized fees after lender credits. It excludes principal, escrow, prepaids, seller and other credits, mortgage insurance, and ongoing property costs.</p>
+          <p className="muted">Break-even is the first month when the higher-upfront offer’s cumulative cost reaches or falls below the other offer’s and stays at or below it through payoff.</p>
+        </section>
       </>}
     {options.map((option, index) => <details className="document-form" key={index} open={options.length === 1}>
       <summary>Itemized fees · {option.product} at {option.rate.toFixed(3)}%</summary>
