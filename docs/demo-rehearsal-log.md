@@ -1002,6 +1002,10 @@ Playwright checked the rejection on a 900 × 1200 portrait desktop and a 390 × 
 
 ## Joint borrower lender responses
 
+On November 10, 2026, Worker `410db320-dd40-4817-bd68-f9eb91637ef9` from `00e4243` took 100% of traffic. The landing, Product and Demo returned HTTP 200, both public pages carried the new joint copy, and 45 staged assets matched twice.
+
+The hosted Role Handoff QA rehearsal created one fictional joint loan. The two private links submitted separate portions. Staff prepared the joint export and recorded a fictional rejection for the co-borrower. The primary stayed submitted, and the co-borrower alone received correction instructions. The owner opened the exact joint portion from Exceptions. After the co-borrower resubmitted, staff used **Refresh loan**, reviewed the current file, prepared the revised export and recorded the fictional acknowledgment. The exception cleared. The XML contents and the later post-acknowledgment return to the primary borrower were verified locally.
+
 The built Worker exercised a conventional joint purchase. The primary and co-borrower submitted independently, and an unacknowledged fictional lender rejection reopened only the co-borrower's portion. The original link was revoked and replaced in the test, the corrected phone appeared on the new 1003, and the primary answers stayed intact. Staff reviewed the combined application, the owner approved the revised evidence, and a fictional lender package carried the current MISMO and one approved sample PDF.
 
 After initial lender acknowledgment, a return reopened only the primary borrower. It invalidated the earlier package, retained the co-borrower's answers and lender condition, and required another reviewed export. The revised XML included both corrected phone numbers. Acknowledgment reused the lender file and cleared the response queue. Retries preserved one response event, and a changed recipient on the same event was rejected. A locked Clear to Close application required the admin override before reopening and changing stage.
