@@ -53,7 +53,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F07 | Versioned brokerage quote form with a mobile borrower preview, one configurable question, branded themes and attributed campaign intake | Verify separate intake profiles, branch and officer overrides, conditional questions and safe mapping to the application. |
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
-| F10 | Hosted staff comparison, exact mock offer, published borrower comparison with five-year cost and break-even, and mock UWM handoff | Add quote expiry and a review step for changed terms. Validate provider coverage and provenance. Confirm locks separately. |
+| F10 | Hosted staff comparison, exact mock offer, dated borrower comparison with five-year cost and break-even, an owned task to review shared term changes, and mock UWM handoff | Validate provider coverage and provenance. Confirm locks separately. |
 | F11 | Hosted brokerage templates by purpose and ZIP, with effective dates, staff overrides, and immutable shared quote snapshots | Verify payer and payee detail, broader geographic matching, and external fee sources. |
 | F12 | Dashboard drilldowns, call-report preparation and exports | Reconcile report periods and data coverage before a custom report builder or filing claim. |
 | F13 | Internal workflow actions and planned delegated API | Define bounded event subscriptions and safe replay for Zapier. |
