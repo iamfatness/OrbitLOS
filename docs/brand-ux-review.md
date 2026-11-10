@@ -42,6 +42,10 @@ Before the change, the file exception queue appeared beneath several settings an
 
 Playwright and Chrome checked the owner path at 1440 × 1000, 900 × 1200, and 390 × 844. All three fit without page overflow. Enter opened the exact handoff, and Escape returned focus to its action while preserving the filter. The filtered empty state rendered clearly. In separate local browser sessions, an LO and processor saw their own navigation without the owner entry. The hosted smoke covered the signed-in owner and the exact handoff return. [Release evidence](demo-rehearsal-log.md#hosted-owner-exceptions)
 
+### Staff handoff
+
+The earlier handoff listed assigned staff and the status. The updated panel puts the next person and latest staff note alongside those facts. It uses the existing Orbit status notice to explain a competing edit and keeps the draft next to the notice. Playwright checked the open draft, processor acceptance and return, and the LO's keyboard review at desktop, portrait, and touch phone widths. The phone review led to consistent vertical spacing and wrapping for long staff notes. [Release evidence](demo-rehearsal-log.md#staff-handoff-draft-recovery)
+
 Release `2d3265d0-ec1e-486b-b0eb-8f5661b38e23` keeps **Refresh requested documents** available on the lender submission with one replacement outstanding. In a local built-Worker processor session, the pay stub was the only request still waiting. After the borrower attached the replacement, the control brought both received documents into review. The 320 px drawer had no horizontal overflow with the fixture's Inter request returning 404.
 
 At 320 px, the funded check-in fields stack so the selected outcome stays legible. The required callback date retains focus on validation. **Save check-in** returned to the loan, and **Save & start repeat 1003** saved the check-in and focused the loan-purpose field. Search showed the existing funded purchase, a distinct refinance draft, and the same contact. The shortcut is absent for No response and does not replace the standard save.
