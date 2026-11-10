@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { currentManualLenderSubmission, handoffCheckpointError } from "./application-review-checkpoint";
+import { currentManualExportPrepared, currentManualLenderSubmission, handoffCheckpointError, lastManualLenderSubmission } from "./application-review-checkpoint";
 import { applicationDraft, requestedLoanAmount } from "./application-model";
 import { disclosurePackageStatus, disclosureTarget } from "./disclosure-model";
 import { readDisclosureWork } from "./disclosures";
@@ -7,6 +7,7 @@ import { closingDisclosureReviewTarget, preflightFeeField, preflightFeesTarget, 
 import { manualLenderAcknowledgmentTarget } from "./lender-export-model";
 import { loanAmountComparisonTarget } from "./loan-workflow";
 import type { Condition } from "./model";
+import { findPricingOffer } from "./manual-pricing-model";
 import { feeLabels, missingFees } from "./quote-worksheet";
 import { savedPricingRun, type Store } from "./store";
 import { conditionTarget, submissionTarget } from "./uwm-alert-model";
@@ -14,7 +15,7 @@ import { conditionTarget, submissionTarget } from "./uwm-alert-model";
 const evidenceLimit = 40;
 const displayedLimit = 5;
 
-type LenderFile = { id: string; lender: string; externalId: string; status: string; conditions: string };
+type LenderFile = { id: string; lender: string; externalId: string; status: string; conditions: string; syncedAt: string | null };
 
 export function readFilePreflight(db: Store, loanId: string): FilePreflight {
   const checks: PreflightCheck[] = [];
@@ -22,7 +23,8 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
     checks.push({ id, label, detail, state: ready ? "Ready" : "Needs attention", target });
   };
   const app = db.prepare(`SELECT app.revision, app.submittedAt, app.reviewedAt, app.correctionNote, app.draft, loan.amount,
-      app.uwmReference, version.uwmReceipt, version.uwmSentAt, ${currentManualLenderSubmission} AS manualFile
+      app.uwmReference, version.uwmReceipt, version.uwmSentAt, ${currentManualLenderSubmission} AS manualFile,
+      ${lastManualLenderSubmission} AS previousManualFile, ${currentManualExportPrepared} AS manualExportPrepared
     FROM applications app JOIN loans loan ON loan.id = app.loanId
     LEFT JOIN application_versions version ON version.loanId = app.loanId AND version.revision = app.revision
     WHERE app.loanId = ?`).get(loanId);
@@ -41,6 +43,7 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
 
   const disclosure = readDisclosureWork(db, loanId);
   const pricing = savedPricingRun(db, loanId);
+  const manualQuote = pricing && findPricingOffer(pricing.offers, pricing.selectedId)?.manual;
   const source = disclosure.source;
   const selectedSample = pricing?.mode === "mock" && typeof pricing.selectedId === "string";
   const estimate = source?.quote.estimate;
@@ -66,12 +69,20 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
         `Package v${item.version} · ${item.reviewReason ?? packageStatus}.`,
   Boolean(confirmation), !confirmation && packageStatus === "Mock signing complete" && source ? closingDisclosureReviewTarget : disclosureTarget);
 
-  const lender = applicationReady ? db.prepare(`SELECT id, lender, externalId, status, conditions FROM submissions
+  const lender = applicationReady ? db.prepare(`SELECT id, lender, externalId, status, conditions, syncedAt FROM submissions
     WHERE loanId = ? AND ((id = ? AND syncedAt IS NULL) OR (lender = 'UWM' AND syncedAt IS NOT NULL AND externalId = ?))
-    ORDER BY syncedAt IS NULL, id LIMIT 1`).get(loanId, app?.manualFile ?? null, app?.uwmReceipt ? app.uwmReference : null) as LenderFile | undefined : undefined;
-  add("lender", "Lender acknowledgment", lender ? `${lender.lender} · ${lender.externalId}${lender.lender === "UWM" && app?.uwmReceipt ? ` · Receipt ${app.uwmReceipt}` : ""}` :
-    "Record the current 1003’s mock UWM receipt or manual lender acknowledgment.", Boolean(lender),
-  lender ? submissionTarget(lender.id) : app?.manualFile ? manualLenderAcknowledgmentTarget : "loan-application");
+    ORDER BY syncedAt IS NULL, id LIMIT 1`).get(loanId, app?.manualExportPrepared ? app.manualFile : null,
+    app?.uwmReceipt ? app.uwmReference : null) as LenderFile | undefined : undefined;
+  const manualPath = applicationReady && (manualQuote || app?.previousManualFile || app?.manualExportPrepared);
+  const manualEvidence = app?.manualExportPrepared
+    ? "Record acknowledgment for the current MISMO export."
+    : "Prepare the MISMO export for the current 1003, lender details, and selected terms.";
+  const lenderEvidence = lender && [lender.lender, lender.externalId,
+    lender.syncedAt === null && manualQuote ? `Quote ${manualQuote.reference} · ${manualQuote.rate.toFixed(3)}%` :
+      lender.syncedAt !== null && app?.uwmReceipt ? `Receipt ${app.uwmReceipt}` : null].filter(Boolean).join(" · ");
+  add("lender", "Lender acknowledgment", lenderEvidence || (manualPath ? manualEvidence :
+    "Record the current 1003’s mock UWM receipt or manual lender acknowledgment."), Boolean(lender),
+  lender ? submissionTarget(lender.id) : manualPath ? (app?.manualExportPrepared ? manualLenderAcknowledgmentTarget : "manual-lender-export") : "loan-application");
   const conditions = lender ? JSON.parse(lender.conditions) as Condition[] : [];
   const outstanding = conditions.filter(({ satisfiedAt }) => !satisfiedAt);
   if (lender) {
@@ -99,7 +110,7 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
     add("documents", "Document evidence", `${documents.length} accepted on this file.`, true, "document-checklist");
   }
   const key = createHash("sha256").update(JSON.stringify({
-    application: app && [app.revision, app.submittedAt, app.reviewedAt, app.amount, app.uwmReceipt, app.uwmSentAt, app.manualFile],
+    application: app && [app.revision, app.submittedAt, app.reviewedAt, app.amount, app.uwmReceipt, app.uwmSentAt, app.manualFile, app.manualExportPrepared],
     fees: [pricing?.id, pricing?.selectedId, source?.feeRevision],
     disclosures: item && [item.version, item.revision, confirmation?.at],
     lender: lender && [lender.id, lender.externalId, lender.status, lender.conditions],

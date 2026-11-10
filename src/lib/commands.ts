@@ -19,7 +19,7 @@ import { hasReopenedMockUwmCondition, reconcileMockApplicationReceipt, refreshMo
 import { mockUwmReceiptTaskPrefix, pendingMockUwmAcceptance } from "./uwm-handoff-recovery";
 import { addApplicationActivity, getApplication, saveApplicationVersion, startApplication } from "./applications";
 import { manualHandoffNeedsApproval, manualHandoffOutcomes, requestedLoanAmount, reusablePropertyAddress } from "./application-model";
-import { handoffCheckpointError } from "./application-review-checkpoint";
+import { handoffCheckpointError, manualLenderClosingBlocker } from "./application-review-checkpoint";
 import { mockLockExtensionPeriods, mockLockPeriods, pricingScenario, type PricingOffer } from "./pricing-model";
 import { documentBatchInput } from "./document-batch-model";
 import { processDocumentBatch, reviewLoanDocument } from "./document-review";
@@ -997,7 +997,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (profile?.closingDate !== data.closingDate) {
             if (Number(profile?.revision ?? 0) !== data.revision) throw new WorkspaceError("The closing date changed. Refresh the loan before recording it.");
             if (!profile?.closingDate) {
-              const blocked = checkClosingGate(db, data.loanId, "closing", staff, data.gateOverride, now);
+              const blocked = manualLenderClosingBlocker(db, data.loanId) ?? checkClosingGate(db, data.loanId, "closing", staff, data.gateOverride, now);
               if (blocked) throw new WorkspaceError(blocked);
             }
             clearPendingAnniversaries(db, data.loanId);
@@ -1027,7 +1027,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (dateChanged) {
             if (revision !== data.revision) throw new WorkspaceError("Funding status changed. Refresh the loan first.");
             if (!previous?.fundingDate) {
-              const blocked = checkClosingGate(db, data.loanId, "funding", staff, data.gateOverride, now);
+              const blocked = manualLenderClosingBlocker(db, data.loanId) ?? checkClosingGate(db, data.loanId, "funding", staff, data.gateOverride, now);
               if (blocked) throw new WorkspaceError(blocked);
             }
             const entersFunded = loan.stage !== "Funded" && loan.stage !== "Closed";
@@ -2133,6 +2133,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (!loan) throw new WorkspaceError("This loan no longer exists.");
           if ((data.type === "markClearToClose" || loan.stage !== stage) && mockClearanceClosingStages.some((item) => item === stage) &&
             hasReopenedMockUwmCondition(db, loanId)) throw new WorkspaceError(reopenedMockClosingMessage);
+          if (!file && loan.stage !== stage && mockClearanceClosingStages.some((item) => item === stage)) {
+            const blocked = manualLenderClosingBlocker(db, loanId);
+            if (blocked) throw new WorkspaceError(blocked);
+          }
           if (file) {
             if (!closingReviewReady(file.loans[0], file)) {
               throw new WorkspaceError("This file is no longer ready for Clear to Close. Refresh the loan and check the current 1003, conditions, documents, and handoff.");

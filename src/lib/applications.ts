@@ -33,7 +33,7 @@ import { loanOutreachSuppressed } from "./outreach-preferences";
 import { defaultLenderExportProfile, lenderExportProfile } from "./lender-export-model";
 import { sameManualQuote, type ManualQuoteBasis } from "./manual-pricing-model";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "lastExportProfile" |
+type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "lastExportProfile" |
   "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
@@ -75,6 +75,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
   }
   return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved,
     pending.revision AS pendingRevision, pending.attemptedAt AS pendingAttemptedAt,
+    ${currentManualLenderSubmission} AS currentManualFile, ${currentManualExportPrepared} AS currentManualExportPrepared,
     ${lastManualLenderSubmission} AS lastManualSubmissionId,
     (SELECT event.exportProfile FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
       WHERE event.loanId = app.loanId AND event.outcome = 'Export prepared'
@@ -82,6 +83,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     FROM applications app LEFT JOIN mock_uwm_acceptances pending ON pending.loanId = app.loanId AND pending.reconciledAt IS NULL
     ${loanId ? "WHERE app.loanId = ?" : ""}`).all(...args).map((value) => {
     const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null; lastExportProfile: string | null;
+      currentManualFile: string | null; currentManualExportPrepared: number;
       pendingRevision: number | null; pendingAttemptedAt: string | null };
     const draft = JSON.parse(row.draft);
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
@@ -93,6 +95,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
           ? { reference: item.uwmReceipt, sentAt: item.uwmSentAt } : null,
       }));
     const manualHandoff = handoffs.get(row.loanId);
+    if (manualHandoff?.submissionId && !row.currentManualFile) manualHandoff.acknowledgmentOutdated = true;
     if (manualHandoff?.exportProfiles?.length === 1 && manualHandoff.exportProfiles[0] === defaultLenderExportProfile) {
       delete manualHandoff.exportProfiles;
     }
@@ -107,7 +110,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       ...(!row.submittedAt && typeof draft?.propertyAddress === "string" && draft.propertyAddress.trim()
         ? { draftHasPropertyStreet: true } : {}),
       lender: lender.get(row.loanId) ?? null,
-      manualHandoff,
+      manualHandoff, ...(row.currentManualExportPrepared ? { currentManualExportPrepared: true } : {}),
       ...(lastExportProfile.success ? { lastExportProfile: lastExportProfile.data } : {}),
       ...(typeof lastManualSubmissionId === "string" ? { lastManualSubmissionId } : {}),
       revision: row.revision, correctionNote: row.correctionNote, versions,
@@ -143,6 +146,7 @@ export function loanActionApplications(db: Store, loanIds: string[]): ActionAppl
     versions: typeof uwmReceipt === "string" && typeof uwmSentAt === "string"
       ? [{ revision: app.revision, uwmReceipt: { reference: uwmReceipt, sentAt: uwmSentAt } }] : [],
     ...(manualSubmissionId ? { manualHandoff: { outcome: "Acknowledged", submissionId: manualSubmissionId, exportPrepared: Boolean(exportPrepared) } } : {}),
+    ...(exportPrepared ? { currentManualExportPrepared: true } : {}),
     ...(lastManualSubmissionId ? { lastManualSubmissionId } : {}),
     ...(pendingRevision !== null && pendingAttemptedAt ? {
       uwmPendingReceipt: { revision: pendingRevision, attemptedAt: pendingAttemptedAt },

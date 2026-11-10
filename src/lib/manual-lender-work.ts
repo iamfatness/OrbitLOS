@@ -1,4 +1,4 @@
-import { approvedSecondReview } from "./application-review-checkpoint";
+import { approvedSecondReview, currentManualExportPrepared } from "./application-review-checkpoint";
 import { manualReturnFollowUpInput, manualReturnFollowUpUnavailable, manualReturnStatus, type ManualReturnAssignment,
   type ManualReturnFollowUp, type ManualReturnStatus } from "./lender-export-model";
 import type { Store } from "./store";
@@ -29,9 +29,7 @@ export function manualReturnPhase(requireApproval: boolean) {
   return `CASE WHEN app.submittedAt IS NULL THEN '${manualReturnStatus.borrower}'
     WHEN app.reviewedAt IS NULL THEN '${manualReturnStatus.review}'
     ${requireApproval ? `WHEN NOT ${approvedSecondReview} THEN '${manualReturnStatus.approval}'` : ""}
-    WHEN EXISTS (SELECT 1 FROM application_handoff_events prepared WHERE prepared.loanId = loan.id
-      AND prepared.applicationRevision = app.revision AND prepared.outcome = 'Export prepared'
-      AND prepared.lenderRevision = coalesce((SELECT revision FROM application_lender_details WHERE loanId = loan.id), 0))
+    WHEN ${currentManualExportPrepared}
     THEN '${manualReturnStatus.acknowledgment}' ELSE '${manualReturnStatus.export}' END`;
 }
 

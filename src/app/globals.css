@@ -609,7 +609,7 @@ button:disabled { cursor: default; }
 .loan-section-nav button { min-height: 40px; padding: 4px 8px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #544b63; }
 .loan-section-nav button:hover { background: #efe7fa; }
 .loan-section-nav button[aria-current] { background: #e8dcfb; color: #482b81; }
-.condition, .document-item, .details-section, .details-body [tabindex="-1"] { scroll-margin-top: 73px; }
+.condition, .document-item, .details-section, .details-body [tabindex="-1"], #manual-lender-export { scroll-margin-top: 73px; }
 .condition .document-item { margin: 7px 0; }
 .condition .loan-application-actions { margin-block: 6px; }
 .condition:focus { outline: 2px solid #856cdb; outline-offset: 4px; border-radius: 6px; background: #f4effd; }

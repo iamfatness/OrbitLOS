@@ -1675,7 +1675,7 @@ try {
     assert.equal(await replacementXml.text(), revisedExport.mismoXml);
     await checkReturnQueues(manualReturnStatus.acknowledgment);
     const pendingRevision = await file(owner, repeatId);
-    assert.equal(loanNextAction(pendingRevision.loans[0], pendingRevision, "LO").title, "Prepare revised manual handoff");
+    assert.equal(loanNextAction(pendingRevision.loans[0], pendingRevision, "LO").target, "manual-lender-acknowledgment");
     await write(assignedOfficer, reacknowledgment);
     assert.match((await logFollowUp(assignedOfficer, { ...followUp, entryId: randomUUID() })).error, /return changed/);
     const relinked = await action(owner, "checkLoanHandoff", repeatId, pendingRevision.handoffVersion);
@@ -2692,17 +2692,24 @@ try {
     assert.ok(overrides[0].changes.some(({ field, after }) => field === "Reason" && after === reason));
     assert.equal((await policy(owner, { ...publish, revision: 1, rules: { closing: [], funding: [] } })).revision, 2);
   });
-  await stage("A manually entered lender offer carries its terms through MISMO and acknowledgment", async () => {
-    const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Harbor Borrower",
-      borrowerEmail: "working-day-harbor-pricing@example.test", start1003: true, partnerId: null, officer: officer.name,
-      address: "", amount: 0, purpose: "Purchase", stage: "Lead" });
+  async function verifyQuotedManualFile(purpose) {
+    const isPurchase = purpose === "Purchase";
+    const borrowerName = `Fictional Harbor ${purpose}`;
+    const created = await write(officer, { type: "loan", contactId: "", borrower: borrowerName,
+      borrowerEmail: `working-day-harbor-${purpose.toLowerCase()}@example.test`, start1003: true, partnerId: null, officer: officer.name,
+      address: "", amount: 0, purpose, stage: "Lead" });
     const loanId = created.loanWork.loanId;
     const { token } = (await file(officer, loanId)).applications[0];
     const application = await borrower(token, { type: "read" });
     const draft = { ...sampleApplication(application.draft), confirmedDemo: true };
     const submitted = await borrower(token, { type: "submit", revision: application.revision, step: applicationSteps.length - 1, draft });
     await loanAction(officer, loanId, "reviewApplication", { revision: submitted.revision });
-    const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
+    await loanAction(officer, loanId, "saveLenderDetails", { revision: 0, details: {
+      originator: { fields: { originator: officer.name, originatorNmls: "999991", organization: "Fictional Harbor Brokerage", organizationNmls: "999992" } },
+      supplement: { fields: { mortgage: "Conventional", mortgageLien: "First lien", ...(isPurchase ? { purchasePrice: "450000" } :
+        { refinance: "No cash out", refinanceProgram: "Full documentation", mortgagePayoffs: "345000" }) } },
+    } });
+    const scenario = { purpose, loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: isPurchase ? 450000 : null,
       zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
       propertyType: "Single family", firstTimeBuyer: false };
     const [run] = (await loanAction(officer, loanId, "runPricing", { scenario, applicationRevision: submitted.revision })).state.pricingRuns
@@ -2715,13 +2722,15 @@ try {
     assert.match((await add()).message, /already added/);
     await loanAction(officer, loanId, "selectOffer", manualQuote);
     assert.match((await action(officer, "mutate", { type: "sendApplication", loanId, revision: submitted.revision })).error, /Manual lender export/);
-    const base = { loanId, revision: submitted.revision, lenderRevision: 0, profile: "basic", manualQuote };
-    const result = await write(officer, { type: "exportReviewedApplication", ...base, eventId: randomUUID(),
-      names: [{ first: "Fictional", middle: "Harbor", last: "Borrower", suffix: "" }] });
+    const base = { loanId, revision: submitted.revision, lenderRevision: 1, profile: "fictional-wholesale-v1", manualQuote };
+    const names = [{ first: "Fictional", middle: "Harbor", last: purpose, suffix: "" }];
+    const result = await write(officer, { type: "exportReviewedApplication", ...base, eventId: randomUUID(), names });
     assert.match(result.mismoXml, /<NoteRatePercent>5\.875<\/NoteRatePercent>/);
     assert.match(result.mismoXml, /<LoanAmortizationPeriodCount>240<\/LoanAmortizationPeriodCount>/);
+    assert.ok(result.mismoXml.includes(`<LoanPurposeType>${purpose}</LoanPurposeType>`));
+    if (!isPurchase) assert.match(result.mismoXml, /<RefinanceCashOutDeterminationType>NoCashOut<\/RefinanceCashOutDeterminationType>/);
     const acknowledge = { type: "recordManualHandoff", ...base, eventId: randomUUID(), outcome: "Acknowledged", note: "",
-      lenderFile: { lender: details.lender, externalId: "HARBOR-ACK-102" } };
+      lenderFile: { lender: details.lender, externalId: `HARBOR-ACK-${purpose.toUpperCase()}` } };
     assert.match((await action(officer, "mutate", acknowledge)).error, /approved second review/i);
     const review = (input) => action(owner, "workOnLoanReview", { loanId, ...input });
     const [pending] = (await review({ type: "loan" })).reviews;
@@ -2734,7 +2743,61 @@ try {
     assert.equal(saved.manualHandoff.acknowledgedQuote.reference, details.reference);
     assert.equal(saved.manualHandoff.acknowledgedQuote.offerId, manualQuote.offerId);
     assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /HARBOR-QA-102/);
-  });
+    const submissionId = saved.manualHandoff.submissionId;
+    const condition = { submissionId, conditionId: randomUUID() };
+    await loanAction(officer, loanId, "saveManualCondition", { ...condition, revision: 0, category: "Income",
+      owner: "Loan officer", description: "Confirm fictional income." });
+    await loanAction(officer, loanId, "requestDocument", { kind: "Pay stub", instructions: "Use sample evidence.", condition });
+    const [requested] = (await file(officer, loanId)).documentRequests;
+    await borrower(token, { type: "attachSample", statusOnly: true, requestId: requested.id, revision: requested.revision });
+    const [received] = (await file(officer, loanId)).documentRequests;
+    await loanAction(officer, loanId, "reviewDocument", { requestId: received.id, revision: received.revision, decision: "Accepted", replacementNote: "" });
+    const [accepted] = (await file(officer, loanId)).documentRequests;
+    await loanAction(officer, loanId, "recordManualDelivery", { ...condition, revision: 1, documentRevision: accepted.revision, reference: "HARBOR-SAMPLE-DOC" });
+    await loanAction(officer, loanId, "recordManualClearance", { ...condition, revision: 2, cleared: true, confirmation: "HARBOR-SAMPLE-CLEAR" });
+    const cleared = await file(officer, loanId);
+    assert.equal(closingReviewReady(cleared.loans[0], cleared), true);
+    const pipelineAction = async () => (await action(officer, "readPipelineWork", {
+      view: "List", search: borrowerName, filters: emptyPipelineFilters,
+    })).list.loans.find(({ id }) => id === loanId).action;
+    assert.equal((await pipelineAction()).title, "Review closing readiness");
+    const preflight = async () => (await review({ type: "preflight" })).preflight.checks.find(({ id }) => id === "lender");
+    assert.equal((await preflight()).state, "Ready");
+    assert.match((await preflight()).detail, /HARBOR-QA-102/);
+
+    const revisedQuote = { runId: run.id, offerId: randomUUID() };
+    await loanAction(officer, loanId, "addManualQuote", { ...revisedQuote, details: { ...details, reference: "HARBOR-QA-REVISED", rate: 6.125 } });
+    await loanAction(officer, loanId, "selectOffer", revisedQuote);
+    const changed = await action(officer, "checkLoanHandoff", loanId, cleared.handoffVersion);
+    assert.equal(changed.applications[0].manualHandoff.acknowledgmentOutdated, true);
+    assert.equal(closingReviewReady(changed.loans[0], changed), false);
+    assert.equal((await pipelineAction()).target, "manual-lender-export");
+    assert.equal((await preflight()).target, "manual-lender-export");
+    const closing = { type: "recordClosing", loanId, closingDate: today, revision: 0 };
+    assert.match((await action(officer, "mutate", closing)).error, /current MISMO handoff/);
+    assert.match((await action(officer, "mutate", { type: "move", id: loanId, stage: "Clear to Close" })).error, /current MISMO handoff/);
+    const revisedBase = { ...base, manualQuote: revisedQuote };
+    const replacement = await write(officer, { type: "exportReviewedApplication", ...revisedBase, eventId: randomUUID(), names });
+    assert.match(replacement.mismoXml, /<NoteRatePercent>6\.125<\/NoteRatePercent>/);
+    assert.equal((await preflight()).target, "manual-lender-acknowledgment");
+    await write(officer, { ...acknowledge, ...revisedBase, eventId: randomUUID() });
+    const ready = await file(officer, loanId);
+    assert.equal(ready.submissions.length, 1);
+    assert.equal(ready.submissions[0].id, submissionId);
+    assert.deepEqual(ready.submissions[0].conditions, cleared.submissions[0].conditions);
+    assert.equal((await preflight()).state, "Ready");
+    await loanAction(officer, loanId, "markClearToClose");
+    await write(officer, closing);
+    const funding = { type: "recordFunding", loanId, fundingDate: today, revision: 0 };
+    await loanAction(officer, loanId, "selectOffer", manualQuote);
+    assert.match((await action(officer, "mutate", funding)).error, /current MISMO handoff/);
+    assert.equal((await preflight()).target, "manual-lender-acknowledgment");
+    await write(officer, { ...acknowledge, eventId: randomUUID() });
+    await write(officer, funding);
+    assert.equal((await file(officer, loanId)).loans[0].stage, "Funded");
+  }
+  await stage("Conventional purchase uses a quoted manual MISMO handoff through funding", () => verifyQuotedManualFile("Purchase"));
+  await stage("No-cash-out refinance uses a quoted manual MISMO handoff through funding", () => verifyQuotedManualFile("Refinance"));
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

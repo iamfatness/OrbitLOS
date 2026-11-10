@@ -9,6 +9,7 @@ import { closingServiceEvidenceLimit, type ClosingServiceEvidence } from "@/lib/
 import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
 import { closingDisclosureReviewTarget } from "@/lib/file-preflight-model";
 import { closingChecklistListTarget, closingChecklistTarget, closingWorkbenchTarget, pausedLoan, reopenedMockClosingMessage } from "@/lib/loan-workflow";
+import { currentManualAcknowledgmentRequired } from "@/lib/lender-export-model";
 import { serviceOrderSlug, serviceOrderTarget, type ServiceOrder } from "@/lib/service-order-model";
 import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
@@ -191,7 +192,7 @@ function ClosingServiceLinks({ item, links, orders, editable, busy, save, open }
 }
 
 export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, manualClearance, borrowerCheckIn,
-  advanceDemoToFunding, reopenedCondition, openCondition, brokerageId }: {
+  advanceDemoToFunding, reopenedCondition, openCondition, brokerageId, manualHandoff }: {
   loan: Loan; state: Workspace; busy: boolean; save: Save; preview: (audience: DraftAudience, draftId: string) => void;
   brokerageId: string;
   canReverseFunding: boolean; canRehearseFailure: boolean; canMarkClearToClose: boolean;
@@ -199,6 +200,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   borrowerCheckIn?: { dueAt: string; open: () => void };
   advanceDemoToFunding?: () => void;
   reopenedCondition: { category: string; target: string } | null;
+  manualHandoff: { title: string; target: string } | null;
   openCondition: (target: string) => void;
 }) {
   const actualInput = useRef<HTMLInputElement>(null);
@@ -222,17 +224,17 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   const fundingCheck = actual && !progress?.fundingDate ? gates.work?.funding : undefined;
   const closingReason = overrideFor("closing");
   const fundingReason = overrideFor("funding");
-  const closingBlocked = !actual && (Boolean(reopenedCondition) || (!!closingCheck?.blockers.length && !closingReason));
-  const fundingBlocked = !progress?.fundingDate && (Boolean(reopenedCondition) || (!!fundingCheck?.blockers.length && !fundingReason));
+  const closingBlocked = !actual && (Boolean(reopenedCondition || manualHandoff) || (!!closingCheck?.blockers.length && !closingReason));
+  const fundingBlocked = !progress?.fundingDate && (Boolean(reopenedCondition || manualHandoff) || (!!fundingCheck?.blockers.length && !fundingReason));
 
   function overrideFor(phase: ClosingGatePhase) {
     const draft = overrides[phase];
-    if (!reopenedCondition && gates.work?.canOverride && draft && draft.key === gates.work[phase].key && draft.reason.trim().length >= 8) return draft;
+    if (!reopenedCondition && !manualHandoff && gates.work?.canOverride && draft && draft.key === gates.work[phase].key && draft.reason.trim().length >= 8) return draft;
   }
 
   function overrideField(phase: ClosingGatePhase) {
     const key = gates.work?.[phase].key;
-    if (!key || !gates.work?.canOverride || reopenedCondition) return null;
+    if (!key || !gates.work?.canOverride || reopenedCondition || manualHandoff) return null;
     const draft = overrides[phase];
     return <details className="document-form" key={key}>
       <summary>Admin override for {phase}</summary>
@@ -256,6 +258,11 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
       <strong>Reopened {reopenedCondition.category.toLowerCase()} condition</strong>
       <p>{reopenedMockClosingMessage}</p>
       <div><Button size="sm" variant="outline" onClick={() => openCondition(reopenedCondition.target)}>Open reopened condition</Button></div>
+    </div>}
+    {manualHandoff && !progress?.fundingDate && <div className="work-queue" aria-label="Current lender handoff required">
+      <strong>Current lender handoff required</strong>
+      <p>{currentManualAcknowledgmentRequired}</p>
+      <div><Button size="sm" variant="outline" onClick={() => openCondition(manualHandoff.target)}>{manualHandoff.title}</Button></div>
     </div>}
     {closingCheck && <ClosingGateEvidence phase="closing" check={closingCheck} open={openCondition} />}
     {fundingCheck && <ClosingGateEvidence phase="funding" check={fundingCheck} open={openCondition} />}

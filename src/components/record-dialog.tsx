@@ -55,7 +55,7 @@ import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, mockClearanceClosingStages, pausedLoan,
-  closingChecklistListTarget, reopenedMockClosingCondition } from "@/lib/loan-workflow";
+  closingChecklistListTarget, manualLenderClosingAction, reopenedMockClosingCondition } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
 import { FileReadiness } from "./file-readiness";
@@ -310,7 +310,8 @@ function LoanApplication({ loanId, brokerageId, state, busy, save, processor, jo
   const quoteAmountIssue = currentSent ? null : mockUwmQuoteAmountIssue(chosen, application);
   const acknowledgedFile = state.submissions.find((file) =>
     file.id === application?.manualHandoff?.submissionId && file.loanId === loanId && file.syncedAt === null);
-  const linkedFile = sameManualQuote(manualQuote, application?.manualHandoff?.acknowledgedQuote) ? acknowledgedFile : undefined;
+  const linkedFile = !application?.manualHandoff?.acknowledgmentOutdated &&
+    sameManualQuote(manualQuote, application?.manualHandoff?.acknowledgedQuote) ? acknowledgedFile : undefined;
   const processingPending = state.loanProcessing.some((item) => item.loanId === loanId && item.processorEmail &&
     (item.status === "Assigned" || item.status === "Ready for processing"));
   const showCheckpoint = requireSecondReview && (!blocker || processingPending || (!currentSent && !linkedFile));
@@ -611,7 +612,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const section = loanSection(target);
   const action = loanNextAction(loan, state, staff?.brokerage.role);
   const uwm = submissions.filter((item) => item.lender === "UWM");
-  const linkedManual = submissions.find((item) => item.id === application?.manualHandoff?.submissionId && item.syncedAt === null);
+  const linkedManual = application?.manualHandoff?.acknowledgmentOutdated ? undefined :
+    submissions.find((item) => item.id === application?.manualHandoff?.submissionId && item.syncedAt === null);
   const displayManual = uwm.length === 0 ? linkedManual ?? submissions.find((item) => item.id === application?.lastManualSubmissionId && item.syncedAt === null) : undefined;
   const lenderStatus = displayManual?.status ?? uwm[0]?.status ?? "Awaiting submission";
   const openCount = (displayManual ? displayManual.conditions : uwm.flatMap((item) => item.conditions)).filter((item) => !item.satisfiedAt).length;
@@ -715,7 +717,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
         brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-        reopenedCondition={reopenedClosing} openCondition={open}
+        reopenedCondition={reopenedClosing} openCondition={open} manualHandoff={manualLenderClosingAction(application)}
         advanceDemoToFunding={(campaignLender || linkedManual) && (!staff || staff.brokerage.pilot) ? () => open("loan-funding") : undefined}
         canMarkClearToClose={!processor && loan.stage !== "Clear to Close" && closingReviewReady(loan, state)}
         manualClearance={Boolean(linkedManual && !application?.uwmReference)}
@@ -1025,6 +1027,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     version.revision === handoffApplication.revision && version.uwmReceipt);
   const lenderReceived = useManualPath
     ? handoffApplication?.manualHandoff?.outcome === "Acknowledged" && !!handoffApplication.manualHandoff.submissionId &&
+      !handoffApplication.manualHandoff.acknowledgmentOutdated &&
       (!manualPricingPath || handoffApplication.manualHandoff.acknowledgedQuote?.offerId === handoffRun?.selectedId) : receivedByUwm;
   const receiptPending = !useManualPath && !!handoffApplication?.uwmPendingReceipt;
   const handoffBlocker = lenderReceived || receiptPending ? null : secondReviewBlocker(state.playbook.requireSecondReview, handoffApplication);

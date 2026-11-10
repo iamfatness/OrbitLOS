@@ -52,7 +52,12 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   const originals = application.draft ? [application.draft.borrowerName,
     ...application.draft.urla.additional.map((person) => person.identity.fields.name)] : [];
   const [names, setNames] = useState(() => originals.map(suggestExportName));
-  const [profile, setProfile] = useState(() => application.lastExportProfile ?? defaultLenderExportProfile);
+  const [profile, setProfile] = useState(() => {
+    const handoff = application.manualHandoff;
+    const prepared = manualQuote ? handoff?.preparedQuotes?.find((item) => sameManualQuote(item, manualQuote))?.profile :
+      handoff?.exportProfiles?.[0] ?? (handoff?.exportPrepared ? defaultLenderExportProfile : undefined);
+    return prepared ?? application.lastExportProfile ?? defaultLenderExportProfile;
+  });
   const [confirmed, setConfirmed] = useState(false);
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const acknowledgmentAttempt = useRef<{ key: string; id: string } | null>(null);
@@ -147,7 +152,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
       lenderRevision={application.lender?.revision ?? 0} names={names} profile={profile} manualQuote={reference} manualLender={manualQuote?.lender}
       canCreate={!!ready && valid && confirmed && canRecordReturn && !handoffBlocker}
       onCreated={() => void save({ type: "refreshApplication", loanId: application.loanId })} />}
-    {ready && initialCampaignHandoff && <section className="document-item" aria-label="Simulated lender acknowledgment">
+    {ready && initialCampaignHandoff && <section className="document-item" aria-label="Simulated lender acknowledgment" id={manualLenderAcknowledgmentTarget} tabIndex={-1}>
       <div className="document-item-head"><strong>Fictional lender acknowledgment</strong><span className="pill">Demo</span></div>
       <p className="muted">{exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
           "Prepare the MISMO download for this profile to enable acknowledgment."}</p>

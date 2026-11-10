@@ -25,8 +25,11 @@ import { loanWorkUnavailable } from "./loan-work-model";
 function loanHandoffVersion(db: Store, loanId: string) {
   const application = db.prepare(`SELECT revision, updatedAt, submittedAt, reviewedAt, revokedAt, expiresAt, uwmReference,
     (SELECT amount FROM loans WHERE id = app.loanId) AS recordedAmount,
+    (SELECT json_array(id, selectedId) FROM pricing_runs WHERE loanId = app.loanId AND selectedId IS NOT NULL
+      ORDER BY selectedAt DESC, rowid DESC LIMIT 1) AS selectedQuote,
+    (SELECT revision FROM application_lender_details WHERE loanId = app.loanId) AS lenderRevision,
     (SELECT event.activityId FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
-      WHERE event.loanId = app.loanId AND event.applicationRevision = app.revision AND event.submissionId IS NOT NULL
+      WHERE event.loanId = app.loanId AND event.applicationRevision = app.revision
       ORDER BY event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS linkedHandoff
     FROM applications app WHERE loanId = ?`).get(loanId);
   const documents = db.prepare(`SELECT requests.id, requests.status, requests.revision, requests.deadlineRevision, requests.recipient, ${pdfColumns()}

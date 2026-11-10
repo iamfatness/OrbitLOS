@@ -34,7 +34,7 @@ export default function DemoPage() {
           <li>Preview branch ZIP routing on separate purchase and refinance intake profiles. See the original destination on the lead and choose which answers should prefill the 1003.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>
           <li>Share a saved comparison with cash to close, five-year borrowing cost, break-even, and an expiration date. A fee edit opens an LO review while the borrower keeps the shared version through its expiration.</li>
-          <li>Compare a manual lender offer with mock UWM on the same loan. Choose the offer, download a sample MISMO 3.4 file with its note rate and term, and record the lender acknowledgment.</li>
+          <li>Choose a manual lender offer for a fictional purchase or no-cash-out refinance. Download sample MISMO 3.4 with its note rate and term, then record the lender acknowledgment. If the terms change, Closing links to the current handoff.</li>
           <li>Reuse sample brokerage fee templates by purpose and ZIP. Record who pays and receives a fee, then follow the saved allocation into the sample disclosure and closing packet.</li>
           <li>Assemble a sample disclosure package and track each mock response. Open a task from Today to follow up on a decline or compare changes and record the review with the revised package.</li>
           <li>Preview a reusable sample disclosure template matched to the reviewed loan purpose and property state. See which template version each prepared package used.</li>
