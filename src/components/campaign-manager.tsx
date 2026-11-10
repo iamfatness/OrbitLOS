@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { readCampaignManager } from "@/app/actions";
-import { campaignManagerViews, type CampaignManagerPage, type CampaignManagerRow, type CampaignManagerView } from "@/lib/campaign-manager-model";
+import { campaignManagerViews, type CampaignManagerPage, type CampaignManagerRecord, type CampaignManagerView } from "@/lib/campaign-manager-model";
 import { dateTime } from "@/lib/utils";
 import { CampaignSequenceToggle } from "./campaign-sequence";
+import { CampaignSequencePerformance } from "./campaign-sequence-performance";
 import { Button } from "./ui/button";
 
 const labels: Record<CampaignManagerView, string> = {
@@ -21,10 +22,11 @@ type Selection = { view: CampaignManagerView; page: number };
 type Result = CampaignManagerPage | { error: string };
 
 export function CampaignManager({ brokerageId, campaignId, campaignName, version, busy, save, openRecord }: {
-  brokerageId: string; campaignId: string; campaignName: string; version: object; openRecord: (row: CampaignManagerRow) => void;
+  brokerageId: string; campaignId: string; campaignName: string; version: object; openRecord: (row: CampaignManagerRecord) => void;
   busy: boolean; save: (input: unknown) => Promise<void>;
 }) {
   const [selection, setSelection] = useState<Selection>({ view: "overdue", page: 1 });
+  const [sequenceReportOpen, setSequenceReportOpen] = useState(false);
   const [data, setData] = useState<{ selection: Selection; version: object; result: Result }>();
   useEffect(() => {
     let active = true;
@@ -51,6 +53,10 @@ export function CampaignManager({ brokerageId, campaignId, campaignName, version
       </Button>)}
       <Button variant="outline" size="sm" onClick={() => setSelection({ view: selection.view, page: 1 })}>Refresh manager view</Button>
     </div>
+    <details className="document-form" onToggle={(event) => setSequenceReportOpen(event.currentTarget.open)}>
+      <summary>Sequence performance</summary>
+      {sequenceReportOpen && <CampaignSequencePerformance brokerageId={brokerageId} campaignId={campaignId} workspaceVersion={version} openRecord={openRecord} />}
+    </details>
     {!result && <p className="muted" role="status">Loading campaign outcomes…</p>}
     {result && "error" in result && <p role="alert">{result.error}</p>}
     {page && <>

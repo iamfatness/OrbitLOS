@@ -3,7 +3,7 @@ import { assignableCampaignLead, campaignFollowUpAllowed, campaignFollowUpRecipi
   type assignCampaignLeadsInput, type createCallCampaignInput, type pauseCampaignRetriesInput, type recordCampaignCallInput, type recordCampaignFollowUpInput, type rescheduleCampaignCallbackInput,
   type saveCampaignRulesInput } from "./call-campaign-model";
 import { campaignWeekdayAt } from "./campaign-timing";
-import { completeSequenceCall, stopCampaignSequence } from "./campaign-sequences";
+import { recordSequenceCall, stopCampaignSequence } from "./campaign-sequences";
 import { advanceLeadRevision, leadEvent, updateInboxLead } from "./lead-inbox";
 import { leadContactFields } from "./lead-inbox-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
@@ -178,10 +178,11 @@ export function recordCampaignCall(db: Store, staff: WorkspaceStaff | null, inpu
   db.prepare(`UPDATE call_campaign_members SET attempts = attempts + 1, lastOutcome = ?, callbackTaskId = ?,
     reachedAt = coalesce(reachedAt, ?), firstCallAt = coalesce(firstCallAt, ?), retryExhaustedAt = ? WHERE leadId = ?`)
     .run(input.outcome, callbackTaskId, reachedAt, now, exhaustedAt, input.leadId);
+  recordSequenceCall(db, input.leadId, now, input.outcome === "Opted out");
   if (input.outcome === "Opted out") {
     optOutLead(db, input.leadId, now);
     accessEvent(db, staff, "Recorded brokerage outreach opt-out", input.leadId, now);
-  } else completeSequenceCall(db, input.leadId, now);
+  }
   return { message: followUp || "Campaign call outcome saved.", releasedCampaignSlot: !!exhaustedAt && !member.retryExhaustedAt };
 }
 

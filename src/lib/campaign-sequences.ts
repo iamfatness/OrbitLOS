@@ -100,9 +100,15 @@ export function isCurrentSequenceCall(db: Store, leadId: string, taskId: string,
   return run?.step.channel === "Call" && sequenceTaskId(leadId, run.version, run.position) === taskId;
 }
 
-export function completeSequenceCall(db: Store, leadId: string, now: string) {
+function recordSequenceTouch(db: Store, leadId: string, position: number, now: string) {
+  db.prepare("INSERT INTO campaign_sequence_touches (leadId, position, at) VALUES (?, ?, ?)").run(leadId, position, now);
+}
+
+export function recordSequenceCall(db: Store, leadId: string, now: string, optedOut: boolean) {
   const run = currentStep(db, leadId, now);
-  if (run?.step.channel === "Call") advance(db, leadId, run, now);
+  if (run?.step.channel !== "Call") return;
+  recordSequenceTouch(db, leadId, run.position, now);
+  if (!optedOut) advance(db, leadId, run, now);
 }
 
 export function recordSequenceMock(db: Store, staff: WorkspaceStaff | null, input: z.infer<typeof recordSequenceMockInput>, now: string) {
@@ -120,9 +126,12 @@ export function recordSequenceMock(db: Store, staff: WorkspaceStaff | null, inpu
   const event = recipient ? `${mockCampaignFollowUpPrefix} · ${channel}\nTo: ${recipient}\n${channel === "Email" ? `Subject: ${title}\n` : ""}${body}` :
     `New Lead sequence · Skipped ${channel.toLowerCase()} step because the lead has no valid recipient.`;
   leadEvent(db, input.leadId, actor, now, event, "Campaign");
-  if (recipient) db.prepare(`INSERT INTO lead_conversations (id, leadId, updatedAt) VALUES (?, ?, ?)
-    ON CONFLICT (leadId) DO UPDATE SET updatedAt = excluded.updatedAt, revision = lead_conversations.revision + 1`)
-    .run(crypto.randomUUID(), input.leadId, now);
+  if (recipient) {
+    db.prepare(`INSERT INTO lead_conversations (id, leadId, updatedAt) VALUES (?, ?, ?)
+      ON CONFLICT (leadId) DO UPDATE SET updatedAt = excluded.updatedAt, revision = lead_conversations.revision + 1`)
+      .run(crypto.randomUUID(), input.leadId, now);
+    recordSequenceTouch(db, input.leadId, run.position, now);
+  }
   advanceLeadRevision(db, input.leadId);
   advance(db, input.leadId, run, now);
   return { message: recipient ? `Mock ${channel.toLowerCase()} recorded in the lead conversation.` : "Step skipped. The sequence has advanced." };

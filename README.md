@@ -70,6 +70,8 @@ In **Call Campaigns → Manager view**, pilot admins can select the overdue, rep
 
 Pilot admins can **Pause sequence** on a campaign lead or from its overdue report row. **Manager view → Paused sequences** keeps those leads together. Resuming restores the same step and original due time. A step whose deadline passed is ready immediately. The pause applies to the New Lead sequence. Separate campaign callbacks and retries keep their own schedules.
 
+**Manager view → Sequence performance** reports recorded touches, logged replies, and stalled leads for each step of the selected version. Counts open the underlying lead or loan records. A first reply is credited to the latest tracked sequence touch at or before the reply. Older replies without a tracked touch appear under **Unattributed replies**. Stalled leads have an active, overdue step. Paused, held, closed, and suppressed leads are excluded from stalls. Calls count when recorded and email and text touches stay simulated.
+
 After conversion, open the carried task from the conversation and choose **Log callback outcome**. Connected, Left message, and No response each complete the task and record the same call in loan activity and the original campaign report. The report measures against the recorded promise, including a deadline already missed before rescheduling.
 
 Choose **Reschedule callback** on the loan task to change the time and record the reason. Today, Calendar, and My campaign callbacks use the new time. Moving it before the deadline updates the campaign’s measured time. Moving it after the deadline keeps the missed deadline visible alongside the new time.

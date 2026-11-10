@@ -699,6 +699,11 @@ export function initializeStore(db: Store, seedDemo = true) {
         position INTEGER NOT NULL DEFAULT 0, dueAt TEXT, outcome TEXT
       );
       CREATE INDEX IF NOT EXISTS campaign_sequence_due ON campaign_sequence_enrollments(dueAt, leadId) WHERE dueAt IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS campaign_sequence_touches (
+        leadId TEXT NOT NULL REFERENCES campaign_sequence_enrollments(leadId) ON DELETE CASCADE,
+        position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 5), at TEXT NOT NULL,
+        PRIMARY KEY (leadId, position)
+      );
       CREATE TABLE IF NOT EXISTS campaign_follow_up_runs (
         id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES call_campaign_members(leadId) ON DELETE CASCADE,
         campaignId TEXT NOT NULL REFERENCES call_campaigns(id) ON DELETE CASCADE, callNumber INTEGER NOT NULL,

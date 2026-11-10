@@ -13,6 +13,7 @@ registerHooks({ resolve(specifier, context, next) {
 
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { readCampaignManager } = await import("../src/lib/campaign-manager.ts");
+const { readCampaignSequencePerformance } = await import("../src/lib/campaign-sequence-performance.ts");
 const { campaignManagerUnavailable } = await import("../src/lib/campaign-manager-model.ts");
 const { defaultNewLeadSteps } = await import("../src/lib/campaign-sequence-model.ts");
 
@@ -107,5 +108,43 @@ test("manager reporting restricts access and bounds drilldowns without truncatin
     { ...admin, brokerage: { ...brokerage, role: "Processor" } }, { ...admin, brokerage: { ...brokerage, pilot: false } }]) {
     assert.deepEqual(read({}, actor), { error: campaignManagerUnavailable });
   }
+  assert.deepEqual(read({}, admin, crypto.randomUUID()), { error: campaignManagerUnavailable });
+});
+
+test("sequence performance isolates versions, attributes the first reply, and pages active overdue steps", (t) => {
+  const { db, add, admin, brokerage } = fixture(t);
+  const read = (input = {}, actor = admin, scope = brokerage.id) =>
+    readCampaignSequencePerformance(db, { campaignId: "main", ...input }, actor, scope, new Date(now));
+  assert.deepEqual(read().steps, []);
+  for (let index = 0; index < 23; index++) add(`stalled-${String(index).padStart(2, "0")}`);
+  add("paused", { outcome: "Paused" });
+  add("held", { held: true });
+  add("upcoming", { sequence: now });
+  add("suppressed");
+  db.prepare("INSERT INTO outreach_opt_outs VALUES ('fixture', 'email:suppressed@example.test', NULL, ?)").run(earlier);
+  add("other campaign", { campaign: "other" });
+  add("older reply", { replied: true, archived: true, sequence: null });
+  add("credited reply", { replied: true, sequence: null, outcome: "Reply received" });
+  db.prepare("INSERT INTO campaign_sequence_touches (leadId, position, at) VALUES ('credited reply', 0, ?), ('credited reply', 1, ?)").run(joined, earlier);
+  add("separate version", { sequence: due });
+  db.prepare("INSERT INTO campaign_sequence_versions (version, steps) VALUES (2, ?)")
+    .run(JSON.stringify([{ ...defaultNewLeadSteps[2], title: "Revised email" }]));
+  db.prepare("UPDATE campaign_sequence_enrollments SET version = 2 WHERE leadId = 'separate version'").run();
+
+  assert.deepEqual(read().versions, [{ version: 2, enrolled: 1 }, { version: 1, enrolled: 29 }]);
+  assert.deepEqual(read().steps, [{ title: "Revised email", channel: "Email", touches: 0, replies: 0, stalled: 1 }]);
+  const v1 = read({ version: 1 });
+  assert.deepEqual(v1.steps.map(({ touches, replies, stalled }) => [touches, replies, stalled]), [[1, 0, 23], [1, 1, 0], [0, 0, 0]]);
+  assert.equal(v1.unattributed, 1);
+  assert.equal(read({ version: 1, drilldown: { metric: "unattributed" } }).items[0].archived, true);
+  assert.deepEqual(read({ version: 1, drilldown: { metric: "replies", position: 1 } }).items.map(({ leadId, when }) => [leadId, when]),
+    [["credited reply", earlier]]);
+  assert.deepEqual(read({ version: 1, drilldown: { metric: "touches", position: 0 } }).items.map(({ leadId }) => leadId), ["credited reply"]);
+  const page = read({ version: 1, drilldown: { metric: "stalled", position: 0 }, page: 2 });
+  assert.equal(page.steps[0].stalled, 23);
+  assert.deepEqual(page.items.map(({ leadId, when }) => [leadId, when]), [["stalled-20", due], ["stalled-21", due], ["stalled-22", due]]);
+  assert.ok(read({ version: 2, drilldown: { metric: "stalled", position: 1 } }).error);
+  assert.ok(read({ campaignId: "other", version: 2 }).error);
+  assert.deepEqual(read({}, { ...admin, brokerage: { ...brokerage, role: "LO" } }), { error: campaignManagerUnavailable });
   assert.deepEqual(read({}, admin, crypto.randomUUID()), { error: campaignManagerUnavailable });
 });

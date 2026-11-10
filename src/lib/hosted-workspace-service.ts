@@ -131,6 +131,11 @@ export async function loadCampaignManager(input: unknown, staff: WorkspaceStaff 
   return staffWorkspace(staff).campaignManager(input, staff);
 }
 
+export async function loadCampaignSequencePerformance(input: unknown, staff: WorkspaceStaff | null) {
+  if (staff?.brokerage.role !== "Admin" || staff.brokerage.pilot !== true) return { error: campaignManagerUnavailable };
+  return staffWorkspace(staff).campaignSequencePerformance(input, staff);
+}
+
 export async function loadCampaignCallbackExceptions(input: unknown, staff: WorkspaceStaff | null) {
   if (staff?.brokerage.role !== "Admin" || staff.brokerage.pilot !== true) return { error: callbackExceptionUnavailable };
   return staffWorkspace(staff).campaignCallbackExceptions(input, staff);

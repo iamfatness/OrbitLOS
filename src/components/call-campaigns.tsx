@@ -6,7 +6,7 @@ import { demoBrokerageId } from "@/lib/brokerage-model";
 import { assignableCampaignLead, callOutcomes, campaignCallNote, campaignCallQueues, campaignFollowUpSource, campaignLeadExample, campaignOrigin, campaignRehearsalCsv, defaultCampaignRules, nextCampaignCallId, parseCampaignLeadCsv,
   type CallCampaign, type CallCampaignMember, type CallOutcome, type CampaignRehearsal } from "@/lib/call-campaign-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import type { CampaignManagerRow } from "@/lib/campaign-manager-model";
+import type { CampaignManagerRecord } from "@/lib/campaign-manager-model";
 import { firstContactOverdue } from "@/lib/lead-inbox-model";
 import type { InboxLead, Workspace } from "@/lib/model";
 import type { CampaignCallbackItem } from "@/lib/officer-queue-model";
@@ -321,7 +321,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   convert: (id: string, after: () => void) => void;
   openConversation: (id: string) => void;
   openCallback: (item: CampaignCallbackItem) => void;
-  openManagerRecord: (row: CampaignManagerRow) => void;
+  openManagerRecord: (row: CampaignManagerRecord) => void;
 }) {
   const [view, setView] = useState<(typeof views)[number]>("Enrolled");
   const [applicationCall, setApplicationCall] = useState<CallContinuation>();

@@ -47,6 +47,7 @@ const { applyCampaignMutation, applyCampaignNavigation, applyCampaignQueue, appl
 const { readCampaignCallbackPerformance } = await import("../src/lib/campaign-callback-performance.ts");
 const { readCampaignCallbackExceptions } = await import("../src/lib/campaign-callback-exceptions.ts");
 const { readCampaignManager } = await import("../src/lib/campaign-manager.ts");
+const { readCampaignSequencePerformance } = await import("../src/lib/campaign-sequence-performance.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -113,6 +114,7 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
   const revision = (id) => db.prepare("SELECT revision FROM lead_follow_up WHERE leadId = ?").get(id)?.revision ?? 0;
   const control = (leadId, action) => ({ type: "changeCampaignSequence", campaignId, leadId, action, revision: revision(leadId) });
   const report = (view) => readCampaignManager(db, { campaignId, view }, staff, staff.brokerage.id, new Date(Date.now() + 1000));
+  const performance = (version, drilldown) => readCampaignSequencePerformance(db, { campaignId, version, drilldown }, staff, staff.brokerage.id);
   const callStep = stepFor(replyLead);
   assert.equal(callStep.sequence.version, 1);
   assert.equal(callStep.sequence.channel, "Call");
@@ -160,8 +162,13 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
   await apply(control(replyLead, "Pause"));
   assert.equal(report("paused").items[0].sequence.dueAt, scheduled.dueAt);
   const thread = db.prepare("SELECT id, revision FROM lead_conversations WHERE leadId = ?").get(replyLead);
-  assert.ok(changeConversation(db, { ...thread, type: "message", direction: "Inbound", channel: "Email",
+  assert.ok(changeConversation(db, { ...thread, type: "sampleReply", eventId: crypto.randomUUID() }, officer, staff.brokerage.id).id);
+  assert.deepEqual(performance(1).steps.map(({ touches, replies }) => [touches, replies]), [[1, 0], [1, 0], [0, 0]]);
+  const replyThread = db.prepare("SELECT id, revision FROM lead_conversations WHERE leadId = ?").get(replyLead);
+  assert.ok(changeConversation(db, { ...replyThread, type: "message", direction: "Inbound", channel: "Email",
     text: "Fictional reply to the mock sequence", eventId: crypto.randomUUID() }, officer, staff.brokerage.id).id);
+  assert.deepEqual(performance(1).steps.map(({ touches, replies }) => [touches, replies]), [[1, 0], [1, 1], [0, 0]]);
+  assert.deepEqual(performance(1, { metric: "replies", position: 1 }).items.map(({ leadId }) => leadId), [replyLead]);
   await apply(control(convertedLead, "Pause"));
   await apply({ type: "convertReferral", referralId: convertedLead, contactId: null }, officer);
   await apply(control(optedLead, "Pause"));
@@ -174,6 +181,10 @@ test("CSV sequence progress survives a manager pause and retires on reply, conve
   }
   assert.equal(report("paused").counts.paused, 0);
   assert.equal(db.prepare("SELECT count(*) AS count FROM lead_events WHERE leadId = ? AND text LIKE 'Mock campaign follow-up%'").get(replyLead).count, 1);
+  const [skippedLead] = (await importCsv(csv([6]))).migration.rows.map(({ targetId }) => targetId);
+  db.prepare("UPDATE referral_leads SET phone = '' WHERE id = ?").run(skippedLead);
+  await apply({ type: "recordSequenceMock", leadId: skippedLead, version: 2, position: 0, recipient: null }, officer);
+  assert.equal(performance(2).steps[0].touches, 0);
   assert.equal((await apply({ ...update, expectedVersion: 2, expectedTemplateVersion: 2, steps: null })).campaignQueue.campaign.newLeadSequence.attachedVersion, null);
   assert.equal(stepFor(newLead).sequence.version, 2);
   const [afterDetach] = (await importCsv(csv([5]))).migration.rows.map(({ targetId }) => targetId);

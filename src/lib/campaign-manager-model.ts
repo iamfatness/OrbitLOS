@@ -10,12 +10,14 @@ export const campaignManagerQuery = z.object({
   page: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(1),
 });
 
-export type CampaignManagerRow = {
+export type CampaignManagerRecord = {
   leadId: string;
   name: string;
   owner: string;
   loanId: string | null;
   archived: boolean;
+};
+export type CampaignManagerRow = CampaignManagerRecord & {
   overdue: { title: string; dueAt: string }[];
   sequence?: CampaignSequenceProgress & { revision: number; held: boolean };
 };
