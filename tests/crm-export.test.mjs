@@ -236,9 +236,9 @@ test("reusable reactivation and past-client sequences enroll the right audiences
   const revised = defaultCampaignSequenceSteps["Cold Lead Reactivation"].map((step, i) => i === 0 ? { ...step, title: "Reconnect about your mortgage" } : step);
   const edited = await apply(attach(cold, "Cold Lead Reactivation", 1, 1, revised));
   assert.equal(edited.campaignQueue.campaign.sequenceConfig.latest["Past Client Outreach"].version, 2);
-  assert.match((await write({ ...enrollment(cold, quietSegment), fingerprint: stale.segmentPreview.fingerprint })).error, /results changed/);
+  assert.match((await write({ ...enrollment(cold, quietSegment), fingerprint: stale.segmentPreview.fingerprint, selectedIds: [quietLead] })).error, /results changed/);
   const quiet = await apply(enrollment(reused, quietSegment));
-  const quietResult = await apply({ ...enrollment(reused, quietSegment), fingerprint: quiet.segmentPreview.fingerprint });
+  const quietResult = await apply({ ...enrollment(reused, quietSegment), fingerprint: quiet.segmentPreview.fingerprint, selectedIds: [quietLead] });
   assert.equal(quietResult.campaignWork.inboxLeads[0].officerEmail, officer.email);
   await apply(attach(reused, "Cold Lead Reactivation", 1, 3, revised));
 
@@ -251,17 +251,21 @@ test("reusable reactivation and past-client sequences enroll the right audiences
   }
   const returningContact = funded("Fictional past client", "2485550142");
   const suppressed = funded("Fictional suppressed client", "2485550143");
+  const unselected = funded("Fictional unselected client", "2485550145");
   optOutContact(db, suppressed, old);
   const pastPreview = (await apply(enrollment(past, pastSegment))).segmentPreview;
   assert.deepEqual(pastPreview.sequence, { kind: "Past Client Outreach", version: 2 });
-  assert.equal(pastPreview.eligible, 1);
+  assert.equal(pastPreview.eligible, 2);
   assert.equal(pastPreview.rows.find(({ name }) => name === "Fictional suppressed client").status, "Opted out");
-  const pastResult = await apply({ ...enrollment(past, pastSegment), fingerprint: pastPreview.fingerprint });
+  const selectedPastId = pastPreview.rows.find(({ name }) => name === "Fictional past client").id;
+  const applyPast = { ...enrollment(past, pastSegment), fingerprint: pastPreview.fingerprint, selectedIds: [selectedPastId] };
+  const pastResult = await apply(applyPast);
   const [returning] = pastResult.campaignWork.inboxLeads;
   assert.equal(returning.importedContactId, returningContact);
   assert.equal(returning.officerEmail, officer.email);
   assert.equal(returning.purpose, "Refinance");
-  assert.match((await write({ ...enrollment(past, pastSegment), fingerprint: pastPreview.fingerprint })).error, /results changed/);
+  assert.equal(db.prepare("SELECT 1 FROM referral_leads WHERE importedContactId = ?").get(unselected), undefined);
+  assert.match((await write(applyPast)).error, /results changed/);
 
   const queue = () => readOfficerQueue(db, { horizon: 7 }, officer, staff.brokerage.id).items;
   const next = (id) => queue().find((item) => item.recordId === id && item.kind === "sequence");
@@ -281,6 +285,52 @@ test("reusable reactivation and past-client sequences enroll the right audiences
   const imported = await apply({ ...csv, preview: (await apply(csv)).migration.fingerprint });
   assert.equal(next(imported.migration.rows[0].targetId).sequence.version, 3);
   assert.match(next(imported.migration.rows[0].targetId).title, /Reconnect about your mortgage/);
+});
+
+test("segment enrollment requires a current selection and enrolls only the chosen eligible borrowers across pages", async (t) => {
+  const { db, staff } = fixture(t);
+  const campaignId = crypto.randomUUID();
+  const segmentId = crypto.randomUUID();
+  const send = (input, actor = staff) => executeCommand(db, input, actor, undefined, [staff], { scopedLeadUpdates: true });
+  const apply = async (input) => {
+    const result = await send(input);
+    assert.ok(!result.error, result.error);
+    return result;
+  };
+  await apply({ type: "createCallCampaign", id: campaignId, name: "Selective segment QA" });
+  await apply({ type: "saveCrmSegment", id: segmentId, revision: 0, name: "Dormant borrowers", kind: "Quiet leads", quietDays: 7 });
+  const old = new Date(Date.now() - 20 * 86_400_000).toISOString();
+  const insert = db.prepare(`INSERT INTO referral_leads (id, requestId, name, email, phone, purpose, officer, createdAt, dueAt, heldAt)
+    VALUES (?, ?, ?, ?, ?, 'Purchase', '', ?, ?, ?)`);
+  const ids = Array.from({ length: 103 }, (_, index) => {
+    const id = crypto.randomUUID();
+    insert.run(id, id, `Fictional borrower ${index}`, `borrower-${index}@example.test`, `248555${String(index + 100).padStart(4, "0")}`,
+      old, old, index === 102 ? old : null);
+    return id;
+  });
+  const request = { type: "enrollCrmSegment", campaignId, segmentId };
+  const first = (await apply(request)).segmentPreview;
+  const second = (await apply({ ...request, previewPage: 2 })).segmentPreview;
+  assert.deepEqual([first.eligible, first.excluded, first.page, first.pages], [102, 1, 1, 2]);
+  assert.deepEqual([second.rows.length, second.page, second.pages], [2, 2, 2]);
+  assert.equal(first.fingerprint, second.fingerprint);
+  assert.equal(first.rows.find(({ id }) => id === ids[102]).status, "Lead on hold");
+  const commit = { ...request, fingerprint: first.fingerprint };
+  const fromFirst = first.rows[0].id;
+  const fromSecond = second.rows[0].id;
+  for (const selectedIds of [undefined, [], [fromFirst, fromFirst], [fromFirst, ids[102]], [crypto.randomUUID()]]) {
+    assert.ok((await send({ ...commit, selectedIds })).error);
+  }
+  assert.ok((await send({ ...request, selectedIds: [fromFirst] })).error);
+  assert.match((await send({ ...commit, selectedIds: [fromFirst] }, { ...staff, brokerage: { ...staff.brokerage, role: "LO" } })).error, /admin/);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM call_campaign_members").get().total, 0);
+  const valid = { ...commit, selectedIds: [fromFirst, fromSecond] };
+  const enrolled = await apply(valid);
+  assert.deepEqual(new Set(enrolled.campaignWork.callCampaignMembers.map(({ leadId }) => leadId)), new Set([fromFirst, fromSecond]));
+  assert.match((await send(valid)).error, /results changed/);
+  const remaining = (await apply(request)).segmentPreview;
+  assert.equal(remaining.eligible, 100);
+  assert.ok(remaining.rows.some(({ id, status }) => id === second.rows[1].id && status === "Eligible"));
 });
 
 test("migration results follow the current lead, loan and exact evidence behind a receipt", async (t) => {
@@ -789,7 +839,7 @@ test("a logged lead reply excludes quiet enrollment and retires automatic retrie
   const manual = (id, revision = 1) => ({ type: "message", direction: "Inbound", channel: "Email", text: "Fictional buyer wants to reconnect.",
     id, revision, eventId: crypto.randomUUID() });
   assert.ok(write(manual(quietThread)).id);
-  assert.match((await send({ ...enrollment, fingerprint: originalPreview.fingerprint })).error, /results changed/);
+  assert.match((await send({ ...enrollment, fingerprint: originalPreview.fingerprint, selectedIds: [quietId] })).error, /results changed/);
   const newPreview = (await send(enrollment)).segmentPreview;
   assert.equal(newPreview.rows.find(({ id }) => id === quietId).status, "Reply received");
   assert.ok(!readOfficerQueue(db, { horizon: 1 }, staff, tenant).items.some((item) => item.recordId === quietId));

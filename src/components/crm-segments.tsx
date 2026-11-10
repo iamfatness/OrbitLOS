@@ -36,18 +36,29 @@ export function CrmSegments({ segments, campaign, busy, save }: {
   segments: CrmSegment[]; campaign?: CallCampaign; busy: boolean; save: Save;
 }) {
   const [selected, setSelected] = useState("");
-  const [result, setResult] = useState<{ key: string; preview: SegmentPreview }>();
+  const [result, setResult] = useState<{ key: string; preview: SegmentPreview; selectedIds: string[] }>();
   const segment = segments.find((item) => item.id === selected);
   const attachedKind = campaign?.sequenceConfig?.attachedKind;
   const matchingSequence = segment && attachedKind === sequenceKindForSegment(segment.kind);
-  const key = `${segment?.id}:${segment?.revision}:${campaign?.id}:${campaign?.sequenceConfig?.attachedVersion}`;
-  const preview = result?.key === key ? result.preview : undefined;
-  const batch = Math.min(preview?.eligible ?? 0, segmentEnrollmentLimit);
-  const run = (enroll: boolean) => {
+  const key = `${segment?.id}:${segment?.revision}:${campaign?.id}:${campaign?.sequenceConfig?.attachedVersion}:${campaign?.routing?.revision}`;
+  const current = result?.key === key ? result : undefined;
+  const preview = current?.preview;
+  const selectedIds = current?.selectedIds ?? [];
+  const selectedSet = new Set(selectedIds);
+  const pageIds = preview?.rows.filter(({ status }) => status === "Eligible").map(({ id }) => id) ?? [];
+  const pageSelection = [...new Set([...selectedIds, ...pageIds])];
+  const setSelection = (ids: string[]) => {
+    if (current && ids.length <= segmentEnrollmentLimit) setResult({ ...current, selectedIds: ids });
+  };
+  const run = (enroll: boolean, previewPage = 1) => {
     if (!segment || !campaign) return;
+    if (enroll && (!preview || !selectedIds.length)) return;
     void save({ type: "enrollCrmSegment", segmentId: segment.id, campaignId: campaign.id,
-      fingerprint: enroll ? preview?.fingerprint : undefined }, ({ segmentPreview }) => {
-      setResult(segmentPreview ? { key, preview: segmentPreview } : undefined);
+      ...(enroll ? { fingerprint: preview?.fingerprint, selectedIds } : { previewPage }) }, ({ segmentPreview }) => {
+      setResult((previous) => segmentPreview ? {
+        key, preview: segmentPreview,
+        selectedIds: previous?.key === key && previous.preview.fingerprint === segmentPreview.fingerprint ? previous.selectedIds : [],
+      } : undefined);
     }, enroll);
   };
 
@@ -69,12 +80,36 @@ export function CrmSegments({ segments, campaign, busy, save }: {
       {preview && <>
         {preview.sequence && <p className="muted">Eligible borrowers start {preview.sequence.kind} v{preview.sequence.version}. Assigned steps appear in Today.</p>}
         <p role="status"><strong>{preview.eligible} eligible · {preview.excluded} excluded</strong></p>
+        {preview.eligible > 0 && <div className="loan-application-actions">
+          <span className="pill" role="status">{selectedIds.length} selected</span>
+          <Button size="sm" variant="outline"
+            disabled={busy || pageSelection.length === selectedIds.length || pageSelection.length > segmentEnrollmentLimit}
+            onClick={() => setSelection(pageSelection)}>Select eligible on this page</Button>
+          <Button size="sm" variant="ghost" disabled={busy || !selectedIds.length} onClick={() => setSelection([])}>Clear selection</Button>
+          <Button size="sm" disabled={busy || !selectedIds.length} onClick={() => run(true)}>Enroll selected ({selectedIds.length})</Button>
+        </div>}
         {preview.rows.length > 0 ? <ul className="document-list">{preview.rows.map((row) => <li className="document-item" key={row.id}>
-          <div className="document-item-head"><strong>{row.name}</strong><span className={row.status === "Eligible" ? "pill" : "open-chip"}>{row.status}</span></div>
+          <div className="document-item-head">
+            {row.status === "Eligible" ? <label className="demo-confirm">
+              <input type="checkbox" aria-label={`Select ${row.name}`} checked={selectedSet.has(row.id)}
+                disabled={busy || (!selectedSet.has(row.id) && selectedIds.length >= segmentEnrollmentLimit)}
+                onChange={(event) => setSelection(event.target.checked ? [...selectedIds, row.id] : selectedIds.filter((id) => id !== row.id))} />
+              <strong>{row.name}</strong>
+            </label> : <strong>{row.name}</strong>}
+            <span className={row.status === "Eligible" ? "pill" : "open-chip"}>{row.status}</span>
+          </div>
           <small className="muted">{row.owner} · {row.detail}</small>
         </li>)}</ul> : <p className="empty-inline">No borrowers match this filter today.</p>}
-        {preview.eligible + preview.excluded > preview.rows.length && <p className="muted">Showing up to {segmentEnrollmentLimit} records in each group.</p>}
-        {batch > 0 && <div><Button size="sm" disabled={busy} onClick={() => run(true)}>Enroll {batch} eligible {batch === 1 ? "borrower" : "borrowers"}</Button></div>}
+        {preview.pages > 1 && <>
+          <p className="muted">Select up to {segmentEnrollmentLimit} borrowers per enrollment. Selections carry between pages.</p>
+          <div className="loan-application-actions">
+            <Button size="sm" variant="outline" disabled={busy || preview.page === 1} onClick={() => run(false, preview.page - 1)}>Previous page</Button>
+            <span className="muted">Eligible page {preview.page} of {preview.pages}</span>
+            <Button size="sm" variant="outline" disabled={busy || preview.page === preview.pages} onClick={() => run(false, preview.page + 1)}>Next page</Button>
+          </div>
+        </>}
+        {preview.page === 1 && preview.excluded > segmentEnrollmentLimit &&
+          <p className="muted">Showing the first {segmentEnrollmentLimit} excluded borrowers.</p>}
       </>}
     </div> : <p className="empty-inline">Create a call campaign to preview enrollment.</p>)}
   </section>;

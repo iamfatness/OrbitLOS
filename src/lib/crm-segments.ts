@@ -13,7 +13,7 @@ import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
 
-type Lead = { id: string; name: string; email: string; phone: string; contactId: string | null; officer: string;
+type Lead = { id: string; name: string; email: string; phone: string; contactId: string | null; officer: string; officerEmail: string | null;
   campaignId: string | null; status: string | null; lastOutreach: string; replied: number; replyReceivedAt: string | null; heldAt: string | null };
 type PastClient = { id: string; name: string; email: string; phone: string; contactId: string; scenarioId: string | null;
   observedRate: number | null; targetRate: number | null; watchEnabled: number };
@@ -39,7 +39,7 @@ export function saveCrmSegment(db: Store, staff: WorkspaceStaff | null, input: z
 }
 
 function matchingLeads(db: Store) {
-  return db.prepare(`SELECT lead.id, lead.name, lead.email, lead.phone, lead.importedContactId AS contactId, lead.officer,
+  return db.prepare(`SELECT lead.id, lead.name, lead.email, lead.phone, lead.importedContactId AS contactId, lead.officer, lead.officerEmail,
     member.campaignId, follow.status, follow.replyReceivedAt, lead.heldAt, coalesce((SELECT max(at) FROM lead_events WHERE leadId = lead.id AND outcome <> 'Opted out'),
       lead.createdAt) AS lastOutreach,
     EXISTS (SELECT 1 FROM lead_events WHERE leadId = lead.id AND outcome IN ('Connected', 'Reply received', 'Requested callback')) AS replied
@@ -106,16 +106,24 @@ export function enrollCrmSegment(db: Store, staff: WorkspaceStaff | null, input:
     return { candidate, row };
   });
   const eligible = plan.filter(({ row }) => row.status === "Eligible");
-  const batch = eligible.slice(0, segmentEnrollmentLimit);
   const excluded = plan.filter(({ row }) => row.status !== "Eligible");
   const fingerprint = createHash("sha256").update(JSON.stringify({ segment, campaign: input.campaignId, routingRevision: routing?.revision,
     sequenceVersion: sequence?.version, plan })).digest("hex");
-  const preview: SegmentPreview = { fingerprint, eligible: eligible.length, excluded: excluded.length,
-    ...(sequence ? { sequence: { kind: sequence.kind, version: sequence.version } } : {}),
-    rows: [...batch, ...excluded.slice(0, segmentEnrollmentLimit)].map(({ row }) => row) };
-  if (!input.fingerprint) return { preview, message: "Segment preview is ready." };
+  if (!input.fingerprint) {
+    const pages = Math.max(1, Math.ceil(eligible.length / segmentEnrollmentLimit));
+    const page = Math.min(input.previewPage ?? 1, pages);
+    const shown = eligible.slice((page - 1) * segmentEnrollmentLimit, page * segmentEnrollmentLimit);
+    const preview: SegmentPreview = { fingerprint, eligible: eligible.length, excluded: excluded.length, page, pages,
+      ...(sequence ? { sequence: { kind: sequence.kind, version: sequence.version } } : {}),
+      rows: [...shown, ...(page === 1 ? excluded.slice(0, segmentEnrollmentLimit) : [])].map(({ row }) => row) };
+    return { preview, message: "Segment preview is ready." };
+  }
   if (input.fingerprint !== fingerprint) return { error: "The segment results changed. Preview them again before enrolling." };
-  if (!batch.length) return { error: "There are no eligible borrowers to enroll." };
+  const selected = new Set(input.selectedIds);
+  const batch = eligible.filter(({ row }) => selected.has(row.id));
+  if (!batch.length || batch.length !== selected.size) {
+    return { error: "Select eligible borrowers from this segment preview before enrolling." };
+  }
 
   const dueAt = firstContactDue(now, leadRouting(db));
   const leadIds: string[] = [];
