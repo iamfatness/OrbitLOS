@@ -6,25 +6,27 @@ import { demoBrokerageId } from "./brokerage-model";
 export class UwmError extends Error {}
 export type UwmEnvironment = Record<string, string | undefined>;
 
+export function fictionalUwmWorkspace(staff: WorkspaceStaff | null) {
+  return !staff || staff.brokerage.id === demoBrokerageId || staff.brokerage.pilot;
+}
+
 export function uwmPricingEnvironment(env: UwmEnvironment, staff: WorkspaceStaff | null): UwmEnvironment {
-  const fictional = !staff || staff.brokerage.id === demoBrokerageId || staff.brokerage.pilot;
-  if (!fictional && !uwmWorkspaceEnabled(env, staff)) {
-    throw new UwmError("Configure this brokerage's UWM connection before requesting pricing.");
-  }
-  if (!fictional && env.ORBIT_PRICING_MODE !== "uwm-stage") {
-    throw new UwmError("Live pricing is not configured. No sample rates were substituted.");
+  if (!fictionalUwmWorkspace(staff)) {
+    throw new UwmError("UWM production pricing is unavailable for this brokerage. Record a manual lender quote to continue.");
   }
   return { ...env, UWM_EQ_CLIENT_ID: env.UWM_CLIENT_ID || env.UWM_EQ_CLIENT_ID,
     UWM_EQ_CLIENT_SECRET: env.UWM_CLIENT_SECRET || env.UWM_EQ_CLIENT_SECRET };
 }
 
 export function uwmConnectionSettings(env: UwmEnvironment, staff: WorkspaceStaff | null) {
-  const fictional = !staff || staff.brokerage.id === demoBrokerageId || staff.brokerage.pilot;
+  const fictional = fictionalUwmWorkspace(staff);
   const connected = uwmWorkspaceEnabled(env, staff);
+  const hasStageCredentials = (env.UWM_CLIENT_ID || env.UWM_EQ_CLIENT_ID) && (env.UWM_CLIENT_SECRET || env.UWM_EQ_CLIENT_SECRET);
   return {
-    pricing: (fictional || connected) && env.ORBIT_PRICING_MODE === "uwm-stage" ? "UWM stage API" : fictional ? "Sample pricing" : "Not configured",
+    pricing: !fictional ? "Not configured" : env.ORBIT_PRICING_MODE !== "uwm-stage" ? "Sample pricing" :
+      hasStageCredentials ? "UWM stage API" : "Stage credentials required",
     pipeline: connected && env.UWM_INSIGHTS_CLIENT_ID && env.UWM_INSIGHTS_CLIENT_SECRET ? "UWM Insights" : fictional ? "Sample pipeline" : "Insights credentials required",
-    lenderActions: "Simulated in fictional workspaces; live onboarding required",
+    lenderActions: fictional ? "Simulated" : "Onboarding required",
   };
 }
 

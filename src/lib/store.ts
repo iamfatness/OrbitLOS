@@ -149,6 +149,10 @@ export function initializeStore(db: Store, seedDemo = true) {
       conditions TEXT NOT NULL DEFAULT '[]', syncedAt TEXT,
       UNIQUE(lender, externalId)
     );
+    CREATE TABLE IF NOT EXISTS uwm_insights_observations (
+      submissionId TEXT PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+      snapshotId TEXT NOT NULL, observedAt TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS mock_uwm_condition_events (
       submissionId TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
       id TEXT NOT NULL, conditionId TEXT NOT NULL, category TEXT NOT NULL, version INTEGER NOT NULL,
