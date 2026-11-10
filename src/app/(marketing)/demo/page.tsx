@@ -35,7 +35,7 @@ export default function DemoPage() {
           <li>Start a shared conversation from the lead and open its call history in Communications, even if another tab already converted it to a loan. Record simulated follow-up with brokerage opt-outs enforced.</li>
           <li>In Communications, attach a simulated missed call to its lead. Open the callback from the assigned officer’s Today queue. A linked email or text reply stops the lead’s remaining automated follow-up and keeps any promised callback visible.</li>
           <li>Request sample documents before the 1003, adjust deadlines from Calendar, and review uploads from My Tasks. Managers can reassign leads with open requests, and the checklist follows the lead into the loan.</li>
-          <li>Preview branch ZIP routing on separate purchase and refinance intake profiles. See the original destination on the lead and choose which answers should prefill the 1003.</li>
+          <li>Set up a branch and its default LO in Team. Preview that branch in purchase and refinance ZIP routing and see the original destination on the lead.</li>
           <li>Compare fixed-rate scenarios against a borrower’s budget and timeline. Save a recommendation and reopen its exact sample pricing option.</li>
           <li>Share a saved comparison with cash to close, five-year borrowing cost, break-even, and an expiration date. A fee edit opens an LO review while the borrower keeps the shared version through its expiration.</li>
           <li>Choose a manual lender offer for a fictional purchase or no-cash-out refinance. Download sample MISMO 3.4 with its note rate and term, then record the lender acknowledgment. If the terms change, Closing links to the current handoff.</li>

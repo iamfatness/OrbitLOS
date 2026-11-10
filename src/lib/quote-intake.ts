@@ -1,4 +1,5 @@
 import { demoBrokerageId } from "./brokerage-model";
+import { branchById, readBranches } from "./branches";
 import { readCampaignRouting, distributeCampaignLeads } from "./campaign-routing";
 import { linkCampaignLead } from "./call-campaigns";
 import { firstContactDue, leadEvent, leadRouting, startLeadFollowUp } from "./lead-inbox";
@@ -11,6 +12,7 @@ import { accessEvent } from "./workspace-access";
 import { collectQuoteAnswers } from "./quote-intake-questions";
 
 type QuotePortalResult = { value: PublicQuoteForm | { received: true } } | { status: number; error: string };
+type QuoteRoutingMember = StaffIdentity & { accessRevision?: number };
 
 function storedQuoteForm(db: Store, profile: QuoteProfile) {
   const row = db.prepare("SELECT revision, config, active FROM quote_intake_versions WHERE profile = ? ORDER BY revision DESC LIMIT 1").get(profile);
@@ -53,7 +55,8 @@ export function transferQuoteIntakeOwner(db: Store, profile: QuoteProfile, revis
 }
 
 export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
-  now = new Date().toISOString(), eligible?: StaffIdentity | StaffIdentity[] | null): QuoteIntakeSettings | QuoteRoutingPreview | { error: string } {
+  now = new Date().toISOString(), eligible?: QuoteRoutingMember | QuoteRoutingMember[] | null,
+  previewBranchRevision?: number | null): QuoteIntakeSettings | QuoteRoutingPreview | { error: string } {
   if (!staff || staff.brokerage.id !== brokerageId || staff.brokerage.role !== "Admin" ||
       (brokerageId !== demoBrokerageId && !staff.brokerage.pilot)) return { error: quoteSettingsUnavailable };
   const parsed = quoteIntakeSettingsRequest.safeParse(input);
@@ -72,10 +75,17 @@ export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceS
         if (data.type === "publish" && quoteConfiguredOwners(data.config).some((email) => !roster.some((member) => member.email === email))) {
           return { error: "Choose an active loan officer or admin in this brokerage." };
         }
+        if (data.type === "publish" && data.config.branches?.some((rule) => rule.branchId && !branchById(db, rule.branchId)?.active &&
+          !form.config.branches?.some((prior) => prior.id === rule.id && prior.zip === rule.zip && prior.branchId === rule.branchId))) {
+          return { error: "Choose an active branch from this brokerage." };
+        }
         if (data.type === "previewRoute") {
           if (data.config.zip === "Required" && !data.zip) return { error: "Enter a property ZIP to preview this profile." };
           if (data.config.contact === "Phone required" && !data.hasPhone) return { error: "This profile requires a phone number." };
-          const route = resolveQuoteRouting(db, { profile, revision: form.revision, config: data.config }, data.zip);
+          const route = quoteRoutingForForm(db, { profile, revision: form.revision, config: data.config }, data.zip);
+          if (previewBranchRevision !== undefined && (route.managedBranch?.revision ?? null) !== previewBranchRevision) {
+            return { error: "Branch routing changed. Preview the route again." };
+          }
           const campaign = route.campaignName && data.hasPhone;
           return { routingPreview: campaign ? campaignReceipt(route, "Campaign queue", route.campaign?.enabled
             ? "An eligible request can be assigned to an available campaign officer. The shared campaign queue holds overflow."
@@ -99,7 +109,8 @@ export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceS
     }
     const history = db.prepare("SELECT revision, publishedAt, active FROM quote_intake_versions WHERE profile = ? ORDER BY revision DESC LIMIT 8").all(profile)
       .map(({ revision, publishedAt, active }) => ({ revision: Number(revision), publishedAt: String(publishedAt), active: Boolean(active) }));
-    return { ...form, config: effective.config, effectiveRevision: effective.revision, campaigns, history };
+    const managedBranches = readBranches(db).map(({ id, name, active, ownerEmail }) => ({ id, name, active, ownerEmail }));
+    return { ...form, config: effective.config, effectiveRevision: effective.revision, campaigns, managedBranches, history };
   });
 }
 
@@ -108,35 +119,41 @@ export function quoteConfiguredOwners(config: QuoteIntakeConfig) {
     .filter((email): email is string => typeof email === "string");
 }
 
-function resolveQuoteRouting(db: Store, form: QuoteFormVersion, zip: string) {
+export function quoteRoutingForForm(db: Store, form: QuoteFormVersion, zip: string) {
   const routing = leadRouting(db);
   const { campaignId, branches } = form.config;
   const campaign = campaignId ? readCampaignRouting(db, campaignId) : undefined;
   const name = campaignId ? db.prepare("SELECT name FROM call_campaigns WHERE id = ?").get(campaignId)?.name : undefined;
   const campaignName = typeof name === "string" ? name : null;
-  const branch = form.config.zip !== "Hidden" && zip
+  const rule = form.config.zip !== "Hidden" && zip
     ? branches?.find((rule) => rule.zip === zip) ?? branches?.find((rule) => rule.zip === zip.slice(0, 3)) : undefined;
+  const managedBranch = rule?.branchId ? branchById(db, rule.branchId) : undefined;
+  const branch = managedBranch && rule ? { ...rule, name: managedBranch.name, ownerEmail: managedBranch.active ? managedBranch.ownerEmail : null } : rule;
   const ownerEmail = form.config.ownerEmail === undefined ? routing.websiteOwner : form.config.ownerEmail;
-  return { routing, form, campaign, campaignName, branch, ownerEmail };
+  return { routing, form, campaign, campaignName, branch, managedBranch, ownerEmail };
 }
 
 export function quoteIntakeRouting(db: Store, purpose?: QuotePurpose, zip = "") {
-  return resolveQuoteRouting(db, currentQuoteForm(db, purpose), zip);
+  return quoteRoutingForForm(db, currentQuoteForm(db, purpose), zip);
 }
 
 type QuoteRouting = ReturnType<typeof quoteIntakeRouting>;
 function receiptBasis(route: QuoteRouting) {
   return { profile: route.form.profile, formRevision: route.form.revision, websiteRevision: route.routing.revision,
-    branch: route.branch ? { name: route.branch.name, zip: route.branch.zip } : null };
+    branch: route.branch ? { name: route.branch.name, zip: route.branch.zip,
+      ...(route.managedBranch ? { id: route.managedBranch.id, revision: route.managedBranch.revision } : {}) } : null };
 }
 
-function directReceipt(route: QuoteRouting, members: StaffIdentity[], skipReason: string) {
-  const branchOwner = members.find(({ email }) => email === route.branch?.ownerEmail);
-  const useBranch = !!route.branch && (!!branchOwner || route.branch.ownerEmail === null);
+function directReceipt(route: QuoteRouting, members: QuoteRoutingMember[], skipReason: string) {
+  const availableBranch = route.branch && (!route.branch.branchId || route.managedBranch?.active);
+  const branchOwner = availableBranch ? members.find(({ email, accessRevision }) => email === route.branch?.ownerEmail &&
+    (!route.managedBranch || route.managedBranch.staff.some((member) => member.email === email && member.accessRevision === (accessRevision ?? 0)))) : undefined;
+  const useBranch = availableBranch && (!!branchOwner || route.branch?.ownerEmail === null);
   const owner = useBranch ? branchOwner : members.find(({ email }) => email === route.ownerEmail);
   const rule = useBranch ? "Branch default" : route.form.config.ownerEmail !== undefined ? "Profile default" :
     route.ownerEmail ? "Website default" : "Shared inbox";
-  const note = [skipReason, route.branch && !useBranch && "The branch LO was unavailable. Used the profile’s fallback.",
+  const note = [skipReason, route.branch && !availableBranch && "The branch was unavailable. Used the profile’s fallback.",
+    availableBranch && !useBranch && "The branch LO was unavailable. Used the profile’s fallback.",
     !useBranch && route.ownerEmail && !owner && "The fallback LO was unavailable. Used the shared inbox."].filter(Boolean).join(" ");
   const receipt: QuoteRoutingReceipt = { ...receiptBasis(route), rule, note, campaign: null,
     destination: owner?.name.slice(0, 160) ?? "Shared inbox" };
@@ -148,7 +165,7 @@ function campaignReceipt(route: QuoteRouting, destination: string, note: string)
     campaign: { name: route.campaignName ?? "Call campaign", revision: route.campaign?.revision ?? null } };
 }
 
-export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnType<typeof quoteIntakeRouting>, members: StaffIdentity[] = [],
+export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnType<typeof quoteIntakeRouting>, members: QuoteRoutingMember[] = [],
   now = new Date().toISOString()): QuotePortalResult {
   const parsed = quotePortalRequest.safeParse(input);
   if (!parsed.success) return { status: 400, error: "Enter a name, an email or phone, a valid ZIP if provided, and permission to follow up." };
@@ -167,7 +184,8 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
     const { form } = effective;
     const captured = snapshot ?? effective;
     if (form.revision !== data.formRevision) return { status: 409, error: quoteFormChanged };
-    if (current.revision !== captured.routing.revision || form.revision !== captured.form.revision) {
+    if (current.revision !== captured.routing.revision || form.revision !== captured.form.revision ||
+      effective.managedBranch?.revision !== captured.managedBranch?.revision) {
       return { status: 409, error: "Routing changed. Submit your request again." };
     }
     const issue = quoteResponseIssue(form.config, data);

@@ -19,6 +19,7 @@ const { leadFollowUp, writeLeadRouting } = await import("../src/lib/lead-inbox.t
 const { optOutContact } = await import("../src/lib/outreach-preferences.ts");
 const { defaultQuoteIntakeConfig } = await import("../src/lib/quote-intake-model.ts");
 const { quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } = await import("../src/lib/quote-intake.ts");
+const { updateBranch } = await import("../src/lib/branches.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { getApplication } = await import("../src/lib/applications.ts");
 
@@ -176,6 +177,28 @@ test("branch and profile routing preview follows saved intake precedence and pre
   assert.deepEqual(receive(routed).value, { received: true });
   assert.equal(route(routed).branch.name, "Oak Branch");
   assert.equal(route(routed).formRevision, 1);
+});
+
+test("a branch edit between roster lookup and intake blocks assignment against the old branch revision", (t) => {
+  const { db, admin, officer, fallback, members, settings, receive, request, lead } = fixture(t);
+  const roster = [officer, fallback].map((member) => ({ ...member, role: "LO", status: "Active", accessRevision: 2 }));
+  const branch = { type: "saveBranch", id: crypto.randomUUID(), revision: 0, name: "Fictional branch",
+    staffEmails: roster.map(({ email }) => email), ownerEmail: officer.email };
+  const save = (input) => updateBranch(db, input, admin, admin.brokerage.id, roster);
+  assert.equal(save(branch).message, "Branch created.");
+  const config = { ...defaultQuoteIntakeConfig, ownerEmail: admin.email,
+    branches: [{ id: crypto.randomUUID(), branchId: branch.id, name: branch.name, zip: "483", ownerEmail: null }] };
+  assert.equal(settings({ type: "publish", revision: 0, config }, admin, admin.brokerage.id, members).revision, 1);
+  const stale = quoteIntakeRouting(db, "Purchase", "48304");
+  assert.equal(save({ ...branch, revision: 1, ownerEmail: fallback.email }).message, "Branch updated.");
+  const input = request(1, { phone: "" });
+  assert.equal(receive(input, stale, roster).status, 409);
+  assert.equal(lead(input), undefined);
+  assert.deepEqual(receive(input, undefined, roster).value, { received: true });
+  assert.equal(lead(input).officerEmail, fallback.email);
+  const receipt = leadWorkRecord(db, lead(input).id).lead.initialRouting;
+  assert.equal(receipt.branch.revision, 2);
+  assert.equal(receipt.formRevision, 1);
 });
 
 test("purpose profiles preserve versioned questions, route separately and reject stale submissions", (t) => {

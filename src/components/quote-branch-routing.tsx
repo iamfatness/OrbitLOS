@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import type { BranchChoice } from "@/lib/branch-model";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import { quoteBranchLimit, quoteRoutingLabel, type QuoteIntakeConfig, type QuoteRoutingReceipt } from "@/lib/quote-intake-model";
 import { Button } from "./ui/button";
 
-export function QuoteBranchRouting({ draft, officers, change, preview, busy }: {
-  draft: QuoteIntakeConfig; officers: BrokerageMember[]; change: (update: Partial<QuoteIntakeConfig>) => void;
+export function QuoteBranchRouting({ draft, officers, managedBranches, change, preview, busy }: {
+  draft: QuoteIntakeConfig; officers: BrokerageMember[]; managedBranches: BranchChoice[]; change: (update: Partial<QuoteIntakeConfig>) => void;
   preview: (zip: string, hasPhone: boolean) => Promise<QuoteRoutingReceipt>; busy: boolean;
 }) {
   const [zip, setZip] = useState("");
@@ -42,24 +43,39 @@ export function QuoteBranchRouting({ draft, officers, change, preview, busy }: {
     <summary>Branch defaults and routing preview{rules.length ? ` · ${rules.length}` : ""}</summary>
     <div className="record-form">
       <p className="muted">After campaign routing, an exact five-digit ZIP wins over a three-digit prefix. Without a match, the profile’s direct routing applies.</p>
+      <p className="muted">Set up shared branches in Team to reuse their staff and default LO across profiles.</p>
       {draft.zip === "Hidden" && <p className="muted">Show the property ZIP field to enable branch defaults.</p>}
-      {rules.map((rule, index) => <fieldset key={rule.id} className="document-item" disabled={busy}>
-        <legend>Branch rule {index + 1}</legend>
-        <div className="form-grid">
-          <label className="field">Branch name<input value={rule.name} maxLength={60}
-            onChange={(event) => edit(rule.id, { name: event.target.value })} /></label>
-          <label className="field">ZIP or ZIP prefix<input value={rule.zip} inputMode="numeric" maxLength={5}
-            onChange={(event) => edit(rule.id, { zip: event.target.value })} /></label>
-          <label className="field">Default branch LO<select value={rule.ownerEmail ?? ""}
-            onChange={(event) => edit(rule.id, { ownerEmail: event.target.value || null })}>
-            <option value="">Shared inbox</option>
-            {officers.map(({ email, name }) => <option key={email} value={email}>{name} · {email}</option>)}
-            {rule.ownerEmail && !officers.some(({ email }) => email === rule.ownerEmail) && <option value={rule.ownerEmail}>Unavailable owner</option>}
-          </select></label>
-        </div>
-        <div><Button size="sm" variant="outline" aria-label={`Remove branch rule ${index + 1}`}
-          onClick={() => change({ branches: rules.filter(({ id }) => id !== rule.id) })}>Remove rule</Button></div>
-      </fieldset>)}
+      {rules.map((rule, index) => {
+        const managed = managedBranches.find(({ id }) => id === rule.branchId);
+        return <fieldset key={rule.id} className="document-item" disabled={busy}>
+          <legend>Branch rule {index + 1}</legend>
+          <div className="form-grid">
+            {(managedBranches.length > 0 || rule.branchId) && <label className="field">Branch<select value={rule.branchId ?? ""}
+              onChange={(event) => {
+                const branch = managedBranches.find(({ id }) => id === event.target.value);
+                edit(rule.id, branch ? { branchId: branch.id, name: branch.name, ownerEmail: null } : { branchId: undefined });
+              }}>
+              <option value="">Set up this rule separately</option>
+              {managedBranches.filter(({ active, id }) => active || id === rule.branchId).map(({ id, name, active }) =>
+                <option key={id} value={id}>{name}{active ? "" : " · Archived"}</option>)}
+              {rule.branchId && !managed && <option value={rule.branchId}>Unavailable branch</option>}
+            </select></label>}
+            {!rule.branchId && <label className="field">Branch name<input value={rule.name} maxLength={60}
+              onChange={(event) => edit(rule.id, { name: event.target.value })} /></label>}
+            <label className="field">ZIP or ZIP prefix<input value={rule.zip} inputMode="numeric" maxLength={5}
+              onChange={(event) => edit(rule.id, { zip: event.target.value })} /></label>
+            {!rule.branchId && <label className="field">Default branch LO<select value={rule.ownerEmail ?? ""}
+              onChange={(event) => edit(rule.id, { ownerEmail: event.target.value || null })}>
+              <option value="">Shared inbox</option>
+              {officers.map(({ email, name }) => <option key={email} value={email}>{name} · {email}</option>)}
+              {rule.ownerEmail && !officers.some(({ email }) => email === rule.ownerEmail) && <option value={rule.ownerEmail}>Unavailable owner</option>}
+            </select></label>}
+          </div>
+          {rule.branchId && <p className="muted">{managed?.active ? "Uses the default LO configured in Team." : "This rule uses the profile fallback while the branch is unavailable."}</p>}
+          <div><Button size="sm" variant="outline" aria-label={`Remove branch rule ${index + 1}`}
+            onClick={() => change({ branches: rules.filter(({ id }) => id !== rule.id) })}>Remove rule</Button></div>
+        </fieldset>;
+      })}
       <div><Button size="sm" variant="outline" disabled={busy || draft.zip === "Hidden" || rules.length >= quoteBranchLimit}
         onClick={() => change({ branches: [...rules, { id: crypto.randomUUID(), name: "", zip: "", ownerEmail: null }] })}>Add branch rule</Button></div>
       <section className="work-queue" aria-label="Intake routing preview">

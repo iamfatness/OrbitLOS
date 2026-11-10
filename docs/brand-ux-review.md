@@ -137,3 +137,9 @@ Playwright verified the disclosures at 1440 × 900, 900 × 1200 and 390 × 844. 
 The exported report puts the review reference beside the source basis so the owner can compare reports without opening each underlying file. It distinguishes the export time from the stable reference. The first rendered Impeccable scan flagged short trailing lines in the report copy. The revision shortened that copy and moved the reference above the export time on narrow screens. The rendered rescan returned zero findings.
 
 Playwright downloaded the report by keyboard and opened it at 1440 × 900, 900 × 1200 and 390 × 844. The reference fit at every width. Two exports of the same reviewed state matched and an updated file decision changed the reference. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
+
+## Managed branches and intake routing
+
+Team shows branch setup before the larger pilot and staff panels. The editor puts assigned staff before the default LO so the owner sees which active assignees are eligible. The first phone pass showed a clipped email in the LO picker. The revised picker shows a unique name when available and keeps the full email in the roster. The ZIP rule editor uses the existing preview and can link to a branch from Team or keep a separate rule.
+
+Playwright checked 1440 × 900, 900 × 1200 and 390 × 844, including touch selection, 44 px controls, keyboard save, focus on the receipt, and published ZIP routing. The rendered Impeccable scan found existing workspace typography and placeholder issues outside the new branch editor. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill)
