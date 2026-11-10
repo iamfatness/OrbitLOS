@@ -5,7 +5,9 @@ import { Download } from "lucide-react";
 import type { StaffApplication } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import type { Submission } from "@/lib/model";
-import { exportName, manualLenderAcknowledgmentTarget, mismoHandoffCoverage, suggestExportName, type ExportName } from "@/lib/lender-export-model";
+import { defaultLenderExportProfile, lenderExportProfile, lenderExportProfiles, manualLenderAcknowledgmentTarget, mismoHandoffCoverage,
+  suggestExportName, type ExportName } from "@/lib/lender-export-model";
+import { exportCorrectionsTarget, exportNamesTarget, lenderExportIssues, lenderFieldPrefix, type LenderExportIssue } from "@/lib/lender-export-profile";
 import { downloadSampleFile } from "./sample-download";
 import { LenderHandoffShare } from "./lender-handoff-share";
 import { Button } from "./ui/button";
@@ -13,6 +15,17 @@ import { Button } from "./ui/button";
 const nameFields = [
   ["first", "First name"], ["middle", "Middle name"], ["last", "Last name"], ["suffix", "Suffix"],
 ] as const;
+
+function focusExportIssue(issue: LenderExportIssue) {
+  const target = issue.section === "borrower" ? document.getElementById(exportCorrectionsTarget) ?? document.getElementById("loan-application") :
+    issue.section === "names" ? document.getElementById(`${exportNamesTarget}-${issue.field ?? "0"}`) :
+      document.getElementById(lenderFieldPrefix(issue.section) + issue.field);
+  if (!target) return;
+  for (let parent = target.closest("details"); parent; parent = parent.parentElement?.closest("details") ?? null) parent.open = true;
+  const field = target.querySelector<HTMLElement>("input, textarea, select") ?? target;
+  field.focus({ preventScroll: true });
+  field.scrollIntoView({ block: "center" });
+}
 
 export function ManualLenderExport({ application, busy, save, campaignManual, linkedFile, previousFile, canRecordReturn, openConditions,
   shareBrokerage, handoffBlocker, openReviews }: {
@@ -31,19 +44,23 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
   const originals = application.draft ? [application.draft.borrowerName,
     ...application.draft.urla.additional.map((person) => person.identity.fields.name)] : [];
   const [names, setNames] = useState(() => originals.map(suggestExportName));
+  const [profile, setProfile] = useState(() => application.lastExportProfile ?? defaultLenderExportProfile);
   const [confirmed, setConfirmed] = useState(false);
   const attempt = useRef<{ key: string; id: string } | null>(null);
-  const acknowledgmentAttempt = useRef<string | null>(null);
+  const acknowledgmentAttempt = useRef<{ key: string; id: string } | null>(null);
   const linkedAttempt = useRef<{ key: string; id: string } | null>(null);
   const returnAttempt = useRef<{ note: string; id: string } | null>(null);
   const ready = application.reviewedAt && application.submittedAt && !application.correctionNote && application.draft?.confirmedDemo;
-  const valid = names.length > 0 && names.every((item) => exportName.safeParse(item).success);
+  const issues = ready && application.draft ? lenderExportIssues(application.draft, application.lender?.details, names, profile) : [];
+  const valid = !issues.length;
   const handoff = application.manualHandoff;
+  const exportPrepared = handoff?.exportProfiles ? handoff.exportProfiles.includes(profile) :
+    handoff?.exportPrepared && profile === defaultLenderExportProfile;
   const initialCampaignHandoff = campaignManual && !linkedFile && !previousFile;
 
   return <details className="application-review" id="manual-lender-export">
     <summary>Manual lender export</summary>
-    <p className="muted">Use MISMO 3.4 XML for a manual upload rehearsal. Check the lender’s import profile and required fields before a live handoff.</p>
+    <p className="muted">Prepare MISMO 3.4 XML for a fictional manual handoff. Live imports require the receiving lender’s verified specification.</p>
     {ready && handoffBlocker && <div className="document-item">
       <p>{linkedFile ? "An approved second review is required to share a new package." : handoffBlocker} You can prepare the XML for review.</p>
       {openReviews && <div><Button size="sm" variant="outline" disabled={busy} onClick={openReviews}>Open required second review</Button></div>}
@@ -57,7 +74,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
         event.preventDefault();
         if (!confirmed || !valid) return;
         const input = { type: "exportReviewedApplication", loanId: application.loanId, revision: application.revision,
-          lenderRevision: application.lender?.revision ?? 0, names };
+          lenderRevision: application.lender?.revision ?? 0, names, profile };
         const key = JSON.stringify(input);
         if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
         void save({ ...input, eventId: attempt.current.id }, ({ mismoXml }) => {
@@ -67,11 +84,28 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
           }
         });
       }}>
+        <section className="document-item record-form" aria-label="MISMO export readiness">
+          <div className="document-item-head"><strong>MISMO export readiness</strong>
+            <span className="pill">{issues.length ? `${issues.length} to resolve` : "Profile checks passed"}</span></div>
+          <label className="field">Export profile<select value={profile} disabled={busy} onChange={(event) => {
+            const selected = lenderExportProfile.safeParse(event.target.value);
+            if (selected.success) setProfile(selected.data);
+          }}>
+            {lenderExportProfile.options.map((id) => <option key={id} value={id}>{lenderExportProfiles[id].label}</option>)}
+          </select></label>
+          <p className="muted">{lenderExportProfiles[profile].description}</p>
+          {!!issues.length && <ul className="loan-task-list">{issues.map((issue, index) => <li className="loan-task" key={index}>
+            <div className="loan-task-copy"><strong>{issue.label}</strong><span>{issue.section === "borrower" ? "Reviewed 1003" :
+              issue.section === "names" ? "Export names" : "Saved lender details"}</span></div>
+            <Button size="sm" variant="outline" disabled={busy} aria-label={`Open field for ${issue.label}`}
+              onClick={() => focusExportIssue(issue)}>Open field</Button>
+          </li>)}</ul>}
+        </section>
         <div>
           <p><strong>Mapped fields</strong> · {mismoHandoffCoverage.mapped}</p>
           <p><strong>Portal review</strong> · {mismoHandoffCoverage.review}</p>
         </div>
-        {names.map((name, index) => <fieldset key={index} className="record-form">
+        {names.map((name, index) => <fieldset key={index} className="record-form" id={`${exportNamesTarget}-${index}`}>
           <legend>Borrower {index + 1} · {originals[index]}</legend>
           <div className="form-grid">
             {nameFields.map(([key, label]) => <label className="field" key={key}>{label}<input type="text"
@@ -87,17 +121,21 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
           onChange={(event) => setConfirmed(event.target.checked)} /> I verified the borrower names for this fictional export.</label>
         <div><Button size="sm" type="submit" disabled={busy || !confirmed || !valid}><Download /> Download MISMO 3.4 XML</Button></div>
       </form>}
-    {shareBrokerage && <LenderHandoffShare brokerageId={shareBrokerage} loanId={application.loanId} revision={application.revision}
-      lenderRevision={application.lender?.revision ?? 0} names={names} canCreate={!!ready && valid && confirmed && canRecordReturn && !handoffBlocker}
+    {shareBrokerage && <LenderHandoffShare key={application.lender?.revision ?? 0}
+      brokerageId={shareBrokerage} loanId={application.loanId} revision={application.revision}
+      lenderRevision={application.lender?.revision ?? 0} names={names} profile={profile} canCreate={!!ready && valid && confirmed && canRecordReturn && !handoffBlocker}
       onCreated={() => void save({ type: "refreshApplication", loanId: application.loanId })} />}
     {ready && initialCampaignHandoff && <section className="document-item" aria-label="Simulated lender acknowledgment">
       <div className="document-item-head"><strong>Fictional lender acknowledgment</strong><span className="pill">Demo</span></div>
-      <p className="muted">{handoff?.exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
-          "Prepare the MISMO download to enable acknowledgment for this revision."}</p>
-      <div><Button size="sm" disabled={busy || !handoff?.exportPrepared || !!handoffBlocker} onClick={() => {
+      <p className="muted">{exportPrepared ? "Record the simulated response and open the fictional lender checklist." :
+          "Prepare the MISMO download for this profile to enable acknowledgment."}</p>
+      <div><Button size="sm" disabled={busy || !exportPrepared || !!handoffBlocker} onClick={() => {
+        const lenderRevision = application.lender?.revision ?? 0;
+        const key = `${profile}:${lenderRevision}`;
+        if (acknowledgmentAttempt.current?.key !== key) acknowledgmentAttempt.current = { key, id: crypto.randomUUID() };
         void save({
           type: "acknowledgeCampaignLenderExport", loanId: application.loanId, revision: application.revision,
-          lenderRevision: application.lender?.revision ?? 0, eventId: acknowledgmentAttempt.current ??= crypto.randomUUID(),
+          lenderRevision, profile, eventId: acknowledgmentAttempt.current.id,
         }, ({ state }) => {
           acknowledgmentAttempt.current = null;
           const updated = state.applications.find((item) => item.loanId === application.loanId);
@@ -106,7 +144,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
         });
       }}>Record simulated acknowledgment</Button></div>
     </section>}
-    {ready && !initialCampaignHandoff && handoff?.exportPrepared && <section className="document-item" aria-label="Manual lender acknowledgment" id={manualLenderAcknowledgmentTarget} tabIndex={-1}>
+    {ready && !initialCampaignHandoff && (exportPrepared || linkedFile) && <section className="document-item" aria-label="Manual lender acknowledgment" id={manualLenderAcknowledgmentTarget} tabIndex={-1}>
       <div className="document-item-head"><strong>Lender acknowledgment</strong><span className="pill">Manual</span></div>
       {linkedFile ? <>
         <p className="muted">Acknowledged by {linkedFile.lender} · {linkedFile.externalId}</p>
@@ -131,7 +169,7 @@ export function ManualLenderExport({ application, busy, save, campaignManual, li
         if (handoffBlocker) return;
         const fields = new FormData(event.currentTarget);
         const input = { type: "recordManualHandoff", loanId: application.loanId, revision: application.revision,
-          lenderRevision: application.lender?.revision ?? 0, outcome: "Acknowledged", note: "",
+          lenderRevision: application.lender?.revision ?? 0, profile, outcome: "Acknowledged", note: "",
           lenderFile: { lender: fields.get("lender"), externalId: fields.get("externalId") } };
         const key = JSON.stringify(input);
         if (linkedAttempt.current?.key !== key) linkedAttempt.current = { key, id: crypto.randomUUID() };

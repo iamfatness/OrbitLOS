@@ -5,8 +5,9 @@ import { Button } from "./ui/button";
 
 export type ChangeAnswers = (change: (previous: Answers) => Answers) => void;
 
-function Questions({ definition, row, change, lookupEnabled }: {
+function Questions({ definition, row, change, lookupEnabled, focusPrefix }: {
   definition: Question[]; row: AnswerRow; change: (key: string, update: (previous: string) => string) => void; lookupEnabled?: boolean;
+  focusPrefix?: string;
 }) {
   return <div className="form-grid">{definition.filter((question) => active(question.when, row)).map((question) => {
     const { key, label, choices, kind, required } = question;
@@ -34,10 +35,10 @@ function Questions({ definition, row, change, lookupEnabled }: {
       </fieldset>;
     }
     return <label key={key} className="field"><span>{label}</span>
-      {choices ? <select value={answer} required={required} onChange={(event) => write(event.target.value)}>
+      {choices ? <select id={focusPrefix && focusPrefix + key} value={answer} required={required} onChange={(event) => write(event.target.value)}>
         <option value="">Choose an answer</option>
         {choices.map((choice) => <option key={choice}>{choice}</option>)}
-      </select> : <input value={answer} required={required} autoComplete="off" maxLength={key === "account" ? 4 : kind === "demoTaxId" ? 11 : 200}
+      </select> : <input id={focusPrefix && focusPrefix + key} value={answer} required={required} autoComplete="off" maxLength={key === "account" ? 4 : kind === "demoTaxId" ? 11 : 200}
         type={kind === "date" ? "date" : kind === "email" ? "email" : kind === "phone" ? "tel" : "text"}
         inputMode={kind === "money" ? "decimal" : kind === "integer" || key === "account" ? "numeric" : undefined}
         placeholder={kind === "demoTaxId" ? "000-00-1234" : undefined}
@@ -46,13 +47,13 @@ function Questions({ definition, row, change, lookupEnabled }: {
   })}</div>;
 }
 
-export function QuestionnaireFields({ definition, answers, change, lookupEnabled }: {
-  definition: Questionnaire; answers: Answers; change: ChangeAnswers; lookupEnabled?: boolean;
+export function QuestionnaireFields({ definition, answers, change, lookupEnabled, focusPrefix }: {
+  definition: Questionnaire; answers: Answers; change: ChangeAnswers; lookupEnabled?: boolean; focusPrefix?: string;
 }) {
   const id = useId();
   return <section className="urla-questionnaire" aria-labelledby={id}>
     <h3 id={id}>{definition.label}</h3>
-    <Questions definition={definition.fields} row={answers.fields} lookupEnabled={lookupEnabled}
+    <Questions definition={definition.fields} row={answers.fields} lookupEnabled={lookupEnabled} focusPrefix={focusPrefix}
       change={(key, update) => change((previous) => ({ ...previous, fields: { ...previous.fields, [key]: update(previous.fields[key] ?? "") } }))} />
     {definition.groups?.filter((group) => active(group.when, answers.fields)).map((group) => {
       const rows = answers.groups[group.key] ?? [];

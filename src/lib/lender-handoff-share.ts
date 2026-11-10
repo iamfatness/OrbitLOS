@@ -4,6 +4,7 @@ import { approvedSecondReview, handoffCheckpointError } from "./application-revi
 import { addApplicationActivity } from "./applications";
 import { portalBrokerage } from "./brokerage-model";
 import { prepareLenderExport } from "./lender-export";
+import { defaultLenderExportProfile, lenderExportProfiles } from "./lender-export-model";
 import { lenderPackageFilename, lenderPackageReference, lenderPackageUnavailable, lenderShareStaffInput, type LenderPackageManifest, type LenderPackageStatus,
   type LenderSharePage, type PackageDownloadInput, type SharedLenderPackageInput } from "./lender-handoff-share-model";
 import type { ProtectPilotLinks } from "./pilot";
@@ -82,7 +83,7 @@ function sharePage(db: Store, loanId: string, now: string): LenderSharePage {
 }
 
 function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: string): LenderSharePage | { error: string } {
-  const { loanId, shareId, replacesId, token, code, names, revision, lenderRevision, recipient, hours, documents } = data;
+  const { loanId, shareId, replacesId, token, code, names, revision, lenderRevision, profile, recipient, hours, documents } = data;
   const current = reviewedFile(db, loanId);
   if (!current || current.revision !== revision || current.lenderRevision !== lenderRevision) return { error: changedFile };
   if (portalBrokerage(token) !== staff.brokerage.id) return { error: staffUnavailable };
@@ -106,7 +107,7 @@ function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: s
     WHERE request.id = ? AND request.revision = ? AND request.loanId = ? AND ${cleanPdf}`);
   const selected = documents.map((document) => ({ document, pdf: readPdf.get(document.id, document.revision, loanId) }));
   if (selected.some(({ pdf }) => !pdf)) return { error: changedFile };
-  const prepared = prepareLenderExport(db, { type: "exportReviewedApplication", loanId, revision, lenderRevision, names, eventId: shareId }, staff, now);
+  const prepared = prepareLenderExport(db, { type: "exportReviewedApplication", loanId, revision, lenderRevision, names, profile, eventId: shareId }, staff, now);
   if ("error" in prepared) return { error: prepared.error ?? changedFile };
   const expiresAt = new Date(Date.parse(now) + hours * 3600000).toISOString();
   db.prepare(`INSERT INTO lender_package_links
@@ -114,7 +115,8 @@ function createShare(db: Store, data: CreateShare, staff: WorkspaceStaff, now: s
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(shareId, loanId, current.contactId, revision, lenderRevision, recipient, tokenHash, hash(code), requestHash, prepared.xml, staff.email, now, expiresAt);
   const insert = db.prepare("INSERT INTO lender_package_files (shareId, slot, label, requestId, documentRevision, objectId) VALUES (?, ?, ?, ?, ?, ?)");
-  insert.run(shareId, 0, "Reviewed 1003 · MISMO 3.4 XML", null, null, null);
+  const profileLabel = profile && profile !== defaultLenderExportProfile ? ` · ${lenderExportProfiles[profile].label}` : "";
+  insert.run(shareId, 0, `Reviewed 1003 · MISMO 3.4 XML${profileLabel}`, null, null, null);
   selected.forEach(({ document, pdf }, index) => {
     insert.run(shareId, index + 1, `${pdf!.kind} · ${pdf!.recipient}`, document.id, document.revision, pdf!.objectId);
   });

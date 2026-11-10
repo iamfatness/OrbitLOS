@@ -45,10 +45,18 @@ export const exportName = z.object({
 });
 export type ExportName = z.infer<typeof exportName>;
 
+export const lenderExportProfile = z.enum(["basic", "fictional-wholesale-v1"]);
+export type LenderExportProfile = z.infer<typeof lenderExportProfile>;
+export const lenderExportProfiles = {
+  basic: { label: "General sample export", description: "Prepare the reviewed 1003 and any mapped lender details for a sample upload." },
+  "fictional-wholesale-v1": { label: "Fictional Wholesale · Registration v1", description: "Requires a known property, originator and company IDs, complete loan terms, and purchase or refinance details." },
+} as const satisfies Record<LenderExportProfile, { label: string; description: string }>;
+export const defaultLenderExportProfile: LenderExportProfile = "basic";
+
 export const exportReviewedApplication = z.object({
   type: z.literal("exportReviewedApplication"), loanId: z.string().min(1).max(100),
   revision: z.number().int().nonnegative(), lenderRevision: z.number().int().nonnegative(),
-  eventId: z.uuid(), names: z.array(exportName).min(1).max(5),
+  eventId: z.uuid(), names: z.array(exportName).min(1).max(5), profile: lenderExportProfile.optional(),
 });
 
 export function suggestExportName(name: string): ExportName {

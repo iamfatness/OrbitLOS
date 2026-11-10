@@ -9,6 +9,74 @@ const { blankApplication, sampleApplication } = await import("../src/lib/applica
 const { newPortalAccessCode, portalToken } = await import("../src/lib/brokerage-model.ts");
 const { confirmLenderPackagePdf, lenderPackageAccess, lenderShareWork } = await import("../src/lib/lender-handoff-share.ts");
 const { loadProtectedPilotScenario } = await import("../src/lib/pilot.ts");
+const { hasPreparedLenderExport, prepareLenderExport } = await import("../src/lib/lender-export.ts");
+const { lenderExportIssues } = await import("../src/lib/lender-export-profile.ts");
+const { lenderDetailsSchema } = await import("../src/lib/urla.ts");
+
+test("fictional wholesale checks gate both export paths and pin the exact XML and profile", async (t) => {
+  const sqlite = new DatabaseSync(":memory:");
+  t.after(() => sqlite.close());
+  const db = sqliteStore(sqlite);
+  initializeStore(db, false);
+  const now = "2026-11-10T17:00:00.000Z";
+  const loanId = randomUUID();
+  const brokerageId = randomUUID();
+  const officer = { name: "Fictional Officer", email: "officer@example.test", brokerage: { id: brokerageId, role: "LO", pilot: true } };
+  insertContact(db, { id: "borrower", name: "Fictional Borrower", email: "", phone: "", role: "Borrower" });
+  insertLoan(db, { id: loanId, contactId: "borrower", partnerId: null, officer: officer.name, officerEmail: officer.email,
+    stage: "Application", stageSince: now, address: "", amount: 360000, purpose: "Purchase" });
+  const draft = { ...sampleApplication({ ...blankApplication(), borrowerName: "Fictional Borrower" }), confirmedDemo: true };
+  db.prepare(`INSERT INTO applications (loanId, token, expiresAt, draft, revision, updatedAt, submittedAt, reviewedAt)
+    VALUES (?, ?, '2026-11-20T18:00:00.000Z', ?, 3, ?, ?, ?)`).run(loanId, portalToken(brokerageId), JSON.stringify(draft), now, now, now);
+  const names = [{ first: "Fictional", middle: "", last: "Borrower", suffix: "" }];
+  const profile = "fictional-wholesale-v1";
+  const input = { type: "exportReviewedApplication", loanId, revision: 3, lenderRevision: 0, eventId: randomUUID(), names, profile };
+  const work = (value) => lenderShareWork(db, value, officer, brokerageId, undefined, new Date(now));
+  const share = { type: "create", loanId, revision: 3, lenderRevision: 0, names, profile, shareId: randomUUID(),
+    token: portalToken(brokerageId), code: newPortalAccessCode(), hours: 1, recipient: "Fictional Wholesale",
+    confirmedFictional: true, documents: [] };
+  assert.match(prepareLenderExport(db, input, officer, now).error, /Loan originator name/);
+  assert.match((await work(share)).error, /Loan originator name/);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM application_handoff_events").get().count, 0);
+  assert.ok(prepareLenderExport(db, { ...input, profile: undefined }, officer, now).xml);
+  assert.equal(hasPreparedLenderExport(db, input), false);
+
+  const details = lenderDetailsSchema.parse({
+    originator: { fields: { originator: officer.name, originatorNmls: "999991", organization: "Fictional Brokerage", organizationNmls: "999992" } },
+    supplement: { fields: { mortgage: "Conventional", rate: "6.250", term: "360", mortgageLien: "First lien",
+      amortization: "Fixed rate", purchasePrice: "450000", loanAmount: draft.loanAmount } },
+  });
+  assert.deepEqual(lenderExportIssues(draft, details, names, profile), []);
+  const pending = structuredClone(draft);
+  pending.urla.property.fields.propertyPending = "Yes";
+  assert.match(lenderExportIssues(pending, details, names, profile).at(-1).label, /pending property/);
+  const refinance = { ...draft, purpose: "Refinance" };
+  const refiIssues = lenderExportIssues(refinance, details, names, profile);
+  assert.ok(refiIssues.some(({ field }) => field === "refinance"));
+  assert.ok(!refiIssues.some(({ field }) => field === "purchasePrice"));
+  assert.deepEqual(lenderExportIssues(draft, { ...details, supplement: { ...details.supplement,
+    fields: { ...details.supplement.fields, loanAmount: "99999", rate: "0", term: "999" } } }, names, profile).map(({ field }) => field),
+  ["rate", "term", "loanAmount"]);
+
+  db.prepare("INSERT INTO application_lender_details (loanId, details, revision) VALUES (?, ?, 1)").run(loanId, JSON.stringify(details));
+  assert.match(prepareLenderExport(db, input, officer, now).error, /Lender details changed/);
+  const current = { ...input, lenderRevision: 1, eventId: randomUUID() };
+  const { xml } = prepareLenderExport(db, current, officer, now);
+  assert.match(xml, /<SalesContractAmount>450000<\/SalesContractAmount>/);
+  assert.match(xml, /<NoteRatePercent>6.250<\/NoteRatePercent>/);
+  assert.match(xml, /<LicenseIdentifier>999991<\/LicenseIdentifier>/);
+  assert.deepEqual(prepareLenderExport(db, current, officer, now), { xml });
+  assert.match(prepareLenderExport(db, { ...current, names: [{ ...names[0], first: "Different" }] }, officer, now).error, /new download/);
+  assert.equal(hasPreparedLenderExport(db, current), true);
+  assert.equal(hasPreparedLenderExport(db, { ...current, profile: "basic" }), false);
+  const exportEvent = db.prepare("SELECT exportProfile, exportDigest FROM application_handoff_events WHERE activityId = ?").get(current.eventId);
+  assert.equal(exportEvent.exportProfile, profile);
+  assert.equal(exportEvent.exportDigest, createHash("sha256").update(xml).digest("hex"));
+  const packagePage = await work({ ...share, lenderRevision: 1 });
+  assert.equal(packagePage.createdId, share.shareId, packagePage.error);
+  assert.match(packagePage.shares[0].files[0].label, /Fictional Wholesale/);
+  assert.equal(lenderPackageAccess(db, { type: "download", slot: 0, token: share.token, code: share.code }, now).xml, xml);
+});
 
 test("only current approved sample artifacts can be shared and expiration and revocation deny all files", async (t) => {
   const sqlite = new DatabaseSync(":memory:");

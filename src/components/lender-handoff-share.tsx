@@ -3,12 +3,13 @@
 import { useRef, useState } from "react";
 import { newPortalAccessCode, portalToken } from "@/lib/brokerage-model";
 import { lenderPackageReference, type LenderSharePage } from "@/lib/lender-handoff-share-model";
-import type { ExportName } from "@/lib/lender-export-model";
+import type { ExportName, LenderExportProfile } from "@/lib/lender-export-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
-export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevision, names, canCreate, onCreated }: {
-  brokerageId: string; loanId: string; revision: number; lenderRevision: number; names: ExportName[]; canCreate: boolean; onCreated: () => void;
+export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevision, names, profile, canCreate, onCreated }: {
+  brokerageId: string; loanId: string; revision: number; lenderRevision: number; names: ExportName[]; profile: LenderExportProfile;
+  canCreate: boolean; onCreated: () => void;
 }) {
   const [page, setPage] = useState<LenderSharePage>();
   const [selected, setSelected] = useState<string[]>([]);
@@ -78,7 +79,7 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
         const form = new FormData(event.currentTarget);
         const recipient = String(form.get("recipient") ?? "").trim();
         const documents = page.eligible.filter(({ id }) => selected.includes(id)).map(({ id, revision }) => ({ id, revision }));
-        const input = { type: "create", revision, lenderRevision, names, recipient, hours: Number(form.get("hours")), documents,
+        const input = { type: "create", revision, lenderRevision, names, profile, recipient, hours: Number(form.get("hours")), documents,
           replacesId: replacement?.id,
           confirmedFictional: form.has("confirmed") };
         const key = JSON.stringify(input);
@@ -113,7 +114,7 @@ export function LenderHandoffShare({ brokerageId, loanId, revision, lenderRevisi
         </fieldset>
         <label className="demo-confirm"><input name="confirmed" type="checkbox" required disabled={busy} /> The package and recipient are fictional.</label>
         <div><Button size="sm" type="submit" disabled={busy}>{replacement ? "Replace lender link" : "Create lender link"}</Button></div>
-      </form> : <p className="muted">Review the current 1003, complete any required second review, and verify the export names above to create a package.</p>)}
+      </form> : <p className="muted">Review the current 1003, complete any required second review, and resolve the selected export profile checks above to create a package.</p>)}
       {!!page?.shares.length && <ul className="document-list" aria-label="Recent lender packages">{page.shares.map((share) => <li className="document-item" key={share.id}>
         <div className="document-item-head"><strong>{share.recipient}</strong><span className="pill">{share.status}</span></div>
         <p className="muted">1003 revision {share.applicationRevision} · Package {lenderPackageReference(share.id)}</p>

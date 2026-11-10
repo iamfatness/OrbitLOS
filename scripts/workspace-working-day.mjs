@@ -1747,6 +1747,19 @@ try {
     const exported = await loanAction(officer, loanId, "exportReviewedApplication", { revision: app.revision, lenderRevision: 0, eventId: randomUUID(), names });
     assert.match(exported.mismoXml, /<FirstName>Jordan<\/FirstName>/);
     assert.match(exported.mismoXml, /<FirstName>Fictional<\/FirstName>/);
+    const profile = "fictional-wholesale-v1";
+    const profileExport = { type: "exportReviewedApplication", loanId, revision: app.revision, lenderRevision: 0, eventId: randomUUID(), names, profile };
+    assert.match((await action(officer, "mutate", profileExport)).error, /Loan originator name/);
+    const terms = { mortgage: "Conventional", rate: "6.250", term: "360", mortgageLien: "First lien", amortization: "Fixed rate",
+      purchasePrice: "460000", refinance: "No cash out" };
+    const details = { originator: { fields: { originator: "Working Day Officer", originatorNmls: "999991",
+      organization: "Working Day Fictional Brokerage", organizationNmls: "999992" } }, supplement: { fields: terms } };
+    await loanAction(officer, loanId, "saveLenderDetails", { revision: 0, details });
+    assert.match((await action(officer, "mutate", profileExport)).error, /Lender details changed/);
+    const checked = await loanAction(officer, loanId, "exportReviewedApplication", { ...profileExport, lenderRevision: 1 });
+    assert.match(checked.mismoXml, /<LoanAmortizationPeriodCount>360<\/LoanAmortizationPeriodCount>/);
+    assert.match(checked.mismoXml, /<LicenseIdentifier>999991<\/LicenseIdentifier>/);
+    assert.deepEqual((await file(officer, loanId)).applications[0].manualHandoff.exportProfiles, [profile]);
     const note = "Fictional correction for the co-borrower phone.";
     await loanAction(officer, loanId, "requestApplicationCorrection", { revision: app.revision, recipient: "Co-borrower", note });
     assert.equal((await co({ type: "read" })).correctionNote, note);
@@ -1849,7 +1862,8 @@ try {
     const publicPath = "/api/shared-lender-package";
     const token = `${brokerage}.${randomBytes(32).toString("hex")}`;
     const code = randomBytes(12).toString("hex");
-    const share = { type: "create", loanId, revision: application.revision, lenderRevision: 0, shareId: randomUUID(),
+    const share = { type: "create", loanId, revision: application.revision, lenderRevision: application.lender.revision, shareId: randomUUID(),
+      profile: "fictional-wholesale-v1",
       token, code, recipient: "Fictional Wholesale Desk", hours: 1, confirmedFictional: true,
       names: [{ first: "Fictional", middle: "Joint", last: "Primary", suffix: "" }, { first: "Jordan", middle: "", last: "Sample", suffix: "" }],
       documents: [{ id: accepted.id, revision: accepted.revision }] };
@@ -1879,7 +1893,9 @@ try {
     assert.equal((await postResponse(publicPath, { ...read, token: primaryToken })).status, 404);
     assert.equal((await postResponse("/api/demo-application", { type: "read", token })).status, 404);
     const manifest = await post(publicPath, read);
-    assert.deepEqual(manifest.files.map(({ label }) => label), ["Reviewed 1003 · MISMO 3.4 XML", "Photo ID · Co-borrower"]);
+    assert.deepEqual(manifest.files.map(({ label }) => label), [
+      "Reviewed 1003 · MISMO 3.4 XML · Fictional Wholesale · Registration v1", "Photo ID · Co-borrower",
+    ]);
     assert.equal(manifest.applicationRevision, application.revision);
     assert.match(manifest.reference, /^[0-9a-f]{12}$/);
     const packageVersion = `r${application.revision}-${manifest.reference}`;

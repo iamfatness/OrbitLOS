@@ -33,6 +33,7 @@ import { LoanAudit } from "./loan-audit";
 import { LoanBorrowerQuestions } from "./loan-borrower-questions";
 import { UwmDeliveryTimeline } from "./uwm-delivery-timeline";
 import { ManualLenderExport } from "./manual-lender-export";
+import { exportCorrectionsTarget, lenderFieldPrefix } from "@/lib/lender-export-profile";
 import { manualLenderAcknowledgmentTarget, type ManualReturnAssignment } from "@/lib/lender-export-model";
 import { ClosingWorkbench } from "./closing-workbench";
 import { LoanServiceOrders } from "./loan-service-orders";
@@ -396,7 +397,7 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
               type: "simulateMissingUwmReceipt", loanId, revision: application.revision,
             })}>Simulate missing mock UWM receipt</Button>
           </details>}
-        {!pendingReceipt && <details className="loan-task-create"><summary>Request borrower corrections</summary>
+        {!pendingReceipt && <details className="loan-task-create" id={exportCorrectionsTarget}><summary>Request borrower corrections</summary>
           <form className="record-form" onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
@@ -420,14 +421,14 @@ function LoanApplication({ loanId, state, busy, save, processor, jointLinks, ope
           <ApplicationAnswers draft={application.previousAnswers} />
         </details>}
       </details>}
-      <ManualLenderExport key={`${loanId}:${application.revision}:${application.lender?.revision ?? 0}`}
+      <ManualLenderExport key={`export:${loanId}:${application.revision}`}
         application={application} busy={busy} save={save} openConditions={openConditions}
         canRecordReturn={canRecordReturn} handoffBlocker={blocker} openReviews={openReviews}
         shareBrokerage={shareBrokerage}
         linkedFile={linkedFile}
         previousFile={state.submissions.find((submission) => submission.id === application.lastManualSubmissionId && submission.loanId === loanId)}
         campaignManual={campaignManual} />
-      <LenderApplicationDetails key={`${loanId}:${application.lender?.revision ?? 0}`} application={application}
+      <LenderApplicationDetails key={`lender:${loanId}:${application.lender?.revision ?? 0}`} application={application}
         busy={busy} save={save} markDraftChanged={markDraftChanged} />
     </div>}
   </section>;
@@ -447,10 +448,12 @@ function LenderApplicationDetails({ application, busy, save, markDraftChanged }:
     <summary>Lender and originator details</summary>
     <p className="muted">Staff-only fields for the sample loan file.</p>
     <div className="urla-questionnaire">
-      <QuestionnaireFields definition={lenderQuestions} answers={details.originator} change={(update) => change("originator", update)} />
+      <QuestionnaireFields definition={lenderQuestions} answers={details.originator} focusPrefix={lenderFieldPrefix("originator")}
+        change={(update) => change("originator", update)} />
       <details className="application-review">
         <summary>Property, title, mortgage terms, and cash to close</summary>
-        <QuestionnaireFields definition={lenderSupplement} answers={details.supplement} change={(update) => change("supplement", update)} />
+        <QuestionnaireFields definition={lenderSupplement} answers={details.supplement} focusPrefix={lenderFieldPrefix("supplement")}
+          change={(update) => change("supplement", update)} />
       </details>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void save({
         type: "saveLenderDetails", loanId: application.loanId, revision: application.lender?.revision ?? 0, details,

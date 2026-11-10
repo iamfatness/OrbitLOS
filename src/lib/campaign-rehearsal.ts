@@ -6,6 +6,7 @@ import { insertSubmission, savedPricingRun, type Store } from "./store";
 import type { BrokerageMember } from "./brokerage-model";
 import { recordedFundingCheckIn } from "./playbooks";
 import { hasPreparedLenderExport } from "./lender-export";
+import type { LenderExportProfile } from "./lender-export-model";
 
 export type CampaignRehearsalMember = StaffIdentity & Partial<Pick<BrokerageMember, "role" | "status">> & { accessRevision?: number };
 
@@ -92,7 +93,9 @@ export function linkCampaignSampleRealtor(db: Store, input: { loanId: string; sc
 }
 
 // Called inside the workspace mutation so the file and its acknowledgment are saved together.
-export function ensureCampaignManualFile(db: Store, input: { loanId: string; revision: number; lenderRevision: number }, staff: WorkspaceStaff | null) {
+export function ensureCampaignManualFile(db: Store, input: {
+  loanId: string; revision: number; lenderRevision: number; profile?: LenderExportProfile;
+}, staff: WorkspaceStaff | null) {
   const rehearsal = readCampaignRehearsal(db);
   if ((staff && !staff.brokerage.pilot) || !rehearsal?.leadId ||
     !db.prepare("SELECT 1 FROM referral_leads WHERE id = ? AND loanId = ?").get(rehearsal.leadId, input.loanId)) {

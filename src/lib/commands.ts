@@ -88,7 +88,7 @@ import { createMismoRehearsal, exportMismoRehearsal } from "./mismo-rehearsal";
 import { saveCallReport } from "./call-report-model";
 import { loanAuditHistory, loanAuditSnapshot, recordLoanAudit, type LoanAuditEvent } from "./loan-audit";
 
-import { exportReviewedApplication } from "./lender-export-model";
+import { exportReviewedApplication, lenderExportProfile } from "./lender-export-model";
 import { hasPreparedLenderExport, prepareLenderExport, recordManualLenderReturn } from "./lender-export";
 import { fundingCheckInActivityTitle, fundingTaskId, reversedFundingTaskPrefix, savePlaybookInput } from "./playbook-model";
 import { readPlaybook, recordedFundingCheckIn, retireFundingFollowUps, writePlaybook } from "./playbooks";
@@ -278,9 +278,9 @@ const command = z.discriminatedUnion("type", [
   z.object({ type: z.literal("refreshBorrowerQuestions"), loanId: id }),
   z.object({ type: z.literal("recordManualHandoff"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
     lenderRevision: z.number().int().nonnegative().optional(), outcome: z.enum(manualHandoffOutcomes), note: z.string().trim().max(500),
-    lenderFile: z.object({ lender: label, externalId: label }).optional() }),
+    lenderFile: z.object({ lender: label, externalId: label }).optional(), profile: lenderExportProfile.optional() }),
   z.object({ type: z.literal("acknowledgeCampaignLenderExport"), loanId: id, eventId: z.uuid(), revision: z.number().int().nonnegative(),
-    lenderRevision: z.number().int().nonnegative() }),
+    lenderRevision: z.number().int().nonnegative(), profile: lenderExportProfile.optional() }),
   z.object({ type: z.literal("sendConditionDocument"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("simulateDeliveryFailure"), loanId: id, requestId: z.uuid(), revision: z.number().int().nonnegative() }),
   z.object({ type: z.literal("refreshMockUwmClearance"), loanId: id, submissionId: id }),
@@ -1459,9 +1459,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           const detail = `Manual handoff · ${outcome} · Application revision ${data.revision}${file ? ` · ${file.lender} · ${file.externalId}` : ""}${note ? ` · ${note}` : ""}`;
           const previous = db.prepare("SELECT loanId, text FROM activity WHERE id = ?").get(data.eventId);
           if (previous) {
-            const recorded = db.prepare("SELECT lenderRevision, submissionId FROM application_handoff_events WHERE activityId = ?").get(data.eventId);
+            const recorded = db.prepare("SELECT lenderRevision, submissionId, exportProfile FROM application_handoff_events WHERE activityId = ?").get(data.eventId);
             if (previous.loanId !== data.loanId || previous.text !== detail || (simulated && !recorded) ||
-              (recorded && recorded.lenderRevision !== lenderRevision) || (file && !recorded?.submissionId)) {
+              (recorded && (recorded.lenderRevision !== lenderRevision || (recorded.exportProfile ?? undefined) !== data.profile)) ||
+              (file && !recorded?.submissionId)) {
               throw new WorkspaceError("Start a new handoff entry.");
             }
           }
@@ -1476,10 +1477,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             const result = ensureCampaignManualFile(db, data, staff);
             if ("error" in result) throw new WorkspaceError(result.error);
             submissionId = result.submissionId;
-            const latest = db.prepare(`SELECT activity.text FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
+            const latest = db.prepare(`SELECT activity.text, event.exportProfile FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
               WHERE event.loanId = ? AND event.applicationRevision = ? AND event.lenderRevision = ? AND event.outcome <> 'Export prepared'
               ORDER BY activity.rowid DESC LIMIT 1`).get(data.loanId, data.revision, lenderRevision);
-            alreadyRecorded ||= latest?.text === detail;
+            alreadyRecorded ||= latest?.text === detail && (latest.exportProfile ?? undefined) === data.profile;
           }
           if (!alreadyRecorded) {
             if (file) {
@@ -1498,8 +1499,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             }
             db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(data.eventId, data.loanId, detail, now);
             if (data.lenderRevision !== undefined) db.prepare(`INSERT INTO application_handoff_events
-              (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId) VALUES (?, ?, ?, ?, ?, ?)`)
-              .run(data.eventId, data.loanId, data.revision, lenderRevision, outcome, submissionId);
+              (activityId, loanId, applicationRevision, lenderRevision, outcome, submissionId, exportProfile) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+              .run(data.eventId, data.loanId, data.revision, lenderRevision, outcome, submissionId, data.profile ?? null);
             accessEvent(db, staff, simulated ? "Recorded simulated lender acknowledgment" : `Manual handoff · ${outcome}`, data.loanId, now);
           }
           message = simulated ? "Simulated acknowledgment recorded. The fictional lender checklist is ready." :

@@ -30,8 +30,9 @@ import { readBorrowerDisclosure, respondToBorrowerDisclosure } from "./disclosur
 import { answerBorrowerQuestion } from "./borrower-question-model";
 import { borrowerQuestions, recordBorrowerAnswer } from "./borrower-questions";
 import { loanOutreachSuppressed } from "./outreach-preferences";
+import { defaultLenderExportProfile, lenderExportProfile } from "./lender-export-model";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" |
+type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "lastExportProfile" |
   "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
@@ -47,14 +48,18 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
     details: lenderDetailsSchema.parse(JSON.parse(String(item.details))), revision: Number(item.revision),
   }]));
   const handoffs = new Map<string, NonNullable<StaffApplication["manualHandoff"]>>();
-  for (const event of db.prepare(`SELECT event.loanId, event.outcome, event.submissionId FROM application_handoff_events event
+  for (const event of db.prepare(`SELECT event.loanId, event.outcome, event.submissionId, event.exportProfile FROM application_handoff_events event
     JOIN activity ON activity.id = event.activityId
     JOIN applications app ON app.loanId = event.loanId AND app.revision = event.applicationRevision AND app.reviewedAt IS NOT NULL
     LEFT JOIN application_lender_details details ON details.loanId = event.loanId
     WHERE event.lenderRevision = coalesce(details.revision, 0)${loanId ? " AND event.loanId = ?" : ""} ORDER BY activity.rowid DESC`).all(...args)) {
     const loanId = String(event.loanId);
     const handoff = handoffs.get(loanId) ?? { exportPrepared: false, outcome: null };
-    if (event.outcome === "Export prepared") handoff.exportPrepared = true;
+    if (event.outcome === "Export prepared") {
+      handoff.exportPrepared = true;
+      const profile = lenderExportProfile.safeParse(event.exportProfile ?? defaultLenderExportProfile);
+      if (profile.success && !handoff.exportProfiles?.includes(profile.data)) (handoff.exportProfiles ??= []).push(profile.data);
+    }
     else if (!handoff.outcome) {
       handoff.outcome = manualHandoffOutcomes.find((outcome) => outcome === event.outcome) ?? null;
       if (handoff.outcome === "Acknowledged" && typeof event.submissionId === "string") handoff.submissionId = event.submissionId;
@@ -63,10 +68,13 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
   }
   return db.prepare(`SELECT app.*, CASE WHEN app.submittedAt IS NOT NULL THEN ${approvedSecondReview} ELSE 0 END AS secondReviewApproved,
     pending.revision AS pendingRevision, pending.attemptedAt AS pendingAttemptedAt,
-    ${lastManualLenderSubmission} AS lastManualSubmissionId
+    ${lastManualLenderSubmission} AS lastManualSubmissionId,
+    (SELECT event.exportProfile FROM application_handoff_events event JOIN activity ON activity.id = event.activityId
+      WHERE event.loanId = app.loanId AND event.outcome = 'Export prepared'
+      ORDER BY event.applicationRevision DESC, event.lenderRevision DESC, activity.rowid DESC LIMIT 1) AS lastExportProfile
     FROM applications app LEFT JOIN mock_uwm_acceptances pending ON pending.loanId = app.loanId AND pending.reconciledAt IS NULL
     ${loanId ? "WHERE app.loanId = ?" : ""}`).all(...args).map((value) => {
-    const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null;
+    const row = value as ApplicationRow & { secondReviewApproved: number; lastManualSubmissionId: string | null; lastExportProfile: string | null;
       pendingRevision: number | null; pendingAttemptedAt: string | null };
     const draft = JSON.parse(row.draft);
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
@@ -78,8 +86,12 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
           ? { reference: item.uwmReceipt, sentAt: item.uwmSentAt } : null,
       }));
     const manualHandoff = handoffs.get(row.loanId);
+    if (manualHandoff?.exportProfiles?.length === 1 && manualHandoff.exportProfiles[0] === defaultLenderExportProfile) {
+      delete manualHandoff.exportProfiles;
+    }
     const lastManualSubmissionId = manualHandoff?.submissionId ?? row.lastManualSubmissionId;
     const joint = joints.get(row.loanId);
+    const lastExportProfile = lenderExportProfile.safeParse(row.lastExportProfile);
     return {
       loanId: row.loanId, token: row.token, expiresAt: row.expiresAt, revokedAt: row.revokedAt, updatedAt: row.updatedAt,
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, secondReviewApproved: Boolean(row.secondReviewApproved), uwmReference: row.uwmReference,
@@ -89,6 +101,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
         ? { draftHasPropertyStreet: true } : {}),
       lender: lender.get(row.loanId) ?? null,
       manualHandoff,
+      ...(lastExportProfile.success ? { lastExportProfile: lastExportProfile.data } : {}),
       ...(typeof lastManualSubmissionId === "string" ? { lastManualSubmissionId } : {}),
       revision: row.revision, correctionNote: row.correctionNote, versions,
       previousAnswers: prior ? applicationDraft.parse(JSON.parse(String(prior.draft))) : null,

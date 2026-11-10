@@ -229,7 +229,9 @@ export interface StaffApplication {
   draft: ApplicationDraft | null;
   draftHasPropertyStreet?: boolean;
   lender: { details: LenderDetails; revision: number } | null;
-  manualHandoff?: { exportPrepared: boolean; outcome: (typeof manualHandoffOutcomes)[number] | null; submissionId?: string };
+  manualHandoff?: { exportPrepared: boolean; exportProfiles?: import("./lender-export-model").LenderExportProfile[];
+    outcome: (typeof manualHandoffOutcomes)[number] | null; submissionId?: string };
+  lastExportProfile?: import("./lender-export-model").LenderExportProfile;
   lastManualSubmissionId?: string;
 }
 
