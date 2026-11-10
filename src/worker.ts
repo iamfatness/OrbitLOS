@@ -90,6 +90,7 @@ import { recordManualReturnFollowUp } from "./lib/manual-lender-work";
 import { readEditableLead } from "./lib/editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./lib/sales-dashboard";
 import { changeOwnerScorecardSettings, readOwnerScorecard } from "./lib/owner-scorecard";
+import { customReportWork } from "./lib/custom-reports";
 import { changeConversation, readConversations } from "./lib/conversations";
 import { contactMergeWork } from "./lib/contact-merge";
 import { conversationInput } from "./lib/conversation-model";
@@ -400,6 +401,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   ownerScorecardSettings(input: unknown, staff: WorkspaceStaff) {
     return changeOwnerScorecardSettings(this.#store, input, staff, this.#id);
+  }
+
+  customReport(input: unknown, staff: WorkspaceStaff) {
+    return customReportWork(this.#store, input, staff, this.#id);
   }
 
   salesSettings(input: unknown, staff: WorkspaceStaff) {

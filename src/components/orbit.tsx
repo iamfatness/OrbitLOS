@@ -83,11 +83,12 @@ import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { staffQuestionTarget } from "@/lib/borrower-question-model";
 
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
+const CustomReports = lazy(async () => ({ default: (await import("./custom-reports")).CustomReports }));
 
 type Section = "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
   "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration"]);
-const reportTabs = ["Owner scorecard", "Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report"] as const;
+const reportTabs = ["Owner scorecard", "Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report", "Custom reports"] as const;
 const [localOfficer] = localCampaignOfficers;
 const demoOfficer = localOfficer.name;
 const taskViews = ["Open", "Due in 24 hours", "Overdue", "Completed", "All"] as const;
@@ -164,7 +165,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [searchContact, setSearchContact] = useState<SearchContact>();
   const [contactToolsOpen, setContactToolsOpen] = useState(false);
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
-  const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>("Owner scorecard");
+  const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff && staff.brokerage.role !== "Admin" ? "Custom reports" : "Owner scorecard");
   const [scorecardFilters, setScorecardFilters] = useState<OwnerScorecardFilters>(() => ({ ...currentReportMonth(), owner: "" }));
   const [reportingPeriod, setReportingPeriod] = useState(currentReportingPeriod);
   const [managerExceptionView, setManagerExceptionView] = useState<ManagerExceptionView>("files");
@@ -186,7 +187,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const [focusContactTask, setFocusContactTask] = useState<string>();
   const pagedTasks = !!staff && !detailedTasks;
   const showDetailedTaskLists = section === "Tasks" && !pagedTasks;
-  const waitingForWorkspace = workspaceStatus !== "ready" && (!scopedSections.has(section) || (section === "Tasks" && !pagedTasks) ||
+  const scopedReport = section === "Reports" && reportTab === "Custom reports";
+  const waitingForWorkspace = workspaceStatus !== "ready" && ((!scopedSections.has(section) && !scopedReport) || (section === "Tasks" && !pagedTasks) ||
     modal?.kind === "contactDuplicates");
   const [loanWork, setLoanWork] = useState<EditableLoan>();
   const [busy, setBusy] = useState(false);
@@ -219,7 +221,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
   const admin = !staff || staff.brokerage.role === "Admin";
   const canReviewReplies = admin && (staff ? staff.brokerage.pilot === true : process.env.NODE_ENV === "development");
   const canReport = staff?.brokerage.role === "Admin";
-  const canOpenReports = canReport || (!staff && process.env.NODE_ENV === "development");
+  const canOpenManagerReports = canReport || (!staff && process.env.NODE_ENV === "development");
+  const canOpenReports = canOpenManagerReports || !!staff;
   const canOpenFinance = canManageFinance(staff) || (!staff && process.env.NODE_ENV === "development");
   const canMigrate = canReport && staff.brokerage.pilot;
   const managesFollowUps = showDetailedTaskLists || (section === "Reports" && (reportTab === "Returning clients" || reportTab === "Referral queue"));
@@ -607,7 +610,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
       if (refresh) loadCampaigns(campaignId ?? selectedCampaignId, true);
     } else if (workspaceStatus === "ready" && refresh && ((next === "Tasks" && !pagedTasks) ||
       (next === "Reports" && canReport && reportTab !== "Owner scorecard" && reportTab !== "Funding dashboard" &&
-        reportTab !== "Pipeline workload" && reportTab !== "Sales conversion" && reportTab !== "Referral queue"))) {
+        reportTab !== "Pipeline workload" && reportTab !== "Sales conversion" && reportTab !== "Referral queue" && reportTab !== "Custom reports"))) {
       void save({ type: "refreshWorkspace" }, undefined, false);
     }
   }
@@ -1464,12 +1467,20 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace }: {
 
           {section === "Reports" && canOpenReports && <div className="record-form">
             <div className="loan-application-actions" aria-label="Report view">
-              {reportTabs.filter((tab) => tab === "Financials" ? canOpenFinance : tab === "Referral queue" ? canReport :
-                tab === "Owner scorecard" || tab === "Pipeline workload" ? canOpenReports :
-                state.managerReports || tab === "Funding dashboard" || tab === "Sales conversion" || tab === "Call report").map((tab) => <Button size="sm" key={tab} aria-pressed={reportTab === tab}
+              {reportTabs.filter((tab) => tab === "Custom reports" || (canOpenManagerReports && (tab === "Financials" ? canOpenFinance : tab === "Referral queue" ? canReport :
+                tab === "Owner scorecard" || tab === "Pipeline workload" || state.managerReports ||
+                tab === "Funding dashboard" || tab === "Sales conversion" || tab === "Call report"))).map((tab) => <Button size="sm" key={tab} aria-pressed={reportTab === tab}
                 variant={reportTab === tab ? "default" : "outline"} onClick={() => setReportTab(tab)}>{tab}</Button>)}
             </div>
-            {reportTab === "Owner scorecard" ? <OwnerScorecard brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+            {!canOpenManagerReports || reportTab === "Custom reports" ? <Suspense fallback={<p role="status">Opening custom reports…</p>}>
+              <CustomReports brokerageId={staff?.brokerage.id ?? demoBrokerageId} role={staff?.brokerage.role ?? "Admin"}
+                openRecord={({ destination }, metric) => {
+                  if (destination.kind === "lead") return void openScopedLead({ leadId: destination.id }, true);
+                  const target = processor ? undefined : metric === "funding" || metric === "cohortFunded" ? "loan-funding" :
+                    metric === "applications" || metric === "converted" ? "loan-application" : undefined;
+                  void openQueueLoan({ kind: "details", loanId: destination.id, target });
+                }} />
+            </Suspense> : reportTab === "Owner scorecard" ? <OwnerScorecard brokerageId={staff?.brokerage.id ?? demoBrokerageId}
               version={state} filters={scorecardFilters} setFilters={setScorecardFilters}
               openCampaignRecord={(row, metric) => row.loanId ?
                 void openQueueLoan({ kind: "details", loanId: row.loanId, target: metric === "funded" ? "loan-funding" : "loan-application" }) :

@@ -15,7 +15,8 @@ import { officerDashboardUnavailable } from "@/lib/officer-dashboard-model";
 import { processorQueueUnavailable } from "@/lib/processor-queue-model";
 import { salesDashboardUnavailable } from "@/lib/sales-dashboard-model";
 import { ownerScorecardUnavailable } from "@/lib/owner-scorecard-model";
-import { loadOwnerScorecard, updateOwnerScorecard } from "@/lib/workspace-service";
+import { loadOwnerScorecard, updateOwnerScorecard, workOnCustomReport } from "@/lib/workspace-service";
+import { customReportUnavailable } from "@/lib/custom-report-model";
 import { conversationsUnavailable } from "@/lib/conversation-model";
 import { inboundReplyUnavailable } from "@/lib/inbound-replies-model";
 import { appointmentsUnavailable } from "@/lib/appointment-model";
@@ -313,6 +314,12 @@ export async function saveOwnerReportView(input: unknown, expectedBrokerage: str
   const staff = await currentStaff();
   if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: ownerScorecardUnavailable };
   return updateOwnerScorecard(input, staff);
+}
+
+export async function accessCustomReport(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if ((staff?.brokerage.id ?? demoBrokerageId) !== expectedBrokerage) return { error: customReportUnavailable };
+  return workOnCustomReport(input, staff);
 }
 
 export async function saveSalesSetting(input: unknown, expectedBrokerage: string) {

@@ -331,6 +331,12 @@ Open **Reports → Funding dashboard** as a brokerage admin or in the local deve
 
 Save the applied filters and drilldown as a named funding view. Choose all officers and a full calendar month to set the brokerage’s funded loan count and principal targets. Select **Open loan** for a fresh view of its closing facts. Select **Open closing workbench** when that file is loaded in the workspace.
 
+## Build a custom report
+
+Under **Reports → Custom reports**, an admin can save an intake cohort or loan production report with its own date period, grouping, counts, filters, and drilldown fields. Select a count to open its leads or loans. Intake reports use the original receipt date for open and converted inquiries. Production reports use the file creation, first 1003 submission, and recorded funding dates.
+
+Share a report with LOs to show their own leads and loans. Share a production report with processors to show assigned files. Changing the report’s audience or archiving the report updates access to saved report links.
+
 ## Prepare a quarterly call report review
 
 1. Sign in as a brokerage admin and open **Reports → Call report**. Select the reporting year and quarter. Filter by confirmed property state or originator NMLS ID. Choose a count to see the loan records behind it.

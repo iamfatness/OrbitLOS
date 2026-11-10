@@ -2273,6 +2273,43 @@ try {
     assert.equal(first.queue.rows.filter(({ id }) => id === first.id).length, 1);
     assert.equal((await action(officer, "readConversationWork", source)).thread.id, first.id);
   });
+  await stage("Shared custom reports scope totals and exact drilldowns to each signed-in role", async () => {
+    const reportWork = (staff, input) => action(staff, "accessCustomReport", input);
+    const save = { type: "save", id: randomUUID(), revision: 0, definition: { name: "Fictional website intake report",
+      dataset: "Intake cohort", period: { kind: "Last 30 days" }, groupBy: "Lead source", metrics: ["inquiries", "converted"],
+      columns: ["Loan officer", "Purpose"], source: "Website quote request", purpose: "Purchase", roles: ["LO"] } };
+    assert.ok((await reportWork(officer, save)).error);
+    const { report } = await reportWork(owner, save);
+    const reference = { id: report.id, revision: report.revision };
+    const totals = await reportWork(owner, { type: "run", ...reference });
+    const officerTotals = await reportWork(officer, { type: "run", ...reference });
+    assert.ok(totals.totals.inquiries > officerTotals.totals.inquiries);
+    assert.ok(officerTotals.totals.inquiries > 0);
+    assert.ok((await reportWork(processor, { type: "run", ...reference })).error);
+    assert.ok((await action(owner, "accessCustomReport", { type: "run", ...reference }, undefined, randomUUID())).error);
+    const files = await reportWork(officer, { type: "records", ...reference, metric: "inquiries", group: "Website quote request" });
+    assert.ok(files.rows.every(({ values }) => values["Loan officer"] === officer.name));
+    assert.ok(files.rows.some(({ destination }) => destination.kind === "loan" && destination.id === quoteFile.id));
+    const privateReport = await reportWork(owner, { ...save, revision: reference.revision, definition: { ...save.definition, roles: [] } });
+    assert.equal(privateReport.report.revision, 2);
+    assert.ok((await reportWork(officer, { type: "records", ...reference, metric: "inquiries" })).error);
+    assert.ok(!(await reportWork(officer, { type: "list" })).reports.some(({ id }) => id === reference.id));
+
+    const assigned = (await file(owner, quoteFile.id)).loanProcessing[0];
+    if (assigned?.processorEmail !== processor.email) {
+      await team(owner, { type: "assignProcessor", email: processor.email, loanId: quoteFile.id, revision: assigned?.revision ?? 0 });
+    }
+    const production = await reportWork(owner, { ...save, id: randomUUID(), definition: {
+      ...save.definition, name: "Fictional assigned production report", dataset: "Loan production", groupBy: "Current stage",
+      metrics: ["files"], roles: ["Processor"],
+    } });
+    const productionRef = { id: production.report.id, revision: production.report.revision };
+    const processorResults = await reportWork(processor, { type: "records", ...productionRef, metric: "files" });
+    assert.ok(processorResults.rows.some(({ destination }) => destination.id === quoteFile.id));
+    assert.equal((await reportWork(processor, { type: "run", ...productionRef })).totals.files, processorResults.rows.length);
+    for (const { destination } of processorResults.rows) assert.equal((await file(processor, destination.id)).loans[0].id, destination.id);
+    assert.ok((await reportWork(officer, { type: "run", ...productionRef })).error);
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

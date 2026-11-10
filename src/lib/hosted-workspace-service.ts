@@ -6,6 +6,7 @@ import { jointLinkUnavailable } from "./joint-application-model";
 import { googleSettings } from "./staff-auth";
 import { fundingDashboardUnavailable } from "./funding-dashboard-model";
 import { ownerScorecardUnavailable } from "./owner-scorecard-model";
+import { customReportUnavailable } from "./custom-report-model";
 import { calendarUnavailable, campaignCallbacksUnavailable, officerQueueUnavailable } from "./officer-queue-model";
 import { callbackPerformanceUnavailable } from "./campaign-callback-performance-model";
 import { campaignManagerUnavailable } from "./campaign-manager-model";
@@ -267,6 +268,10 @@ export async function loadOwnerScorecard(input: unknown, staff: WorkspaceStaff |
 export async function updateOwnerScorecard(input: unknown, staff: WorkspaceStaff | null) {
   if (staff?.brokerage.role !== "Admin") return { error: ownerScorecardUnavailable };
   return staffWorkspace(staff).ownerScorecardSettings(input, staff);
+}
+
+export async function workOnCustomReport(input: unknown, staff: WorkspaceStaff | null) {
+  return staff ? staffWorkspace(staff).customReport(input, staff) : { error: customReportUnavailable };
 }
 
 export async function updateSalesSettings(input: unknown, staff: WorkspaceStaff | null) {
