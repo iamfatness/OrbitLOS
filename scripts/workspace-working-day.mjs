@@ -1666,14 +1666,20 @@ try {
     assert.equal(initial.revision, 0);
     const settingsPath = `/api/quote-intake-settings?brokerage=${brokerage}`;
     const config = { ...initial.config, title: "Fictional purchase quote", theme: "Navy", zip: "Required", timing: "Required",
-      question: { prompt: "What is your purchase goal?", required: true }, campaignId };
+      question: { prompt: "What is your purchase goal?", required: true }, campaignId,
+      branches: [{ id: randomUUID(), name: "Fictional Metro Branch", zip: "483", ownerEmail: competingOfficer.email }] };
     const publish = { type: "publish", revision: initial.revision, config };
     assert.equal((await postResponse(settingsPath, publish, officer)).status, 403);
     assert.equal((await postResponse(`/api/quote-intake-settings?brokerage=${randomUUID()}`, publish, owner)).status, 403);
+    const preview = { type: "previewRoute", profile: "General", revision: 0, config, zip: "48304", hasPhone: false };
+    assert.equal((await postResponse(settingsPath, preview, officer)).status, 403);
+    assert.equal((await post(settingsPath, preview, owner)).routingPreview.destination, competingOfficer.name);
+    assert.equal((await post(settingsPath, { ...preview, hasPhone: true }, owner)).routingPreview.rule, "Call campaign");
     assert.equal((await post(settingsPath, publish, owner)).revision, 1);
     const { revision, config: publicConfig } = await quote({ type: "read" });
     assert.equal(publicConfig.title, config.title);
     assert.equal("campaignId" in publicConfig, false);
+    assert.equal("branches" in publicConfig, false);
     const submission = (index, phone = `248-555-019${index}`) => ({ type: "submit", requestId: randomUUID(), formRevision: revision,
       name: `Fictional quote borrower ${index}`, email: `working-day-quote-${index}@example.test`, phone,
       purpose: "Purchase", zip: "48304", timing: "In 1 to 3 months", answer: "A fictional first home.", consent: true });
@@ -1685,9 +1691,11 @@ try {
     const matches = inboxLeads.filter(({ name }) => name.startsWith("Fictional quote borrower"));
     assert.equal(matches.length, 4);
     const leads = requests.map(({ name }) => matches.find((lead) => lead.name === name));
-    assert.deepEqual(leads.map(({ officerEmail }) => officerEmail), [officer.email, competingOfficer.email, null, owner.email]);
+    assert.deepEqual(leads.map(({ officerEmail }) => officerEmail), [officer.email, competingOfficer.email, null, competingOfficer.email]);
     assert.deepEqual(leads.map((lead) => lead.campaignId ?? null), [campaignId, campaignId, campaignId, null]);
     assert.ok(leads.every(({ source, zip }) => source === "Website quote request" && zip === "48304"));
+    assert.deepEqual(leads.map(({ initialRouting }) => initialRouting.rule), ["Call campaign", "Call campaign", "Call campaign", "Branch default"]);
+    assert.equal(leads[3].initialRouting.branch.name, "Fictional Metro Branch");
     const purchaseProfile = { type: "publish", profile: "Purchase", revision: 0,
       config: { ...config, title: "Fictional purchase intake", ownerEmail: null } };
     const rental = { id: randomUUID(), kind: "Yes or no", prompt: "Is this for a rental?", required: true, when: null, prefill: null };
@@ -1696,7 +1704,7 @@ try {
     const amount = { id: randomUUID(), kind: "Dollar amount", prompt: "What amount are you requesting?", required: true,
       when: { questionId: rental.id, equals: "Yes" }, prefill: "loanAmount" };
     const refinanceProfile = { type: "publish", profile: "Refinance", revision: 0, config: {
-      ...config, title: "Fictional refinance intake", campaignId: null, ownerEmail: competingOfficer.email, zip: "Hidden",
+      ...config, title: "Fictional refinance intake", campaignId: null, ownerEmail: competingOfficer.email, zip: "Hidden", branches: [],
       contact: "Email required", question: { prompt: "What would you change?", required: true },
       questions: [rental, occupancy, amount],
     } };
@@ -1796,6 +1804,7 @@ try {
     assert.equal(application.draft.propertyLocation.zip, requests[0].zip);
     const history = await action(officer, "readHistoryPage", { record: "loan", id: referralLoanId });
     assert.match(JSON.stringify(history.events), /Website quote request · Form version 1.*fictional first home/);
+    assert.ok(history.events.some(({ text }) => /^Call campaign .* → Fictional Officer.*Website routing$/.test(text)));
     assert.equal((await workspace(owner)).inboxLeads.find(({ id }) => id === shared.id).officerEmail, officer.email);
     return { id: referralLoanId, token: loan.applications[0].token };
   });

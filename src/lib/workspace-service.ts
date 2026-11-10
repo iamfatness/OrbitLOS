@@ -23,7 +23,6 @@ import { readRealtorWork } from "./realtor-work";
 import { readLeadInbox } from "./lead-inbox-query";
 import { readLeadArchive } from "./lead-inbox";
 import { receiveQuoteLead, workOnQuoteSettings } from "./quote-intake";
-import { quoteIntakeSettingsRequest } from "./quote-intake-model";
 import { documentTemplateWork } from "./document-templates";
 import { feeTemplateWork } from "./fee-templates";
 import { incomeWorksheetWork } from "./income-review";
@@ -478,10 +477,7 @@ export async function submitQuoteRequest(input: unknown) {
 
 export async function loadQuoteIntakeSettings(input: unknown, staff: WorkspaceStaff | null) {
   const actor = staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null);
-  const parsed = quoteIntakeSettingsRequest.safeParse(input);
-  const ownerEmail = parsed.success && parsed.data.type === "publish" ? parsed.data.config.ownerEmail : null;
-  const eligibleOwner = localCampaignOfficers.find(({ email }) => email === ownerEmail);
-  return workOnQuoteSettings(database(), input, actor, demoBrokerageId, undefined, eligibleOwner);
+  return workOnQuoteSettings(database(), input, actor, demoBrokerageId, undefined, [...localCampaignOfficers]);
 }
 
 export async function workOnDocumentTemplates(input: unknown, staff: WorkspaceStaff | null) {

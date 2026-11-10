@@ -15,7 +15,7 @@ import { SharedRealtorPolicyForm, SharedRealtorQueueView } from "./shared-realto
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { leadWorkUnavailable } from "@/lib/lead-work-model";
 import { QuoteIntakeEditor } from "./quote-intake-settings";
-import { quoteRequestPath } from "@/lib/quote-intake-model";
+import { quoteRequestPath, quoteRoutingLabel } from "@/lib/quote-intake-model";
 import { quotePrefillLabels, type QuotePrefillField, type QuotePrefillSelection } from "@/lib/quote-intake-questions";
 import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { LeadDocumentChecklist } from "./lead-document-checklist";
@@ -140,6 +140,13 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
       <summary>Work lead</summary>
       <div className="record-form">
         <p>{[lead.email, lead.phone].filter(Boolean).join(" · ")}</p>
+        {lead.initialRouting && <section className="work-queue" aria-label="Website routing at submission">
+          <h4>Website routing at submission</h4>
+          <p>{quoteRoutingLabel(lead.initialRouting)}</p>
+          <p className="muted">{lead.initialRouting.profile} form v{lead.initialRouting.formRevision}
+            {lead.initialRouting.rule === "Website default" && ` · Website routing v${lead.initialRouting.websiteRevision}`}
+            {lead.initialRouting.note && ` · ${lead.initialRouting.note}`}</p>
+        </section>}
         {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
         {isAdmin && members.length > 0 && <form className="task-form" key={lead.officerEmail ?? ""} onSubmit={(event) => {
           event.preventDefault();

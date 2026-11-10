@@ -100,14 +100,15 @@ function rowsFor(db: Store, kind: DepartureKind, email: string, now: Date, limit
         revision: routing.revision, detail: "Applies to new quote requests" }));
       for (const { profile, revision } of quoteIntakeOwnerRoutes(db, email)) {
         const id = `quote:${profile}`;
-        routes.push(item({ id, recordId: id, title: `${profile} quote profile`, revision, detail: "Direct routing or campaign fallback" }));
+        routes.push(item({ id, recordId: id, title: `${profile} quote profile`, revision, detail: "Branch defaults, direct routing, or campaign fallback" }));
       }
     }
     if (routing.realtorRoute === "Assigned officer" && routing.realtorOwner === email) {
       routes.push(item({ id: "realtor", recordId: "realtor", title: "Brokerage-wide realtor routing",
         revision: routing.revision, detail: "Applies to new realtor referrals" }));
     }
-    return routes.filter((route) => !key || (key.exact ? route.id === key.id : route.id > key.id)).slice(0, limit);
+    return routes.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      .filter((route) => !key || (key.exact ? route.id === key.id : route.id > key.id)).slice(0, limit);
   }
   const source = sources[kind];
   const args: SqlValue[] = kind === "Coverage" ? [email, email, easternDate(now)] : kind === "Realtor link" ? [email, now.toISOString()] : [email];

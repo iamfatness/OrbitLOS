@@ -113,7 +113,8 @@ test("reassigns a purpose profile during offboarding without rotating its public
   const { db, id, admin, officer, processor, preview, move } = fixture(t);
   const token = "c".repeat(64);
   writeLeadRouting(db, { ...defaultLeadRouting, quoteToken: token });
-  const config = { ...defaultQuoteIntakeConfig, ownerEmail: officer.email, title: "Fictional refinance intake" };
+  const branches = [{ id: crypto.randomUUID(), name: "Fictional ZIP branch", zip: "483", ownerEmail: officer.email }];
+  const config = { ...defaultQuoteIntakeConfig, ownerEmail: officer.email, title: "Fictional refinance intake", branches };
   const published = workOnQuoteSettings(db, { type: "publish", profile: "Refinance", revision: 0, config }, admin, id, at, officer);
   const [route] = preview(officer, "Intake route").items;
   assert.equal(route.id, "quote:Refinance");
@@ -124,6 +125,7 @@ test("reassigns a purpose profile during offboarding without rotating its public
   const current = quoteIntakeRouting(db, "Refinance");
   assert.equal(current.routing.quoteToken, token);
   assert.equal(current.ownerEmail, admin.email);
+  assert.equal(quoteIntakeRouting(db, "Refinance", "48304").branch.ownerEmail, admin.email);
   assert.equal(current.form.config.title, config.title);
   assert.equal(current.form.revision, published.revision + 1);
 });

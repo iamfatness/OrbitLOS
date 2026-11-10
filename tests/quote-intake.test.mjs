@@ -119,9 +119,63 @@ test("a campaign rule change during directory lookup keeps the website lead unas
   assert.deepEqual(receive(stale, snapshot).value, { received: true });
   assert.equal(lead(stale).officerEmail, null);
   assert.equal(lead(stale).campaignId, campaignId);
+  assert.match(leadWorkRecord(db, lead(stale).id).lead.initialRouting.note, /changed during intake/);
   const directoryUnavailable = request(2);
   assert.deepEqual(receive(directoryUnavailable, undefined, []).value, { received: true });
   assert.equal(lead(directoryUnavailable).officerEmail, null);
+});
+
+test("branch and profile routing preview follows saved intake precedence and preserves the original assignment", async (t) => {
+  const { db, admin, officer, fallback, members, campaignId, settings, receive, request, lead } = fixture(t);
+  const rule = (name, zip, ownerEmail) => ({ id: crypto.randomUUID(), name, zip, ownerEmail });
+  const branches = [rule("Metro Branch", "483", officer.email), rule("Oak Branch", "48304", fallback.email),
+    rule("Shared Branch", "481", null)];
+  const config = { ...defaultQuoteIntakeConfig, campaignId, ownerEmail: admin.email, branches };
+  const publish = { type: "publish", profile: "Purchase", revision: 0, config };
+  assert.match(settings(publish, admin, admin.brokerage.id, [admin, officer]).error, /active loan officer/);
+  assert.match(settings({ ...publish, config: { ...config, zip: "Hidden" } }).error, /Show the property ZIP/);
+  assert.match(settings({ ...publish, config: { ...config, branches: [...branches, rule("Duplicate", "483", null)] } }).error, /only once/);
+  const preview = (zip, hasPhone = false, roster = members, input = publish) => settings({ ...input, type: "previewRoute", zip, hasPhone },
+    admin, admin.brokerage.id, roster);
+  const exact = preview("48304").routingPreview;
+  assert.equal(exact.destination, fallback.name);
+  assert.deepEqual(exact.branch, { name: "Oak Branch", zip: "48304" });
+  assert.equal(preview("48325").routingPreview.destination, officer.name);
+  assert.equal(preview("48125").routingPreview.destination, "Shared inbox");
+  assert.equal(preview("48000").routingPreview.rule, "Profile default");
+  assert.equal(preview("48304", true).routingPreview.rule, "Call campaign");
+  assert.equal(preview("48304", false, [admin]).routingPreview.destination, admin.name);
+  assert.match(preview("48304", false, [admin]).routingPreview.note, /branch LO was unavailable/);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM referral_leads").get().count, 0);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM quote_intake_versions").get().count, 0);
+  assert.equal(settings(publish, admin, admin.brokerage.id, members).revision, 1);
+  assert.match(preview("48304").error, /form changed/);
+  const publicForm = receive({ type: "read", purpose: "Purchase" }).value;
+  assert.doesNotMatch(JSON.stringify(publicForm), /branches|ownerEmail|Oak Branch|campaignId/);
+  const routed = request(1, { phone: "" });
+  const campaign = request(2);
+  const unavailable = request(3, { phone: "" });
+  const website = request(4, { purpose: "Refinance", formRevision: 0, phone: "" });
+  for (const [data, roster] of [[routed, members], [campaign, members], [unavailable, [admin]], [website, members]]) {
+    assert.deepEqual(receive(data, undefined, roster).value, { received: true });
+  }
+  assert.deepEqual([lead(routed).officerEmail, lead(campaign).campaignId, lead(unavailable).officerEmail, lead(website).officerEmail],
+    [fallback.email, campaignId, admin.email, fallback.email]);
+  const route = (data) => leadWorkRecord(db, lead(data).id).lead.initialRouting;
+  assert.deepEqual(route(routed), { ...exact, formRevision: 1 });
+  assert.equal(route(campaign).rule, "Call campaign");
+  assert.equal(route(unavailable).rule, "Profile default");
+  assert.equal(route(website).rule, "Website default");
+  const reassigned = await executeCommand(db, { type: "assignInboxLead", leadId: lead(routed).id, email: admin.email, previousEmail: fallback.email },
+    admin, undefined, [{ ...admin, role: "Admin", status: "Active" }]);
+  assert.ok(reassigned.message, reassigned.error);
+  assert.equal(lead(routed).officerEmail, admin.email);
+  assert.equal(route(routed).destination, fallback.name);
+  const changed = { ...publish, revision: 1, config: { ...config, branches: [rule("New Branch", "48304", officer.email)] } };
+  assert.equal(settings(changed, admin, admin.brokerage.id, members).revision, 2);
+  assert.deepEqual(receive(routed).value, { received: true });
+  assert.equal(route(routed).branch.name, "Oak Branch");
+  assert.equal(route(routed).formRevision, 1);
 });
 
 test("purpose profiles preserve versioned questions, route separately and reject stale submissions", (t) => {

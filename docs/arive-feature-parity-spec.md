@@ -50,7 +50,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F04 | Hosted conditional document checklists and per-borrower questions with deadlines, answer review, and clarification | Add reusable question templates and categories. Validate production scan and delivery contracts. |
 | F05 | Hosted versioned sample packages with signer-specific portal responses, receipt history, critical dates, and tasks for fee changes or declines. Revised packages retain the internal change review. | Extend package revisions and approved artifacts through closing. Validate document generation, signing, and applicable rules before live use. |
 | F06 | Hosted 1003 and a borrower action list for corrections, questions, documents, and sample signatures, scoped to each borrower on a joint file | Validate live identity verification and configurable borrower needs in an approved pilot. |
-| F07 | Versioned general, purchase, and refinance intake profiles with a mobile preview, conditional questions, staff-selected 1003 prefill, branded themes, and campaign or direct LO routing | Verify branch defaults, LO editing permissions, and configurable consent references. |
+| F07 | Versioned general, purchase, and refinance intake profiles with a mobile preview, conditional questions, staff-selected 1003 prefill, branded themes, and campaign, branch ZIP, or direct LO routing | Verify allowed LO editing, configurable consent references, and branch setup with a design partner. |
 | F08 | Fictional staff issuance and separate publication to borrower and realtor portals, with expiry, withdrawal, and supersession | Verify qualified template and eligibility policy before production. |
 | F09 | Realtor referrals, conversion counts, milestones, and scoped sample letter access | Verify partner permissions for approved pricing estimates and qualification. |
 | F10 | Hosted staff comparison, exact mock offer, dated borrower comparison with five-year cost and break-even, an owned task to review shared term changes, and mock UWM handoff | Validate provider coverage and provenance. Confirm locks separately. |
@@ -122,7 +122,7 @@ The [hosted quote form](demo-rehearsal-log.md#hosted-configurable-website-quote-
 
 Admins can add up to four typed questions. A follow-up can depend on a choice from an earlier visible question. The accepted receipt retains visible answers and their original prompts. Staff can select occupancy, requested loan amount, or estimated property value to prefill the draft, using values checked against the accepted receipt. The borrower can still edit the draft.
 
-Remaining scope covers branch defaults, allowed LO overrides, consent text references and configurable application questions. Increments 1–3.
+Admins can add exact ZIP or three-digit branch defaults and preview the draft destination with and without a phone number. The lead receipt preserves the applied rule, published version, and original destination. Branch labels apply to intake routing. Remaining scope covers allowed LO overrides, consent text references and configurable application questions. Increments 1–3.
 
 ### F08 — Controlled preapproval letters
 

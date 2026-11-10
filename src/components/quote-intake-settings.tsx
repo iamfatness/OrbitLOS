@@ -2,17 +2,18 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { quoteContactOptions, quoteFieldModes, quoteIntakeConfig, quoteProfiles, quoteRequestPath, quoteThemes,
-  type QuoteIntakeConfig, type QuoteIntakeSettings, type QuoteProfile } from "@/lib/quote-intake-model";
+  type QuoteIntakeConfig, type QuoteIntakeSettings, type QuoteProfile, type QuoteRoutingPreview } from "@/lib/quote-intake-model";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import { dateTime } from "@/lib/utils";
 import { QuoteIntakeFields, QuoteIntakeHeading } from "./quote-request";
+import { QuoteBranchRouting } from "./quote-branch-routing";
 import { QuoteQuestionEditor } from "./quote-question-editor";
 import { Button } from "./ui/button";
 
-async function settingsRequest(endpoint: string, data: object, signal?: AbortSignal) {
+async function settingsRequest<Result extends object = QuoteIntakeSettings>(endpoint: string, data: object, signal?: AbortSignal) {
   const response = await fetch(endpoint, { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
   if (!response.headers.get("Content-Type")?.includes("application/json")) throw new Error("Could not load quote form settings.");
-  const value = await response.json() as QuoteIntakeSettings | { error: string };
+  const value = await response.json() as Result | { error: string };
   if ("error" in value || !response.ok) throw new Error("error" in value ? value.error : "Could not load quote form settings.");
   return value;
 }
@@ -167,7 +168,13 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
               onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void run("search"); } }} disabled={busy} /></label>
           </div>
           <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void run("search")}>Find campaigns</Button></div>
-          <p className="muted">Eligible phone leads follow the selected campaign’s routing rules. Other requests follow the direct routing choice.</p>
+          <p className="muted">Eligible phone leads follow the selected campaign’s routing rules. Branch defaults apply to other requests before direct routing.</p>
+          <QuoteBranchRouting key={profile} draft={draft} officers={profileOwners} change={change} busy={busy} preview={async (zip, hasPhone) => {
+            const result = await settingsRequest<QuoteRoutingPreview>(endpoint, {
+              type: "previewRoute", profile, revision: published.revision, config: draft, zip, hasPhone,
+            });
+            return result.routingPreview;
+          }} />
           <div className="loan-application-actions">
             <Button size="sm" type="submit" disabled={busy || (!dirty && published.active)}>{profile === "General" ? "Publish quote form" : `Publish ${profile.toLowerCase()} profile`}</Button>
             <Button size="sm" variant="outline" aria-expanded={preview} onClick={() => setPreview((value) => !value)}>{preview ? "Hide borrower preview" : "Preview borrower form"}</Button>

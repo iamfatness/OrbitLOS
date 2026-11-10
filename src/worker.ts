@@ -55,7 +55,7 @@ import { enrollCrmSegmentInput } from "./lib/crm-segment-model";
 import { assignInboxLeadInput, saveLeadRoutingInput } from "./lib/lead-inbox-model";
 import { leadRouting, readLeadArchive } from "./lib/lead-inbox";
 import { quoteIntakeSettingsRequest, quoteLeadInput } from "./lib/quote-intake-model";
-import { quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
+import { quoteConfiguredOwners, quoteIntakeRouting, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
 import { documentTemplateWork } from "./lib/document-templates";
 import { feeTemplateWork } from "./lib/fee-templates";
 import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
@@ -719,8 +719,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const [member] = selectedActiveMembers(this.#store, id, [email], emails);
     return member && member.role !== "Processor" ? { email: member.email, name: member.name } : null;
   }
-  quoteIntakeRoster(id: string, selected: string[], bootstrapEmails: string[]): StaffIdentity[] {
-    if (this.#id !== demoBrokerageId || selected.length > campaignRoutingOfficerLimit + 1) return [];
+  quoteIntakeRoster(id: string, selected: string[], bootstrapEmails: string[], adminEmail?: string): StaffIdentity[] {
+    if (this.#id !== demoBrokerageId || selected.length > campaignRoutingOfficerLimit + 2) return [];
+    if (adminEmail && !activeBrokerages(this.#store, adminEmail, bootstrapEmails).some((item) => item.id === id && item.role === "Admin")) return [];
     return selectedActiveMembers(this.#store, id, selected, bootstrapEmails)
       .filter(({ role }) => role !== "Processor").map(({ email, name }) => ({ email, name }));
   }
@@ -885,11 +886,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   async quoteLead(input: unknown, emails: string[]) {
     const parsed = quoteLeadInput.safeParse(input);
     if (!parsed.success) return receiveQuoteLead(this.#store, input);
-    const snapshot = quoteIntakeRouting(this.#store, parsed.data.purpose);
+    const snapshot = quoteIntakeRouting(this.#store, parsed.data.purpose, parsed.data.zip);
     let members: StaffIdentity[] = [];
     if (snapshot.routing.quoteToken === parsed.data.token && snapshot.form.revision === parsed.data.formRevision) {
       const campaign = parsed.data.phone && snapshot.campaign?.enabled ? snapshot.campaign.officers.map(({ email }) => email) : [];
-      const selected = [...new Set([...(snapshot.ownerEmail ? [snapshot.ownerEmail] : []), ...campaign])];
+      const selected = [...new Set([snapshot.ownerEmail, snapshot.branch?.ownerEmail, ...campaign])]
+        .filter((email): email is string => typeof email === "string");
       if (selected.length) {
         const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
         try { members = await directory.quoteIntakeRoster(this.#id, selected, emails); }
@@ -901,10 +903,20 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   async quoteIntakeSettings(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: "Workspace access denied." } as const;
     const parsed = quoteIntakeSettingsRequest.safeParse(input);
-    const ownerEmail = parsed.success && parsed.data.type === "publish" ? parsed.data.config.ownerEmail : null;
-    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
-    const eligibleOwner = ownerEmail ? await this.#resolveLeadOwner(ownerEmail, emails, staff.email) : null;
-    return workOnQuoteSettings(this.#store, input, staff, this.#id, undefined, eligibleOwner);
+    let members: StaffIdentity[] = [];
+    if (parsed.success && (parsed.data.type === "publish" || parsed.data.type === "previewRoute")) {
+      const selected = quoteConfiguredOwners(parsed.data.config);
+      if (parsed.data.type === "previewRoute" && parsed.data.config.ownerEmail === undefined) {
+        const fallback = leadRouting(this.#store).websiteOwner;
+        if (fallback && !selected.includes(fallback)) selected.push(fallback);
+      }
+      if (selected.length) {
+        const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+        const directory = this.#id === demoBrokerageId ? this : this.env.WORKSPACE.getByName(demoBrokerageId);
+        members = await directory.quoteIntakeRoster(this.#id, selected, emails, staff.email);
+      }
+    }
+    return workOnQuoteSettings(this.#store, input, staff, this.#id, undefined, members);
   }
 
   documentTemplates(staff: WorkspaceStaff, input: unknown) {
