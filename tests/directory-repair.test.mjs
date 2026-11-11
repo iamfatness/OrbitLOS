@@ -114,3 +114,40 @@ test("sealed maintenance evidence flags same-count decision changes and missing 
   assert.deepEqual(compareDirectoryMaintenanceEvidence(undefined, current), { status:"unavailable", changes:[], pending:review.pending });
   assert.doesNotMatch(JSON.stringify({ saved, review }), /private|@example\.test|fingerprint|older content/);
 });
+
+
+test("recovery hold replaces stale approval, advances a warm fence, and leaves other brokerages alone", async t => {
+  const { db, workspace, other, evidence } = fixture(t);
+  const { initializeMaintenance, maintenanceState } = await import("../src/lib/workspace-maintenance.ts");
+  const { initializeRecoveryEdits } = await import("../src/lib/recovery-edits.ts");
+  const { initializeRecoveryCheckpoints } = await import("../src/lib/recovery-checkpoints.ts");
+  const { captureDirectoryRecoverySnapshot } = await import("../src/lib/directory-evidence.ts");
+  const { applyDirectoryRecoveryHold, directoryRecoveryHoldRecorded, previewDirectoryRecoveryHold } = await import("../src/lib/directory-recovery-hold.ts");
+  initializeMaintenance(db);
+  initializeRecoveryEdits(db, true);
+  initializeRecoveryCheckpoints(db);
+  db.prepare("UPDATE brokerages SET pilot=1 WHERE id=?").run(other);
+  db.prepare("INSERT INTO brokerage_maintenance VALUES (?,?,?,?,?,?,?,?,?,?)")
+    .run(workspace, "Paused", 5, "Original pause", now, "Owner", now, "Owner", "Old approval", "[true,true,true]");
+  db.prepare("INSERT INTO brokerage_maintenance_history VALUES (?,?,?,?,?,?)")
+    .run("lost-review", workspace, "Decision", "Owner", now, "Fictional review");
+  const saved = { ...evidence, version: 2, ...captureDirectoryRecoverySnapshot(db) };
+  db.exec("DELETE FROM brokerage_maintenance_history");
+  assert.equal(previewDirectoryRecoveryHold(db, evidence, workspace).canHold, false);
+  assert.equal(previewDirectoryRecoveryHold(db, saved, other).canHold, false);
+  const preview = previewDirectoryRecoveryHold(db, saved, workspace);
+  assert.equal(preview.canHold, true);
+  const intent = { id:crypto.randomUUID(), evidenceId:saved.id, fingerprint:preview.fingerprint, brokerageId:workspace,
+    deployment:"fixture", incident:"fixture", markerVersion:"current", reference:"INC-209" };
+  assert.equal(applyDirectoryRecoveryHold(db, saved, {...intent, fingerprint:"a".repeat(64)}, 11, now), null);
+  const result = applyDirectoryRecoveryHold(db, saved, intent, 11, now);
+  assert.deepEqual(result, { revision:12, groups:["history"] });
+  assert.deepEqual(applyDirectoryRecoveryHold(db, saved, intent, 12, now), result);
+  assert.equal(maintenanceState(db, workspace).reviewedAt, null);
+  assert.deepEqual(maintenanceState(db, workspace).checks, [false,false,false]);
+  assert.equal(maintenanceState(db, workspace).startedAt, now);
+  assert.equal(maintenanceState(db, other).mode, "Open");
+  assert.equal(db.prepare("SELECT count(*) AS n FROM brokerage_maintenance_history").get().n, 1);
+  db.exec("DELETE FROM directory_recovery_hold_receipts");
+  assert.equal(directoryRecoveryHoldRecorded(db, intent, result), false);
+});

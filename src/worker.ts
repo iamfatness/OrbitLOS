@@ -1,3 +1,4 @@
+import { applyDirectoryRecoveryHold, directoryRecoveryHoldHttp, directoryRecoveryHoldPath, directoryRecoveryHoldRecorded, previewDirectoryRecoveryHold, readDirectoryRecoveryHoldIntent, type RecoveryHoldIntent, type RecoveryHoldResult } from "./lib/directory-recovery-hold";
 import { commitDirectorySignInReset, directorySignInResetHttp, directorySignInResetPath, previewDirectorySignInReset, readDirectorySignInResetIntent, type SignInResetIntent } from "./lib/directory-sign-in-reset";
 import { applyDirectoryRepair, directoryRepairHttp, directoryRepairPath, loadRepairEvidence, previewDirectoryRepair, readRepairIntent, type RepairIntent } from "./lib/directory-repair";
 import { captureDirectoryRecoverySnapshot, directoryEvidenceHttp, directoryEvidencePath, type Evidence } from "./lib/directory-evidence";
@@ -246,6 +247,36 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const counts = await this.env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts();
     if (counts.active || (await this.#documents.head(directoryPauseKey))?.version !== intent.markerVersion) return null;
     return applyDirectoryRepair(this.#store, evidence, intent, new Date().toISOString());
+  }
+
+  async reviewDirectoryRecoveryHold(evidence: Evidence, brokerageId: string) {
+    if (this.#id !== demoBrokerageId || !await this.#documents?.head(directoryPauseKey))
+      throw new Error("Directory recovery hold requires an active pause.");
+    return previewDirectoryRecoveryHold(this.#store, evidence, brokerageId);
+  }
+
+  async commitDirectoryRecoveryHold(input: RecoveryHoldIntent, prior: RecoveryHoldResult | null) {
+    const bucket = this.#documents;
+    if (this.#id !== demoBrokerageId || !bucket) return null;
+    const intent = await readDirectoryRecoveryHoldIntent(bucket, input);
+    const deployment = runtimeSetting(this.env, "ORBIT_DEPLOYMENT") || "fixture";
+    if (!intent || intent.deployment !== deployment) return null;
+    const evidence = await loadRepairEvidence(bucket, intent.evidenceId, deployment);
+    if (!evidence) return null;
+    const stable = async () => !(await this.env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts()).active &&
+      (await bucket.head(directoryPauseKey))?.version === intent.markerVersion;
+    if (!await stable()) return null;
+    if (prior && !directoryRecoveryHoldRecorded(this.#store, intent, prior)) return null;
+    if (!prior && this.#store.prepare("SELECT pilot FROM brokerages WHERE id=?").get(intent.brokerageId)?.pilot !== 1) return null;
+    const workspace = this.env.WORKSPACE.getByName(intent.brokerageId);
+    const fence = await workspace.maintenanceFence();
+    if (fence.active || !await stable()) return null;
+    const result = prior ?? applyDirectoryRecoveryHold(this.#store, evidence, intent, fence.revision, new Date().toISOString());
+    if (!result) return null;
+    const verified = await workspace.maintenanceFence();
+    if (!verified.closed || verified.active || verified.revision < result.revision ||
+        !directoryRecoveryHoldRecorded(this.#store, intent, result)) return null;
+    return result;
   }
 
   async reviewDirectorySignInReset() {
@@ -1598,6 +1629,13 @@ export default {
         () => env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts(),
         evidence => env.WORKSPACE.getByName(demoBrokerageId).reviewDirectoryRepair(evidence),
         intent => env.WORKSPACE.getByName(demoBrokerageId).commitDirectoryRepair(intent));
+    }
+    if (url.pathname === directoryRecoveryHoldPath) {
+      if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
+      return directoryRecoveryHoldHttp(request, env.DOCUMENTS, runtimeSetting(env, "ORBIT_DEPLOYMENT") || "fixture",
+        () => env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts(),
+        (evidence, brokerageId) => env.WORKSPACE.getByName(demoBrokerageId).reviewDirectoryRecoveryHold(evidence, brokerageId),
+        (intent, prior) => env.WORKSPACE.getByName(demoBrokerageId).commitDirectoryRecoveryHold(intent, prior));
     }
     if (url.pathname === directoryEvidencePath) {
       if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});

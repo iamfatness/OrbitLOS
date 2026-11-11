@@ -35,7 +35,7 @@ export async function startDirectoryWork(namespace: { getByName(name: string): D
 }
 
 export async function readDirectoryIncident(request: Request, bucket: R2Bucket | undefined,
-  capability: "status" | "evidence" | "repair" | "sign-in-reset" = "status") {
+  capability: "status" | "evidence" | "repair" | "sign-in-reset" | "hold" = "status") {
   const token = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.get("Authorization") ?? "")?.[1];
   if (!token || !bucket) return null;
   const marker = await bucket.get(directoryPauseKey);
@@ -47,7 +47,7 @@ export async function readDirectoryIncident(request: Request, bucket: R2Bucket |
   const incident = fields.incident;
   const tokenSha256 = fields[{
     status:"statusTokenSha256", evidence:"evidenceTokenSha256", repair:"repairTokenSha256",
-    "sign-in-reset":"signInResetTokenSha256",
+    "sign-in-reset":"signInResetTokenSha256", hold:"holdTokenSha256",
   }[capability]];
   if (typeof incident !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(incident) ||
       typeof tokenSha256 !== "string" || !/^[a-f0-9]{64}$/.test(tokenSha256)) return null;
