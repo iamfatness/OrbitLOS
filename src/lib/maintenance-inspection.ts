@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Store } from "./store";
 import { inspectionPageSize, maintenanceInspectionInput, type InspectionDocument, type InspectionPage,
   type InspectionRequest, type MaintenanceInspection } from "./maintenance-inspection-model";
@@ -25,14 +26,14 @@ const documents = [
 ];
 const requests = [
   {name:"UWM request history",sql:`SELECT 'request:' || id AS reference, 'UWM request' AS source, loanId AS recordId,
-    action, state, updatedAt AS at, environment FROM uwm_live_requests WHERE state IN ('Dispatching','Unknown','Acknowledged') AND action <> 'reconcile-request'`},
+    action, state, updatedAt AS at, environment, digest || COALESCE(result,'') AS basis FROM uwm_live_requests WHERE state IN ('Dispatching','Unknown','Acknowledged') AND action <> 'reconcile-request'`},
   {name:"UWM operation history",sql:`SELECT 'operation:' || id AS reference, 'UWM operation' AS source, loanId AS recordId,
-    kind AS action, state, updatedAt AS at, environment FROM uwm_operations WHERE state IN ('Prepared','Dispatching','Acknowledged','Unknown')`},
+    kind AS action, state, updatedAt AS at, environment, requestDigest || COALESCE(transactionId,'') || COALESCE(receiptId,'') AS basis FROM uwm_operations WHERE state IN ('Prepared','Dispatching','Acknowledged','Unknown')`},
   {name:"Pending loan uploads",sql:`SELECT 'upload:' || requestId AS reference, 'Document upload' AS source, requests.loanId AS recordId,
-    requests.kind AS action, 'Pending upload' AS state, CAST(attemptedAt AS TEXT) AS at, COALESCE(uploadMode,'Unknown') AS environment
+    requests.kind AS action, 'Pending upload' AS state, CAST(attemptedAt AS TEXT) AS at, COALESCE(uploadMode,'Unknown') AS environment, pendingId AS basis
     FROM document_files files JOIN document_requests requests ON requests.id=files.requestId WHERE pendingId IS NOT NULL`},
   {name:"Pending lead uploads",sql:`SELECT 'lead-upload:' || id AS reference, 'Lead upload' AS source, leadId AS recordId,
-    kind AS action, 'Pending upload' AS state, CAST(attemptedAt AS TEXT) AS at, 'mock' AS environment FROM lead_document_requests WHERE pendingId IS NOT NULL`},
+    kind AS action, 'Pending upload' AS state, CAST(attemptedAt AS TEXT) AS at, 'mock' AS environment, pendingId AS basis FROM lead_document_requests WHERE pendingId IS NOT NULL`},
 ];
 function readableSources(db:Store,sources:{name:string;sql:string}[],unavailable:string[]) {
   return sources.filter(source=>{try{db.prepare(`SELECT * FROM (${source.sql}) LIMIT 0`).all();return true;}
@@ -46,14 +47,14 @@ function page<T>(db:Store,queries:string[],offset:number):InspectionPage<T> {
   const items=db.prepare(`SELECT * FROM (${sql}) ORDER BY reference LIMIT ? OFFSET ?`).all(inspectionPageSize,offset) as unknown as T[];
   return {items,total,offset,next:offset+items.length<total?offset+items.length:null};
 }
-export async function inspectMaintenanceStore(db:Store,raw:unknown,head:(objectId:string)=>Promise<{size:number}|null>):Promise<MaintenanceInspection> {
+export async function inspectMaintenanceStore(db:Store,raw:unknown,head:(objectId:string)=>Promise<{size:number;etag?:string}|null>):Promise<MaintenanceInspection> {
   const input=maintenanceInspectionInput.parse(raw), unavailable:string[]=[];
   const records=inventories.map(([label,table])=>{
     try{return {label,count:Number(db.prepare(`SELECT count(*) AS count FROM ${table}`).get()!.count)};}
     catch{unavailable.push(label);return {label,count:null};}
   });
   const files=page<{reference:string;label:string;recordId:string;revision:number|null;objectId:string|null}>(db,readableSources(db,documents,unavailable),input.documents);
-  const work=page<InspectionRequest>(db,readableSources(db,requests,unavailable),input.requests);
+  const work=page<Omit<InspectionRequest,"fingerprint"|"decisions"> & {basis:string}>(db,readableSources(db,requests,unavailable),input.requests);
   const names=new Map<string,string>();
   function recordName(id:string) {
     if(names.has(id))return names.get(id)!;
@@ -64,19 +65,23 @@ export async function inspectMaintenanceStore(db:Store,raw:unknown,head:(objectI
       if(lead?.name)name=String(lead.name);}catch{/* Report still provides its reference. */}
     names.set(id,name);return name;
   }
-  const namedWork={...work,items:work.items.map(item=>({...item,recordName:recordName(item.recordId)}))};
+  const fingerprint=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const namedWork={...work,items:work.items.map(({basis,...item})=>({...item,recordName:recordName(item.recordId),
+    fingerprint:fingerprint({...item,basis}),decisions:[]}))};
   // Bounded page and deduplication keep checks inexpensive. Never return storage
   // keys, request payloads, signed URLs, borrower answers or provider tokens.
-  const checks=new Map<string,Promise<{availability:InspectionDocument["availability"];bytes:number|null}>>();
+  const checks=new Map<string,Promise<{availability:InspectionDocument["availability"];bytes:number|null;etag?:string}>>();
   const items=await Promise.all(files.items.map(async ({objectId,...item})=>{
-    if(!objectId)return {...item,recordName:recordName(item.recordId),availability:"No retained file" as const,bytes:null};
+    if(!objectId)return {...item,recordName:recordName(item.recordId),availability:"No retained file" as const,bytes:null,
+      fingerprint:fingerprint({...item,objectId}),decisions:[]};
     if(!checks.has(objectId))checks.set(objectId,(async()=>{
       // Object IDs are generated UUIDs. Refuse path-like values from old/corrupt records.
       if(!/^[a-f0-9-]{36}$/i.test(objectId))return {availability:"Check unavailable" as const,bytes:null};
-      try{const object=await head(objectId);return object?{availability:"Available" as const,bytes:object.size}:{availability:"Missing" as const,bytes:null};}
+      try{const object=await head(objectId);return object?{availability:"Available" as const,bytes:object.size,etag:object.etag}:{availability:"Missing" as const,bytes:null};}
       catch{return {availability:"Check unavailable" as const,bytes:null};}
     })());
-    return {...item,recordName:recordName(item.recordId),...await checks.get(objectId)!};
+    const {etag,...checked}=await checks.get(objectId)!;
+    return {...item,recordName:recordName(item.recordId),...checked,fingerprint:fingerprint({...item,objectId,...checked,etag}),decisions:[]};
   }));
   return {revision:input.revision,inspectedAt:new Date().toISOString(),records,unavailable:[...new Set(unavailable)],
     documents:{...files,items},requests:namedWork};

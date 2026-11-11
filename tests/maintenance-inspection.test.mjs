@@ -13,8 +13,8 @@ function fixture(){
     CREATE TABLE document_files(requestId TEXT,objectId TEXT,pendingId TEXT,attemptedAt INTEGER,uploadMode TEXT);
     CREATE TABLE document_acceptances(requestId TEXT,revision INTEGER);
     CREATE TABLE document_accepted_files(requestId TEXT,revision INTEGER,objectId TEXT);
-    CREATE TABLE uwm_live_requests(id TEXT,loanId TEXT,action TEXT,state TEXT,updatedAt TEXT,environment TEXT,result TEXT);
-    CREATE TABLE uwm_operations(id TEXT,loanId TEXT,kind TEXT,state TEXT,updatedAt TEXT,environment TEXT);`);
+    CREATE TABLE uwm_live_requests(id TEXT,loanId TEXT,action TEXT,state TEXT,updatedAt TEXT,environment TEXT,result TEXT,digest TEXT);
+    CREATE TABLE uwm_operations(id TEXT,loanId TEXT,kind TEXT,state TEXT,updatedAt TEXT,environment TEXT,requestDigest TEXT,transactionId TEXT,receiptId INTEGER);`);
   return {db,close:()=>sqlite.close()};
 }
 test("inspection checks retained/current bytes once, reports absent and unavailable distinctly, and never writes",async()=>{
@@ -40,12 +40,12 @@ test("inspection checks retained/current bytes once, reports absent and unavaila
 });
 test("inspection pages all unresolved rows, distinguishes acknowledgments, and omits payloads and finished operations",async()=>{
   const {db,close}=fixture();try{
-    for(let i=0;i<30;i++)db.prepare("INSERT INTO uwm_live_requests VALUES(?,?,'lock','Unknown','2026-11-11T12:00:00Z','stage',?)")
+    for(let i=0;i<30;i++)db.prepare("INSERT INTO uwm_live_requests VALUES(?,?,'lock','Unknown','2026-11-11T12:00:00Z','stage',?,'digest')")
       .run(String(i).padStart(2,"0"),"loan",'sensitive provider payload');
-    db.prepare("INSERT INTO uwm_live_requests VALUES('ack','loan','lock','Acknowledged','2026-11-11','stage',NULL)").run();
-    db.prepare("INSERT INTO uwm_live_requests VALUES('done','loan','reconcile-request','Acknowledged','2026-11-11','stage',NULL)").run();
-    db.prepare("INSERT INTO uwm_operations VALUES('finished','loan','import','Completed','2026-11-11','stage')").run();
-    db.prepare("INSERT INTO uwm_operations VALUES('prepared','loan','import','Prepared','2026-11-11','stage')").run();
+    db.prepare("INSERT INTO uwm_live_requests VALUES('ack','loan','lock','Acknowledged','2026-11-11','stage',NULL,'digest')").run();
+    db.prepare("INSERT INTO uwm_live_requests VALUES('done','loan','reconcile-request','Acknowledged','2026-11-11','stage',NULL,'digest')").run();
+    db.prepare("INSERT INTO uwm_operations VALUES('finished','loan','import','Completed','2026-11-11','stage','digest',NULL,NULL)").run();
+    db.prepare("INSERT INTO uwm_operations VALUES('prepared','loan','import','Prepared','2026-11-11','stage','digest',NULL,NULL)").run();
     const first=await inspectMaintenanceStore(db,{revision:2},async()=>null);
     assert.equal(first.requests.total,32);assert.equal(first.requests.items.length,25);assert.equal(first.requests.next,25);
     const last=await inspectMaintenanceStore(db,{revision:2,requests:first.requests.next},async()=>null);
@@ -77,5 +77,24 @@ test("document paging stays bounded and never follows path-like object reference
     const next=await inspectMaintenanceStore(db,{revision:2,documents:25},async()=>({size:10}));
     assert.equal(next.documents.items.length,3);assert.equal(next.documents.next,null);
     await assert.rejects(inspectMaintenanceStore(db,{revision:2,documents:50},async()=>null),/page changed/);
+  }finally{close();}
+});
+
+
+test("evidence fingerprints detect storage identity and provider response changes without exposing them",async()=>{
+  const {db,close}=fixture();try{
+    const objectId=randomUUID();
+    db.prepare("INSERT INTO document_requests VALUES('doc','Pay stub','loan',1)").run();
+    db.prepare("INSERT INTO document_files VALUES('doc',?,NULL,0,'mock')").run(objectId);
+    db.prepare("INSERT INTO uwm_live_requests VALUES('req','loan','lock','Unknown','2026-11-11','stage','private first response','digest')").run();
+    const before=await inspectMaintenanceStore(db,{revision:2},async()=>({size:120,etag:'first'}));
+    const same=await inspectMaintenanceStore(db,{revision:2},async()=>({size:120,etag:'first'}));
+    assert.equal(before.documents.items[0].fingerprint,same.documents.items[0].fingerprint);
+    db.prepare("UPDATE uwm_live_requests SET result='private changed response'").run();
+    const changed=await inspectMaintenanceStore(db,{revision:2},async()=>({size:120,etag:'different'}));
+    assert.notEqual(before.documents.items[0].fingerprint,changed.documents.items[0].fingerprint);
+    assert.notEqual(before.requests.items[0].fingerprint,changed.requests.items[0].fingerprint);
+    assert.ok(!JSON.stringify(changed).includes('private changed response'));
+    assert.ok(!JSON.stringify(changed).includes(objectId));
   }finally{close();}
 });

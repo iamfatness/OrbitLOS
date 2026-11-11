@@ -6,7 +6,7 @@ registerHooks({resolve(specifier,context,next){try{return next(specifier,context
   if(error.code!=="ERR_MODULE_NOT_FOUND"||!specifier.startsWith("./"))throw error;return next(`${specifier}.ts`,context);
 }}});
 const {initializeBrokerages}=await import("../src/lib/brokerages.ts");
-const {initializeMaintenance,maintenanceState,changeMaintenance,markMaintenanceDrained,maintenanceView}=await import("../src/lib/workspace-maintenance.ts");
+const {initializeMaintenance,maintenanceState,changeMaintenance,markMaintenanceDrained,maintenanceView,recordMaintenanceDecision,maintenanceDecisions}=await import("../src/lib/workspace-maintenance.ts");
 const {WorkspaceMaintenanceGate,guardWorkspaceMethods}=await import("../src/lib/workspace-maintenance-gate.ts");
 function fixture() {
   const sqlite=new DatabaseSync(":memory:");
@@ -74,4 +74,35 @@ test("service guard covers inherited public calls and newly added methods",async
   assert.throws(()=>instance.read(),/paused/);assert.throws(()=>instance.futureWrite(),/paused/);
   await assert.rejects(instance.asyncWrite(),/paused/);
   assert.equal(instance.control(),"control");gate.apply(0,false);assert.equal(instance.read(),"read");
+});
+
+
+test("inspection decisions are versioned, idempotent, and invalidate the prior reopening sign-off",()=>{
+  const {db,staff,close}=fixture();try{
+    changeMaintenance(db,staff,[],{type:"pause",revision:0,reason:"Fictional decision acceptance.",confirmation:staff.brokerage.name});
+    markMaintenanceDrained(db,staff.brokerage.id,1);
+    changeMaintenance(db,staff,[],{type:"review",revision:2,review:"Previous opening review.",checks:[true,true,true]});
+    const input={id:crypto.randomUUID(),revision:3,documents:0,requests:0,reference:"accepted:fixture:2",fingerprint:"a".repeat(64),
+      outcome:"Known sample limitation",note:"Older fictional sample has no retained PDF; no borrower upload or lender action occurred."};
+    assert.ok(recordMaintenanceDecision(db,staff,[],input,"b".repeat(64)).error);
+    const saved=recordMaintenanceDecision(db,staff,[],input,input.fingerprint);assert.equal(saved.decision.note,input.note);
+    assert.equal(maintenanceState(db,staff.brokerage.id).reviewedAt,null);
+    assert.deepEqual(maintenanceState(db,staff.brokerage.id).checks,[false,false,false]);
+    assert.equal(maintenanceState(db,staff.brokerage.id).revision,4);
+    assert.deepEqual(recordMaintenanceDecision(db,staff,[],input,input.fingerprint),saved);
+    assert.equal(maintenanceState(db,staff.brokerage.id).revision,4);
+    assert.ok(recordMaintenanceDecision(db,staff,[],{...input,note:"Changed payload under an existing decision reference."},input.fingerprint).error);
+    assert.ok(recordMaintenanceDecision(db,staff,[],{...input,id:crypto.randomUUID()},input.fingerprint).error);
+    const cycle=maintenanceState(db,staff.brokerage.id).startedAt;
+    assert.equal(maintenanceDecisions(db,staff.brokerage.id,cycle,[input.reference]).length,1);
+    assert.equal(maintenanceDecisions(db,"other",cycle,[input.reference]).length,0);
+    assert.equal(maintenanceDecisions(db,staff.brokerage.id,"earlier-cycle",[input.reference]).length,0);
+    assert.ok(changeMaintenance(db,staff,[],{type:"reopen",revision:4,confirmation:staff.brokerage.name}).error);
+    const updated=recordMaintenanceDecision(db,staff,[],{...input,id:crypto.randomUUID(),revision:4,outcome:"Preserve observed result",note:"Compared the retained sample evidence; preserving the observed state without a retry."},input.fingerprint);
+    assert.ok(updated.decision);
+    const history=maintenanceDecisions(db,staff.brokerage.id,cycle,[input.reference]);
+    assert.equal(history[0].id,updated.decision.id);assert.equal(history.length,2);
+    db.prepare("UPDATE brokerage_members SET status='Revoked'").run();
+    assert.ok(recordMaintenanceDecision(db,staff,[],input,input.fingerprint).error);
+  }finally{close();}
 });

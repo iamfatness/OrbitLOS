@@ -80,7 +80,8 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
             <label className="field">Enter {staff?.brokerage.name} to confirm<input name="confirmation" required autoComplete="off"/></label>
             <Button disabled={busy} type="submit">Pause workspace</Button>
           </form></section>:<>
-          <MaintenanceInspectionPanel key={view.revision} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}/>
+          <MaintenanceInspectionPanel key={view.startedAt} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
+            onDecisionSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
           <div className="maintenance-columns">
           <section className="pipeline relationship-panel"><h2>Reopening review</h2><p className="muted">Confirm the outcome of your investigation or recovery. Check each item only after reviewing its evidence.</p>
             <form key={view.startedAt} className="maintenance-form" onSubmit={event=>submit(event,"review")}>

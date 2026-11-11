@@ -1,6 +1,6 @@
 import { inspectMaintenanceStore } from "./lib/maintenance-inspection";
-import { maintenanceInspectionInput } from "./lib/maintenance-inspection-model";
-import { initializeMaintenance, maintenanceAdmin, maintenanceState, maintenanceView, changeMaintenance, markMaintenanceDrained } from "./lib/workspace-maintenance";
+import { maintenanceInspectionInput, maintenanceDecisionInput } from "./lib/maintenance-inspection-model";
+import { initializeMaintenance, maintenanceAdmin, maintenanceState, maintenanceView, changeMaintenance, markMaintenanceDrained, maintenanceDecisions, priorMaintenanceDecision, recordMaintenanceDecision } from "./lib/workspace-maintenance";
 import { maintenanceMessage, maintenanceInput, type MaintenanceView } from "./lib/workspace-maintenance-model";
 import { WorkspaceMaintenanceGate, guardWorkspaceMethods } from "./lib/workspace-maintenance-gate";
 import { workspaceMaintenancePage } from "./lib/staff-auth";
@@ -242,7 +242,30 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     // A review/reopen or access change during R2 reads invalidates the response.
     if(!gate.closed || gate.active || !await directory.mayInspectMaintenance(staff,input.revision))
       return {error:"Workspace status or access changed during inspection. Refresh before continuing."};
+    const decisions=await directory.readMaintenanceDecisions(staff,input.revision,[...report.documents.items,...report.requests.items].map(item=>item.reference));
+    if("error" in decisions)return decisions;
+    if(!gate.closed || gate.active)return {error:"Workspace activity changed during inspection. Refresh its status."};
+    for(const item of [...report.documents.items,...report.requests.items])item.decisions=decisions.items.filter(decision=>decision.reference===item.reference);
     return {inspection:report};
+  }
+  readMaintenanceDecisions(staff:WorkspaceStaff,revision:number,references:string[]) {
+    if(!this.mayInspectMaintenance(staff,revision) || !z.array(z.string().max(200)).max(50).safeParse(references).success)
+      return {error:"Inspection decisions are unavailable. Refresh the maintenance status."};
+    return {items:maintenanceDecisions(this.#store,staff.brokerage.id,maintenanceState(this.#store,staff.brokerage.id).startedAt!,references)};
+  }
+  async saveMaintenanceDecision(staff:WorkspaceStaff,raw:unknown) {
+    if(this.#id!==demoBrokerageId)return {error:"Inspection decisions are unavailable."};
+    const emails=[...(googleSettings(this.env)?.allowedEmails??[])],parsed=maintenanceDecisionInput.safeParse(raw);
+    if(!parsed.success || !maintenanceAdmin(this.#store,staff,emails) || maintenanceState(this.#store,staff.brokerage.id).mode!=="Paused")
+      return {error:"A current pilot admin and paused workspace are required."};
+    const input=parsed.data,prior=priorMaintenanceDecision(this.#store,staff,input);
+    if(prior)return "error" in prior?prior:{...prior,view:maintenanceView(this.#store,staff.brokerage.id,0)};
+    const result=await this.env.WORKSPACE.getByName(staff.brokerage.id).inspectWorkspaceMaintenance(staff,input);
+    if("error" in result)return result;
+    const item=[...result.inspection.documents.items,...result.inspection.requests.items].find(item=>item.reference===input.reference);
+    if(!item)return {error:"This record is no longer on the inspected page. Refresh the inspection."};
+    const saved=recordMaintenanceDecision(this.#store,staff,emails,input,item.fingerprint);
+    return "error" in saved?saved:{...saved,view:maintenanceView(this.#store,staff.brokerage.id,0)};
   }
   async manageWorkspaceMaintenance(staff: WorkspaceStaff,input?: unknown): Promise<MaintenanceView | {error:string}> {
     if (this.#id !== demoBrokerageId) return {error:"Maintenance controls unavailable."};
@@ -1194,7 +1217,7 @@ async function authorized(header: string | null, password: string) {
 }
 
 guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
-  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance"]));
+  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision"]));
 
 export default {
   async fetch(request, env, context) {
@@ -1394,6 +1417,10 @@ export default {
         const value=await directory.manageWorkspaceMaintenance(identity);
         return Response.json(value,{status:"error" in value?403:200,headers});
       }
+      if (request.method === "POST" && url.searchParams.get("decision") === "1") return borrowerJson(request,async input=>{
+        const value=await directory.saveMaintenanceDecision(identity,input);
+        return "error" in value?{status:409,error:value.error}:{value};
+      },4096);
       if (request.method === "POST") return borrowerJson(request,async input=>{
         const value=await directory.manageWorkspaceMaintenance(identity,input);
         return "error" in value ? {status:409,error:value.error} : {value};

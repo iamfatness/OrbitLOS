@@ -954,3 +954,8 @@ button:disabled { cursor: default; }
 .maintenance-inspection button { min-height: 44px; }
 
 .inspection-items summary { cursor: pointer; min-height: 44px; align-content: center; color: var(--muted); }
+
+.inspection-decision { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas, #f8f7fb); }
+.inspection-decision .maintenance-form { margin-top: 12px; }
+.inspection-decision ol { padding-inline-start: 20px; }
+.inspection-decision li { padding-block: 8px; }

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { maintenanceDecisionInput, type InspectionDecision, type MaintenanceDecisionInput } from "./maintenance-inspection-model";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { activeBrokerages } from "./brokerages";
@@ -10,7 +12,12 @@ export function initializeMaintenance(db: Store) {
     reason TEXT NOT NULL, startedAt TEXT, startedBy TEXT, reviewedAt TEXT, reviewedBy TEXT, review TEXT NOT NULL, checks TEXT NOT NULL
   ); CREATE TABLE IF NOT EXISTS brokerage_maintenance_history (
     id TEXT PRIMARY KEY, brokerageId TEXT NOT NULL REFERENCES brokerages(id), action TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL, note TEXT NOT NULL
-  ); CREATE INDEX IF NOT EXISTS brokerage_maintenance_history_recent ON brokerage_maintenance_history(brokerageId,at DESC,id DESC);`);
+  ); CREATE TABLE IF NOT EXISTS brokerage_maintenance_decisions (
+    id TEXT PRIMARY KEY, brokerageId TEXT NOT NULL REFERENCES brokerages(id), cycle TEXT NOT NULL,
+    reference TEXT NOT NULL, fingerprint TEXT NOT NULL, outcome TEXT NOT NULL, note TEXT NOT NULL,
+    actor TEXT NOT NULL, actorEmail TEXT NOT NULL, at TEXT NOT NULL, commandDigest TEXT NOT NULL
+  ); CREATE INDEX IF NOT EXISTS maintenance_decisions_reference ON brokerage_maintenance_decisions(brokerageId,cycle,reference,at DESC,id DESC);
+  CREATE INDEX IF NOT EXISTS brokerage_maintenance_history_recent ON brokerage_maintenance_history(brokerageId,at DESC,id DESC);`);
 }
 export function maintenanceState(db: Store, id: string): MaintenanceState {
   const row = db.prepare("SELECT * FROM brokerage_maintenance WHERE brokerageId = ?").get(id);
@@ -67,5 +74,38 @@ export function markMaintenanceDrained(db: Store,id: string,revision: number) {
       record(db,id,{...state,mode:"Paused",revision:revision+1},"Workspace paused","Orbit","No active workspace requests remain. Review interrupted or unresolved requests before reopening.",new Date().toISOString());
     }
     return maintenanceState(db,id);
+  });
+}
+
+
+const decisionDigest=(input:MaintenanceDecisionInput)=>createHash("sha256").update(JSON.stringify(input)).digest("hex");
+export function maintenanceDecisions(db:Store,id:string,cycle:string,references:string[]) {
+  return references.flatMap(reference=>db.prepare(`SELECT id,reference,fingerprint,outcome,note,actor,at FROM brokerage_maintenance_decisions
+    WHERE brokerageId=? AND cycle=? AND reference=? ORDER BY rowid DESC LIMIT 5`).all(id,cycle,reference)) as InspectionDecision[];
+}
+export function priorMaintenanceDecision(db:Store,staff:WorkspaceStaff,input:MaintenanceDecisionInput):{error:string}|{decision:InspectionDecision}|null {
+  const row=db.prepare("SELECT * FROM brokerage_maintenance_decisions WHERE id=?").get(input.id);
+  if(!row)return null;
+  const state=maintenanceState(db,staff.brokerage.id);
+  if(row.brokerageId!==staff.brokerage.id || row.actorEmail!==staff.email || row.cycle!==state.startedAt ||
+    row.commandDigest!==decisionDigest(input))return {error:"This decision reference belongs to a different review."};
+  const {id,reference,fingerprint,outcome,note,actor,at}=row;
+  return {decision:{id,reference,fingerprint,outcome,note,actor,at} as InspectionDecision};
+}
+export function recordMaintenanceDecision(db:Store,staff:WorkspaceStaff,emails:string[],raw:unknown,observedFingerprint:string,now=new Date().toISOString()):{error:string}|{decision:InspectionDecision} {
+  return db.transaction(()=>{
+    if(!maintenanceAdmin(db,staff,emails))return {error:"Only a current pilot admin can record inspection decisions."};
+    const parsed=maintenanceDecisionInput.safeParse(raw);
+    if(!parsed.success)return {error:"Choose an outcome and describe the evidence you reviewed."};
+    const input=parsed.data,state=maintenanceState(db,staff.brokerage.id);
+    if(state.mode!=="Paused" || !state.startedAt)return {error:"Pause and inspect the workspace before recording a decision."};
+    const prior=priorMaintenanceDecision(db,staff,input);if(prior)return prior;
+    if(state.revision!==input.revision)return {error:"Maintenance changed. Refresh before recording your decision."};
+    if(observedFingerprint!==input.fingerprint)return {error:"The inspected evidence changed. Inspect it again before deciding."};
+    db.prepare("INSERT INTO brokerage_maintenance_decisions (id,brokerageId,cycle,reference,fingerprint,outcome,note,actor,actorEmail,at,commandDigest) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(input.id,staff.brokerage.id,state.startedAt,
+      input.reference,input.fingerprint,input.outcome,input.note,staff.name,staff.email,now,decisionDigest(input));
+    record(db,staff.brokerage.id,{...state,revision:state.revision+1,reviewedAt:null,reviewedBy:null,checks:[false,false,false]},
+      "Recorded inspection decision",staff.name,`${input.reference} · ${input.outcome} · ${input.note}`,now);
+    return {decision:{id:input.id,reference:input.reference,fingerprint:input.fingerprint,outcome:input.outcome,note:input.note,actor:staff.name,at:now}};
   });
 }

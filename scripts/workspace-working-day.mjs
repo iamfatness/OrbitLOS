@@ -3572,9 +3572,25 @@ try {
     assert.match(await directory.rejectedPeerCall(brokerage,"read",null,identity),/paused/);
     assert.equal((await postResponse(endpoint,{type:"reopen",revision:paused.revision,confirmation:"Fictional Working Day"},owner)).status,409);
     const reviewed=await post(endpoint,{type:"review",revision:paused.revision,review:"Verified fictional saved work, documents, access and mock outcomes.",checks:[true,true,true]},owner);
+    const evidence=inspected.inspection.documents.items.find(item=>item.availability==="Available");
+    const decision={id:randomUUID(),revision:reviewed.revision,documents:0,requests:0,reference:evidence.reference,fingerprint:evidence.fingerprint,
+      outcome:"Preserve observed result",note:"Fictional sample PDF is present in storage. This check does not verify its contents or authorize any lender retry."};
+    assert.equal((await postResponse(endpoint+"&decision=1",decision,officer)).status,409);
+    assert.equal((await postResponse(endpoint+"&decision=1",{...decision,fingerprint:"0".repeat(64)},owner)).status,409);
+    const recorded=await post(endpoint+"&decision=1",decision,owner);
+    assert.ok(recorded.decision,JSON.stringify(recorded));assert.equal(recorded.view.reviewedAt,null);
+    assert.equal(recorded.view.revision,reviewed.revision+1);
+    const repeated=await post(endpoint+"&decision=1",decision,owner);
+    assert.equal(repeated.decision.id,recorded.decision.id);assert.equal(repeated.view.revision,recorded.view.revision);
+    assert.equal((await postResponse(endpoint,{type:"reopen",revision:recorded.view.revision,confirmation:"Fictional Working Day"},owner)).status,409);
+    try{await store.restartMaintenanceFixture();}catch{/* Following inspection verifies durable directory decisions. */}
+    const inspectedDecision=await (await inspect(recorded.view.revision)).json();
+    assert.equal(inspectedDecision.inspection.documents.items.find(item=>item.reference===evidence.reference).decisions[0].id,decision.id);
+    assert.deepEqual(inspectedDecision.inspection.records,inspected.inspection.records);
+    const finalReview=await post(endpoint,{type:"review",revision:recorded.view.revision,review:"Reviewed the recorded fictional decision and all reopening checks. No provider retry is authorized.",checks:[true,true,true]},owner);
     assert.equal((await postResponse(endpoint,{type:"reopen",revision:paused.revision,confirmation:"Fictional Working Day"},owner)).status,409);
-    const opened=await post(endpoint,{type:"reopen",revision:reviewed.revision,confirmation:"Fictional Working Day"},owner);
-    assert.equal(opened.mode,"Open");assert.equal(opened.history.length,4);
+    const opened=await post(endpoint,{type:"reopen",revision:finalReview.revision,confirmation:"Fictional Working Day"},owner);
+    assert.equal(opened.mode,"Open");assert.equal(opened.history.length,6);
     assert.equal((await inspect(paused.revision)).status,403);
     assert.deepEqual((await file(owner,loanId)).applications[0].draft,initial.applications[0].draft);
     assert.ok((await borrower(token,{type:"read"})).draft);
