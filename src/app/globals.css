@@ -673,6 +673,8 @@ button:disabled { cursor: default; }
 .processor-access-form select { width: 100%; }
 .processor-access-form .muted { flex-basis: 100%; margin: 0; }
 @media (max-width: 520px) {
+  .assignment-editor > .section-heading { flex-wrap: wrap; }
+  .assignment-editor .loan-application-actions > button { min-height: 44px; }
   .processor-access-form .field { flex-basis: 100%; }
   .processor-access-form :is(select, button) { min-height: 44px; }
 }

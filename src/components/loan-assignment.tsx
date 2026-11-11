@@ -151,7 +151,7 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
 
   const owners = detail?.members.filter(({ role, email }) => role !== "Processor" &&
     email !== detail.loan.officerEmail && email !== detail.processing?.processorEmail) ?? [];
-  return <div className="record-form">
+  return <div className="record-form assignment-editor">
     {error && <p ref={receiptFeedback} tabIndex={-1} role="alert" className="application-error">{error}</p>}
     {message && <p ref={receiptFeedback} tabIndex={-1} role="status" className="application-message">{message}</p>}
     {requestId && <div>
