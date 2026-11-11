@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { z } from "zod";
 import type { BrokerageMember } from "./brokerage-model";
 import { availableProcessingActions, processingActivityPrefix, staleProcessingHandoff, type LoanProcessing, type ProcessingAction, type ProcessingStatus, type updateProcessingInput } from "./processing-model";
@@ -18,23 +19,43 @@ export const unassignedProcessingLoan = `processing.processorEmail IS NULL AND c
 
 type Result = { message: string } | { error: string };
 type AssignmentResult = { message: string; processing?: LoanProcessing } | { error: string };
+export type ProcessorAssignmentReceipt = { outcome: "saved" | "newer" | "missing" };
 const nextStatus: Record<ProcessingAction, ProcessingStatus> = {
   "Send to processing": "Ready for processing", "Accept handoff": "In processing", "Return to LO": "Returned to LO", "Complete handoff": "Complete",
 };
 
 export function assignProcessor(db: Store, staff: WorkspaceStaff,
-  input: { loanId: string; revision: number; member: BrokerageMember | null; preserveHandoff?: boolean; requireUnassigned?: boolean }): AssignmentResult {
+  input: { loanId: string; revision: number; member: BrokerageMember | null; preserveHandoff?: boolean;
+    requireUnassigned?: boolean; requestId?: string }): AssignmentResult {
   if (staff.brokerage.role !== "Admin" || (input.requireUnassigned && !input.member) ||
     (input.member && (input.member.role !== "Processor" || input.member.status !== "Active"))) {
     return { error: "Select an active processor in this brokerage." };
   }
-  const { loanId, member, revision, requireUnassigned } = input;
+  const { loanId, member, revision, requireUnassigned, requestId } = input;
+  const intentHash = requestId ? createHash("sha256").update(JSON.stringify([
+    loanId, revision, member?.email ?? null, Boolean(input.preserveHandoff), Boolean(requireUnassigned),
+  ])).digest("hex") : null;
   return db.transaction(() => {
     const loan = db.prepare("SELECT officerEmail FROM loans WHERE id = ?").get(loanId);
     if (!loan) return { error: "This loan no longer exists." };
     if (member?.email === loan.officerEmail) return { error: "Assign a different staff member as the shared processor." };
     const current = db.prepare("SELECT * FROM loan_processing WHERE loanId = ?").get(loanId) as unknown as LoanProcessing | undefined;
+    if (requestId && intentHash) {
+      const prior = db.prepare("SELECT actorEmail, intentHash, revision FROM processor_assignment_receipts WHERE id = ?").get(requestId);
+      if (prior) {
+        if (prior.actorEmail !== staff.email || prior.intentHash !== intentHash) return { error: "This processor save belongs to a different request." };
+        if ((current?.revision ?? 0) !== prior.revision) return { error: "This change was saved. Refresh to see the newer processing update." };
+        return { message: "Processor access confirmed.", ...(requireUnassigned && current ? { processing: current } : {}) };
+      }
+      if ((current?.revision ?? 0) !== revision) return { error: "This processor assignment changed. Refresh before saving." };
+    }
+    const now = new Date().toISOString();
+    const recordReceipt = (savedRevision: number) => {
+      if (requestId && intentHash) db.prepare("INSERT INTO processor_assignment_receipts VALUES (?,?,?,?,?,?)")
+        .run(requestId, loanId, staff.email, intentHash, savedRevision, now);
+    };
     if ((current?.processorEmail ?? null) === (member?.email ?? null)) {
+      recordReceipt(revision);
       return { message: "Processor assignment is up to date.", ...(requireUnassigned && current ? { processing: { ...current } } : {}) };
     }
     if (requireUnassigned && ((current?.revision ?? 0) !== revision || !db.prepare(`SELECT 1 FROM loans loan
@@ -43,7 +64,6 @@ export function assignProcessor(db: Store, staff: WorkspaceStaff,
       return { error: "This file has changed or left the unassigned queue. Review the refreshed list." };
     }
     if ((current?.revision ?? 0) !== revision) return { error: "This processor assignment changed. Refresh before saving." };
-    const now = new Date().toISOString();
     const before = loanAuditSnapshot(db, loanId);
     const continuing = !!member && current && (input.preserveHandoff || current.status === "Ready for processing" ||
       current.status === "In processing" || current.status === "Returned to LO");
@@ -59,8 +79,17 @@ export function assignProcessor(db: Store, staff: WorkspaceStaff,
     const action = member ? "Assigned shared processor" : "Removed shared processor";
     accessEvent(db, staff, action, loanId, now);
     recordLoanAudit(db, loanId, staff, action, now, before);
+    recordReceipt(processing.revision);
     return { message, ...(requireUnassigned ? { processing } : {}) };
   });
+}
+
+export function readProcessorAssignmentReceipt(db: Store, staff: WorkspaceStaff, loanId: string, requestId: string): ProcessorAssignmentReceipt {
+  const receipt = db.prepare(`SELECT receipt.revision, coalesce(processing.revision, 0) AS currentRevision
+    FROM processor_assignment_receipts receipt JOIN loans loan ON loan.id = receipt.loanId
+    LEFT JOIN loan_processing processing ON processing.loanId = loan.id
+    WHERE receipt.id = ? AND receipt.loanId = ? AND receipt.actorEmail = ?`).get(requestId, loanId, staff.email);
+  return { outcome: !receipt ? "missing" : receipt.revision === receipt.currentRevision ? "saved" : "newer" };
 }
 
 export function updateProcessing(db: Store, staff: WorkspaceStaff | null, data: z.infer<typeof updateProcessingInput>, now: string): Result {

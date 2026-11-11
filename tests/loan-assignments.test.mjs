@@ -5,7 +5,7 @@ import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { readLoanAssignments } = await import("../src/lib/loan-assignments.ts");
-const { assignProcessor } = await import("../src/lib/loan-processing.ts");
+const { assignProcessor, readProcessorAssignmentReceipt } = await import("../src/lib/loan-processing.ts");
 const { assignLoan, loanAccess } = await import("../src/lib/workspace-access.ts");
 
 const brokerageId = "fictional-team";
@@ -75,4 +75,28 @@ test("assignment details reflect the committed roles, reject stale writes, and p
   assert.equal(open(loanId).loan.officerEmail, owner.email);
   assert.equal(db.prepare("SELECT dueAt FROM tasks WHERE id = 'follow-up'").get().dueAt, at);
   assert.equal(db.prepare("SELECT count(*) AS count FROM workspace_access_history WHERE action = 'Assigned shared processor'").get().count, 1);
+});
+
+test("processor assignment receipts prove the exact save across retries and newer changes", (t) => {
+  const { db, loan, open } = fixture(t);
+  const loanId = "receipt-file";
+  loan(loanId);
+  loan("other-file");
+  const actor = staff(owner);
+  const input = { loanId, revision: 0, member: processor, requestId: crypto.randomUUID() };
+  const receipt = () => readProcessorAssignmentReceipt(db, actor, loanId, input.requestId).outcome;
+  assert.equal(receipt(), "missing");
+  assert.match(assignProcessor(db, actor, input).message, /granted/);
+  assert.equal(receipt(), "saved");
+  assert.equal(assignProcessor(db, actor, input).message, "Processor access confirmed.");
+  assert.ok(assignProcessor(db, actor, { ...input, member: backup }).error);
+  assert.equal(readProcessorAssignmentReceipt(db, actor, "other-file", input.requestId).outcome, "missing");
+  assert.equal(readProcessorAssignmentReceipt(db, staff({ ...owner, email: "other-owner@example.test" }), loanId, input.requestId).outcome, "missing");
+
+  assert.ok(assignProcessor(db, actor, { loanId, revision: 1, member: backup, requestId: crypto.randomUUID() }).message);
+  assert.equal(receipt(), "newer");
+  assert.ok(assignProcessor(db, actor, input).error);
+  assert.ok(assignProcessor(db, actor, { ...input, member: backup, requestId: crypto.randomUUID() }).error);
+  assert.equal(open(loanId).processing.processorEmail, backup.email);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM workspace_access_history WHERE action = 'Assigned shared processor'").get().n, 2);
 });

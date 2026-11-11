@@ -102,7 +102,7 @@ import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
 import { readSharedRealtorQueue } from "./lib/realtor-claim-queue";
 import { assignWaitingRealtor, readRealtorQueueReport } from "./lib/realtor-queue-report";
 import { assignWaitingRealtorInput, realtorQueueReportUnavailable } from "./lib/realtor-queue-report-model";
-import { assignProcessor } from "./lib/loan-processing";
+import { assignProcessor, readProcessorAssignmentReceipt } from "./lib/loan-processing";
 import { loanAssignmentUnavailable, readLoanAssignments } from "./lib/loan-assignments";
 import { savePlaybookInput } from "./lib/playbook-model";
 import { readRecordHistory } from "./lib/record-history";
@@ -1492,6 +1492,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return assignProcessor(this.#store, staff, target);
   }
+  processorAssignmentReceipt(staff: WorkspaceStaff, loanId: string, requestId: string) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return null;
+    return readProcessorAssignmentReceipt(this.#store, staff, loanId, requestId);
+  }
 
   pilotReview(staff: WorkspaceStaff) {
     return this.#accepts(staff) && staff.brokerage.pilot && staff.brokerage.role === "Admin" ? pilotReview(this.#store) : {};
@@ -2095,6 +2099,16 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       if (request.method === "GET") {
         const view = url.searchParams.get("view");
+        if (view === "processor-assignment-receipt") {
+          if (url.searchParams.get("brokerage") !== staff.brokerage.id || staff.brokerage.role !== "Admin") {
+            return Response.json({ error: loanAssignmentUnavailable }, { status: 403, headers });
+          }
+          const loanId = z.string().min(1).max(100).safeParse(url.searchParams.get("loanId"));
+          const requestId = z.uuid().safeParse(url.searchParams.get("requestId"));
+          if (!loanId.success || !requestId.success) return Response.json({ error: loanAssignmentUnavailable }, { status: 400, headers });
+          const receipt = await workspace.processorAssignmentReceipt(staff, loanId.data, requestId.data);
+          return receipt ? Response.json(receipt, { headers }) : Response.json({ error: loanAssignmentUnavailable }, { status: 403, headers });
+        }
         if (view === "branches") {
           if (url.searchParams.get("brokerage") !== staff.brokerage.id) return Response.json({ error: branchesUnavailable }, { status: 403, headers });
           const result = await workspace.branches(staff);

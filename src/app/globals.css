@@ -669,6 +669,13 @@ button:disabled { cursor: default; }
 }
 .brokerage-form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .brokerage-form .field { flex: 1 1 145px; }
+.processor-access-form .field { flex: 0 1 360px; min-width: 0; }
+.processor-access-form select { width: 100%; }
+.processor-access-form .muted { flex-basis: 100%; margin: 0; }
+@media (max-width: 520px) {
+  .processor-access-form .field { flex-basis: 100%; }
+  .processor-access-form :is(select, button) { min-height: 44px; }
+}
 .staff-offboarding { display: grid; gap: 10px; min-width: 0; padding-top: 12px; border-top: 1px solid var(--line); }
 .staff-offboarding .field select { min-width: 0; width: 100%; }
 

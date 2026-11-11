@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import type { AssignmentDetail, AssignmentLoan, AssignmentPage } from "@/lib/loan-assignments";
 import type { ManualReturnAssignment } from "@/lib/lender-export-model";
+import type { ProcessorAssignmentReceipt } from "@/lib/loan-processing";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -12,6 +13,10 @@ type Change = { type: "assign"; loanId: string; previousEmail: string | null; em
   { type: "assignProcessor"; loanId: string; revision: number; email: string | null };
 const loadError = "Could not load loan assignment. Try again.";
 const endpoint = (brokerageId: string) => `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}`;
+
+function pendingProcessorSave(key: string) {
+  try { return sessionStorage.getItem(key) ?? ""; } catch { return ""; }
+}
 
 async function read<T>(brokerageId: string, input: Record<string, string>, signal?: AbortSignal) {
   const response = await fetch(`${endpoint(brokerageId)}&${new URLSearchParams(input)}`, { signal });
@@ -26,17 +31,19 @@ function ProcessorForm({ detail, busy, save }: {
   const current = processing?.processorEmail ?? "";
   const [processor, setProcessor] = useState(current);
   const options = members.filter(({ role, email }) => role === "Processor" && email !== loan.officerEmail);
-  return <form className="brokerage-form" onSubmit={(event) => {
+  return <form className="brokerage-form processor-access-form" onSubmit={(event) => {
     event.preventDefault();
     if (processor !== current) save({ type: "assignProcessor", loanId: loan.id, revision: processing?.revision ?? 0, email: processor || null });
   }}>
     <label className="field">Shared processor<select value={processor} onChange={(event) => setProcessor(event.target.value)} disabled={busy}>
       <option value="">No shared processor</option>
       {current && !options.some(({ email }) => email === current) && <option value={current} disabled>{current} · Unavailable</option>}
-      {options.map(({ name, email }) => <option key={email} value={email}>{name} · {email}</option>)}
+      {options.map(({ name, email }) => <option key={email} value={email}>
+        {options.some((other) => other.email !== email && other.name === name) ? `${name} · ${email}` : name}
+      </option>)}
     </select></label>
     <Button type="submit" size="sm" disabled={busy || processor === current}>Save processor access</Button>
-    <p className="muted">The loan owner keeps access and follow-up tasks. A replacement processor can continue the existing handoff.</p>
+    <p className="muted">The loan owner keeps access. A replacement processor can continue the handoff.</p>
   </form>;
 }
 
@@ -47,9 +54,15 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
   const [generation, setGeneration] = useState(0);
   const [data, setData] = useState<{ brokerageId: string; loanId: string; generation: number; version?: object;
     detail?: Assignment; error?: string }>();
-  const [saving, setSaving] = useState(false);
+  const [activity, setActivity] = useState<"save" | "check" | null>(null);
+  const saving = activity !== null;
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const receiptKey = `orbit:processor-save:${brokerageId}:${loanId}`;
+  const [requestId, setRequestId] = useState(() => manualReturn ? "" : pendingProcessorSave(receiptKey));
+  const [receiptMissing, setReceiptMissing] = useState(false);
+  const receiptFeedback = useRef<HTMLParagraphElement>(null);
+  const focusFeedback = useRef(false);
   const current = data?.brokerageId === brokerageId && data.loanId === loanId && data.generation === generation && data.version === version ? data : undefined;
   const detail = current?.detail;
   useEffect(() => {
@@ -61,31 +74,101 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
     });
     return () => controller.abort();
   }, [brokerageId, loanId, generation, version]);
+  useEffect(() => {
+    if (saving || !focusFeedback.current || !receiptFeedback.current) return;
+    focusFeedback.current = false;
+    receiptFeedback.current.focus();
+  }, [saving, error, message, requestId, receiptMissing]);
+
+  function trackProcessorSave(id: string) {
+    setRequestId(id);
+    setReceiptMissing(false);
+    try {
+      if (id) sessionStorage.setItem(receiptKey, id);
+      else sessionStorage.removeItem(receiptKey);
+    } catch {
+      // The editor can still check this request while the tab remains open.
+    }
+  }
+
+  function refreshAssignment() {
+    setGeneration((value) => value + 1);
+    onChanged();
+  }
 
   async function save(input: Change) {
     if (saving) return;
-    setSaving(true);
+    const id = input.type === "assignProcessor" ? crypto.randomUUID() : "";
+    if (id) {
+      trackProcessorSave(id);
+      focusFeedback.current = true;
+    }
+    setActivity("save");
     setMessage("");
     setError("");
     try {
-      const response = await fetch(endpoint(brokerageId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+      const response = await fetch(endpoint(brokerageId), { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(id ? { ...input, requestId: id } : input) });
       const result = await response.json() as { error?: string; message?: string };
       if (!response.ok) {
+        if (id && response.status >= 500) return;
+        if (id) trackProcessorSave("");
         if (response.status === 409 || response.status === 403) setGeneration((value) => value + 1);
-        throw new Error(result.error ?? "Orbit could not save the assignment.");
+        setError(result.error ?? "Orbit could not save the assignment.");
+        return;
       }
+      if (id && !result.message) return;
+      if (id) trackProcessorSave("");
       setMessage(result.message ?? "Assignment saved.");
-      setGeneration((value) => value + 1);
-      onChanged();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Orbit could not save the assignment."); }
-    finally { setSaving(false); }
+      refreshAssignment();
+    } catch (failure) {
+      if (!id) setError(failure instanceof Error ? failure.message : "Orbit could not save the assignment.");
+    }
+    finally { setActivity(null); }
+  }
+
+  async function checkProcessorSave() {
+    if (!requestId || saving) return;
+    focusFeedback.current = true;
+    setActivity("check");
+    setError("");
+    setMessage("");
+    setReceiptMissing(false);
+    try {
+      const result = await read<ProcessorAssignmentReceipt>(brokerageId, { view: "processor-assignment-receipt", loanId, requestId });
+      if (result.outcome === "missing") setReceiptMissing(true);
+      else if (result.outcome === "saved" || result.outcome === "newer") {
+        trackProcessorSave("");
+        setMessage(result.outcome === "saved" ? "Processor access confirmed." : "This change was saved. A newer processing update is shown below.");
+        refreshAssignment();
+      } else throw new Error(loadError);
+    } catch {
+      setError("Orbit couldn’t check this save. Try checking again.");
+    } finally {
+      setActivity(null);
+    }
   }
 
   const owners = detail?.members.filter(({ role, email }) => role !== "Processor" &&
     email !== detail.loan.officerEmail && email !== detail.processing?.processorEmail) ?? [];
   return <div className="record-form">
-    {error && <p role="alert" className="application-error">{error}</p>}
-    {message && <p role="status" className="application-message">{message}</p>}
+    {error && <p ref={receiptFeedback} tabIndex={-1} role="alert" className="application-error">{error}</p>}
+    {message && <p ref={receiptFeedback} tabIndex={-1} role="status" className="application-message">{message}</p>}
+    {requestId && <div>
+      <p ref={!error ? receiptFeedback : undefined} tabIndex={-1} role="status" className="application-message">
+        {activity === "save" ? "Saving processor access…" : activity === "check" ? "Checking processor access…" :
+          receiptMissing ? "No confirmation found yet. You can check again or review the current processor." :
+          "Orbit couldn’t confirm the processor change."}</p>
+      <div className="loan-application-actions">
+        <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => void checkProcessorSave()}>Check processor change</Button>
+        {receiptMissing && <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => {
+          trackProcessorSave("");
+          focusFeedback.current = true;
+          setMessage("Review the current processor before making another change.");
+          setGeneration((value) => value + 1);
+        }}>Review current access</Button>}
+      </div>
+    </div>}
     {!current && <p className="muted" role="status">Loading assignment…</p>}
     {current?.error && <div><p role="alert">{current.error}</p><Button size="sm" variant="outline" onClick={() => setGeneration((value) => value + 1)}>Retry assignment</Button></div>}
     {detail && <>
@@ -113,7 +196,7 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
           "Open tasks follow the new owner at their existing deadlines."}</p>
       </form>
       {!manualReturn && <ProcessorForm key={`${loanId}:${detail.processing?.revision ?? 0}:${detail.processing?.processorEmail ?? ""}`} detail={detail}
-        busy={saving} save={(input) => void save(input)} />}
+        busy={saving || Boolean(requestId)} save={(input) => void save(input)} />}
     </>}
   </div>;
 }

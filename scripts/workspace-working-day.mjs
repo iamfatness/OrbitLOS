@@ -485,7 +485,16 @@ try {
       assert.equal(before.processor, null);
       const assign = (input) => post(`/api/brokerages?brokerage=${receiving}`, { loanId, ...input }, owner);
       assert.ok((await assign({ type: "assign", previousEmail: owner.email, email: officer.email })).message);
-      assert.ok((await assign({ type: "assignProcessor", email: processor.email, revision: 0 })).message);
+      const requestId = randomUUID();
+      const processorChange = { type: "assignProcessor", email: processor.email, revision: 0, requestId };
+      const receipt = (actor, scope) => readTeam(actor, { view: "processor-assignment-receipt", loanId, requestId }, scope);
+      assert.deepEqual(await (await receipt(owner, receiving)).json(), { outcome: "missing" });
+      assert.ok((await assign(processorChange)).message);
+      assert.deepEqual(await (await receipt(owner, receiving)).json(), { outcome: "saved" });
+      assert.equal((await assign(processorChange)).message, "Processor access confirmed.");
+      assert.equal((await receipt(officer, receiving)).status, 403);
+      assert.equal((await receipt(processor, receiving)).status, 403);
+      assert.deepEqual(await (await receipt(owner, sending)).json(), { outcome: "missing" });
       const prepared = { type: "restoreCutoverWork", ...query, preview: before.fingerprint };
       assert.match((await change(receiving, prepared)).error, /preview changed/);
       const updated = (await inventory()).openWork;

@@ -539,6 +539,11 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE INDEX IF NOT EXISTS processing_by_assignee ON loan_processing(processorEmail, loanId);
     CREATE INDEX IF NOT EXISTS processing_by_updated ON loan_processing(updatedAt, loanId);
     CREATE INDEX IF NOT EXISTS processing_by_assignee_updated ON loan_processing(processorEmail, updatedAt, loanId);
+    CREATE TABLE IF NOT EXISTS processor_assignment_receipts (
+      id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      actorEmail TEXT NOT NULL, intentHash TEXT NOT NULL, revision INTEGER NOT NULL, recordedAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS processor_assignment_receipts_by_loan ON processor_assignment_receipts(loanId);
     CREATE TABLE IF NOT EXISTS loan_conversations (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       contactId TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
