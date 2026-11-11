@@ -1,6 +1,6 @@
 # UWM outbound API workflows
 
-Implemented November 11, 2026. These are authenticated backend workflows, separate from the existing simulated pricing and loan-action screens. A successful local test is not UWM certification. Production personal sign-in, approved upload origins, actual lender deliveries and end-to-end stage acceptance remain required.
+Implemented November 11, 2026. Authenticated loan-screen controls now call these workflows in configured non-pilot workspaces. The 1003 tab handles XML review, lender corrections and submission; Conditions handles upload, attachment editing and underwriting delivery; Pricing & credit handles product search, float, lock, relock, extension and cancellation. Pilot screens remain simulated. A successful local test is not UWM certification. Production personal sign-in, approved upload origins, actual lender deliveries and end-to-end stage acceptance remain required.
 
 ## Orbit endpoints
 
@@ -55,4 +55,4 @@ Audit evidence retains actor, application revision, timestamps, request digest, 
 - UWM registers the endpoints in [webhook handoff](uwm-webhook-handoff.md) and sends actual deliveries.
 - A UWM-approved synthetic stage file exercises create/upload/scan/correct/commit/callback, document upload/attach/submit, and each rate action independently.
 - Actual CloudEvents loan-number location and ULAD samples before automatically applying status/date/XML payloads to borrower files.
-- Loan-screen controls still use their existing manual/simulated behavior; these API endpoints do not silently enable those old buttons for live lender actions.
+Loan-screen mutations display the environment and selected terms before explicit confirmation. Returning to edit preserves the form. An uncertain browser response keeps the original request ID; its status must be checked before another intent. Administrators can record independently verified lender outcomes from request activity. XML and document upload controls explain when approved storage configuration is still missing.

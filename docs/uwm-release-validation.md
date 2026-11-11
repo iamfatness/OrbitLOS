@@ -74,3 +74,12 @@ Previous production version for rollback: `0c726fcb-f9c8-411a-8046-3cb16353a430`
 ## Not validated or activated
 
 No UWM user-password grant, live loan submission, document delivery, rate-lock action or authenticated webhook delivery has been exercised. The Developer Portal remains at sign-in. Stage Google authentication, a distinct test brokerage, per-environment user-access secrets and webhook configuration are still required. See [activation work](uwm-release.md) and the [UWM message](uwm-webhook-handoff.md).
+
+
+## Loan-screen API controls — November 11, 2026
+
+Configured non-pilot loans now expose separate reviewed import, document delivery and rate-request controls. Every write has a visible confirmation, explicit environment and preserved intent ID after an uncertain response. Uploaded files remain separate from underwriting delivery. The existing pilot behavior is preserved.
+
+Local acceptance used the actual React component with synthetic local API responses only: branch/contact selection, reviewed XML, scan correction, separate commit, held-document attachment and underwriting submission, product search, float and full lock terms, confirmation back-navigation preserving entered values. A 390-pixel viewport had no horizontal overflow. No real borrower file or financial request was sent. Screenshots are in the ignored release `.orbit/uwm-loan-confirmation.png` and `.orbit/uwm-loan-mobile.png`.
+
+460 automated tests passed, plus typecheck and full lint. Includes rate-body tests for explicit choices, decimal rates, correct numeric/string types, and full relock/extension fields. UWM-approved storage origins and actual lender end-to-end acceptance remain outstanding. Personal login status must be verified independently; an Orbit Google session does not establish a UWM grant.

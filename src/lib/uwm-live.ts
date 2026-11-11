@@ -26,7 +26,7 @@ export function uwmConnectionSettings(env: UwmEnvironment, staff: WorkspaceStaff
     pricing: !fictional ? "Not configured" : env.ORBIT_PRICING_MODE !== "uwm-stage" ? "Sample pricing" :
       hasStageCredentials ? "UWM stage API" : "Stage credentials required",
     pipeline: connected && env.UWM_INSIGHTS_CLIENT_ID && env.UWM_INSIGHTS_CLIENT_SECRET ? "UWM Insights" : fictional ? "Sample pipeline" : "Insights credentials required",
-    lenderActions: fictional ? "Simulated" : "Onboarding required",
+    lenderActions: fictional ? "Simulated" : connected ? "Loan-screen controls" : "Onboarding required",
   };
 }
 

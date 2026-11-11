@@ -238,7 +238,8 @@ export async function readUwmFile(db: Store, env: UwmEnvironment, staff: Workspa
   const input = z.strictObject({ loanId: z.uuid(), view: z.enum(["activity", "documents", "products"]), body: uwmProductSearch.optional() }).parse(raw);
   const environment = context(db, env, staff, input.loanId);
   if (input.view === "activity") return {
-    imports: db.prepare(`SELECT op.id,op.applicationRevision,op.state,op.transactionId,op.lenderLoanNumber,checks.scan,checks.ready,checks.committed
+    uploads: { xml: Boolean(env.UWM_STORAGE_ORIGIN), documents: Boolean(env.UWM_DOCUMENT_STORAGE_ORIGIN) },
+    imports: db.prepare(`SELECT op.id,op.actor,op.applicationRevision,op.state,op.transactionId,op.lenderLoanNumber,checks.scan,checks.ready,checks.committed
       FROM uwm_operations op LEFT JOIN uwm_import_checks checks ON checks.operationId=op.id
       WHERE op.loanId=? AND op.environment=? AND op.kind='import' ORDER BY op.startedAt DESC LIMIT 20`).all(input.loanId, environment),
     requests: db.prepare("SELECT id,action,state,createdAt,updatedAt FROM uwm_live_requests WHERE loanId=? AND environment=? ORDER BY createdAt DESC LIMIT 50").all(input.loanId, environment),

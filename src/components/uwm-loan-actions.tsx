@@ -1,0 +1,226 @@
+"use client";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { RefreshCw, ShieldCheck } from "lucide-react";
+import type { StaffApplication } from "@/lib/application-model";
+import type { WorkspaceStaff } from "@/lib/staff-store";
+import { uwmActionLabels, uwmRateBody, uwmRateFields, type RateAction, type UwmField } from "@/lib/uwm-loan-ui";
+import { uwmConditionAttachments, uwmDocumentType } from "@/lib/uwm-public-contracts";
+import { UwmAccount } from "./uwm-account";
+import { Button } from "./ui/button";
+
+type Account = { configured: boolean; connectedAt: string | null; environment: string; message: string };
+type Import = { id: string; actor: string; state: string; applicationRevision: number; lenderLoanNumber: string | null; scan: string | null; ready: number; committed: number };
+type Activity = { uploads: {xml:boolean;documents:boolean}; imports: Import[]; requests: {id:string;action:string;state:string;createdAt:string}[] };
+type Branch = {entityId:number;name:string|null;contacts:{contactId:number;firstName:string|null;lastName:string|null}[]};
+type Attachment = {attachmentId:number;revisionId:string;documentType:string;comments:string;SubmittedDateTime:string|null;files:{documentId:number}[];conditions:string[]};
+type Documents = {documents:{documentId:number;fileName:string}[];attachments:Attachment[]};
+type Pending = {action:string;payload:Record<string,unknown>;summary:[string,string][];id:string;revision:number};
+const formValues = (form: HTMLFormElement) => Object.fromEntries(Array.from(new FormData(form).entries()).map(([key,value])=>[key,String(value)]));
+async function json<T>(url:string, body?:unknown, signal?:AbortSignal) {
+  const response=await fetch(url,{method:body===undefined?"GET":"POST",cache:"no-store",signal,
+    ...(body===undefined?{}:{headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})});
+  if(response.redirected || response.status===401) throw new Error("Your Orbit session ended. Sign in again before continuing.");
+  const result=await response.json().catch(()=>{throw new Error("Orbit returned an unreadable response. Refresh the request status before continuing.");});
+  const error = result && typeof result === "object" && "error" in result ? String(result.error) : "";
+  if(!response.ok || error) throw new Error(error || "UWM could not complete this request.");
+  return result as T;
+}
+
+export function UwmLoanActions({loanId,staff,application,view}:{loanId:string;staff:WorkspaceStaff;application?:StaffApplication;view:"import"|"documents"|"rates"}) {
+  const [account,setAccount]=useState<Account|null>(null), [activity,setActivity]=useState<Activity|null>(null);
+  const [error,setError]=useState(""), [message,setMessage]=useState(""), [busy,setBusy]=useState(false), [loading,setLoading]=useState(true);
+  const [pending,setPending]=useState<Pending|null>(null), [uncertain,setUncertain]=useState<string|null>(null);
+  const [branches,setBranches]=useState<Branch[]>([]), [branch,setBranch]=useState("");
+  const [documents,setDocuments]=useState<Documents|null>(null), [rateAction,setRateAction]=useState<RateAction>("products");
+  const [products,setProducts]=useState<unknown[]|null>(null);
+  const confirmation=useRef<HTMLDivElement>(null);
+  useEffect(()=>{if(pending)confirmation.current?.focus();},[pending]);
+  const sending=useRef(false), endpoint=`/api/uwm-file?brokerage=${encodeURIComponent(staff.brokerage.id)}`;
+  const accountUrl=`/api/uwm-account?brokerage=${encodeURIComponent(staff.brokerage.id)}`;
+  const readUrl=`/api/uwm-file/read?brokerage=${encodeURIComponent(staff.brokerage.id)}`;
+  const reviewed=!!application?.submittedAt && !!application.reviewedAt && !application.correctionNote;
+  const linked=activity?.imports.find(item=>item.state==="Completed" && item.lenderLoanNumber);
+  const importReview=activity?.imports.find(item=>item.state==="Prepared" && !item.committed && item.scan);
+  const unresolved=activity?.requests.some(item=>["Unknown","Dispatching"].includes(item.state));
+  const connected=!!account?.configured && !!account.connectedAt;
+  const canWrite=connected && reviewed && !unresolved && !uncertain && !busy;
+  const processor=staff.brokerage.role==="Processor";
+
+  useEffect(()=>{
+    const controller=new AbortController();
+    (async()=>{
+      try {
+        const current=await json<Account>(accountUrl,undefined,controller.signal) as Account;setAccount(current);
+        if(current.configured) setActivity(await json<Activity>(readUrl,{loanId,view:"activity"},controller.signal));
+      } catch(failure) {if(!controller.signal.aborted)setError(failure instanceof Error?failure.message:"UWM status is unavailable.");}
+      finally {if(!controller.signal.aborted)setLoading(false);}
+    })();
+    return()=>controller.abort();
+  },[accountUrl,readUrl,loanId]);
+  async function refresh() {
+    setBusy(true);setError("");
+    try {
+      setAccount(await json<Account>(accountUrl));
+      const next=await json(readUrl,{loanId,view:"activity"}) as Activity;setActivity(next);
+      if(uncertain && next.requests.some(item=>item.id===uncertain && !["Dispatching","Unknown"].includes(item.state)))setUncertain(null);
+    } catch(failure){setError(failure instanceof Error?failure.message:"Status could not be refreshed.");}
+    finally{setBusy(false);}
+  }
+  function review(action:string,payload:Record<string,unknown>,summary:[string,string][]) {
+    setError("");setMessage("");setPending({action,payload,summary,id:crypto.randomUUID(),revision:application?.revision??0});
+  }
+  async function send() {
+    if(!pending || sending.current || !application) return;
+    sending.current=true;setBusy(true);setError("");
+    const request={...pending.payload,action:pending.action,id:pending.id,loanId,applicationRevision:pending.revision,confirmed:true};
+    let definitive=false;
+    try {
+      // Keep the id on any network failure. Never create a new intent to retry an
+      // uncertain response; refresh and reconcile the durable request instead.
+      const response=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(request)});
+      if(response.redirected)throw new Error("Sign in to Orbit again, then check request status before sending anything else.");
+      const result=await response.json().catch(()=>{throw new Error("Orbit returned an unreadable response. Check the original request before continuing.");}) as {id?:string;state?:string;error?:string;result?:{message?:string}};
+      definitive=Boolean(result.id) || (!response.ok && response.status<500);
+      if(result.id && result.state==="Rejected") {setPending(null);throw new Error(result.error || "UWM rejected this request.");}
+      if(!response.ok || result.error || ["Unknown","Dispatching"].includes(result.state??"")) {
+        if(result.id || !definitive)setUncertain(pending.id);throw new Error(result.error || "The outcome is not confirmed. Refresh and verify the lender file before another request.");
+      }
+      definitive=true;setUncertain(null);
+      setMessage(result.result?.message || `${uwmActionLabels[pending.action]} acknowledged. Refresh to check the latest lender outcome.`);
+      setPending(null);setProducts(null);setDocuments(null);
+      setActivity(await json<Activity>(readUrl,{loanId,view:"activity"}));
+    } catch(failure) {
+      setError(failure instanceof Error?failure.message:"Request outcome is unknown. Check its status before continuing.");
+      // Unknown browser/network outcomes also block a new request until checked.
+      if(!definitive)setUncertain(pending.id);
+      else setPending(null);
+    } finally{setBusy(false);sending.current=false;}
+  }
+  async function brokerAccess() {
+    setBusy(true);setError("");
+    try {const result=await json<{associations:{branches:Branch[]};message:string}>(accountUrl,{action:"verify"});setBranches(result.associations.branches);setMessage(result.message);}
+    catch(failure){setError(failure instanceof Error?failure.message:"Broker access unavailable.");}
+    finally{setBusy(false);}
+  }
+  async function prepareImport(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault();const form=event.currentTarget,values=formValues(form),file=new FormData(form).get("xml");
+    try {
+      if(!(file instanceof File)||!file.size||file.size>1024*1024)throw new Error("Choose a MISMO XML file no larger than 1 MiB.");
+      const xml=await file.text();
+      review("prepare-import",{xml,scan:{entityId:values.entityId,contactId:values.contactId}},[["File",file.name],["Application",`Reviewed revision ${application?.revision}`],["Branch",branches.find(item=>String(item.entityId)===values.entityId)?.name || values.entityId],["Action","Upload to UWM and check required fields. This does not commit the loan."]]);
+    } catch(failure){setError(failure instanceof Error?failure.message:"Could not read this XML file.");}
+  }
+  async function uploadDocument(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault();const file=new FormData(event.currentTarget).get("document");
+    try {
+      if(!(file instanceof File)||!file.size||file.size>6*1024*1024)throw new Error("Choose a document no larger than 6 MiB.");
+      const bytes=new Uint8Array(await file.arrayBuffer());let binary="";
+      for(let offset=0;offset<bytes.length;offset+=8192)binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
+      review("upload-document",{fileName:file.name,content:btoa(binary)},[["File",file.name],["UWM loan",linked?.lenderLoanNumber || ""],["Action","Upload and hold. Underwriting submission is a separate step."]]);
+    } catch(failure){setError(failure instanceof Error?failure.message:"Could not read this document.");}
+  }
+  async function loadDocuments() {setBusy(true);setError("");try{setDocuments(await json<Documents>(readUrl,{loanId,view:"documents"}));}catch(failure){setError(failure instanceof Error?failure.message:"Documents unavailable.");}finally{setBusy(false);}}
+  async function price(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault();const values=formValues(event.currentTarget);
+    try {
+      const body=uwmRateBody(rateAction,values);
+      if(rateAction==="products") {setBusy(true);const result=await json<{CanSeePricing:boolean;UserHasExternalViewPricingPermission:boolean;Quote:{QuoteSet:{ValidQuotes:unknown[]}}}>(readUrl,{loanId,view:"products",body});
+        if(!result.CanSeePricing || !result.UserHasExternalViewPricingPermission)throw new Error("UWM has not granted pricing access for this loan.");
+        setProducts(result.Quote.QuoteSet.ValidQuotes);setError("");return;}
+      const terms=uwmRateFields(rateAction).filter(field=>values[field.name]).map(field=>[field.label,field.type==="boolean"?(values[field.name]==="true"?"Yes":"No"):field.options?.find(option=>option[0]===values[field.name])?.[1] || values[field.name]] as [string,string]);
+      review(rateAction,rateAction==="cancel-lock"?{}:{body},[["UWM loan",linked?.lenderLoanNumber || ""],...terms]);
+    }catch(failure){setError(failure instanceof Error?failure.message:"Check the rate terms.");}finally{setBusy(false);}
+  }
+  return <section className="uwm-loan-card" aria-label={`UWM ${view}`} aria-busy={busy||loading}>
+    <div className="section-heading"><div><span className="uwm-eyebrow">United Wholesale Mortgage</span><h3>{view==="import"?"Submit to UWM":view==="documents"?"Deliver documents to UWM":"UWM products & rate requests"}</h3></div>
+      <Button variant="outline" size="sm" disabled={busy||loading} onClick={()=>void refresh()}><RefreshCw size={14}/> Refresh</Button></div>
+    {loading?<p role="status">Checking your UWM connection…</p>:<>
+      <p className="uwm-loan-status"><ShieldCheck size={16}/>{account?.environment==="production"?"Production":"Test environment"} · {linked?`UWM loan ${linked.lenderLoanNumber}`:connected?"Account connected · no completed import":"Account connection needed"}</p>
+      {!connected && <UwmAccount brokerageId={staff.brokerage.id} onConnectionChange={()=>void refresh()}/>}
+      {connected && !reviewed && <p className="uwm-feedback">Submit and mark the current 1003 reviewed before sending lender requests.</p>}
+      {(unresolved||uncertain) && <p className="uwm-feedback">An earlier request needs verification. Refresh its status and check the lender file before sending again.</p>}
+      {message && <p role="status" className="uwm-feedback">{message}</p>}
+      {error && <p role="alert" className="uwm-feedback is-error">{error}</p>}
+      {pending && <div ref={confirmation} tabIndex={-1} className="uwm-confirm" role="region" aria-label="Review UWM request"><h4>Review: {uwmActionLabels[pending.action]}</h4>
+        <p>This sends the displayed request to UWM{account?.environment==="production"?" in production":" in the test environment"}.</p>
+        <dl>{pending.summary.map(([label,value],index)=><div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+        <div className="loan-application-actions"><Button disabled={busy} onClick={()=>void send()}>{uncertain===pending.id?"Check original request":`Confirm ${uwmActionLabels[pending.action].toLowerCase().replace(/uwm/g,"UWM")}`}</Button><Button variant="outline" disabled={busy||uncertain===pending.id} onClick={()=>setPending(null)}>Back to editing</Button></div></div>}
+      <div hidden={!!pending}>
+      {view==="import" && !processor && <>
+        {linked?<p>UWM confirmed this import. Open Conditions for document delivery or Pricing &amp; credit for rate requests.</p>:importReview?<ImportReview key={importReview.id+importReview.scan} item={importReview} editable={canWrite && importReview.actor===staff.email && importReview.applicationRevision===application?.revision} review={review}/>:<>
+          {activity && !activity.uploads.xml && <p className="uwm-feedback">Submission controls are ready. Orbit still needs UWM’s approved upload address before files can be sent.</p>}
+          <Button variant="outline" disabled={!connected||busy} onClick={()=>void brokerAccess()}>Load my UWM branches</Button>
+          <form className="uwm-loan-form" onSubmit={event=>void prepareImport(event)}><fieldset disabled={!canWrite||!activity?.uploads.xml}>
+            <label className="field"><span>UWM branch</span><select name="entityId" required value={branch} onChange={event=>setBranch(event.target.value)}><option value="">Choose a branch</option>{branches.map(item=><option key={item.entityId} value={item.entityId}>{item.name||`Branch ${item.entityId}`}</option>)}</select></label>
+            <label className="field"><span>UWM loan officer</span><select name="contactId" key={branch} required defaultValue=""><option value="">Choose a loan officer</option>{branches.find(item=>String(item.entityId)===branch)?.contacts.map(item=><option key={item.contactId} value={item.contactId}>{[item.firstName,item.lastName].filter(Boolean).join(" ")||`Contact ${item.contactId}`}</option>)}</select></label>
+            <label className="field"><span>Reviewed MISMO XML</span><input name="xml" type="file" accept=".xml,application/xml,text/xml" required/></label>
+            <label className="uwm-check"><input type="checkbox" required/>I reviewed this XML against the current borrower application.</label>
+            <Button type="submit">Review submission check</Button></fieldset></form>
+          {activity?.imports.some(item=>["Acknowledged","Dispatching","Unknown"].includes(item.state))&&<p>Import sent or awaiting confirmation. Refresh for UWM’s completion notification.</p>}
+        </>}
+      </>}
+      {view==="documents" && <>
+        {!linked?<p>Document delivery becomes available after UWM confirms this loan’s import.</p>:<>
+          {!activity?.uploads.documents && <p className="uwm-feedback">Orbit still needs UWM’s approved document upload address. Existing held documents can be reviewed below.</p>}
+          <form className="uwm-loan-form" onSubmit={event=>void uploadDocument(event)}><fieldset disabled={!canWrite||!activity?.uploads.documents}><label className="field"><span>Document to upload</span><input type="file" name="document" required accept=".pdf,.doc,.docx,.txt,.tif,.tiff,.gif,.jpg,.jpeg,.png,.xls,.xlsx,.csv,.heif,.heic,.bmp"/></label><Button type="submit">Review document upload</Button></fieldset></form>
+          <Button variant="outline" disabled={!connected||busy} onClick={()=>void loadDocuments()}>Load UWM documents &amp; attachments</Button>
+          {documents && <DocumentActions documents={documents} disabled={!canWrite} review={review}/>}
+        </>}
+      </>}
+      {view==="rates" && !processor && <>
+        {!linked?<p>Live product search and rate requests become available after UWM confirms this loan’s import.</p>:<>
+          <label className="field"><span>UWM action</span><select value={rateAction} disabled={busy} onChange={event=>{setRateAction(event.target.value as RateAction);setError("");}}>{(["products","float","lock","relock","extend-lock","cancel-lock"] as RateAction[]).map(action=><option value={action} key={action}>{uwmActionLabels[action]}</option>)}</select></label>
+          <p className="muted">Use the product number and terms from your UWM quote. Requests remain pending until verified with UWM. No term is selected for you.</p>
+          <form className="uwm-loan-form" key={rateAction} onSubmit={event=>void price(event)}><fieldset disabled={rateAction==="products"?!connected||busy:!canWrite}>
+            <div className="uwm-fields">{uwmRateFields(rateAction).filter(field=>!field.optional).map(field=><RateInput key={field.name} field={field}/>)}</div>
+            {uwmRateFields(rateAction).some(field=>field.optional)&&<details><summary>Additional fees and program options</summary><div className="uwm-fields">{uwmRateFields(rateAction).filter(field=>field.optional).map(field=><RateInput key={field.name} field={field}/>)}</div></details>}
+            {rateAction==="cancel-lock"&&<p>This requests cancellation of the rate lock on UWM loan {linked.lenderLoanNumber}. Review the lender’s cancellation consequences before confirming.</p>}
+            <Button type="submit">{rateAction==="products"?"Find UWM products":"Review rate request"}</Button></fieldset></form>
+          {products && <div className="uwm-products"><h4>UWM returned {products.length} products</h4>{products.map((product,index)=><ProductDetails key={index} product={product}/>)}{!products.length&&<p>No products were returned for these options.</p>}</div>}
+        </>}
+      </>}
+      </div>
+      {!!activity?.requests.length && <details className="uwm-loan-history"><summary>UWM request activity</summary><ul>{activity.requests.map(request=><li key={request.id}><div><strong>{uwmActionLabels[request.action]||request.action}</strong><span>{request.state==="Acknowledged"?"Request acknowledged — verify lender outcome":request.state} · {new Date(request.createdAt).toLocaleString()}</span></div>
+        {staff.brokerage.role==="Admin"&&["Unknown","Dispatching","Acknowledged"].includes(request.state)&&<form onSubmit={event=>{event.preventDefault();const values=formValues(event.currentTarget);review("reconcile-request",{requestId:request.id,outcome:values.outcome,evidence:values.evidence},[["Request",uwmActionLabels[request.action]||request.action],["Outcome",values.outcome],["Evidence",values.evidence]]);}}>
+          <details><summary>Record verification in UWM</summary><label className="field"><span>Verified outcome</span><select name="outcome" required defaultValue=""><option value="">Choose…</option><option>Not applied</option><option>Verified in UWM</option></select></label><label className="field"><span>What you checked in UWM</span><textarea name="evidence" minLength={20} maxLength={2000} required/></label><Button size="sm" variant="outline" disabled={busy||!application||!!pending} type="submit">Review verification</Button></details></form>}</li>)}</ul></details>}
+    </>}
+  </section>;
+}
+
+function ImportReview({item,editable,review}:{item:Import;editable:boolean;review:(action:string,payload:Record<string,unknown>,summary:[string,string][])=>void}) {
+  const scan=JSON.parse(item.scan!) as {data:{fields:{label?:string;id?:string;value?:unknown;required:boolean;validated:boolean}[]}};
+  return <div className="uwm-import-review"><h4>UWM submission check</h4><p>{item.ready?"Required checks passed. Review the file before committing the loan.":"UWM needs the corrections below before submission."}</p>
+    {!editable&&<p>Only the original submitting officer can continue, using the same reviewed application revision.</p>}
+    {!item.ready&&<form className="uwm-loan-form" onSubmit={event=>{event.preventDefault();const data=new FormData(event.currentTarget);review("amend-import",{importId:item.id,values:scan.data.fields.map((_,index)=>String(data.get(`field${index}`)??""))},[["Action","Update the displayed UWM corrections and recheck the file."]]);}}><fieldset disabled={!editable}>
+      {scan.data.fields.map((field,index)=><label className="field" key={index}><span>{field.label||field.id||`Required field ${index+1}`}</span><input name={`field${index}`} defaultValue={typeof field.value==="string"||typeof field.value==="number"?String(field.value):""} required={field.required} autoComplete="off" maxLength={10000}/></label>)}<Button type="submit">Review corrections</Button></fieldset></form>}
+    {!!item.ready&&<Button disabled={!editable} onClick={()=>review("commit-import",{importId:item.id},[["Application",`Revision ${item.applicationRevision}`],["Action","Commit this reviewed loan to UWM. Completion will be confirmed by UWM’s notification."]])}>Review and submit loan</Button>}
+  </div>;
+}
+function DocumentActions({documents,disabled,review}:{documents:Documents;disabled:boolean;review:(action:string,payload:Record<string,unknown>,summary:[string,string][])=>void}) {
+  const [error,setError]=useState(""), [editing,setEditing]=useState<number|null>(null);
+  const selected=documents.attachments.find(item=>item.attachmentId===editing && !item.SubmittedDateTime);
+  return <div className="uwm-document-actions"><h4>{selected?"Update attachment":"Held documents"}</h4>{selected&&<Button variant="outline" size="sm" onClick={()=>setEditing(null)}>Create a separate attachment</Button>}{!documents.documents.length?<p>No held documents were returned.</p>:<form className="uwm-loan-form" key={selected?.revisionId??"new"} onSubmit={event=>{
+    event.preventDefault();const data=new FormData(event.currentTarget);
+    const body={attachments:[{attachmentId:selected?.attachmentId??null,revisionId:selected?.revisionId??null,documentType:String(data.get("documentType")),comments:String(data.get("comments")||""),files:data.getAll("files").map(id=>({documentId:Number(id)})),conditions:String(data.get("conditions")||"").split(/[\n,]/).map(id=>id.trim()).filter(Boolean)}]};
+    if(!uwmConditionAttachments.safeParse(body).success){setError("Choose at least one document, a review team and a condition reference.");return;}
+    setError("");review("attach-documents",{body},[["Documents",documents.documents.filter(doc=>body.attachments[0].files.some(file=>file.documentId===doc.documentId)).map(doc=>doc.fileName).join(", ")],["Review team",body.attachments[0].documentType],["Conditions",body.attachments[0].conditions.join(", ")],["Comments",body.attachments[0].comments]]);
+  }}><fieldset disabled={disabled}>{documents.documents.map(doc=><label className="uwm-check" key={doc.documentId}><input type="checkbox" name="files" value={doc.documentId} defaultChecked={selected?.files.some(file=>file.documentId===doc.documentId)??false}/>{doc.fileName}</label>)}
+    <label className="field"><span>Underwriting review team</span><select name="documentType" required defaultValue={selected?.documentType??""}><option value="">Choose…</option>{uwmDocumentType.options.map(type=><option key={type}>{type}</option>)}</select></label>
+    <label className="field"><span>UWM condition references</span><textarea name="conditions" required defaultValue={selected?.conditions.join("\n")??""} placeholder="One lender condition reference per line"/></label>
+    <label className="field"><span>Comments for underwriting</span><textarea name="comments" maxLength={4000} defaultValue={selected?.comments??""}/></label>
+    {error&&<p role="alert">{error}</p>}<Button type="submit">Review attachments</Button></fieldset></form>}
+    <h4>Underwriting attachments</h4>{!documents.attachments.length?<p>No attachments were returned.</p>:documents.attachments.map(item=><article className="uwm-attachment" key={item.attachmentId}><strong>{item.documentType}</strong><p>{item.comments||"No comments"}</p><p>{item.files.map(file=>documents.documents.find(doc=>doc.documentId===file.documentId)?.fileName||`Document ${file.documentId}`).join(", ")}</p><p>Conditions: {item.conditions.join(", ")}</p>
+      {item.SubmittedDateTime?<span>Submitted {new Date(item.SubmittedDateTime).toLocaleString()}</span>:<div className="loan-application-actions"><Button size="sm" variant="outline" disabled={disabled} onClick={()=>setEditing(item.attachmentId)}>Edit attachment</Button><Button size="sm" disabled={disabled} onClick={()=>review("submit-documents",{attachments:[{attachmentId:item.attachmentId,revisionId:item.revisionId}]},[["Review team",item.documentType],["Conditions",item.conditions.join(", ")],["Action","Send this attachment to underwriting for review."]] )}>Review underwriting submission</Button></div>}</article>)}
+  </div>;
+}
+function ProductDetails({product}:{product:unknown}) {
+  if(!product||typeof product!=="object")return null;
+  const record=product as Record<string,unknown>;
+  // Show lender-labelled values without guessing how an undocumented rate item
+  // maps to a financial request. The rate form requires explicit reviewed terms.
+  return <details><summary>{typeof record.ProductName==="string"?record.ProductName:"UWM product"}</summary><dl>{Object.entries(record).filter(([,value])=>typeof value==="string"||typeof value==="number").map(([name,value])=><div key={name}><dt>{name.replace(/([a-z])([A-Z])/g,"$1 $2")}</dt><dd>{String(value)}</dd></div>)}</dl><p>Confirm available rate and price terms in your UWM quote before making a rate request.</p></details>;
+}
+
+function RateInput({field}:{field:UwmField}) {
+  return <label className="field"><span>{field.label}{field.optional?" (optional)":""}</span>{field.options||field.type==="boolean"?<select name={field.name} required={!field.optional} defaultValue=""><option value="">Choose…</option>{(field.options??[["true","Yes"],["false","No"]]).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select>:<input name={field.name} type={field.type==="number"?"number":"text"} step="any" required={!field.optional}/>}</label>;
+}

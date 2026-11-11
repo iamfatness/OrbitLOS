@@ -11,6 +11,7 @@ import { JointBorrowerLinks } from "./joint-borrower-links";
 import { jointBorrowerPortionsTarget } from "@/lib/joint-application-model";
 import { FollowUpPurposeField, LoanTaskRow } from "./loan-task";
 import { carriedCallbackOutcomes } from "@/lib/campaign-callback-performance-model";
+import { UwmLoanActions } from "./uwm-loan-actions";
 import { LoanPricing } from "./loan-pricing";
 import { LoanScenarios } from "./loan-scenarios";
 import type { ScenarioQuoteSource } from "@/lib/loan-scenario-model";
@@ -716,6 +717,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         brokerageId={staff?.brokerage.id ?? demoBrokerageId} sampleAllowed={!staff || staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot)}
         markDraftChanged={markDraftChanged} openPricing={(sourceQuote) => show({ kind: "pricing", loanId: loan.id, campaignLender, sourceQuote })} />}
       {section === "Pricing & credit" && <>
+      {!fictionalUwm && staff && <UwmLoanActions key={`rates:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="rates"/>}
       <section className="details-section" id={target === sharedQuoteReviewTarget ? sharedQuoteReviewTarget : "loan-pricing"} tabIndex={-1} aria-label="Loan pricing">
         <div className="section-heading"><h3><Calculator size={17} /> Loan pricing</h3>
           {!processor && <Button size="sm" variant="outline" onClick={() => openPricing()}>{fictionalUwm ? "Price loan" : "Open pricing"}</Button>}
@@ -756,6 +758,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {callReportFile && <CallReportLoanFacts key={`${loan.id}:${callReportFile.revision}`} file={callReportFile} busy={busy} save={save} />}
       </>}
       {section === "1003" && <>
+      {!fictionalUwm && staff && <UwmLoanActions key={`import:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="import"/>}
       <LoanApplication loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} state={state} busy={busy} save={save} processor={processor}
         jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}
         shareBrokerage={!processor && (staff ? staff.brokerage.pilot : process.env.NODE_ENV === "development") ? staff?.brokerage.id ?? demoBrokerageId : undefined}
@@ -773,12 +776,13 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </section>}
       </>}
       {section === "Conditions" && <>
+      {!fictionalUwm && staff && <UwmLoanActions key={`documents:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="documents"/>}
       <section className="details-section" id="lender-submissions" tabIndex={-1}>
         <div className="section-heading"><h3>Lender conditions</h3><Button variant="outline" size="sm" onClick={() => show({ kind: "submission", loanId: loan.id })}><Plus /> Add lender</Button></div>
         <DocumentBatch key={loan.id} loanId={loan.id} requests={requests} submissions={submissions}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} busy={busy} save={save} open={open} canSimulate={fictionalUwm} />
         {submissions.length === 0 && <p className="empty-inline">{fictionalUwm ? "No lender submissions yet. Add a manual lender or send the reviewed 1003 to mock UWM." :
-          "No lender submissions yet. Add the lender after submitting through its portal."}</p>}
+          "Use the UWM submission controls in 1003, or add a manual lender reference."}</p>}
         {submissions.map((submission) => <SubmissionCard key={submission.id} submission={submission} requests={requests} busy={busy} save={save}
           checklistLinks={checklistLinks} joint={joint} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot}
           canSimulate={!processor && fictionalUwm}
@@ -1155,7 +1159,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           }, ({ applicationLoanId }) => {
             if (applicationLoanId) show({ kind: "details", loanId: applicationLoanId, target: "loan-application" });
           })} />}
-        {modal.kind === "pricing" && loan && <LoanPricing loan={loan} state={state} busy={busy} save={save}
+        {modal.kind === "pricing" && loan && <>
+        {!fictionalUwm && staff && <UwmLoanActions key={`pricing:${loan.id}`} loanId={loan.id} staff={staff} application={state.applications.find(item=>item.loanId===loan.id)} view="rates"/>}
+        <LoanPricing loan={loan} state={state} busy={busy} save={save}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           canRehearseUnsupported={fictionalUwm}
           canRunSamplePricing={separateSamplePricing && Boolean(staff?.brokerage.pilot)}
@@ -1163,7 +1169,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?
             (incomeWorksheetRevision) => show({ kind: "details", loanId: loan.id, campaignLender, target: "income-worksheet", incomeWorksheetRevision }) : undefined}
-          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} reviewSharedQuote={modal.reviewSharedQuote} focusFees={modal.focusFees} />}
+          useMockScore={modal.useMockScore} lenderHandoff={lenderHandoff} sourceQuote={modal.sourceQuote} reviewSharedQuote={modal.reviewSharedQuote} focusFees={modal.focusFees} /></>}
         {modal.kind === "retention" && loan && <Form busy={busy} onCancel={back} done={(input) => void save(input, back)}
           save={(data) => ({
             type: "saveRetention", loanId: loan.id, revision: retention?.revision ?? 0, closingDate: text(data, "closingDate"),

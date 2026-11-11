@@ -5,7 +5,7 @@ import { Link2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { Button } from "./ui/button";
 
 type Account = { configured: boolean; environment: string; connectedAt: string | null; expiresAt: number | null; message: string };
-export function UwmAccount({ brokerageId }: { brokerageId: string }) {
+export function UwmAccount({ brokerageId, onConnectionChange }: { brokerageId: string; onConnectionChange?: () => void }) {
   const [account, setAccount] = useState<Account | null>(null), [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [username, setUsername] = useState(""), [password, setPassword] = useState(""), [busy, setBusy] = useState(false);
@@ -31,6 +31,7 @@ export function UwmAccount({ brokerageId }: { brokerageId: string }) {
       const status = await fetch(url, { cache: "no-store" });
       if (!status.ok) throw new Error("Reconnect status could not be refreshed.");
       setAccount(await status.json());
+      onConnectionChange?.();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "UWM connection failed.");
       // A failed renewal can retire an expired grant; refresh the badge too.
