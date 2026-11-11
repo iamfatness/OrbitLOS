@@ -211,7 +211,7 @@ async function completeGoogle(request: Request, url: URL, settings: GoogleSettin
     const previous = readCookie(request, sessionCookie);
     if (previous) await store.removeStaffSession(await hash(previous));
     await store.createStaffSession(await hash(session), identity, now + sessionSeconds * 1000, now);
-    return redirect(brokerageUrl(brokerageId ?? demoBrokerageId, guide), [cleared, cookie(sessionCookie, session, sessionSeconds)]);
+    return redirect(brokerageId || guide ? brokerageUrl(brokerageId ?? demoBrokerageId, guide) : "/workspace", [cleared, cookie(sessionCookie, session, sessionSeconds)]);
   } catch {
     return restart(brokerageId, guide);
   }

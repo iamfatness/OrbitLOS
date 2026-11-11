@@ -26,6 +26,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
+  const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [offboardingEmail, setOffboardingEmail] = useState<string | null>(null);
   const creating = useRef<string | null>(null);
   const scenarioAttempt = useRef<{ key: string; id: string } | null>(null);
@@ -45,6 +46,11 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const explorationOwners = settings?.members.filter(member => member.role !== "Processor" &&
     (member.status === "Active" || member.status === "Invited")) ?? [];
   const scenario = settings?.pilotScenario;
+  const otherWorkspaces = settings?.brokerages.filter(item => item.id !== staff.brokerage.id) ?? [];
+  const sampleWorkspaces = otherWorkspaces.filter(item => item.pilot || item.id === demoBrokerageId);
+  const operationalWorkspaces = otherWorkspaces.filter(item => !item.pilot && item.id !== demoBrokerageId);
+  const matchingSamples = sampleWorkspaces.filter(item => `${item.name} ${item.id}`.toLowerCase().includes(workspaceSearch.trim().toLowerCase()));
+
 
   useEffect(() => {
     const controller = new AbortController();
@@ -137,8 +143,18 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     {(!admin || activePanel === "Workspaces") && <section className="pipeline relationship-panel" aria-label="Brokerage workspaces">
       <div className="section-heading"><h2>{staff.brokerage.name}</h2><span className="pill">{pilot ? "Pilot · " : ""}{staff.brokerage.role}</span></div>
       {admin && pilot && <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}`}>Workspace maintenance</a></Button>}
-      <div className="loan-application-actions">{settings?.brokerages.filter((item) => item.id !== staff.brokerage.id).map((item) =>
-        <Button key={item.id} asChild size="sm" variant="outline"><a href={brokerageUrl(item.id)}>Open {item.name}</a></Button>)}</div>
+      <p className="muted">Current workspace · {canUseSampleTools ? "Fictional data and practice workflows" : "Operational workspace"}</p>
+      <Button variant="outline" size="sm" onClick={()=>void copyWorkspace()}>Copy workspace link</Button>
+      {copyStatus && <p role="status">{copyStatus}</p>}
+      {!!operationalWorkspaces.length && <div className="workspace-list"><h3>Operational workspaces</h3>{operationalWorkspaces.map(item =>
+        <a className="workspace-list-item" key={item.id} href={brokerageUrl(item.id)}><strong>{item.name}</strong><span>{item.role}{item.maintenance ? " · Paused" : ""}</span></a>)}</div>}
+      {!!sampleWorkspaces.length && <details className="workspace-samples"><summary>Demo &amp; test workspaces ({sampleWorkspaces.length})</summary>
+        <p className="muted">Saved rehearsals and fictional files. Kept separate from daily work.</p>
+        <label className="field">Find a demo or test workspace<input type="search" value={workspaceSearch} onChange={event=>setWorkspaceSearch(event.target.value)} placeholder="Search by name or reference"/></label>
+        <div className="workspace-list">{matchingSamples.map(item => <a className="workspace-list-item" key={item.id} href={brokerageUrl(item.id)}>
+          <strong>{item.name}</strong><span>{item.role} · {item.id === demoBrokerageId ? "Demo" : "Test"}{item.maintenance ? " · Paused" : ""} · {item.id.slice(0,8)}</span></a>)}</div>
+        {!matchingSamples.length && <p role="status">No matching workspaces.</p>}
+      </details>}
       {admin && <details className="document-form"><summary>Create brokerage</summary><form onSubmit={create}>
         <label className="field">Brokerage name<input name="name" required minLength={2} maxLength={80} /></label>
         <label className="demo-confirm"><input name="pilot" type="checkbox" /> Create as a fictional pilot workspace</label>

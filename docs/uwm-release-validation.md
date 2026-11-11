@@ -88,3 +88,15 @@ Local acceptance used the actual React component with synthetic local API respon
 Published source `ef4a99b0c16a76f6f2eb3268b3cb83ccd746987b` to production Worker `f5085d5b-2a68-4738-910a-030346811b93` at 100%; predecessor `f6ffd915-a3bc-477c-a147-bbe03dde9f05` remains at 0%. Includes the other release through `28fae8e`, including maintenance fingerprint fix `4817b85`. All 23 configuration bindings exactly matched the predecessor. Retained predecessor browser assets; staged and ordinary routing each passed two clean 344/344 asset checks. Unauthenticated file, file-read and import-webhook POSTs each returned 401.
 
 Signed-in production acceptance confirmed updated Integrations service guidance and Loan controls ready labels. Production personal UWM account still displays Not connected; no production lender request was made. Saved screenshot: `.orbit/uwm-production-published.png`. Approved upload origins, actual UWM webhook delivery and end-to-end stage lender acceptance remain external dependencies. This publication updates production; stage remains on its earlier backend release.
+
+
+## Workspace entry and organization — November 11, 2026
+
+Unqualified workspace entry now prefers the accessible, unpaused configured UWM workspace, then another operational workspace. Explicit requested workspaces and guide entry remain authoritative; no membership is granted. Untargeted Google sign-in returns through that default selection. Generated demo links now explicitly select `orbit-demo`, preventing the default production redirect from stealing demo navigation.
+
+Team > Workspaces shows operational workspaces separately and collapses fictional demo/pilot workspaces into a searchable section with short references for duplicate names. No workspace records, staff access or loan data are deleted or changed. Pipeline/conditions service guidance now identifies the missing brokerage Insights access and distinguishes it from personal login. The forwarded Public APIs email contains no separate Insights grant.
+
+461 tests, typecheck and lint passed before final callback adjustment; focused auth tests and build verify the final candidate. Actual component browser acceptance checked collapsed defaults, filtering, explicit demo links and 390px width without horizontal overflow.
+
+
+Workspace cleanup source `6d9eeae` published as `0c20d624-c0ff-4f4c-b996-f568fa557cd4` at 100%, predecessor `f5085d5b-2a68-4738-910a-030346811b93` at 0%. All 23 bindings preserved; staged and live each passed two clean 374/374 asset checks. Final typecheck and focused auth tests passed. Live browser verified `/workspace` selects OrbitLOS Production, all 73 demo/pilot entries are collapsed, searching finds the demo, its explicit URL still opens Orbit demo, and Insights guidance states the missing brokerage access. Left the browser on production Team > Workspaces. Screenshot: `.orbit/workspace-cleanup-live.png`. No workspace data or memberships were changed.

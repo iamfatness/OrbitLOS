@@ -128,7 +128,7 @@ export function workspaceGuide(value: unknown) {
 
 export function brokerageUrl(id: string, guide?: ReturnType<typeof workspaceGuide>) {
   const search = new URLSearchParams();
-  if (id !== demoBrokerageId) search.set("brokerage", id);
+  search.set("brokerage", id);
   if (guide) search.set("guide", guide);
   return search.size ? `/workspace?${search}` : "/workspace";
 }
@@ -141,4 +141,12 @@ export function portalToken(brokerageId = demoBrokerageId) {
 export function portalBrokerage(token: unknown) {
   if (typeof token !== "string" || !portalTokenPattern.test(token)) return null;
   return token.includes(".") ? token.split(".", 1)[0] : demoBrokerageId;
+}
+
+
+export function defaultWorkspace(brokerages: Brokerage[], preferredId?: string) {
+  const available = brokerages.filter(item => !item.maintenance);
+  return available.find(item => item.id === preferredId && item.id !== demoBrokerageId && !item.pilot)
+    ?? available.find(item => item.id !== demoBrokerageId && !item.pilot)
+    ?? available[0] ?? brokerages[0];
 }
