@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Link2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { Button } from "./ui/button";
 
 type Account = { configured: boolean; environment: string; connectedAt: string | null; expiresAt: number | null; message: string };
@@ -33,23 +34,32 @@ export function UwmAccount({ brokerageId }: { brokerageId: string }) {
     } catch (failure) { setError(failure instanceof Error ? failure.message : "UWM connection failed."); }
     finally { credentials.password = ""; setBusy(false); }
   }
-  return <section className="document-form" aria-label="Your UWM account">
-    <h3>Your UWM account</h3>
-    {!account && !error && <p>Checking connectionâ€¦</p>}
-    {account && <p>{account.environment === "production" ? "Production" : `${account.environment.toUpperCase()} Â· test environment`}
-      {account.connectedAt ? " Â· Connected" : " Â· Not connected"}</p>}
-    {account && !account.configured && <p>{account.message}</p>}
+  const connected = !!account?.connectedAt;
+  const form = <form className="uwm-signin-form" onSubmit={(event) => { event.preventDefault(); void change("connect"); }}>
+    <label className="field"><span>UWM username</span><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} disabled={busy} required /></label>
+    <label className="field"><span>UWM password</span><input type="password" autoComplete="off" value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} required /></label>
+    <Button type="submit" disabled={busy}><Link2 size={16} aria-hidden="true" />{busy ? "Connecting…" : connected ? "Reconnect UWM" : "Connect UWM"}</Button>
+  </form>;
+  return <section className="uwm-account-card" aria-label="Your UWM account" aria-busy={busy}>
+    <div className="uwm-card-heading"><span className="uwm-step-icon"><Link2 size={20} aria-hidden="true" /></span>
+      <div><h3>{connected ? "Your UWM account" : "Connect your UWM account"}</h3>
+        <p>{connected ? "Manage your personal lender connection." : "Sign in to check your brokerage access."}</p></div>
+      {account && <span className={`uwm-status ${connected ? "is-ready" : ""}`}>{connected ? "Connected" : account.configured ? "Not connected" : "Setup needed"}</span>}
+    </div>
+    {!account && !error && <p className="uwm-loading" role="status">Checking your connection…</p>}
+    {account && <div className="uwm-environment"><span className="uwm-status">{account.environment === "production" ? "Production" : "Test environment"}</span>
+      <span>{account.environment === "production" ? "Your brokerage’s UWM connection" : "For testing with synthetic loan data"}</span></div>}
+    {account && !account.configured && <div className="uwm-setup-note"><strong>Workspace setup comes first</strong><p>{account.message}</p></div>}
     {account?.configured && <>
-      <p>Connect with your UWM login for this environment. Your password is used to sign in and is not stored. Connecting does not submit a loan or request a lock.</p>
-      <form onSubmit={(event) => { event.preventDefault(); void change("connect"); }}>
-        <label className="field"><span>UWM username</span><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} disabled={busy} required /></label>
-        <label className="field"><span>UWM password</span><input type="password" autoComplete="off" value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} required /></label>
-        <Button type="submit" disabled={busy}>{busy ? "Workingâ€¦" : account.connectedAt ? "Reconnect UWM" : "Connect UWM"}</Button>
-      </form>
-      {account.connectedAt && <Button variant="outline" disabled={busy} onClick={() => void change("disconnect")}>Disconnect my UWM account</Button>}
-      {account.connectedAt && <Button variant="outline" disabled={busy} onClick={() => void change("verify")}>Verify UWM broker access</Button>}
+      {connected ? <>
+        <div className="uwm-connected-note"><CheckCircle2 size={20} aria-hidden="true" /><div><strong>Account connected</strong><p>Verify access to confirm the UWM brokerages available to you.</p></div></div>
+        <div className="uwm-account-actions"><Button disabled={busy} onClick={() => void change("verify")}>{busy ? "Working…" : "Verify brokerage access"}</Button>
+          <Button variant="ghost" disabled={busy} onClick={() => void change("disconnect")}>Disconnect</Button></div>
+        <details className="uwm-reconnect"><summary>Use a different UWM login</summary>{form}</details>
+      </> : form}
+      <p className="uwm-security-note"><ShieldCheck size={16} aria-hidden="true" /><span>Your password is used once to sign in and is not stored. Connecting won’t submit a loan or lock a rate.</span></p>
     </>}
-    {error && <p role="alert">{error}</p>}
-    {message && <p role="status">{message}</p>}
+    {error && <p className="uwm-feedback is-error" role="alert">{error}</p>}
+    {message && <p className="uwm-feedback" role="status">{message}</p>}
   </section>;
 }
