@@ -35,17 +35,19 @@ type PairedOrderInput = z.infer<typeof mockPairedAusInput>;
 type MockInput = SingleOrderInput | PairedOrderInput | z.infer<typeof mockReconcileInput>;
 
 type RunRow = Record<string, SqlValue>;
+type StoredResult = MockCreditAusResult & { borrowerCount?: number; reconciledAt?: string };
 
 function readRun(row: RunRow): MockCreditAusRun {
+  const { borrowerCount, reconciledAt, ...result } = JSON.parse(String(row.result)) as StoredResult;
   return {
     id: String(row.id), loanId: String(row.loanId), service: row.service as MockCreditAusRun["service"],
     reference: String(row.reference), creditId: row.creditId as string | null, retryOf: row.retryOf as string | null,
-    requestedBy: String(row.requestedBy), requestedAt: String(row.requestedAt), result: JSON.parse(String(row.result)),
+    requestedBy: String(row.requestedBy), requestedAt: String(row.requestedAt), result,
     applicationRevision: typeof row.applicationRevision === "number" ? row.applicationRevision : null,
     ...(typeof row.authorization === "string" ? { authorization: JSON.parse(row.authorization) as MockCreditAuthorization } : {}),
     ...(typeof row.batchId === "string" ? { batchId: row.batchId } : {}),
-    ...(typeof row.borrowerCount === "number" ? { borrowerCount: row.borrowerCount } : {}),
-    ...(typeof row.reconciledAt === "string" ? { reconciledAt: row.reconciledAt } : {}),
+    ...(borrowerCount !== undefined ? { borrowerCount } : {}),
+    ...(reconciledAt !== undefined ? { reconciledAt } : {}),
   };
 }
 
@@ -88,10 +90,10 @@ function recordAttempt(db: Store, order: Attempt, staff: StaffIdentity | null, n
   const { id, loanId, service, result, creditId, retryOf, batchId, applicationRevision, authorization, requestKey, borrowerCount } = order;
   const reference = `MOCK-${service.toUpperCase()}-${id.toUpperCase()}`;
   db.prepare(`INSERT INTO mock_credit_aus_runs
-    (id, loanId, service, reference, creditId, retryOf, requestedBy, requestedAt, result, applicationRevision, authorization, batchId, requestKey, borrowerCount)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    (id, loanId, service, reference, creditId, retryOf, requestedBy, requestedAt, result, applicationRevision, authorization, batchId, requestKey)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, loanId, service, reference, creditId, retryOf ?? null, staff?.name.slice(0, 160) || "Demo loan officer", now,
-      JSON.stringify(result), applicationRevision, authorization ? JSON.stringify(authorization) : null, batchId ?? null, requestKey, borrowerCount);
+      JSON.stringify({ ...result, borrowerCount }), applicationRevision, authorization ? JSON.stringify(authorization) : null, batchId ?? null, requestKey);
   const label = service === "Credit" ? "credit" : service;
   const action = retryOf ? `Retried mock ${label}` : `Ran mock ${label}${service === "Credit" ? " with demo authorization" : ""}`;
   addApplicationActivity(db, loanId, `${action} · ${result.status} · ${reference}${batchId ? ` · Paired run ${batchId}` : ""}`, now);
@@ -149,8 +151,8 @@ function reconcileOrder(db: Store, input: z.infer<typeof mockReconcileInput>, st
   if (run.reconciledAt) return { message: "The original mock result is already confirmed." };
   if (run.result.status !== "Awaiting confirmation") return { error: "Only a request awaiting confirmation can be checked." };
   const result = mockResult(run.service, "eligible");
-  db.prepare("UPDATE mock_credit_aus_runs SET result = ?, reconciledAt = ? WHERE id = ? AND loanId = ?")
-    .run(JSON.stringify(result), now, run.id, run.loanId);
+  db.prepare("UPDATE mock_credit_aus_runs SET result = ? WHERE id = ? AND loanId = ?")
+    .run(JSON.stringify({ ...result, borrowerCount: run.borrowerCount, reconciledAt: now }), run.id, run.loanId);
   addApplicationActivity(db, run.loanId, `Confirmed original mock ${run.service} result · ${run.reference} · ${staff?.name ?? "Demo loan officer"}`, now);
   return { message: "Original mock result confirmed." };
 }
