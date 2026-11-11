@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState, type Ref } from "react";
+import { Download } from "lucide-react";
+import { downloadCutoverInventory } from "@/app/actions";
 import { cutoverFileSource, cutoverFileSourceMaxBytes, type CutoverEvidenceDifference, type CutoverFileComparison,
   type CutoverFileItem, type CutoverFileSource } from "@/lib/cutover-file-model";
 import type { CutoverFileInventory, CutoverOpenWork } from "@/lib/migration-cutover-model";
@@ -31,6 +33,39 @@ function summary(source: CutoverFileSource) {
     files ? `${count(files.length, "lender file")} · ${count(conditions, "condition")}` : "Lender files omitted",
     source.funding ? "Closing and funding included" : "Closing and funding omitted",
     ...(versionEvidence ? ["Revision or delivery evidence included"] : [])].join(" · ");
+}
+
+export function CutoverInventoryDownload({ brokerageId, loanId }: { brokerageId: string; loanId: string }) {
+  const [pending, setPending] = useState(false);
+  const [feedback, setFeedback] = useState<{ text: string; error: boolean }>();
+
+  async function download() {
+    if (pending) return;
+    setPending(true);
+    setFeedback(undefined);
+    try {
+      const result = await downloadCutoverInventory(brokerageId, loanId);
+      if (!("json" in result) || !result.json) {
+        setFeedback({ text: result.error ?? "The cutover inventory is unavailable.", error: true });
+        return;
+      }
+      downloadSampleFile(result.json, "orbit-cutover-inventory.json", "application/json");
+      setFeedback({ text: "Download started. Add the JSON to the linked draft in the destination cutover checklist.", error: false });
+    } catch {
+      setFeedback({ text: "Could not download the cutover inventory. Try again.", error: true });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return <section className="details-section" aria-label="Migration inventory">
+    <h3>Migration inventory</h3>
+    <p className="muted">Download document checklist, lender condition, and funding records for a fictional cutover. Transfer PDFs separately.</p>
+    <div><Button variant="outline" size="sm" className="min-h-11" aria-disabled={pending} onClick={() => void download()}>
+      <Download aria-hidden="true" /> {pending ? "Preparing inventory…" : "Download cutover inventory"}
+    </Button></div>
+    {feedback && <p className={feedback.error ? "application-error" : "muted"} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
+  </section>;
 }
 
 export function FileInventoryUpload({ inventory, disabled, save }: {
@@ -76,6 +111,7 @@ export function FileInventoryUpload({ inventory, disabled, save }: {
       <summary>{inventory.source ? "Replace source inventory" : "Add source inventory"}</summary>
       <div className="record-form">
         <p className="muted">Use empty lists for no documents or lender files, and null values for no closing, funding, or follow-up records. Omit a category when its inventory is unavailable. Each upload replaces the prior inventory for this draft.</p>
+        <p className="muted">For an Orbit source, download the migration inventory from the source loan’s 1003 tab.</p>
         <p className="muted">For a file in processing, the sample also shows how to include checklist revisions, accepted versions, current and prior receipts, and clearance references.</p>
         <div><Button size="sm" variant="outline" onClick={() => downloadSampleFile(JSON.stringify(sample, null, 2), "orbit-fictional-file-inventory.json", "application/json")}>Download sample inventory</Button></div>
         <label className="field">Fictional inventory JSON<input type="file" accept=".json,application/json" disabled={disabled} onChange={(event) => void load(event.target.files?.[0])} /></label>

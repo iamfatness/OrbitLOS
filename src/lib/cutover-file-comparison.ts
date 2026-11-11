@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { cutoverFileConditionLimit, cutoverFileDocument, cutoverFileDocumentLimit, cutoverFileLenderFields, cutoverFileLenderKey,
+import { cutoverFileSource, cutoverFileConditionLimit, cutoverFileDocument, cutoverFileDocumentLimit, cutoverFileLenderFields, cutoverFileLenderKey,
   cutoverFileLenderLimit, cutoverFileSourceMaxBytes, cutoverFileText, cutoverHistoryLimit, type CutoverDeliveryReceipt, type CutoverFileComparison,
   type CutoverFileItem, type CutoverFileSource, type CutoverFundingInventory } from "./cutover-file-model";
 import { readFundingInventory } from "./cutover-funding-comparison";
@@ -71,12 +71,13 @@ function readDocuments(db: Store, loanId: string, linkedOnly = false) {
   return parsed.success ? parsed.data : null;
 }
 
-function destinationDocumentEntries(db: Store, loanId: string, withVersions: boolean, withAcceptances: boolean) {
+function documentInventory(db: Store, loanId: string, withVersions: boolean, withAcceptances: boolean) {
   const history = withAcceptances ? readAcceptanceHistory(db, loanId) : undefined;
   if (history === null) return null;
-  return readDocuments(db, loanId)?.map(({ id, revision, deadlineRevision, submissionId, conditionId, receipt, deliveryRevision, mockClearedAt, ...document }) =>
-    documentEntry({ ...document, evidence: withVersions ? { revision, acceptedRevisions: history ? history.get(id) ?? [] : undefined } : undefined },
-      [id, revision, deadlineRevision, submissionId, conditionId, receipt, deliveryRevision, mockClearedAt])) ?? null;
+  return readDocuments(db, loanId)?.map(({ id, revision, deadlineRevision, submissionId, conditionId, receipt, deliveryRevision, mockClearedAt, ...document }) => ({
+    document: { ...document, evidence: withVersions ? { revision, acceptedRevisions: history ? history.get(id) ?? [] : undefined } : undefined },
+    proof: [id, revision, deadlineRevision, submissionId, conditionId, receipt, deliveryRevision, mockClearedAt],
+  })) ?? null;
 }
 
 function conditionState(condition: z.infer<typeof storedCondition>, request?: z.infer<typeof storedDocument>) {
@@ -101,9 +102,9 @@ function parseConditions(value: string) {
   }
 }
 
-function destinationLenderEntries(db: Store, loanId: string, withHistory: boolean, withReceipts: boolean) {
+function lenderInventory(db: Store, loanId: string, withHistory: boolean, withReceipts: boolean) {
   const fileRows = db.prepare(`SELECT id, lender, externalId AS reference, status, substr(conditions, 1, ?) AS conditions
-    FROM submissions WHERE loanId = ? LIMIT ?`).all(cutoverFileSourceMaxBytes + 1, loanId, cutoverFileLenderLimit + 1);
+    FROM submissions WHERE loanId = ? ORDER BY id LIMIT ?`).all(cutoverFileSourceMaxBytes + 1, loanId, cutoverFileLenderLimit + 1);
   const files = storedLenderFile.array().max(cutoverFileLenderLimit).safeParse(fileRows);
   if (!files.success || files.data.reduce((bytes, file) => bytes + file.conditions.length, 0) > cutoverFileSourceMaxBytes) return null;
   if (!files.data.length) return [];
@@ -112,20 +113,20 @@ function destinationLenderEntries(db: Store, loanId: string, withHistory: boolea
   const mockHistory = withReceipts ? readMockDeliveryHistory(db, loanId) : undefined;
   if (mockHistory === null) return null;
   const linked = new Map(docs.map((request) => [JSON.stringify([request.submissionId, request.conditionId]), request]));
-  const entries: Entry[] = [];
+  const inventory: { file: LenderFile; id: string; conditions: { condition: LenderCondition; proof: unknown }[] }[] = [];
   const fileKeys = new Set<string>();
   let conditionsSeen = 0;
   let receiptsSeen = 0;
-  for (const file of files.data) {
-    const fileEntry = lenderEntry(file, file.id);
-    const conditions = parseConditions(file.conditions);
-    if (!conditions || conditionsSeen + conditions.length > cutoverFileConditionLimit || fileKeys.has(fileEntry.key) ||
+  for (const { id, conditions: raw, ...file } of files.data) {
+    const fileKey = cutoverFileLenderKey(file.lender, file.reference);
+    const conditions = parseConditions(raw);
+    if (!conditions || conditionsSeen + conditions.length > cutoverFileConditionLimit || fileKeys.has(fileKey) ||
       new Set(conditions.map(({ id }) => id)).size !== conditions.length) return null;
-    fileKeys.add(fileEntry.key);
+    fileKeys.add(fileKey);
     conditionsSeen += conditions.length;
-    entries.push(fileEntry);
+    const items: (typeof inventory)[number]["conditions"] = [];
     for (const condition of conditions) {
-      const request = linked.get(JSON.stringify([file.id, condition.id]));
+      const request = linked.get(JSON.stringify([id, condition.id]));
       const { status, proof, currentManualDeliveries } = conditionState(condition, request);
       let evidence: LenderCondition["evidence"];
       if (withHistory) {
@@ -138,10 +139,23 @@ function destinationLenderEntries(db: Store, loanId: string, withHistory: boolea
         evidence = { receipts: withReceipts ? receipts : undefined,
           clearance: condition.satisfiedAt ? { at: condition.satisfiedAt, reference: condition.manual?.confirmedDelivery ?? null } : null };
       }
-      entries.push(conditionEntry(file, { ...condition, status, evidence }, proof));
+      items.push({ condition: { category: condition.category, description: condition.description, status, evidence }, proof });
     }
+    inventory.push({ file, id, conditions: items });
   }
-  return entries;
+  return inventory;
+}
+
+export function readCutoverSourceInventory(db: Store, loanId: string): CutoverFileSource | null {
+  const documents = documentInventory(db, loanId, true, true);
+  const lenders = lenderInventory(db, loanId, true, true);
+  const funding = readFundingInventory(db, loanId);
+  if (!documents || !lenders || !funding) return null;
+  const parsed = cutoverFileSource.safeParse({
+    version: 1, documents: documents.map(row => row.document), funding: funding.inventory,
+    lenderFiles: lenders.map(({ file, conditions }) => ({ ...file, conditions: conditions.map(row => row.condition) })),
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 function principalLabel(cents: number) {
@@ -221,7 +235,11 @@ export function readFileComparison(db: Store, loanId: string, item: CutoverFileI
     source.lenderFiles && sourceLenderEntries(source.lenderFiles);
   if (!original) return null;
   const withEvidence = original.some(({ evidence }) => evidence !== undefined);
-  const destination = item === "documents" ? destinationDocumentEntries(db, loanId, withEvidence, original.some(({ evidence }) => evidence?.acceptances !== undefined)) :
-    destinationLenderEntries(db, loanId, withEvidence, original.some(({ evidence }) => evidence?.receipts !== undefined));
+  const destination = item === "documents" ?
+    documentInventory(db, loanId, withEvidence, original.some(({ evidence }) => evidence?.acceptances !== undefined))
+      ?.map(({ document, proof }) => documentEntry(document, proof)) :
+    lenderInventory(db, loanId, withEvidence, original.some(({ evidence }) => evidence?.receipts !== undefined))
+      ?.flatMap(({ file, id, conditions }) => [lenderEntry(file, id),
+        ...conditions.map(({ condition, proof }) => conditionEntry(file, condition, proof))]);
   return destination ? fileComparison(loanId, item, source.version, original, destination) : null;
 }

@@ -474,6 +474,20 @@ try {
       });
       const documentedSource = { version: 1, documents: [sourceInventory.documents[0], replacement.document],
         lenderFiles: [{ ...sourceInventory.lenderFiles[0], conditions: [replacement.condition] }] };
+      const exportInventory = (actor, id, route = id) => action(actor, "downloadCutoverInventory", id, undefined, loanId, route);
+      assert.ok((await exportInventory(officer, receiving)).error);
+      assert.ok((await exportInventory(processor, receiving)).error);
+      assert.ok((await exportInventory(owner, sending)).error);
+      assert.ok((await exportInventory(owner, receiving, sending)).error);
+      const exported = await exportInventory(owner, receiving);
+      assert.ok(exported.json, exported.error);
+      const snapshot = JSON.parse(exported.json);
+      assert.equal(snapshot.version, 1);
+      assert.deepEqual(snapshot.documents.find(({ kind }) => kind === replacement.document.kind), replacement.document);
+      assert.deepEqual(snapshot.lenderFiles[0].conditions, [replacement.condition]);
+      assert.deepEqual(snapshot.funding, { closingDate: null, fundingDate: null, fundedPrincipalCents: null,
+        borrowerFollowUp: null, realtorFollowUp: null, borrowerCallback: null });
+      assert.ok(!exported.json.includes(token));
       const wrongReceipt = structuredClone(documentedSource);
       wrongReceipt.lenderFiles[0].conditions[0].evidence.receipts[0].reference = "CUTOVER-UNAVAILABLE-RECEIPT";
       const saveSource = (source, revision) => action(owner, "saveCutoverFileInventory", receiving, undefined,

@@ -8,7 +8,7 @@ export async function checkUwmConnection(expectedBrokerage: string) {
   return verifyUwmConnection(staff);
 }
 
-import { currentStaff, loadCampaignCallbackExceptions, loadCampaignCallbackPerformance, loadCampaignCallbacks, loadCampaignManager, loadCampaignSequencePerformance, loadConversations, loadCutoverApplicationComparison, loadCutoverFileInventory, loadCutoverFileLookup, loadCutoverHandoff, loadEditableLead, loadEditableLoan, loadFileExceptions, loadFundingDashboard, loadInboundReplies, loadLeadArchive, loadMigrationCutover, loadMigrationRecovery, loadOfficerQueue, loadPipelineExport, loadProcessorQueue, loadRecordHistory, loadSalesDashboard, loadWorkspaceCalendar, loadWorkspaceSearch,
+import { currentStaff, loadCampaignCallbackExceptions, loadCampaignCallbackPerformance, loadCampaignCallbacks, loadCampaignManager, loadCampaignSequencePerformance, loadConversations, loadCutoverApplicationComparison, loadCutoverFileInventory, loadCutoverInventoryExport, loadCutoverFileLookup, loadCutoverHandoff, loadEditableLead, loadEditableLoan, loadFileExceptions, loadFundingDashboard, loadInboundReplies, loadLeadArchive, loadMigrationCutover, loadMigrationRecovery, loadOfficerQueue, loadPipelineExport, loadProcessorQueue, loadRecordHistory, loadSalesDashboard, loadWorkspaceCalendar, loadWorkspaceSearch,
   loadContactDirectory, loadDraftQueue, loadLeadInbox, loadLoanContactPicker, loadPipeline, loadRealtorQueueReport, loadReportingReadiness, loadSharedRealtorQueue, loadWorkspaceTasks, updateAppointments, updateConversation, updateCutoverFileInventory, updateFundingRecord, updateInboundReply, updateLoanReview, updateMigrationCutover, updateProcessingView, updateRealtorQueueAssignment, updateSalesSettings, updateStaffCoverage, updateWorkspace,
   loadUwmDelivery, workOnBrokerageFinance, workOnContactMerge, workOnOfficerDashboard, workOnPlaybookRun } from "@/lib/workspace-service";
 import { uwmDeliveryUnavailable } from "@/lib/uwm-delivery-model";
@@ -478,6 +478,11 @@ export async function findCutoverFile(expectedBrokerage: string, query: CutoverF
 export async function readCutoverApplicationComparison(expectedBrokerage: string, query: CutoverApplicationQuery) {
   const staff = await cutoverAdmin(expectedBrokerage);
   return staff ? loadCutoverApplicationComparison(staff, query) : { error: cutoverUnavailable };
+}
+
+export async function downloadCutoverInventory(expectedBrokerage: string, loanId: unknown) {
+  const staff = await cutoverAdmin(expectedBrokerage);
+  return staff ? loadCutoverInventoryExport(staff, loanId) : { error: cutoverUnavailable };
 }
 
 export async function readCutoverFileInventory(expectedBrokerage: string, query: CutoverApplicationQuery) {

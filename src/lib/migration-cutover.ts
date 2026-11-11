@@ -1,7 +1,7 @@
 import { readApplicationComparison } from "./cutover-application-comparison";
 import type { CutoverApplicationComparison } from "./cutover-application-model";
 import { readCutoverCallbackEvidence } from "./cutover-callback-evidence";
-import { readFileComparison } from "./cutover-file-comparison";
+import { readCutoverSourceInventory, readFileComparison } from "./cutover-file-comparison";
 import { applyCutoverOpenWork, planCutoverOpenWork } from "./cutover-open-work";
 import { cutoverFileComparisonUnavailable, cutoverFileSource, cutoverFileSourceSection, type CutoverFileItem, type CutoverFileSource } from "./cutover-file-model";
 import { cutoverReviewReference, renderCutoverHandoff } from "./cutover-handoff";
@@ -72,6 +72,18 @@ function readFileSource(value: SqlValue | undefined): CutoverFileSource | null {
   } catch {
     return null;
   }
+}
+
+export function exportCutoverInventory(db: Store, staff: WorkspaceStaff, brokerageId: string, loanId: unknown) {
+  const parsed = cutoverApplicationQuery.shape.loanId.safeParse(loanId);
+  if (!canReview(staff, brokerageId) || !parsed.success) return { error: cutoverUnavailable };
+  return db.transaction(() => {
+    if (!db.prepare("SELECT 1 FROM loans WHERE id=?").get(parsed.data)) return { error: cutoverUnavailable };
+    const inventory = readCutoverSourceInventory(db, parsed.data);
+    if (!inventory) return { error: "This inventory contains invalid or oversized evidence. Review the loan before exporting." };
+    accessEvent(db, staff, "Prepared cutover inventory export", parsed.data, new Date().toISOString());
+    return { json: JSON.stringify(inventory) };
+  });
 }
 
 export function readCutoverFileInventory(db: Store, staff: WorkspaceStaff | null, brokerageId: string,

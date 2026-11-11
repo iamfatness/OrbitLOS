@@ -106,7 +106,7 @@ import { readRecordHistory } from "./lib/record-history";
 import { readUwmDelivery } from "./lib/uwm-delivery";
 import { exportPilotPipeline } from "./lib/pipeline-export";
 import { reviewMigrationRecovery } from "./lib/migration-recovery";
-import { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
+import { exportCutoverHandoff, exportCutoverInventory, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
   saveCutoverFileInventory, saveMigrationCutover } from "./lib/migration-cutover";
 import type { CutoverApplicationComparison } from "./lib/cutover-application-model";
 import { cutoverCallbackItem, cutoverReviewInput, cutoverUnavailable, type CutoverFileInventory, type CutoverFileLookup, type CutoverHandoff,
@@ -1011,6 +1011,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   cutoverFileInventory(staff: WorkspaceStaff, query: unknown): CutoverFileInventory | { error: string } {
     return readCutoverFileInventory(this.#store, staff, this.#id, query);
+  }
+
+  async exportCutoverInventory(staff: WorkspaceStaff, loanId: unknown) {
+    const owners = await this.#cutoverOwners(staff);
+    return owners ? exportCutoverInventory(this.#store, staff, this.#id, loanId) : { error: cutoverUnavailable };
   }
 
   recordCutoverFileInventory(staff: WorkspaceStaff, input: unknown): { message: string } | { error: string } {

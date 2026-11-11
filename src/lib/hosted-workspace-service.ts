@@ -388,6 +388,10 @@ export async function loadCutoverApplicationComparison(staff: WorkspaceStaff, qu
   return staffWorkspace(staff).cutoverApplicationComparison(staff, query);
 }
 
+export async function loadCutoverInventoryExport(staff: WorkspaceStaff, loanId: unknown) {
+  return staffWorkspace(staff).exportCutoverInventory(staff, loanId);
+}
+
 export async function loadCutoverFileInventory(staff: WorkspaceStaff, query: unknown) {
   return staffWorkspace(staff).cutoverFileInventory(staff, query);
 }

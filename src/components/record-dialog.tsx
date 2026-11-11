@@ -55,6 +55,7 @@ import { IncomeWorksheet } from "./income-worksheet";
 import { submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
+import { CutoverInventoryDownload } from "./cutover-file-inventory";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, mockClearanceClosingStages, pausedLoan,
   closingChecklistListTarget, manualLenderClosingAction, reopenedMockClosingCondition } from "@/lib/loan-workflow";
@@ -774,6 +775,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           if (mismoXml) downloadSampleFile(mismoXml, "orbit-fictional-rehearsal.xml", "application/xml");
         })}>Export original XML mapping</Button>
       </section>}
+      {staff?.brokerage.pilot && staff.brokerage.role === "Admin" &&
+        <CutoverInventoryDownload key={loan.id} brokerageId={staff.brokerage.id} loanId={loan.id} />}
       </>}
       {section === "Conditions" && <>
       {!fictionalUwm && staff && <UwmLoanActions key={`documents:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="documents"/>}

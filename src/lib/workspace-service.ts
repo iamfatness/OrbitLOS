@@ -41,7 +41,7 @@ import { readRecordHistory } from "./record-history";
 import { readUwmDelivery } from "./uwm-delivery";
 import { exportPilotPipeline } from "./pipeline-export";
 import { reviewMigrationRecovery } from "./migration-recovery";
-import { exportCutoverHandoff, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
+import { exportCutoverHandoff, exportCutoverInventory, lookupCutoverFile, readCutoverApplicationComparison, readCutoverFileInventory, readMigrationCutover,
   saveCutoverFileInventory, saveMigrationCutover } from "./migration-cutover";
 import { fundingRecordAction, readFundingDashboard } from "./funding-dashboard";
 import { readCampaignCallbacks, readOfficerQueue, readWorkspaceCalendar, readWorkspaceTasks } from "./officer-queue";
@@ -490,6 +490,10 @@ export async function loadCutoverFileLookup(staff: WorkspaceStaff, query: unknow
 
 export async function loadCutoverApplicationComparison(staff: WorkspaceStaff, query: unknown) {
   return readCutoverApplicationComparison(database(), staff, demoBrokerageId, query);
+}
+
+export async function loadCutoverInventoryExport(staff: WorkspaceStaff, loanId: unknown) {
+  return exportCutoverInventory(database(), staff, demoBrokerageId, loanId);
 }
 
 export async function loadCutoverFileInventory(staff: WorkspaceStaff, query: unknown) {
