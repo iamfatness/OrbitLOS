@@ -377,7 +377,8 @@ Manual decisions exercised in Orbit include mapping the CRM import, recording th
 1. Pick one fictional case and use the same team in both workflows. For **Campaign lead to repeat loan**, start with an assigned lead and stop after funding and opening the repeat application. Use equivalent borrower and lender responses in both runs.
 2. Keep a wall-clock timer for the whole run. Each operator records their active seconds by role. Count a staff handoff when responsibility changes hands. Record each field re-entered and each move between separate systems.
 3. Record waiting as wall-clock time blocked on a borrower, lender, or vendor. Count overlapping waits once. Active times can overlap across roles. Leave unobserved fields blank and enter zero for a measured absence.
-4. In **Team → Pilot measurements → Record a paired benchmark**, enter both runs. Open **Handling and handoffs** for each workflow to enter the role times, waiting, and staff transfers. Review the differences and record the manual or external steps alongside the comparison.
+4. In **Team → Pilot tools → Pilot measurements → Start a benchmark**, save the run you observed first. Open **Handling and handoffs** to enter role times, waiting, and staff transfers. Record the manual steps and external dependencies with that run.
+5. Reopen the same case under **Waiting for a matching run** and record the other workflow. Mark a run **Blocked** if it could not reach the agreed finish, and describe the blocker. The paired record keeps the observed measurements and shows differences only when both runs completed.
 
 Use observed brokerage timings for the comparison. The local harness and hosted presenter rehearsals provide fixture and workflow evidence.
 
