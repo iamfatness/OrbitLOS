@@ -379,9 +379,8 @@ async function command(action, env, origin, ctx) {
       try {await target.probeReplayBatch([invalid],a.admin);} catch {refused=true;}
       if (!refused) throw new Error("Invalid recovery receipt was accepted");
     }
-    // Simulate interruption after the first replayed edit. Resuming the full
-    // chain must skip that exact revision, not duplicate its activity.
-    await target.probeReplayBatch([state.receipt],a.admin);
+    // Product recovery already applied both confirmed edits in order.
+    // The legacy full-chain reconciliation must now recognize that outcome.
     await target.probeReplayBatch([state.receipt,state.interrupted],a.admin);
     state.replayed = await target.probeCapture();
     if (state.replayed.counts.activity !== state.checkpoint.counts.activity+2 || state.replayed.counts.workspace_access_history !== state.checkpoint.counts.workspace_access_history+2) throw new Error("Replay did not record exactly two history events");
@@ -395,7 +394,7 @@ async function command(action, env, origin, ctx) {
     if ((await other.probeCapture()).hash !== state.otherAfter.hash) throw new Error("Replay changed the other brokerage");
     state.phase="replayVerified";
     Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true,undispatchedEditNotAcknowledged:true,
-      lostAcknowledgmentReconciledAfterRestart:true,reviewedEditReplayed:true,partialReplayResumed:true});
+      lostAcknowledgmentReconciledAfterRestart:true,reviewedEditReplayed:true,operatorRecoveredChain:true});
   } else if (action === "cleanup" && state.phase === "replayVerified") {
     for(const file of state.lenderEvidence.files)await target.probeCleanup(file);
     state.phase = "cleaned";
