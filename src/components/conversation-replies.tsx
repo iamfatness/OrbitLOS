@@ -21,7 +21,7 @@ export function ConversationReplies({ page, today, after, open, onPage, showOwne
           {reply.campaignCallback && <span>Promised callback · {dateTime(reply.campaignCallback.dueAt)} ET</span>}
           {reply.dueOn && <span>Follow-up {reply.dueOn < today ? "overdue since" : "scheduled for"} {dateLabel(reply.dueOn)}</span>}
         </div>
-        <Button size="sm" variant="outline" onClick={() => open(reply.id)}
+        <Button size="sm" variant="outline" data-conversation-origin={`thread:${reply.id}`} onClick={() => open(reply.id)}
           aria-label={`Open conversation for ${reply.name} · ${context}`}>Open conversation</Button>
       </li>;
     })}</ul> : <p className="muted">{after ? "No more items on this page." : "No replies or missed calls need attention."}</p>}

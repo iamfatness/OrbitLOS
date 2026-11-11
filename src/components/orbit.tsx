@@ -238,7 +238,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const [guideCallbackId, setGuideCallbackId] = useState<string>();
   const [conversationFocus, setConversationFocus] = useState<ConversationFocus | null>(null);
   const [conversationOrigin, setConversationOrigin] = useState<"Today" | "Call Campaigns">();
-  const conversationReturn = useRef<{ trigger: HTMLElement | null; x: number; y: number } | undefined>(undefined);
+  const conversationReturn = useRef<{ trigger: HTMLElement | null; key: string; x: number; y: number } | undefined>(undefined);
   const [communicationView, setCommunicationView] = useState<"Conversations" | "Inbound review">("Conversations");
   const [focusLeadId, setFocusLeadId] = useState<string>();
   const [focusArchivedLeadId, setFocusArchivedLeadId] = useState<string>();
@@ -988,6 +988,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     const origin = section === "Today" || section === "Call Campaigns" ? section : undefined;
     conversationReturn.current = origin ? {
       trigger: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      key: "leadId" in focus ? `lead:${focus.leadId}` : "id" in focus ? `thread:${focus.id}` : "",
       x: window.scrollX, y: window.scrollY,
     } : undefined;
     navigate("Communications", false, undefined, false, Boolean(origin));
@@ -1008,7 +1009,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     setConversationFocus(null);
     setReviewVersion((value) => value + 1);
     requestAnimationFrame(() => {
-      const trigger = target?.trigger;
+      const trigger = target?.key ? document.querySelector<HTMLElement>(`[data-conversation-origin="${CSS.escape(target.key)}"]`) : target?.trigger;
       if (target && trigger?.isConnected && trigger.getClientRects().length) {
         trigger.focus({ preventScroll: true });
         window.scrollTo(target.x, target.y);
