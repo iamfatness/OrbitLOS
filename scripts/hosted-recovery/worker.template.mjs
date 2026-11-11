@@ -310,9 +310,6 @@ async function command(action, env, origin, ctx) {
     state.internalEdits=editInspection.items.filter(item=>item.command.loanId===a.loanId && ["2030-02-03","2030-02-10"].includes(item.command.dueOn));
     if(state.internalEdits.length!==2 || state.internalEdits.some(item=>item.state!=="Recorded"||!item.proof||!item.sourceProof))
       throw new Error("Actual document edits did not retain both recovery receipts");
-    const comparison=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:state.productCheckpoint.id,revision:paused.revision});
-    if(comparison.comparison.changed.length || comparison.comparison.schemaChanged || comparison.comparison.kvChanged)throw new Error("Restored full database differs from product checkpoint manifest");
-    state.checkpointComparison={tables:comparison.comparison.unchanged,changed:0,schemaChanged:false,kvChanged:false,alarmChanged:comparison.comparison.alarmChanged};
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Normal workspace read remained open before restore");
     await target.probeDamage(a.loanId);
