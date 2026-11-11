@@ -133,6 +133,8 @@ test('restore rejects stale evidence, changed credentials, foreign IDs, revoked 
  assert.throws(()=>restore.reserveRestore(f.db,{...f.staff,brokerage:{...f.staff.brokerage,role:'LO'}},[],f.input,f.capture()),/current pilot admin/);
  const old=f.capture().manifest,next=structuredClone(old);next.tables.push({name:'uwm_user_access',rows:1,digest:'secret-changed'});
  assert(restore.restoreBlockers(old,next).some(x=>x.includes('Lender evidence')));
+ assert.deepEqual(restore.restoreBlockers(old,{...old,tables:[...old.tables,{name:'realtor_portals',rows:0,digest:'revoked-local-mirror'}]}),[]);
+ assert.equal(restore.restoreSourceMatches(old,{...old,files:{...old.files,unretained:1}}),false);
  assert(restore.restoreBlockers({...old,schema:'older'},next).some(x=>x.includes('structure')));
  assert(restore.restoreBlockers({...old,files:undefined},old).some(x=>x.includes('predates')));
  f.db.prepare("UPDATE brokerage_members SET status='Revoked' WHERE brokerageId=?").run(f.staff.brokerage.id);

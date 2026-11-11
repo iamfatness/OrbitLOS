@@ -16,7 +16,9 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
   if(!before.impact||!before.files)result.push("This checkpoint predates record or document recovery evidence. Save a new checkpoint.");
   if(before.schema!==current.schema)result.push("Database structure changed. This checkpoint requires a separate migration and recovery review.");
   const previous=new Map(before.tables.map(item=>[item.name,item]));
-  const protectedTable=(name:string)=>/^(uwm_|staff_sessions$|staff_google_attempts$|borrower_upload_access$|realtor_portals$)/.test(name);
+  // Borrower/realtor portal authorization is enforced by the unrestored shared
+  // directory. Local upload grants and staff credentials have no such exemption.
+  const protectedTable=(name:string)=>/^(uwm_|staff_sessions$|staff_google_attempts$|borrower_upload_access$)/.test(name);
   if(current.tables.some(item=>protectedTable(item.name)&&previous.get(item.name)?.digest!==item.digest)||before.tables.some(item=>protectedTable(item.name)&&!current.tables.some(next=>next.name===item.name)))
     result.push("Lender evidence or access records changed. Reconcile those records before restoring; Orbit will not rewind them automatically.");
   return result;
