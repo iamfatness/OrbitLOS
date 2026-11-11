@@ -294,6 +294,8 @@ async function command(action, env, origin, ctx) {
     const paused=await directory.manageWorkspaceMaintenance(a.admin,{type:"pause",revision:(await directory.manageWorkspaceMaintenance(a.admin)).revision,
       reason:"Isolated restore rehearsal: preserve review decisions across tenant recovery.",confirmation:a.admin.brokerage.name});
     if(paused.error || paused.mode!=="Paused")throw new Error(paused.error||"Fixture did not pause");
+    const changedComparison=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:state.productCheckpoint.id,revision:paused.revision});
+    if(!changedComparison.comparison.changed.some(table=>table.name==="document_requests"&&table.before===table.now))throw new Error("Same-count deadline change was not detected");
     const inspected=await target.inspectWorkspaceMaintenance(a.admin,{revision:paused.revision,documents:0,requests:0});
     const evidence=inspected.inspection?.documents.items.find(item=>item.recordId===a.loanId && item.availability==="Available");
     if(!evidence)throw new Error(inspected.error||"Retained fixture PDF was not inspectable");
@@ -389,7 +391,7 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
-      operatorReplayApplied:2,operatorRepeatUnchanged:true,
+      productCheckpoint:true,checkpointComparison:state.checkpointComparison,operatorReplayApplied:2,operatorRepeatUnchanged:true,
       internalEditReceiptsSurvivedRestore:state.internalEdits.length,rolledBackAtomicProofsAbsent:true,originalRevisionDetected:true,
       syntheticProviderStatesPreserved:true,providerEvidenceFingerprintsPreserved:true,
       maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,
