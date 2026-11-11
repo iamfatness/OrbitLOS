@@ -42,7 +42,7 @@ const changed = (expected, actual) => expected.filter((table, index) => !same(ta
 
 async function checkPausedIngress(application, env, origin, ctx) {
   const routes = [
-    ["GET", "/workspace"], ["GET", "/api/auth/google/callback"],
+    ["GET", "/workspace"], ["GET", "/auth/google/callback"],
     ["POST", "/api/demo-application"], ["POST", "/api/realtor-referrals"],
     ["POST", "/api/borrower-documents/upload"], ["POST", "/api/shared-lead-documents"],
     ["POST", "/api/webhooks/uwm/stage/import"], ["POST", "/api/demo-request"],
@@ -53,6 +53,11 @@ async function checkPausedIngress(application, env, origin, ctx) {
     if (response.status !== 503 || response.headers.get("X-Orbit-Maintenance") !== "directory-recovery" ||
         response.headers.get("Cache-Control") !== "private, no-store") throw new Error(`Traffic pause did not cover ${path}`);
   }
+  const unavailable = await application.fetch(new Request(origin+"/workspace"),{
+    DOCUMENTS:{head:()=>Promise.reject(new Error("Fictional storage failure"))},
+  },ctx);
+  if (unavailable.status !== 503 || unavailable.headers.get("X-Orbit-Maintenance") !== "directory-recovery")
+    throw new Error("Workspace admission opened when control storage failed");
   const publicAsset = await application.fetch(new Request(origin+"/fonts/InterVariable.woff2"),
     {ASSETS:{fetch:()=>new Response("Fictional public asset")}},ctx);
   if (publicAsset.status !== 200) throw new Error("Directory pause blocked public assets");
