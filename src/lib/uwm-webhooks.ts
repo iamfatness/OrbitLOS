@@ -29,14 +29,14 @@ export function uwmWebhookAuthorized(header: string | null, connection: z.infer<
   const previous = timingSafeEqual(actual, Buffer.from(hash(connection.previousToken ?? connection.token), "hex"));
   return current || previous;
 }
-const importSchema = z.object({ TransactionId: identifier, LoanNumber: identifier.nullable(), LoanStatus: identifier,
+const importSchema = z.object({ TransactionId: identifier, LoanNumber: identifier.nullable(), LoanStatus: identifier.nullable(),
   Message: z.string().max(16000).nullable().optional(), LogDateTime: z.string().min(1).max(100),
 }).passthrough().refine((value) => value.LoanStatus !== "Completed" || value.LoanNumber !== null);
 const statusSchema = z.object({ id: identifier, type: z.enum(["com.uwm.ImportantDate", "com.uwm.LoanStatus"]),
   source: z.literal("urn:uwm-com:webhooks"), data: z.object({ key: identifier, value: z.string().max(500) }).passthrough(),
 }).passthrough();
 const conditionSchema = z.object({ id: identifier, category: z.string().max(500), bucketKey: z.string().max(200),
-  conditionDescription: z.string().max(16000), conditionSatisfactionDate: z.string().max(100),
+  conditionDescription: z.string().max(16000), conditionSatisfactionDate: z.string().max(100).nullable(),
   loanNumber: identifier, loanStatus: identifier }).passthrough();
 export type UwmWebhookEvent = { environment: UwmWebhookEnvironment; kind: UwmWebhookKind; body: string;
   digest: string; eventKey: string; transactionId: string | null; loanNumber: string | null };

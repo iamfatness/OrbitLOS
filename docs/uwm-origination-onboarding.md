@@ -12,6 +12,8 @@ Shared XML downloads compare the stored bytes with the original export digest wh
 
 ## Evidence to collect with UWM
 
+The authenticated portal contracts have now been reviewed and the transport corrected; see [verified contracts](uwm-verified-contracts.md). The table below tracks stage acceptance, not a need to re-request the documented no-body create/commit or scan schemas.
+
 | Gate | Confirm before wiring the next step |
 | --- | --- |
 | Entitlement and branch mapping | Confirm the sandbox environment, authorization grant for writes, enrolled shop, branch `entityId`, allowed `contactId` and alternative contacts. Obtain expected response examples with identifiers and secrets removed. [Public authentication](https://developers.uwm.com/portal/auth/docs/107) · [Broker associations](https://developers.uwm.com/portal/loan-origination/docs/86) · [Alternative contacts](https://developers.uwm.com/portal/loan-origination/docs/87) |

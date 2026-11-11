@@ -85,11 +85,12 @@ test("UWM requires a raw X-API-Key; bearer-only, prefixed, and wrong keys fail",
   req.headers.set("x-api-key", token);
   assert.equal((await uwmWebhookHttp(req, config, async () => ({}))).status, 200);
 });
-test("condition webhook fields are non-null per UWM clarification", () => {
-  for (const key of Object.keys(condition)) {
+test("condition callbacks retain the documented null outstanding date", () => {
+  for (const key of Object.keys(condition).filter(key => key !== "conditionSatisfactionDate")) {
     assert.throws(() => parseUwmWebhook("stage", "conditions", JSON.stringify({ ...condition, [key]: null })));
   }
   assert.equal(parseUwmWebhook("stage", "conditions", JSON.stringify(condition)).loanNumber, "123456");
+  assert.equal(parseUwmWebhook("stage", "conditions", JSON.stringify({...condition, conditionSatisfactionDate:null})).loanNumber, "123456");
 });
 test("route and method restrictions and metadata pagination", async t => {
   const noWrite = async () => assert.fail("Unexpected write");

@@ -71,11 +71,11 @@ test("public operations use user tokens, exact environment paths and acknowledge
  t.mock.method(globalThis,"fetch",async(url,init)=>{calls.push({url,init});return new Response(null,{status:204});});
  const client=uwmPublicClient(db,env,staff);
  await client.brokerAssociations();await client.float("123",{fixture:true});await client.lock("123",{fixture:true});
- await client.extendLock("123",{fixture:true});await client.cancelLock("123",{fixture:true});await client.attachConditions("123",{fixture:true});await client.submitConditions("123",{fixture:true});
+ await client.extendLock("123",{fixture:true});await client.cancelLock("123");
  assert.ok(calls.every(call=>call.url.startsWith("https://stg.api.uwm.com/")&&call.init.redirect==="manual"&&call.init.headers.Authorization===`Bearer ${grant.access_token}`));
  assert.equal(calls[2].url,"https://stg.api.uwm.com/public/products/v1/loans/123/lock");
  assert.equal(calls[4].init.method,"PUT");
- assert.equal(calls[6].url,"https://stg.api.uwm.com/public/v1/deal/loans/123/condition-attachments-submissions");
+ assert.equal(calls[4].init.body,undefined);
 });
 test("transport does not retry redirects, server failures or unreadable acknowledgments",async t=>{
  const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);
@@ -114,4 +114,49 @@ test("review changes, mismatched operation identity and unauthorized loans are r
  db.prepare("UPDATE applications SET revision=2").run();
  await assert.rejects(ops.dispatchUwmOperation(db,staff,operation,async()=>assert.fail()),/changed/);
  assert.throws(()=>ops.prepareUwmOperation(db,{...staff,email:"other@example.test",brokerage:{...staff.brokerage,role:"LO"}},input()),/unavailable/);
+});
+
+const conditionBody={attachments:[{documentType:"All Conditions",comments:"Reviewed fixture",files:[{documentId:1}],conditions:["condition-1"]}]};
+test("transaction creation and commit omit bodies; scans require authorized mapping and cannot confuse missing fields with ready",async t=>{
+ const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);let next,calls=[];
+ t.mock.method(globalThis,"fetch",async(url,init)=>{calls.push({url,init});return Response.json(next);});
+ next={success:true,data:{transactionId:"tx-1",uri:"https://example.test/file?sig=fixture",fileName:"loan.xml"},errors:null,validationErrors:null};
+ assert.equal((await client.createTransaction()).transactionId,"tx-1");assert.equal(calls[0].init.body,undefined);
+ next={message:"File Imported Successfully",transactionId:"tx-1"};await client.commitTransaction("tx-1");assert.equal(calls[1].init.body,undefined);
+ next={success:true,data:{transferStatus:"New",fields:[{required:true,validated:false,id:"missing"}]},errors:null,validationErrors:null};
+ assert.equal((await client.scanTransaction("tx-1",{entityId:"branch",contactId:"contact"})).readyToCommit,false);
+ next.data={transferStatus:"UpdateUploaded",fields:[]};
+ assert.equal((await client.scanTransaction("tx-1",{entityId:"branch",contactId:"contact"})).readyToCommit,true);
+ const count=calls.length;await assert.rejects(client.scanTransaction("tx-1",{}));assert.equal(calls.length,count);
+ next={success:false,data:{transactionId:"tx-1",uri:"https://example.test/file",fileName:"loan.xml"},errors:["invalid"],validationErrors:null};
+ await assert.rejects(client.createTransaction(),e=>e.outcome==="unknown");
+});
+test("document upload reserves a target without bytes, verifies origin and digest, and never sends bearer credentials to storage",async t=>{
+ const db=database(t);await connect(t,db);const calls=[],origin="https://fixture.blob.core.windows.net";
+ const client=uwmPublicClient(db,{...env,UWM_DOCUMENT_STORAGE_ORIGIN:origin},staff);
+ t.mock.method(globalThis,"fetch",async(url,init)=>{calls.push({url,init});return url.startsWith(origin)?new Response(null,{status:201}):Response.json({sasUri:`${origin}/docs/test.pdf?sig=fixture`,documentId:1,fileName:"test.pdf",location:"Public Documentations"});});
+ const target=await client.createConditionUpload("1234567890","test.pdf");assert.equal(calls[0].init.body,undefined);
+ const bytes=new TextEncoder().encode("fixture document"),digest=ops.uwmRequestDigest(bytes);
+ await client.uploadConditionBytes(target.sasUri,bytes,digest);
+ assert.equal(calls[1].init.method,"POST");assert.equal(calls[1].init.headers.Authorization,undefined);assert.equal(calls[1].init.redirect,"manual");
+ await assert.rejects(client.uploadConditionBytes(target.sasUri.replace(origin,"https://unapproved.test"),bytes,digest));
+ await assert.rejects(client.uploadConditionBytes(target.sasUri,bytes,"a".repeat(64)));assert.equal(calls.length,2);
+});
+test("condition submissions treat missing, partial and 422 acknowledgments as unknown without retrying",async t=>{
+ const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);let count=0;
+ for(const [status,body] of [[200,{documentTypes:["All Conditions"],errors:["partial"]}],[200,{documentTypes:[],errors:[]}],[200,null],[422,{documentTypes:["All Conditions"],errors:["other failure"]}]]){
+  t.mock.method(globalThis,"fetch",async()=>{count++;return Response.json(body,{status});});
+  await assert.rejects(client.submitConditions("1234567890",conditionBody),e=>e.outcome==="unknown");
+ }
+ assert.equal(count,4);
+ t.mock.method(globalThis,"fetch",async()=>Response.json({documentTypes:["All Conditions"],errors:[]}));
+ assert.equal((await client.submitConditions("1234567890",conditionBody)).status,200);
+});
+test("NotCompleted callbacks finish failed imports; null and undocumented statuses are retained for review",async t=>{
+ const db=database(t),operation=input();ops.prepareUwmOperation(db,staff,operation);ops.bindUwmTransaction(db,operation.id,"tx-fail");
+ await ops.dispatchUwmOperation(db,staff,operation,async()=>({status:200,body:{}}));
+ for(const status of [null,"Failed","NotCompleted"]){
+  const receipt=hooks.saveUwmWebhook(db,hooks.parseUwmWebhook("stage","import",JSON.stringify({TransactionId:"tx-fail",LoanNumber:null,LoanStatus:status,Message:"fixture",LogDateTime:"2026-11-10T21:00:00Z"})));
+  assert.equal(ops.correlateUwmImport(db,Number(receipt.receiptId)),status==="NotCompleted"?"Failed":"Needs review");
+ }
 });

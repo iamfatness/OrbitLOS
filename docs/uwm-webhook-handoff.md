@@ -2,7 +2,7 @@
 
 Prepared November 10, 2026. Receivers are implemented for the three isolated hosts. UWM secrets and brokerage mappings are not configured. **UWM registration and authenticated delivery validation remain pending.** Activate only after the operator checklist below passes. See [release scope and activation](uwm-release.md) for the account flows and remaining live-operation work.
 
-Validation: the final release passed all 421 regression tests, TypeScript and ESLint. Builds and hosted checks are recorded in [release validation](uwm-release-validation.md). No authenticated UWM delivery has been verified.
+Validation: the initial publication passed its regression tests, TypeScript and ESLint. Builds and hosted checks are recorded in [release validation](uwm-release-validation.md). No authenticated UWM delivery has been verified.
 
 ## Message to share with UWM
 
@@ -32,9 +32,9 @@ We acknowledge durable receipt with HTTP `200 OK`, including exact retries. Ackn
 Please confirm:
 
 1. Please confirm subscription registration in INT, stage and production. We understand the broker entities/branches are determined by the authenticated UWM user, and user-authorized API access requires both the supplied client credentials and that user’s credentials. Incoming webhooks will use our dedicated X-API-Key.
-2. Import result contract: casing and types for `TransactionId`, `LoanNumber`, `LoanStatus`, `Message`, and `LogDateTime`; all success/failure statuses; whether failed imports use a null loan number; and whether the same transaction can produce multiple outcome notifications. Please send both success and failure examples.
+2. We verified document 91: import outcomes use `Completed` and `NotCompleted`, with nullable `LoanNumber` and `LoanStatus`. Please confirm whether the same transaction can produce multiple outcome notifications and send stage success/failure deliveries.
 3. Thank you for confirming dates/status payloads include the loan number. Please supply a complete synthetic event so we can verify its exact field path/type and broker context. Is `id` stable on redelivery, and what is the occurrence timestamp?
-4. We understand condition fields are non-null and notifications occur on creation and modification. Please show the exact unsatisfied/reopened value for `conditionSatisfactionDate`, and the timestamp/version we can use to order clearance and reopening events.
+4. Your email says condition fields are non-null, but document 119 explicitly shows `conditionSatisfactionDate: null` for outstanding conditions. Our receiver preserves either form. Please confirm the current contract and the timestamp/version used to order clearance and reopening events.
 5. ULAD: please supply a complete synthetic XML file, the exact UWM loan-number path and identifier type (including namespaces), export status triggers, maximum file size, and any event ID/version/timestamp headers. Orbit currently archives these exports for reconciliation; it does not overwrite the borrower application from XML.
 6. The import response-code page does not establish the webhook delivery policy. Please confirm retry schedule, timeout, retention/replay window, delivery ordering, duplicates, concurrent deliveries, how to request replay, and whether registration sends a challenge.
 

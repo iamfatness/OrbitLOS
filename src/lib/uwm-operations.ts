@@ -84,8 +84,8 @@ export function correlateUwmImport(db: Store, receiptId: number) {
     const operation = db.prepare("SELECT * FROM uwm_operations WHERE environment=? AND transactionId=? AND kind='import'")
       .get(receipt.environment, receipt.transactionId);
     if (!operation) return "Unmatched";
-    const payload = JSON.parse(String(receipt.body)) as { LoanStatus?: string };
-    const state = payload.LoanStatus === "Completed" && receipt.loanNumber ? "Completed" : payload.LoanStatus === "Failed" ? "Failed" : null;
+    const payload = JSON.parse(String(receipt.body)) as { LoanStatus?: string | null };
+    const state = payload.LoanStatus === "Completed" && receipt.loanNumber ? "Completed" : payload.LoanStatus === "NotCompleted" ? "Failed" : null;
     if (!state) return "Needs review";
     if (["Completed", "Failed"].includes(String(operation.state))) {
       return operation.state === state && operation.lenderLoanNumber === receipt.loanNumber ? "Duplicate outcome" : "Conflicting outcome";
