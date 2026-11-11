@@ -1,6 +1,7 @@
 // Test-only wrapper copied next to the built Worker by prepare-hosted-recovery.mjs.
 // Never included by the production entry point or its deployment configuration.
 import application, { OrbitWorkspace } from "./index.js";
+import { directoryRecoveryCommand, readDirectoryJournal, snapshotDirectory } from "./directory-recovery.mjs";
 import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 import { expectedDeadline, reviewPending, remainingReplay, sameDocument } from "./recovery-reconciliation.mjs";
@@ -68,6 +69,37 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     const identity = this.probeIdentity();
     const rows = Object.fromEntries(tables.map(table => [table,this.ctx.storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`).toArray()]));
     return { ...identity, hash: await digest(JSON.stringify(rows)), counts: Object.fromEntries(Object.entries(rows).map(([key,value]) => [key,value.length])) };
+  }
+  probeDirectorySnapshot() {
+    if (this.ctx.id.name !== "orbit-demo") throw new Error("Directory only");
+    return snapshotDirectory(this.ctx.storage);
+  }
+  async probeDirectoryPoint() {
+    const manifest = await this.probeDirectorySnapshot();
+    return { manifest, bookmark: await this.ctx.storage.getCurrentBookmark(),
+      run: this.env.RECOVERY_RUN, source: this.env.RECOVERY_SOURCE };
+  }
+  probeDirectoryArm(point) {
+    if (this.ctx.id.name !== "orbit-demo" || point.run !== this.env.RECOVERY_RUN || point.source !== this.env.RECOVERY_SOURCE)
+      throw new Error("Directory recovery provenance mismatch");
+    return this.ctx.storage.onNextSessionRestoreBookmark(point.bookmark);
+  }
+  probeDirectoryRestart() {
+    if (this.ctx.id.name !== "orbit-demo") throw new Error("Directory only");
+    this.ctx.abort("Isolated directory restore restart");
+  }
+  probeDirectoryRoutes(routes) {
+    if (this.ctx.id.name !== "orbit-demo") throw new Error("Directory only");
+    const { storage } = this.ctx;
+    storage.transactionSync(() => {
+      for (const route of routes) {
+        if (![this.env.FIXTURE_A, this.env.FIXTURE_B].includes(route.brokerageId)) throw new Error("Fictional routes only");
+        storage.sql.exec("INSERT OR IGNORE INTO uwm_transaction_routes VALUES ('stage',?,?,?)",
+          route.transactionId, route.brokerageId, route.operationId);
+        storage.sql.exec("INSERT OR IGNORE INTO uwm_loan_routes VALUES ('stage',?,?,?)",
+          route.loanNumber, route.brokerageId, route.transactionId);
+      }
+    });
   }
   probeCheckpointBookmark(id,brokerageId) {
     if(this.ctx.id.name!=="orbit-demo")throw new Error("Directory only");
@@ -196,6 +228,10 @@ async function command(action, env, origin, ctx) {
   const tenants = fixtures(env), [a,b] = tenants;
   const directory = env.WORKSPACE.getByName("orbit-demo"), target = env.WORKSPACE.getByName(a.id), other = env.WORKSPACE.getByName(b.id);
   let state = await directory.probeState();
+  const journal = await readDirectoryJournal(env);
+  if (action === "status" && journal && state?.phase !== "cleaned") return { ...journal.evidence, phase:journal.phase, run:env.RECOVERY_RUN, source:env.RECOVERY_SOURCE };
+  if (action.startsWith("directory")) return directoryRecoveryCommand(action,{env,ctx,origin,application,directory,target,other,state,tenants,journal});
+  if (journal && action !== "cleanup") throw new Error("Directory recovery is in progress");
   if (action === "status") return {...state?.result,phase:state?.phase ?? "new",run:env.RECOVERY_RUN,source:env.RECOVERY_SOURCE};
   if (action === "initialize") {
     if (state) throw new Error("Run already initialized");
@@ -227,6 +263,9 @@ async function command(action, env, origin, ctx) {
     const saved=await directory.workspaceCheckpoints(a.admin,input);
     const repeated=await directory.workspaceCheckpoints(a.admin,input);
     if(saved.checkpoint.id!==repeated.checkpoint.id || saved.view.revision!==repeated.view.revision)throw new Error("Checkpoint retry duplicated a save");
+    state.directoryEndedSession=crypto.randomUUID();
+    await directory.createStaffSession(state.directoryEndedSession,a.admin,Date.now()+3600000,Date.now());
+    state.directoryOld=await directory.probeDirectoryPoint();
     state.productCheckpoint=saved.checkpoint;
     state.checkpoint={...await target.probeCapture(),bookmark:await directory.probeCheckpointBookmark(saved.checkpoint.id,a.id)};
     const compare=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:saved.checkpoint.id,revision:saved.view.revision});
@@ -433,11 +472,14 @@ async function command(action, env, origin, ctx) {
     state.phase="replayVerified";
     Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true,undispatchedEditNotAcknowledged:true,
       lostAcknowledgmentReconciledAfterRestart:true,reviewedEditReplayed:true,operatorRecoveredChain:true});
-  } else if (action === "cleanup" && state.phase === "replayVerified") {
+  } else if (action === "cleanup" && state.phase === "replayVerified" && journal?.phase === "directoryVerified") {
     for(const file of state.lenderEvidence.files)await target.probeCleanup(file);
     state.phase = "cleaned";
+    Object.assign(state.result,journal.evidence);
+
   } else throw new Error("Command does not match recovery phase");
   await directory.probeSave(state);
+  if (action === "cleanup") await env.DOCUMENTS.delete("directory-recovery-journal");
   return {...state.result,phase:state.phase,run:state.run};
 }
 const recoveryWorker = {
@@ -447,7 +489,7 @@ const recoveryWorker = {
     if (url.pathname === "/__recovery" && request.method === "POST") {
       if (Number(request.headers.get("Content-Length")||0)>128) return new Response("Too large",{status:413});
       const action = await request.text();
-      if (!["status","initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change","arm","restart","verify","replay","restartReplay","verifyReplay","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
+      if (!["status","initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change","arm","restart","verify","replay","restartReplay","verifyReplay","directoryPrepare","directoryArmOld","directoryRejectOld","directoryRecover","directoryVerify","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
       try { return Response.json(await command(action,env,url.origin,ctx),{headers:{"Cache-Control":"no-store"}}); }
       catch(error) { return Response.json({error:error.message},{status:409,headers:{"Cache-Control":"no-store"}}); }
     }
