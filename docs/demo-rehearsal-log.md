@@ -1185,3 +1185,9 @@ Source `f31a825` compares processor grants and exact assignment receipts before 
 Worker `98234ec4-fd72-48e6-aa76-212e492112a9` serves all traffic with the same 23 bindings. Nine staged and live public and signed-out checks passed. The production workspace was not paused or restored, and provider configuration did not change.
 
 All 1,431 browser assets matched on both staged and both live passes. The ordinary production browser rendered the updated Demo copy.
+
+## Returning-client refinance across brokerage roles
+
+Source `d103cf1` passed the 45-stage fictional working day, 509 tests, lint, typecheck and the production build. The returning-client case starts from a campaign reply and exercises a reviewed 1003, mock UWM submission, processor assignment, borrower document requests and mock clearance, private return to the LO and funding. A competing LO and unassigned processor were denied. The borrower links rejected requests against each other's documents, and both populated realtor portals kept their own referrals. [Workflow and pilot readiness audit](working-day-rehearsal.md#broker-pilot-readiness-audit)
+
+Worker `2a362ca3-bedb-4c33-a3b4-6c14a07158a9` serves all traffic with all 23 bindings preserved. Nine public and signed-out smoke checks passed against staged and live routing. The public Demo walkthrough item was inspected at 1440, 900 and 390 px in staging and appeared through ordinary production routing. Signed-in workspace entry kept the same brokerage across promotion. Role acceptance used fictional data and simulated provider outcomes in the built Worker. [Design evidence](brand-ux-review.md#returning-client-refinance-walkthrough-item)
