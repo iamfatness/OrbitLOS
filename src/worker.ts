@@ -57,7 +57,7 @@ import { readLeadInbox } from "./lib/lead-inbox-query";
 import { leadInboxUnavailable } from "./lib/lead-inbox-model";
 import { contactsUnavailable } from "./lib/contact-directory-model";
 import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
-import { googleSettings, handleStaffAuth, runtimeSetting, staffLoginUrl, staffSessionHash, workspaceAccessDenied } from "./lib/staff-auth";
+import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
 import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
@@ -1789,12 +1789,14 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
     }
     let staff: WorkspaceStaff | null = null;
     let brokerages: WorkspaceStaff["brokerage"][] = [];
+    let saveWorkspaceChoice = false;
     if (!tokenPage) {
       if (google) {
         const requested = url.searchParams.get("brokerage");
         const openingWorkspace = reading && url.pathname === "/workspace";
         const workspaceTarget = openingWorkspace && requested && brokerageIdPattern.test(requested) ? requested : null;
         const guide = openingWorkspace ? workspaceGuide(url.searchParams.get("guide")) : null;
+        const dailyEntry = openingWorkspace && !guide;
         const login = () => new Response(null, { status: 303, headers: { Location: staffLoginUrl(workspaceTarget, undefined, guide), "Cache-Control": "no-store" } });
         try {
           const tokenHash = await staffSessionHash(request, google);
@@ -1802,16 +1804,25 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           if (access) {
             const { identity } = access;
             brokerages = access.brokerages;
-            const brokerage = requested === null ? (openingWorkspace && !guide ? defaultWorkspace(brokerages, (env as unknown as Record<string,string | undefined>).UWM_BROKERAGE_ID) : brokerages.find(entry=>!entry.maintenance) ?? brokerages[0]) : brokerages.find((entry) => entry.id === requested);
-            if (requested !== null && !brokerage && (brokerages.length || openingWorkspace)) {
+            const remembered = dailyEntry && requested === null && url.searchParams.get("available") !== "1"
+              ? await rememberedStaffWorkspace(request, identity.email) : null;
+            const choice = requested ?? remembered;
+            const brokerage = choice !== null ? brokerages.find((entry) => entry.id === choice) :
+              dailyEntry ? defaultWorkspace(brokerages, runtimeSetting(env, "UWM_BROKERAGE_ID")) : brokerages.find((entry) => !entry.maintenance) ?? brokerages[0];
+            if (choice !== null && !brokerage && (brokerages.length || openingWorkspace)) {
               if (workspaceTarget && await directory.staffInvitedTo(workspaceTarget, identity.email)) return login();
-              if (openingWorkspace) return workspaceAccessDenied(workspaceTarget, guide);
+              if (openingWorkspace) return workspaceAccessDenied(workspaceTarget, guide, Boolean(remembered));
               return new Response("You don’t have access to this brokerage.", { status: 403, headers: { "Cache-Control": "no-store" } });
             }
             if (brokerage) staff = { ...identity, brokerage };
-            if (staff && requested === null && staff.brokerage.id !== demoBrokerageId && openingWorkspace) {
+            if (staff && requested === null && openingWorkspace && (dailyEntry || staff.brokerage.id !== demoBrokerageId)) {
               return new Response(null, { status: 303, headers: { Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" } });
             }
+            saveWorkspaceChoice = Boolean(staff && dailyEntry && workspaceTarget && request.method === "GET" &&
+              ((request.headers.get("Sec-Fetch-Mode") === "navigate" && request.headers.get("Sec-Fetch-User") === "?1") ||
+                (!request.headers.has("Sec-Fetch-Mode") && request.headers.get("Accept")?.includes("text/html"))) &&
+              !request.headers.has("RSC") && !request.headers.has("Next-Router-Prefetch") &&
+              !(request.headers.get("Sec-Purpose") ?? "").includes("prefetch"));
           }
         }
         catch (error) {
@@ -1885,7 +1896,8 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       return new Response(null,{status:405,headers:{...headers,Allow:"GET, POST"}});
     }
     if (staff && url.pathname !== "/workspace-maintenance" && staff.brokerage.maintenance) {
-      return reading && url.pathname === "/workspace" ? workspaceMaintenancePage(staff.brokerage) :
+      return reading && url.pathname === "/workspace" ? workspaceMaintenancePage(staff.brokerage,
+        brokerages.some((entry) => entry.id !== staff?.brokerage.id && !entry.maintenance)) :
         Response.json({error:maintenanceMessage},{status:503,headers:{"Cache-Control":"private, no-store","Retry-After":"60"}});
     }
     if (["/api/uwm-file", "/api/uwm-file/read"].includes(url.pathname)) {
@@ -2117,6 +2129,7 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
     const result = new Response(response.body, response);
     result.headers.set("Cache-Control", "private, no-store");
     result.headers.set("X-Robots-Tag", "noindex");
+    if (staff && saveWorkspaceChoice && result.ok) result.headers.append("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
     if (tokenPage) result.headers.set("Referrer-Policy", "no-referrer");
     return result;
 }

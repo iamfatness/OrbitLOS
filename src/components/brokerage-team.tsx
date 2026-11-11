@@ -144,6 +144,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       <div className="section-heading"><h2>{staff.brokerage.name}</h2><span className="pill">{pilot ? "Pilot · " : ""}{staff.brokerage.role}</span></div>
       {admin && pilot && <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}`}>Workspace maintenance</a></Button>}
       <p className="muted">Current workspace · {canUseSampleTools ? "Fictional data and practice workflows" : "Operational workspace"}</p>
+      <p className="muted">Orbit reopens the last workspace you visited on this browser.</p>
       <Button variant="outline" size="sm" onClick={()=>void copyWorkspace()}>Copy workspace link</Button>
       {copyStatus && <p role="status">{copyStatus}</p>}
       {!!operationalWorkspaces.length && <div className="workspace-list"><h3>Operational workspaces</h3>{operationalWorkspaces.map(item =>

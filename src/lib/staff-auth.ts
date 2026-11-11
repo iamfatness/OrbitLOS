@@ -4,6 +4,7 @@ import { brokerageIdPattern, brokerageUrl, demoBrokerageId, workspaceGuide, type
 
 const attemptCookie = "__Host-orbit-google";
 const sessionCookie = "__Host-orbit-session";
+const workspaceCookie = "__Host-orbit-workspace";
 const attemptSeconds = 10 * 60;
 const sessionSeconds = 8 * 60 * 60;
 const opaqueToken = /^[A-Za-z0-9_-]{43}$/;
@@ -50,9 +51,13 @@ function cookie(name: string, value: string, maxAge: number) {
   return `${name}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
 }
 
-function readCookie(request: Request, name: string) {
+function cookieValue(request: Request, name: string) {
   const pair = request.headers.get("Cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
-  const value = pair?.slice(name.length + 1);
+  return pair?.slice(name.length + 1);
+}
+
+function readCookie(request: Request, name: string) {
+  const value = cookieValue(request, name);
   return value && opaqueToken.test(value) ? value : null;
 }
 
@@ -64,6 +69,16 @@ function redirect(location: string, cookies: string[] = []) {
 
 function safeBrokerageId(value: string | null) {
   return value && brokerageIdPattern.test(value) ? value : null;
+}
+
+export async function rememberedStaffWorkspace(request: Request, email: string) {
+  const [owner, workspace, extra] = cookieValue(request, workspaceCookie)?.split(".") ?? [];
+  if (!owner || !workspace || extra !== undefined || !safeBrokerageId(workspace)) return null;
+  return owner === await hash(email) ? workspace : null;
+}
+
+export async function staffWorkspaceCookie(email: string, brokerage: string) {
+  return cookie(workspaceCookie, `${await hash(email)}.${brokerage}`, 90 * 24 * 60 * 60);
 }
 
 export function staffLoginUrl(brokerageId: string | null = null, error?: "denied" | "restart", guide?: ReturnType<typeof workspaceGuide>) {
@@ -95,21 +110,22 @@ function loginPage(settings: GoogleSettings, url: URL) {
   }, ready ? 200 : 503);
 }
 
-export function workspaceAccessDenied(brokerageId: string | null, guide?: ReturnType<typeof workspaceGuide>) {
+export function workspaceAccessDenied(brokerageId: string | null, guide?: ReturnType<typeof workspaceGuide>, remembered = false) {
   return staffEntryPage({ title: "Workspace access unavailable",
-    description: "Your signed-in account cannot open this brokerage. The link may be for another team, or your access may have changed.",
+    description: remembered ? "Your signed-in account no longer has access to the last workspace you opened." :
+      "Your signed-in account cannot open this brokerage. The link may be for another team, or your access may have changed.",
     message: "Ask your brokerage admin to confirm the Google email on your invitation. You can still open any workspace you have access to.",
-    primary: { href: "/workspace", label: "Open my available workspace" },
+    primary: { href: remembered ? "/workspace?available=1" : "/workspace", label: "Open my available workspace" },
     secondary: { href: staffLoginUrl(brokerageId, undefined, guide).replaceAll("&", "&amp;"), label: "Use a different Google account" },
   }, 403);
 }
 
-export function workspaceMaintenancePage(brokerage: Brokerage) {
+export function workspaceMaintenancePage(brokerage: Brokerage, canSwitch = false) {
   return staffEntryPage({title:"Workspace paused",description:"Your brokerage is reviewing this workspace before reopening it.",
     message:"Saved work is retained. New workspace actions and portal updates are temporarily unavailable.",
     primary:brokerage.role === "Admin" && brokerage.pilot ? {href:`/workspace-maintenance?brokerage=${brokerage.id}`,label:"Open maintenance review"} :
       {href:brokerageUrl(brokerage.id),label:"Check again"},
-    secondary:{href:"/workspace",label:"Open my available workspace"}},503);
+    secondary:canSwitch ? {href:"/workspace?available=1",label:"Open another available workspace"} : undefined},503);
 }
 
 function staffEntryPage({ title, description, message, primary, secondary }: {
