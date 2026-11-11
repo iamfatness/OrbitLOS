@@ -3470,7 +3470,7 @@ try {
     assert.equal(await todayItem(), undefined);
     assert.equal(await ownerItem(), undefined);
   });
-  async function fundMockLoan(loanId, purpose, name) {
+  async function fundMockLoan(loanId, purpose, name, assignedProcessor = null) {
     const { token } = (await file(officer, loanId)).applications[0];
     const initial = await borrower(token, { type: "read" });
     const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
@@ -3505,17 +3505,41 @@ try {
     const [submission] = received.submissions;
     assert.equal(submission.lender, "UWM");
     assert.match(submission.externalId, /^DEMO-/);
+    const processingActor = assignedProcessor ?? officer;
+    const handoff = async (actor, step, note = "") => {
+      const [assignment] = (await file(actor, loanId)).loanProcessing;
+      return loanAction(actor, loanId, "updateProcessing", { action: step, revision: assignment.revision, applicationRevision: revision, note });
+    };
+    if (assignedProcessor) {
+      assert.match((await action(assignedProcessor, "readLoanForWork", loanId)).error, /unavailable/i);
+      await team(owner, { type: "assignProcessor", loanId, email: assignedProcessor.email, revision: 0, requestId: randomUUID() });
+      await handoff(officer, "Send to processing", "Review the returning client's fictional refinance.");
+      const available = await incoming(assignedProcessor, "processing");
+      assert.ok(available.items.some(({ kind, id }) => kind === "handoff" && id === loanId));
+      assert.ok((await action(competingOfficer, "readLoanForWork", loanId)).error);
+      await handoff(assignedProcessor, "Accept handoff");
+    }
     const conditionIds = submission.conditions.filter(({ satisfiedAt }) => !satisfiedAt).map(({ id }) => id);
     assert.equal(conditionIds.length, 2);
-    await loanAction(officer, loanId, "requestSuggestedUwmDocuments", { submissionId: submission.id, conditionIds });
-    const requested = (await file(officer, loanId)).documentRequests;
+    await loanAction(processingActor, loanId, "requestSuggestedUwmDocuments", { submissionId: submission.id, conditionIds });
+    const requested = (await file(processingActor, loanId)).documentRequests;
     for (const request of requested) {
       await borrower(token, { type: "attachSample", statusOnly: true, requestId: request.id, revision: request.revision });
-      const currentRequest = (await file(officer, loanId)).documentRequests.find(({ id }) => id === request.id);
-      await loanAction(officer, loanId, "reviewDocument", { requestId: request.id, revision: currentRequest.revision,
+      const currentRequest = (await file(processingActor, loanId)).documentRequests.find(({ id }) => id === request.id);
+      await loanAction(processingActor, loanId, "reviewDocument", { requestId: request.id, revision: currentRequest.revision,
         decision: "Accepted", replacementNote: "", sendToMockUwm: true });
     }
-    await loanAction(officer, loanId, "refreshMockUwmClearance", { submissionId: submission.id });
+    await loanAction(processingActor, loanId, "refreshMockUwmClearance", { submissionId: submission.id });
+    if (assignedProcessor) {
+      assert.ok((await action(assignedProcessor, "mutate", { type: "markClearToClose", loanId })).error);
+      assert.ok((await action(officer, "mutate", { type: "markClearToClose", loanId })).error);
+      await handoff(assignedProcessor, "Return to LO", "Private refinance handoff note.");
+      assert.ok((await queue(officer)).items.some(({ kind, recordId }) => kind === "handoff" && recordId === loanId));
+      assert.equal((await file(officer, loanId)).loanProcessing[0].note, "Private refinance handoff note.");
+      assert.doesNotMatch(JSON.stringify(await borrower(token, { type: "status" })), /Private refinance handoff note/);
+      await handoff(officer, "Complete handoff");
+      assert.ok(!(await queue(officer)).items.some(({ kind, recordId }) => kind === "handoff" && recordId === loanId));
+    }
     const ready = await file(officer, loanId);
     assert.ok(ready.submissions[0].conditions.every(({ satisfiedAt }) => satisfiedAt));
     assert.equal(closingReviewReady(ready.loans[0], ready), true);
@@ -3552,7 +3576,7 @@ try {
     return { ...funded, leadId: lead.id };
   });
 
-  await stage("Past-client campaign reuses the borrower, funds the repeat and reconciles both sources", async () => {
+  await stage("A returning-client refinance crosses staff roles without exposing the original portal or referral", async () => {
     const campaignId = randomUUID();
     const campaignName = "Fictional Lake Past Clients";
     const segmentId = randomUUID();
@@ -3590,7 +3614,21 @@ try {
     assert.equal((await post(path, conversion, officer)).referralLoanId, repeatId);
     assert.equal((await write(officer, start)).applicationLoanId, repeatId);
     assert.equal((await action(officer, "readConversationWork", { type: "thread", id: linked.conversationId })).thread.loanId, repeatId);
-    const repeat = await fundMockLoan(repeatId, "Refinance", returningBorrower.name);
+    const originalToken = (await file(officer, original.id)).applications[0].token;
+    const repeatToken = (await file(officer, repeatId)).applications[0].token;
+    assert.notEqual(originalToken, repeatToken);
+    const originalStatus = (await borrower(originalToken, { type: "status" })).loanStatus;
+    const originalReferral = (await realtor(realtorToken)).referrals.filter(({ borrowerName }) => borrowerName === returningBorrower.name);
+    assert.equal(originalReferral.length, 1);
+    const unrelatedPartner = await write(owner, { type: "contact", role: "Realtor", name: "Fictional Unrelated Realtor",
+      email: "working-day-unrelated-realtor@example.test", phone: "" });
+    const { contactId: partnerId } = unrelatedPartner;
+    await action(owner, "mutate", { type: "createRealtorPortal", realtorId: partnerId, officerEmail: competingOfficer.email }, "realtors");
+    const { portal: unrelatedPortal } = await action(owner, "readRealtorWorkspace", { type: "profile", partnerId });
+    const unrelatedReferralName = "Fictional Second Realtor Referral";
+    await post("/api/realtor-referrals", { type: "submit", token: unrelatedPortal.token, requestId: randomUUID(),
+      name: unrelatedReferralName, email: "working-day-second-referral@example.test", phone: "", purpose: "Purchase", consent: true });
+    const repeat = await fundMockLoan(repeatId, "Refinance", returningBorrower.name, processor);
     assert.equal(repeat.contactId, original.contactId);
     assert.equal(repeat.partnerId, null);
     const scorecard = await action(owner, "readOwnerReport", { kind: "summary", ...crmFilter });
@@ -3604,7 +3642,23 @@ try {
     assert.equal(activity.sourceLoanId, original.id);
     assert.equal(activity.campaignName, campaignName);
     assert.equal(activity.detail, "Funded");
-    assert.ok(!(await realtor(realtorToken)).referrals.some(({ borrowerName, stage }) => borrowerName === returningBorrower.name && stage !== "Funded"));
+    const originalPartner = await realtor(realtorToken);
+    const secondPartner = await realtor(unrelatedPortal.token);
+    assert.deepEqual(originalPartner.referrals.filter(({ borrowerName }) => borrowerName === returningBorrower.name), originalReferral);
+    assert.ok(!originalPartner.referrals.some(({ borrowerName }) => borrowerName === unrelatedReferralName));
+    assert.deepEqual(secondPartner.referrals.map(({ borrowerName }) => borrowerName), [unrelatedReferralName]);
+    assert.deepEqual((await borrower(originalToken, { type: "status" })).loanStatus, originalStatus);
+    const repeatStatus = (await borrower(repeatToken, { type: "status" })).loanStatus;
+    assert.equal(repeatStatus.stage, "Funded");
+    assert.equal(repeatStatus.documents.length, 2);
+    assert.ok(repeatStatus.documents.every(({ id }) => !originalStatus.documents.some(request => request.id === id)));
+    for (const [token, request] of [[repeatToken, originalStatus.documents[0]], [originalToken, repeatStatus.documents[0]]]) {
+      const wrongFile = await postResponse("/api/demo-application", { type: "attachSample", token,
+        requestId: request.id, revision: request.revision, statusOnly: true });
+      assert.equal(wrongFile.status, 404);
+    }
+    assert.deepEqual((await borrower(originalToken, { type: "status" })).loanStatus, originalStatus);
+    assert.deepEqual((await borrower(repeatToken, { type: "status" })).loanStatus, repeatStatus);
   });
   await stage("DSCR and bank statement comparisons recover unsupported EQ through a revised manual handoff", async () => {
     const created = await write(officer, { type: "loan", contactId: "", borrower: "Fictional Summit Investor",
