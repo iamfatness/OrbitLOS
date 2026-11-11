@@ -28,7 +28,7 @@ function inspect(db: Store) {
     let cursor: string | null = null;
     let count = 0;
     while (true) {
-      const rows = cursor === null ? first.all() : next.all(cursor);
+      const rows: Record<string, unknown>[] = cursor === null ? first.all() : next.all(cursor);
       for (const row of rows) fingerprint.update(JSON.stringify(row)).update("\n");
       count += rows.length;
       if (rows.length < 100) return count;
