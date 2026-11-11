@@ -50,3 +50,10 @@ test("comparison detects same-count changes, added and removed tables, settings,
  f.db.prepare("UPDATE brokerage_recovery_checkpoints SET expiresAt='2000-01-01' WHERE id=?").run(input.id);
  assert.throws(()=>checkpoints.compareCheckpoint(f.db,f.staff,[],input.id,input.revision+1,now),/30-day/);
 });
+
+test("Cloudflare internal tables use their public storage APIs, not protected SQL reads",t=>{
+ const f=fixture(t);f.db.exec("CREATE TABLE _cf_METADATA(k INTEGER,v TEXT); CREATE TABLE _cf_KV(k TEXT,v BLOB); CREATE TABLE app(id TEXT);INSERT INTO app VALUES ('one')");
+ const read=(q,...args)=>{if(q.includes("_cf_"))throw Error("Protected table");return f.read(q,...args);};
+ const manifest=captureCheckpointManifest(read,new Map([['setting','value']]),123);
+ assert.deepEqual(manifest.tables.map(t=>t.name),['app']);assert.equal(manifest.kv.keys,1);assert.equal(manifest.alarm,123);
+});
