@@ -50,7 +50,7 @@ Audit evidence retains actor, application revision, timestamps, request digest, 
 
 ## Acceptance still required
 
-- User's production personal UWM login (the user will complete it later).
+- User's production personal UWM login (the user will complete it later), and a fresh stage login after UWM rejected renewal of the earlier grant.
 - UWM-approved XML/document storage origins in each environment.
 - UWM registers the endpoints in [webhook handoff](uwm-webhook-handoff.md) and sends actual deliveries.
 - A UWM-approved synthetic stage file exercises create/upload/scan/correct/commit/callback, document upload/attach/submit, and each rate action independently.
