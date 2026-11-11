@@ -29,3 +29,10 @@ The preliminary research baseline is November 10, 2026. The catalog is not an ex
 Integrate this branch after the active UWM work at a clean checkpoint. Review the additive table against any intervening restore/export changes: full-database snapshot handling must preserve research metadata along with canonical cases and events. The working-day script has new assertions within the existing compliance stage; reconcile any concurrent edits there.
 
 Next implement reviewed atomic requirements and applicability/version management, map them to tested platform controls, and connect file findings to actual evidence and server-side action gates. Expand beyond pilot access only with the corresponding product and authorization work. A restricted external reviewer portal remains a later, separate slice. Existing risk-and-gaps plan/spec define the broader program; this implementation does not mark that program complete.
+
+
+## Live acceptance
+
+Combined application `9b639ee` shipped on November 11, 2026 as Worker version `8750f069-dec1-40a1-a9dd-d248ab3cc795`. The combined source passed all 495 tests, typecheck, lint, the production build and the 41-stage built-Worker working-day rehearsal. The source library fit 1440, 900 and 390 pixel viewports without page overflow. Two staged and two live passes matched all 643 current and retained browser assets, and all 23 bindings matched the prior version.
+
+On OrbitLOS.com in Role Handoff QA, an admin opened the federal retention research entry, created a fictional control gap, saved the next action and progress note, and found the note under Review history at revision 2. The public Product page describes the feature. Approval and enforcement remain unverified. Directory restore evidence is separate and comes from the isolated hosted rehearsal.
