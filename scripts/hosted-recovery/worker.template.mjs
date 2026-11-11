@@ -2,7 +2,7 @@
 // Never included by the production entry point or its deployment configuration.
 import application, { OrbitWorkspace } from "./index.js";
 
-const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit"];
+const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
@@ -51,7 +51,16 @@ export class RecoveryWorkspace extends OrbitWorkspace {
   }
   probeRestart() { this.probeIdentity(); this.ctx.abort("Isolated fictional recovery restart"); }
   probeApplication(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,expiresAt FROM applications WHERE loanId=?",loanId).one(); }
+  probeRealtor() { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,realtorId FROM realtor_portals").one(); }
   probeDocument(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT id,revision,deadlineRevision,dueOn FROM document_requests WHERE loanId=? ORDER BY id LIMIT 1",loanId).one(); }
+  async probeReplay(receipt, actor) {
+    const identity = this.probeIdentity();
+    if (receipt.tenant !== identity.tenant || receipt.run !== identity.run || receipt.source !== identity.source || receipt.status !== "acknowledged") throw new Error("Unverified recovery receipt");
+    const current = this.probeDocument(receipt.command.loanId);
+    if (![receipt.before,receipt.after].some(expected => JSON.stringify(expected) === JSON.stringify(current))) throw new Error("Receipt conflicts with restored document");
+    requireOk(await this.write(receipt.command,actor));
+    if (JSON.stringify(this.probeDocument(receipt.command.loanId)) !== JSON.stringify(receipt.after)) throw new Error("Receipt replay differs from acknowledged state");
+  }
   async probeAttach(loanId) {
     const identity = this.probeIdentity();
     const document = this.probeDocument(loanId);
@@ -73,6 +82,20 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     if (!evidence.objectId.startsWith(`${identity.run}/${identity.tenant}/`)) throw new Error("Fixture object mismatch");
     await this.env.DOCUMENTS.delete(evidence.objectId);
   }
+  async probeByteFailures(evidence) {
+    const identity = this.probeIdentity();
+    if (!evidence.objectId.startsWith(`${identity.run}/${identity.tenant}/`)) throw new Error("Fixture object mismatch");
+    const object = await this.env.DOCUMENTS.get(evidence.objectId);
+    if (!object) throw new Error("Sample document unavailable before negative checks");
+    const original = await object.arrayBuffer();
+    try {
+      await this.env.DOCUMENTS.delete(evidence.objectId);
+      if (await this.probeBytes(evidence)) throw new Error("Missing bytes passed reconciliation");
+      await this.env.DOCUMENTS.put(evidence.objectId,"Deliberately corrupted fictional bytes");
+      if (await this.probeBytes(evidence)) throw new Error("Corrupted bytes passed reconciliation");
+    } finally { await this.env.DOCUMENTS.put(evidence.objectId,original); }
+    if (!await this.probeBytes(evidence)) throw new Error("Sample bytes not restored after negative checks");
+  }
   probeDamage(loanId) {
     const identity = this.probeIdentity();
     if (loanId !== `demo-presenter:${identity.tenant}:closing`) throw new Error("Fictional loan only");
@@ -91,8 +114,10 @@ async function command(action, env, origin, ctx) {
       const workspace = env.WORKSPACE.getByName(item.id);
       requireOk(await workspace.loadPilot(item.admin,{type:"loadPilotScenario",id:item.scenario,previousId:null,officerEmail:item.officer.email,presenter:true},item.officer));
       requireOk(await workspace.write({type:"startApplication",loanId:item.loanId},item.officer));
+      const doc = await workspace.probeDocument(item.loanId);
+      requireOk(await workspace.write({type:"setDocumentDeadline",loanId:item.loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-01-01"},item.officer));
     }
-    state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE, document: await target.probeAttach(a.loanId), link: await target.probeApplication(a.loanId) };
+    state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE, document: await target.probeAttach(a.loanId), link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
     const session = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     const sessionHash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(session))))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     await directory.createStaffSession(sessionHash,{email:a.officer.email,name:a.officer.name},Date.now()+3600000,Date.now());
@@ -109,7 +134,18 @@ async function command(action, env, origin, ctx) {
     if (!refused) throw new Error("Cross-tenant restore was not refused");
     state.phase = "checkpointed";
   } else if (action === "change" && state.phase === "checkpointed") {
+    const before = await target.probeDocument(a.loanId);
+    state.receipt = {tenant:a.id,run:state.run,source:state.source,status:"pending",before,
+      command:{type:"setDocumentDeadline",loanId:a.loanId,requestId:before.id,revision:before.revision,deadlineRevision:before.deadlineRevision,dueOn:"2030-02-03"}};
+    await directory.probeSave(state);
+    requireOk(await target.write(state.receipt.command,a.admin));
+    state.receipt.after = await target.probeDocument(a.loanId);
+    state.receipt.status = "acknowledged";
+    await directory.probeSave(state);
+    const stale = await target.write({...state.receipt.command,deadlineRevision:before.deadlineRevision+5,dueOn:"2030-03-04"},a.admin);
+    if (!stale.error) throw new Error("Conflicting deadline change was accepted");
     requireOk(await target.write({type:"revokeApplication",loanId:a.loanId,token:state.link.token},a.officer));
+    requireOk(await target.write({type:"revokeRealtorPortal",realtorId:state.realtor.realtorId},a.admin));
     const changed = await directory.manage(a.admin,[],{type:"revoke",email:a.officer.email});
     if (changed.error) throw new Error(changed.error);
     const doc = await other.probeDocument(b.loanId);
@@ -133,16 +169,39 @@ async function command(action, env, origin, ctx) {
     if (await directory.leadOwner(a.id,a.officer.email,[])) throw new Error("Revoked staff membership reopened");
     const portalResponse = await application.fetch(new Request(`${origin}/api/demo-application`, { method: "POST", headers: { Origin: origin, "Content-Type":"application/json" }, body:JSON.stringify({type:"read",token:state.link.token}) }),env,ctx);
     if (portalResponse.status !== 404) throw new Error("Normal borrower route did not reject revoked link");
+    const realtorResponse = await application.fetch(new Request(`${origin}/api/realtor-referrals`, {method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},body:JSON.stringify({type:"read",token:state.realtor.token})}),env,ctx);
+    if (realtorResponse.status !== 404) throw new Error("Normal realtor route did not reject revoked link");
     const staffResponse = await application.fetch(new Request(`${origin}/workspace?brokerage=${a.id}`, {headers:{Cookie:`__Host-orbit-session=${state.session}`}}),env,ctx);
     if (staffResponse.status !== 403) throw new Error("Normal workspace route did not reject revoked staff");
     if (!await target.probeBytes(state.document)) throw new Error("Restored document metadata has missing or different bytes");
+    await target.probeByteFailures(state.document);
     const wrong = await target.write({type:"startApplication",loanId:a.loanId},b.officer);
     if (!wrong.error) throw new Error("Foreign brokerage write accepted");
     state.phase = "verified";
-    state.result = { run: state.run, source: state.source, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
+    state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
-      revokedOfficerBlocked: true, documentBytesMatched: true, foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark };
-  } else if (action === "cleanup" && state.phase === "verified") {
+      revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
+      foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark };
+  } else if (action === "replay" && state.phase === "verified") {
+    for (const invalid of [{...state.receipt,status:"pending"},{...state.receipt,tenant:b.id}]) {
+      let refused=false;
+      try {await target.probeReplay(invalid,a.admin);} catch {refused=true;}
+      if (!refused) throw new Error("Invalid recovery receipt was accepted");
+    }
+    await target.probeReplay(state.receipt,a.admin);
+    state.replayed = await target.probeCapture();
+    if (state.replayed.counts.activity !== state.checkpoint.counts.activity+1 || state.replayed.counts.workspace_access_history !== state.checkpoint.counts.workspace_access_history+1) throw new Error("Replay did not record exactly one history event");
+    state.phase="replayed";
+  } else if (action === "restartReplay" && state.phase === "replayed") {
+    try {await target.probeRestart();} catch { /* Next command proves persistence. */ }
+    state.phase="replayRestarted";
+  } else if (action === "verifyReplay" && state.phase === "replayRestarted") {
+    await target.probeReplay(state.receipt,a.admin);
+    if ((await target.probeCapture()).hash !== state.replayed.hash) throw new Error("Repeat replay changed history or work");
+    if ((await other.probeCapture()).hash !== state.otherAfter.hash) throw new Error("Replay changed the other brokerage");
+    state.phase="replayVerified";
+    Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true});
+  } else if (action === "cleanup" && state.phase === "replayVerified") {
     await target.probeCleanup(state.document);
     state.phase = "cleaned";
   } else throw new Error("Command does not match recovery phase");
@@ -156,7 +215,7 @@ const recoveryWorker = {
     if (url.pathname === "/__recovery" && request.method === "POST") {
       if (Number(request.headers.get("Content-Length")||0)>128) return new Response("Too large",{status:413});
       const action = await request.text();
-      if (!["status","initialize","checkpoint","change","arm","restart","verify","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
+      if (!["status","initialize","checkpoint","change","arm","restart","verify","replay","restartReplay","verifyReplay","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
       try { return Response.json(await command(action,env,url.origin,ctx),{headers:{"Cache-Control":"no-store"}}); }
       catch(error) { return Response.json({error:error.message},{status:409,headers:{"Cache-Control":"no-store"}}); }
     }

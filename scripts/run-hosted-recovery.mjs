@@ -8,11 +8,14 @@ assert.match(run.name,/^orbit-recovery-[a-f0-9]{8}$/);
 assert.equal(url.protocol,"https:");
 assert.ok(url.hostname.startsWith(run.name+".")&&url.hostname.endsWith(".workers.dev"));
 const secrets=JSON.parse(await readFile(resolve(folder,"secrets.json"),"utf8"));
-const evidence=[];
+let evidence=[];
+try {evidence=JSON.parse(await readFile(resolve(folder,'evidence.json'),'utf8'));}
+catch(error) {if(error.code!=="ENOENT")throw error;}
+assert.ok(Array.isArray(evidence)&&evidence.every(item=>item.run===run.run&&item.source===run.source),"Evidence belongs to another run");
 const anonymous=await fetch(new URL('/__recovery',url),{method:'POST',body:'initialize'});
 assert.equal(anonymous.status,404);
-const steps=['initialize','checkpoint','change','arm','restart','verify','cleanup'];
-const phases=['new','initialized','checkpointed','changed','armed','restarted','verified','cleaned'];
+const steps=['initialize','checkpoint','change','arm','restart','verify','replay','restartReplay','verifyReplay','cleanup'];
+const phases=['new','initialized','checkpointed','changed','armed','restarted','verified','replayed','replayRestarted','replayVerified','cleaned'];
 const statusResponse=await fetch(new URL('/__recovery',url),{method:'POST',headers:{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`},body:'status'});
 assert.equal(statusResponse.status,200);
 const current=await statusResponse.json();assert.equal(current.run,run.run);assert.equal(current.source,run.source);
