@@ -11,6 +11,17 @@ const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).d
 export function restoreStateHash(manifest:CheckpointManifest){return hash({version:manifest.version,schema:manifest.schema,tables:manifest.tables,kv:manifest.kv});}
 export function restoreSourceMatches(before:CheckpointManifest,current:CheckpointManifest){return restoreStateHash(before)===restoreStateHash(current)&&hash(before.files)===hash(current.files);}
 export function restoreFingerprint(id:string,before:CheckpointManifest,current:CheckpointManifest){return hash([id,restoreStateHash(before),restoreStateHash(current),before.files,current.files]);}
+export function processorRestoreBlockers(before: CheckpointManifest, current: CheckpointManifest) {
+  const changed = (table: string) => before.tables.find(({ name }) => name === table)?.digest !==
+    current.tables.find(({ name }) => name === table)?.digest;
+  const accessChanged = before.processorAccessDigest && current.processorAccessDigest
+    ? before.processorAccessDigest !== current.processorAccessDigest : changed("loan_processing");
+  const blockers: string[] = [];
+  if (accessChanged) blockers.push("This checkpoint may change who has processor access. Choose a checkpoint that preserves the current assignments.");
+  if (changed("processor_assignment_receipts")) blockers.push("Processor assignment receipts changed. Choose a checkpoint that retains those receipts.");
+  return blockers;
+}
+
 export function restoreBlockers(before:CheckpointManifest,current:CheckpointManifest){
   const result:string[]=[];
   if(!before.impact||!before.files)result.push("This checkpoint predates record or document recovery evidence. Save a new checkpoint.");
@@ -26,6 +37,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
   const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews"];
   if(retentionTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Loan retention evidence changed. This checkpoint requires a separate retention review.");
+  result.push(...processorRestoreBlockers(before,current));
   return result;
 }
 export function restoreCheckpoint(db:Store,brokerageId:string,id:string,now=new Date().toISOString()){

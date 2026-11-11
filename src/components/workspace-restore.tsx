@@ -64,7 +64,7 @@ export function WorkspaceRestore({endpoint,revision,paused,checkpointId,brokerag
   }
   return <section className="checkpoint-restore" aria-label="Restore workspace">
     <h3 id="restore-workspace-heading" tabIndex={-1}>Restore workspace</h3>
-    <p className="muted">Replace the paused workspace with a saved checkpoint. Orbit saves the current database first. Staff access and portal revocations stay in the shared directory; document files are checked separately.</p>
+    <p className="muted">Restore a saved checkpoint while the workspace stays paused. Orbit saves the current database first and checks processor access, assignment receipts, and document files. Brokerage memberships and portal revocations stay in the shared directory.</p>
     <div ref={feedback} tabIndex={-1} aria-live="polite">{error&&<p role="alert" className="application-message banner-error">{error}</p>}{message&&<p role="status" className="application-message">{message}</p>}</div>
     <div className="checkpoint-pages"><Button variant="outline" disabled={!paused||busy} onClick={()=>void act("status")}>Check restore status</Button>
       {!pending&&<Button variant="outline" disabled={!paused||busy||!checkpointId||!!attempt} onClick={()=>void act("preview")}>Preview restore</Button>}</div>

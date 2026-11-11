@@ -7,7 +7,7 @@ import { captureDirectoryRecoverySnapshot, directoryEvidenceHttp, directoryEvide
 import { directoryDrainObject, directoryDrainPath, directoryDrainStatus, startDirectoryWork, trackDirectoryResponse, type DirectoryWorkKind } from "./lib/directory-drain";
 import { directoryPauseKey, directoryPauseResponse, directoryPauseRetrySeconds, directoryTrafficPaused } from "./lib/directory-traffic-pause";
 import {restorePreviewInput,restoreStartInput} from "./lib/workspace-restore-model";
-import {restoreSourceMatches,restoreStateHash,restoreAccess,restoreCheckpoint,previewRestore,priorRestore,reserveRestore,readRestoreJob,authorizedRestore,recordRestoreOutcome} from "./lib/workspace-restore";
+import {restoreSourceMatches,restoreStateHash,restoreAccess,restoreCheckpoint,previewRestore,priorRestore,reserveRestore,readRestoreJob,authorizedRestore,recordRestoreOutcome,processorRestoreBlockers} from "./lib/workspace-restore";
 import {captureCheckpointFiles,verifyCheckpointFiles} from "./lib/recovery-checkpoint-files";
 import {checkpointCreate,checkpointCompare} from "./lib/recovery-checkpoint-model";
 import {captureCheckpointManifest} from "./lib/recovery-checkpoint-manifest";
@@ -424,6 +424,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       const directory=this.env.WORKSPACE.getByName(demoBrokerageId),reservation=await directory.authorizedWorkspaceRestore(staff,id);
       if(reservation.job.state==="Restored")return reservation.job;
       if(reservation.job.state==="Needs review")throw new Error("The restore outcome requires operator investigation. The workspace remains paused.");
+      const processorBlockers = processorRestoreBlockers(reservation.target.manifest, reservation.source.manifest);
+      if (processorBlockers.length) {
+        return await directory.saveWorkspaceRestoreOutcome(staff, id, "Needs review", processorBlockers.join(" "));
+      }
       const current=await this.#capturePausedCheckpoint(true);
       const get=async (objectId:string)=>{
         if(!this.#documents)throw new Error("Document storage is unavailable.");

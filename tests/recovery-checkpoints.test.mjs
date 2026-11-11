@@ -95,8 +95,9 @@ test("document checkpoint evidence verifies exact bytes and rejects missing, cor
 });
 
 const restore=await import("../src/lib/workspace-restore.ts");
-function restoreFixture(t){
+function restoreFixture(t, setup){
  const f=ownerFixture(t);const tenant=fixture(t);tenant.db.exec("CREATE TABLE loans(id TEXT PRIMARY KEY,amount INTEGER);INSERT INTO loans VALUES ('loan-a',100)");
+ if(setup)setup(tenant.db);
  const capture=()=>({at:new Date().toISOString(),bookmark:'private-bookmark',manifest:{...tenant.capture(),files:{references:0,unretained:0,items:[]}}});
  const saved=checkpoints.saveCheckpoint(f.db,f.staff,[],f.input(),capture());
  tenant.db.prepare("UPDATE loans SET amount=200").run();
@@ -105,6 +106,26 @@ function restoreFixture(t){
  const input={id:crypto.randomUUID(),checkpointId:saved.id,revision,fingerprint:preview.fingerprint,confirmation:'Fictional',note:'Reviewed fictional restore impact',checks:[true,true,true]};
  return {...f,tenant,capture,saved,preview,input};
 }
+test("restore protects assigned processor grants and receipts without freezing ordinary handoff edits", t => {
+ const f=restoreFixture(t, db=>db.exec(`CREATE TABLE loan_processing(loanId TEXT PRIMARY KEY,processorEmail TEXT,note TEXT,revision INTEGER);
+   CREATE TABLE processor_assignment_receipts(id TEXT PRIMARY KEY,loanId TEXT);
+   INSERT INTO loan_processing VALUES ('loan-a','fictional-processor@example.test','Initial handoff',1)`));
+ const before=restore.restoreCheckpoint(f.db,f.staff.brokerage.id,f.saved.id).manifest;
+ assert(!JSON.stringify(before).includes("fictional-processor@example.test"));
+ f.tenant.db.exec("UPDATE loan_processing SET note='New handoff note',revision=2");
+ assert.deepEqual(restore.processorRestoreBlockers(before,f.capture().manifest),[]);
+ assert.match(restore.processorRestoreBlockers({...before,processorAccessDigest:undefined},f.capture().manifest)[0],/processor access/);
+ assert.deepEqual(restore.processorRestoreBlockers({...before,processorAccessDigest:undefined},before),[]);
+ f.tenant.db.exec("UPDATE loan_processing SET processorEmail='replacement@example.test'");
+ const changed=f.capture(), preview=restore.previewRestore(f.db,f.staff,[],f.saved.id,f.input.revision,changed.manifest);
+ assert.match(preview.blockers[0],/processor access/);
+ assert.throws(()=>restore.reserveRestore(f.db,f.staff,[],{...f.input,fingerprint:preview.fingerprint},changed),/processor access/);
+ assert.equal(f.db.prepare("SELECT count(*) AS n FROM brokerage_restore_jobs").get().n,0);
+ f.tenant.db.exec("UPDATE loan_processing SET processorEmail='fictional-processor@example.test'; INSERT INTO processor_assignment_receipts VALUES ('private-receipt','loan-a')");
+ assert.match(restore.processorRestoreBlockers(before,f.capture().manifest)[0],/receipts changed/);
+ f.tenant.db.exec("DELETE FROM processor_assignment_receipts; UPDATE loan_processing SET processorEmail=NULL");
+ assert.match(restore.processorRestoreBlockers(before,f.capture().manifest)[0],/processor access/);
+});
 test('restore reserves source atomically, blocks reopening and checkpoints, and verifies once',t=>{
  const f=restoreFixture(t);assert.deepEqual(f.preview.blockers,[]);
  const job=restore.reserveRestore(f.db,f.staff,[],f.input,f.capture());

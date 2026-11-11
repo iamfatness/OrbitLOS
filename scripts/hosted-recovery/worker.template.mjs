@@ -15,7 +15,9 @@ function fixtures(env) {
     const brokerage = { id, name: `Fictional Recovery ${index + 1}`, role: "Admin", pilot: true, accessRevision: 1 };
     const admin = { email: `recovery-admin-${index}@example.test`, name: "Fictional Recovery Admin", brokerage };
     const officer = { email: `recovery-lo-${index}@example.test`, name: "Fictional Recovery LO", brokerage: { ...brokerage, role: "LO" } };
-    return { id, scenario: id, loanId: `demo-presenter:${id}:closing`, admin, officer };
+    const processor = { email: `recovery-processor-${index}@example.test`, name: "Fictional Recovery Processor", brokerage: { ...brokerage, role: "Processor" } };
+    const backup = { email: `recovery-backup-${index}@example.test`, name: "Fictional Backup Processor", brokerage: processor.brokerage };
+    return { id, scenario: id, loanId: `demo-presenter:${id}:closing`, admin, officer, processor, backup };
   });
 }
 export class RecoveryWorkspace extends OrbitWorkspace {
@@ -29,7 +31,7 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     this.ctx.storage.transactionSync(() => {
       for (const item of tenants) {
         this.ctx.storage.sql.exec("INSERT INTO brokerages (id,name,pilot) VALUES (?,?,1)", item.id, item.admin.brokerage.name);
-        for (const actor of [item.admin,item.officer]) this.ctx.storage.sql.exec(
+        for (const actor of [item.admin,item.officer,item.processor,item.backup]) this.ctx.storage.sql.exec(
           "INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,?,'Active',1)",
           item.id, actor.email, actor.name, actor.brokerage.role);
       }
@@ -225,6 +227,15 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     this.probeIdentity();
     this.ctx.storage.sql.exec("UPDATE uwm_operations SET state=? WHERE kind='import'",change?"Unknown":"Prepared");
   }
+  probeProcessorEvidence(item, requestId, variant) {
+    this.probeIdentity();
+    if (item.id !== this.ctx.id.name) throw new Error("Fictional processor fixture tenant mismatch");
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec("UPDATE loan_processing SET processorEmail=?, note='New fictional handoff note', revision=2 WHERE loanId=?",
+        variant === "replacement" ? item.backup.email : item.processor.email, item.loanId);
+      this.ctx.storage.sql.exec("UPDATE processor_assignment_receipts SET revision=? WHERE id=?", variant === "receipt" ? 2 : 1, requestId);
+    });
+  }
 
 }
 async function command(action, env, origin, ctx) {
@@ -251,6 +262,9 @@ async function command(action, env, origin, ctx) {
       link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
     await target.probeVerifyLenderEvidence(a,lenderEvidence);
     await target.probeProviderRecords(a);
+    state.processorRequest = crypto.randomUUID();
+    requireOk(await target.shareProcessing(a.admin, { loanId: a.loanId, revision: 0, requestId: state.processorRequest,
+      member: { ...a.processor, role: "Processor", status: "Active" } }));
     const session = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     const sessionHash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(session))))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     await directory.createStaffSession(sessionHash,{email:a.officer.email,name:a.officer.name},Date.now()+3600000,Date.now());
@@ -361,6 +375,20 @@ async function command(action, env, origin, ctx) {
     const blocked=await directory.workspaceRestore(a.admin,{action:"preview",checkpointId:state.productCheckpoint.id,revision:saved.view.revision});
     if(!blocked.preview.blockers.some(message=>message.includes("Lender evidence")))throw new Error("Protected lender evidence was not blocked");
     await target.probeProtectedEvidence(false);
+    for (const [variant, message] of [["replacement", "processor access"], ["receipt", "receipts changed"]]) {
+      await target.probeProcessorEvidence(a, state.processorRequest, variant);
+      const input = { action: "preview", checkpointId: state.productCheckpoint.id, revision: saved.view.revision };
+      const preview = (await directory.workspaceRestore(a.admin, input)).preview;
+      if (!preview.blockers.some(item => item.includes(message))) throw new Error(`Restore did not protect fictional ${variant}`);
+      let refused = false;
+      try {
+        await directory.workspaceRestore(a.admin, { ...input, action: "start", id: crypto.randomUUID(),
+          fingerprint: preview.fingerprint, confirmation: a.admin.brokerage.name, checks: [true, true, true],
+          note: "This unsafe fictional restore must be refused." });
+      } catch (error) { refused = String(error).includes(message); }
+      if (!refused) throw new Error(`Unsafe fictional ${variant} restore was not explicitly refused`);
+    }
+    await target.probeProcessorEvidence(a, state.processorRequest, "same access");
     state.phase = "changed";
   } else if (action === "arm" && state.phase === "changed") {
     const view=await directory.manageWorkspaceMaintenance(a.admin);
@@ -434,6 +462,14 @@ async function command(action, env, origin, ctx) {
     if(reviewed.error)throw new Error(reviewed.error);
     const opened=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:reviewed.revision,confirmation:a.admin.brokerage.name});
     if(opened.error || opened.mode!=="Open")throw new Error(opened.error||"Reviewed fixture failed to reopen");
+    const [assigned, unassigned, assignmentReceipt] = await Promise.all([
+      target.read(a.processor), target.read(a.backup), target.processorAssignmentReceipt(a.admin, a.loanId, state.processorRequest),
+    ]);
+    const processing = assigned.loanProcessing.find(item => item.loanId === a.loanId);
+    if (!assigned.loans.some(loan => loan.id === a.loanId) || unassigned.loans.some(loan => loan.id === a.loanId) ||
+        processing?.processorEmail !== a.processor.email || processing.note !== "" || assignmentReceipt.outcome !== "saved") {
+      throw new Error("Restored workspace changed fictional processor access or lost its assignment receipt");
+    }
     const lenderEvidence=await target.probeVerifyLenderEvidence(a,state.lenderEvidence);
     if (await directory.brokerageForPortal(state.link.token)) throw new Error("Revoked borrower link reopened");
     if (await directory.leadOwner(a.id,a.officer.email,[])) throw new Error("Revoked staff membership reopened");
@@ -456,7 +492,8 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
-      productCheckpoint:true,productRestore:true,protectedLenderEvidenceBlocked:true,sourceCheckpointRetained:true,restoreRetryUnchanged:true,pendingRestoreBlocksReview:true,checkpointComparison:state.checkpointComparison,operatorReplayApplied:2,operatorRepeatUnchanged:true,
+      productCheckpoint:true,productRestore:true,protectedLenderEvidenceBlocked:true,processorAccessRewindBlocked:true,processorReceiptRewindBlocked:true,
+      processorAccessVerifiedAfterReopen:true,sourceCheckpointRetained:true,restoreRetryUnchanged:true,pendingRestoreBlocksReview:true,checkpointComparison:state.checkpointComparison,operatorReplayApplied:2,operatorRepeatUnchanged:true,
       internalEditReceiptsSurvivedRestore:state.internalEdits.length,rolledBackAtomicProofsAbsent:true,originalRevisionDetected:true,
       syntheticProviderStatesPreserved:true,providerEvidenceFingerprintsPreserved:true,
       maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,

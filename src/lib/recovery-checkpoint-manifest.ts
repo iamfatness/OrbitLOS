@@ -39,12 +39,18 @@ export function captureCheckpointManifest(read:Reader,kv:Map<string,unknown>,ala
     // Keep answer payloads and credentials out of the manifest. The impact index
     // contains digests and minimal authorized record labels, not row contents.
     const digest=createHash("sha256");let readRows=0;
+    const grants: string[] | undefined = name === "loan_processing" ? [] : undefined;
     for(let offset=0;offset<count;offset+=100){
       const rows=read(`SELECT ${hasRowid?`${rowid} AS "__orbit_checkpoint_rowid__",`:""}* FROM ${quote(name)} ORDER BY ${hasRowid?rowid:primary.join(",")} LIMIT 100 OFFSET ?`,offset);
-      for(const row of rows){const encoded=encode(row);digest.update(encoded);digest.update("\n");impact.add(name,row,primaryNames,encoded);}readRows+=rows.length;
+      for(const row of rows){
+        const encoded=encode(row);digest.update(encoded);digest.update("\n");impact.add(name,row,primaryNames,encoded);
+        if (grants && row.processorEmail !== null) grants.push(checkpointCanonical([row.loanId, row.processorEmail]));
+      }
+      readRows+=rows.length;
     }
     if(readRows!==count)throw new Error("Workspace changed during inspection. No checkpoint was saved.");
     result.tables.push({name,rows:count,digest:digest.digest("hex")});
+    if (grants) result.processorAccessDigest = createHash("sha256").update(grants.sort().join("\n")).digest("hex");
   }
   result.impact=impact.finish();
   return result;
