@@ -1,3 +1,4 @@
+import { captureDirectoryEvidence, directoryEvidenceHttp, directoryEvidencePath } from "./lib/directory-evidence";
 import { directoryDrainObject, directoryDrainPath, directoryDrainStatus, startDirectoryWork, trackDirectoryResponse, type DirectoryWorkKind } from "./lib/directory-drain";
 import { directoryPauseResponse, directoryPauseRetrySeconds, directoryTrafficPaused } from "./lib/directory-traffic-pause";
 import {restorePreviewInput,restoreStartInput} from "./lib/workspace-restore-model";
@@ -217,6 +218,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       SUM(kind='alarm') AS alarms, MIN(startedAt) AS oldestAt FROM directory_work_tickets`).get();
     return { active: Number(row?.active ?? 0), http: Number(row?.http ?? 0),
       alarms: Number(row?.alarms ?? 0), oldestAt: row?.oldestAt == null ? null : Number(row.oldestAt) };
+  }
+
+  async inspectDirectoryEvidence() {
+    if (this.#id !== demoBrokerageId || !await directoryTrafficPaused(this.#documents)) {
+      throw new Error("Directory evidence requires an active pause.");
+    }
+    return captureDirectoryEvidence(this.#store);
   }
 
   #initializeWorkspace() {
@@ -1541,6 +1549,12 @@ export default {
       return failure;
     }
     const preparingDrain = runtimeSetting(env, "ORBIT_DRAIN_ROLLOUT") === "prepare";
+    if (url.pathname === directoryEvidencePath) {
+      if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
+      return directoryEvidenceHttp(request, env.DOCUMENTS, runtimeSetting(env, "ORBIT_DEPLOYMENT") || "fixture",
+        () => env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts(),
+        () => env.WORKSPACE.getByName(demoBrokerageId).inspectDirectoryEvidence());
+    }
     if (url.pathname === directoryDrainPath) {
       if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
       return directoryDrainStatus(request, env.DOCUMENTS,

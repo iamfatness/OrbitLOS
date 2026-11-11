@@ -482,7 +482,9 @@ async function command(action, env, origin, ctx) {
 
   } else throw new Error("Command does not match recovery phase");
   await directory.probeSave(state);
-  if (action === "cleanup") await env.DOCUMENTS.delete("directory-recovery-journal");
+  if (action === "cleanup") await env.DOCUMENTS.delete([
+    "directory-recovery-journal",`operations/directory-recovery/evidence/${journal.evidenceId}.json`,
+  ]);
   return {...state.result,phase:state.phase,run:state.run};
 }
 const recoveryWorker = {

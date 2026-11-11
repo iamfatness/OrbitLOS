@@ -34,29 +34,35 @@ export async function startDirectoryWork(namespace: { getByName(name: string): D
   }
 }
 
+export async function readDirectoryIncident(request: Request, bucket: R2Bucket | undefined) {
+  const token = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.get("Authorization") ?? "")?.[1];
+  if (!token || !bucket) return null;
+  const marker = await bucket.get(directoryPauseKey);
+  if (!marker || marker.size > 1024) {
+    await marker?.body.cancel();
+    return null;
+  }
+  const { incident, statusTokenSha256 } = await marker.json<{ incident?: unknown; statusTokenSha256?: unknown }>();
+  if (typeof incident !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(incident) ||
+      typeof statusTokenSha256 !== "string" || !/^[a-f0-9]{64}$/.test(statusTokenSha256)) return null;
+  const actual = createHash("sha256").update(token).digest();
+  return timingSafeEqual(actual, Buffer.from(statusTokenSha256, "hex")) ? { incident, version:marker.version } : null;
+}
+
 export async function directoryDrainStatus(request: Request, bucket: R2Bucket | undefined,
   readCounts: () => Promise<DirectoryWorkCounts>) {
   const hidden = () => new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
-  const token = /^Bearer ([a-f0-9]{64})$/.exec(request.headers.get("Authorization") ?? "")?.[1];
-  if (request.method !== "GET" || !token || !bucket) return hidden();
+  if (request.method !== "GET" || !bucket) return hidden();
   const headers = { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" };
   try {
-    const marker = await bucket.get(directoryPauseKey);
-    if (!marker || marker.size > 1024) {
-      await marker?.body.cancel();
-      return hidden();
-    }
-    const { incident, statusTokenSha256 } = await marker.json<{ incident?: unknown; statusTokenSha256?: unknown }>();
-    if (typeof incident !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(incident) ||
-        typeof statusTokenSha256 !== "string" || !/^[a-f0-9]{64}$/.test(statusTokenSha256)) return hidden();
-    const actual = createHash("sha256").update(token).digest();
-    if (!timingSafeEqual(actual, Buffer.from(statusTokenSha256, "hex"))) return hidden();
+    const marker = await readDirectoryIncident(request,bucket);
+    if (!marker) return hidden();
     const counts = await readCounts();
     const current = await bucket.head(directoryPauseKey);
     if (!current || current.version !== marker.version) {
       return Response.json({ error: "The incident marker changed. Refresh before reviewing drain status." }, { status: 409, headers });
     }
-    return Response.json({ incident, checkedAt: new Date().toISOString(), ...counts,
+    return Response.json({ incident: marker.incident, checkedAt: new Date().toISOString(), ...counts,
       state: counts.active === 0 ? "Tracked work drained" : "Tracked work outstanding" }, { headers });
   } catch {
     return Response.json({ error: "Directory drain status is unavailable." }, { status: 503, headers });

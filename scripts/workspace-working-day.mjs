@@ -110,6 +110,7 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     storage.sql.exec("UPDATE document_reminder_schedule SET nextAt = ? WHERE id = 1", Date.now() - 1000);
   }
 }`;
+const {directoryEvidencePath}=await import("../src/lib/directory-evidence.ts");
 const {directoryDrainObject,directoryDrainPath}=await import("../src/lib/directory-drain.ts");
 const { directoryPauseKey } = await import("../src/lib/directory-traffic-pause.ts");
 const runtime = new Miniflare({ ...convertV4MiniflareOptions({
@@ -3800,6 +3801,25 @@ try {
         await new Promise(resolve=>setTimeout(resolve,10));
       }
       assert.equal(count.state,"Tracked work drained");
+      const evidenceId=randomUUID();
+      const evidence=(method,authenticated=true)=>runtime.dispatchFetch(origin+directoryEvidencePath+`?id=${evidenceId}`,{
+        method,headers:authenticated?{Authorization:`Bearer ${token}`}:{},
+      });
+      assert.equal((await evidence("GET",false)).status,404);
+      const saved=await evidence("POST");
+      assert.equal(saved.status,201);
+      const summary=await saved.json();
+      assert(summary.evidence.counts.staff>=1);
+      const repeated=await evidence("POST");
+      assert.equal(repeated.status,200);
+      assert.deepEqual(await repeated.json(),summary);
+      const comparison=await (await evidence("GET")).json();
+      assert.equal(comparison.matches,true);
+      assert(!JSON.stringify(comparison).includes(owner.email));
+      const artifact=await bucket.get(`operations/directory-recovery/evidence/${evidenceId}.json`);
+      const sealed=await artifact.text();
+      assert(!sealed.includes(owner.email) && !sealed.includes(owner.token));
+      await bucket.delete(`operations/directory-recovery/evidence/${evidenceId}.json`);
     } finally {
       await directory.unholdStaffAccess();
       await bucket.delete(directoryPauseKey);
