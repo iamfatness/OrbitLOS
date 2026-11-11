@@ -127,6 +127,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     const token=randomToken(), evidenceToken=randomToken(), repairToken=randomToken(), resetToken=randomToken();
     const statusTokenSha256=await hash(token), evidenceTokenSha256=await hash(evidenceToken), repairTokenSha256=await hash(repairToken), signInResetTokenSha256=await hash(resetToken);
     next = {
+      endedSession:state.directoryEndedSession, oldAttempt:state.directoryOldAttempt,
       token,evidenceToken,repairToken,resetToken,ticket,resetId:crypto.randomUUID(),repairId:crypto.randomUUID(),evidenceId:crypto.randomUUID(),
       run:env.RECOVERY_RUN, source:env.RECOVERY_SOURCE, artifact:env.RECOVERY_ARTIFACT,
       phase:"directoryPrepared", old:state.directoryOld, current:source, routes,
@@ -192,7 +193,7 @@ export async function directoryRecoveryCommand(action, fixture) {
       const event={environment:"stage",kind:"conditions",body:"{}",loanNumber:route.loanNumber};
       if(await directory.uwmWebhookTarget(event)!==route.brokerageId)throw new Error("Reconstruction lost lender routing ownership");
     }
-    if(!await directory.getStaffSession(state.directoryEndedSession,Date.now()))
+    if(!await directory.getStaffSession(journal.endedSession,Date.now()))
       throw new Error("Older checkpoint did not revive the fictional signed-out session");
     const resetUrl=origin+directorySignInResetPath;
     const reset=(method,token,url=resetUrl)=>application.fetch(new Request(url,{
@@ -212,8 +213,8 @@ export async function directoryRecoveryCommand(action, fixture) {
       throw new Error("Sign-in reset did not return the same receipt");
     const cleared=await (await reset("GET",journal.resetToken)).json();
     if(cleared.sessions!==0 || cleared.attempts!==0 ||
-      await directory.getStaffSession(state.directoryEndedSession,Date.now()) ||
-      await directory.consumeGoogle(state.directoryOldAttempt,"fictional-browser",Date.now()))
+      await directory.getStaffSession(journal.endedSession,Date.now()) ||
+      await directory.consumeGoogle(journal.oldAttempt,"fictional-browser",Date.now()))
       throw new Error("Older sign-in state still grants access after reset");
     const reconstructed=await directory.probeDirectorySnapshot();
 
