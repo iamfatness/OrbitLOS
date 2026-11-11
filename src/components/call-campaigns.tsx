@@ -264,7 +264,7 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
     </div>}
     {lead && (optedOut || held) && <div><Button size="sm" variant="ghost" onClick={() => openLead(lead.id)}>View lead activity</Button></div>}
     {lead && canWork && (staff || process.env.NODE_ENV === "development") && <div><Button size="sm" variant="outline" disabled={busy}
-      onClick={() => openConversation(lead.id)}>Open lead conversation</Button></div>}
+      data-conversation-origin={`lead:${lead.id}`} onClick={() => openConversation(lead.id)}>Open lead conversation</Button></div>}
     {lead && !optedOut && !held && <>
       <p>{lead.phone} · {lead.purpose}</p>
       {canWork ? <>
