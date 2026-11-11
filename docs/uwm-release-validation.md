@@ -1,3 +1,14 @@
+# UWM outbound API release — November 11, 2026
+
+- Published source `8187613` to stage version `e920eff0-5350-468e-a48a-a57b91ad4cec` and production version `8b5945ac-d846-473c-8874-eaf3da03f483`, both at 100%. Includes production CRM source `a0a6b3277b57`.
+- Authenticated `/api/uwm-file` and `/api/uwm-file/read` implement reviewed import/create/upload/scan/amend/commit, held documents/attachments/submission, lightweight product search, float/lock/relock/extension/cancellation, activity and explicit staff reconciliation. See [workflow contracts and limitations](uwm-api-workflows.md).
+- Final regression suite: **440 passed, 0 failed**. TypeScript, full lint plus final targeted lint, stage build and production build passed.
+- Preview assets: two clean 61/61 passes. Live assets: initial propagation 404s, then two clean 61/61 passes. Existing production sign-in, legacy pricing secrets, dedicated user settings and webhook settings were preserved. Both file API routes and all four webhook receivers reject unauthenticated requests on stage and production.
+- Stage retained a previously connected user grant, but its renewal now returned HTTP 400. Verified the new behavior in the hosted UI: the rejected grant is retired, the badge changes to Not connected, and the user is asked to reconnect. No new lender submission or financial commitment was made. Production personal login is user-deferred until they return to the desktop.
+- **Outstanding acceptance:** approved XML/document storage origins are not installed; actual UWM webhook registration/deliveries and synthetic end-to-end lender writes remain unverified. Existing loan-screen controls still use manual/simulated flows; this release implements backend APIs, not replacement live controls. Status/date/ULAD receipts are retained without automatically changing borrower files.
+
+Earlier sections below are historical.
+
 # Production UWM activation — November 10, 2026
 
 - Created a clean non-pilot **OrbitLOS Production** workspace, `ec2cceac-edb2-4513-bf32-9d6beb24caf4`, owned by the existing signed-in administrator. Existing demo records were not moved.

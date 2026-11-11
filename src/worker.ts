@@ -1,3 +1,5 @@
+import { initializeUwmWorkflows, runUwmWorkflow, readUwmFile } from "./lib/uwm-workflows";
+import { UwmError } from "./lib/uwm-live";
 import { connectUwmUser, disconnectUwmUser, initializeUwmUserAccess, uwmUserStatus } from "./lib/uwm-user-access";
 import { correlateUwmImport, initializeUwmOperations } from "./lib/uwm-operations";
 import { uwmPublicClient } from "./lib/uwm-public-client";
@@ -155,6 +157,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     initializeStore(this.#store, this.#id === demoBrokerageId);
     initializeUwmUserAccess(this.#store);
     initializeUwmOperations(this.#store);
+    initializeUwmWorkflows(this.#store);
     initializeUwmWebhooks(this.#store);
     if (this.#id === demoBrokerageId) initializeBrokerages(this.#store);
     this.#auth = staffAuthStore(this.#store);
@@ -162,6 +165,22 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   #accepts(staff: WorkspaceStaff | null) {
     return staff ? staff.brokerage.id === this.#id : this.#id === demoBrokerageId;
+  }
+
+  #uwmEnvironment() {
+    return Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_USER_CLIENT_ID", "UWM_USER_CLIENT_SECRET", "UWM_USER_ENVIRONMENT",
+      "ORBIT_DEPLOYMENT", "UWM_TOKEN_ENCRYPTION_KEY", "UWM_STORAGE_ORIGIN", "UWM_DOCUMENT_STORAGE_ORIGIN"]
+      .map(key => [key, runtimeSetting(this.env, key)]));
+  }
+
+  async uwmFile(staff: WorkspaceStaff, input: unknown, reading: boolean) {
+    if (!this.#accepts(staff)) return { error: "UWM file unavailable." };
+    try {
+      return reading ? await readUwmFile(this.#store, this.#uwmEnvironment(), staff, input)
+        : await runUwmWorkflow(this.#store, this.#uwmEnvironment(), staff, input);
+    } catch (error) {
+      return { error: error instanceof UwmError ? error.message : "Check the UWM request fields and try again." };
+    }
   }
 
   async uwmAccount(staff: WorkspaceStaff, input: { action: "status" | "connect" | "disconnect" | "verify"; credentials?: unknown }) {
@@ -172,11 +191,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       if (input.action === "disconnect") return disconnectUwmUser(this.#store, staff);
       if (input.action === "connect") return await connectUwmUser(this.#store, env, staff, input.credentials);
       if (input.action === "verify") {
-        await uwmPublicClient(this.#store, env, staff).brokerAssociations();
-        return { message: "UWM accepted your broker-association request. Broker/branch mapping and live lender actions still require validation." };
+        const associations = await uwmPublicClient(this.#store, env, staff).brokerAssociations();
+        return { associations: associations.body, message: `UWM verified ${associations.body.branches.length} available branches. Choose the branch and loan officer when preparing a file.` };
       }
       return uwmUserStatus(this.#store, env, staff);
-    } catch { return { error: "UWM sign-in failed. Verify your UWM credentials, environment and broker access, then try again." }; }
+    } catch (error) { return { error: input.action === "verify" && error instanceof UwmError ? error.message
+      : "UWM sign-in failed. Verify your UWM credentials, environment and broker access, then try again." }; }
   }
 
   async receiveUwmWebhook(event: UwmWebhookEvent) {
@@ -1246,6 +1266,16 @@ export default {
     }
     if (!reading && request.headers.get("Origin") !== url.origin) {
       return new Response("This action must come from Orbit.", { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    if (["/api/uwm-file", "/api/uwm-file/read"].includes(url.pathname)) {
+      const headers = { "Cache-Control": "private, no-store" };
+      if (!staff) return Response.json({ error: "Sign in to your brokerage first." }, { status: 403, headers });
+      const workspace = env.WORKSPACE.getByName(staff.brokerage.id), identity = staff;
+      if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...headers, Allow: "POST" } });
+      return borrowerJson(request, async input => {
+        const result = await workspace.uwmFile(identity, input, url.pathname.endsWith("/read"));
+        return Response.json(result, { status: "error" in result ? 409 : 200, headers });
+      }, url.pathname.endsWith("/read") ? 65536 : 9 * 1024 * 1024);
     }
     if (url.pathname === "/api/uwm-account") {
       const headers = { "Cache-Control": "private, no-store" };

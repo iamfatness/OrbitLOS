@@ -2,7 +2,7 @@ import { z } from "zod";
 import { UwmError, type UwmEnvironment } from "./uwm-live";
 import { uwmUserSettings, uwmUserToken } from "./uwm-user-access";
 import { prepareUwmXmlUpload } from "./uwm-origination-blob";
-import { uwmScanRequest, uwmConditionAttachments, uwmConditionSubmission, uwmConditionAcknowledgment, uwmDocumentName } from "./uwm-public-contracts";
+import { uwmScanRequest, uwmConditionAttachments, uwmConditionSubmission, uwmConditionAcknowledgment, uwmDocumentName, uwmLoanNumber, uwmBrokerAssociations, uwmScanResponse, uwmAmendRequest, uwmAttachmentList, uwmLockRequest, uwmRelockRequest, uwmLockAcknowledgment, uwmFloatRequest, uwmFloatAcknowledgment, uwmCancelAcknowledgment, uwmProductSearch } from "./uwm-public-contracts";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 
@@ -51,10 +51,25 @@ export function uwmPublicClient(db: Store, env: UwmEnvironment, staff: Workspace
     } catch { throw new UwmRequestError("UWM returned an unreadable acknowledgment. Reconcile before retrying.", response.status, "unknown"); }
     finally { reader.releaseLock(); }
   }
-  const loan = (number: string) => `/public/products/v1/loans/${id(number)}`;
+  function verified<T>(response: { status: number; body: unknown }, schema: z.ZodType<T>) {
+    const parsed = schema.safeParse(response.body);
+    if (!parsed.success) throw new UwmRequestError("UWM did not return a verifiable acknowledgment. Reconcile before retrying.", response.status, "unknown");
+    return { ...response, body: parsed.data };
+  }
+  function scanResult(response: { status: number; body: unknown }) {
+    const result = verified(response, uwmScanResponse);
+    return { ...result, readyToCommit: result.body.data.transferStatus === "UpdateUploaded" &&
+      result.body.data.fields.every(field => !field.required || field.validated) };
+  }
+  const loan = (number: string) => `/public/products/v1/loans/${uwmLoanNumber.parse(number)}`;
   const documents = (number: string) => `/public/v1/deal/loans/${z.string().regex(/^\d{10}$/).parse(number)}`;
   return {
-    brokerAssociations: () => request("/public/rolodex/v1/current-user/broker-associations"),
+    brokerAssociations: async () => {
+      const response = await request("/public/rolodex/v1/current-user/broker-associations");
+      const parsed = uwmBrokerAssociations.safeParse(response.body);
+      if (!parsed.success) throw new UwmRequestError("UWM returned broker access in an unexpected format. Contact Orbit support; no loan action was sent.", response.status, "unknown");
+      return { ...response, body: parsed.data };
+    },
     alternativeContacts: (entityId: string) => request(`/public/rolodex/v1/brokers/${id(entityId)}/alternative-contacts`),
     createTransaction: async () => {
       const response = await request("/public/v1/transactions", "POST");
@@ -74,29 +89,32 @@ export function uwmPublicClient(db: Store, env: UwmEnvironment, staff: Workspace
     },
     scanTransaction: async (transactionId: string, body: UwmRequestBody) => {
       const response = await request(`/public/v1/transactions/${id(transactionId)}/scan-result`, "POST", uwmScanRequest.parse(body));
-      const parsed = z.object({ success: z.literal(true), errors: z.null(), validationErrors: z.null(),
-        data: z.object({ transferStatus: z.string().min(1), fields: z.array(z.object({ required: z.boolean(), validated: z.boolean() }).passthrough()) }) }).safeParse(response.body);
-      if (!parsed.success) throw new UwmRequestError("UWM scan result could not be verified.", response.status, "unknown");
-      // Success means the scan ran, not that the file is ready to commit.
-      return { ...response, body: parsed.data, readyToCommit: parsed.data.data.transferStatus === "UpdateUploaded" &&
-        parsed.data.data.fields.length === 0 };
+      return scanResult(response);
     },
-    amendTransaction: (transactionId: string, body: UwmRequestBody) => request(`/public/v1/transactions/${id(transactionId)}/urla`, "PATCH", body),
+    amendTransaction: async (transactionId: string, body: UwmRequestBody) => scanResult(await request(`/public/v1/transactions/${id(transactionId)}/urla`, "PATCH", uwmAmendRequest.parse(body))),
     commitTransaction: async (transactionId: string) => {
       const response = await request(`/public/v1/transactions/${id(transactionId)}`, "POST");
-      const parsed = z.object({ transactionId: z.literal(transactionId), message: z.literal("File Imported Successfully") }).safeParse(response.body);
-      if (!parsed.success) throw new UwmRequestError("UWM import acknowledgment could not be verified. Reconcile before retrying.", response.status, "unknown");
-      return { ...response, body: parsed.data }; // Completion still requires the import callback.
+      return verified(response, z.object({ transactionId: z.literal(transactionId), message: z.literal("File Imported Successfully") }));
     },
-    searchProducts: (number: string, body: UwmRequestBody) => request(`/public/products/v4/loans/${id(number)}/search`, "POST", body),
-    float: (number: string, body: UwmRequestBody) => request(`${loan(number)}/float`, "POST", body),
-    lock: (number: string, body: UwmRequestBody) => request(`${loan(number)}/lock`, "POST", body),
-    relock: (number: string, body: UwmRequestBody) => request(`${loan(number)}/relock`, "POST", body),
-    extendLock: (number: string, body: UwmRequestBody) => request(`${loan(number)}/lock/extension`, "POST", body),
-    cancelLock: (number: string) => request(`${loan(number)}/lock/cancel`, "PUT"),
+    searchProducts: async (number: string, body: UwmRequestBody) => {
+      const input = uwmProductSearch.parse(body);
+      if (input.loanNumber && input.loanNumber !== number) throw new UwmError("Pricing loan number does not match the linked loan.");
+      return verified(await request(`/public/products/v3/loans/${uwmLoanNumber.parse(number)}/search`, "POST", input),
+        z.object({ Quote: z.object({ LoanNumber: z.literal(number), QuoteSet: z.object({ ValidQuotes: z.array(z.unknown()) }).passthrough() }).passthrough(),
+          CanSeePricing: z.boolean(), CanLockLoan: z.boolean(), UserHasExternalViewPricingPermission: z.boolean(), UserHasExternalLockingPermissions: z.boolean() }).passthrough());
+    },
+    float: async (number: string, body: UwmRequestBody) => {
+      const input = uwmFloatRequest.parse(body);
+      if (input.loanNumber && input.loanNumber !== number) throw new UwmError("Float loan number does not match the linked loan.");
+      return verified(await request(`${loan(number)}/float`, "POST", input), uwmFloatAcknowledgment);
+    },
+    lock: async (number: string, body: UwmRequestBody) => verified(await request(`${loan(number)}/lock`, "POST", uwmLockRequest.parse(body)), uwmLockAcknowledgment),
+    relock: async (number: string, body: UwmRequestBody) => verified(await request(`${loan(number)}/relock`, "POST", uwmRelockRequest.parse(body)), uwmLockAcknowledgment),
+    extendLock: async (number: string, body: UwmRequestBody) => verified(await request(`${loan(number)}/lock/extension`, "POST", uwmRelockRequest.parse(body)), uwmLockAcknowledgment),
+    cancelLock: async (number: string) => verified(await request(`${loan(number)}/lock/cancel`, "PUT"), uwmCancelAcknowledgment),
     createConditionUpload: async (number: string, fileName: string) => {
       const response = await request(`${documents(number)}/documentations/${id(uwmDocumentName.parse(fileName))}`, "POST");
-      const parsed = z.object({ sasUri: z.url(), documentId: z.number().int().positive(), fileName: z.literal(fileName),
+      const parsed = z.object({ sasUri: z.url(), documentId: z.number().int().positive(), fileName: uwmDocumentName,
         location: z.literal("Public Documentations") }).safeParse(response.body);
       if (!parsed.success) throw new UwmRequestError("UWM document upload target could not be verified.", response.status, "unknown");
       return parsed.data;
@@ -113,9 +131,20 @@ export function uwmPublicClient(db: Store, env: UwmEnvironment, staff: Workspace
       if (!response.ok) throw new UwmRequestError(`Document upload returned HTTP ${response.status}.`, response.status, "unknown");
       return { uploaded: true as const }; // Listing, attachment and submission are separate steps.
     },
-    listConditionDocuments: (number: string) => request(`${documents(number)}/documentations`),
-    attachConditions: (number: string, body: UwmRequestBody) => request(`${documents(number)}/condition-attachments`, "PUT", uwmConditionAttachments.parse(body)),
-    listConditionAttachments: (number: string) => request(`${documents(number)}/condition-attachments`),
+    listConditionDocuments: async (number: string) => verified(await request(`${documents(number)}/documentations`), z.object({ documents: z.array(z.object({ documentId: z.number().int().positive(), fileName: uwmDocumentName, location: z.string() })) })),
+    attachConditions: async (number: string, body: UwmRequestBody) => {
+      const input = uwmConditionAttachments.parse(body);
+      const response = verified(await request(`${documents(number)}/condition-attachments`, "PUT", input), uwmAttachmentList);
+      const sameSet = (a: (string | number)[], b: (string | number)[]) => a.length === b.length && new Set(a).size === a.length && a.every(value => b.includes(value));
+      if (input.attachments.some(sent => !response.body.attachments.some(saved =>
+        (!sent.attachmentId || saved.attachmentId === sent.attachmentId) && saved.documentType === sent.documentType &&
+        saved.comments === sent.comments && !saved.SubmittedDateTime &&
+        sameSet(saved.files.map(file => file.documentId), sent.files.map(file => file.documentId)) && sameSet(saved.conditions, sent.conditions)))) {
+        throw new UwmRequestError("UWM did not confirm all requested attachments. Reconcile before retrying.", response.status, "unknown");
+      }
+      return response;
+    },
+    listConditionAttachments: async (number: string) => verified(await request(`${documents(number)}/condition-attachments`), uwmAttachmentList),
     submitConditions: async (number: string, body: UwmRequestBody) => {
       const input = uwmConditionSubmission.parse(body);
       const response = await request(`${documents(number)}/condition-attachments-submissions`, "POST", input);

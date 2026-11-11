@@ -66,26 +66,38 @@ test("expired tokens refresh; changed brokerage/encryption context and deploymen
  await assert.rejects(access.uwmUserToken(db,{...env,ORBIT_DEPLOYMENT:"production"},staff),/environment/);
  await assert.rejects(access.uwmUserToken(db,env,{...staff,brokerage:{...staff.brokerage,id:crypto.randomUUID()}}),/unavailable/);
 });
-test("public operations use user tokens, exact environment paths and acknowledge empty responses",async t=>{
+test("rejected refresh clears only that expired grant and prompts a reconnect",async t=>{
+ const db=database(t);await connect(t,db);db.prepare("UPDATE uwm_user_access SET expiresAt=0").run();
+ t.mock.method(globalThis,"fetch",async()=>new Response("invalid grant",{status:400}));
+ await assert.rejects(access.uwmUserToken(db,env,staff),/Reconnect your UWM account/);
+ assert.equal(access.uwmUserStatus(db,env,staff).connectedAt,null);
+ assert.equal(db.prepare("SELECT encrypted FROM uwm_user_access").get().encrypted,null);
+});
+const lockBody={productId:362,calculationTypeId:1,targetRate:6.5,targetPrice:0,targetCash:0,commitmentPeriod:30,compensationType:1,
+ waiveUWFeeIndicator:false,escrowWaiver:false,waiveEscrowOption:1,flexTerm:30,tracTypeId:0,loanShieldTypeId:"0",loppBasisPoints:0,
+ cypBasisPoints:0,buydownTypeId:"None",firstTimeHomebuyerId:"1",freeLockExtensionDays:0};
+const lockAck={LockRateItems:[{ItemId:"LockSuccessFul",Label:"Request received",Value:"True",Display:1,DisplayFormat:0}]};
+test("public operations validate bodies and acknowledgments, use user tokens and exact environment paths",async t=>{
  const db=database(t);await connect(t,db);const calls=[];
- t.mock.method(globalThis,"fetch",async(url,init)=>{calls.push({url,init});return new Response(null,{status:204});});
+ t.mock.method(globalThis,"fetch",async(url,init)=>{calls.push({url,init});return Response.json(url.endsWith("/cancel")?{ItemId:1,Title:"Success!",Messages:[]}:lockAck);});
  const client=uwmPublicClient(db,env,staff);
- await client.brokerAssociations();await client.float("123",{fixture:true});await client.lock("123",{fixture:true});
- await client.extendLock("123",{fixture:true});await client.cancelLock("123");
+ await client.lock("1234567890",lockBody);await client.extendLock("1234567890",{...lockBody,isQuickLock:false});await client.cancelLock("1234567890");
  assert.ok(calls.every(call=>call.url.startsWith("https://stg.api.uwm.com/")&&call.init.redirect==="manual"&&call.init.headers.Authorization===`Bearer ${grant.access_token}`));
- assert.equal(calls[2].url,"https://stg.api.uwm.com/public/products/v1/loans/123/lock");
- assert.equal(calls[4].init.method,"PUT");
- assert.equal(calls[4].init.body,undefined);
+ assert.equal(calls[0].url,"https://stg.api.uwm.com/public/products/v1/loans/1234567890/lock");
+ assert.equal(calls[2].init.method,"PUT");assert.equal(calls[2].init.body,undefined);
+ await assert.rejects(client.lock("123",lockBody));await assert.rejects(client.lock("1234567890",{}));assert.equal(calls.length,3);
+ t.mock.method(globalThis,"fetch",async()=>new Response(null,{status:204}));
+ await assert.rejects(client.lock("1234567890",lockBody),e=>e.outcome==="unknown");
 });
 test("transport does not retry redirects, server failures or unreadable acknowledgments",async t=>{
  const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);
  for(const status of [302,429,500]) {
   let count=0;t.mock.method(globalThis,"fetch",async()=>{count++;return new Response("",{status});});
-  await assert.rejects(client.lock("123",{}),error=>error instanceof UwmRequestError&&error.status===status);
+  await assert.rejects(client.lock("1234567890",lockBody),error=>error instanceof UwmRequestError&&error.status===status);
   assert.equal(count,1);
  }
  t.mock.method(globalThis,"fetch",async()=>new Response("not-json",{status:200}));
- await assert.rejects(client.lock("123",{}),error=>error.outcome==="unknown");
+ await assert.rejects(client.lock("1234567890",lockBody),error=>error.outcome==="unknown");
 });
 function input(kind="import") {return {id:crypto.randomUUID(),loanId,applicationRevision:1,environment:"stage",kind,requestDigest:ops.uwmRequestDigest("fixture-request")};}
 test("timeouts and duplicate operation requests never repeat a lender action",async t=>{
@@ -141,6 +153,21 @@ test("document upload reserves a target without bytes, verifies origin and diges
  assert.equal(calls[1].init.method,"POST");assert.equal(calls[1].init.headers.Authorization,undefined);assert.equal(calls[1].init.redirect,"manual");
  await assert.rejects(client.uploadConditionBytes(target.sasUri.replace(origin,"https://unapproved.test"),bytes,digest));
  await assert.rejects(client.uploadConditionBytes(target.sasUri,bytes,"a".repeat(64)));assert.equal(calls.length,2);
+});
+test("UWM timestamped document names are accepted and negative lock acknowledgments remain unknown",async t=>{
+ const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);
+ t.mock.method(globalThis,"fetch",async()=>Response.json({sasUri:"https://fixture.blob.core.windows.net/file?sig=fixture",documentId:2,fileName:"Appraisal_20261111102000.pdf",location:"Public Documentations"}));
+ assert.equal((await client.createConditionUpload("1234567890","Appraisal.pdf")).fileName,"Appraisal_20261111102000.pdf");
+ t.mock.method(globalThis,"fetch",async()=>Response.json({LockRateItems:[{...lockAck.LockRateItems[0],Value:"False"}]}));
+ await assert.rejects(client.lock("1234567890",lockBody),error=>error.outcome==="unknown");
+});
+test("an attachment HTTP success must confirm all sent files and conditions",async t=>{
+ const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);
+ const input={attachments:[{...conditionBody.attachments[0],attachmentId:null,revisionId:null}]};
+ t.mock.method(globalThis,"fetch",async()=>Response.json({attachments:[]}));
+ await assert.rejects(client.attachConditions("1234567890",input),error=>error.outcome==="unknown");
+ t.mock.method(globalThis,"fetch",async()=>Response.json({attachments:[{...input.attachments[0],attachmentId:7,revisionId:"revision",SubmittedDateTime:null}]}));
+ assert.equal((await client.attachConditions("1234567890",input)).body.attachments[0].attachmentId,7);
 });
 test("condition submissions treat missing, partial and 422 acknowledgments as unknown without retrying",async t=>{
  const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);let count=0;

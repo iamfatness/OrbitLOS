@@ -31,7 +31,11 @@ export function UwmAccount({ brokerageId }: { brokerageId: string }) {
       const status = await fetch(url, { cache: "no-store" });
       if (!status.ok) throw new Error("Reconnect status could not be refreshed.");
       setAccount(await status.json());
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "UWM connection failed."); }
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "UWM connection failed.");
+      // A failed renewal can retire an expired grant; refresh the badge too.
+      try { const status = await fetch(url, { cache: "no-store" }); if (status.ok) setAccount(await status.json()); } catch { /* Keep the original actionable error. */ }
+    }
     finally { credentials.password = ""; setBusy(false); }
   }
   const connected = !!account?.connectedAt;

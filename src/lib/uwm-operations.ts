@@ -93,6 +93,8 @@ export function correlateUwmImport(db: Store, receiptId: number) {
     if (!["Dispatching", "Acknowledged", "Unknown"].includes(String(operation.state))) return "Needs review";
     if (state === "Completed" && db.prepare("SELECT id FROM submissions WHERE lender='UWM' AND externalId=? AND loanId<>?")
       .get(receipt.loanNumber, operation.loanId)) return "Conflicting loan";
+    if (state === "Completed" && db.prepare("SELECT id FROM uwm_operations WHERE environment=? AND lenderLoanNumber=? AND loanId<>? AND state='Completed'")
+      .get(receipt.environment, receipt.loanNumber, operation.loanId)) return "Conflicting loan";
     db.prepare("UPDATE uwm_operations SET state=?,lenderLoanNumber=?,receiptId=?,updatedAt=? WHERE id=?")
       .run(state, receipt.loanNumber, receiptId, new Date().toISOString(), operation.id);
     // Preserve the sent revision in the operation. Never overwrite a newer 1003
