@@ -1110,9 +1110,13 @@ Worker `5bdbb587-e074-42ee-bb36-14d135911b2a` serves 100 percent of traffic. All
 
 ## Workspace continuity across releases
 
-Orbit reuses the selected brokerage for the same Google account in the same browser. Team → Workspaces records a deliberate switch or sets the current brokerage as the default. Shared links and guided demos open their scoped workspace without replacing that choice. Existing preferences remain readable. If a remembered brokerage loses access, Orbit shows the denial and offers a deliberate return to an available brokerage.
+Orbit saves the default brokerage to the staff account. Team → Workspaces records a deliberate switch or sets the current brokerage as the default. Shared links and guided demos open their scoped workspace without replacing that choice. Existing browser preferences remain readable. If a remembered brokerage loses access, Orbit shows the denial and offers a deliberate return to an available brokerage.
 
 Before a production promotion, open the generic workspace URL in a signed-in browser and record the brokerage shown. After promotion, revisit the same generic URL in that session and confirm the brokerage matches. Open a separate fictional workspace by scoped URL, return to generic entry, and confirm the same result. In the built fixture, also verify that a keyboard switch persists through reload and a new tab, and that another account in the same browser retains its own preference.
+
+Source `7eeca78` saves the first workspace selected by normal generic entry to the staff account. A fresh authenticated session without the workspace cookie returns there. The fictional rehearsal verifies the first entry with cross-site sign-in redirect headers, a new session, unchanged explicit choices, and no preference writes from prefetches, named links, or guides. All 509 tests and 45 rehearsal stages passed along with lint, typecheck, and the production build.
+
+The existing signed-in Chrome session resolved the same Orbit demo brokerage before and after promotion to Worker `53666ca8-f086-48b3-902f-75013a9c8f04`. All 23 bindings matched the previous release. The production check used the existing session and the fresh-session case used the fictional fixture.
 
 Source `52ef808` passed 505 tests, typecheck, lint, the production build and all 45 working-day stages. The browser checks covered the populated switcher at 1440, 900 and 390 px. The working-day rehearsal also checked legacy preference compatibility, account isolation, prefetch behavior and revocation. Production Worker `f203b811-1ce3-4e0c-8d48-67aa4c84a830` preserved all 23 bindings. Signed-in generic entry returned to OrbitLOS Production before and after promotion and after opening a fictional workspace’s maintenance page. [Design evidence](brand-ux-review.md#workspace-switcher-and-recovery-resume)
 
