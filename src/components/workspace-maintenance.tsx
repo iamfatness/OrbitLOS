@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, CheckCircle2, PauseCircle, ShieldCheck } from "lucide-react";
 import { Button } from "./ui/button";
+import { RecoveryCheckpoints } from "./recovery-checkpoints";
 import { RecoveryEdits } from "./recovery-edits";
 import { MaintenanceInspectionPanel } from "./maintenance-inspection";
 import type { WorkspaceStaff } from "@/lib/staff-store";
@@ -83,6 +84,8 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
           </form></section>:<>
           <MaintenanceInspectionPanel key={view.startedAt} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
             onDecisionSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
+          <RecoveryCheckpoints key={`checkpoints:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
+            onSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
           <RecoveryEdits key={`edits:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
             onReviewed={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
           <div className="maintenance-columns">

@@ -1,3 +1,6 @@
+import {checkpointCreate,checkpointCompare} from "./lib/recovery-checkpoint-model";
+import {captureCheckpointManifest} from "./lib/recovery-checkpoint-manifest";
+import {initializeRecoveryCheckpoints,checkpointAccess,checkpointList,priorCheckpoint,saveCheckpoint,compareCheckpoint} from "./lib/recovery-checkpoints";
 import {applyRecoveryReplay,recoveryReplay,reserveRecoveryReplay,finishRecoveryReplay,type ReplayReservation} from "./lib/recovery-replay";
 import {recoveryReplayInput} from "./lib/recovery-edit-model";
 import {readRecoveryEdit} from "./lib/recovery-edits";
@@ -190,7 +193,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     initializeUwmWebhooks(this.#store);
     if (this.#id === demoBrokerageId) {
       initializeBrokerages(this.#store);
-      initializeMaintenance(this.#store);
+      initializeMaintenance(this.#store); initializeRecoveryCheckpoints(this.#store);
     }
     initializeRecoveryEdits(this.#store,this.#id===demoBrokerageId);
     this.#initialized = true;
@@ -229,6 +232,44 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const state=maintenanceState(this.#store,staff.brokerage.id);
     return maintenanceAdmin(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])]) &&
       state.mode === "Paused" && state.revision === revision;
+  }
+  mayCaptureCheckpoint(staff:WorkspaceStaff,revision:number) {
+    if(this.#id!==demoBrokerageId)return false;
+    try{checkpointAccess(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])],revision);return true;}catch{return false;}
+  }
+  async captureWorkspaceCheckpoint(staff:WorkspaceStaff,revision:number,bookmark:boolean) {
+    if(this.#id===demoBrokerageId || staff.brokerage.id!==this.#id)throw new Error("Checkpoint workspace mismatch.");
+    const directory=this.env.WORKSPACE.getByName(demoBrokerageId),gate=maintenanceGates.get(this)!;
+    if(!await directory.mayCaptureCheckpoint(staff,revision)||!gate.closed||gate.active)throw new Error("Wait for paused workspace activity to finish.");
+    const kv=await this.ctx.storage.list({limit:101}),alarm=await this.ctx.storage.getAlarm();
+    if(!gate.closed||gate.active)throw new Error("Workspace changed during capture. Refresh its status.");
+    const manifest=captureCheckpointManifest((query,...values)=>this.ctx.storage.sql.exec(query,...values).toArray(),kv,alarm);
+    const at=new Date().toISOString();
+    const point=bookmark?await this.ctx.storage.getCurrentBookmark():"";
+    if(!await directory.mayCaptureCheckpoint(staff,revision)||!gate.closed||gate.active)throw new Error("Workspace changed during capture. Refresh its status.");
+    return {manifest,bookmark:point,at};
+  }
+  async workspaceCheckpoints(staff:WorkspaceStaff,raw:unknown) {
+    if(this.#id!==demoBrokerageId)throw new Error("Checkpoint directory unavailable.");
+    const emails=[...(googleSettings(this.env)?.allowedEmails??[])];
+    const action=z.object({action:z.enum(["list","create","compare"])}).parse(raw).action;
+    if(action==="list"){
+      const {revision}=z.object({revision:z.number().int().nonnegative()}).parse(raw);
+      return {items:checkpointList(this.#store,staff,emails,revision)};
+    }
+    checkpointAccess(this.#store,staff,emails);
+    if(action==="create"){
+      const input=checkpointCreate.parse(raw),prior=priorCheckpoint(this.#store,staff,input);
+      if(prior)return {checkpoint:prior,view:maintenanceView(this.#store,staff.brokerage.id,0)};
+      checkpointAccess(this.#store,staff,emails,input.revision);
+      const captured=await this.env.WORKSPACE.getByName(staff.brokerage.id).captureWorkspaceCheckpoint(staff,input.revision,true);
+      const checkpoint=saveCheckpoint(this.#store,staff,emails,input,captured);
+      return {checkpoint,view:maintenanceView(this.#store,staff.brokerage.id,0)};
+    }
+    const input=checkpointCompare.parse(raw);
+    checkpointAccess(this.#store,staff,emails,input.revision);
+    const current=await this.env.WORKSPACE.getByName(staff.brokerage.id).captureWorkspaceCheckpoint(staff,input.revision,false);
+    return {comparison:compareCheckpoint(this.#store,staff,emails,input.id,input.revision,current.manifest)};
   }
   async inspectWorkspaceMaintenance(staff: WorkspaceStaff, raw: unknown) {
     const parsed=maintenanceInspectionInput.safeParse(raw);
@@ -1302,7 +1343,7 @@ async function authorized(header: string | null, password: string) {
 }
 
 guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
-  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit","authorizedRecoveryReplay","recoverWorkspaceEdit","applyWorkspaceRecoveryReplay"]));
+  new Set(["mayCaptureCheckpoint","captureWorkspaceCheckpoint","workspaceCheckpoints","maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit","authorizedRecoveryReplay","recoverWorkspaceEdit","applyWorkspaceRecoveryReplay"]));
 
 export default {
   async fetch(request, env, context) {
@@ -1489,6 +1530,10 @@ export default {
       const headers={"Cache-Control":"private, no-store"};
       if (!staff) return Response.json({error:"Sign in to your brokerage first."},{status:403,headers});
       const identity=staff;
+      if(request.method==="POST"&&url.searchParams.get("checkpoints")==="1")return borrowerJson(request,async input=>{
+        try{return {value:await directory.workspaceCheckpoints(identity,input)};}
+        catch(error){return {status:409,error:error instanceof Error?error.message:"Checkpoint review unavailable. Refresh workspace status."};}
+      },4096);
       if(request.method==="GET"&&url.searchParams.get("edits")==="1") {
         const parsed=recoveryEditPage.safeParse({revision:Number(url.searchParams.get("revision")??-1),offset:Number(url.searchParams.get("offset")??0)});
         if(!parsed.success)return Response.json({error:"Invalid edit inspection page."},{status:400,headers});

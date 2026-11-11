@@ -967,3 +967,8 @@ button:disabled { cursor: default; }
 @media(max-width:600px){.uwm-loan-card{padding:14px}.uwm-fields,.uwm-confirm dl,.uwm-products dl{grid-template-columns:1fr}.uwm-loan-card .section-heading{align-items:flex-start}.uwm-confirm{padding:14px}.uwm-loan-card button{white-space:normal}}
 
 .workspace-samples{border-top:1px solid var(--line);padding-top:20px;margin-top:12px}.workspace-samples>summary{cursor:pointer;font-weight:600;padding:8px 0}.workspace-samples>.field{margin:16px 0}.workspace-list{display:grid;gap:8px;margin-top:12px}.workspace-list-item{display:flex;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;overflow-wrap:anywhere}.workspace-list-item:hover{background:#f0ebfa}.workspace-list-item span{font-size:12px;color:var(--muted);flex-shrink:0}.workspace-list-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}@media(max-width:600px){.workspace-list-item{flex-direction:column;gap:4px}}
+
+.checkpoint-comparison { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border, #ebe8f1); }
+.checkpoint-table-list { list-style: none; padding: 0; }
+.checkpoint-table-list li { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 12px 0; border-bottom: 1px solid var(--border, #ebe8f1); overflow-wrap: anywhere; }
+.checkpoint-table-list span { font-variant-numeric: tabular-nums; }

@@ -1,0 +1,63 @@
+import {createHash} from "node:crypto";
+import type {CheckpointManifest} from "./recovery-checkpoint-model";
+// Full tenant SQL inventory, including unknown future tables and FTS backing tables.
+// These bounds fail closed: a partial manifest must never become a checkpoint.
+export const checkpointLimits={tables:600,rows:25000,bytes:20*1024*1024,keys:100};
+type Reader=(query:string,...values:(string|number)[])=>Record<string,unknown>[];
+const quote=(name:string)=>`"${name.replaceAll('"','""')}"`;
+export function checkpointCanonical(value:unknown,seen=new Set<object>()):string {
+  if(value===null)return "null";
+  if(typeof value==="string"||typeof value==="boolean")return JSON.stringify(value);
+  if(typeof value==="number")return `number:${Object.is(value,-0)?"-0":String(value)}`;
+  if(typeof value==="bigint")return `bigint:${value}`;
+  if(value===undefined)return "undefined";
+  if(typeof value!=="object" || seen.has(value))throw new Error("Unsupported checkpoint value. No checkpoint was saved.");
+  seen.add(value);
+  try {
+    if(value instanceof ArrayBuffer)return `bytes:${Buffer.from(value).toString("hex")}`;
+    if(ArrayBuffer.isView(value))return `${value.constructor.name}:${Buffer.from(value.buffer,value.byteOffset,value.byteLength).toString("hex")}`;
+    if(value instanceof Date)return `date:${value.toISOString()}`;
+    if(Array.isArray(value))return `[${value.map(item=>checkpointCanonical(item,seen)).join(",")}]`;
+    if(value instanceof Map)return `map:[${[...value].map(([key,item])=>`[${checkpointCanonical(key,seen)},${checkpointCanonical(item,seen)}]`).join(",")}]`;
+    if(value instanceof Set)return `set:[${[...value].map(item=>checkpointCanonical(item,seen)).join(",")}]`;
+    if(Object.getPrototypeOf(value)!==Object.prototype && Object.getPrototypeOf(value)!==null)throw new Error("Unsupported checkpoint value. No checkpoint was saved.");
+    return `{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${checkpointCanonical((value as Record<string,unknown>)[key],seen)}`).join(",")}}`;
+  }finally{seen.delete(value);}
+}
+export function captureCheckpointManifest(read:Reader,kv:Map<string,unknown>,alarm:number|null,limits=checkpointLimits):CheckpointManifest {
+  let bytes=0,totalRows=0;
+  const encode=(value:unknown)=>{const encoded=checkpointCanonical(value);bytes+=Buffer.byteLength(encoded);if(bytes>limits.bytes)throw new Error("Workspace exceeds the checkpoint inspection limit. No checkpoint was saved.");return encoded;};
+  const hash=(value:unknown)=>createHash("sha256").update(encode(value)).digest("hex");
+  const schema=read("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name");
+  const tables=schema.filter(row=>row.type==="table" && !String(row.name).startsWith("__cf"));
+  if(tables.length>limits.tables || kv.size>limits.keys)throw new Error("Workspace exceeds the checkpoint inspection limit. No checkpoint was saved.");
+  const result:CheckpointManifest={version:1,schema:hash(schema),tables:[],kv:{keys:kv.size,digest:hash(kv)},alarm};
+  for(const table of tables){
+    const name=String(table.name),columns=read(`PRAGMA table_info(${quote(name)})`);
+    const count=Number(read(`SELECT COUNT(*) AS n FROM ${quote(name)}`)[0].n);
+    totalRows+=count;if(totalRows>limits.rows)throw new Error("Workspace exceeds the checkpoint row limit. No checkpoint was saved.");
+    // Bound total payload before loading pages, including BLOBs and large text.
+    const sizeColumns=columns.map(row=>`COALESCE(length(CAST(${quote(String(row.name))} AS BLOB)),0)`);
+    if(sizeColumns.length){const size=Number(read(`SELECT COALESCE(SUM(${sizeColumns.join("+")}),0) AS n FROM ${quote(name)}`)[0].n);
+      if(size+bytes>limits.bytes/2)throw new Error("Workspace exceeds the checkpoint inspection limit. No checkpoint was saved.");}
+    if(columns.some(row=>String(row.name)==="__orbit_checkpoint_rowid__"))throw new Error("A workspace table uses a reserved inspection column. No checkpoint was saved.");
+    const names=columns.map(row=>String(row.name).toLowerCase());
+    const rowid=["rowid","_rowid_","oid"].find(key=>!names.includes(key));
+    if(!rowid)throw new Error("A workspace table cannot be fully inspected. No checkpoint was saved.");
+    let hasRowid=true;
+    try{read(`SELECT ${rowid} FROM ${quote(name)} LIMIT 0`);}catch(error){
+      if(!/no such column/i.test(String(error)))throw error;hasRowid=false;
+    }
+    const primary=columns.filter(row=>Number(row.pk)>0).sort((a,b)=>Number(a.pk)-Number(b.pk)).map(row=>quote(String(row.name)));
+    if(!hasRowid&&!primary.length)throw new Error("A workspace table has no stable inspection order. No checkpoint was saved.");
+    // No application row data leaves this function; only counts and digests do.
+    const digest=createHash("sha256");let readRows=0;
+    for(let offset=0;offset<count;offset+=100){
+      const rows=read(`SELECT ${hasRowid?`${rowid} AS "__orbit_checkpoint_rowid__",`:""}* FROM ${quote(name)} ORDER BY ${hasRowid?rowid:primary.join(",")} LIMIT 100 OFFSET ?`,offset);
+      for(const row of rows){digest.update(encode(row));digest.update("\n");}readRows+=rows.length;
+    }
+    if(readRows!==count)throw new Error("Workspace changed during inspection. No checkpoint was saved.");
+    result.tables.push({name,rows:count,digest:digest.digest("hex")});
+  }
+  return result;
+}
