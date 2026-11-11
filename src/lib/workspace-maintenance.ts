@@ -43,7 +43,7 @@ export function maintenanceAdmin(db: Store, staff: WorkspaceStaff, emails: strin
     staff.brokerage.role==="Admin" && current.accessRevision===staff.brokerage.accessRevision;
 }
 export function maintenanceView(db: Store, id: string, active: number): MaintenanceView {
-  return {...maintenanceState(db,id),active,history:db.prepare(
+  return {...maintenanceState(db,id),active,pendingRestore:pendingWorkspaceRestore(db,id),pendingEditRecovery:pendingRecoveryReplay(db,id),history:db.prepare(
     "SELECT action,actor,at,note FROM brokerage_maintenance_history WHERE brokerageId = ? ORDER BY at DESC,id DESC LIMIT 20"
   ).all(id) as unknown as MaintenanceView["history"]};
 }

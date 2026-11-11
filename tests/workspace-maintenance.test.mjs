@@ -33,6 +33,19 @@ test("maintenance requires current admin, exact workspace and a completed review
     assert.ok(changeMaintenance(db,staff,[],{type:"review",revision:1,review:"Checked all evidence.",checks:[true,true,true]}).error);
     assert.equal(markMaintenanceDrained(db,staff.brokerage.id,0).mode,"Pausing");
     assert.equal(markMaintenanceDrained(db,staff.brokerage.id,1).mode,"Paused");
+    const id=staff.brokerage.id,cycle=maintenanceState(db,id).startedAt;
+    const review={type:"review",revision:2,review:"Checked all evidence.",checks:[true,true,true]};
+    db.prepare("INSERT INTO brokerage_restore_jobs VALUES ('restore',?,?,?,?,'Requested','Owner','owner@example.test','Fixture','digest',?,NULL,'Reserved',NULL)")
+      .run(id,"target","source",cycle,cycle);
+    assert.equal(maintenanceView(db,id,0).pendingRestore,true);
+    assert.match(changeMaintenance(db,staff,[],review).error,/pending workspace restore/);
+    db.prepare("UPDATE brokerage_restore_jobs SET state='Restored'").run();
+    assert.equal(maintenanceView(db,id,0).pendingRestore,false);
+    db.prepare("INSERT INTO brokerage_recovery_replays VALUES ('replay',?,'edit',?,'Pending','Owner','Fixture',?,NULL,NULL)").run(id,cycle,cycle);
+    assert.equal(maintenanceView(db,id,0).pendingEditRecovery,true);
+    assert.match(changeMaintenance(db,staff,[],review).error,/pending internal edit recovery/);
+    db.prepare("UPDATE brokerage_recovery_replays SET state='Applied'").run();
+    assert.equal(maintenanceView(db,id,0).pendingEditRecovery,false);
     assert.ok(changeMaintenance(db,staff,[],{type:"reopen",revision:2,confirmation:staff.brokerage.name}).error);
     assert.ok(changeMaintenance(db,staff,[],{type:"review",revision:2,review:"Missing provider evidence.",checks:[true,false,true]}).error);
     assert.equal(changeMaintenance(db,staff,[],{type:"review",revision:2,review:"Reviewed fictional work, access and mock requests.",checks:[true,true,true]}).state.revision,3);

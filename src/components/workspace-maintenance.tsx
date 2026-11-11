@@ -17,11 +17,26 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
   const [busy,setBusy]=useState(false);
   const [reviewDraft,setReviewDraft]=useState<{review:string;checks:boolean[]}|null>(null);
   const reviewDirty=reviewDraft!==null;
+  const reviewBlocked=Boolean(view?.pendingRestore||view?.pendingEditRecovery);
   const reviewValues=reviewDraft??{review:view?.review??"",checks:view?.checks??[false,false,false]};
   function editReview(change:Partial<{review:string;checks:boolean[]}>) {setReviewDraft({...reviewValues,...change});setMessage("");}
   const feedback=useRef<HTMLParagraphElement>(null);
   const endpoint=`/api/workspace-maintenance?brokerage=${encodeURIComponent(staff?.brokerage.id??"")}`;
   const allowed=staff?.brokerage.role==="Admin" && staff.brokerage.pilot;
+  function openRecovery(id:string) {
+    const heading=document.getElementById(id);
+    const disclosure=heading?.closest("details");
+    if(disclosure)disclosure.open=true;
+    heading?.focus();
+  }
+  function applyRecoveryView(next:MaintenanceView) {
+    if(view && next.revision<view.revision)return;
+    setView(next);
+    if(next.revision!==view?.revision) {
+      setReviewDraft({review:reviewValues.review,checks:[false,false,false]});
+      setMessage("");
+    }
+  }
   useEffect(()=>{
     if(!allowed)return;
     const controller=new AbortController();
@@ -68,8 +83,15 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
             <p className="muted">{view.mode==="Open"?"Staff and portal activity are available.":view.mode==="Pausing"?
               `${view.active} active workspace ${view.active===1?"request remains":"requests remain"}. Refresh after they finish.`:
               "Staff actions, borrower and partner portal updates, and background workspace work are paused."}</p></div>
-          <Button variant="outline" disabled={busy} onClick={()=>void change()}>Refresh status</Button>
+          <div className="loan-application-actions">
+            {view.pendingRestore&&<Button onClick={()=>openRecovery("restore-workspace-heading")}>Open pending restore</Button>}
+            {!view.pendingRestore&&view.pendingEditRecovery&&<Button onClick={()=>openRecovery("internal-edits-heading")}>Open internal edit recovery</Button>}
+            <Button variant="outline" disabled={busy} onClick={()=>void change()}>Refresh status</Button>
+          </div>
         </section>
+        {reviewBlocked&&<p className="application-message" role="status">
+          {view.pendingRestore?"Verify the pending restore before recording a reopening review.":"Resolve the pending internal edit recovery before recording a reopening review."}
+        </p>}
         <ol className="maintenance-steps" aria-label="Maintenance steps">{[[PauseCircle,"Pause activity"],[ShieldCheck,"Review outcome"],[CheckCircle2,"Reopen workspace"]].map(([Icon,label],index)=>{
           const Symbol=Icon as typeof PauseCircle;
           const step=view.mode==="Open"?0:view.reviewedAt?2:1;
@@ -83,26 +105,26 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
             <Button disabled={busy} type="submit">Pause workspace</Button>
           </form></section>:<>
           <MaintenanceInspectionPanel key={view.startedAt} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
-            onDecisionSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
+            onDecisionSaved={applyRecoveryView}/>
           <RecoveryCheckpoints brokerageName={staff?.brokerage.name??""} key={`checkpoints:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
-            onSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
+            onSaved={applyRecoveryView}/>
           <RecoveryEdits key={`edits:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
-            onReviewed={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
+            onReviewed={applyRecoveryView}/>
           <div className="maintenance-columns">
           <section className="pipeline relationship-panel"><h2>Reopening review</h2><p className="muted">Confirm the outcome of your investigation or recovery. Check each item only after reviewing its evidence.</p>
             <form key={view.startedAt} className="maintenance-form" onSubmit={event=>submit(event,"review")}>
-              <fieldset disabled={busy||view.mode!=="Paused"}><legend className="sr-only">Required reopening checks</legend>
+              <fieldset disabled={busy||reviewBlocked||view.mode!=="Paused"}><legend className="sr-only">Required reopening checks</legend>
               {maintenanceChecks.map((check,index)=><label key={check} className="demo-confirm"><input name={`check-${index}`} type="checkbox" required checked={reviewValues.checks[index]} onChange={event=>editReview({checks:reviewValues.checks.map((checked,item)=>item===index?event.target.checked:checked)})}/>{check}</label>)}</fieldset>
-              <label className="field">Review notes<textarea name="review" required minLength={8} maxLength={1000} rows={4} value={reviewValues.review} onChange={event=>editReview({review:event.target.value})} placeholder="Record the checks performed, unresolved items, and the decision." disabled={busy||view.mode!=="Paused"}/></label>
-              <Button disabled={busy||view.mode!=="Paused"} type="submit">Record review</Button>
+              <label className="field">Review notes<textarea name="review" required minLength={8} maxLength={1000} rows={4} value={reviewValues.review} onChange={event=>editReview({review:event.target.value})} placeholder="Record the checks performed, unresolved items, and the decision." disabled={busy||reviewBlocked||view.mode!=="Paused"}/></label>
+              <Button disabled={busy||reviewBlocked||view.mode!=="Paused"} type="submit">Record review</Button>
             </form>
             {reviewDirty&&<p className="muted" role="status">Record your updated review before reopening.</p>}
             {view.reviewedAt&&<p className="muted">Recorded by {view.reviewedBy} · {new Date(view.reviewedAt).toLocaleString()}</p>}
           </section>
           <section className="pipeline relationship-panel"><h2>Reopen workspace</h2><p className="muted">Staff and portal activity resume after the review is recorded and you confirm this workspace.</p>
             <form className="maintenance-form" onSubmit={event=>submit(event,"reopen")}>
-              <label className="field">Enter {staff?.brokerage.name} to confirm<input name="confirmation" required autoComplete="off" disabled={busy||!view.reviewedAt||reviewDirty}/></label>
-              <Button disabled={busy||view.mode!=="Paused"||!view.reviewedAt||reviewDirty} type="submit">Reopen workspace</Button>
+              <label className="field">Enter {staff?.brokerage.name} to confirm<input name="confirmation" required autoComplete="off" disabled={busy||reviewBlocked||!view.reviewedAt||reviewDirty}/></label>
+              <Button disabled={busy||reviewBlocked||view.mode!=="Paused"||!view.reviewedAt||reviewDirty} type="submit">Reopen workspace</Button>
             </form>
             <p className="muted">Started by {view.startedBy} · {view.startedAt&&new Date(view.startedAt).toLocaleString()}</p><p>{view.reason}</p>
           </section>

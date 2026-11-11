@@ -8,13 +8,16 @@ export function WorkspaceRestore({endpoint,revision,paused,checkpointId,brokerag
   const [note,setNote]=useState(""),[confirmation,setConfirmation]=useState(""),[checks,setChecks]=useState([false,false,false]);
   const [attempt,setAttempt]=useState<RestoreStartInput|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
   const feedback=useRef<HTMLDivElement>(null);
+  const statusVersion=useRef(0);
   const pending=!!job&&job.state!=="Restored",stale=!!preview&&(preview.comparison.revision!==revision||preview.comparison.checkpoint.id!==checkpointId);
   useEffect(()=>{
     if(!paused)return;
     const controller=new AbortController();
+    const version=statusVersion.current;
     fetch(`${endpoint}&restore=1`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"status"}),signal:controller.signal})
-      .then(async response=>{const data=await response.json() as {error?:string;job:RestoreJob|null};if(!response.ok)throw new Error(data.error??"Restore status unavailable.");setJob(data.job);})
-      .catch(failure=>{if(!controller.signal.aborted)setError(failure instanceof Error?failure.message:"Restore status unavailable.");});
+      .then(async response=>{const data=await response.json() as {error?:string;job:RestoreJob|null};if(!response.ok)throw new Error(data.error??"Restore status unavailable.");
+        if(!controller.signal.aborted&&statusVersion.current===version)setJob(data.job);})
+      .catch(failure=>{if(!controller.signal.aborted&&statusVersion.current===version)setError(failure instanceof Error?failure.message:"Restore status unavailable.");});
     return ()=>controller.abort();
   },[endpoint,paused]);
   async function call(input:Record<string,unknown>){
@@ -23,7 +26,9 @@ export function WorkspaceRestore({endpoint,revision,paused,checkpointId,brokerag
     if(!response.ok)throw new Error(data.error??"The response was interrupted. Check the saved restore outcome.");return data;
   }
   async function act(action:"preview"|"start"|"resume"|"status"){
+    statusVersion.current+=1;
     setBusy(true);setError("");setMessage("");
+    let expectedId=job?.id;
     try{
       if(action==="preview"){
         const result=await call({action,checkpointId,revision});setPreview(result.preview);onCompared(result.preview.comparison);setChecks([false,false,false]);
@@ -31,17 +36,34 @@ export function WorkspaceRestore({endpoint,revision,paused,checkpointId,brokerag
       }else if(action==="start"){
         if(!preview)return;
         const request=attempt??{id:crypto.randomUUID(),checkpointId,revision,fingerprint:preview.fingerprint,confirmation,note,checks:[true,true,true] as [true,true,true]};
+        expectedId=request.id;
         setAttempt(request);const result=await call({action,...request});setJob(result.job);onSaved(result.view);setAttempt(null);
         setMessage("Current work was saved automatically. Apply the reserved restore when ready; the workspace remains paused.");
       }else{
         const result=await call(action==="resume"?{action,id:job?.id}:{action});
         setJob(result.job);if(result.job?.id===attempt?.id)setAttempt(null);onSaved(result.view);setMessage(result.job?.message??"No restore request is saved for this workspace.");
       }
-    }catch(failure){setError(failure instanceof Error?failure.message:"Restore response unavailable. Check the saved outcome.");}
+    }catch(failure){
+      if(expectedId&&(action==="start"||action==="resume")){
+        try{
+          const observed=await call({action:"status"});
+          if(observed.job?.id===expectedId){
+            setJob(observed.job);
+            onSaved(observed.view);
+            if(action==="start"||observed.job.state!==job?.state){
+              setAttempt(null);
+              setMessage(observed.job.message);
+              return;
+            }
+          }
+        }catch{/* Keep the exact request and let the owner check status again. */}
+      }
+      setError(failure instanceof Error?failure.message:"Restore response unavailable. Check the saved outcome.");
+    }
     finally{setBusy(false);requestAnimationFrame(()=>feedback.current?.focus());}
   }
   return <section className="checkpoint-restore" aria-label="Restore workspace">
-    <h3>Restore workspace</h3>
+    <h3 id="restore-workspace-heading" tabIndex={-1}>Restore workspace</h3>
     <p className="muted">Replace the paused workspace with a saved checkpoint. Orbit saves the current database first. Staff access and portal revocations stay in the shared directory; document files are checked separately.</p>
     <div ref={feedback} tabIndex={-1} aria-live="polite">{error&&<p role="alert" className="application-message banner-error">{error}</p>}{message&&<p role="status" className="application-message">{message}</p>}</div>
     <div className="checkpoint-pages"><Button variant="outline" disabled={!paused||busy} onClick={()=>void act("status")}>Check restore status</Button>

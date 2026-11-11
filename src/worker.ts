@@ -412,9 +412,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   async workspaceRestore(staff:WorkspaceStaff,raw:unknown) {
     if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
     const emails=[...(googleSettings(this.env)?.allowedEmails??[])];
-    restoreAccess(this.#store,staff,emails);
+    const state=restoreAccess(this.#store,staff,emails);
     const action=z.object({action:z.enum(["status","preview","start","resume"])}).parse(raw).action;
-    if(action==="status")return {job:readRestoreJob(this.#store,staff.brokerage.id),view:maintenanceView(this.#store,staff.brokerage.id,0)};
+    if(action==="status"){
+      const job=readRestoreJob(this.#store,staff.brokerage.id);
+      return {job:job?.cycle===state.startedAt?job:null,view:maintenanceView(this.#store,staff.brokerage.id,0)};
+    }
     if(action==="preview"||action==="start") {
       const input=restorePreviewInput.parse(raw);
       if(action==="start"){

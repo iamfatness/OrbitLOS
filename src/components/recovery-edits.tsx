@@ -63,7 +63,7 @@ export function RecoveryEdits({endpoint,revision,paused,onReviewed}:{endpoint:st
     }
   }
   return <section className="pipeline relationship-panel maintenance-inspection" aria-label="Internal edit recovery">
-    <div className="section-heading"><div><h2 ref={heading} tabIndex={-1}>Internal edits</h2><p className="muted">Review due-date changes and their saved receipts.</p></div>
+    <div className="section-heading"><div><h2 id="internal-edits-heading" ref={heading} tabIndex={-1}>Internal edits</h2><p className="muted">Review due-date changes and their saved receipts.</p></div>
       <Button variant="outline" disabled={busy||!paused} onClick={()=>void inspect()}>{busy?(reviewing?"Recording outcome…":"Checking edits…"):report?"Refresh edit history":"Inspect internal edits"}</Button></div>
     <p className="muted">Covers direct document due-date changes in this pilot from this release onward. Older edits, coverage actions and other workflows are not included. No lender request is retried here.</p>
     {error&&<p role="alert" className="application-message banner-error">{error}{report?" The previous inspection remains below.":""}</p>}

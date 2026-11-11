@@ -5,7 +5,12 @@ export const maintenanceChecks = ["Saved work and documents", "Unresolved reques
 export type MaintenanceMode = "Open" | "Pausing" | "Paused";
 export type MaintenanceState = { mode: MaintenanceMode; revision: number; reason: string; startedAt: string | null;
   startedBy: string | null; reviewedAt: string | null; reviewedBy: string | null; review: string; checks: boolean[] };
-export type MaintenanceView = MaintenanceState & { active: number; history: { action: string; actor: string; at: string; note: string }[] };
+export type MaintenanceView = MaintenanceState & {
+  active: number;
+  pendingRestore: boolean;
+  pendingEditRecovery: boolean;
+  history: { action: string; actor: string; at: string; note: string }[];
+};
 export const maintenanceInput = z.discriminatedUnion("type", [
   z.object({type:z.literal("pause"),revision:z.number().int().nonnegative(),reason:z.string().trim().min(8).max(500),confirmation:z.string().max(80)}),
   z.object({type:z.literal("review"),revision:z.number().int().nonnegative(),review:z.string().trim().min(8).max(1000),checks:z.tuple([z.literal(true),z.literal(true),z.literal(true)])}),
