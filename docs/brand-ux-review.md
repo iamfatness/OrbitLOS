@@ -401,3 +401,8 @@ The owner inventory uses the existing Compliance navigation, a borrower search a
 ### Retention export
 
 Verified for the pilot owner download flow on the built Worker from `38c94d1`. A fictional loan had a long borrower name, two stored PDFs and a mix of active and released hold history. Screenshots at 1440 × 900, 900 × 1200 and 390 × 844 were inspected. Moving the download and close controls above the history kept them near the selected loan. The controls measured 44 pixels or more, and the panel fit each width. The browser exercised a failed response, retry, successful ZIP, and focus preservation on download and return. The rendered Impeccable scan reported the shared typeface and theme effects. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill).
+
+
+### Disposition review
+
+Verified for the pilot owner queue on the built Worker from `0fb4550`. The review reused Orbit's inline retention form and actions previously informed by the 21st.dev component references. UI UX Pro Max informed labelled fields and explicit saving, error and saved feedback. The Impeccable check used the rendered panel and flagged existing shared theme and typeface patterns. The browser started with no configured policy, saved a fictional policy, excluded a held loan, recorded an outcome and verified focus on return. Screenshots at 1440 × 900, 900 × 1200 and 390 × 844 were inspected. The final phone pass kept each due-date label together and confirmed the form fit without horizontal overflow.

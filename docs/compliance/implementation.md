@@ -71,7 +71,7 @@ In **Compliance → Loan retention**, a current pilot owner can search loans by 
 
 An active hold blocks loan deletion and a sample reset that would remove the loan. It preserves existing and replacement checklist PDFs while normal loan work continues. Releasing a hold restores the normal cleanup rules for obsolete copies. The loan and current documents follow their existing lifecycle. Hold history survives release. The ordinary restore flow blocks active holds and checkpoints that would rewind hold history. Use the incident review for a workspace with an active hold. Keep this protection in active and rollback releases while any hold exists.
 
-This pilot covers loan and checklist records. Policy periods, holds for other record types, and review of production retention and disposition remain open.
+This pilot covers loan and checklist records. Holds for other record types and production retention and disposition approval remain open.
 
 ### Release verification
 
@@ -85,3 +85,12 @@ Open **Compliance → Loan retention → Hold history → Download retention ZIP
 A missing or invalid referenced file, stale loan snapshot, or changed access blocks the export. The workspace records a successful preparation in its access history. A loan export can include up to 100 distinct PDFs totaling 32 MiB, with up to 1,000 hold records and document associations per export category.
 
 Application `38c94d1` is live on Worker `9b1db552-ccbd-420c-acee-e5b33266d657`. A live fictional loan with no saved PDFs returned its ZIP. The isolated built-Worker rehearsal verified an original and replacement PDF byte for byte, preserved release history, denied LO and processor requests, and blocked a missing file. Browser checks verified retry and file checksums at desktop, portrait and phone widths. All 505 tests and the 43-stage working day passed. [Release evidence](../evidence/retention-export-release-2026-11-11.json).
+
+
+### Brokerage policy and disposition review
+
+In **Compliance → Loan retention → Disposition review**, a pilot owner records their brokerage approval reference and calendar-day periods for funded loans and for withdrawn or lost loans. An empty category is off. The queue starts empty until a period is configured. It uses the recorded funding date or the date the loan entered its withdrawn or lost status. Older withdrawals and losses without a recorded date stay outside the queue. Review dates use the brokerage workspace's Eastern calendar.
+
+Active holds keep loans out of the queue. A review can record **Continue retaining** or **Recommend disposition**, with a reference and actor. Both outcomes leave the loan and documents in place. A changed policy, corrected outcome or intervening hold can require another review. Policy versions and review records are append-only, and normal restore rejects a checkpoint that would rewind them. Production approval and retention enforcement remain separate from pilot recommendations.
+
+Application `0fb4550` is live on Worker `1a8927de-8c14-4026-b167-88a42ca8a260`. The live fictional pilot loaded the unconfigured queue and policy form. The built-Worker 44-stage rehearsal exercised dated outcomes, owner scope, stale decisions, holds and release, and policy changes. All 505 tests passed. The isolated hosted recovery regression used application `5d38544` with the same data and command behavior. [Release evidence](../evidence/disposition-review-release-2026-11-11.json).

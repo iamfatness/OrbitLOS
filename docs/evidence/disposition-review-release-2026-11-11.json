@@ -1,0 +1,26 @@
+{
+  "widths": [
+    1440,
+    900,
+    390
+  ],
+  "policySaved": true,
+  "reviewRecorded": true,
+  "holdExcluded": true,
+  "keyboardFocus": true,
+  "dateWrapping": true,
+  "source": "0fb4550",
+  "liveWorker": "1a8927de-8c14-4026-b167-88a42ca8a260",
+  "liveUnconfiguredQueueAndPolicyForm": true,
+  "livePolicySaved": false,
+  "testsPassed": 505,
+  "workingDayStages": 44,
+  "staleDecisionBlocked": true,
+  "hostedRecoveryRegression": {
+    "fixture": "orbit-recovery-1a412e0a",
+    "source": "5d38544709144ce1f3da21703d97d717a643eb7a",
+    "sharedDirectoryRestored": true
+  },
+  "researchLiveDesktop": true,
+  "researchLivePhoneRead": true
+}
