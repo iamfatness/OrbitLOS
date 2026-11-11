@@ -12,7 +12,10 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
   const [busy,setBusy]=useState(false);
-  const [reviewDirty,setReviewDirty]=useState(false);
+  const [reviewDraft,setReviewDraft]=useState<{review:string;checks:boolean[]}|null>(null);
+  const reviewDirty=reviewDraft!==null;
+  const reviewValues=reviewDraft??{review:view?.review??"",checks:view?.checks??[false,false,false]};
+  function editReview(change:Partial<{review:string;checks:boolean[]}>) {setReviewDraft({...reviewValues,...change});setMessage("");}
   const feedback=useRef<HTMLParagraphElement>(null);
   const endpoint=`/api/workspace-maintenance?brokerage=${encodeURIComponent(staff?.brokerage.id??"")}`;
   const allowed=staff?.brokerage.role==="Admin" && staff.brokerage.pilot;
@@ -34,7 +37,7 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
       const result=await response.json() as MaintenanceView & {error?:string};
       if(!response.ok)throw new Error(result.error??"Orbit could not update maintenance. Refresh its status before retrying.");
       setView(result);
-      if(input?.type==="review" || input?.type==="pause" || view?.startedAt!==result.startedAt)setReviewDirty(false);
+      if(input?.type==="review" || input?.type==="pause" || view?.startedAt!==result.startedAt)setReviewDraft(null);
       setMessage(input?.type==="pause"?"Maintenance started. Check the workspace status below.":input?.type==="review"?"Reopening review recorded.":
         input?.type==="reopen"?"Workspace reopened. Staff and portals can continue.":"Maintenance status refreshed.");
     } catch(failure){setError(failure instanceof Error?failure.message:"Maintenance is unavailable. Refresh its status.");}
@@ -77,10 +80,10 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
             <Button disabled={busy} type="submit">Pause workspace</Button>
           </form></section>:<div className="maintenance-columns">
           <section className="pipeline relationship-panel"><h2>Reopening review</h2><p className="muted">Confirm the outcome of your investigation or recovery. Check each item only after reviewing its evidence.</p>
-            <form key={view.startedAt} className="maintenance-form" onChange={()=>setReviewDirty(true)} onSubmit={event=>submit(event,"review")}>
+            <form key={view.startedAt} className="maintenance-form" onSubmit={event=>submit(event,"review")}>
               <fieldset disabled={busy||view.mode!=="Paused"}><legend className="sr-only">Required reopening checks</legend>
-              {maintenanceChecks.map((check,index)=><label key={check} className="demo-confirm"><input name={`check-${index}`} type="checkbox" required defaultChecked={view.checks[index]}/>{check}</label>)}</fieldset>
-              <label className="field">Review notes<textarea name="review" required minLength={8} maxLength={1000} rows={4} defaultValue={view.review} placeholder="Record the checks performed, unresolved items, and the decision." disabled={busy||view.mode!=="Paused"}/></label>
+              {maintenanceChecks.map((check,index)=><label key={check} className="demo-confirm"><input name={`check-${index}`} type="checkbox" required checked={reviewValues.checks[index]} onChange={event=>editReview({checks:reviewValues.checks.map((checked,item)=>item===index?event.target.checked:checked)})}/>{check}</label>)}</fieldset>
+              <label className="field">Review notes<textarea name="review" required minLength={8} maxLength={1000} rows={4} value={reviewValues.review} onChange={event=>editReview({review:event.target.value})} placeholder="Record the checks performed, unresolved items, and the decision." disabled={busy||view.mode!=="Paused"}/></label>
               <Button disabled={busy||view.mode!=="Paused"} type="submit">Record review</Button>
             </form>
             {reviewDirty&&<p className="muted" role="status">Record your updated review before reopening.</p>}

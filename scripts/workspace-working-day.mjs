@@ -3524,7 +3524,7 @@ try {
     assert.equal((await get(officer)).status,403);assert.equal((await get(processor)).status,403);
     const original=await (await get()).json();assert.equal(original.mode,"Open");
     await directory.holdOwnerLookup();
-    const pending=write(owner,{type:"createRealtorPortal",realtorId:realtor.realtorId,officerEmail:officer.email});
+    const pending=write(owner,{type:"saveRealtorLinkOwner",realtorId:realtor.realtorId,token:realtor.token,revision:realtor.revision,officerEmail:officer.email});
     let waiting=false;
     for(let i=0;i<50;i++){if(await directory.ownerLookupWaiting()){waiting=true;break;}await delay(20);}
     assert.ok(waiting,"Fixture must observe the in-flight owner lookup");
