@@ -1171,3 +1171,13 @@ The built fictional browser walkthrough verified committed and missing responses
 Worker `5db6bfa1-edb3-4808-8c2b-02e5860bccf4` serves all traffic with the same 23 bindings. Nine staged and ordinary public and signed-out checks passed. The public Demo note was verified at three widths. Signed-in assignment was verified in the local fictional fixture. No provider configuration or production loan data changed.
 
 All 1,429 browser assets matched on both staged and both live passes. The ordinary production browser also rendered the queue recovery update.
+
+## Protect processor access during checkpoint restore
+
+Source `f31a825` compares processor grants and exact assignment receipts before allowing a checkpoint restore. The isolated hosted rehearsal rejected both unsafe variants and restored a routine handoff edit from a checkpoint that preserved access. After reviewed reopening, the assigned processor still saw the loan, the backup processor could not see it, and the original receipt remained saved. The second brokerage was unaffected. The test Worker, bucket and fixture credential were removed. [Hosted evidence](evidence/hosted-processor-restore-2026-11-11.json)
+
+509 tests, lint, typecheck, the production build, and the 45-stage working day passed. The fictional browser preview showed both blockers and withheld the reserve action, then offered the review form for an eligible checkpoint. The Demo update was verified at 1440, 900 and 390 px. [Design evidence](brand-ux-review.md#processor-access-during-checkpoint-restore)
+
+Worker `98234ec4-fd72-48e6-aa76-212e492112a9` serves all traffic with the same 23 bindings. Nine staged and live public and signed-out checks passed. The production workspace was not paused or restored, and provider configuration did not change.
+
+All 1,431 browser assets matched on both staged and both live passes. The ordinary production browser rendered the updated Demo copy.

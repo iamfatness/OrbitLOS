@@ -360,4 +360,10 @@ In **Team → Loan settings → Loan reassignment**, or from the loan’s **Mana
 
 **Processing → Unassigned** and **Playbooks → Ownership and deadlines** use the same receipt. The recovery action stays above the list if the assigned loan drops out of its filter. A same-tab reload or a move between those views preserves the pending shortcut reference. Check the pending change before using another inline processor shortcut in that workspace. **Review current access** opens the exact loan assignment.
 
-The assignment, audit entry, and receipt commit together. An exact repeat can confirm the saved revision without adding another audit event. The read is scoped to the admin who made the change, the loan and the brokerage. The receipt lives with the loan, so verification after restoring an older tenant checkpoint needs separate recovery evidence.
+The assignment, audit entry, and receipt commit together. An exact repeat can confirm the saved revision without adding another audit event. The read is scoped to the admin who made the change, the loan and the brokerage.
+
+### Preserve processor access during a workspace restore
+
+The restore preview compares the checkpoint’s processor grants and assignment receipts with the current workspace. A change to either blocks reservation. Routine handoff changes can still be restored when those grants and receipts match. For a checkpoint saved before processor-grant evidence was added, Orbit requires the full processing table to match. Orbit checks the reserved source and target again before applying the restore.
+
+If the preview reports a blocker, keep the workspace paused and choose a checkpoint that preserves the grants and receipts. After a verified restore, complete the reopening review and confirm that the assigned processor can open the intended file. The isolated hosted rehearsal refused restoration in two unsafe cases, restored a handoff note, preserved the original assignment receipt and confirmed that the backup processor still lacked access after reopening. Production workspace data was not restored. [Hosted evidence](evidence/hosted-processor-restore-2026-11-11.json)

@@ -1,0 +1,19 @@
+{
+  "run": "42e59041-a889-4ecf-8c14-91f9dd093d0e",
+  "source": "f31a825d1bb7a23191e414b7e29d9d6c6a74543f",
+  "artifactSha256": "0d937605e0570759ee2019460d409afebf5fb73ffb11ff88a2deb9e70942029e",
+  "processorAccessRewindBlocked": true,
+  "processorReceiptRewindBlocked": true,
+  "processorAccessVerifiedAfterReopen": true,
+  "productRestore": true,
+  "unreviewedReopenRejected": true,
+  "otherBrokeragePreserved": true,
+  "checkpointComparison": {
+    "tables": 193,
+    "changed": 0,
+    "schemaChanged": false,
+    "kvChanged": false,
+    "alarmChanged": false
+  },
+  "fixtureResourcesRemoved": true
+}
