@@ -14,7 +14,7 @@ registerHooks({ resolve(specifier, context, next) {
 
 const { initializeStore } = await import("../src/lib/store.ts");
 const { staffAuthStore } = await import("../src/lib/staff-store.ts");
-const { handleStaffAuth, staffLoginUrl, staffSessionHash } = await import("../src/lib/staff-auth.ts");
+const { handleStaffAuth, staffLoginUrl, staffSessionHash, workspaceAccessDenied } = await import("../src/lib/staff-auth.ts");
 const { brokerageUrl } = await import("../src/lib/brokerage-model.ts");
 const { initializeBrokerages, readStaffAccess } = await import("../src/lib/brokerages.ts");
 
@@ -77,4 +77,21 @@ test("one authenticated lookup keeps session expiry, current memberships and boo
   assert.equal(access(2000), null);
   await store.removeStaffSession(hash);
   assert.equal(access(1100), null);
+});
+
+
+test("workspace denial offers safe account recovery without revealing brokerage details", async () => {
+  const id = crypto.randomUUID();
+  const response = workspaceAccessDenied(id, "campaign");
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.match(response.headers.get("Content-Type"), /text\/html/);
+  assert.match(response.headers.get("Content-Security-Policy"), /frame-ancestors 'none'/);
+  const html = await response.text();
+  assert.match(html, /href="\/workspace"/);
+  assert.match(html, new RegExp(`href="/login\\?brokerage=${id}&amp;guide=campaign"`));
+  assert.match(html, /Use a different Google account/);
+  const invalid = await workspaceAccessDenied('"<script>alert(1)</script>').text();
+  assert.doesNotMatch(invalid, /<script>|alert\(1\)/);
+  assert.match(invalid, /href="\/login"/);
 });

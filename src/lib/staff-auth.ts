@@ -87,19 +87,41 @@ function loginPage(settings: GoogleSettings, url: URL) {
   const message = !ready ? "Orbit staff sign-in is being configured."
     : error === "denied" ? (brokerageId ? "This Google account doesn’t have access to this brokerage." : "This Google account hasn’t been approved for Orbit.")
     : error ? "The sign-in attempt ended. Start again to continue." : "";
+  return staffEntryPage({ title: "Sign in to OrbitLOS",
+    description: brokerageId ? "Use the exact Google email your brokerage invited. Your invitation activates when you sign in." : "Use the Google account approved by your brokerage.",
+    message: error === "denied" ? `${message} Ask your brokerage admin to confirm your invitation, or choose a different Google account.` : message,
+    primary: ready ? { href: startUrl, label: error === "denied" ? "Choose another Google account" : "Continue with Google" } : undefined,
+    secondary: brokerageId ? { href: "/workspace", label: "Open my available workspace" } : undefined,
+  }, ready ? 200 : 503);
+}
+
+export function workspaceAccessDenied(brokerageId: string | null, guide?: ReturnType<typeof workspaceGuide>) {
+  return staffEntryPage({ title: "Workspace access unavailable",
+    description: "Your signed-in account cannot open this brokerage. The link may be for another team, or your access may have changed.",
+    message: "Ask your brokerage admin to confirm the Google email on your invitation. You can still open any workspace you have access to.",
+    primary: { href: "/workspace", label: "Open my available workspace" },
+    secondary: { href: staffLoginUrl(brokerageId, undefined, guide).replaceAll("&", "&amp;"), label: "Use a different Google account" },
+  }, 403);
+}
+
+function staffEntryPage({ title, description, message, primary, secondary }: {
+  title: string; description: string; message: string;
+  primary?: { href: string; label: string }; secondary?: { href: string; label: string };
+}, status: number) {
   return new Response(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in · OrbitLOS</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · OrbitLOS</title>
 <style>
 @font-face{font-family:Inter;src:url('/fonts/InterVariable.woff2') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}
 *{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;background:#211833;color:#2d1b4b;font:16px/1.5 Inter,'Segoe UI',system-ui,sans-serif;padding:16px}
 main{width:min(100%,440px);background:#fff;border:1px solid #ded3f4;border-radius:12px;padding:clamp(20px,6vw,32px);box-shadow:0 18px 50px #120a2560}
 small{font-weight:600;color:#6042bf}h1{margin:8px 0;font-size:clamp(26px,7vw,32px);font-weight:650;letter-spacing:-.035em}p{color:#686177}
 a{display:block;min-height:44px;background:#6749d3;color:white;text-align:center;text-decoration:none;border-radius:8px;font-weight:600;padding:10px;margin-top:16px}
-a:hover{background:#5539b9}a:focus-visible{outline:2px solid #6749d3;outline-offset:3px}.status{border-radius:8px;background:#f4efff;padding:8px 10px}
-</style></head><body><main><small>Brokerage workspace</small><h1>Sign in to OrbitLOS</h1><p>Use your approved Google account.</p>
+a:hover{background:#5539b9}a.secondary{background:#f4efff;color:#493191}a:focus-visible{outline:2px solid #6749d3;outline-offset:3px}.status{border-radius:8px;background:#f4efff;padding:8px 10px}
+</style></head><body><main><small>Brokerage workspace</small><h1>${title}</h1><p>${description}</p>
 ${message ? `<p class="status" role="alert">${message}</p>` : ""}
-${ready ? `<a href="${startUrl}">Continue with Google</a>` : ""}</main></body></html>`, {
-    status: ready ? 200 : 503,
+${primary ? `<a href="${primary.href}">${primary.label}</a>` : ""}
+${secondary ? `<a class="secondary" href="${secondary.href}">${secondary.label}</a>` : ""}</main></body></html>`, {
+    status,
     headers: {
       ...noStore, "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'",

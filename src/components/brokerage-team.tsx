@@ -30,6 +30,8 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const creating = useRef<string | null>(null);
   const scenarioAttempt = useRef<{ key: string; id: string } | null>(null);
   const resetButton = useRef<HTMLButtonElement>(null);
+  const feedback = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { if (message) feedback.current?.focus(); }, [message]);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const feedbackAttempt = useRef<{ id: string; fields: string } | null>(null);
   const measurementAttempt = useRef<{ id: string; fields: string } | null>(null);
@@ -149,7 +151,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
         void reloadTeam().catch((failure: Error) => setError(failure.message));
       }}>Retry loading team</Button>}
     </div>}
-    {message && <p role="status" className="application-message">{message}</p>}
+    {message && <p ref={feedback} tabIndex={-1} role="status" className="application-message">{message}</p>}
     {admin && settings && activePanel === "Branches" && canUseSampleTools && <BrokerageBranches key={`branches-${staff.brokerage.id}`} endpoint={endpoint}
       members={settings.members} refreshHistory={reloadTeam} />}
     {admin && settings && activePanel === "Pilot tools" && canUseSampleTools && <section className="pipeline relationship-panel" aria-label="Demo examples">
@@ -272,7 +274,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       <section className="pipeline relationship-panel team-access-panel" aria-label="Staff access">
         <div className="section-heading team-access-heading"><h2>Staff access</h2>
           <Button size="sm" variant="outline" onClick={() => void copyWorkspace()}>Copy workspace link</Button></div>
-        <p className="muted">Invite by Google email, then share the workspace link. The invite activates when that account signs in.</p>
+        <p className="muted">Save an invitation using their Google email, then copy and share the workspace link. Orbit does not send an invitation email. Access activates when that exact account signs in.</p>
         {copyStatus && <p className="muted" role="status">{copyStatus}</p>}
         <form className="brokerage-form" onSubmit={(event) => {
           event.preventDefault();
@@ -281,9 +283,10 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
           void change({ type: "invite", email: data.get("email"), role: data.get("role") }, () => form.reset());
         }}>
           <label className="field">Google email<input name="email" type="email" required maxLength={254} /></label>
-          <label className="field">Invite role<select name="role" defaultValue="LO">{brokerageRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
+          <label className="field">Invite role<select name="role" defaultValue="LO" aria-describedby="invite-role-help">{brokerageRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
           <Button type="submit" size="sm" disabled={busy}>Save invitation</Button>
         </form>
+        <p id="invite-role-help" className="muted">LOs start in Today. Processors start in Processing with their assigned files. Admins start in the brokerage overview and can manage staff access.</p>
         <ul className="document-list">{settings.members.map((member) => <li className="document-item" key={member.email}>
           <div className="document-item-head"><strong>{member.email}</strong><span className="pill">{member.status}</span></div>
           {member.status !== "Revoked" && <form className="brokerage-form" key={member.role} onSubmit={(event) => {

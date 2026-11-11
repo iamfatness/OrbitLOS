@@ -26,7 +26,7 @@ import { readLeadInbox } from "./lib/lead-inbox-query";
 import { leadInboxUnavailable } from "./lib/lead-inbox-model";
 import { contactsUnavailable } from "./lib/contact-directory-model";
 import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
-import { googleSettings, handleStaffAuth, runtimeSetting, staffLoginUrl, staffSessionHash } from "./lib/staff-auth";
+import { googleSettings, handleStaffAuth, runtimeSetting, staffLoginUrl, staffSessionHash, workspaceAccessDenied } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
 import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
@@ -1215,8 +1215,9 @@ export default {
             const { identity } = access;
             brokerages = access.brokerages;
             const brokerage = requested === null ? brokerages[0] : brokerages.find((entry) => entry.id === requested);
-            if (requested !== null && !brokerage && brokerages.length) {
+            if (requested !== null && !brokerage && (brokerages.length || openingWorkspace)) {
               if (workspaceTarget && await directory.staffInvitedTo(workspaceTarget, identity.email)) return login();
+              if (openingWorkspace) return workspaceAccessDenied(workspaceTarget, guide);
               return new Response("You don’t have access to this brokerage.", { status: 403, headers: { "Cache-Control": "no-store" } });
             }
             if (brokerage) staff = { ...identity, brokerage };

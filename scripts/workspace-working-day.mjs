@@ -180,6 +180,36 @@ try {
   }
   const setupMs = Math.round(performance.now() - setupStarted);
 
+  await stage("Invited staff enter, recover from revoked access and reactivate without exposing a workspace", async () => {
+    const newcomer = actor("Fictional Entry Officer", "entry-officer@example.test", "LO");
+    await team(owner, { type: "invite", email: newcomer.email, role: newcomer.role });
+    await directory.createStaffSession(createHash("sha256").update(newcomer.token).digest("base64url"),
+      { email: newcomer.email, name: newcomer.name }, now + 3_600_000, now);
+    const entry = () => runtime.dispatchFetch(`${origin}/workspace?brokerage=${brokerage}&guide=campaign`,
+      { headers: { Cookie: `__Host-orbit-session=${newcomer.token}` }, redirect: "manual" });
+    const invited = await entry();
+    assert.equal(invited.status, 303);
+    assert.equal(invited.headers.get("location"), `/login?brokerage=${brokerage}&guide=campaign`);
+    await signIn(newcomer);
+    assert.equal((await entry()).status, 200);
+    await team(owner, { type: "revoke", email: newcomer.email });
+    const denied = await entry();
+    assert.equal(denied.status, 403);
+    const html = await denied.text();
+    assert.match(html, /Workspace access unavailable/);
+    assert.match(html, /href="\/workspace"/);
+    assert.doesNotMatch(html, /Fictional Working Day/);
+    const api = await runtime.dispatchFetch(`${origin}/api/brokerages?brokerage=${brokerage}`,
+      { headers: { Cookie: `__Host-orbit-session=${newcomer.token}` }, redirect: "manual" });
+    assert.notEqual(api.status, 200);
+    await team(owner, { type: "invite", email: newcomer.email, role: "Processor" });
+    assert.equal((await entry()).status, 303);
+    await signIn({ ...newcomer, role: "Processor" });
+    assert.equal((await entry()).status, 200);
+    const current = await directory.staffSessionAccess(createHash("sha256").update(newcomer.token).digest("base64url"), now, [owner.email]);
+    assert.equal(current.brokerages.find(({ id }) => id === brokerage).role, "Processor");
+  });
+
   await stage("The owner scorecard is scoped through the deployed action", async () => {
     const filters = { from: shiftReportDate(today, -7), through: today, owner: "" };
     const summary = await action(owner, "readOwnerReport", { kind: "summary", ...filters });
