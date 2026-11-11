@@ -26,8 +26,13 @@ try {
   const {origin}=await runtime.ready;
   const request=(action,authorized=true)=>runtime.dispatchFetch(origin+"/__recovery",{method:"POST",headers:authorized?{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`}:{},body:action});
   assert.equal((await request("initialize",false)).status,404);
-  for(const step of preview?["initialize"]:["initialize","checkpoint","change"]){
+  for(const step of preview?["initialize"]:["initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change"]){
     const response=await request(step);const result=await response.json();
+    if(step==="interrupt") {
+      assert.equal(response.status,409);assert.equal(result.error,"Simulated lost acknowledgment");
+      assert.equal((await request("arm")).status,409,"Unresolved intent must prevent restore");
+      console.log("interrupt: expected lost acknowledgment; restore refused");continue;
+    }
     assert.equal(response.status,200,`${step}: ${result.error}`);console.log(`${step}: ${result.phase}`);
   }
   if(preview){

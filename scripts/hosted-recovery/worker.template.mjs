@@ -3,6 +3,7 @@
 import application, { OrbitWorkspace } from "./index.js";
 import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { sampleDraft, finalStep } from "./recovery-fixtures.mjs";
+import { expectedDeadline, reviewPending, remainingReplay, sameDocument } from "./recovery-reconciliation.mjs";
 
 const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_import_checks", "uwm_request_evidence"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
@@ -116,13 +117,18 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     }
     return {acceptedRevisions:accepted.length,lenderReceipts:condition.manual.deliveries.length};
   }
-  async probeReplay(receipt, actor) {
+  async probeReviewPending(receipt) {
     const identity = this.probeIdentity();
-    if (receipt.tenant !== identity.tenant || receipt.run !== identity.run || receipt.source !== identity.source || receipt.status !== "acknowledged") throw new Error("Unverified recovery receipt");
     const current = this.probeDocument(receipt.command.loanId);
-    if (![receipt.before,receipt.after].some(expected => JSON.stringify(expected) === JSON.stringify(current))) throw new Error("Receipt conflicts with restored document");
-    requireOk(await this.write(receipt.command,actor));
-    if (JSON.stringify(this.probeDocument(receipt.command.loanId)) !== JSON.stringify(receipt.after)) throw new Error("Receipt replay differs from acknowledged state");
+    return { classification: reviewPending(receipt,current,identity), observed: current };
+  }
+  async probeReplayBatch(receipts, actor) {
+    const identity = this.probeIdentity();
+    const current = this.probeDocument(receipts[0].command.loanId);
+    for (const receipt of remainingReplay(receipts,current,identity)) {
+      requireOk(await this.write(receipt.command,actor));
+      if (!sameDocument(this.probeDocument(receipt.command.loanId),receipt.after)) throw new Error("Receipt replay differs from reviewed state");
+    }
   }
   async probeBytes(evidence) {
     this.probeIdentity();
@@ -190,7 +196,7 @@ async function command(action, env, origin, ctx) {
     try { await other.probeArm(state.checkpoint); } catch { refused = true; }
     if (!refused) throw new Error("Cross-tenant restore was not refused");
     state.phase = "checkpointed";
-  } else if (action === "change" && state.phase === "checkpointed") {
+  } else if (action === "prepareChange" && state.phase === "checkpointed") {
     const before = await target.probeDocument(a.loanId);
     state.receipt = {tenant:a.id,run:state.run,source:state.source,status:"pending",before,
       command:{type:"setDocumentDeadline",loanId:a.loanId,requestId:before.id,revision:before.revision,deadlineRevision:before.deadlineRevision,dueOn:"2030-02-03"}};
@@ -199,6 +205,33 @@ async function command(action, env, origin, ctx) {
     state.receipt.after = await target.probeDocument(a.loanId);
     state.receipt.status = "acknowledged";
     await directory.probeSave(state);
+    const pendingBefore = state.receipt.after;
+    state.interrupted = {tenant:a.id,run:state.run,source:state.source,status:"pending",before:pendingBefore,
+      command:{type:"setDocumentDeadline",loanId:a.loanId,requestId:pendingBefore.id,revision:pendingBefore.revision,
+        deadlineRevision:pendingBefore.deadlineRevision,dueOn:"2030-02-10"}};
+    state.phase = "prepared";
+    await directory.probeSave(state);
+    if ((await target.probeReviewPending(state.interrupted)).classification !== "not-observed") throw new Error("Undispatched edit was inferred as committed");
+    let refused = false;
+    try { await target.probeReplayBatch([state.interrupted],a.admin); } catch { refused = true; }
+    if (!refused) throw new Error("Unreviewed edit was replayed");
+  } else if (action === "interrupt" && state.phase === "prepared") {
+    requireOk(await target.write(state.interrupted.command,a.admin));
+    // Deliberately lose the outer acknowledgment after the normal application
+    // command commits. Directory intent remains pending across the restart.
+    throw new Error("Simulated lost acknowledgment");
+  } else if (action === "restartInterrupted" && state.phase === "prepared") {
+    try { await target.probeRestart(); } catch { /* Reconciliation proves persistence. */ }
+    state.phase = "interrupted";
+  } else if (action === "reconcile" && state.phase === "interrupted") {
+    const review = await target.probeReviewPending(state.interrupted);
+    if (review.classification !== "matches-intended-revision") throw new Error("Interrupted write requires manual reconciliation");
+    state.interrupted.after = expectedDeadline(state.interrupted);
+    state.interrupted.review = {decision:"preserve-observed",by:a.admin.email,at:new Date().toISOString(),observed:review.observed};
+    state.interrupted.status = "reconciled";
+    state.phase = "reconciled";
+  } else if (action === "change" && state.phase === "reconciled") {
+    const before = state.receipt.before;
     const stale = await target.write({...state.receipt.command,deadlineRevision:before.deadlineRevision+5,dueOn:"2030-03-04"},a.admin);
     if (!stale.error) throw new Error("Conflicting deadline change was accepted");
     requireOk(await target.write({type:"revokeApplication",loanId:a.loanId,token:state.link.token},a.officer));
@@ -246,22 +279,26 @@ async function command(action, env, origin, ctx) {
   } else if (action === "replay" && state.phase === "verified") {
     for (const invalid of [{...state.receipt,status:"pending"},{...state.receipt,tenant:b.id}]) {
       let refused=false;
-      try {await target.probeReplay(invalid,a.admin);} catch {refused=true;}
+      try {await target.probeReplayBatch([invalid],a.admin);} catch {refused=true;}
       if (!refused) throw new Error("Invalid recovery receipt was accepted");
     }
-    await target.probeReplay(state.receipt,a.admin);
+    // Simulate interruption after the first replayed edit. Resuming the full
+    // chain must skip that exact revision, not duplicate its activity.
+    await target.probeReplayBatch([state.receipt],a.admin);
+    await target.probeReplayBatch([state.receipt,state.interrupted],a.admin);
     state.replayed = await target.probeCapture();
-    if (state.replayed.counts.activity !== state.checkpoint.counts.activity+1 || state.replayed.counts.workspace_access_history !== state.checkpoint.counts.workspace_access_history+1) throw new Error("Replay did not record exactly one history event");
+    if (state.replayed.counts.activity !== state.checkpoint.counts.activity+2 || state.replayed.counts.workspace_access_history !== state.checkpoint.counts.workspace_access_history+2) throw new Error("Replay did not record exactly two history events");
     state.phase="replayed";
   } else if (action === "restartReplay" && state.phase === "replayed") {
     try {await target.probeRestart();} catch { /* Next command proves persistence. */ }
     state.phase="replayRestarted";
   } else if (action === "verifyReplay" && state.phase === "replayRestarted") {
-    await target.probeReplay(state.receipt,a.admin);
+    await target.probeReplayBatch([state.receipt,state.interrupted],a.admin);
     if ((await target.probeCapture()).hash !== state.replayed.hash) throw new Error("Repeat replay changed history or work");
     if ((await other.probeCapture()).hash !== state.otherAfter.hash) throw new Error("Replay changed the other brokerage");
     state.phase="replayVerified";
-    Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true});
+    Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true,undispatchedEditNotAcknowledged:true,
+      lostAcknowledgmentReconciledAfterRestart:true,reviewedEditReplayed:true,partialReplayResumed:true});
   } else if (action === "cleanup" && state.phase === "replayVerified") {
     for(const file of state.lenderEvidence.files)await target.probeCleanup(file);
     state.phase = "cleaned";
@@ -276,7 +313,7 @@ const recoveryWorker = {
     if (url.pathname === "/__recovery" && request.method === "POST") {
       if (Number(request.headers.get("Content-Length")||0)>128) return new Response("Too large",{status:413});
       const action = await request.text();
-      if (!["status","initialize","checkpoint","change","arm","restart","verify","replay","restartReplay","verifyReplay","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
+      if (!["status","initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change","arm","restart","verify","replay","restartReplay","verifyReplay","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
       try { return Response.json(await command(action,env,url.origin,ctx),{headers:{"Cache-Control":"no-store"}}); }
       catch(error) { return Response.json({error:error.message},{status:409,headers:{"Cache-Control":"no-store"}}); }
     }
