@@ -1,0 +1,152 @@
+[
+  {
+    "code": "AL",
+    "name": "Alabama",
+    "sourceUrl": "https://banking.alabama.gov/bol/bol-forms-and-apps/",
+    "summary": "Banking Department distinguishes mortgage brokering/processing/underwriting/lead generation from mortgage lending authority and announced a September–December 2026 NMLS transition."
+  },
+  {
+    "code": "AK",
+    "name": "Alaska",
+    "sourceUrl": "https://www.commerce.alaska.gov/web/dbs/ConsumerFinance/MortgageBrokerLendersOriginators.aspx",
+    "summary": "Division licenses broker-lenders and MLOs. Its guidance flags loans below $25,000 for usury review and possible additional Small Loan Act licensing."
+  },
+  {
+    "code": "AZ",
+    "name": "Arizona",
+    "sourceUrl": "https://www.azleg.gov/ars/6/00903.htm",
+    "summary": "A.R.S. 6-903 distinguishes residential mortgage broker authority from commercial mortgage broker authority; residential brokering requires the mortgage broker license."
+  },
+  {
+    "code": "AR",
+    "name": "Arkansas",
+    "sourceUrl": "https://securities.arkansas.gov/loans/nmls/",
+    "summary": "Securities Department directs brokers, bankers, servicers and loan officers to the Fair Mortgage Lending Act and jurisdiction-specific NMLS requirements; company, control person, branch and MLO filings are separate."
+  },
+  {
+    "code": "CA",
+    "name": "California",
+    "sourceUrl": "https://www.dre.ca.gov/files/pdf/re7.pdf",
+    "summary": "DRE mortgage broker compliance manual covers borrower disclosures, trust funds, advertising, advance fees, regulated loans, private money, reporting and covered/higher-priced loans. It is a 2019-revised manual, not a complete current rulebook."
+  },
+  {
+    "code": "CO",
+    "name": "Colorado",
+    "sourceUrl": "https://content.govdelivery.com/accounts/CODORA/bulletins/3edb44a",
+    "summary": "DORA explicitly repealed rules 5.7 and 5.8 effective September 30, 2025; the formerly required tangible net benefit disclosure form is no longer required under those rules."
+  },
+  {
+    "code": "CT",
+    "name": "Connecticut",
+    "sourceUrl": "https://portal.ct.gov/dob/consumer/consumer-education/what-to-know-when-shopping-for-a-mortgage",
+    "summary": "DOB states mortgage brokers and lenders need Connecticut licensing for consumer-purpose mortgage business; DOB also regulates residential mortgage lead generators."
+  },
+  {
+    "code": "DE",
+    "name": "Delaware",
+    "sourceUrl": "https://delcode.delaware.gov/title5/c021/",
+    "summary": "Title 5 chapter 21 covers mortgage loan brokers and defines consumer owner-occupied one-to-four family mortgages with transaction or property connections to Delaware."
+  },
+  {
+    "code": "FL",
+    "name": "Florida",
+    "sourceUrl": "https://www.leg.state.fl.us/Statutes/index.cfm/Ch0465/index.cfm?App_mode=Display_Statute&URL=0400-0499/0494/Sections/0494.0016.html",
+    "summary": "Section 494.0016 requires covered licensee records, including borrower expense receipts and signed closing statements, for at least three years after original entry; alternate storage may require authorization."
+  },
+  {
+    "code": "GA",
+    "name": "Georgia",
+    "sourceUrl": "https://dbf.georgia.gov/mb-brokers-lenders-and-originators/mortgage-faq",
+    "summary": "DBF identifies GRMA, Georgia Fair Lending Act and chapter 80-11 rules. Its FAQ says bona fide discount-point analysis changed to CFPB APOR effective June 1, 2024."
+  },
+  {
+    "code": "HI",
+    "name": "Hawaii",
+    "sourceUrl": "https://www.cca.hawaii.gov/dfi/faq-mlo/",
+    "summary": "DFI FAQ identifies MLO and MLO-company licensing, sponsorship restrictions, manufactured-home coverage and potential licensing of wholesale lending activity."
+  },
+  {
+    "code": "ID",
+    "name": "Idaho",
+    "sourceUrl": "https://www.finance.idaho.gov/consumer-finance-bureau/mortgage/mortgage-forms/",
+    "summary": "DOF describes broker/lender authority for Idaho residential property and independent-contractor processor/underwriter MLO licensing; regular nonmortgage lending can change license selection."
+  },
+  {
+    "code": "IL",
+    "name": "Illinois",
+    "sourceUrl": "https://idfpr.illinois.gov/banks/resfin.html",
+    "summary": "IDFPR administers the Residential Mortgage License Act and Anti-Predatory Lending Database; it flags private-mortgage exemption certificates in Cook, Kane, Will and Peoria counties."
+  },
+  {
+    "code": "IN",
+    "name": "Indiana",
+    "sourceUrl": "https://securities.sos.in.gov/loan-brokers/",
+    "summary": "Secretary of State regulates loan brokers and branch offices; its definition reaches paid assistance obtaining third-party residential loans even when no loan closes."
+  },
+  {
+    "code": "IA",
+    "name": "Iowa",
+    "sourceUrl": "https://www.legis.iowa.gov/docs/code/2026/535B.4.pdf",
+    "summary": "Iowa Code 535B.4 requires licensing for mortgage banker/broker/closing-agent activity and restricts use of banker/broker titles; applications identify principal and branch offices."
+  },
+  {
+    "code": "KS",
+    "name": "Kansas",
+    "sourceUrl": "https://www.osbckansas.gov/consumer-mortgage-lending/applications-forms/",
+    "summary": "OSBC describes mortgage-company licensing broadly for compensated activity involving Kansas residential property and individual MLO licensing on behalf of a licensed company."
+  },
+  {
+    "code": "KY",
+    "name": "Kentucky",
+    "sourceUrl": "https://apps.legislature.ky.gov/law/statutes/statute.aspx?id=14890",
+    "summary": "KRS 286.8-270 imposes borrower-interest/good-faith duties, material-fact disclosure and accounting for borrower property; broker fees must be disclosed before services."
+  },
+  {
+    "code": "LA",
+    "name": "Louisiana",
+    "sourceUrl": "https://ofi.la.gov/non-depository/residential-mortgage-lending/faqs/",
+    "summary": "OFI identifies separate covered mortgage broker, lender, MLO and servicing activities under the Louisiana SAFE/RMLA framework."
+  },
+  {
+    "code": "ME",
+    "name": "Maine",
+    "sourceUrl": "https://legislature.maine.gov/statutes/9-A/title9-Asec10-303.html",
+    "summary": "9-A section 10-303 requires disclosure before agreement or payment, whichever comes first, covering the bond, escrow treatment of consumer fees and written signed agreement."
+  },
+  {
+    "code": "MD",
+    "name": "Maryland",
+    "sourceUrl": "https://www.labor.maryland.gov/finance/industry/mortlend.shtml",
+    "summary": "OFR includes brokers within mortgage-lender licensing and publishes net-tangible-benefit, secondary-commercial-loan and electronic/off-site record forms."
+  },
+  {
+    "code": "MA",
+    "name": "Massachusetts",
+    "sourceUrl": "https://malegislature.gov/Laws/GeneralLaws/PartIII/TitleIV/Chapter255E/Section2",
+    "summary": "Chapter 255E section 2 establishes mortgage broker/lender licensing and conditional exemptions; company exemptions must not be treated as blanket individual MLO exemptions."
+  },
+  {
+    "code": "MI",
+    "name": "Michigan",
+    "sourceUrl": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-compliance2",
+    "summary": "DIFS distinguishes first and secondary mortgage regimes and states a broker-only first-mortgage file is retained three years after closing; closing in one's own name requires lender authority."
+  },
+  {
+    "code": "MN",
+    "name": "Minnesota",
+    "sourceUrl": "https://www.revisor.mn.gov/statutes/2026/cite/58/full",
+    "summary": "Chapter 58 governs residential mortgage originators/servicers, including licensing and prohibited conduct; company authority is distinct from individual SAFE licensing."
+  },
+  {
+    "code": "MS",
+    "name": "Mississippi",
+    "sourceUrl": "https://dbcf.ms.gov/mortgage/",
+    "summary": "DBCF identifies SAFE Act licensing and links amended April 23, 2026 mortgage regulations, a June 26, 2026 cybersecurity reporting memo and an AI supervisory framework."
+  },
+  {
+    "code": "MO",
+    "name": "Missouri",
+    "sourceUrl": "https://finance.mo.gov/mortgage-licensing",
+    "summary": "Division states residential brokering, funding, servicing or purchasing requires authority unless exempt; MLO authority is separate and renewal must be approved to remain active."
+  }
+]
