@@ -78,7 +78,7 @@ export async function retentionExportResponse(bucket: R2Bucket | undefined, work
   const ids = [...new Set(snapshot.versions.map(row=>row.objectId))];
   if (!bucket && ids.length) return problem(503,"Private document storage is unavailable. Try again shortly.");
   const entries: Record<string,Uint8Array> = {};
-  const files = [];
+  const files: { path: string; bytes: number; sha256: string; versions: Omit<Version, "objectId">[] }[] = [];
   let totalBytes = 0;
   for (const objectId of ids) {
     if (!z.uuid().safeParse(objectId).success) return problem(409,"A saved document reference is invalid. Review the loan before exporting.");

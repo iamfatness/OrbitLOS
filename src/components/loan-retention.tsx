@@ -89,8 +89,8 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
       const params = new URLSearchParams({ brokerage: brokerageId, loan: loanId });
       const response = await fetch(`/api/loan-retention/export?${params}`, { method: "POST" });
       if (!response.ok || response.headers.get("content-type") !== "application/zip") {
-        const problem = await response.json().catch(() => null);
-        throw new Error(typeof problem?.error === "string" ? problem.error : "Could not prepare the retention export. Try again.");
+        const problem: unknown = await response.json().catch(() => null);
+        throw new Error(problem && typeof problem === "object" && "error" in problem && typeof problem.error === "string" ? problem.error : "Could not prepare the retention export. Try again.");
       }
       downloadSampleFile(await response.blob(), "orbit-loan-retention.zip");
       setExportStatus("Retention ZIP sent to your downloads.");
@@ -178,7 +178,7 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
       {error && <p role="alert">{error}</p>}
       {exportStatus && <p role="status">{exportStatus}</p>}
       <div className="loan-application-actions">
-        {review.action === "history" && history && <Button type="button" disabled={exporting}
+        {review.action === "history" && history && <Button type="button" aria-disabled={exporting}
           onClick={() => void exportHistory(review.loan.id)}>Download retention ZIP</Button>}
         <Button type="button" variant="outline" disabled={pending || exporting} onClick={() => {
         const previous = origin.current;
