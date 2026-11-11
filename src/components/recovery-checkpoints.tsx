@@ -1,9 +1,10 @@
 "use client";
 import {useRef,useState} from "react";
+import {WorkspaceRestore} from "./workspace-restore";
 import {Button} from "./ui/button";
 import type {CheckpointComparison,CheckpointSummary} from "@/lib/recovery-checkpoint-model";
 import type {MaintenanceView} from "@/lib/workspace-maintenance-model";
-export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint:string;revision:number;paused:boolean;onSaved:(view:MaintenanceView)=>void}){
+export function RecoveryCheckpoints({endpoint,revision,paused,brokerageName,onSaved}:{endpoint:string;revision:number;paused:boolean;brokerageName:string;onSaved:(view:MaintenanceView)=>void}){
   const [items,setItems]=useState<CheckpointSummary[]|null>(null),[label,setLabel]=useState("");
   const [selected,setSelected]=useState(""),[comparison,setComparison]=useState<CheckpointComparison|null>(null);
   const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
@@ -14,7 +15,7 @@ export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint
     const response=await fetch(`${endpoint}&checkpoints=1`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(input)});
     const result=await response.json() as {error?:string;checkpoint:CheckpointSummary;view:MaintenanceView;items:CheckpointSummary[];comparison:CheckpointComparison};if(!response.ok)throw new Error(result.error??"Checkpoint review unavailable.");return result;
   }
-  async function act(action:"list"|"create"|"compare"){
+  async function act(action:"list"|"create"|"compare",offset=0){
     setLoadedAt(Date.now());setBusy(true);setError("");setMessage("");
     try{
       if(action==="create"){
@@ -28,7 +29,7 @@ export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint
       }else if(action==="list"){
         const result=await call({action,revision});setItems(result.items);setMessage(result.items.length?"Checkpoints refreshed.":"No checkpoints yet. Save one while the workspace is paused.");
       }else{
-        const result=await call({action,id:selected,revision});setComparison(result.comparison);setMessage("Comparison ready. No data was changed.");
+        const result=await call({action,id:selected,revision,offset});setComparison(result.comparison);setMessage("Comparison ready. No data was changed.");
       }
       requestAnimationFrame(()=>feedback.current?.focus());
     }catch(failure){setError(failure instanceof Error?failure.message:"Checkpoint review unavailable. Your entries are retained.");}
@@ -36,7 +37,7 @@ export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint
   }
   const areas=comparison?[...new Set(comparison.changed.map(item=>item.area))]:[];
   return <details className="pipeline relationship-panel maintenance-history"><summary>Recovery checkpoints</summary>
-    <p className="muted">Save a recovery point and compare it with the paused workspace. Restoring a checkpoint is not available here yet.</p>
+    <p className="muted">Save a recovery point, review affected records, and verify a controlled restore while the workspace stays paused.</p>
     <div className="maintenance-feedback" aria-live="polite">{error&&<p role="alert" className="application-message banner-error">{error}</p>}
       {message&&<p ref={feedback} tabIndex={-1} role="status" className="application-message">{message}</p>}</div>
     <div className="maintenance-columns">
@@ -56,6 +57,15 @@ export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint
     {comparison&&<section className="checkpoint-comparison" aria-label="Checkpoint comparison"><h3>{comparison.checkpoint.label}</h3>
       <p className="muted">Saved by {comparison.checkpoint.actor} · {new Date(comparison.checkpoint.at).toLocaleString()}</p>
       {stale?<p role="status">Maintenance changed. Compare again before relying on these results.</p>:<>
+        {comparison.impact?<section aria-label="Affected records"><h3>{comparison.impact.total} business records would change</h3>
+          <p className="muted">Restoring this checkpoint would replace current work across the workspace. No records have been changed.</p>
+          {!!comparison.impact.total&&<><ul className="checkpoint-table-list">{comparison.impact.records.map(item=><li key={`${item.kind}:${item.id}`}><div><strong>{item.label}</strong><p className="muted">{item.kind} · {item.effect}</p></div>
+            <span>{item.added} stored items restored · {item.removed} removed · {item.changed} changed</span></li>)}</ul>
+            <p className="muted">Records {comparison.impact.offset+1}–{comparison.impact.offset+comparison.impact.records.length} of {comparison.impact.total}</p>
+            <div className="checkpoint-pages"><Button variant="outline" disabled={busy||comparison.impact.offset===0} onClick={()=>void act("compare",Math.max(0,comparison.impact!.offset-25))}>Previous records</Button>
+              <Button variant="outline" disabled={busy||comparison.impact.next===null} onClick={()=>void act("compare",comparison.impact!.next!)}>Next records</Button></div></>}
+          {comparison.impact.unlinked>0&&<p>{comparison.impact.unlinked} additional storage changes are not linked to these records. Review the changed tables below.</p>}
+        </section>:<p className="muted">This earlier checkpoint has table comparisons only. Record-level evidence was not captured.</p>}
         <p><strong>{comparison.changed.length} changed data tables</strong> · {comparison.unchanged} unchanged</p>
         {areas.length?<ul>{areas.map(area=><li key={area}>{area}: {comparison.changed.filter(item=>item.area===area).length} changed</li>)}</ul>:<p>No table contents differ from this checkpoint.</p>}
         <p className="muted">Structure: {comparison.schemaChanged?"changed":"unchanged"} · Workspace settings storage: {comparison.kvChanged?"changed":"unchanged"} · Scheduled wake-up: {comparison.alarmChanged?"changed":"unchanged"}</p>
@@ -63,6 +73,7 @@ export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint
           <p className="muted">Counts include technical records and indexes. Equal counts can still contain changed values.</p></details>}
       </>}
     </section>}
+    <WorkspaceRestore onCompared={setComparison} endpoint={endpoint} revision={revision} paused={paused} checkpointId={selected} brokerageName={brokerageName} onSaved={onSaved}/>
     <p className="muted">Checkpoints cover workspace database contents within a 30-day recovery window. Document files and shared access records require separate review. A checkpoint is not an independent backup.</p>
   </details>;
 }

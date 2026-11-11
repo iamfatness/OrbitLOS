@@ -84,7 +84,7 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
           </form></section>:<>
           <MaintenanceInspectionPanel key={view.startedAt} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
             onDecisionSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
-          <RecoveryCheckpoints key={`checkpoints:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
+          <RecoveryCheckpoints brokerageName={staff?.brokerage.name??""} key={`checkpoints:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
             onSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
           <RecoveryEdits key={`edits:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
             onReviewed={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>

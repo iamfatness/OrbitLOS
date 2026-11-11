@@ -972,3 +972,7 @@ button:disabled { cursor: default; }
 .checkpoint-table-list { list-style: none; padding: 0; }
 .checkpoint-table-list li { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 12px 0; border-bottom: 1px solid var(--border, #ebe8f1); overflow-wrap: anywhere; }
 .checkpoint-table-list span { font-variant-numeric: tabular-nums; }
+
+.checkpoint-pages { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+
+.checkpoint-restore{border-top:1px solid var(--border);margin-top:1.5rem;padding-top:1.5rem}.checkpoint-restore fieldset{border:0;padding:0;min-width:0}.checkpoint-restore .maintenance-check{display:flex;gap:.65rem;align-items:flex-start;margin:.8rem 0}.checkpoint-restore .maintenance-check input{margin-top:.25rem;flex-shrink:0}

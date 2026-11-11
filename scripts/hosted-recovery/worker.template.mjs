@@ -186,17 +186,11 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     } finally { await this.env.DOCUMENTS.put(evidence.objectKey,original); }
     if (!await this.probeBytes(evidence)) throw new Error("Sample bytes not restored after negative checks");
   }
-  probeDamage(loanId) {
-    const identity = this.probeIdentity();
-    if (loanId !== `demo-presenter:${identity.tenant}:closing`) throw new Error("Fictional loan only");
-    this.ctx.storage.transactionSync(()=>{
-      this.ctx.storage.sql.exec("DELETE FROM uwm_request_evidence WHERE requestId IN (SELECT id FROM uwm_live_requests WHERE loanId=?)",loanId);
-      this.ctx.storage.sql.exec("DELETE FROM uwm_import_checks WHERE operationId IN (SELECT id FROM uwm_operations WHERE loanId=?)",loanId);
-      this.ctx.storage.sql.exec("DELETE FROM uwm_live_requests WHERE loanId=?",loanId);
-      this.ctx.storage.sql.exec("DELETE FROM uwm_operations WHERE loanId=?",loanId);
-      this.ctx.storage.sql.exec("DELETE FROM loans WHERE id=?",loanId);
-    });
+  probeProtectedEvidence(change) {
+    this.probeIdentity();
+    this.ctx.storage.sql.exec("UPDATE uwm_operations SET state=? WHERE kind='import'",change?"Unknown":"Prepared");
   }
+
 }
 async function command(action, env, origin, ctx) {
   const tenants = fixtures(env), [a,b] = tenants;
@@ -312,21 +306,44 @@ async function command(action, env, origin, ctx) {
       throw new Error("Actual document edits did not retain both recovery receipts");
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Normal workspace read remained open before restore");
-    await target.probeDamage(a.loanId);
+    // Product restores refuse rewinding lender operation evidence. Prove the
+    // refusal with an isolated, reversible fixture mutation, then restore the
+    // original evidence before testing ordinary workspace recovery.
+    await target.probeProtectedEvidence(true);
+    const blocked=await directory.workspaceRestore(a.admin,{action:"preview",checkpointId:state.productCheckpoint.id,revision:saved.view.revision});
+    if(!blocked.preview.blockers.some(message=>message.includes("Lender evidence")))throw new Error("Protected lender evidence was not blocked");
+    await target.probeProtectedEvidence(false);
     state.phase = "changed";
   } else if (action === "arm" && state.phase === "changed") {
-    state.undoBookmark = await target.probeArm(state.checkpoint);
-    state.restoreStartedAt = Date.now();
-    state.phase = "armed";
+    const view=await directory.manageWorkspaceMaintenance(a.admin);
+    const preview=await directory.workspaceRestore(a.admin,{action:"preview",checkpointId:state.productCheckpoint.id,revision:view.revision});
+    if(preview.preview.blockers.length)throw new Error(preview.preview.blockers.join(" "));
+    if(!preview.preview.comparison.impact?.total)throw new Error("Restore preview did not name affected business records");
+    const input={action:"start",id:crypto.randomUUID(),checkpointId:state.productCheckpoint.id,revision:view.revision,
+      fingerprint:preview.preview.fingerprint,confirmation:a.admin.brokerage.name,checks:[true,true,true],note:"Hosted owner acceptance of exact checkpoint and document evidence."};
+    const reserved=await directory.workspaceRestore(a.admin,input),repeated=await directory.workspaceRestore(a.admin,input);
+    if(reserved.job.id!==repeated.job.id||reserved.view.revision!==repeated.view.revision)throw new Error("Restore reservation retry duplicated work");
+    state.restoreJob=reserved.job;state.restoreStartedAt=Date.now();
+    const blocked=await directory.manageWorkspaceMaintenance(a.admin,{type:"review",revision:reserved.view.revision,checks:[true,true,true],review:"This must be blocked while restore is pending."});
+    if(!blocked.error)throw new Error("Pending restore allowed reopening review");
+    const source=await directory.authorizedWorkspaceRestore(a.admin,reserved.job.id);
+    if(!source.source.bookmark||source.job.sourceCheckpointId!==reserved.job.id)throw new Error("Before-restore checkpoint not durably retained");
+    state.phase="armed";
+    await directory.probeSave(state);
+    try{await directory.workspaceRestore(a.admin,{action:"resume",id:reserved.job.id});}catch{/* Arming aborts the target RPC. Verify is authoritative. */}
   } else if (action === "restart" && state.phase === "armed") {
     try { await target.probeRestart(); } catch { /* Abort is expected, but only verify can prove restoration. */ }
     state.phase = "restarted";
   } else if (action === "verify" && state.phase === "restarted") {
+    const verified=await directory.workspaceRestore(a.admin,{action:"resume",id:state.restoreJob.id});
+    if(verified.job.state!=="Restored")throw new Error("Product restore was not verified");
+    const repeated=await directory.workspaceRestore(a.admin,{action:"resume",id:state.restoreJob.id});
+    if(repeated.view.revision!==verified.view.revision)throw new Error("Repeated restore verification duplicated history");
     const recovered = await target.probeCapture(), unaffected = await other.probeCapture();
     if (recovered.hash !== state.checkpoint.hash) throw new Error("Target state differs from checkpoint");
     if (unaffected.hash !== state.otherAfter.hash) throw new Error("Other brokerage changed during recovery");
     let paused=await directory.manageWorkspaceMaintenance(a.admin);
-    if(paused.error || paused.mode!=="Paused" || paused.revision!==state.maintenance.revision || paused.startedAt!==state.maintenance.cycle)
+    if(paused.error || paused.mode!=="Paused" || paused.revision<=state.maintenance.revision || paused.startedAt!==state.maintenance.cycle)
       throw new Error("Tenant restore changed directory maintenance state");
     const comparison=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:state.productCheckpoint.id,revision:paused.revision});
     if(comparison.comparison.changed.length || comparison.comparison.schemaChanged || comparison.comparison.kvChanged)throw new Error("Restored full database differs from product checkpoint manifest");
@@ -388,7 +405,7 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
-      productCheckpoint:true,checkpointComparison:state.checkpointComparison,operatorReplayApplied:2,operatorRepeatUnchanged:true,
+      productCheckpoint:true,productRestore:true,protectedLenderEvidenceBlocked:true,sourceCheckpointRetained:true,restoreRetryUnchanged:true,pendingRestoreBlocksReview:true,checkpointComparison:state.checkpointComparison,operatorReplayApplied:2,operatorRepeatUnchanged:true,
       internalEditReceiptsSurvivedRestore:state.internalEdits.length,rolledBackAtomicProofsAbsent:true,originalRevisionDetected:true,
       syntheticProviderStatesPreserved:true,providerEvidenceFingerprintsPreserved:true,
       maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,

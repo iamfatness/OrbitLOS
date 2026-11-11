@@ -1,3 +1,6 @@
+import {restorePreviewInput,restoreStartInput} from "./lib/workspace-restore-model";
+import {restoreSourceMatches,restoreStateHash,restoreAccess,restoreCheckpoint,previewRestore,priorRestore,reserveRestore,readRestoreJob,authorizedRestore,recordRestoreOutcome} from "./lib/workspace-restore";
+import {captureCheckpointFiles,verifyCheckpointFiles} from "./lib/recovery-checkpoint-files";
 import {checkpointCreate,checkpointCompare} from "./lib/recovery-checkpoint-model";
 import {captureCheckpointManifest} from "./lib/recovery-checkpoint-manifest";
 import {initializeRecoveryCheckpoints,checkpointAccess,checkpointList,priorCheckpoint,saveCheckpoint,compareCheckpoint} from "./lib/recovery-checkpoints";
@@ -5,7 +8,7 @@ import { initializeUwmRouting, registerUwmRoute, routedUwmWorkspace, deliverUwmW
 import {applyRecoveryReplay,recoveryReplay,reserveRecoveryReplay,finishRecoveryReplay,type ReplayReservation} from "./lib/recovery-replay";
 import {recoveryReplayInput} from "./lib/recovery-edit-model";
 import {readRecoveryEdit} from "./lib/recovery-edits";
-import {pendingRecoveryReplay} from "./lib/workspace-maintenance";
+import {pendingRecoveryReplay,pendingWorkspaceRestore} from "./lib/workspace-maintenance";
 import {initializeRecoveryEdits,recoveryDeadlineIntent,beginRecoveryEdit,finishRecoveryEdit,readRecoveryProof,recoveryEditRows,inspectRecoveryEdit} from "./lib/recovery-edits";
 import {recoveryEditPage,recoveryEditReview,type RecoveryEdit,type RecoveryEditInspection} from "./lib/recovery-edit-model";
 import { inspectMaintenanceStore } from "./lib/maintenance-inspection";
@@ -221,7 +224,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const emails=[...(googleSettings(this.env)?.allowedEmails??[])];
     const state=maintenanceState(this.#store,staff.brokerage.id);
     return maintenanceAdmin(this.#store,staff,emails) && state.mode==="Paused" && state.revision===revision &&
-      !!state.reviewedAt && state.checks.every(Boolean) && !pendingRecoveryReplay(this.#store,staff.brokerage.id);
+      !!state.reviewedAt && state.checks.every(Boolean) && !pendingRecoveryReplay(this.#store,staff.brokerage.id) && !pendingWorkspaceRestore(this.#store,staff.brokerage.id);
   }
   async prepareMaintenanceReopen(staff: WorkspaceStaff, revision: number) {
     if (staff.brokerage.id !== this.#id || this.#id === demoBrokerageId ||
@@ -248,15 +251,88 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if(this.#checkpointReading)throw new Error("Another checkpoint inspection is running. Try again after it finishes.");
     this.#checkpointReading=true;
     try {
-    const kv=await this.ctx.storage.list({limit:101}),alarm=await this.ctx.storage.getAlarm();
-    if(!gate.closed||gate.active)throw new Error("Workspace changed during capture. Refresh its status.");
-    const manifest=captureCheckpointManifest((query,...values)=>this.ctx.storage.sql.exec(query,...values).toArray(),kv,alarm);
-    const at=new Date().toISOString();
-    const point=bookmark?await this.ctx.storage.getCurrentBookmark():"";
+    const captured=await this.#capturePausedCheckpoint(bookmark);
     if(!await directory.mayCaptureCheckpoint(staff,revision)||!gate.closed||gate.active)throw new Error("Workspace changed during capture. Refresh its status.");
+    return captured;
+    }finally{this.#checkpointReading=false;}
+  }
+  async #capturePausedCheckpoint(bookmark:boolean) {
+    const kv=await this.ctx.storage.list({limit:101}),alarm=await this.ctx.storage.getAlarm();
+    const manifest=captureCheckpointManifest((query,...values)=>this.ctx.storage.sql.exec(query,...values).toArray(),kv,alarm);
+    if(bookmark)manifest.files=await captureCheckpointFiles(this.#store,async id=>{
+      if(!this.#documents)throw new Error("Document storage is unavailable.");
+      return this.#documents.get(documentKey(this.#id,id));
+    });
+    const at=new Date().toISOString(),point=bookmark?await this.ctx.storage.getCurrentBookmark():"";
     if(await this.ctx.storage.getAlarm()!==alarm)throw new Error("Scheduled work changed during capture. Capture the checkpoint again.");
     return {manifest,bookmark:point,at};
+  }
+  authorizedWorkspaceRestore(staff:WorkspaceStaff,id:string) {
+    if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
+    return authorizedRestore(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])],id);
+  }
+  saveWorkspaceRestoreOutcome(staff:WorkspaceStaff,id:string,outcome:"Armed"|"Restored"|"Needs review",message:string,undoBookmark?:string) {
+    if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
+    return recordRestoreOutcome(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])],id,outcome,message,undoBookmark);
+  }
+  async applyWorkspaceRestore(staff:WorkspaceStaff,id:string) {
+    const gate=maintenanceGates.get(this);
+    if(this.#id!==staff.brokerage.id||!gate?.closed||gate.active||this.#checkpointReading)throw new Error("Wait for paused workspace inspection to finish.");
+    this.#checkpointReading=true;
+    try {
+      const directory=this.env.WORKSPACE.getByName(demoBrokerageId),reservation=await directory.authorizedWorkspaceRestore(staff,id);
+      if(reservation.job.state==="Restored")return reservation.job;
+      if(reservation.job.state==="Needs review")throw new Error("The restore outcome requires operator investigation. The workspace remains paused.");
+      const current=await this.#capturePausedCheckpoint(true);
+      const get=async (objectId:string)=>{
+        if(!this.#documents)throw new Error("Document storage is unavailable.");
+        return this.#documents.get(documentKey(this.#id,objectId));
+      };
+      await verifyCheckpointFiles(reservation.target.manifest.files,get);
+      await directory.authorizedWorkspaceRestore(staff,id);
+      if(restoreStateHash(current.manifest)===restoreStateHash(reservation.target.manifest))
+        return await directory.saveWorkspaceRestoreOutcome(staff,id,"Restored","Workspace database and checkpoint document bytes verified. Complete a new reopening review.");
+      if(!restoreSourceMatches(reservation.source.manifest,current.manifest))
+        return await directory.saveWorkspaceRestoreOutcome(staff,id,"Needs review","Current storage matches neither the checkpoint nor the saved before-restore state. Keep the workspace paused for investigation.");
+      const undo=await this.ctx.storage.onNextSessionRestoreBookmark(reservation.target.bookmark);
+      // Always terminate this session after arming, even if the directory reply is lost.
+      // The source checkpoint and pending job were durable before arming.
+      try {await directory.saveWorkspaceRestoreOutcome(staff,id,"Armed","Restore armed. Check the outcome after the workspace restarts.",undo);}
+      finally {this.ctx.abort("Workspace restore armed; awaiting verified outcome");}
     }finally{this.#checkpointReading=false;}
+  }
+  async workspaceRestore(staff:WorkspaceStaff,raw:unknown) {
+    if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
+    const emails=[...(googleSettings(this.env)?.allowedEmails??[])];
+    restoreAccess(this.#store,staff,emails);
+    const action=z.object({action:z.enum(["status","preview","start","resume"])}).parse(raw).action;
+    if(action==="status")return {job:readRestoreJob(this.#store,staff.brokerage.id),view:maintenanceView(this.#store,staff.brokerage.id,0)};
+    if(action==="preview"||action==="start") {
+      const input=restorePreviewInput.parse(raw);
+      if(action==="start"){
+        const prior=priorRestore(this.#store,staff,emails,raw);
+        if(prior)return {job:prior,view:maintenanceView(this.#store,staff.brokerage.id,0)};
+      }
+      checkpointAccess(this.#store,staff,emails,input.revision);
+      const current=await this.env.WORKSPACE.getByName(staff.brokerage.id).captureWorkspaceCheckpoint(staff,input.revision,true);
+      const preview=previewRestore(this.#store,staff,emails,input.checkpointId,input.revision,current.manifest);
+      try {
+        await verifyCheckpointFiles(restoreCheckpoint(this.#store,staff.brokerage.id,input.checkpointId).manifest.files,async id=>{
+          if(!this.#documents)throw new Error("Document storage is unavailable.");
+          return this.#documents.get(documentKey(staff.brokerage.id,id));
+        });
+      }catch(error){preview.blockers.push(error instanceof Error?error.message:"Document evidence unavailable.");}
+      checkpointAccess(this.#store,staff,emails,input.revision);
+      if(action==="preview")return {preview};
+      if(preview.blockers.length)throw new Error(preview.blockers.join(" "));
+      const job=reserveRestore(this.#store,staff,emails,restoreStartInput.parse(raw),current);
+      // First persist and return the reservation. The separate resume action can
+      // lose its reply during abort without losing the source or job identity.
+      return {job,view:maintenanceView(this.#store,staff.brokerage.id,0)};
+    }
+    const {id}=z.object({id:z.uuid()}).parse(raw);
+    const job=await this.env.WORKSPACE.getByName(staff.brokerage.id).applyWorkspaceRestore(staff,id);
+    return {job,view:maintenanceView(this.#store,staff.brokerage.id,0)};
   }
   async workspaceCheckpoints(staff:WorkspaceStaff,raw:unknown) {
     if(this.#id!==demoBrokerageId)throw new Error("Checkpoint directory unavailable.");
@@ -278,7 +354,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const input=checkpointCompare.parse(raw);
     checkpointAccess(this.#store,staff,emails,input.revision);
     const current=await this.env.WORKSPACE.getByName(staff.brokerage.id).captureWorkspaceCheckpoint(staff,input.revision,false);
-    return {comparison:compareCheckpoint(this.#store,staff,emails,input.id,input.revision,current.manifest)};
+    return {comparison:compareCheckpoint(this.#store,staff,emails,input.id,input.revision,current.manifest,undefined,input.offset)};
   }
   async inspectWorkspaceMaintenance(staff: WorkspaceStaff, raw: unknown) {
     const parsed=maintenanceInspectionInput.safeParse(raw);
@@ -1380,7 +1456,7 @@ async function authorized(header: string | null, password: string) {
 }
 
 guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
-  new Set(["mayCaptureCheckpoint","captureWorkspaceCheckpoint","workspaceCheckpoints","maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit","authorizedRecoveryReplay","recoverWorkspaceEdit","applyWorkspaceRecoveryReplay"]));
+  new Set(["authorizedWorkspaceRestore","saveWorkspaceRestoreOutcome","applyWorkspaceRestore","workspaceRestore","mayCaptureCheckpoint","captureWorkspaceCheckpoint","workspaceCheckpoints","maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit","authorizedRecoveryReplay","recoverWorkspaceEdit","applyWorkspaceRecoveryReplay"]));
 
 export default {
   async fetch(request, env, context) {
@@ -1567,6 +1643,10 @@ export default {
       const headers={"Cache-Control":"private, no-store"};
       if (!staff) return Response.json({error:"Sign in to your brokerage first."},{status:403,headers});
       const identity=staff;
+      if(request.method==="POST"&&url.searchParams.get("restore")==="1")return borrowerJson(request,async input=>{
+        try{return {value:await directory.workspaceRestore(identity,input)};}
+        catch(error){return {status:409,error:error instanceof Error?error.message:"Restore outcome unavailable. Check the saved request before retrying."};}
+      },4096);
       if(request.method==="POST"&&url.searchParams.get("checkpoints")==="1")return borrowerJson(request,async input=>{
         try{return {value:await directory.workspaceCheckpoints(identity,input)};}
         catch(error){return {status:409,error:error instanceof Error?error.message:"Checkpoint review unavailable. Refresh workspace status."};}

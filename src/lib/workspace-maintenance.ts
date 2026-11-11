@@ -9,7 +9,11 @@ import { demoBrokerageId } from "./brokerage-model";
 import { maintenanceInput, type MaintenanceState, type MaintenanceView } from "./workspace-maintenance-model";
 
 export function initializeMaintenance(db: Store) {
-  db.exec(`CREATE TABLE IF NOT EXISTS brokerage_recovery_replays (
+  db.exec(`CREATE TABLE IF NOT EXISTS brokerage_restore_jobs (
+    id TEXT PRIMARY KEY,brokerageId TEXT NOT NULL,checkpointId TEXT NOT NULL,sourceCheckpointId TEXT NOT NULL,cycle TEXT NOT NULL,state TEXT NOT NULL,
+    actor TEXT NOT NULL,actorEmail TEXT NOT NULL,note TEXT NOT NULL,commandDigest TEXT NOT NULL,at TEXT NOT NULL,finishedAt TEXT,message TEXT NOT NULL,undoBookmark TEXT
+  ); CREATE UNIQUE INDEX IF NOT EXISTS workspace_restore_pending ON brokerage_restore_jobs(brokerageId) WHERE state!='Restored';
+  CREATE TABLE IF NOT EXISTS brokerage_recovery_replays (
     id TEXT PRIMARY KEY,brokerageId TEXT NOT NULL,editId TEXT NOT NULL,cycle TEXT NOT NULL,state TEXT NOT NULL,
     actor TEXT NOT NULL,note TEXT NOT NULL,at TEXT NOT NULL,finishedAt TEXT,result TEXT
   ); CREATE UNIQUE INDEX IF NOT EXISTS recovery_replay_cycle ON brokerage_recovery_replays(brokerageId,cycle,editId);
@@ -56,6 +60,7 @@ export function changeMaintenance(db: Store, staff: WorkspaceStaff, emails: stri
     const parsed=maintenanceInput.safeParse(input);
     if (!parsed.success) return {error:"Complete the maintenance fields and required checks."};
     const data=parsed.data,id=staff.brokerage.id,state=maintenanceState(db,id);
+    if(pendingWorkspaceRestore(db,id))return {error:"Check the pending workspace restore before reviewing or reopening."};
     if(data.type!=="pause"&&pendingRecoveryReplay(db,id))return {error:"Resolve the pending internal edit recovery before reviewing or reopening."};
     if(data.revision!==state.revision) return {error:"Maintenance changed. Refresh its status before continuing."};
     const name=db.prepare("SELECT name FROM brokerages WHERE id = ?").get(id)?.name;
@@ -107,6 +112,7 @@ export function recordMaintenanceDecision(db:Store,staff:WorkspaceStaff,emails:s
     if(!parsed.success)return {error:"Choose an outcome and describe the evidence you reviewed."};
     const input=parsed.data,state=maintenanceState(db,staff.brokerage.id);
     if(state.mode!=="Paused" || !state.startedAt)return {error:"Pause and inspect the workspace before recording a decision."};
+    if(pendingWorkspaceRestore(db,staff.brokerage.id))return {error:"Resolve the pending workspace restore first."};
     const prior=priorMaintenanceDecision(db,staff,input);if(prior)return prior;
     if(state.revision!==input.revision)return {error:"Maintenance changed. Refresh before recording your decision."};
     if(observedFingerprint!==input.fingerprint)return {error:"The inspected evidence changed. Inspect it again before deciding."};
@@ -121,6 +127,7 @@ export function recordMaintenanceDecision(db:Store,staff:WorkspaceStaff,emails:s
 export function recordRecoveryEditReview(db:Store,staff:WorkspaceStaff,emails:string[],raw:unknown,observed:RecoveryEditInspection["items"][number],now=new Date().toISOString()) {
   return db.transaction(()=>{
     const input=recoveryEditReview.parse(raw),state=maintenanceState(db,staff.brokerage.id);
+    if(pendingWorkspaceRestore(db,staff.brokerage.id))throw new Error("Resolve the pending workspace restore first.");
     if(!maintenanceAdmin(db,staff,emails)||state.mode!=="Paused"||state.revision!==input.revision)
       throw new Error("Maintenance changed. Refresh before reviewing this edit.");
     if(observed.id!==input.id || observed.fingerprint!==input.fingerprint || !observed.canConfirm || !validRecoveryProof(observed,observed.sourceProof))
@@ -136,3 +143,5 @@ export function recordRecoveryEditReview(db:Store,staff:WorkspaceStaff,emails:st
 }
 
 export function pendingRecoveryReplay(db:Store,id:string) {return !!db.prepare("SELECT id FROM brokerage_recovery_replays WHERE brokerageId=? AND state='Pending' LIMIT 1").get(id);}
+
+export function pendingWorkspaceRestore(db:Store,id:string){return !!db.prepare("SELECT id FROM brokerage_restore_jobs WHERE brokerageId=? AND state!='Restored' LIMIT 1").get(id);}

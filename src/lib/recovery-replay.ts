@@ -4,7 +4,7 @@ import {loanAccess} from "./workspace-access";
 import {setDocumentDeadline} from "./deadline-actions";
 import {recoveryEditReview,expectedRecoveryDocument,sameRecoveryDocument,type RecoveryEdit,type RecoveryEditInspection,type RecoveryReplay} from "./recovery-edit-model";
 import {inspectRecoveryEdit,readRecoveryDocument,recordRecoveryProof,validRecoveryProof} from "./recovery-edits";
-import {maintenanceAdmin,maintenanceState,maintenanceView,pendingRecoveryReplay,recordMaintenanceEvent} from "./workspace-maintenance";
+import {maintenanceAdmin,maintenanceState,maintenanceView,pendingRecoveryReplay,pendingWorkspaceRestore,recordMaintenanceEvent} from "./workspace-maintenance";
 
 export type ReplayReservation={replay:RecoveryReplay;edit:RecoveryEdit};
 export type ReplayResult={state:"Applied"|"Not applied";message:string;at:string};
@@ -19,13 +19,14 @@ export function reserveRecoveryReplay(db:Store,staff:WorkspaceStaff,emails:strin
       throw new Error("Maintenance changed. Refresh before recovering this edit.");
     if(observed.id!==input.id||observed.fingerprint!==input.fingerprint||!observed.canReplay||!validRecoveryProof(observed,observed.proof))
       throw new Error("The saved evidence or original revision changed. Inspect this edit again.");
+    if(pendingWorkspaceRestore(db,staff.brokerage.id))throw new Error("Resolve the pending workspace restore first.");
     if(pendingRecoveryReplay(db,staff.brokerage.id))throw new Error("Resolve the pending internal recovery first.");
     if(recoveryReplay(db,staff.brokerage.id,state.startedAt,input.id))throw new Error("This edit already has a recovery outcome in this maintenance cycle.");
     const id=crypto.randomUUID(),at=new Date().toISOString();
     db.prepare("INSERT INTO brokerage_recovery_replays VALUES (?,?,?,?, 'Pending',?,?,?,NULL,NULL)")
       .run(id,staff.brokerage.id,input.id,state.startedAt,staff.name,input.note,at);
     recordMaintenanceEvent(db,staff.brokerage.id,{...state,revision:state.revision+1,reviewedAt:null,reviewedBy:null,checks:[false,false,false]},
-      "Started internal edit recovery",staff.name,`${observed.label} Â· ${input.note}`,at);
+      "Started internal edit recovery",staff.name,`${observed.label} · ${input.note}`,at);
     return recoveryReplay(db,staff.brokerage.id,state.startedAt,input.id)!;
   });
 }
@@ -38,7 +39,7 @@ export function finishRecoveryReplay(db:Store,staff:WorkspaceStaff,emails:string
       db.prepare("UPDATE brokerage_recovery_replays SET state=?,result=?,finishedAt=? WHERE id=? AND state='Pending'")
         .run(result.state,result.message,result.at,saved.id);
       recordMaintenanceEvent(db,staff.brokerage.id,{...state,revision:state.revision+1,reviewedAt:null,reviewedBy:null,checks:[false,false,false]},
-        result.state==="Applied"?"Recovered internal edit":"Internal recovery not applied",staff.name,`${reservation.edit.label} Â· ${result.message}`,result.at);
+        result.state==="Applied"?"Recovered internal edit":"Internal recovery not applied",staff.name,`${reservation.edit.label} · ${result.message}`,result.at);
     }
     return maintenanceView(db,staff.brokerage.id,0);
   });
