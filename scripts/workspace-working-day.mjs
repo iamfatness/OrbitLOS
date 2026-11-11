@@ -676,10 +676,22 @@ try {
     assert.equal(reassigned.member?.callbackTaskId, personal[1].taskId);
     assert.equal(reassigned.member?.callbackDueAt, secondCallbackAt);
 
+    // The manager's inline assignment uses the campaign command, with the same deadline and ownership guarantees.
+    await write(owner, { type: "assignCampaignLeads", campaignId: secondCampaignId, email: officer.email,
+      leads: [{ id: secondLeadId, previousEmail: owner.email }] });
+    assert.ok((await action(owner, "mutate", { type: "assignCampaignLeads", campaignId: secondCampaignId, email: competingOfficer.email,
+      leads: [{ id: secondLeadId, previousEmail: owner.email }] })).error);
+    assert.equal((await upcomingCallbacks(officer)).items.find(({ taskId }) => taskId === personal[1].taskId)?.dueAt, secondCallbackAt);
+    assert.ok(!(await upcomingCallbacks(owner)).items.some(({ taskId }) => taskId === personal[1].taskId));
+    await write(owner, { type: "assignCampaignLeads", campaignId: secondCampaignId, email: owner.email,
+      leads: [{ id: secondLeadId, previousEmail: officer.email }] });
+
     const missedDeadline = new Date(Date.now() + 1_500).toISOString();
     await write(owner, { type: "rescheduleCampaignCallback", campaignId: secondCampaignId, leadId: secondLeadId,
-      revision: reassigned.lead.followUp.revision, callbackAt: missedDeadline, reason: "Fictional borrower moved the callback earlier." });
+      revision: (await action(owner, "readLeadForWork", secondTask)).lead.followUp.revision, callbackAt: missedDeadline, reason: "Fictional borrower moved the callback earlier." });
     await delay(Math.max(0, Date.parse(missedDeadline) - Date.now() + 25));
+    const managerOverdue = await action(owner, "readCampaignManager", { campaignId: secondCampaignId, view: "overdue" });
+    assert.equal(managerOverdue.items.find(({ leadId }) => leadId === secondLeadId)?.owner, owner.name);
     const callbackExceptions = (staff, filters = {}) => action(staff, "readCampaignCallbackExceptions", filters);
     const [missed] = (await callbackExceptions(owner)).items;
     assert.equal(missed.leadId, secondLeadId);

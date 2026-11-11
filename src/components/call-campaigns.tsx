@@ -605,7 +605,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
           records={state.campaignResponses.filter((record) => memberIds.has(record.leadId))} now={now} openLead={openLead} openLoan={openLoan} />}
         {canReadManagerReports && performance === "callbacks" && <CampaignCallbackPerformance key={`callback-report:${campaign.id}`}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} campaignId={campaign.id} version={state} />}
-        {canReadManagerReports && performance === "manager" && <CampaignManager key={`manager-report:${campaign.id}`}
+        {canReadManagerReports && performance === "manager" && <CampaignManager staff={staff} key={`manager-report:${campaign.id}`}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} campaignId={campaign.id} campaignName={campaign.name}
           version={state} busy={busy} save={save} openRecord={openManagerRecord} />}
         {canManage && assignmentOpen && <CampaignAssignments key={`${campaign.id}:${segmentId}:${view}`} campaignId={campaign.id} leads={assignmentLeads} staff={staff} busy={busy} save={save} />}

@@ -23,7 +23,7 @@ export function CampaignAssignments({ campaignId, leads, staff, busy, save, dire
 
   return <section className={direct ? "record-form" : "work-queue"} aria-label={direct ? `Assign ${selected[0]?.name ?? "campaign lead"}` : "Assign campaign leads"}>
     {!direct && <h3>Assign campaign leads</h3>}
-    <p className="muted">{direct ? "The first-contact deadline follows this lead." : "Assign or reassign open leads. First-contact deadlines and callbacks follow the lead to its new owner."}
+    <p className="muted">{direct ? "First-contact deadlines and callbacks stay with this lead when its owner changes." : "Assign or reassign open leads. First-contact deadlines and callbacks follow the lead to its new owner."}
       {direct && routingEnabled && " Manual assignments can exceed round-robin limits."}</p>
     {error && <p role="alert">{error}</p>}
     {!leads.length ? <p className="empty-inline">No eligible leads in this view.</p> : <form className="record-form" onSubmit={(event) => {
