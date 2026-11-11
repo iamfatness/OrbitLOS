@@ -1124,3 +1124,12 @@ The built Worker passed all 505 tests, typecheck, lint, and the 45-stage working
 
 Production Worker `579fd02d-e36a-4aff-b08d-c3ec2a4a96e2` serves all traffic. All 23 bindings match the prior release. The updated public Demo copy, Login and Product pages, sign-in redirect, and unauthenticated Team write denial were checked against staged and live routing. Work settings did not allow use of the signed-in browser for this release. Role-based functional acceptance used the isolated built Worker. Provider settings stayed as configured, and the rehearsal used simulated actions.
 `1,407` browser assets matched the build on both staged and both live passes.
+
+## Redacted pilot support report
+
+Source `d39a8a2` adds a report in Team and Workspace maintenance for active pilot admins. The owner can preview saved processing handoffs, lender requests and operations, and maintenance state while the pilot is open or paused. The versioned JSON includes only the summary and its audit reference. A changed preview requires a refresh. Separate request and operation classifications keep a completed acknowledgement from inflating the count awaiting a lender outcome.
+
+The built Worker passed 506 tests, lint, typecheck, and the 45-stage working-day rehearsal. The isolated browser fixture checked three widths, a paused download after an open preview became stale, and the exact access history entry. It denied LO, cross-origin, and cross-brokerage requests. The downloaded bytes matched the refreshed summary and contained no fixture names, lender references, or payloads. [Design and acceptance evidence](brand-ux-review.md#pilot-support-report)
+
+Worker `0a71b965-d872-40a1-998f-b3f516d6d558` was promoted at 100 percent with all 23 bindings preserved. The signed-out smoke covered the updated Demo copy, login and product routes, the sign-in redirect for the report preview, and denial of unauthenticated exports. Work settings prevented signed-in production browser acceptance. The fictional fixture used stored synthetic outcomes and no provider calls.
+All 1,413 browser assets matched on both staged and both live passes.

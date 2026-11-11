@@ -234,3 +234,5 @@ The next product milestone remains **R4: Switch and operate**, rather than addin
 4. Reconcile R5 design-partner acceptance against the actual supported workflows, provider contracts, compliance review, support, cost and capacity evidence. Provider acceptance, jurisdiction-specific approval and broker comparison require external evidence; do not label them complete from simulated runs.
 
 The R5 measurement workflow now saves the current brokerage and Orbit runs independently under one case. Pilot owners can record external steps and blocked outcomes without using incomplete timings as comparisons. The first observed design-partner comparison remains open. [Paired walkthrough procedure](docs/working-day-rehearsal.md#run-a-paired-brokerage-walkthrough)
+
+R4 pilot owners can preview and download a redacted support report while a workspace is open or paused. It shows processing handoffs, saved lender request and operation counts, and pending recovery state. Exports are recorded in brokerage access history. [Support report procedure](docs/workspace-recovery.md#redacted-pilot-support-report)
