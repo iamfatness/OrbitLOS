@@ -5,7 +5,7 @@ import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 import { expectedDeadline, reviewPending, remainingReplay, sameDocument } from "./recovery-reconciliation.mjs";
 
-const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence"];
+const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence", "recovery_edit_proofs"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
@@ -288,6 +288,10 @@ async function command(action, env, origin, ctx) {
     if(inspected.inspection.requests.total!==7)throw new Error("Populated provider inspection missed fixture work");
     state.maintenance={revision:saved.view.revision,cycle:saved.view.startedAt,decision:saved.decision,
       requests:inspected.inspection.requests.items.map(item=>({reference:item.reference,state:item.state,fingerprint:item.fingerprint}))};
+    const editInspection=await target.inspectWorkspaceRecoveryEdits(a.admin,{revision:saved.view.revision,offset:0});
+    state.internalEdits=editInspection.items.filter(item=>item.command.loanId===a.loanId && ["2030-02-03","2030-02-10"].includes(item.command.dueOn));
+    if(state.internalEdits.length!==2 || state.internalEdits.some(item=>item.state!=="Recorded"||!item.proof||!item.sourceProof))
+      throw new Error("Actual document edits did not retain both recovery receipts");
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Normal workspace read remained open before restore");
     await target.probeDamage(a.loanId);
@@ -317,6 +321,14 @@ async function command(action, env, origin, ctx) {
     if(JSON.stringify(requests)!==JSON.stringify(state.maintenance.requests))throw new Error("Provider request state or evidence changed after restore");
     if(recovered.counts.uwm_operations!==4 || recovered.counts.uwm_live_requests!==3 || recovered.counts.uwm_import_checks!==1 || recovered.counts.uwm_request_evidence!==3)
       throw new Error("Populated provider records did not restore");
+    const editInspection=await target.inspectWorkspaceRecoveryEdits(a.admin,{revision:paused.revision,offset:0});
+    for(const original of state.internalEdits){
+      const restored=editInspection.items.find(item=>item.id===original.id);
+      if(!restored || restored.state!=="Recorded" || JSON.stringify(restored.proof)!==JSON.stringify(original.proof) || restored.sourceProof || restored.canConfirm)
+        throw new Error("Tenant restore lost directory receipt or retained a rolled-back atomic proof");
+      if(original.command.dueOn==="2030-02-03" && restored.finding!=="Original revision present")
+        throw new Error("Restored edit did not expose its original revision");
+    }
     const refused=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:paused.revision,confirmation:a.admin.brokerage.name});
     if(!refused.error)throw new Error("Restored tenant reopened without a new review");
     const reviewed=await directory.manageWorkspaceMaintenance(a.admin,{type:"review",revision:paused.revision,checks:[true,true,true],
@@ -343,6 +355,7 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
+      internalEditReceiptsSurvivedRestore:state.internalEdits.length,rolledBackAtomicProofsAbsent:true,originalRevisionDetected:true,
       syntheticProviderStatesPreserved:true,providerEvidenceFingerprintsPreserved:true,
       maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,
       foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark,acceptedRevisionsPreserved:lenderEvidence.acceptedRevisions,
