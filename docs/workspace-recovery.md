@@ -33,3 +33,21 @@ The installed local runtime lacks Durable Object point-in-time bookmarks, so the
 Hosted pilot actions record explicit borrower and realtor revocations, realtor replacements, and active links retired by pilot reset as token hashes in the existing brokerage directory before acknowledging the change. The directory rejects those links through their original expiration, including when the tenant database contains an older copy. A reset protects up to 100 active links in one batch. If a link changes while reset is in progress, retry the reset. Links already protected during that attempt stay blocked. Earlier releases' revocations, ordinary record deletions, and directory recovery require separate reconciliation. Keep tenant access blocked through replay and verification.
 
 The external checklist journal is local and limited to synthetic fixture writes. An unresolved write blocks replay until it can be reconciled against the source. The interrupted-upgrade check covers one populated schema transition. Hosted checklist journaling, uploaded document bytes, broader schema compatibility, hosted recovery time, and real-data admission have separate gates.
+
+## Hosted rehearsal implementation boundary (November 10)
+
+The current Cloudflare reference confirms that PITR is unavailable in local development. `getCurrentBookmark()` captures the object history point; `onNextSessionRestoreBookmark(bookmark)` schedules restoration for the next object session and returns a recovery-undo bookmark. The restore requires an object restart, normally `ctx.abort()`. These semantics must be exercised remotely; a stopped local SQLite copy cannot prove them. Reference: https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#pitr-point-in-time-recovery-api
+
+The next rehearsal should wrap the **built OrbitWorkspace**, not a toy counter, in a separate short-lived Worker with its own SQLite namespace and document bucket. Generate its configuration from an explicit allowlist; do not copy production variables, lender credentials, routes, service bindings, or document bucket names. Only fixed fictional fixture operations should be reachable behind a short-lived operator token. The harness must never accept a production namespace, arbitrary SQL, arbitrary staff identity, or an arbitrary restore bookmark.
+
+Required evidence before calling this gate complete:
+
+1. Seed two generated fictional brokerages and the separate directory using real Orbit initialization and pilot workflows. Record built-source provenance, object identity and checkpoint in the directory, outside the restored tenant.
+2. Capture source loan, task, document metadata, accepted revisions and history. Store and hash sample document bytes separately; database PITR does not restore R2 bytes.
+3. Change the target and the other brokerage after the checkpoint. Revoke target staff and borrower/realtor links in the current directory. Persist an acknowledged operation journal outside the target tenant.
+4. Reject a checkpoint belonging to another tenant. Close the target to normal traffic, preserve the undo bookmark durably, then restart only its object. Treat the expected abort response as inconclusive until the next session verifies the checkpoint and source identity.
+5. Verify source records against the checkpoint, the other brokerage against its newer state, and continued rejection of revoked identities and tokens through the normal routing checks. Reconcile document object IDs to readable bytes and hashes; missing or mismatched bytes must prevent reopening.
+6. Reconcile/replay only acknowledged post-checkpoint edits with original revision and idempotency evidence. Repeated replay must not duplicate tasks or history. Record timings, failures, and the recovery decision before reopening.
+7. Retain sanitized evidence and remove the isolated worker/bucket after verification. A successful isolated run still does not certify production directory recovery, retention policy, disaster response staffing, or real-data admission.
+
+No hosted restore has been performed by this investigation. The existing local rehearsal remains the only completed restore evidence.
