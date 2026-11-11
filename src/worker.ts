@@ -1,3 +1,7 @@
+import {applyRecoveryReplay,recoveryReplay,reserveRecoveryReplay,finishRecoveryReplay,type ReplayReservation} from "./lib/recovery-replay";
+import {recoveryReplayInput} from "./lib/recovery-edit-model";
+import {readRecoveryEdit} from "./lib/recovery-edits";
+import {pendingRecoveryReplay} from "./lib/workspace-maintenance";
 import {initializeRecoveryEdits,recoveryDeadlineIntent,beginRecoveryEdit,finishRecoveryEdit,readRecoveryProof,recoveryEditRows,inspectRecoveryEdit} from "./lib/recovery-edits";
 import {recoveryEditPage,recoveryEditReview,type RecoveryEdit,type RecoveryEditInspection} from "./lib/recovery-edit-model";
 import { inspectMaintenanceStore } from "./lib/maintenance-inspection";
@@ -211,7 +215,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const emails=[...(googleSettings(this.env)?.allowedEmails??[])];
     const state=maintenanceState(this.#store,staff.brokerage.id);
     return maintenanceAdmin(this.#store,staff,emails) && state.mode==="Paused" && state.revision===revision &&
-      !!state.reviewedAt && state.checks.every(Boolean);
+      !!state.reviewedAt && state.checks.every(Boolean) && !pendingRecoveryReplay(this.#store,staff.brokerage.id);
   }
   async prepareMaintenanceReopen(staff: WorkspaceStaff, revision: number) {
     if (staff.brokerage.id !== this.#id || this.#id === demoBrokerageId ||
@@ -752,7 +756,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   readWorkspaceRecoveryEdits(staff:WorkspaceStaff,raw:unknown) {
     const input=recoveryEditPage.parse(raw);
     if(!this.mayInspectMaintenance(staff,input.revision))throw new Error("Pause the workspace and refresh before inspecting edits.");
-    return recoveryEditRows(this.#store,staff.brokerage.id,input.offset);
+    const page=recoveryEditRows(this.#store,staff.brokerage.id,input.offset),cycle=maintenanceState(this.#store,staff.brokerage.id).startedAt!;
+    const pending=this.#store.prepare(`SELECT r.editId,e.recordName,e.label FROM brokerage_recovery_replays r
+      JOIN brokerage_recovery_edits e ON e.id=r.editId AND e.brokerageId=r.brokerageId WHERE r.brokerageId=? AND r.state='Pending' LIMIT 1`).get(staff.brokerage.id);
+    return {...page,pendingReplay:pending?{editId:String(pending.editId),recordName:String(pending.recordName),label:String(pending.label)}:null,
+      items:page.items.map(edit=>({...edit,replay:recoveryReplay(this.#store,staff.brokerage.id,cycle,edit.id)}))};
   }
   async confirmWorkspaceRecoveryEdit(staff:WorkspaceStaff,raw:unknown):Promise<MaintenanceView> {
     const input=recoveryEditReview.parse(raw);
@@ -767,9 +775,41 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if(this.#id!==staff.brokerage.id || !gate?.closed || gate.active)throw new Error("Wait for the workspace to pause before inspecting edits.");
     const directory=this.env.WORKSPACE.getByName(demoBrokerageId);
     const page=await directory.readWorkspaceRecoveryEdits(staff,input);
-    const report={...page,revision:input.revision,items:page.items.map(edit=>inspectRecoveryEdit(this.#store,edit))};
+    const report={...page,revision:input.revision,items:page.items.map(edit=>({...inspectRecoveryEdit(this.#store,edit),replay:edit.replay,canReplay:!edit.replay&&inspectRecoveryEdit(this.#store,edit).canReplay}))};
     if(!gate.closed || gate.active || !await directory.mayInspectMaintenance(staff,input.revision))throw new Error("Maintenance changed. Refresh the edit inspection.");
     return report;
+  }
+
+  authorizedRecoveryReplay(staff:WorkspaceStaff,editId:string):ReplayReservation {
+    if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
+    const state=maintenanceState(this.#store,staff.brokerage.id);
+    if(!this.mayInspectMaintenance(staff,state.revision))throw new Error("A current pilot admin and paused workspace are required.");
+    const replay=recoveryReplay(this.#store,staff.brokerage.id,state.startedAt!,editId),edit=readRecoveryEdit(this.#store,staff.brokerage.id,editId);
+    if(!replay||!edit)throw new Error("Recovery receipt unavailable.");
+    return {replay,edit};
+  }
+  async recoverWorkspaceEdit(staff:WorkspaceStaff,raw:unknown):Promise<{view:MaintenanceView;message:string}> {
+    if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
+    const input=recoveryReplayInput.parse(raw),emails=[...(googleSettings(this.env)?.allowedEmails??[])];
+    if(!("resume" in input)){
+      if(!this.mayInspectMaintenance(staff,input.revision))throw new Error("Pause the workspace and refresh before recovering an edit.");
+      const report=await this.env.WORKSPACE.getByName(staff.brokerage.id).inspectWorkspaceRecoveryEdits(staff,input);
+      const observed=report.items.find(item=>item.id===input.id);
+      if(!observed)throw new Error("Refresh the inspection to find this edit.");
+      reserveRecoveryReplay(this.#store,staff,emails,input,observed);
+    }
+    const reservation=this.authorizedRecoveryReplay(staff,input.id);
+    if(reservation.replay.state!=="Pending")return {view:maintenanceView(this.#store,staff.brokerage.id,0),message:reservation.replay.result??"Recovery outcome already recorded."};
+    // The durable pending reservation prevents review/reopen across interruption.
+    const result=await this.env.WORKSPACE.getByName(staff.brokerage.id).applyWorkspaceRecoveryReplay(staff,input.id);
+    return {view:finishRecoveryReplay(this.#store,staff,emails,reservation,result),message:result.message};
+  }
+  async applyWorkspaceRecoveryReplay(staff:WorkspaceStaff,editId:string) {
+    const gate=maintenanceGates.get(this);
+    if(this.#id!==staff.brokerage.id||!gate?.closed||gate.active)throw new Error("Wait for the workspace to pause before recovering edits.");
+    const reservation=await this.env.WORKSPACE.getByName(demoBrokerageId).authorizedRecoveryReplay(staff,editId);
+    if(!gate.closed||gate.active||reservation.replay.state!=="Pending")throw new Error("Recovery is no longer pending in a paused workspace.");
+    return applyRecoveryReplay(this.#store,staff,reservation);
   }
 
   async write(input: unknown, staff: WorkspaceStaff | null, scope?: WorkspaceMutationScope) {
@@ -1262,7 +1302,7 @@ async function authorized(header: string | null, password: string) {
 }
 
 guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
-  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit"]));
+  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit","authorizedRecoveryReplay","recoverWorkspaceEdit","applyWorkspaceRecoveryReplay"]));
 
 export default {
   async fetch(request, env, context) {
@@ -1468,6 +1508,10 @@ export default {
         const value=await directory.manageWorkspaceMaintenance(identity);
         return Response.json(value,{status:"error" in value?403:200,headers});
       }
+      if(request.method==="POST"&&url.searchParams.get("replay")==="1")return borrowerJson(request,async input=>{
+        try{return {value:await directory.recoverWorkspaceEdit(identity,input)};}
+        catch(error){return {status:409,error:error instanceof Error?error.message:"Recovery outcome unavailable. Refresh status and inspect pending recovery."};}
+      },4096);
       if(request.method==="POST"&&url.searchParams.get("edits")==="1")return borrowerJson(request,async input=>{
         try{return {value:{view:await directory.confirmWorkspaceRecoveryEdit(identity,input)}};}
         catch(error){return {status:409,error:error instanceof Error?error.message:"Edit review failed. Refresh its inspection."};}

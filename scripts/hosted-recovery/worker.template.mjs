@@ -5,7 +5,7 @@ import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 import { expectedDeadline, reviewPending, remainingReplay, sameDocument } from "./recovery-reconciliation.mjs";
 
-const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence", "recovery_edit_proofs"];
+const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence", "recovery_edit_proofs", "recovery_replay_proofs"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
@@ -307,7 +307,7 @@ async function command(action, env, origin, ctx) {
     const recovered = await target.probeCapture(), unaffected = await other.probeCapture();
     if (recovered.hash !== state.checkpoint.hash) throw new Error("Target state differs from checkpoint");
     if (unaffected.hash !== state.otherAfter.hash) throw new Error("Other brokerage changed during recovery");
-    const paused=await directory.manageWorkspaceMaintenance(a.admin);
+    let paused=await directory.manageWorkspaceMaintenance(a.admin);
     if(paused.error || paused.mode!=="Paused" || paused.revision!==state.maintenance.revision || paused.startedAt!==state.maintenance.cycle)
       throw new Error("Tenant restore changed directory maintenance state");
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
@@ -328,6 +328,18 @@ async function command(action, env, origin, ctx) {
         throw new Error("Tenant restore lost directory receipt or retained a rolled-back atomic proof");
       if(original.command.dueOn==="2030-02-03" && restored.finding!=="Original revision present")
         throw new Error("Restored edit did not expose its original revision");
+    }
+    for(const dueOn of ["2030-02-03","2030-02-10"]){
+      const page=await target.inspectWorkspaceRecoveryEdits(a.admin,{revision:paused.revision,offset:0});
+      const item=page.items.find(edit=>edit.command.dueOn===dueOn);
+      if(!item?.canReplay)throw new Error("Confirmed original edit is not eligible for operator recovery");
+      const result=await directory.recoverWorkspaceEdit(a.admin,{revision:paused.revision,offset:0,id:item.id,fingerprint:item.fingerprint,
+        note:"Isolated owner acceptance: recover the exact confirmed deadline after tenant restoration."});
+      const after=await target.probeCapture();
+      const repeat=await directory.recoverWorkspaceEdit(a.admin,{id:item.id,resume:true});
+      if(JSON.stringify(result.view)!==JSON.stringify(repeat.view)||(await target.probeCapture()).hash!==after.hash)
+        throw new Error("Repeated product recovery changed saved work or directory history");
+      paused=result.view;
     }
     const refused=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:paused.revision,confirmation:a.admin.brokerage.name});
     if(!refused.error)throw new Error("Restored tenant reopened without a new review");
@@ -355,6 +367,7 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
+      operatorReplayApplied:2,operatorRepeatUnchanged:true,
       internalEditReceiptsSurvivedRestore:state.internalEdits.length,rolledBackAtomicProofsAbsent:true,originalRevisionDetected:true,
       syntheticProviderStatesPreserved:true,providerEvidenceFingerprintsPreserved:true,
       maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,

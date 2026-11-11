@@ -51,6 +51,16 @@ const fixtureScript = `
 import worker, { OrbitWorkspace } from "./index.js";
 export default worker;
 export class WorkingDayWorkspace extends OrbitWorkspace {
+  loseNextReplayReply(){this.loseReplayReply=true;}
+  async applyWorkspaceRecoveryReplay(...args){const result=await super.applyWorkspaceRecoveryReplay(...args);if(this.loseReplayReply){this.loseReplayReply=false;throw new Error("Fictional lost replay reply");}return result;}
+  restoreDeadlineFixture(editId){
+    const row=this.ctx.storage.sql.exec("SELECT beforeState FROM recovery_edit_proofs WHERE id=?",editId).one();
+    const before=JSON.parse(row.beforeState);
+    this.ctx.storage.transactionSync(()=>{
+      this.ctx.storage.sql.exec("UPDATE document_requests SET revision=?,deadlineRevision=?,dueOn=?,status=? WHERE id=?",before.revision,before.deadlineRevision,before.dueOn,before.status,before.id);
+      this.ctx.storage.sql.exec("DELETE FROM recovery_edit_proofs WHERE id=?",editId);
+    });
+  }
   loseNextRecoveryConfirmation() {this.loseRecoveryConfirmation=true;}
   finishWorkspaceRecoveryEdit(...args) {if(this.loseRecoveryConfirmation){this.loseRecoveryConfirmation=false;throw new Error("Fictional lost receipt confirmation");}return super.finishWorkspaceRecoveryEdit(...args);}
   async recoveryFixtureCounts(loanId) {return JSON.stringify({proofs:this.ctx.storage.sql.exec("SELECT count(*) AS n FROM recovery_edit_proofs").one().n,
@@ -3646,6 +3656,43 @@ try {
       await directory.loseNextRecoveryConfirmation();
       await write(owner,{...command,revision:current.revision,deadlineRevision:current.deadlineRevision,dueOn:"2030-03-01"});
     }
+  });
+  await stage("Owner recovers a confirmed internal edit and resumes a lost reply without duplicating history",async()=>{
+    const created=await write(owner,{type:"loan",contactId:"",borrower:"Fictional Controlled Recovery",borrowerEmail:"controlled-recovery@example.test",
+      address:"",amount:210000,purpose:"Purchase",stage:"Lead",officer:owner.name,partnerId:null,start1003:true});
+    const loanId=created.loanWork.loanId;
+    await write(owner,{type:"requestDocument",loanId,kind:"Pay stub",instructions:"Fictional controlled replay evidence."});
+    const doc=(await file(owner,loanId)).documentRequests[0];
+    await write(owner,{type:"setDocumentDeadline",loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-05-01"});
+    const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
+    const status=async()=> (await runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}})).json();
+    const edits=async(revision)=> (await runtime.dispatchFetch(origin+endpoint+`&edits=1&revision=${revision}`,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}})).json();
+    let view=await status();view=await post(endpoint,{type:"pause",revision:view.revision,reason:"Fictional controlled replay acceptance.",confirmation:"Fictional Working Day"},owner);
+    let report=(await edits(view.revision)).inspection,edit=report.items.find(item=>item.command.loanId===loanId);
+    assert.equal(edit.canReplay,false);
+    await workspaces.getByName(brokerage).restoreDeadlineFixture(edit.id);
+    report=(await edits(view.revision)).inspection;edit=report.items.find(item=>item.id===edit.id);assert.equal(edit.canReplay,true);
+    const input={id:edit.id,revision:view.revision,offset:0,fingerprint:edit.fingerprint,note:"Recover the confirmed fictional deadline from the exact original document revision."};
+    assert.equal((await postResponse(endpoint+"&replay=1",input,officer)).status,409);
+    assert.equal((await postResponse(endpoint+"&replay=1",{...input,fingerprint:"0".repeat(64)},owner)).status,409);
+    await workspaces.getByName(brokerage).loseNextReplayReply();
+    assert.equal((await postResponse(endpoint+"&replay=1",input,owner)).status,409);
+    view=await status();report=(await edits(view.revision)).inspection;assert.equal(report.pendingReplay.editId,edit.id);
+    assert.equal(report.items.find(item=>item.id===edit.id).finding,"Saved revision present");
+    assert.equal((await postResponse(endpoint,{type:"review",revision:view.revision,review:"Uncertain outcome must block review",checks:[true,true,true]},owner)).status,409);
+    assert.equal((await postResponse(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).status,409);
+    const counts=await workspaces.getByName(brokerage).recoveryFixtureCounts(loanId);
+    try{await workspaces.getByName(brokerage).restartMaintenanceFixture();}catch{/* Resume reads the durable atomic outcome. */}
+    const resume={id:edit.id,resume:true};
+    assert.equal((await postResponse(endpoint+"&replay=1",resume,processor)).status,409);
+    const result=await post(endpoint+"&replay=1",resume,owner);assert.match(result.message,/recovered/);
+    assert.deepEqual(await workspaces.getByName(brokerage).recoveryFixtureCounts(loanId),counts);
+    assert.deepEqual((await post(endpoint+"&replay=1",resume,owner)).view,result.view);
+    report=(await edits(result.view.revision)).inspection;assert.equal(report.pendingReplay,null);assert.equal(report.items.find(item=>item.id===edit.id).replay.state,"Applied");
+    view=await post(endpoint,{type:"review",revision:result.view.revision,review:"Recovered exact fictional deadline and verified no duplicate history.",checks:[true,true,true]},owner);
+    assert.equal((await post(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
+    assert.equal((await file(owner,loanId)).documentRequests[0].dueOn,"2030-05-01");
+    if(process.argv.includes("--preview"))await workspaces.getByName(brokerage).restoreDeadlineFixture(edit.id);
   });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],

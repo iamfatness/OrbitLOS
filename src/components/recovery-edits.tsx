@@ -39,6 +39,29 @@ export function RecoveryEdits({endpoint,revision,paused,onReviewed}:{endpoint:st
     }catch(failure){setError(failure instanceof Error?failure.message:"Could not record the outcome. Your note is retained.");}
     finally{setBusy(false);setReviewing(null);}
   }
+  async function recover(input:Record<string,unknown>) {
+    setBusy(true);setError("");setMessage("");setReviewing(String(input.id));
+    try {
+      const response=await fetch(`${endpoint}&replay=1`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(input)});
+      const result=await response.json() as {view?:MaintenanceView;message?:string;error?:string};
+      if(!response.ok||!result.view)throw new Error(result.error??"Recovery outcome is unconfirmed. Check the pending recovery before reopening.");
+      onReviewed(result.view);setExpanded(null);setMessage(result.message??"Recovery outcome recorded.");
+    }catch(failure){setError(failure instanceof Error?failure.message:"Recovery outcome is unconfirmed. Your review note is retained.");}
+    finally{
+      // A failed response may follow a committed edit or reservation. Reload the
+      // authoritative maintenance revision so the owner can resume the same work.
+      try {
+        const state=await fetch(endpoint),view=await state.json() as MaintenanceView;
+        if(state.ok){if(view.revision!==revision)onReviewed(view);const fresh=await fetch(`${endpoint}&edits=1&revision=${view.revision}&offset=${report?.offset??0}`);
+          const body=await fresh.json() as {inspection?:RecoveryEditInspection};if(fresh.ok&&body.inspection){
+            setReport(body.inspection);
+            const saved=body.inspection.items.find(item=>item.id===input.id)?.replay;
+            if(saved&&saved.state!=="Pending"){setError("");setExpanded(null);setMessage(saved.result??"Recovery outcome recorded.");}
+          }}
+      }catch{/* Preserve the previous view and the note; refresh is available. */}
+      setBusy(false);setReviewing(null);requestAnimationFrame(()=>feedback.current?.focus());
+    }
+  }
   return <section className="pipeline relationship-panel maintenance-inspection" aria-label="Internal edit recovery">
     <div className="section-heading"><div><h2 ref={heading} tabIndex={-1}>Internal edits</h2><p className="muted">Review due-date changes and their saved receipts.</p></div>
       <Button variant="outline" disabled={busy||!paused} onClick={()=>void inspect()}>{busy?(reviewing?"Recording outcome…":"Checking edits…"):report?"Refresh edit history":"Inspect internal edits"}</Button></div>
@@ -46,6 +69,9 @@ export function RecoveryEdits({endpoint,revision,paused,onReviewed}:{endpoint:st
     {error&&<p role="alert" className="application-message banner-error">{error}{report?" The previous inspection remains below.":""}</p>}
     {message&&<p ref={feedback} tabIndex={-1} role="status" className="application-message">{message}</p>}
     {report&&<>
+      {report.pendingReplay&&<div role="status" className="application-message"><strong>Recovery outcome pending</strong>
+        <p>{report.pendingReplay.recordName} · {report.pendingReplay.label}. Check this saved recovery before reviewing or reopening the workspace.</p>
+        <Button variant="outline" disabled={busy||!paused} onClick={()=>void recover({id:report.pendingReplay!.editId,resume:true})}>Check pending recovery</Button></div>}
       {report.revision!==revision&&<p role="status" className="application-message">Maintenance changed. Refresh edit history before recording another outcome.</p>}
       {!report.total?<p>No covered edits have been recorded yet. This does not prove that no other work occurred.</p>:<>
         <div className="section-heading"><p>Showing {report.offset+1}–{report.offset+report.items.length} of {report.total}</p>
@@ -65,6 +91,13 @@ export function RecoveryEdits({endpoint,revision,paused,onReviewed}:{endpoint:st
             <p>{item.proof?"A matching result was retained in the recovery directory.":"No result has been confirmed outside the tenant."}</p>
             <p>Reference: <code>{item.id}</code></p>
           </details>
+          {item.replay&&<p className="muted"><strong>Recovery {item.replay.state.toLowerCase()}</strong> · {item.replay.actor} · {new Date(item.replay.at).toLocaleString()}<br/>{item.replay.note}{item.replay.result&&<><br/>{item.replay.result}</>}</p>}
+          {item.canReplay&&!report.pendingReplay&&<details open={expanded===`replay:${item.id}`} onToggle={event=>{if(event.currentTarget.open)setExpanded(`replay:${item.id}`);else setExpanded(current=>current===`replay:${item.id}`?null:current);}}>
+            <summary>Recover saved due-date change</summary><form className="maintenance-form" onSubmit={event=>{event.preventDefault();void recover({revision,offset:report.offset,id:item.id,fingerprint:item.fingerprint,note:new FormData(event.currentTarget).get("note")});}}>
+              <p>Restore {item.label} from {date(item.before.dueOn)} to {date(item.command.dueOn)}. The original revision and confirmed receipt must still match. This changes only this document deadline and records its history.</p>
+              <label className="field">Recovery reason<textarea name="note" required minLength={20} maxLength={1000} rows={3} disabled={busy||report.revision!==revision}/></label>
+              <Button type="submit" disabled={busy||!paused||report.revision!==revision}>Recover this due date</Button>
+            </form></details>}
           {item.review&&<p className="muted">Reviewed by {item.review.actor} · {new Date(item.review.at).toLocaleString()}<br/>{item.review.note}</p>}
           {item.canConfirm?<details open={expanded===item.id} onToggle={event=>{if(event.currentTarget.open)setExpanded(item.id);else setExpanded(current=>current===item.id?null:current);}}><summary>Review saved outcome</summary><form className="maintenance-form" onSubmit={event=>void confirm(event,item)}>
             <p>The saved receipt matches this intended edit. Record that evidence without applying the change again.</p>

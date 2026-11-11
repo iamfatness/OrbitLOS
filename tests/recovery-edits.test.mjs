@@ -63,3 +63,50 @@ test("paused owner review verifies source proof and invalidates reopening; stale
     db.prepare("UPDATE brokerage_members SET status='Revoked'").run();assert.throws(()=>beginRecoveryEdit(db,staff,[],intent),/access changed/);
   }finally{close();}
 });
+
+const {reserveRecoveryReplay,applyRecoveryReplay,finishRecoveryReplay,recoveryReplay}=await import("../src/lib/recovery-replay.ts");
+function replayFixture(){
+  const f=fixture(),{db,staff,intent}=f;
+  db.exec("ALTER TABLE document_requests ADD COLUMN kind TEXT DEFAULT 'Pay stub'");
+  db.exec("CREATE TABLE loans(id TEXT PRIMARY KEY,officerEmail TEXT); CREATE TABLE activity(id TEXT,loanId TEXT,text TEXT,createdAt TEXT); CREATE TABLE workspace_access_history(id TEXT,email TEXT,action TEXT,subject TEXT,createdAt TEXT)");
+  db.prepare("INSERT INTO loans VALUES (?,?)").run(intent.command.loanId,staff.email);
+  const edit=beginRecoveryEdit(db,staff,[],intent),proof={id:edit.id,before:intent.before,after:expectedRecoveryDocument(intent),at:new Date().toISOString()};
+  finishRecoveryEdit(db,staff,[],edit.id,proof,false);
+  const confirmed=recoveryEditRows(db,staff.brokerage.id,0).items[0];
+  changeMaintenance(db,staff,[],{type:"pause",revision:0,reason:"Recover a fictional checkpoint.",confirmation:staff.brokerage.name});markMaintenanceDrained(db,staff.brokerage.id,1);
+  const observed=inspectRecoveryEdit(db,confirmed),input={id:edit.id,revision:2,offset:0,fingerprint:observed.fingerprint,note:"Recover only the confirmed due-date edit from its original revision."};
+  return {...f,edit:confirmed,observed,input};
+}
+test("controlled replay blocks reopening while pending and retries the exact atomic outcome without duplicate history",()=>{
+  const {db,staff,edit,observed,input,close}=replayFixture();try{
+    assert.equal(observed.canReplay,true);
+    assert.throws(()=>reserveRecoveryReplay(db,staff,[],{...input,fingerprint:"0".repeat(64)},observed),/evidence/);
+    const replay=reserveRecoveryReplay(db,staff,[],input,observed),reservation={replay,edit};
+    const state=maintenanceState(db,staff.brokerage.id);assert.equal(state.reviewedAt,null);
+    assert.match(changeMaintenance(db,staff,[],{type:"review",revision:state.revision,review:"Cannot review pending work",checks:[true,true,true]}).error,/pending/);
+    assert.match(changeMaintenance(db,staff,[],{type:"reopen",revision:state.revision,confirmation:staff.brokerage.name}).error,/pending/);
+    db.exec("DROP TABLE recovery_replay_proofs"); // checkpoint from the prior receipt-only release
+    const first=applyRecoveryReplay(db,staff,reservation);assert.equal(first.state,"Applied");
+    assert.equal(db.prepare("SELECT count(*) AS n FROM activity").get().n,1);
+    assert.deepEqual(applyRecoveryReplay(db,staff,reservation),first);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM activity").get().n,1);
+    const view=finishRecoveryReplay(db,staff,[],reservation,first);assert.equal(view.reviewedAt,null);
+    const repeated=finishRecoveryReplay(db,staff,[],reservation,first);assert.deepEqual(repeated,view);
+    assert.equal(recoveryReplay(db,staff.brokerage.id,replay.cycle,edit.id).state,"Applied");
+    assert.equal(inspectRecoveryEdit(db,edit).canReplay,false);
+  }finally{close();}
+});
+test("replay refuses changed original records, uncertain receipts and non-admin reservations",()=>{
+  const {db,staff,edit,observed,input,close}=replayFixture();try{
+    const lo={...staff,brokerage:{...staff.brokerage,role:"LO"}};
+    assert.throws(()=>reserveRecoveryReplay(db,lo,[],input,observed),/Maintenance changed/);
+    assert.equal(inspectRecoveryEdit(db,{...edit,state:"Pending",proof:null}).canReplay,false);
+    const replay=reserveRecoveryReplay(db,staff,[],input,observed);
+    db.exec("UPDATE document_requests SET dueOn='2030-04-01',deadlineRevision=5");
+    const result=applyRecoveryReplay(db,staff,{replay,edit});assert.equal(result.state,"Not applied");
+    assert.equal(db.prepare("SELECT count(*) AS n FROM activity").get().n,0);
+    db.prepare("UPDATE brokerage_members SET status='Revoked'").run();
+    assert.throws(()=>finishRecoveryReplay(db,staff,[],{replay,edit},result),/access changed/);
+    assert.equal(recoveryReplay(db,staff.brokerage.id,replay.cycle,edit.id).state,"Pending");
+  }finally{close();}
+});

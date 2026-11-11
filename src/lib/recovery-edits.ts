@@ -9,7 +9,8 @@ import { recoveryDeadlineCommand,recoveryIntent,recoveryDocument,recoveryProof,e
 
 export const recoveryHash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export function initializeRecoveryEdits(db:Store,directory:boolean) {
-  db.exec(`CREATE TABLE IF NOT EXISTS recovery_edit_proofs (id TEXT PRIMARY KEY,beforeState TEXT NOT NULL,afterState TEXT NOT NULL,at TEXT NOT NULL)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS recovery_edit_proofs (id TEXT PRIMARY KEY,beforeState TEXT NOT NULL,afterState TEXT NOT NULL,at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS recovery_replay_proofs (id TEXT PRIMARY KEY,editId TEXT NOT NULL,result TEXT NOT NULL,at TEXT NOT NULL)`);
   if(directory)db.exec(`CREATE TABLE IF NOT EXISTS brokerage_recovery_edits (
     id TEXT PRIMARY KEY,brokerageId TEXT NOT NULL REFERENCES brokerages(id),actor TEXT NOT NULL,actorEmail TEXT NOT NULL,
     at TEXT NOT NULL,command TEXT NOT NULL,beforeState TEXT NOT NULL,recordName TEXT NOT NULL,label TEXT NOT NULL,
@@ -85,5 +86,11 @@ export function inspectRecoveryEdit(db:Store,edit:RecoveryEdit):RecoveryEditInsp
   const current=readRecoveryDocument(db,edit.command.loanId,edit.command.requestId),sourceProof=readRecoveryProof(db,edit.id);
   const finding=!current?"Record unavailable":sameRecoveryDocument(current,expectedRecoveryDocument(edit))?"Saved revision present":
     sameRecoveryDocument(current,edit.before)?"Original revision present":"Different revision present";
-  return {...edit,current,sourceProof,finding,fingerprint:recoveryHash([edit,current,sourceProof]),canConfirm:edit.state==="Pending"&&validRecoveryProof(edit,sourceProof)};
+  return {...edit,current,sourceProof,finding,fingerprint:recoveryHash([edit,current,sourceProof]),canConfirm:edit.state==="Pending"&&validRecoveryProof(edit,sourceProof),replay:null,
+    canReplay:["Recorded","Reviewed"].includes(edit.state)&&validRecoveryProof(edit,edit.proof)&&!sourceProof&&sameRecoveryDocument(current,edit.before)};
+}
+
+export function readRecoveryEdit(db:Store,brokerageId:string,id:string):RecoveryEdit|null {
+  const row=db.prepare("SELECT * FROM brokerage_recovery_edits WHERE brokerageId=? AND id=?").get(brokerageId,id);
+  return row?decode(row):null;
 }
