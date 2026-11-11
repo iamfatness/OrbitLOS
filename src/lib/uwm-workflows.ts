@@ -71,7 +71,7 @@ function importCheck(db: Store, staff: WorkspaceStaff, input: Input & { importId
 
 // Every mutation is claimed synchronously before any await. An interrupted request
 // stays Dispatching; neither that state nor Unknown is automatically replayed.
-export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, raw: unknown, client?: Client) {
+export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, raw: unknown, client?: Client, registerTransaction?: (operationId: string, transactionId: string) => Promise<void>) {
   const input = uwmWorkflowRequest.parse(raw);
   const environment = context(db, env, staff, input.loanId, true);
   if (staff.brokerage.role === "Processor" && !["upload-document", "attach-documents", "submit-documents"].includes(input.action)) {
@@ -143,6 +143,7 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
       beforeSend();
       const transaction = await api.createTransaction();
       bindUwmTransaction(db, input.id, transaction.transactionId);
+      await registerTransaction?.(input.id, transaction.transactionId);
       beforeSend();
       const bytes = new TextEncoder().encode(input.xml);
       await api.uploadXml(transaction.uri, bytes, uwmRequestDigest(bytes));
@@ -161,6 +162,7 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
     } else if (input.action === "commit-import") {
       const current = importCheck(db, staff, input, environment);
       if (!current.check.ready) throw new UwmError("Resolve the UWM import checks before submitting this file.");
+      await registerTransaction?.(input.importId, current.transactionId);
       beforeSend();
       db.prepare("UPDATE uwm_import_checks SET committed=1 WHERE operationId=?").run(input.importId);
       db.prepare("UPDATE uwm_operations SET state='Dispatching',updatedAt=? WHERE id=?").run(now, input.importId);

@@ -1,3 +1,4 @@
+import { initializeUwmRouting, registerUwmRoute, routedUwmWorkspace, deliverUwmWebhook } from "./lib/uwm-routing";
 import {applyRecoveryReplay,recoveryReplay,reserveRecoveryReplay,finishRecoveryReplay,type ReplayReservation} from "./lib/recovery-replay";
 import {recoveryReplayInput} from "./lib/recovery-edit-model";
 import {readRecoveryEdit} from "./lib/recovery-edits";
@@ -190,6 +191,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     initializeUwmWebhooks(this.#store);
     if (this.#id === demoBrokerageId) {
       initializeBrokerages(this.#store);
+      initializeUwmRouting(this.#store);
       initializeMaintenance(this.#store);
     }
     initializeRecoveryEdits(this.#store,this.#id===demoBrokerageId);
@@ -310,7 +312,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if (!this.#accepts(staff)) return { error: "UWM file unavailable." };
     try {
       return reading ? await readUwmFile(this.#store, this.#uwmEnvironment(), staff, input)
-        : await runUwmWorkflow(this.#store, this.#uwmEnvironment(), staff, input);
+        : await runUwmWorkflow(this.#store, this.#uwmEnvironment(), staff, input, undefined, async (operationId,transactionId)=>{
+          const operation=this.#store.prepare("SELECT environment FROM uwm_operations WHERE id=? AND transactionId=? AND actor=?").get(operationId,transactionId,staff.email);
+          if(!operation)throw new UwmError("The UWM import route could not be verified.");
+          await this.env.WORKSPACE.getByName(demoBrokerageId).registerUwmTransactionRoute(staff,operationId,transactionId,String(operation.environment));
+        });
     } catch (error) {
       return { error: error instanceof UwmError ? error.message : "Check the UWM request fields and try again." };
     }
@@ -332,14 +338,38 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       : "UWM sign-in failed. Verify your UWM credentials, environment and broker access, then try again." }; }
   }
 
+  registerUwmTransactionRoute(staff: WorkspaceStaff,operationId:string,transactionId:string,environment:string) {
+    if(this.#id!==demoBrokerageId)throw new Error("UWM route directory unavailable.");
+    const active=activeBrokerages(this.#store,staff.email,[...(googleSettings(this.env)?.allowedEmails??[])])
+      .find(item=>item.id===staff.brokerage.id && !item.pilot && item.role!=="Processor");
+    if(!active || active.id===demoBrokerageId || environment!==runtimeSetting(this.env,"UWM_USER_ENVIRONMENT"))throw new Error("UWM route access unavailable.");
+    registerUwmRoute(this.#store,{environment,operationId,transactionId,brokerageId:active.id});
+  }
+
+  uwmWebhookTarget(event:UwmWebhookEvent) {
+    if(this.#id!==demoBrokerageId)throw new Error("UWM route directory unavailable.");
+    return routedUwmWorkspace(this.#store,event);
+  }
+
+  async routeUwmWebhook(event:UwmWebhookEvent) {
+    if(this.#id!==demoBrokerageId)throw new Error("UWM route directory unavailable.");
+    const connection=uwmWebhookConnection(runtimeSetting(this.env,"UWM_WEBHOOK_CONFIG"),event.environment);
+    if(!connection)throw new Error("UWM webhook environment unavailable.");
+    const receipt=await deliverUwmWebhook(this.#store,event,connection.brokerageId,
+      (target,event)=>this.env.WORKSPACE.getByName(target).receiveUwmWebhook(event));
+    return {receiptId:receipt.receiptId,duplicate:receipt.duplicate};
+  }
+
   async receiveUwmWebhook(event: UwmWebhookEvent) {
     const connection = uwmWebhookConnection(runtimeSetting(this.env, "UWM_WEBHOOK_CONFIG"), event.environment);
-    if (!connection || connection.brokerageId !== this.#id) throw new Error("Webhook workspace mismatch");
-    const details = await this.env.WORKSPACE.getByName(demoBrokerageId).brokerageDetails(this.#id);
+    const directory=this.env.WORKSPACE.getByName(demoBrokerageId);
+    const target=await directory.uwmWebhookTarget(event);
+    if (!connection || (target ?? connection.brokerageId) !== this.#id) throw new Error("Webhook workspace mismatch");
+    const details = await directory.brokerageDetails(this.#id);
     if (!details || details.pilot) throw new Error("Webhook brokerage unavailable");
     const receipt = saveUwmWebhook(this.#store, parseUwmWebhook(event.environment, event.kind, event.body));
-    if (event.kind === "import") correlateUwmImport(this.#store, Number(receipt.receiptId));
-    return receipt;
+    const correlation=event.kind === "import" ? correlateUwmImport(this.#store, Number(receipt.receiptId)) : null;
+    return {...receipt,correlation};
   }
 
   uwmWebhookReceipts(staff: WorkspaceStaff, before: number, receiptId?: number) {
@@ -1314,7 +1344,7 @@ export default {
     const reading = request.method === "GET" || request.method === "HEAD";
     if (url.pathname.startsWith("/api/webhooks/uwm/")) {
       return uwmWebhookHttp(request, runtimeSetting(env, "UWM_WEBHOOK_CONFIG"),
-        (brokerageId, event) => env.WORKSPACE.getByName(brokerageId).receiveUwmWebhook(event), runtimeSetting(env, "ORBIT_DEPLOYMENT"));
+        (_brokerageId, event) => env.WORKSPACE.getByName(demoBrokerageId).routeUwmWebhook(event), runtimeSetting(env, "ORBIT_DEPLOYMENT"));
     }
     if (url.pathname === "/api/demo-request") return demoRequest(request, env);
     const marketingPage = /^\/(?:product\/?|integrations\/?|demo\/?|address-lookup\/?)?$/.test(url.pathname);

@@ -96,3 +96,17 @@ test("an active lender request cannot be reconciled while the network call is st
  assert.equal(result.state,"Rejected");assert.equal(db.prepare("SELECT state FROM uwm_live_requests WHERE id=?").get(input.id).state,"Dispatching");
  release();await pending;
 });
+
+
+test("routing must be registered before XML upload and again before commit",async t=>{
+ const {db,api,writes}=setup(t),input=prepare();let registered=false,calls=0;
+ const upload=api.uploadXml;api.uploadXml=async(...args)=>{assert.equal(registered,true);return upload(...args);};
+ const register=async(id,tx)=>{assert.equal(id,input.id);assert.equal(tx,"tx-fixture");registered=true;calls++;};
+ assert.equal((await runUwmWorkflow(db,env,staff,input,api,register)).state,"Acknowledged");
+ assert.equal((await runUwmWorkflow(db,env,staff,{...base(),action:"commit-import",importId:input.id},api,register)).state,"Acknowledged");assert.equal(calls,2);assert.equal(writes(),4);
+});
+test("routing registration failure holds the created transaction without uploading or committing",async t=>{
+ const {db,api,writes}=setup(t);
+ assert.equal((await runUwmWorkflow(db,env,staff,prepare(),api,async()=>{throw new Error("directory unavailable");})).state,"Unknown");
+ assert.equal(writes(),1);assert.equal(db.prepare("SELECT transactionId FROM uwm_operations").get().transactionId,"tx-fixture");
+});

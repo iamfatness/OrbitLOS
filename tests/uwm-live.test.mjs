@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { sqliteStore } from "../scripts/workspace-baseline.mjs";
-const { uwmPublicToken, uwmInsightsConnector, uwmConnectionSettings, uwmWorkspaceEnabled } = await import("../src/lib/uwm-live.ts");
+const { uwmPublicToken, uwmInsightsConnector, uwmConnectionSettings, uwmWorkspaceEnabled, uwmAccountEnabled, uwmInsightsWorkspaceEnabled } = await import("../src/lib/uwm-live.ts");
 const { syncUwm } = await import("../src/lib/uwm.ts");
 const { pricingProvider } = await import("../src/lib/pricing-provider.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
@@ -45,10 +45,14 @@ test("Public auth uses the verified grant and keeps environments separate", asyn
   });
   assert.equal(await uwmPublicToken({ UWM_ENVIRONMENT: "int", UWM_CLIENT_ID: "id", UWM_CLIENT_SECRET: "secret" }), "test");
 });
-test("live credentials are restricted to the configured non-pilot brokerage", () => {
+test("personal access is available across workspaces while live files and shop Insights stay scoped", () => {
   const env = { UWM_BROKERAGE_ID: "shop" };
   assert.equal(uwmWorkspaceEnabled(env, null), false);
-  assert.equal(uwmWorkspaceEnabled(env, { brokerage: { id: "other" } }), false);
+  assert.equal(uwmWorkspaceEnabled(env, { brokerage: { id: "other" } }), true);
+  assert.equal(uwmAccountEnabled({email:"any@example.test",brokerage:{id:"orbit-demo",pilot:true}}),true);
+  assert.equal(uwmAccountEnabled(null),false);
+  assert.equal(uwmInsightsWorkspaceEnabled(env,{brokerage:{id:"other"}}),false);
+  assert.equal(uwmInsightsWorkspaceEnabled(env,{brokerage:{id:"shop"}}),true);
   assert.equal(uwmWorkspaceEnabled(env, { brokerage: { id: "shop", pilot: true } }), false);
   assert.equal(uwmWorkspaceEnabled(env, { brokerage: { id: "shop" } }), true);
 });

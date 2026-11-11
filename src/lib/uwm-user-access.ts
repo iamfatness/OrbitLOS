@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:
 import { z } from "zod";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
-import { UwmError, uwmJson, uwmWorkspaceEnabled, type UwmEnvironment } from "./uwm-live";
+import { UwmError, uwmJson, uwmAccountEnabled, uwmWorkspaceEnabled, type UwmEnvironment } from "./uwm-live";
 
 export function initializeUwmUserAccess(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS uwm_user_access (
@@ -25,7 +25,7 @@ export function uwmUserSettings(env: UwmEnvironment) {
     key: Buffer.from(env.UWM_TOKEN_ENCRYPTION_KEY!, "hex") };
 }
 function context(env: UwmEnvironment, staff: WorkspaceStaff) {
-  if (!uwmWorkspaceEnabled(env, staff)) throw new UwmError("UWM user access is unavailable for this brokerage.");
+  if (!uwmAccountEnabled(staff)) throw new UwmError("UWM user access is unavailable for this brokerage.");
   const settings = uwmUserSettings(env);
   return { ...settings, aad: Buffer.from(`${staff.brokerage.id}:${staff.email}:${settings.environment}`) };
 }
@@ -80,7 +80,7 @@ export function uwmUserStatus(db: Store, env: UwmEnvironment, staff: WorkspaceSt
   try {
     const settings = context(env, staff);
     const row = db.prepare("SELECT connectedAt, expiresAt FROM uwm_user_access WHERE email=? AND environment=?").get(staff.email, settings.environment);
-    return { configured: true, environment: settings.environment, connectedAt: row?.connectedAt ?? null,
+    return { configured: true, fileActions: uwmWorkspaceEnabled(env, staff), environment: settings.environment, connectedAt: row?.connectedAt ?? null,
       expiresAt: row?.expiresAt ?? null, message: "" };
   } catch (error) {
     return { configured: false, environment: env.UWM_USER_ENVIRONMENT || "stage", connectedAt: null, expiresAt: null,

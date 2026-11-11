@@ -33,7 +33,7 @@ import { approvedIncomeAmount, pricingInputError } from "./income-review-freshne
 import { repriceIncomeMessage } from "./income-review-model";
 import { cancelMockLock, extendMockLock, floatMockRate, lockMockRate } from "./uwm-rate-locks";
 import { PricingError, pricingProvider, unsupportedPricingResult } from "./pricing-provider";
-import { fictionalUwmWorkspace, UwmError, uwmInsightsConnector, uwmWorkspaceEnabled, uwmPricingEnvironment, type UwmEnvironment } from "./uwm-live";
+import { fictionalUwmWorkspace, UwmError, uwmInsightsConnector, uwmInsightsWorkspaceEnabled, uwmPricingEnvironment, type UwmEnvironment } from "./uwm-live";
 import { cleanAnswers, lenderDetailsSchema, lenderQuestions, lenderSupplement } from "./urla";
 import { createFundingDrafts, createMilestoneDrafts, recordDraftCopy, supersedeFundingDrafts } from "./communications";
 import { draftChannels } from "./communication-templates";
@@ -634,7 +634,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
       return { state: scopeWorkspace(readWorkspace(db, staff?.brokerage.role === "Admin"), staff), message: result.message };
     }
     if (data.type === "sync" || data.type === "simulateUwmChanges") {
-      if (!fictionalUwm && !uwmWorkspaceEnabled(uwmEnvironment, staff)) {
+      if (!fictionalUwm && !uwmInsightsWorkspaceEnabled(uwmEnvironment, staff)) {
         throw new WorkspaceError("Configure this brokerage's UWM connection before syncing. Sample loans are available only in demo and pilot workspaces.");
       }
       const result = data.type === "simulateUwmChanges" ? simulateMockUwmChanges(db) :

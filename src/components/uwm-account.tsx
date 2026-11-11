@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Link2, ShieldCheck, CheckCircle2 } from "lucide-react";
 import { Button } from "./ui/button";
 
-type Account = { configured: boolean; environment: string; connectedAt: string | null; expiresAt: number | null; message: string };
+type Account = { configured: boolean; fileActions?: boolean; environment: string; connectedAt: string | null; expiresAt: number | null; message: string };
 export function UwmAccount({ brokerageId, onConnectionChange }: { brokerageId: string; onConnectionChange?: () => void }) {
   const [account, setAccount] = useState<Account | null>(null), [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -56,6 +56,8 @@ export function UwmAccount({ brokerageId, onConnectionChange }: { brokerageId: s
       <span>{account.environment === "production" ? "Your brokerage’s UWM connection" : "For testing with synthetic loan data"}</span></div>}
     {account && !account.configured && <div className="uwm-setup-note"><strong>UWM account access isn’t enabled here</strong><p>Orbit configures this connection during brokerage onboarding. There is no setting in this workspace to turn it on.</p><p>Once access is enabled, your UWM sign-in form will appear here. Connections on the test site are separate from production.</p></div>}
     {account?.configured && <>
+      <p className="muted">Your UWM authorization belongs to you in this workspace. Other members connect their own accounts.</p>
+      {account.fileActions === false && <p className="uwm-feedback">You can connect and verify your UWM account here. This workspace uses fictional files; live submissions and rate requests are available in an operational workspace.</p>}
       {connected ? <>
         <div className="uwm-connected-note"><CheckCircle2 size={20} aria-hidden="true" /><div><strong>Account connected</strong><p>Verify access to confirm the UWM brokerages available to you.</p></div></div>
         <div className="uwm-account-actions"><Button disabled={busy} onClick={() => void change("verify")}>{busy ? "Working…" : "Verify brokerage access"}</Button>
