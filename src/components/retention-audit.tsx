@@ -77,7 +77,7 @@ export function RetentionAudit({ brokerageId, onBack, openLoan }:{
       <h2 ref={heading} tabIndex={-1}>Retention audit</h2>
       <Button type="button" variant="outline" disabled={exporting} onClick={onBack}>Back to disposition review</Button>
     </div>
-    <div className="loan-application-actions" role="group" aria-label="Audit records">
+    <div className="loan-application-actions retention-audit-views" role="group" aria-label="Audit records">
       <Button type="button" variant="outline" aria-pressed={selection.section==="policies"} disabled={exporting}
         onClick={()=>choose("policies",selection.policyVersion)}>Policy versions</Button>
       <Button type="button" variant="outline" aria-pressed={selection.section==="decisions"} disabled={exporting}
