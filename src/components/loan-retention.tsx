@@ -153,13 +153,7 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
         {review.action === "history" ? "Hold history" : review.action === "hold" ? "Place retention hold" : "Release retention hold"}
       </h3>
       <strong>{review.loan.borrower}</strong>
-      {review.action === "history" ? (pending ? <p role="status">Loading history…</p> : history && (history.holds.length ?
-        <ol className="loan-task-list">{history.holds.map(hold => <li key={hold.id} className="document-item">
-          <p><strong>Placed</strong> {dateTime(hold.placedAt)} ET · {hold.placedBy}</p>
-          <p>{hold.reference}</p>
-          {hold.releasedAt && <><p><strong>Released</strong> {dateTime(hold.releasedAt)} ET · {hold.releasedBy}</p>
-            <p>{hold.releaseReference}</p></>}
-        </li>)}</ol> : <p>No holds have been recorded for this loan.</p>)) :
+      {review.action !== "history" &&
         <form className="record-form" onSubmit={event => { event.preventDefault(); void save(); }}>
           <p className="muted">{review.action === "hold" ?
             "The loan stays in the pipeline and existing or replacement checklist PDFs are preserved." :
@@ -187,6 +181,13 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
         // The originating action becomes enabled after this render.
         requestAnimationFrame(() => previous?.focus());
       }}>{review.action === "history" ? "Close history" : "Cancel"}</Button></div>
+      {review.action === "history" && (pending ? <p role="status">Loading history…</p> : history && (history.holds.length ?
+        <ol className="loan-task-list">{history.holds.map(hold => <li key={hold.id} className="document-item">
+          <p><strong>Placed</strong> {dateTime(hold.placedAt)} ET · {hold.placedBy}</p>
+          <p>{hold.reference}</p>
+          {hold.releasedAt && <><p><strong>Released</strong> {dateTime(hold.releasedAt)} ET · {hold.releasedBy}</p>
+            <p>{hold.releaseReference}</p></>}
+        </li>)}</ol> : <p>No holds have been recorded for this loan.</p>))}
     </section>}
     {(!inventory || pending && !review) && !error && <p role="status">Loading loan inventory…</p>}
     {inventory && inventory.selection === selection && <section aria-label="Loans in retention inventory" aria-busy={pending && !review} className="record-form">
