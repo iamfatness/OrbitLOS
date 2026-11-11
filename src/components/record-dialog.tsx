@@ -774,10 +774,6 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           canSimulate={!processor && fictionalUwm}
           onEdit={() => show({ kind: "submission", loanId: loan.id, submissionId: submission.id })} />)}
       </section>
-      {state.serviceOrders !== undefined && <LoanServiceOrders key={loan.id} loanId={loan.id} joint={joint}
-        orders={state.serviceOrders.filter((item) => item.loanId === loan.id)} busy={busy}
-        owner={state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail)?.processorName || loan.officer || "Unassigned"}
-        editable={!pausedLoan(loan) && !pastClientLoan(loan)} save={save} openClosing={() => open(closingChecklistListTarget)} />}
       <LoanDocuments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} pilot={staff?.brokerage.pilot} joint={joint} requests={requests} inlineRequests={inlineRequests}
         openConditionRequests={openConditionRequests} replaceableRequests={replaceableRequests}
         customTemplates={!pausedLoan(loan) && !pastClientLoan(loan) && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot :
@@ -788,7 +784,11 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         applicationStarted={Boolean(application)} applicationSubmitted={Boolean(application?.submittedAt)} busy={busy} save={save}
         applicationReviewRevision={application?.reviewedAt && application.submittedAt ? application.revision : null}
         followUp={() => show({ kind: "documentFollowUp", loanId: loan.id })} />
-      {canOpenDisclosures && (!staff || state.borrowerQuestions !== undefined) && <LoanBorrowerQuestions key={loan.id} loanId={loan.id}
+      {state.serviceOrders !== undefined && <LoanServiceOrders key={`orders:${loan.id}`} loanId={loan.id} joint={joint}
+        orders={state.serviceOrders.filter((item) => item.loanId === loan.id)} busy={busy}
+        owner={state.loanProcessing.find((item) => item.loanId === loan.id && item.processorEmail)?.processorName || loan.officer || "Unassigned"}
+        editable={!pausedLoan(loan) && !pastClientLoan(loan)} save={save} openClosing={() => open(closingChecklistListTarget)} />}
+      {canOpenDisclosures && (!staff || state.borrowerQuestions !== undefined) && <LoanBorrowerQuestions key={`questions:${loan.id}`} loanId={loan.id}
         brokerageId={staff?.brokerage.id ?? demoBrokerageId}
         questions={(state.borrowerQuestions ?? []).filter((item) => item.loanId === loan.id)}
         canRequest={Object.values(checklistLinks).some(Boolean) && !pausedLoan(loan) && !pastClientLoan(loan)}

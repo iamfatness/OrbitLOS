@@ -42,7 +42,7 @@ export function FileReadiness({ loan, state, busy, save, open, preapprovalBroker
   ].join("\n");
 
   return <section className="details-section" id="file-readiness" tabIndex={-1} aria-label="File readiness">
-    <div className="section-heading"><h3>File readiness</h3><span className="pill">{openItems.length} open document requests</span></div>
+    <div className="section-heading"><h3>File readiness</h3><span className="pill">{openItems.length} open document {openItems.length === 1 ? "request" : "requests"}</span></div>
     <div className="loan-application-actions">
       <Button size="sm" variant="outline" onClick={() => open("loan-application")}>1003 · {status}</Button>
       <Button size="sm" variant="outline" onClick={() => open("document-checklist")}>Open document checklist</Button>
