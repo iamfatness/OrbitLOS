@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { accessLoanRetention } from "@/app/actions";
 import type { DispositionQueue } from "@/lib/retention-disposition";
+import { RetentionAudit } from "./retention-audit";
 import { Button } from "./ui/button";
 
 type Candidate = DispositionQueue["rows"][number];
@@ -12,6 +13,8 @@ type Review = {kind:"policy"; id:string; funded:string; closed:string; reference
 export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
   brokerageId:string; openLoan:(id:string)=>void; onBack:()=>void;
 }) {
+  const [showAudit,setShowAudit] = useState(false);
+  const auditLink = useRef<HTMLButtonElement>(null);
   const [queue,setQueue] = useState<DispositionQueue>();
   const [review,setReview] = useState<Review>();
   const [busy,setBusy] = useState(false);
@@ -60,10 +63,18 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
   const enabled = !!(policy?.fundedDays || policy?.closedDays);
   const refresh = () => void submit({type:"dispositionQueue",offset:0},true);
 
+  if (showAudit) return <RetentionAudit brokerageId={brokerageId} openLoan={openLoan} onBack={()=>{
+    setShowAudit(false);
+    requestAnimationFrame(()=>auditLink.current?.focus());
+  }} />;
+
   return <div className="integration manager-panel record-form loan-retention">
     <div className="section-heading">
       <h2 tabIndex={-1} ref={heading}>Disposition review</h2>
-      <Button type="button" variant="outline" disabled={busy} onClick={onBack}>Back to loan retention</Button>
+      <div className="loan-application-actions">
+        <Button ref={auditLink} type="button" variant="outline" disabled={busy||!!review} onClick={()=>setShowAudit(true)}>Retention audit</Button>
+        <Button type="button" variant="outline" disabled={busy} onClick={onBack}>Back to loan retention</Button>
+      </div>
     </div>
     {error && <div className="record-form"><p role="alert">{error}</p>
       <div><Button type="button" variant="outline" disabled={busy} onClick={refresh}>Refresh queue</Button></div>

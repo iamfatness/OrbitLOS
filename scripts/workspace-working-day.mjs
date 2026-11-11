@@ -3861,6 +3861,31 @@ try {
     const revised=await disposition({...policy,id:randomUUID(),expected:1,reference:"Fictional updated approval RT-05"});
     assert.equal(revised.rows.find(row=>row.id===withdrawn).decision,null);
     assert.match((await disposition({...decision,id:randomUUID()})).error,/policy changed/);
+    const audit={type:"retentionAudit",section:"policies",policyVersion:null,before:null};
+    const exported={type:"exportRetentionAudit",policyVersion:null};
+    for(const staff of [officer,processor]) {
+      assert.match((await disposition(audit,staff)).error,/current pilot owners/);
+      assert.match((await disposition(exported,staff)).error,/current pilot owners/);
+    }
+    assert.match((await disposition(exported,owner,randomUUID())).error,/current pilot owners/);
+    const policies=await disposition(audit);
+    assert.deepEqual(policies.policies.map(item=>item.version),[2,1]);
+    assert.equal(policies.latestVersion,2);
+    const history=await disposition({...audit,section:"decisions",policyVersion:1});
+    assert.equal(history.decisions.find(item=>item.loanId===withdrawn).reviewOn,"2000-01-31");
+    assert.equal(history.decisions.find(item=>item.loanId===withdrawn).outcome,decision.outcome);
+    assert.equal((await disposition({...audit,section:"decisions",policyVersion:2})).decisions.length,0);
+    assert.match((await disposition({...audit,policyVersion:100})).error,/unavailable/);
+    await write(owner,{type:"deleteLoan",id:withdrawn});
+    const response=await disposition({...exported,policyVersion:1});
+    const auditJson=JSON.parse(response.json);
+    assert.deepEqual(auditJson.policies.map(item=>item.version),[1]);
+    const removed=auditJson.decisions.find(item=>item.loanId===withdrawn);
+    assert.equal(removed.currentBorrower,null);
+    assert.equal(removed.reference,decision.reference);
+    assert.equal(removed.reviewOn,"2000-01-31");
+    assert.ok(!response.json.includes(owner.email));
+
   });
   await stage("Owner checkpoint inspection is complete, role scoped and unavailable while work is open",async()=>{
     const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
