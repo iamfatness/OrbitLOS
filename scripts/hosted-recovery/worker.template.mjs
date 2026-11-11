@@ -240,7 +240,6 @@ async function command(action, env, origin, ctx) {
     if (changed.error) throw new Error(changed.error);
     const doc = await other.probeDocument(b.loanId);
     requireOk(await other.write({type:"setDocumentDeadline",loanId:b.loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-01-02"},b.officer));
-    await target.probeDamage(a.loanId);
     state.otherAfter = await other.probeCapture();
     if (state.otherBefore.hash === state.otherAfter.hash || (await target.probeCapture()).hash === state.checkpoint.hash) throw new Error("Fixture changes were not observable");
     const paused=await directory.manageWorkspaceMaintenance(a.admin,{type:"pause",revision:0,
@@ -256,6 +255,7 @@ async function command(action, env, origin, ctx) {
     state.maintenance={revision:saved.view.revision,cycle:saved.view.startedAt,decision:saved.decision};
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Normal workspace read remained open before restore");
+    await target.probeDamage(a.loanId);
     state.phase = "changed";
   } else if (action === "arm" && state.phase === "changed") {
     state.undoBookmark = await target.probeArm(state.checkpoint);
