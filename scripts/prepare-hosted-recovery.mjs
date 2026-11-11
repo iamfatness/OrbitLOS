@@ -2,6 +2,14 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, writeFile, copyFile, readdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { registerHooks } from "node:module";
+
+registerHooks({resolve(specifier,context,next) {
+  try {return next(specifier,context);} catch(error) {
+    if(error.code!=="ERR_MODULE_NOT_FOUND"||!specifier.startsWith("./"))throw error;
+    return next(`${specifier}.ts`,context);
+  }
+}});
 
 const root = new URL("../",import.meta.url);
 if (execFileSync("git",["status","--porcelain"],{cwd:fileURLToPath(root),encoding:"utf8"}).trim()) throw new Error("Commit the rehearsal before preparing hosted provenance");
@@ -13,6 +21,10 @@ const folder = new URL(`.orbit/${name}/`,root);
 await mkdir(folder,{recursive:true});
 await cp(new URL("dist/server/",root),new URL("server/",folder),{recursive:true});
 await copyFile(new URL("scripts/hosted-recovery/worker.template.mjs",root),new URL("server/recovery-entry.mjs",folder));
+await copyFile(new URL("scripts/cutover-replacement-fixture.mjs",root),new URL("server/recovery-replacement.mjs",folder));
+const {blankApplication,sampleApplication,applicationSteps}=await import("../src/lib/application-model.ts");
+await writeFile(new URL("server/recovery-fixtures.mjs",folder),
+  `export const sampleDraft=${JSON.stringify({...sampleApplication(blankApplication()),confirmedDemo:true})};\nexport const finalStep=${applicationSteps.length-1};\n`);
 const artifact = createHash("sha256");
 for (const path of (await readdir(new URL("server/",folder),{recursive:true})).filter(path=>/\.m?js$/.test(path)).sort()) {
   const bytes=await readFile(new URL(`server/${path.replaceAll('\\','/')}`,folder));

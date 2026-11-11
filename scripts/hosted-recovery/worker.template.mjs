@@ -1,8 +1,10 @@
 // Test-only wrapper copied next to the built Worker by prepare-hosted-recovery.mjs.
 // Never included by the production entry point or its deployment configuration.
 import application, { OrbitWorkspace } from "./index.js";
+import { recordFictionalReplacement } from "./recovery-replacement.mjs";
+import { sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 
-const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals"];
+const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "closing_plans"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
@@ -52,7 +54,43 @@ export class RecoveryWorkspace extends OrbitWorkspace {
   probeRestart() { this.probeIdentity(); this.ctx.abort("Isolated fictional recovery restart"); }
   probeApplication(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,expiresAt FROM applications WHERE loanId=?",loanId).one(); }
   probeRealtor() { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,realtorId FROM realtor_portals").one(); }
-  probeDocument(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT id,revision,deadlineRevision,dueOn FROM document_requests WHERE loanId=? ORDER BY id LIMIT 1",loanId).one(); }
+  probeDocument(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT id,revision,deadlineRevision,dueOn FROM document_requests WHERE loanId=? AND kind='Homeowners insurance' ORDER BY id LIMIT 1",loanId).one(); }
+  async probeLenderEvidence(item) {
+    this.probeIdentity();
+    if (item.id!==this.ctx.id.name) throw new Error("Fictional tenant mismatch");
+    const write=async input=>requireOk(await this.write({...input,loanId:item.loanId},item.admin));
+    const link=this.probeApplication(item.loanId);
+    const initial=this.borrower({type:"read",token:link.token},true);
+    const submitted=this.borrower({type:"submit",token:link.token,revision:initial.revision,step:finalStep,draft:sampleDraft},true);
+    if (submitted.error || !submitted.submittedAt) throw new Error(submitted.error||"Fictional 1003 did not submit");
+    await write({type:"reviewApplication",revision:submitted.revision});
+    await write({type:"submission",lender:"Fictional Recovery Wholesale",externalId:"RECOVERY-FILE-01",status:"In underwriting"});
+    const read=()=>this.read(item.admin);
+    const submissionId=read().submissions.find(file=>file.loanId===item.loanId&&file.externalId==="RECOVERY-FILE-01").id;
+    const conditionId=crypto.randomUUID();
+    await write({type:"saveManualCondition",submissionId,conditionId,revision:0,category:"Income",description:"Review the fictional recovery pay stub.",owner:item.admin.name});
+    await write({type:"requestDocument",kind:"Pay stub",instructions:"Provide the fictional recovery pay stub.",condition:{submissionId,conditionId}});
+    const replacement=await recordFictionalReplacement({read,write,borrower:input=>this.borrower({...input,token:link.token},true),submissionId,conditionId});
+    const requestId=read().documentRequests.find(request=>request.conditionId===conditionId).id;
+    const accepted=this.ctx.storage.sql.exec("SELECT revision FROM document_acceptances WHERE requestId=? ORDER BY revision",requestId).toArray().map(row=>row.revision);
+    if (JSON.stringify(accepted)!==JSON.stringify(replacement.document.evidence.acceptedRevisions)) throw new Error("Acceptance history does not match receipt fixture");
+    if (this.ctx.storage.sql.exec("SELECT count(*) AS total FROM loan_audit WHERE loanId=?",item.loanId).one().total<1) throw new Error("Loan audit fixture is empty");
+    return {requestId,submissionId,conditionId,replacement};
+  }
+  probeVerifyLenderEvidence(item,evidence) {
+    this.probeIdentity();
+    const state=this.read(item.admin);
+    const request=state.documentRequests.find(row=>row.id===evidence.requestId);
+    const condition=state.submissions.find(row=>row.id===evidence.submissionId)?.conditions.find(row=>row.id===evidence.conditionId);
+    const accepted=this.ctx.storage.sql.exec("SELECT revision FROM document_acceptances WHERE requestId=? ORDER BY revision",evidence.requestId).toArray().map(row=>row.revision);
+    const expected=evidence.replacement;
+    if (request?.status!=="Accepted"||request.revision!==expected.document.evidence.revision||JSON.stringify(accepted)!==JSON.stringify(expected.document.evidence.acceptedRevisions)) throw new Error("Restored accepted revisions differ");
+    if (!condition?.satisfiedAt||condition.satisfiedAt!==expected.condition.evidence.clearance.at||condition.manual.confirmedDelivery!==expected.condition.evidence.clearance.reference) throw new Error("Restored clearance differs");
+    for (const receipt of expected.condition.evidence.receipts) {
+      if (!condition.manual.deliveries.some(row=>row.reference===receipt.reference&&row.documentRevision===receipt.documentRevision)) throw new Error("Restored lender receipt differs");
+    }
+    return {acceptedRevisions:accepted.length,lenderReceipts:condition.manual.deliveries.length};
+  }
   async probeReplay(receipt, actor) {
     const identity = this.probeIdentity();
     if (receipt.tenant !== identity.tenant || receipt.run !== identity.run || receipt.source !== identity.source || receipt.status !== "acknowledged") throw new Error("Unverified recovery receipt");
@@ -61,9 +99,9 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     requireOk(await this.write(receipt.command,actor));
     if (JSON.stringify(this.probeDocument(receipt.command.loanId)) !== JSON.stringify(receipt.after)) throw new Error("Receipt replay differs from acknowledged state");
   }
-  async probeAttach(loanId) {
+  async probeAttach(loanId,requestId) {
     const identity = this.probeIdentity();
-    const document = this.probeDocument(loanId);
+    const document = requestId ? this.ctx.storage.sql.exec("SELECT id FROM document_requests WHERE loanId=? AND id=?",loanId,requestId).one() : this.probeDocument(loanId);
     const objectId = `${identity.run}/${identity.tenant}/${document.id}`;
     const bytes = new TextEncoder().encode("Fictional Orbit recovery document. Not borrower data.");
     await this.env.DOCUMENTS.put(objectId,bytes);
@@ -117,7 +155,10 @@ async function command(action, env, origin, ctx) {
       const doc = await workspace.probeDocument(item.loanId);
       requireOk(await workspace.write({type:"setDocumentDeadline",loanId:item.loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-01-01"},item.officer));
     }
-    state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE, document: await target.probeAttach(a.loanId), link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
+    const lenderEvidence=await target.probeLenderEvidence(a);
+    state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE,lenderEvidence,
+      document: await target.probeAttach(a.loanId,lenderEvidence.requestId), link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
+    await target.probeVerifyLenderEvidence(a,lenderEvidence);
     const session = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     const sessionHash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(session))))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     await directory.createStaffSession(sessionHash,{email:a.officer.email,name:a.officer.name},Date.now()+3600000,Date.now());
@@ -165,6 +206,7 @@ async function command(action, env, origin, ctx) {
     const recovered = await target.probeCapture(), unaffected = await other.probeCapture();
     if (recovered.hash !== state.checkpoint.hash) throw new Error("Target state differs from checkpoint");
     if (unaffected.hash !== state.otherAfter.hash) throw new Error("Other brokerage changed during recovery");
+    const lenderEvidence=await target.probeVerifyLenderEvidence(a,state.lenderEvidence);
     if (await directory.brokerageForPortal(state.link.token)) throw new Error("Revoked borrower link reopened");
     if (await directory.leadOwner(a.id,a.officer.email,[])) throw new Error("Revoked staff membership reopened");
     const portalResponse = await application.fetch(new Request(`${origin}/api/demo-application`, { method: "POST", headers: { Origin: origin, "Content-Type":"application/json" }, body:JSON.stringify({type:"read",token:state.link.token}) }),env,ctx);
@@ -181,7 +223,8 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
-      foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark };
+      foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark,acceptedRevisionsPreserved:lenderEvidence.acceptedRevisions,
+      lenderReceiptsPreserved:lenderEvidence.lenderReceipts,manualClearancePreserved:true,loanAuditPreserved:recovered.counts.loan_audit>0 };
   } else if (action === "replay" && state.phase === "verified") {
     for (const invalid of [{...state.receipt,status:"pending"},{...state.receipt,tenant:b.id}]) {
       let refused=false;
