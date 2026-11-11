@@ -207,7 +207,7 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
       } else {
         // Product terms are explicit, schema-checked user choices. No defaults,
         // pricing substitutions or automatic retries are introduced here.
-        if (input.action === "lock" && !db.prepare("SELECT id FROM uwm_live_requests WHERE loanId=? AND environment=? AND action='float' AND state IN ('Acknowledged','Reconciled')").get(input.loanId, environment)) {
+        if (input.action === "lock" && !db.prepare("SELECT id FROM uwm_live_requests WHERE loanId=? AND environment=? AND action='float' AND state='Acknowledged'").get(input.loanId, environment)) {
           throw new UwmError("Float the selected product before requesting a lock.");
         }
         if (db.prepare("SELECT id FROM uwm_live_requests WHERE loanId=? AND environment=? AND action IN ('lock','relock','extend-lock','cancel-lock') AND state='Acknowledged'").get(input.loanId, environment)) {
@@ -221,13 +221,13 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
         else result = (await api.cancelLock(number)).body;
       }
     }
-    db.prepare("UPDATE uwm_live_requests SET state='Acknowledged',result=?,updatedAt=? WHERE id=?").run(JSON.stringify(result), new Date().toISOString(), input.id);
+    db.prepare("UPDATE uwm_live_requests SET state='Acknowledged',result=?,updatedAt=? WHERE id=? AND state='Dispatching'").run(JSON.stringify(result), new Date().toISOString(), input.id);
     return { id: input.id, state: "Acknowledged", result };
   } catch (error) {
     // A multi-step action may already have created a transaction or document.
     // Even a later 4xx cannot make that whole workflow safe to replay.
     const state = sent ? "Unknown" : "Rejected";
-    db.prepare("UPDATE uwm_live_requests SET state=?,updatedAt=? WHERE id=?").run(state, new Date().toISOString(), input.id);
+    db.prepare("UPDATE uwm_live_requests SET state=?,updatedAt=? WHERE id=? AND state='Dispatching'").run(state, new Date().toISOString(), input.id);
     if (input.action === "commit-import" && sent) db.prepare("UPDATE uwm_operations SET state='Unknown',updatedAt=? WHERE id=? AND state='Dispatching'").run(new Date().toISOString(), input.importId);
     return { id: input.id, state, error: sent ? "UWM has not confirmed the full outcome. Check the lender file before taking another action."
       : error instanceof UwmError ? error.message : "The UWM request could not be validated." };

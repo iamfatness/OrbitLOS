@@ -147,6 +147,21 @@ test("document upload reserves a target without bytes, verifies origin and diges
  await assert.rejects(client.uploadConditionBytes(target.sasUri.replace(origin,"https://unapproved.test"),bytes,digest));
  await assert.rejects(client.uploadConditionBytes(target.sasUri,bytes,"a".repeat(64)));assert.equal(calls.length,2);
 });
+test("UWM timestamped document names are accepted and negative lock acknowledgments remain unknown",async t=>{
+ const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);
+ t.mock.method(globalThis,"fetch",async()=>Response.json({sasUri:"https://fixture.blob.core.windows.net/file?sig=fixture",documentId:2,fileName:"Appraisal_20261111102000.pdf",location:"Public Documentations"}));
+ assert.equal((await client.createConditionUpload("1234567890","Appraisal.pdf")).fileName,"Appraisal_20261111102000.pdf");
+ t.mock.method(globalThis,"fetch",async()=>Response.json({LockRateItems:[{...lockAck.LockRateItems[0],Value:"False"}]}));
+ await assert.rejects(client.lock("1234567890",lockBody),error=>error.outcome==="unknown");
+});
+test("an attachment HTTP success must confirm all sent files and conditions",async t=>{
+ const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);
+ const input={attachments:[{...conditionBody.attachments[0],attachmentId:null,revisionId:null}]};
+ t.mock.method(globalThis,"fetch",async()=>Response.json({attachments:[]}));
+ await assert.rejects(client.attachConditions("1234567890",input),error=>error.outcome==="unknown");
+ t.mock.method(globalThis,"fetch",async()=>Response.json({attachments:[{...input.attachments[0],attachmentId:7,revisionId:"revision",SubmittedDateTime:null}]}));
+ assert.equal((await client.attachConditions("1234567890",input)).body.attachments[0].attachmentId,7);
+});
 test("condition submissions treat missing, partial and 422 acknowledgments as unknown without retrying",async t=>{
  const db=database(t);await connect(t,db);const client=uwmPublicClient(db,env,staff);let count=0;
  for(const [status,body] of [[200,{documentTypes:["All Conditions"],errors:["partial"]}],[200,{documentTypes:[],errors:[]}],[200,null],[422,{documentTypes:["All Conditions"],errors:["other failure"]}]]){
