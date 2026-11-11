@@ -139,7 +139,7 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
       if (result.outcome === "missing") setReceiptMissing(true);
       else if (result.outcome === "saved" || result.outcome === "newer") {
         trackProcessorSave("");
-        setMessage(result.outcome === "saved" ? "Processor access confirmed." : "This change was saved. A newer processing update is shown below.");
+        setMessage(result.outcome === "saved" ? "Processor change saved." : "This change was saved. A newer processing update is shown below.");
         refreshAssignment();
       } else throw new Error(loadError);
     } catch {
