@@ -125,3 +125,14 @@ Inspection does not initialize or modify the paused store, does not contact UWM,
 455 tests and the 38-stage built-Worker rehearsal passed. Live fictional inspection identified both retained accepted sample PDFs and one older acceptance without a retained PDF, and showed no pending provider rows. The admin recorded this limited fictional result and successfully reopened; normal workspace access returned. No production tenant restore or provider action occurred. Current source and live UI acceptance are in `brand-ux-review.md`.
 
 Next acceptance: scoped reconciliation decisions with a durable evidence reference, unresolved-state handling and controlled replay where supported. Directory recovery, populated provider-workflow recovery, retention policy and real-data admission remain open; R4 is not complete.
+
+
+### Maintenance decisions across tenant restore — November 11, 2026
+
+The isolated hosted rehearsal `orbit-recovery-d172118b` used harness `8a39bc5` and application build `4817b85`. After creating a checkpoint, it paused the fictional workspace through the normal maintenance controls, inspected a retained PDF, and recorded an evidence-bound decision in the directory. The test-only wrapper then deleted the fictional loan and restored the tenant checkpoint. No production tenant was restored.
+
+The directory's maintenance cycle and revision survived unchanged. Normal tenant reads remained blocked after restore, the inspection returned the exact saved decision and matching retained-file fingerprint, and reopening without a new review was rejected. A current admin's completed review and exact workspace confirmation reopened the fixture for the remaining acceptance checks. Both historical accepted PDF hashes, two lender receipts, clearance, audit, borrower/staff/realtor revocations, other-tenant isolation and interrupted replay checks passed. The captured tables now explicitly include `uwm_operations`; provider workflow stores were empty in this run.
+
+[Sanitized evidence](evidence/hosted-recovery-maintenance-2026-11-11.json) records source and artifact identity. The dedicated Worker and bucket were deleted after sample-file cleanup; local operator tokens were removed. Local fixture preparation and focused lint also passed. The fixture membership revision was corrected to match its synthetic staff identity before hosted execution.
+
+This proves that the new pilot maintenance controls and directory decisions survive a **tenant** restore under this isolated procedure. It does not prove recovery of the directory itself, populated provider operations, automatic lender reconciliation or a broker-operated restore/replay product. Those admission gates remain open. The production maintenance-decision UI is still awaiting the coordinated API-controls release; this rehearsal alone is not a publication claim.
