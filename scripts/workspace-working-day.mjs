@@ -51,6 +51,10 @@ const fixtureScript = `
 import worker, { OrbitWorkspace } from "./index.js";
 export default worker;
 export class WorkingDayWorkspace extends OrbitWorkspace {
+  loseNextRecoveryConfirmation() {this.loseRecoveryConfirmation=true;}
+  finishWorkspaceRecoveryEdit(...args) {if(this.loseRecoveryConfirmation){this.loseRecoveryConfirmation=false;throw new Error("Fictional lost receipt confirmation");}return super.finishWorkspaceRecoveryEdit(...args);}
+  async recoveryFixtureCounts(loanId) {return JSON.stringify({proofs:this.ctx.storage.sql.exec("SELECT count(*) AS n FROM recovery_edit_proofs").one().n,
+    activity:this.ctx.storage.sql.exec("SELECT count(*) AS n FROM activity WHERE loanId=?",loanId).one().n});}
   holdOwnerLookup() {this.ownerLookupEntered=false;this.ownerLookupHold=new Promise(resolve=>{this.releaseOwner=resolve;});}
   ownerLookupWaiting() {return this.ownerLookupEntered;}
   releaseOwnerLookup() {this.releaseOwner?.();this.ownerLookupHold=null;}
@@ -3595,6 +3599,53 @@ try {
     assert.deepEqual((await file(owner,loanId)).applications[0].draft,initial.applications[0].draft);
     assert.ok((await borrower(token,{type:"read"})).draft);
     assert.equal((await unaffected()).status,200);
+  });
+  await stage("Internal edit receipts preserve interrupted outcomes for owner review without repeating changes",async()=>{
+    const created=await write(owner,{type:"loan",contactId:"",borrower:"Fictional Recovery Edit",borrowerEmail:"edit-recovery@example.test",
+      address:"",amount:210000,purpose:"Purchase",stage:"Lead",officer:owner.name,partnerId:null,start1003:true});
+    const loanId=created.loanWork.loanId;
+    await write(owner,{type:"requestDocument",loanId,kind:"Pay stub",instructions:"Fictional recovery checklist evidence."});
+    let doc=(await file(owner,loanId)).documentRequests.find(item=>item.kind==="Pay stub");
+    assert.ok(doc);
+    await write(owner,{type:"setDocumentDeadline",loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-01-01"});
+    doc=(await file(owner,loanId)).documentRequests.find(item=>item.id===doc.id);
+    const command={type:"setDocumentDeadline",loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-02-01"};
+    await directory.loseNextRecoveryConfirmation();
+    assert.match((await write(owner,command)).message,/confirmation is pending/);
+    const store=workspaces.getByName(brokerage),counts=await store.recoveryFixtureCounts(loanId);
+    await write(owner,command);assert.deepEqual(await workspaces.getByName(brokerage).recoveryFixtureCounts(loanId),counts);
+    const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
+    const status=async()=> (await runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}})).json();
+    const edits=async(revision,actor=owner)=>runtime.dispatchFetch(origin+endpoint+`&edits=1&revision=${revision}`,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
+    const open=await status();assert.equal((await edits(open.revision)).status,409);
+    const paused=await post(endpoint,{type:"pause",revision:open.revision,reason:"Inspect interrupted fictional document edits.",confirmation:"Fictional Working Day"},owner);
+    assert.equal(paused.mode,"Paused");
+    assert.equal((await edits(paused.revision,officer)).status,409);
+    assert.equal((await edits(paused.revision,processor)).status,409);
+    const report=(await (await edits(paused.revision)).json()).inspection;
+    const pending=report.items.find(item=>item.command.requestId===doc.id&&item.state==="Pending");
+    assert.ok(pending?.canConfirm);assert.equal(pending.finding,"Saved revision present");
+    assert.ok(report.items.some(item=>item.command.requestId===doc.id&&item.state==="Recorded"));
+    try{await store.restartMaintenanceFixture();}catch{/* Saved local proof and directory intent must survive. */}
+    const restarted=(await (await edits(paused.revision)).json()).inspection;
+    assert.deepEqual(restarted,report);
+    const reviewed=await post(endpoint,{type:"review",revision:paused.revision,review:"Fictional earlier reopening review.",checks:[true,true,true]},owner);
+    const input={revision:reviewed.revision,offset:0,id:pending.id,fingerprint:pending.fingerprint,note:"Verified the exact atomic edit receipt after restart. Preserve the saved change without applying it again."};
+    assert.equal((await postResponse(endpoint+"&edits=1",input,officer)).status,409);
+    assert.equal((await postResponse(endpoint+"&edits=1",{...input,fingerprint:"0".repeat(64)},owner)).status,409);
+    const result=await post(endpoint+"&edits=1",input,owner);assert.equal(result.view.reviewedAt,null);assert.equal(result.view.revision,reviewed.revision+1);
+    assert.equal((await postResponse(endpoint+"&edits=1",input,owner)).status,409);
+    assert.deepEqual(await workspaces.getByName(brokerage).recoveryFixtureCounts(loanId),counts);
+    const refreshed=(await (await edits(result.view.revision)).json()).inspection;
+    const resolved=refreshed.items.find(item=>item.id===pending.id);assert.equal(resolved.state,"Reviewed");assert.equal(resolved.canConfirm,false);assert.equal(resolved.review.note,input.note);
+    const final=await post(endpoint,{type:"review",revision:result.view.revision,review:"Verified fictional internal edit receipts and unchanged loan history.",checks:[true,true,true]},owner);
+    assert.equal((await post(endpoint,{type:"reopen",revision:final.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
+    assert.equal((await file(owner,loanId)).documentRequests.find(item=>item.id===doc.id).dueOn,"2030-02-01");
+    if(process.argv.includes("--preview")){
+      const current=(await file(owner,loanId)).documentRequests.find(item=>item.id===doc.id);
+      await directory.loseNextRecoveryConfirmation();
+      await write(owner,{...command,revision:current.revision,deadlineRevision:current.deadlineRevision,dueOn:"2030-03-01"});
+    }
   });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],

@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import {recoveryEditReview,type RecoveryEditInspection} from "./recovery-edit-model";
+import {validRecoveryProof} from "./recovery-edits";
 import { maintenanceDecisionInput, type InspectionDecision, type MaintenanceDecisionInput } from "./maintenance-inspection-model";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
@@ -107,5 +109,22 @@ export function recordMaintenanceDecision(db:Store,staff:WorkspaceStaff,emails:s
     record(db,staff.brokerage.id,{...state,revision:state.revision+1,reviewedAt:null,reviewedBy:null,checks:[false,false,false]},
       "Recorded inspection decision",staff.name,`${input.reference} · ${input.outcome} · ${input.note}`,now);
     return {decision:{id:input.id,reference:input.reference,fingerprint:input.fingerprint,outcome:input.outcome,note:input.note,actor:staff.name,at:now}};
+  });
+}
+
+export function recordRecoveryEditReview(db:Store,staff:WorkspaceStaff,emails:string[],raw:unknown,observed:RecoveryEditInspection["items"][number],now=new Date().toISOString()) {
+  return db.transaction(()=>{
+    const input=recoveryEditReview.parse(raw),state=maintenanceState(db,staff.brokerage.id);
+    if(!maintenanceAdmin(db,staff,emails)||state.mode!=="Paused"||state.revision!==input.revision)
+      throw new Error("Maintenance changed. Refresh before reviewing this edit.");
+    if(observed.id!==input.id || observed.fingerprint!==input.fingerprint || !observed.canConfirm || !validRecoveryProof(observed,observed.sourceProof))
+      throw new Error("This edit has no matching saved proof. Inspect it again; do not assume it completed.");
+    const row=db.prepare("SELECT state FROM brokerage_recovery_edits WHERE id=? AND brokerageId=?").get(input.id,staff.brokerage.id);
+    if(row?.state!=="Pending")throw new Error("The receipt changed. Refresh the edit inspection.");
+    db.prepare("UPDATE brokerage_recovery_edits SET state='Reviewed',proof=?,reviewNote=?,reviewer=?,reviewedAt=? WHERE id=? AND brokerageId=?")
+      .run(JSON.stringify(observed.sourceProof),input.note,staff.name,now,input.id,staff.brokerage.id);
+    record(db,staff.brokerage.id,{...state,revision:state.revision+1,reviewedAt:null,reviewedBy:null,checks:[false,false,false]},
+      "Verified internal edit",staff.name,`${observed.label} · ${input.note}`,now);
+    return maintenanceView(db,staff.brokerage.id,0);
   });
 }

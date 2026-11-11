@@ -1,3 +1,5 @@
+import {readRecoveryDocument,recordRecoveryProof} from "./recovery-edits";
+import type {RecoveryEdit} from "./recovery-edit-model";
 import { z } from "zod";
 import { saveBorrowerChannelsInput } from "./borrower-channel-model";
 import { carryLeadChannelBlocks, linkedChannelLeadIds, saveBorrowerChannels } from "./borrower-channels";
@@ -578,9 +580,9 @@ function scopedLoanId(data: z.infer<typeof command>) {
 export async function executeCommand(db: Store, input: unknown, staff: WorkspaceStaff | null = null, referralOwner?: StaffIdentity,
   leadMembers: CampaignRehearsalMember[] = [], { scopedLeadUpdates = false, scopedLoanUpdates = false, scopedContactUpdates = false,
     scopedInboxUpdates = false, scopedTaskUpdates = false, scopedTemplateUpdates = false, scopedRealtorUpdates = false, scopedMigrationUpdates = false,
-    protectPilotLinks, reviewRouting, campaignRefillRoster, campaignOptOutRoster, uwmEnvironment = process.env }:
+    protectPilotLinks, reviewRouting, campaignRefillRoster, campaignOptOutRoster, recoveryEdit, uwmEnvironment = process.env }:
   { scopedLeadUpdates?: boolean; scopedLoanUpdates?: boolean; scopedContactUpdates?: boolean; scopedInboxUpdates?: boolean; scopedTaskUpdates?: boolean;
-    scopedTemplateUpdates?: boolean; scopedRealtorUpdates?: boolean; scopedMigrationUpdates?: boolean; protectPilotLinks?: ProtectPilotLinks;
+    recoveryEdit?: RecoveryEdit; scopedTemplateUpdates?: boolean; scopedRealtorUpdates?: boolean; scopedMigrationUpdates?: boolean; protectPilotLinks?: ProtectPilotLinks;
     reviewRouting?: { reviewerEmail: string; reviewer: VersionedBrokerageMember | null }; campaignRefillRoster?: CampaignRefillRoster; campaignOptOutRoster?: CampaignOptOutRoster; uwmEnvironment?: UwmEnvironment } = {}):
   Promise<WorkspaceMutationSuccess | LeadMutationResult | CampaignMutationResult | CampaignNavigationResult | CampaignQueueResult | LoanMutationResult |
     ContactMutationResult | LeadInboxMutation | TaskMutationResult | TemplateMutationResult | RealtorMutationResult | PlaybookSettingsMutation |
@@ -1464,8 +1466,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "setDocumentDeadline": {
+          const before = recoveryEdit ? readRecoveryDocument(db,data.loanId,data.requestId) : null;
           const result = setDocumentDeadline(db, data, staff, now);
           if ("error" in result) throw new WorkspaceError(result.error);
+          if(recoveryEdit)recordRecoveryProof(db,recoveryEdit,before,readRecoveryDocument(db,data.loanId,data.requestId),now);
           message = result.message;
           break;
         }

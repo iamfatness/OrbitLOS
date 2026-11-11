@@ -1,6 +1,8 @@
+import {initializeRecoveryEdits,recoveryDeadlineIntent,beginRecoveryEdit,finishRecoveryEdit,readRecoveryProof,recoveryEditRows,inspectRecoveryEdit} from "./lib/recovery-edits";
+import {recoveryEditPage,recoveryEditReview,type RecoveryEdit,type RecoveryEditInspection} from "./lib/recovery-edit-model";
 import { inspectMaintenanceStore } from "./lib/maintenance-inspection";
 import { maintenanceInspectionInput, maintenanceDecisionInput } from "./lib/maintenance-inspection-model";
-import { initializeMaintenance, maintenanceAdmin, maintenanceState, maintenanceView, changeMaintenance, markMaintenanceDrained, maintenanceDecisions, priorMaintenanceDecision, recordMaintenanceDecision } from "./lib/workspace-maintenance";
+import { initializeMaintenance, maintenanceAdmin, maintenanceState, maintenanceView, changeMaintenance, markMaintenanceDrained, maintenanceDecisions, priorMaintenanceDecision, recordMaintenanceDecision, recordRecoveryEditReview } from "./lib/workspace-maintenance";
 import { maintenanceMessage, maintenanceInput, type MaintenanceView } from "./lib/workspace-maintenance-model";
 import { WorkspaceMaintenanceGate, guardWorkspaceMethods } from "./lib/workspace-maintenance-gate";
 import { workspaceMaintenancePage } from "./lib/staff-auth";
@@ -186,6 +188,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       initializeBrokerages(this.#store);
       initializeMaintenance(this.#store);
     }
+    initializeRecoveryEdits(this.#store,this.#id===demoBrokerageId);
     this.#initialized = true;
   }
 
@@ -738,6 +741,37 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return owners ? saveMigrationCutover(this.#store, staff, this.#id, input, undefined, owners) : { error: cutoverUnavailable };
   }
 
+  beginWorkspaceRecoveryEdit(staff:WorkspaceStaff,input:unknown):RecoveryEdit {
+    if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
+    return beginRecoveryEdit(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])],input);
+  }
+  finishWorkspaceRecoveryEdit(staff:WorkspaceStaff,id:string,proof:unknown,rejected:boolean) {
+    if(this.#id!==demoBrokerageId)throw new Error("Recovery directory unavailable.");
+    return finishRecoveryEdit(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])],id,proof,rejected);
+  }
+  readWorkspaceRecoveryEdits(staff:WorkspaceStaff,raw:unknown) {
+    const input=recoveryEditPage.parse(raw);
+    if(!this.mayInspectMaintenance(staff,input.revision))throw new Error("Pause the workspace and refresh before inspecting edits.");
+    return recoveryEditRows(this.#store,staff.brokerage.id,input.offset);
+  }
+  async confirmWorkspaceRecoveryEdit(staff:WorkspaceStaff,raw:unknown):Promise<MaintenanceView> {
+    const input=recoveryEditReview.parse(raw);
+    if(this.#id!==demoBrokerageId || !this.mayInspectMaintenance(staff,input.revision))throw new Error("Pause the workspace and refresh its status before reviewing an edit.");
+    const report=await this.env.WORKSPACE.getByName(staff.brokerage.id).inspectWorkspaceRecoveryEdits(staff,input);
+    const observed=report.items.find(item=>item.id===input.id);
+    if(!observed)throw new Error("This edit moved to another page. Refresh the inspection.");
+    return recordRecoveryEditReview(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])],input,observed);
+  }
+  async inspectWorkspaceRecoveryEdits(staff:WorkspaceStaff,raw:unknown):Promise<RecoveryEditInspection> {
+    const input=recoveryEditPage.parse(raw),gate=maintenanceGates.get(this);
+    if(this.#id!==staff.brokerage.id || !gate?.closed || gate.active)throw new Error("Wait for the workspace to pause before inspecting edits.");
+    const directory=this.env.WORKSPACE.getByName(demoBrokerageId);
+    const page=await directory.readWorkspaceRecoveryEdits(staff,input);
+    const report={...page,revision:input.revision,items:page.items.map(edit=>inspectRecoveryEdit(this.#store,edit))};
+    if(!gate.closed || gate.active || !await directory.mayInspectMaintenance(staff,input.revision))throw new Error("Maintenance changed. Refresh the edit inspection.");
+    return report;
+  }
+
   async write(input: unknown, staff: WorkspaceStaff | null, scope?: WorkspaceMutationScope) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     let referralOwner: StaffIdentity | undefined;
@@ -795,14 +829,25 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const optOutTarget = staff ? staffCampaignOptOutTarget(this.#store, staff, input) : undefined;
     const optOutPlans = optOutTarget ? campaignOptOutPlans(this.#store, optOutTarget) : [];
     const campaignOptOutRoster = staff && optOutPlans.length ? await this.#campaignOptOutRoster(staff, optOutPlans) : undefined;
+    let recoveryEdit:RecoveryEdit|undefined;
+    const intent=staff?recoveryDeadlineIntent(this.#store,staff,input):null;
+    if(staff&&intent) {
+      try {recoveryEdit=await this.env.WORKSPACE.getByName(demoBrokerageId).beginWorkspaceRecoveryEdit(staff,intent);}
+      catch {return {error:"The recovery receipt could not be prepared. Your due date was not changed; try saving again."};}
+    }
     const result = await executeCommand(this.#store, input, staff, referralOwner, leadMembers,
       { scopedLeadUpdates: true, scopedLoanUpdates: true, scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks",
         scopedTemplateUpdates: true, scopedRealtorUpdates: scope === "realtors", scopedMigrationUpdates: scope === "migration",
-        reviewRouting, campaignRefillRoster, campaignOptOutRoster,
+        reviewRouting, campaignRefillRoster, campaignOptOutRoster, recoveryEdit,
         uwmEnvironment: Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_INSIGHTS_CLIENT_ID", "UWM_INSIGHTS_CLIENT_SECRET",
           "UWM_CLIENT_ID", "UWM_CLIENT_SECRET", "UWM_ENVIRONMENT", "ORBIT_PRICING_MODE", "UWM_EQ_CLIENT_ID",
           "UWM_EQ_CLIENT_SECRET", "UWM_EQ_BROKER_ALIAS", "UWM_EQ_LO_EMAIL"].map((key) => [key, runtimeSetting(this.env, key)])),
         protectPilotLinks: staff?.brokerage.pilot ? this.#protectPilotLinks : undefined });
+    if(staff&&recoveryEdit) {
+      try {await this.env.WORKSPACE.getByName(demoBrokerageId).finishWorkspaceRecoveryEdit(staff,recoveryEdit.id,
+        readRecoveryProof(this.#store,recoveryEdit.id),"error" in result);}
+      catch {if("message" in result)result.message+=" Recovery receipt confirmation is pending; an admin can inspect it during maintenance.";}
+    }
     if ("state" in result && input && typeof input === "object" && "type" in input && (input.type === "deleteLoan" || input.type === "loadGuidedDemo")) await this.#scheduleCleanup();
     if (staff?.brokerage.pilot && "referralLoanId" in result && result.referralLoanId && input && typeof input === "object" &&
       "type" in input && input.type === "convertReferral" && "referralId" in input && typeof input.referralId === "string") {
@@ -1217,7 +1262,7 @@ async function authorized(header: string | null, password: string) {
 }
 
 guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
-  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision"]));
+  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit"]));
 
 export default {
   async fetch(request, env, context) {
@@ -1404,6 +1449,12 @@ export default {
       const headers={"Cache-Control":"private, no-store"};
       if (!staff) return Response.json({error:"Sign in to your brokerage first."},{status:403,headers});
       const identity=staff;
+      if(request.method==="GET"&&url.searchParams.get("edits")==="1") {
+        const parsed=recoveryEditPage.safeParse({revision:Number(url.searchParams.get("revision")??-1),offset:Number(url.searchParams.get("offset")??0)});
+        if(!parsed.success)return Response.json({error:"Invalid edit inspection page."},{status:400,headers});
+        try {return Response.json({inspection:await env.WORKSPACE.getByName(identity.brokerage.id).inspectWorkspaceRecoveryEdits(identity,parsed.data)},{headers});}
+        catch{return Response.json({error:"Edit inspection unavailable. Pause the workspace and refresh its status."},{status:409,headers});}
+      }
       if (request.method === "GET" && url.searchParams.get("inspect") === "1") {
         const parsed=maintenanceInspectionInput.safeParse({revision:Number(url.searchParams.get("revision") ?? -1),
           documents:Number(url.searchParams.get("documents") ?? 0), requests:Number(url.searchParams.get("requests") ?? 0)});
@@ -1417,9 +1468,13 @@ export default {
         const value=await directory.manageWorkspaceMaintenance(identity);
         return Response.json(value,{status:"error" in value?403:200,headers});
       }
+      if(request.method==="POST"&&url.searchParams.get("edits")==="1")return borrowerJson(request,async input=>{
+        try{return {value:{view:await directory.confirmWorkspaceRecoveryEdit(identity,input)}};}
+        catch(error){return {status:409,error:error instanceof Error?error.message:"Edit review failed. Refresh its inspection."};}
+      },4096);
       if (request.method === "POST" && url.searchParams.get("decision") === "1") return borrowerJson(request,async input=>{
         const value=await directory.saveMaintenanceDecision(identity,input);
-        return "error" in value?{status:409,error:value.error}:{value};
+        return "error" in value?{status:409,error:value.error??"Decision unavailable."}:{value};
       },4096);
       if (request.method === "POST") return borrowerJson(request,async input=>{
         const value=await directory.manageWorkspaceMaintenance(identity,input);

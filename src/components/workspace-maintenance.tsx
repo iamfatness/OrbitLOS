@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, CheckCircle2, PauseCircle, ShieldCheck } from "lucide-react";
 import { Button } from "./ui/button";
+import { RecoveryEdits } from "./recovery-edits";
 import { MaintenanceInspectionPanel } from "./maintenance-inspection";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { brokerageUrl } from "@/lib/brokerage-model";
@@ -82,6 +83,8 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
           </form></section>:<>
           <MaintenanceInspectionPanel key={view.startedAt} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
             onDecisionSaved={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
+          <RecoveryEdits key={`edits:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
+            onReviewed={next=>{setView(next);setReviewDraft({review:reviewValues.review,checks:[false,false,false]});setMessage("");}}/>
           <div className="maintenance-columns">
           <section className="pipeline relationship-panel"><h2>Reopening review</h2><p className="muted">Confirm the outcome of your investigation or recovery. Check each item only after reviewing its evidence.</p>
             <form key={view.startedAt} className="maintenance-form" onSubmit={event=>submit(event,"review")}>
