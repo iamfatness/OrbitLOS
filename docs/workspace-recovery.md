@@ -114,3 +114,14 @@ The 38-stage built-Worker rehearsal verified a held active lookup through draini
 Operational limits: a recorded review is an operator attestation, not an automatic reconciliation report. Zero tracked active requests after a restart does not establish an external provider's result. Actual restore remains an engineering procedure. Rolling back to code before the maintenance feature would ignore these new directory records; do not use a pre-maintenance application rollback while relying on its access fence.
 
 Next: read-only recovery inspection and unresolved-request reconciliation in the paused workspace, followed by controlled replay evidence. Directory recovery, populated UWM workflow recovery, retention policy and production admission remain open. R4 is not complete.
+
+
+### Read-only paused-workspace inspection published — November 11, 2026
+
+Application `09cf922` / Worker `f6ffd915-a3bc-477c-a147-bbe03dde9f05` adds evidence inspection before the reopening review. Current pilot admins can read saved-record counts, unresolved/acknowledged UWM request/operation rows and pending uploads, and bounded pages of retained file references. Each page checks stored-object existence through R2 HEAD, deduplicates repeated object checks, and distinguishes unavailable checks, missing objects and absent historical file associations. Borrower/lead names identify rows, with internal references collapsed. Payloads, storage keys and tokens are omitted.
+
+Inspection does not initialize or modify the paused store, does not contact UWM, and revalidates maintenance revision and access after asynchronous storage reads. A result is scoped to its recorded revision/time and page, not a complete recovery certificate. It does not compare source/checkpoint hashes, validate PDF contents, reconcile external outcomes, replay requests, or establish directory/portal permission recovery. Recorded reopening checks remain explicit operator attestations.
+
+455 tests and the 38-stage built-Worker rehearsal passed. Live fictional inspection identified both retained accepted sample PDFs and one older acceptance without a retained PDF, and showed no pending provider rows. The admin recorded this limited fictional result and successfully reopened; normal workspace access returned. No production tenant restore or provider action occurred. Current source and live UI acceptance are in `brand-ux-review.md`.
+
+Next acceptance: scoped reconciliation decisions with a durable evidence reference, unresolved-state handling and controlled replay where supported. Directory recovery, populated provider-workflow recovery, retention policy and real-data admission remain open; R4 is not complete.
