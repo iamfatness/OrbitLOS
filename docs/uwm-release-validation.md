@@ -1,5 +1,15 @@
 # UWM publication validation — November 10, 2026
 
+## Continuation status
+
+Stage now runs source `ff0131a` as version `b58a7456-c8ca-4796-8851-4ae00b01f2c5`. User credentials are isolated from pricing under `UWM_USER_*`, with a preparation command that rejects mismatched environments and refuses to overwrite encryption keys. The full pre-merge suite passed 423 tests; the merged CRM readiness test, TypeScript and ESLint also passed. Stage public, authenticated demo, staff-API rejection and webhook isolation checks passed.
+
+**The production release recorded below was superseded by another active CRM release.** Latest observed production is `bb28be52-5e94-4f9b-b332-7596d4736b12`, source `30c3739`, which does not include this UWM release. That source has been merged into this branch. Another CRM candidate is being verified at 0%; coordinate with that task before promoting the combined source to avoid overwriting either set of changes. The current continuation has not republished production or dev.
+
+The Developer Portal still requires user sign-in; no newer UWM email supplied the missing payload contracts or samples. Stage Google credentials, test brokerage and UWM user access remain prerequisites. The credential separation does not activate live loan actions.
+
+## Earlier publication record
+
 Published application source: `4acce3281077e78c49491ab60876da713aa33a8e` on `release/uwm-live-2026-11-10`. Includes CRM source `ec142e9`; the older root working tree was not published. Later documentation commits do not change the deployed application.
 
 | Host | Cloudflare version | Result |
