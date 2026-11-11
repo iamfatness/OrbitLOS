@@ -19,12 +19,14 @@ const phases=['new','initialized','checkpointed','changed','armed','restarted','
 const statusResponse=await fetch(new URL('/__recovery',url),{method:'POST',headers:{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`},body:'status'});
 assert.equal(statusResponse.status,200);
 const current=await statusResponse.json();assert.equal(current.run,run.run);assert.equal(current.source,run.source);
+if(current.artifactSha256)assert.equal(current.artifactSha256,run.artifactSha256,"Hosted artifact differs from prepared modules");
 const start=phases.indexOf(current.phase);assert.ok(start>=0);
 if(start===steps.length)console.log(JSON.stringify(current,null,2));
 for(const step of steps.slice(start)){
  const response=await fetch(new URL('/__recovery',url),{method:'POST',headers:{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`},body:step,signal:AbortSignal.timeout(60000)});
  const result=await response.json();
  assert.equal(response.status,200,`${step}: ${result.error}`);
+ if(result.artifactSha256)assert.equal(result.artifactSha256,run.artifactSha256,"Hosted artifact differs from prepared modules");
  evidence.push({step,...result});
  await writeFile(resolve(folder,'evidence.json'),JSON.stringify(evidence,null,2));
  console.log(`${step}: ${result.phase}`);

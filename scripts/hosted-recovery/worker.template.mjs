@@ -61,9 +61,14 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     const write=async input=>requireOk(await this.write({...input,loanId:item.loanId},item.admin));
     const link=this.probeApplication(item.loanId);
     const initial=this.borrower({type:"read",token:link.token},true);
-    const submitted=this.borrower({type:"submit",token:link.token,revision:initial.revision,step:finalStep,draft:sampleDraft},true);
-    if (submitted.error || !submitted.submittedAt) throw new Error(submitted.error||"Fictional 1003 did not submit");
-    await write({type:"reviewApplication",revision:submitted.revision});
+    if (!initial.application) throw new Error(initial.error||"Fictional 1003 unavailable");
+    if (!initial.application.submittedAt) {
+      const submitted=this.borrower({type:"submit",token:link.token,revision:initial.application.revision,step:finalStep,draft:sampleDraft},true);
+      if (submitted.error || !submitted.application?.submittedAt) throw new Error(submitted.error||"Fictional 1003 did not submit");
+      await write({type:"reviewApplication",revision:submitted.application.revision});
+    }
+    const previous=this.ctx.storage.sql.exec("SELECT targetDate FROM closing_plans WHERE loanId=?",item.loanId).toArray()[0]?.targetDate??null;
+    await write({type:"saveClosingTarget",previous,targetDate:"2030-02-10"});
     await write({type:"submission",lender:"Fictional Recovery Wholesale",externalId:"RECOVERY-FILE-01",status:"In underwriting"});
     const read=()=>this.read(item.admin);
     const submissionId=read().submissions.find(file=>file.loanId===item.loanId&&file.externalId==="RECOVERY-FILE-01").id;
