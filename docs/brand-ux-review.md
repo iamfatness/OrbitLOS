@@ -391,3 +391,8 @@ Playwright CLI exercised the built Worker at1440x1000,900x1200,390x844. Empty st
 
 
 Live acceptance: Worker aadaa0a5 passed checkpoint create,199-table unchanged comparison, evidence inspection, stale notice after review, refreshed comparison and reopening in Role Handoff QA.900/390-width overflow checks passed; overrides reset. Public product copy verified. Proof: output/playwright/checkpoints-live-reviewed.png and checkpoints-live-reopened.png. Existing missing legacy sample file was included in the review notes; no recovery or provider mutation was performed. Final combined480 tests and41-stage working day passed;543 retained/current assets verified twice before and after promotion.
+
+
+### Loan retention inventory and holds
+
+The owner inventory uses the existing Compliance navigation, a borrower search and an active-hold count that filters the records. The review names the borrower and the effect of the action. Feedback moves focus to the receipt, and closing history returns focus to its originating button. The Playwright pass checked 1440, 900 and 390 pixels, with a 44-pixel confirmation control and no horizontal overflow. UI UX Pro Max informed feedback and filter wrapping. Impeccable's rendered scan reported the existing Inter typeface and global theme effects. The new panel uses the shared typography and neutral surfaces. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill).

@@ -63,3 +63,16 @@ Priorities indicate sequencing, not permission to postpone an applicable require
 For each enabled brokerage/state/product/activity, require: legal applicability sign-off; all required control implementations; negative-path test evidence; verified provider/lender responsibilities; operational owner and backup; retained sample artifacts; training and incident/complaint procedures; monitor and rollback plan. Obtain legal review of conflicting, stale or limited-retrieval sources. Mark each requirement independently as researched, legally reviewed, implemented, tested, operationally evidenced and release-approved. Never compress these into one “compliant” checkbox.
 
 At this baseline **no jurisdiction receives release approval from the register**. Its coverage checks verify catalog integrity only. The implementation above must be completed and validated against the brokerage's actual approved scope before Orbit can claim to handle those duties in live workflows. Keep research and this backlog linked to the product delivery plan so future provider features cannot bypass compliance gates.
+
+
+## Pilot loan retention
+
+In **Compliance → Loan retention**, a current pilot owner can search loans by borrower, filter to active holds and open a loan. Counts cover checklist requests and distinct PDF references, including versions retained by an active hold. An owner can place or release a hold with a reference. The history records who acted and when. Loan officers and processors cannot access the inventory or change a hold.
+
+An active hold blocks loan deletion and a sample reset that would remove the loan. It preserves existing and replacement checklist PDFs while normal loan work continues. Releasing a hold restores the normal cleanup rules for obsolete copies. The loan and current documents follow their existing lifecycle. Hold history survives release. The ordinary restore flow blocks active holds and checkpoints that would rewind hold history. Use the incident review for a workspace with an active hold. Keep this protection in active and rollback releases while any hold exists.
+
+This pilot covers loan and checklist records. Policy periods, holds for other record types, archived-byte export, and review of production retention and disposition remain open.
+
+### Release verification
+
+Application `ca18588` is live on Worker `b7e7d2c9-c341-4f7b-97ee-216396d55d12`. All 505 tests, type checking, lint and the 43-stage working day passed. The local browser verified search, placement, release, history, focus and role restrictions at desktop, portrait and phone widths. The live QA owner loaded the inventory. The first hosted run hit a Cloudflare compound-query limit during checkpoint capture. The corrected isolated run `orbit-recovery-a8a8959a` verified the existing tenant and shared-directory restore paths, including the existing brokerage maintenance hold. Unit tests separately verified that an active loan retention hold protects replaced PDF bytes and blocks ordinary restore. The fixture Workers, buckets and test credentials were removed. [Release evidence](../evidence/loan-retention-release-2026-11-11.json).
