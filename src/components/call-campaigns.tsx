@@ -19,6 +19,7 @@ import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 import { CrmSegments } from "./crm-segments";
 import { CampaignAssignments } from "./campaign-assignments";
+import { sequenceWorkLabel } from "@/lib/campaign-sequence-model";
 import { CampaignSequence, CampaignSequenceToggle } from "./campaign-sequence";
 import { CampaignRouting, CampaignRoutingCapacity } from "./campaign-routing";
 import { CampaignResponse } from "./campaign-response";
@@ -204,10 +205,10 @@ function CampaignCallContext({ lead, member, campaignName }: { lead: InboxLead; 
   </section>;
 }
 
-function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId, busy, overdue, callbackDue, showCallContext, allowDirectAssignment, save, openLead, openConversation, convert, onCallSaved, onClaim }: {
+function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId, busy, overdue, callbackDue, showCallContext, allowDirectAssignment, save, openLead, openConversation, openToday, convert, onCallSaved, onClaim }: {
   member: CallCampaignMember; lead?: InboxLead; campaign: CallCampaign; staff: WorkspaceStaff | null; now: number; busy: boolean; save: Save;
   focused: boolean; focusTaskId?: string; overdue: boolean; callbackDue: boolean; showCallContext: boolean; allowDirectAssignment: boolean;
-  openLead: (id: string) => void; openConversation: (id: string) => void; convert: (id: string) => void;
+  openLead: (id: string) => void; openConversation: (id: string) => void; openToday: () => void; convert: (id: string) => void;
   onCallSaved: (lead: InboxLead, outcome: CallOutcome, updated: Workspace) => void;
   onClaim: (leadId: string) => void;
 }) {
@@ -237,10 +238,14 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
   const rehearseFailure = (!staff ? process.env.NODE_ENV === "development" : staff.brokerage.pilot && staff.brokerage.role === "Admin") &&
     (outcome === "Requested callback" || (!campaign.automaticPaused && ((outcome === "Left message" && campaign.voicemailDays > 0) ||
       (outcome === "No response" && campaign.noResponseDays > 0)) && member.attempts + 1 < campaign.maxAttempts));
+  const firstCallReady = campaignCallQueues([{ member, lead, optedOut }], now).firstCalls.length > 0;
+  const nextWork = firstCallReady ? "Ready to call" : sequence ?
+    (sequence.channel === "Call" && borrowerChannelBlocked(lead?.outreachChannelBlocks, "Call") ? "Calls blocked" : sequenceWorkLabel(sequence, now, callWait)) :
+    borrowerChannelBlocked(lead?.outreachChannelBlocks, "Call") ? "Calls blocked" : member.lastOutcome || "No call scheduled";
   const stage = held ? "On hold" : optedOut ? "Opted out" : member.resolvedAt ? "Closed lead" :
     member.followUpRunStatus === "Paused" ? "Automatic retry paused" : member.followUpRunStatus === "Failed" ? "Follow-up needs recovery" :
       member.callbackDueAt ? (member.lastOutcome === "Requested callback" ? "Callback scheduled" : "Retry scheduled") :
-        lead?.followUp.replyReceivedAt ? "Reply received" : retryExhausted ? "Retry limit reached" : member.lastOutcome || "Ready to call";
+        lead?.followUp.replyReceivedAt ? "Reply received" : retryExhausted ? "Retry limit reached" : nextWork;
   const badge = shared && !retryExhausted ? "Needs owner" : callbackDue ? (member.lastOutcome === "Requested callback" ? "Callback due" : "Retry due") : overdue ? "First contact overdue" : stage;
   return <li className="document-item campaign-lead" ref={card} tabIndex={-1}>
     <div className="document-item-head"><strong>{member.name}</strong><span className={overdue || callbackDue ? "open-chip" : "pill"}>{badge}</span></div>
@@ -251,6 +256,7 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
       {!(showCallContext && canWork && !optedOut) && !member.resolvedAt && !held && member.callbackDueAt && ` · ${dateTime(member.callbackDueAt)} ET`}</p>
     {sequence && lead && <div className="loan-application-actions">
       <span className="muted">{member.sequenceKind} · {sequence.paused ? "Paused at step" : "Step"} {sequence.position + 1} · {sequence.title} · {dateTime(sequence.dueAt)} ET</span>
+      {(!staff || lead.officerEmail === staff.email) && <Button size="sm" variant="ghost" onClick={openToday}>View sequence work in Today</Button>}
       {callWait && <span className="muted">Sequence call available {dateTime(callWait)} ET within preferred hours.</span>}
       {canManageSequence && !held && <CampaignSequenceToggle campaignId={campaign.id} leadId={lead.id} revision={lead.followUp.revision}
         paused={sequence.paused} busy={busy} save={save} />}
@@ -323,11 +329,11 @@ function CampaignCall({ member, lead, campaign, staff, now, focused, focusTaskId
   </li>;
 }
 
-export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, focusTaskId, now, busy, save, openLead, openLoan, openConversation, openCallback, openManagerRecord, convert }: {
+export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, focusTaskId, now, busy, save, openLead, openLoan, openConversation, openToday, openCallback, openManagerRecord, convert }: {
   state: Workspace; staff: WorkspaceStaff | null; selectedId: string; select: (id: string, alreadyLoaded?: boolean) => void; now: number; busy: boolean;
   focusLeadId?: string; focusTaskId?: string; save: Save; openLead: (id: string) => void; openLoan: (id: string) => void;
   convert: (id: string, after: () => void) => void;
-  openConversation: (id: string) => void;
+  openConversation: (id: string) => void; openToday: () => void;
   openCallback: (item: CampaignCallbackItem) => void;
   openManagerRecord: (row: CampaignManagerRecord) => void;
 }) {
@@ -485,7 +491,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
       focused={member.leadId === (view === "Next call" ? callLeadId : claimedLeadId ?? focusLeadId)} busy={busy}
       focusTaskId={view !== "Next call" && member.leadId === focusLeadId ? focusTaskId : undefined} overdue={overdueIds.has(member.leadId)} callbackDue={dueCallbackIds.has(member.leadId)}
       showCallContext={view === "Next call" || (member.leadId === focusLeadId && !!member.callbackDueAt)}
-      allowDirectAssignment={canManage && view === "Unassigned"} save={save} openLead={openLead} openConversation={openConversation} convert={startApplication}
+      allowDirectAssignment={canManage && view === "Unassigned"} save={save} openLead={openLead} openConversation={openConversation} openToday={openToday} convert={startApplication}
       onClaim={(leadId) => { changeView("Enrolled"); setClaimedLeadId(leadId); }}
       onCallSaved={(lead, outcome, updated) => {
         const anchor = { leadId: lead.id, campaignId: member.campaignId, ownerEmail: lead.officerEmail, view, segmentId };

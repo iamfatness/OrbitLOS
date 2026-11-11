@@ -58,6 +58,13 @@ export type CampaignSequenceConfig = {
 export type CampaignSequenceProgress = { position: number; title: string; dueAt: string; paused: boolean; channel?: CampaignSequenceStep["channel"] };
 export type DueSequenceStep = CampaignSequenceStep & { version: number; position: number; recipient: string | null; waitUntil?: string };
 
+export function sequenceWorkLabel(sequence: CampaignSequenceProgress, now: number, availableAt?: string | null) {
+  if (sequence.paused) return "Sequence paused";
+  const channel = sequence.channel ?? "Sequence";
+  const scheduled = Math.max(Date.parse(sequence.dueAt), availableAt ? Date.parse(availableAt) : 0);
+  return `${channel} step ${scheduled > now ? "scheduled" : "due"}`;
+}
+
 export function sequenceTaskId(leadId: string, version: number, position: number) {
   return `${leadId}:${version}:${position}`;
 }
