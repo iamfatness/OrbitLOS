@@ -38,7 +38,7 @@ import { contactsUnavailable } from "./lib/contact-directory-model";
 import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
 import { googleSettings, handleStaffAuth, runtimeSetting, staffLoginUrl, staffSessionHash, workspaceAccessDenied } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
-import { brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
+import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
 import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
 import { assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
@@ -1367,7 +1367,7 @@ export default {
           if (access) {
             const { identity } = access;
             brokerages = access.brokerages;
-            const brokerage = requested === null ? brokerages.find(entry=>!entry.maintenance) ?? brokerages[0] : brokerages.find((entry) => entry.id === requested);
+            const brokerage = requested === null ? (openingWorkspace && !guide ? defaultWorkspace(brokerages, (env as unknown as Record<string,string | undefined>).UWM_BROKERAGE_ID) : brokerages.find(entry=>!entry.maintenance) ?? brokerages[0]) : brokerages.find((entry) => entry.id === requested);
             if (requested !== null && !brokerage && (brokerages.length || openingWorkspace)) {
               if (workspaceTarget && await directory.staffInvitedTo(workspaceTarget, identity.email)) return login();
               if (openingWorkspace) return workspaceAccessDenied(workspaceTarget, guide);
@@ -1419,7 +1419,7 @@ export default {
       }
       if (request.method === "POST" && url.searchParams.get("decision") === "1") return borrowerJson(request,async input=>{
         const value=await directory.saveMaintenanceDecision(identity,input);
-        return "error" in value?{status:409,error:value.error}:{value};
+        return "error" in value?{status:409,error:value.error ?? "The maintenance decision could not be saved."}:{value};
       },4096);
       if (request.method === "POST") return borrowerJson(request,async input=>{
         const value=await directory.manageWorkspaceMaintenance(identity,input);

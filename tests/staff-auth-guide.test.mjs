@@ -15,7 +15,7 @@ registerHooks({ resolve(specifier, context, next) {
 const { initializeStore } = await import("../src/lib/store.ts");
 const { staffAuthStore } = await import("../src/lib/staff-store.ts");
 const { handleStaffAuth, staffLoginUrl, staffSessionHash, workspaceAccessDenied } = await import("../src/lib/staff-auth.ts");
-const { brokerageUrl } = await import("../src/lib/brokerage-model.ts");
+const { brokerageUrl, defaultWorkspace, demoBrokerageId } = await import("../src/lib/brokerage-model.ts");
 const { initializeBrokerages, readStaffAccess } = await import("../src/lib/brokerages.ts");
 
 test("staff sign-in preserves only an allowed guide through an older workspace and a cancelled attempt", async (t) => {
@@ -94,4 +94,19 @@ test("workspace denial offers safe account recovery without revealing brokerage 
   const invalid = await workspaceAccessDenied('"<script>alert(1)</script>').text();
   assert.doesNotMatch(invalid, /<script>|alert\(1\)/);
   assert.match(invalid, /href="\/login"/);
+});
+
+
+test("workspace entry prefers accessible operational work and explicit demo links remain available", () => {
+  const demo={id:demoBrokerageId,name:"Demo",role:"Admin"};
+  const testSpace={id:crypto.randomUUID(),name:"QA",role:"Admin",pilot:true};
+  const production={id:crypto.randomUUID(),name:"Production",role:"Admin"};
+  const second={id:crypto.randomUUID(),name:"Second",role:"LO"};
+  assert.equal(defaultWorkspace([demo,testSpace,production],production.id),production);
+  assert.equal(defaultWorkspace([demo,testSpace,production],"inaccessible"),production);
+  assert.equal(defaultWorkspace([demo,production,second],second.id),second);
+  assert.equal(defaultWorkspace([demo,{...production,maintenance:true}],production.id),demo);
+  assert.equal(defaultWorkspace([demo,testSpace]),demo);
+  assert.equal(defaultWorkspace([]),undefined);
+  assert.equal(brokerageUrl(demoBrokerageId),"/workspace?brokerage=orbit-demo");
 });
