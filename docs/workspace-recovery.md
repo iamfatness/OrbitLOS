@@ -308,3 +308,8 @@ After the final directory restore and before reopening traffic, clear the restor
 3. After a lost response, retry the same request ID and fingerprint. A receipt describes the completed historical reset. Send a fresh GET and verify both counts are zero before continuing the reopening review. If another directory restore occurs, verify the current state and use a new reviewed reset if needed.
 
 The action does not alter brokerage membership or portal access records. Finish the rest of the recovery review before removing the pause.
+
+
+Application `8d9d238` passed 502 tests, typecheck, lint, the production build and the 42-stage working-day rehearsal. Isolated hosted run `orbit-recovery-2d596439` verified that an actual older restore revived a previously ended fictional session and a pending sign-in. The reset cleared two sessions and one attempt, the same request returned the original receipt, and a fresh check found zero remaining rows. The test kept the fixture identifiers in the independent journal so they remained available after restore. Fixture resources were removed. [Hosted sign-in reset evidence](evidence/hosted-directory-sign-in-reset-2026-11-11.json).
+
+Worker `a0d679f4-ce91-4eb4-b9dd-e51031953f34` serves all traffic. All 23 bindings and 893 browser assets matched, with two clean staged and live passes. Sign-in, the public Product page and authenticated fictional QA data loaded on OrbitLOS.com. The unauthenticated reset request returned 404. The production pause remained inactive throughout.
