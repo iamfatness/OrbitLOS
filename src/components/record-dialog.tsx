@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Calculator, CheckCircle2, Circle, ClipboardList, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Send, Trash2, X } from "lucide-react";
 import { activityKinds, contactOutcomes, leadSources, prospectingBlocked, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
-import { dateTime, initials, money, requestedMoney, stageDays } from "@/lib/utils";
+import { dateTime, money, requestedMoney, stageDays } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
 import { JointBorrowerLinks } from "./joint-borrower-links";
@@ -495,9 +495,9 @@ function LenderApplicationDetails({ application, busy, save, markDraftChanged }:
 }
 
 const loanSections = [
-  ["Overview", "loan-workflow"], ["1003", "loan-application"], ["Conditions", "lender-submissions"],
+  ["Overview", "loan-overview"], ["1003", "loan-application"], ["Conditions", "lender-submissions"],
   ["Scenarios", "loan-scenarios"],
-  ["Pricing & credit", "loan-pricing"], ["Disclosures", disclosureTarget], ["Compliance", complianceTarget], ["Closing", "closing-workbench"], ["Activity", "loan-activity"],
+  ["Pricing & credit", "loan-pricing"], ["Disclosures", disclosureTarget], ["Compliance", complianceTarget], ["Closing", "closing-workbench"], ["Activity", "loan-activity-overview"],
 ] as const;
 
 function hasDisclosures(staff: WorkspaceStaff | null) {
@@ -521,7 +521,7 @@ function loanSection(target?: string) {
   if (target === "credit-aus" || target === "loan-pricing" || target === "income-worksheet" || target === sharedQuoteReviewTarget) return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" || target === closingDisclosureReviewTarget ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
-  if (["loan-activity", "loan-tasks", "loan-retention", "loan-communications", loanReviewsTarget, filePreflightRequestTarget].includes(target) ||
+  if (["loan-activity-overview", "loan-activity", "loan-tasks", "loan-retention", "loan-communications", "loan-audit-history", loanReviewsTarget, filePreflightRequestTarget].includes(target) ||
     target.startsWith(appointmentTargetPrefix) || target.startsWith(searchTaskTarget("")) || target.startsWith(reviewTarget(""))) return "Activity";
   return "Overview";
 }
@@ -591,7 +591,7 @@ function CarriedCallbackRescheduleForm({ loanId, taskId, dueAt, revision, busy, 
 }
 
 function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, incomeWorksheetRevision, openConversation, openRateWatchRefinance, appointmentChanged, reviewChanged,
-  markDraftChanged, openScopedLoan }: {
+  markDraftChanged, open, refreshDisclosures }: {
   target?: string; campaignLender?: CampaignLenderPath; incomeWorksheetRevision?: number; loan: Loan; state: Workspace; staff: WorkspaceStaff | null;
   busy: boolean; save: Save; show: (modal: Modal) => void;
   openConversation: (subject: ConversationSubject) => void;
@@ -599,7 +599,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   appointmentChanged: () => void;
   reviewChanged: () => void;
   markDraftChanged: (editor: Node) => void;
-  openScopedLoan: (destination?: string) => void;
+  open: (destination: string) => void;
+  refreshDisclosures: () => void;
 }) {
   const processor = staff?.brokerage.role === "Processor";
   const fictionalUwm = !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
@@ -640,79 +641,61 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const savedOffer = savedPricing?.offers.find((item) => item.id === savedPricing.selectedId);
   const rate = state.mockUwmRates.find((item) => item.loanId === loan.id);
   const section = loanSection(target);
-  const action = loanNextAction(loan, state, staff?.brokerage.role);
   const uwm = submissions.filter((item) => item.lender === "UWM");
   const linkedManual = application?.manualHandoff?.acknowledgmentOutdated ? undefined :
     submissions.find((item) => item.id === application?.manualHandoff?.submissionId && item.syncedAt === null);
-  const displayManual = uwm.length === 0 ? linkedManual ?? submissions.find((item) => item.id === application?.lastManualSubmissionId && item.syncedAt === null) : undefined;
+  const displayManual = uwm.length === 0 ? linkedManual ??
+    submissions.find((item) => item.id === application?.lastManualSubmissionId && item.syncedAt === null) ??
+    submissions.find((item) => item.syncedAt === null) : undefined;
   const lenderStatus = displayManual?.status ?? uwm[0]?.status ?? "Awaiting submission";
   const openCount = (displayManual ? displayManual.conditions : uwm.flatMap((item) => item.conditions)).filter((item) => !item.satisfiedAt).length;
   const realtorDraft = state.communicationDrafts.find((draft) => draft.loanId === loan.id && draft.audience === "Realtor" && draft.contactId === loan.partnerId);
   const checklistLinks = borrowerChecklistLinks(application);
   const joint = !!application?.joint;
-  const open = (destination: string) => {
-    if (destination.startsWith(preflightFeesTarget)) {
-      if (!processor) {
-        show({ kind: "pricing", loanId: loan.id, campaignLender, focusFees: destination });
-        return;
-      }
-      destination = "loan-pricing";
-    }
-    if (needsScopedLoan(destination, state, staff)) {
-      openScopedLoan(destination);
-    }
-    else show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
-  };
   const openPricing = (useMockScore?: boolean, reviewedIncome?: ReviewedIncomeSource) =>
     show({ kind: "pricing", loanId: loan.id, campaignLender, useMockScore, reviewedIncome });
   const inlineRequests = new Set(submissions.flatMap((item) => requests.filter((request) => request.submissionId === item.id &&
     item.conditions.some((condition) => condition.id === request.conditionId && (item.syncedAt || condition.manual))).map((request) => request.id)));
   return (
-    <div className="details-body">
-      <div className="loan-file-hero">
-        <div className="details-person"><span className="avatar avatar-large">{initials(borrower?.name ?? "?")}</span>
-          <div><h3>{borrower?.name}</h3><p>{[amountDiffers ? `Recorded ${money(loan.amount)}` : money(loan.amount), loan.purpose, loan.address || propertyStatus].join(" · ")}</p>
-            {amountDiffers && <button className="name-link" type="button" onClick={() => open(loanAmountComparisonTarget)}>
-              1003 request {requestedMoney(requestedAmount)}
-            </button>}
-            {loan.callCampaignName && <p><strong>Call campaign</strong> · {loan.callCampaignName}</p>}</div>
+    <div className="details-body" id="loan-section-content" tabIndex={-1}>
+      {section === "Overview" && <>
+      <section className="loan-file-snapshot" aria-label="Loan snapshot">
+        <div className="section-heading">
+          <div><h3>{loan.purpose}{loan.amount > 0 && ` · ${amountDiffers ? "Recorded " : ""}${money(loan.amount)}`}</h3>
+            <p className="muted">{loan.address || propertyStatus}</p></div>
           {!processor && <Button variant="outline" size="sm" onClick={() => show({ kind: "loan", loanId: loan.id })}><Pencil /> Edit loan</Button>}
         </div>
-        <div className="details-grid">
-          <div><span>Pipeline stage</span><strong>{loan.stage}</strong><span suppressHydrationWarning>{stageDays(loan.stageSince)}d in stage</span></div>
-          <div><span>{displayManual ? `${displayManual.lender} · Manual` : uwm[0]?.syncSource === "Insights" ? "UWM Insights" : fictionalUwm ? "UWM · Sample" : "Lender handoff"}</span><strong>{lenderStatus}</strong>
-            {(displayManual || uwm.length > 0) && <button type="button" className="condition-status" data-outstanding={openCount > 0}
-              onClick={() => open(displayManual ? submissionTarget(displayManual.id) : "lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button>}</div>
-          <div><span>Realtor partner</span><strong>{partner?.name ?? "Unassigned"}</strong></div>
-          <div><span>Loan officer</span><strong>{loan.officer || "Unassigned"}</strong></div>
-        </div>
-      </div>
-      <div className="loan-status-action">
-        <div><small>Next action</small><strong>{action.title}</strong>
-          {(action.blocker || action.dueAt) && <span>{[action.blocker, action.dueAt && `Due ${dateTime(action.dueAt)} ET`].filter(Boolean).join(" · ")}</span>}
-        </div>
-        <Button size="sm" onClick={() => open(action.target)}>Open next action <ArrowRight aria-hidden="true" /></Button>
-      </div>
-      <nav className="loan-section-nav" aria-label="Loan sections">{visibleLoanSections(staff).map(([name, destination]) =>
-        <button key={name} type="button" aria-current={section === name ? "page" : undefined} onClick={() => open(destination)}>{name}</button>)}
-      </nav>
-      {section === "Overview" && <>
-      <LoanWorkflow key={loan.dispositionRevision} loan={loan} busy={busy} readOnly={processor} save={(input) => void save(input)} />
+        {amountDiffers && <div><button className="name-link" type="button" onClick={() => open(loanAmountComparisonTarget)}>
+          1003 request {requestedMoney(requestedAmount)}
+        </button></div>}
+        <dl className="loan-snapshot-facts">
+          <div><dt>{displayManual ? `${displayManual.lender} · Manual` : uwm[0]?.syncSource === "Insights" ? "UWM Insights" : fictionalUwm ? "UWM · Sample" : "Lender handoff"}</dt>
+            <dd>{lenderStatus}</dd>
+            {(displayManual || uwm.length > 0) && <dd><button type="button" className="condition-status" data-outstanding={openCount > 0}
+              onClick={() => open(displayManual ? submissionTarget(displayManual.id) : "lender-submissions")}>{openCount} outstanding {openCount === 1 ? "condition" : "conditions"}</button></dd>}</div>
+          <div><dt>Loan officer</dt><dd>{loan.officer || "Unassigned"}</dd></div>
+          {assignment?.processorName && <div><dt>Processor</dt><dd>{assignment.processorName}</dd></div>}
+          <div><dt>Realtor partner</dt><dd>{partner?.name ?? "Unassigned"}</dd></div>
+          {loan.callCampaignName && <div><dt>Call campaign</dt><dd>{loan.callCampaignName}</dd></div>}
+        </dl>
+      </section>
       <ProcessingHandoff loan={loan} assignment={assignment} history={state.processingActivity}
         application={application} documents={requests} requireSecondReview={state.playbook.requireSecondReview} staff={staff}
         busy={busy} save={(input, after) => void save(input, after)} open={open} openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined}
         openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "processing-handoff" }) : undefined} />
       {canOpenReviews && !state.playbook.requireSecondReview && <div><Button size="sm" variant="outline" onClick={() => open(loanReviewsTarget)}>Open team reviews</Button></div>}
-      <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || processor || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>
-        {stages.map((stage) => <option key={stage} disabled={!!reopenedClosing && stage !== loan.stage &&
-          mockClearanceClosingStages.some((item) => item === stage)}>{stage}</option>)}
-      </select></Field>
-      {(staff || process.env.NODE_ENV === "development") && <CrmFieldValues brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-        target={{ record: "loan", recordId: loan.id }} />}
       <FileReadiness loan={loan} state={state} busy={busy} save={save} open={open} preflightOpen={target === filePreflightTarget}
         preflightBrokerage={canOpenDisclosures ? staff?.brokerage.id ?? demoBrokerageId : undefined}
         preapprovalBrokerage={staff ? !processor && (staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) ? staff.brokerage.id : undefined :
           process.env.NODE_ENV === "development" ? demoBrokerageId : undefined} />
+      <LoanWorkflow key={loan.dispositionRevision} loan={loan} busy={busy} readOnly={processor} save={(input) => void save(input)}>
+        {!processor && <Field label="Pipeline stage"><select value={loan.stage} disabled={busy || pausedLoan(loan)} onChange={(event) => void save({ type: "move", id: loan.id, stage: event.target.value })}>
+          {stages.map((stage) => <option key={stage} disabled={!!reopenedClosing && stage !== loan.stage &&
+            mockClearanceClosingStages.some((item) => item === stage)}>{stage}</option>)}
+        </select></Field>}
+      </LoanWorkflow>
+      {(staff || process.env.NODE_ENV === "development") && <CrmFieldValues brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+        target={{ record: "loan", recordId: loan.id }} />}
       </>}
       {section === "Scenarios" && (staff || process.env.NODE_ENV === "development") && <LoanScenarios key={loan.id} loan={loan} state={state}
         brokerageId={staff?.brokerage.id ?? demoBrokerageId} sampleAllowed={!staff || staff.brokerage.id === demoBrokerageId || Boolean(staff.brokerage.pilot)}
@@ -742,7 +725,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </>}
       {section === "Disclosures" && canOpenDisclosures &&
         <DisclosureWorkbench loan={loan} state={state} busy={busy} readOnly={processor} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-          save={save} open={open} refresh={openScopedLoan} />}
+          save={save} open={open} refresh={refreshDisclosures} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
         loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}
         admin={staff.brokerage.role === "Admin"} openDisclosures={() => open(disclosureTarget)} />}
@@ -812,6 +795,12 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         joint={joint} busy={busy} save={save} />}
       </>}
       {section === "Activity" && <>
+      <nav className="loan-application-actions loan-activity-links" aria-label="Activity sections">
+        {!sharedProcessor && <Button size="sm" variant="outline" onClick={() => open("loan-tasks")}>Follow-up tasks</Button>}
+        <Button size="sm" variant="outline" onClick={() => open("loan-communications")}>Communications</Button>
+        <Button size="sm" variant="outline" onClick={() => open("loan-activity")}>Notes and outreach</Button>
+        <Button size="sm" variant="outline" onClick={() => open("loan-audit-history")}>Audit history</Button>
+      </nav>
       {canOpenReviews && <LoanReviews loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
         focusId={target?.startsWith(reviewTarget("")) ? target.slice(reviewTarget("").length) : undefined}
         onChanged={reviewChanged} openEvidence={open} requestPreflight={target === filePreflightRequestTarget} />}
@@ -868,7 +857,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         </details>
       </section>}
       <LoanCommunications loan={loan} state={state} openConversation={openConversation} preview={(loanId, audience, draftId) => show({ kind: "communication", loanId, audience, draftId })} />
-      <LoanAudit key={loan.id} loanId={loan.id} busy={busy} save={save} />
+      <div id="loan-audit-history" tabIndex={-1}><LoanAudit key={loan.id} loanId={loan.id} busy={busy} save={save} /></div>
       <section className="details-section" id="loan-activity" tabIndex={-1}>
         <div className="section-heading"><h3><ClipboardList size={17} /> Activity</h3></div>
         <form className="note-form" onSubmit={(event) => {
@@ -945,6 +934,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
 }) {
   const router = useRouter();
   const dialog = useRef<HTMLDialogElement>(null);
+  const loanHeader = useRef<HTMLDivElement>(null);
   const dirtyEditors = useRef(new Set<Node>());
   const [refreshDeferred, setRefreshDeferred] = useState<Modal | null>(null);
   useEffect(() => {
@@ -959,17 +949,38 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const target = modal.kind === "pricing" ? modal.focusFees ?? "pricing-workbench" : modal.kind === "returningClient" ? "returning-client-purpose" :
     modal.kind === "fundingCheckIn" ? "funding-check-in-channel" :
     modal.kind === "details" ? modal.target : undefined;
+  const details = modal.kind === "details";
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    const header = loanHeader.current;
+    if (!element || !header) return;
+    const update = () => element.style.setProperty("--loan-header-height", `${header.offsetHeight}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+      element.style.removeProperty("--loan-header-height");
+    };
+  }, [details]);
   useEffect(() => {
-    if (!target) return;
-    const item = document.getElementById(target);
+    const element = dialog.current;
+    if (!element || (!target && !details)) return;
+    const sectionEntry = details && (!target || loanSections.some(([, destination]) => destination === target));
+    const item = target ? element.querySelector<HTMLElement>(`#${CSS.escape(target)}`) : null;
+    const content = details ? element.querySelector<HTMLElement>("#loan-section-content") : null;
+    const focus = sectionEntry ? content : item ?? content;
     if (target === manualLenderAcknowledgmentTarget) item?.closest("details")?.setAttribute("open", "");
-    if (item instanceof HTMLDetailsElement) {
-      item.open = true;
-      item.querySelector("summary")?.focus({ preventScroll: true });
-    } else item?.focus({ preventScroll: true });
-    if (loanSections.some(([, destination]) => destination === target)) dialog.current?.scrollTo({ top: 0 });
+    if (focus instanceof HTMLDetailsElement) {
+      focus.open = true;
+      focus.querySelector("summary")?.focus({ preventScroll: true });
+    } else if (target) focus?.focus({ preventScroll: true });
+    if (sectionEntry || (details && !item)) element.scrollTo({ top: 0 });
+    else if (details && item) element.scrollTo({
+      top: element.scrollTop + item.getBoundingClientRect().top - element.getBoundingClientRect().top - (loanHeader.current?.offsetHeight ?? 0) - 12,
+    });
     else item?.scrollIntoView({ block: "start" });
-  }, [modal, target]);
+  }, [modal, details, target]);
   const loan = "loanId" in modal ? state.loans.find((item) => item.id === modal.loanId) : undefined;
   const returnSection = modal.kind === "details" ? loanSection(target) : undefined;
   const processingHandoff = modal.kind === "details" && returnSection === "Overview" &&
@@ -1021,6 +1032,22 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     }
   }
   const campaignLender = "campaignLender" in modal ? modal.campaignLender : undefined;
+  const detailLoan = details ? loan : undefined;
+  const borrowerName = detailLoan && state.contacts.find(({ id }) => id === detailLoan.contactId)?.name || "Borrower";
+  const nextAction = detailLoan && loanNextAction(detailLoan, state, staff?.brokerage.role);
+  const nextActionNote = nextAction && [nextAction.blocker, nextAction.dueAt && `Due ${dateTime(nextAction.dueAt)} ET`].filter(Boolean).join(" · ");
+  function openLoanDetail(destination: string) {
+    if (!detailLoan) return;
+    if (destination.startsWith(preflightFeesTarget)) {
+      if (staff?.brokerage.role !== "Processor") {
+        show({ kind: "pricing", loanId: detailLoan.id, campaignLender, focusFees: destination });
+        return;
+      }
+      destination = "loan-pricing";
+    }
+    if (needsScopedLoan(destination, state, staff)) openContactLoan(detailLoan.id, destination);
+    else show({ kind: "details", loanId: detailLoan.id, target: destination, campaignLender });
+  }
   const scopedContact = (modal.kind === "contactHistory" || modal.kind === "contact") &&
     searchContact?.contact.id === modal.contactId ? searchContact : undefined;
   const contact = scopedContact ? (scopedContact.assignedOnly ? undefined : scopedContact.contact) :
@@ -1106,27 +1133,40 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
     <dialog ref={dialog} className={(modal.kind === "pricing" || modal.kind === "details" ? "record-dialog record-dialog-wide" : "record-dialog") +
       (modal.kind === "details" ? " record-dialog-details" : "") + (modal.kind === "details" && modal.target === "loan-scenarios" ? " record-dialog-scenarios" : "")}
       aria-labelledby="record-title" onCancel={(event) => { event.preventDefault(); close(); }}>
-      <div className="dialog-top">
+      <div className="dialog-top" ref={details ? loanHeader : undefined}>
         <div className="dialog-head">
           {modal.kind === "assignment" && modal.returnTo && <Button variant="ghost" size="icon"
             aria-label={modal.returnTo === "document-checklist" ? "Back to document checklist" : "Back to processing handoff"}
             onClick={() => openContactLoan(modal.loanId, modal.returnTo)}><ArrowLeft /></Button>}
           {loan && modal.kind !== "details" && modal.kind !== "assignment" && modal.kind !== "returningClient" && (modal.kind !== "fundingCheckIn" || modal.returnToLoan) &&
             <Button variant="ghost" size="icon" aria-label="Back to loan details" onClick={back}><ArrowLeft /></Button>}
-          <h2 id="record-title">{title}</h2>
-          {refreshLoan && <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setRefreshDeferred(null); refreshLoan(); }}><RefreshCw /> Refresh loan</Button>}
+          {detailLoan ? <div className="loan-dialog-identity">
+            <h2 id="record-title"><span className="sr-only">{title} for </span>{borrowerName}</h2>
+            <p><strong>{detailLoan.stage}</strong> · <span suppressHydrationWarning>{stageDays(detailLoan.stageSince)}d in stage</span>
+              {pausedLoan(detailLoan) && ` · ${detailLoan.disposition}`}</p>
+          </div> : <h2 id="record-title">{title}</h2>}
+          {refreshLoan && <Button variant="ghost" size={details ? "icon" : "sm"} aria-label={details ? "Refresh loan" : undefined}
+            disabled={busy} onClick={() => { setRefreshDeferred(null); refreshLoan(); }}><RefreshCw />{!details && " Refresh loan"}</Button>}
           <Button variant="ghost" size="icon" aria-label="Close dialog" onClick={close}><X /></Button>
         </div>
-        {modal.kind === "details" && loan && <label className="loan-section-picker">
-          <span>Loan section</span><select value={visibleLoanSections(staff).find(([name]) => name === returnSection)?.[1] ?? "loan-workflow"}
-            onChange={(event) => {
-              const destination = event.target.value;
-              if (needsScopedLoan(destination, state, staff)) openContactLoan(loan.id, destination);
-              else show({ kind: "details", loanId: loan.id, target: destination, campaignLender });
-            }}>
-            {visibleLoanSections(staff).map(([name, destination]) => <option key={name} value={destination}>{name}</option>)}
-          </select>
-        </label>}
+        {nextAction && <div className="loan-dialog-controls">
+          <button type="button" className="loan-status-action" disabled={busy} onClick={() => openLoanDetail(nextAction.target)}>
+            <span className="loan-next-action-copy">
+              <span className="loan-next-action-title"><small>Next action</small><strong>{nextAction.title}</strong></span>
+              {nextActionNote && <span className="loan-next-action-note" title={nextActionNote}>{nextActionNote}</span>}
+            </span>
+            <ArrowRight size={18} aria-hidden="true" />
+          </button>
+          <nav className="loan-section-nav" aria-label="Loan sections">{visibleLoanSections(staff).map(([name, destination]) =>
+            <button key={name} type="button" aria-current={returnSection === name ? "page" : undefined}
+              onClick={() => openLoanDetail(destination)}>{name}</button>)}</nav>
+          <label className="loan-section-picker">
+            <span>Loan section</span><select value={visibleLoanSections(staff).find(([name]) => name === returnSection)?.[1] ?? "loan-overview"}
+              onChange={(event) => openLoanDetail(event.target.value)}>
+              {visibleLoanSections(staff).map(([name, destination]) => <option key={name} value={destination}>{name}</option>)}
+            </select>
+          </label>
+        </div>}
         {error && <p className="dialog-error" role="alert">{error}</p>}
         {refreshDeferred === modal && <p className="dialog-refresh-notice muted" role="status">Automatic refresh paused for your edits. Finish editing before refreshing the loan.</p>}
       </div>
@@ -1141,7 +1181,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           save={save} show={show} target={target} campaignLender={campaignLender} incomeWorksheetRevision={modal.incomeWorksheetRevision} openConversation={openConversation}
           openRateWatchRefinance={openRateWatchRefinance}
           appointmentChanged={appointmentChanged} reviewChanged={reviewChanged} markDraftChanged={markDraftChanged}
-          openScopedLoan={(destination = disclosureTarget) => openContactLoan(loan.id, destination)} />}
+          open={openLoanDetail} refreshDisclosures={() => openContactLoan(loan.id, disclosureTarget)} />}
         {modal.kind === "assignment" && staff?.brokerage.role === "Admin" && <LoanAssignmentEditor key={modal.loanId}
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
           manualReturn={modal.manualReturn}

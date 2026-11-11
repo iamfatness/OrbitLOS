@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { dispositions, type Disposition, type Loan } from "@/lib/model";
 import { pausedLoan } from "@/lib/loan-workflow";
 import { Button } from "./ui/button";
 
-export function LoanWorkflow({ loan, busy, readOnly, save }: {
-  loan: Loan; busy: boolean; readOnly?: boolean; save: (input: unknown) => void;
+export function LoanWorkflow({ loan, busy, readOnly, save, children }: {
+  loan: Loan; busy: boolean; readOnly?: boolean; save: (input: unknown) => void; children?: ReactNode;
 }) {
   const current = loan.disposition ?? "Active";
   const [disposition, setDisposition] = useState<Disposition>(current);
@@ -18,7 +18,7 @@ export function LoanWorkflow({ loan, busy, readOnly, save }: {
       revisitDate: fields.get("revisitDate") || null, revision: loan.dispositionRevision ?? 0 });
   }
 
-  return <section className="details-section" aria-label="Loan workflow" id="loan-workflow" tabIndex={-1}>
+  return <section className="details-section record-form" aria-label="Loan workflow" id="loan-workflow" tabIndex={-1}>
     <div className="section-heading"><h3>Loan workflow</h3><span className="pill">{current}</span></div>
     {canChange && <details className="loan-task-create" open={pausedLoan(loan) || undefined}>
       <summary>Change loan status</summary>
@@ -31,5 +31,6 @@ export function LoanWorkflow({ loan, busy, readOnly, save }: {
         <Button size="sm" type="submit" disabled={busy}>Save status</Button>
       </form>
     </details>}
+    {children}
   </section>;
 }
