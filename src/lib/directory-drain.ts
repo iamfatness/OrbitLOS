@@ -26,7 +26,8 @@ export async function startDirectoryWork(namespace: { getByName(name: string): D
         console.warn("Orbit could not record recovery work completion.");
       }
     };
-  } catch {
+  } catch (error) {
+    console.warn("Orbit could not admit directory work.", error instanceof Error ? error.message.slice(0, 180) : "unknown error");
     // The handler has not started. A lost admission acknowledgment may leave
     // a ticket that operators must investigate before recovering the directory.
     return null;

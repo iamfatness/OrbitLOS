@@ -1171,6 +1171,12 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   async alarm() {
     if (this.#id === directoryDrainObject) return;
+    if (runtimeSetting(this.env, "ORBIT_DRAIN_ROLLOUT") === "prepare") {
+      if (await directoryTrafficPaused(this.#documents)) {
+        await this.ctx.storage.setAlarm(Date.now() + directoryPauseRetrySeconds * 1000);
+      } else await this.#runWorkspaceAlarm();
+      return;
+    }
     const end = await startDirectoryWork(this.env.WORKSPACE, "alarm");
     if (!end) {
       await this.ctx.storage.setAlarm(Date.now() + directoryPauseRetrySeconds * 1000);
@@ -1534,9 +1540,15 @@ export default {
       failure.headers.set("Cache-Control", "no-store");
       return failure;
     }
+    const preparingDrain = runtimeSetting(env, "ORBIT_DRAIN_ROLLOUT") === "prepare";
     if (url.pathname === directoryDrainPath) {
+      if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
       return directoryDrainStatus(request, env.DOCUMENTS,
         () => env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts());
+    }
+    if (preparingDrain) {
+      return await directoryTrafficPaused(env.DOCUMENTS)
+        ? directoryPauseResponse(request) : handleWorkspaceTraffic(request, env, context, url, reading);
     }
     const end = await startDirectoryWork(env.WORKSPACE, "http");
     if (!end) return directoryPauseResponse(request);
