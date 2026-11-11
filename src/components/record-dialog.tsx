@@ -913,9 +913,10 @@ function ReturningClientForm({ borrower, originalProperty, fromRateWatch, busy, 
   </form>;
 }
 
-export function RecordDialog({ modal, state, staff, busy, error, save, show, close, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion, separateSamplePricing }: {
+export function RecordDialog({ modal, state, staff, busy, error, save, show, close, returnToSupport, refreshLoan, refreshLoanOnReturn, openLead, openConversation, openContactConversation, openConversationThread, appointmentChanged, reviewChanged, searchContact, openContact, openContactLoan, repeatOption, openRateWatchRefinance, assignmentChanged, assignmentVersion, separateSamplePricing }: {
   modal: Modal; state: Workspace; staff: WorkspaceStaff | null; busy: boolean; error: ReactNode; save: Save; show: (modal: Modal) => void; close: () => void;
   refreshLoan?: () => void;
+  returnToSupport?: boolean;
   refreshLoanOnReturn?: (loanId: string, canApply: () => boolean, periodic: boolean) => Promise<void>;
   openLead: (id: string) => void;
   openConversation: (subject: ConversationSubject) => void;
@@ -1148,7 +1149,9 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           </div> : <h2 id="record-title">{title}</h2>}
           {refreshLoan && <Button variant="ghost" size={details ? "icon" : "sm"} aria-label={details ? "Refresh loan" : undefined}
             disabled={busy} onClick={() => { setRefreshDeferred(null); refreshLoan(); }}><RefreshCw />{!details && " Refresh loan"}</Button>}
-          <Button variant="ghost" size="icon" aria-label="Close dialog" onClick={close}><X /></Button>
+          <Button variant="ghost" size="icon" aria-label={returnToSupport ? "Back to support report" : "Close dialog"} onClick={close}>
+            {returnToSupport ? <ArrowLeft /> : <X />}
+          </Button>
         </div>
         {nextAction && <div className="loan-dialog-controls">
           <button type="button" className="loan-status-action" disabled={busy} onClick={() => openLoanDetail(nextAction.target)}>

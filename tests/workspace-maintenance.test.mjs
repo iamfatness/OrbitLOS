@@ -9,7 +9,7 @@ const {initializeBrokerages}=await import("../src/lib/brokerages.ts");
 const {initializeMaintenance,maintenanceState,changeMaintenance,markMaintenanceDrained,maintenanceView,recordMaintenanceDecision,maintenanceDecisions}=await import("../src/lib/workspace-maintenance.ts");
 const {WorkspaceMaintenanceGate,guardWorkspaceMethods}=await import("../src/lib/workspace-maintenance-gate.ts");
 const {initializeRecoveryEdits}=await import("../src/lib/recovery-edits.ts");
-const {readPilotSupport,readSupportRecovery}=await import("../src/lib/pilot-support.ts");
+const {readPilotSupport,readPilotSupportWork,readSupportRecovery}=await import("../src/lib/pilot-support.ts");
 function fixture() {
   const sqlite=new DatabaseSync(":memory:");
   const db={exec:q=>sqlite.exec(q),prepare:q=>sqlite.prepare(q),transaction:run=>{
@@ -101,6 +101,29 @@ test("the pilot support snapshot counts bounded saved work without copying priva
     assert.deepEqual(report.lenderRequests,{sampled:200,limited:true,awaitingOutcome:1,needsReconciliation:1,unsuccessful:0});
     assert.deepEqual(report.lenderOperations,{sampled:4,limited:false,awaitingOutcome:2,needsReconciliation:1,unsuccessful:1});
     assert.doesNotMatch(JSON.stringify(report),/private|example\.test|private-loan/i);
+    db.exec(`ALTER TABLE loans ADD COLUMN contactId TEXT;
+      CREATE TABLE contacts (id TEXT PRIMARY KEY, name TEXT);
+      INSERT INTO contacts VALUES ('sample-contact','Fictional Support Borrower');
+      UPDATE loans SET contactId='sample-contact';
+      ALTER TABLE uwm_live_requests ADD COLUMN loanId TEXT;
+      ALTER TABLE uwm_live_requests ADD COLUMN id TEXT;
+      ALTER TABLE uwm_live_requests ADD COLUMN updatedAt TEXT;
+      UPDATE uwm_live_requests SET loanId='private-loan-a',id='request-'||rowid,updatedAt='2026-11-11';
+      ALTER TABLE uwm_operations ADD COLUMN loanId TEXT;
+      ALTER TABLE uwm_operations ADD COLUMN id TEXT;
+      ALTER TABLE uwm_operations ADD COLUMN kind TEXT;
+      ALTER TABLE uwm_operations ADD COLUMN updatedAt TEXT;
+      UPDATE uwm_operations SET loanId='private-loan-a',id='operation-'||rowid,kind='import',updatedAt='2026-11-11';`);
+    assert.equal(readPilotSupportWork(db,"handoffs",0).total,3);
+    const requestWork=readPilotSupportWork(db,"requests",0);
+    assert.equal(requestWork.total,2);
+    assert.deepEqual(requestWork.items.map(({status})=>status),["Needs reconciliation · submit documents","Awaiting outcome · submit documents"]);
+    assert.equal(readPilotSupportWork(db,"operations",0).total,4);
+    db.exec(`WITH RECURSIVE items(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM items WHERE i<13)
+      INSERT INTO uwm_operations (id,loanId,state,kind,updatedAt) SELECT 'extra-'||i,'private-loan-a','Unknown','import','2026-11-11' FROM items;`);
+    const first=readPilotSupportWork(db,"operations",0),second=readPilotSupportWork(db,"operations",first.next);
+    assert.deepEqual([first.total,first.items.length,second.items.length,second.next],[17,12,5,null]);
+    assert.equal(new Set([...first.items,...second.items].map(({id})=>id)).size,17);
   }finally{close();}
 });
 test("pause refuses new methods while allowing a started promise to finish",async()=>{

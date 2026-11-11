@@ -1,37 +1,52 @@
 "use client";
 
-import {useRef,useState,type FormEvent} from "react";
+import {useEffect,useEffectEvent,useRef,useState,type FormEvent} from "react";
 import type {RecoveryEditInspection} from "@/lib/recovery-edit-model";
 import type {MaintenanceView} from "@/lib/workspace-maintenance-model";
 import {Button} from "./ui/button";
 
 const date=(value:string|null)=>value??"No due date";
-export function RecoveryEdits({endpoint,revision,paused,onReviewed}:{endpoint:string;revision:number;paused:boolean;onReviewed:(view:MaintenanceView)=>void}) {
+export function RecoveryEdits({endpoint,revision,paused,onReviewed,shortcut}:{endpoint:string;revision:number;paused:boolean;
+  onReviewed:(view:MaintenanceView)=>void;shortcut?:{pendingOnly:boolean}}) {
   const [report,setReport]=useState<RecoveryEditInspection|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
   const [message,setMessage]=useState(""),[reviewing,setReviewing]=useState<string|null>(null),[expanded,setExpanded]=useState<string|null>(null);
-  const feedback=useRef<HTMLParagraphElement>(null),heading=useRef<HTMLHeadingElement>(null);
-  async function inspect(offset=0) {
+  const feedback=useRef<HTMLParagraphElement>(null),heading=useRef<HTMLHeadingElement>(null),pendingReplay=useRef<HTMLDivElement>(null);
+  const inspectionFocus=useRef<"heading"|"replay"|null>(null);
+  useEffect(()=>{
+    if(!report||!inspectionFocus.current)return;
+    (inspectionFocus.current==="replay"&&pendingReplay.current?pendingReplay.current:heading.current)?.focus();
+    inspectionFocus.current=null;
+  },[report]);
+  const url=(revision:number,offset:number,pendingOnly?:boolean)=>`${endpoint}&edits=1&revision=${revision}&offset=${offset}${pendingOnly?"&pending=1":""}`;
+  async function inspect(offset=0,pendingOnly=report?.pendingOnly,focusReplay=false) {
     setBusy(true);setError("");setMessage("");
     try {
-      const response=await fetch(`${endpoint}&edits=1&revision=${revision}&offset=${offset}`);
+      const response=await fetch(url(revision,offset,pendingOnly));
       const result=await response.json() as {inspection?:RecoveryEditInspection;error?:string};
       if(!response.ok||!result.inspection)throw new Error(result.error??"Could not inspect internal edits.");
-      setReport(result.inspection);requestAnimationFrame(()=>heading.current?.focus());
+      inspectionFocus.current=focusReplay?"replay":"heading";
+      setReport(result.inspection);
     }catch(failure){setError(failure instanceof Error?failure.message:"Could not inspect internal edits.");}
     finally{setBusy(false);}
   }
+  const openShortcut=useEffectEvent((pendingOnly:boolean)=>{void inspect(0,pendingOnly,!pendingOnly);});
+  useEffect(()=>{
+    if(!shortcut||!paused)return;
+    const frame=requestAnimationFrame(()=>openShortcut(shortcut.pendingOnly));
+    return ()=>cancelAnimationFrame(frame);
+  },[shortcut,paused]);
   async function confirm(event:FormEvent<HTMLFormElement>,item:RecoveryEditInspection["items"][number]) {
     event.preventDefault();if(!report)return;
     const note=new FormData(event.currentTarget).get("note");setReviewing(item.id);setBusy(true);setError("");setMessage("");
     try {
       const response=await fetch(`${endpoint}&edits=1`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-        revision,offset:report.offset,id:item.id,fingerprint:item.fingerprint,note})});
+        revision,offset:report.offset,pendingOnly:report.pendingOnly,id:item.id,fingerprint:item.fingerprint,note})});
       const result=await response.json() as {view?:MaintenanceView;error?:string};
       if(!response.ok||!result.view)throw new Error(result.error??"Could not record the outcome. Your note is retained.");
       onReviewed(result.view);setExpanded(null);
       setMessage("Saved proof verified. Complete a new reopening review.");
       try {
-        const fresh=await fetch(`${endpoint}&edits=1&revision=${result.view.revision}&offset=${report.offset}`);
+        const fresh=await fetch(url(result.view.revision,report.pendingOnly?0:report.offset,report.pendingOnly));
         const body=await fresh.json() as {inspection?:RecoveryEditInspection};
         if(fresh.ok&&body.inspection)setReport(body.inspection);
       }catch{/* The recorded outcome is still saved; the stale-page notice offers refresh. */}
@@ -52,7 +67,7 @@ export function RecoveryEdits({endpoint,revision,paused,onReviewed}:{endpoint:st
       // authoritative maintenance revision so the owner can resume the same work.
       try {
         const state=await fetch(endpoint),view=await state.json() as MaintenanceView;
-        if(state.ok){if(view.revision!==revision)onReviewed(view);const fresh=await fetch(`${endpoint}&edits=1&revision=${view.revision}&offset=${report?.offset??0}`);
+        if(state.ok){if(view.revision!==revision)onReviewed(view);const fresh=await fetch(url(view.revision,report?.offset??0,report?.pendingOnly));
           const body=await fresh.json() as {inspection?:RecoveryEditInspection};if(fresh.ok&&body.inspection){
             setReport(body.inspection);
             const saved=body.inspection.items.find(item=>item.id===input.id)?.replay;
@@ -69,11 +84,13 @@ export function RecoveryEdits({endpoint,revision,paused,onReviewed}:{endpoint:st
     {error&&<p role="alert" className="application-message banner-error">{error}{report?" The previous inspection remains below.":""}</p>}
     {message&&<p ref={feedback} tabIndex={-1} role="status" className="application-message">{message}</p>}
     {report&&<>
-      {report.pendingReplay&&<div role="status" className="application-message"><strong>Recovery outcome pending</strong>
+      {report.pendingReplay&&<div ref={pendingReplay} tabIndex={-1} role="status" className="application-message"><strong>Recovery outcome pending</strong>
         <p>{report.pendingReplay.recordName} · {report.pendingReplay.label}. Check this saved recovery before reviewing or reopening the workspace.</p>
         <Button variant="outline" disabled={busy||!paused} onClick={()=>void recover({id:report.pendingReplay!.editId,resume:true})}>Check pending recovery</Button></div>}
       {report.revision!==revision&&<p role="status" className="application-message">Maintenance changed. Refresh edit history before recording another outcome.</p>}
-      {!report.total?<p>No covered edits have been recorded yet. This does not prove that no other work occurred.</p>:<>
+      {report.pendingOnly&&<div className="loan-application-actions"><strong>Unconfirmed edits</strong>
+        <Button variant="outline" disabled={busy||!paused} onClick={()=>void inspect(0,false)}>Show all edits</Button></div>}
+      {!report.total?<p>{report.pendingOnly?"No unconfirmed edits remain.":"No covered edits have been recorded yet. This does not prove that no other work occurred."}</p>:<>
         <div className="section-heading"><p>Showing {report.offset+1}–{report.offset+report.items.length} of {report.total}</p>
           <nav className="loan-application-actions" aria-label="Internal edit pages">
             <Button variant="outline" disabled={busy||!paused||!report.offset} onClick={()=>void inspect(Math.max(0,report.offset-25))}>Previous edits</Button>

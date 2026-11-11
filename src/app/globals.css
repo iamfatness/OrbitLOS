@@ -213,6 +213,7 @@ button:disabled { cursor: default; }
 .support-report { display: grid; gap: 12px; scroll-margin-block-start: 12px; }
 .support-report h3 { font-weight: 650; }
 .support-report-sections { gap: 16px 24px; }
+.support-report-sections :is(.support-report-metrics + button, .support-report-metrics + .loan-application-actions) { margin-block-start: 8px; }
 .support-report-metrics { display: grid; gap: 4px; margin-block-start: 6px; }
 .support-report-metrics > div { display: flex; justify-content: space-between; gap: 8px; }
 .support-report-metrics dd { flex-shrink: 0; font-variant-numeric: tabular-nums; }

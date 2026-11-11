@@ -11,11 +11,12 @@ export const recoveryProof = z.object({id:z.string().regex(/^[a-f0-9]{64}$/),bef
 export type RecoveryProof = z.infer<typeof recoveryProof>;
 export type RecoveryEdit = RecoveryIntent & {id:string;actor:string;actorEmail:string;at:string;state:"Pending"|"Recorded"|"Rejected"|"Reviewed";proof:RecoveryProof|null;
   review:{note:string;actor:string;at:string}|null};
-export const recoveryEditPage = z.object({revision:z.number().int().nonnegative(),offset:z.number().int().min(0).max(1000000).default(0)});
+export const recoveryEditPage = z.object({revision:z.number().int().nonnegative(),offset:z.number().int().min(0).max(1000000).default(0),
+  pendingOnly:z.boolean().optional()});
 export const recoveryEditReview = recoveryEditPage.extend({id:z.string().regex(/^[a-f0-9]{64}$/),fingerprint:z.string().regex(/^[a-f0-9]{64}$/),note:z.string().trim().min(20).max(1000)});
 export const recoveryReplayInput=z.union([recoveryEditReview,recoveryEditReview.pick({id:true}).extend({resume:z.literal(true)})]);
 export type RecoveryReplay = {id:string;editId:string;cycle:string;state:"Pending"|"Applied"|"Not applied";actor:string;note:string;at:string;finishedAt:string|null;result:string|null};
-export type RecoveryEditInspection = {pendingReplay?:{editId:string;recordName:string;label:string}|null;revision:number;offset:number;total:number;next:number|null;items:(RecoveryEdit & {
+export type RecoveryEditInspection = {pendingReplay?:{editId:string;recordName:string;label:string}|null;revision:number;offset:number;total:number;next:number|null;pendingOnly?:boolean;items:(RecoveryEdit & {
   current:RecoveryDocument|null;sourceProof:RecoveryProof|null;finding:"Saved revision present"|"Original revision present"|"Different revision present"|"Record unavailable";
   fingerprint:string;canConfirm:boolean;canReplay:boolean;replay:RecoveryReplay|null})[]};
 export const sameRecoveryDocument=(a:RecoveryDocument|null,b:RecoveryDocument|null)=>!!a&&!!b&&

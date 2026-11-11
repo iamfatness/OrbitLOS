@@ -17,6 +17,7 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
   const [message,setMessage]=useState("");
   const [busy,setBusy]=useState(false);
   const [reviewDraft,setReviewDraft]=useState<{review:string;checks:boolean[]}|null>(null);
+  const [supportShortcut,setSupportShortcut]=useState<{pendingOnly:boolean;cycle:string|null}>();
   const reviewDirty=reviewDraft!==null;
   const reviewBlocked=Boolean(view?.pendingRestore||view?.pendingEditRecovery);
   const reviewValues=reviewDraft??{review:view?.review??"",checks:view?.checks??[false,false,false]};
@@ -93,7 +94,11 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
         {reviewBlocked&&<p className="application-message" role="status">
           {view.pendingRestore?"Verify the pending restore before recording a reopening review.":"Resolve the pending internal edit recovery before recording a reopening review."}
         </p>}
-        <PilotSupportReport endpoint={endpoint}/>
+        <PilotSupportReport endpoint={endpoint} brokerageId={staff!.brokerage.id} recoveryReady={view.mode==="Paused"} onRecovery={target=>{
+          if(target==="restore"){openRecovery("restore-workspace-heading");return;}
+          openRecovery("internal-edits-heading");
+          setSupportShortcut({pendingOnly:target==="unconfirmed",cycle:view.startedAt});
+        }}/>
         <ol className="maintenance-steps" aria-label="Maintenance steps">{[[PauseCircle,"Pause activity"],[ShieldCheck,"Review outcome"],[CheckCircle2,"Reopen workspace"]].map(([Icon,label],index)=>{
           const Symbol=Icon as typeof PauseCircle;
           const step=view.mode==="Open"?0:view.reviewedAt?2:1;
@@ -111,7 +116,7 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
           <RecoveryCheckpoints brokerageName={staff?.brokerage.name??""} key={`checkpoints:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
             onSaved={applyRecoveryView}/>
           <RecoveryEdits key={`edits:${view.startedAt}`} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}
-            onReviewed={applyRecoveryView}/>
+            onReviewed={applyRecoveryView} shortcut={supportShortcut?.cycle===view.startedAt?supportShortcut:undefined}/>
           <div className="maintenance-columns">
           <section className="pipeline relationship-panel"><h2>Reopening review</h2><p className="muted">Confirm the outcome of your investigation or recovery. Check each item only after reviewing its evidence.</p>
             <form key={view.startedAt} className="maintenance-form" onSubmit={event=>submit(event,"review")}>

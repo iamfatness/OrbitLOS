@@ -77,11 +77,12 @@ export function finishRecoveryEdit(db:Store,staff:WorkspaceStaff,emails:string[]
   if(proof||rejected)db.prepare("UPDATE brokerage_recovery_edits SET state=?,proof=? WHERE id=? AND state='Pending'")
     .run(proof?"Recorded":"Rejected",proof?JSON.stringify(proof):null,id);
 }
-export function recoveryEditRows(db:Store,brokerageId:string,offset:number) {
-  const total=Number(db.prepare("SELECT count(*) AS n FROM brokerage_recovery_edits WHERE brokerageId=?").get(brokerageId)!.n);
+export function recoveryEditRows(db:Store,brokerageId:string,offset:number,pendingOnly=false) {
+  const where=pendingOnly?"brokerageId=? AND state='Pending'":"brokerageId=?";
+  const total=Number(db.prepare(`SELECT count(*) AS n FROM brokerage_recovery_edits WHERE ${where}`).get(brokerageId)!.n);
   if(offset>0&&offset>=total)throw new Error("Edit history changed. Refresh the first page.");
-  const items=db.prepare("SELECT * FROM brokerage_recovery_edits WHERE brokerageId=? ORDER BY at DESC,id DESC LIMIT 25 OFFSET ?").all(brokerageId,offset).map(decode);
-  return {offset,total,next:offset+items.length<total?offset+items.length:null,items};
+  const items=db.prepare(`SELECT * FROM brokerage_recovery_edits WHERE ${where} ORDER BY at DESC,id DESC LIMIT 25 OFFSET ?`).all(brokerageId,offset).map(decode);
+  return {offset,total,next:offset+items.length<total?offset+items.length:null,items,pendingOnly};
 }
 export function inspectRecoveryEdit(db:Store,edit:RecoveryEdit):RecoveryEditInspection["items"][number] {
   const current=readRecoveryDocument(db,edit.command.loanId,edit.command.requestId),sourceProof=readRecoveryProof(db,edit.id);

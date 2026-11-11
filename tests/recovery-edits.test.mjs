@@ -45,6 +45,7 @@ test("atomic proof rolls back with the change and later confirms only its record
     assert.throws(()=>finishRecoveryEdit(db,staff,[],edit.id,{...proof,after:{...after,dueOn:"2030-03-01"}},false),/differs/);
     finishRecoveryEdit(db,staff,[],edit.id,proof,false);finishRecoveryEdit(db,staff,[],edit.id,proof,false);
     assert.equal(recoveryEditRows(db,staff.brokerage.id,0).items[0].state,"Recorded");
+    assert.equal(recoveryEditRows(db,staff.brokerage.id,0,true).total,0);
   }finally{close();}
 });
 test("paused owner review verifies source proof and invalidates reopening; stale and revoked reviewers fail",()=>{

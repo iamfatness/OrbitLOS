@@ -98,6 +98,7 @@ import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { staffQuestionTarget } from "@/lib/borrower-question-model";
 import { staleProcessingHandoff } from "@/lib/processing-model";
+import { supportReportUrl, type SupportWorkGroup } from "@/lib/pilot-support-model";
 
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
 const CustomReports = lazy(async () => ({ default: (await import("./custom-reports")).CustomReports }));
@@ -169,8 +170,9 @@ function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
 
 const subscribeToControlsReady = () => () => {};
 
-export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConnection }: {
+export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWorkspace, uwmConnection }: {
   initial: Workspace; staff: WorkspaceStaff | null; initialGuide?: GuideTrack; deferredWorkspace: boolean; uwmConnection: UwmConnectionStatus;
+  initialSupport?: { loanId: string; group: SupportWorkGroup; offset: number };
 }) {
   const processor = staff?.brokerage.role === "Processor";
   const canOpenToday = !processor && (Boolean(staff) || process.env.NODE_ENV === "development");
@@ -179,6 +181,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const processorTaskEntry = processor && initialGuide === "campaign";
   const controlsReady = useSyncExternalStore(subscribeToControlsReady, () => true, () => false);
   const [state, setState] = useState(initial);
+  const supportReturn = initialSupport && staff ? supportReportUrl(staff.brokerage.id, initialSupport.group, initialSupport.offset) : undefined;
+  const supportOpened = useRef(false);
   const [workspaceStatus, setWorkspaceStatus] = useState<"cold" | "loading" | "failed" | "ready">(deferredWorkspace ? "cold" : "ready");
   const [reviewVersion, setReviewVersion] = useState(0);
   const queueVersion = useMemo(() => ({ state, reviewVersion }), [state, reviewVersion]);
@@ -894,6 +898,15 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     }
   }
 
+  const openSupportLoan = useEffectEvent((loanId: string, group: SupportWorkGroup) => {
+    void openQueueLoan({ kind: "details", loanId, target: group === "handoffs" ? "processing-handoff" : "lender-submissions" });
+  });
+  useEffect(() => {
+    if (!initialSupport || supportOpened.current) return;
+    supportOpened.current = true;
+    openSupportLoan(initialSupport.loanId, initialSupport.group);
+  }, [initialSupport]);
+
   async function refreshLoanOnReturn(loanId: string, canApply: () => boolean, periodic: boolean) {
     if (!staff || pending.current || (periodic && loanRefreshInFlight.current !== null)) return;
     const version = ++loanReadVersion.current;
@@ -1198,6 +1211,10 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   }
 
   function close() {
+    if (supportReturn && modal?.kind === "details" && modal.loanId === initialSupport?.loanId) {
+      window.location.assign(supportReturn);
+      return;
+    }
     loanReadVersion.current += 1;
     openingRecord.current = false;
     setError("");
@@ -1307,6 +1324,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           </div>
         </header>
         <div className="content">
+          {supportReturn && <p><a className="name-link" href={supportReturn}>Back to support report</a></p>}
           {staff?.brokerage.pilot && <p className="application-message">Fictional pilot · Use sample borrowers and documents.</p>}
           {!waitingForWorkspace && section === "Pipeline" ? <section className="pipeline-hero" aria-labelledby="pipeline-title">
             <div className="page-heading">
@@ -1811,6 +1829,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
         loans: [...loanWork.loans, ...state.loans.filter((loan) => loan.id !== loanWork.loanId)],
         contacts: [...loanWork.contacts, ...state.contacts.filter((contact) => !loanWork.contacts.some((item) => item.id === contact.id))],
       } : state} staff={staff} busy={busy} error={saveError} save={save} show={show} close={close}
+        returnToSupport={Boolean(supportReturn && modal.kind === "details" && modal.loanId === initialSupport?.loanId)}
         refreshLoan={modal.kind === "details" && staff ? () => void openQueueLoan(modal) : undefined}
         refreshLoanOnReturn={staff ? refreshLoanOnReturn : undefined}
         searchContact={searchContact} openContact={(id) => void openContactRecord(id)}

@@ -61,8 +61,9 @@ import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetti
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
 import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, history as recordBrokerageHistory, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
-import { readPilotSupport, readSupportRecovery } from "./lib/pilot-support";
-import { supportChanged, supportUnavailable, type SupportRecoveryState } from "./lib/pilot-support-model";
+import { readPilotSupport, readPilotSupportWork, readSupportRecovery } from "./lib/pilot-support";
+import { supportChanged, supportUnavailable, supportWorkChanged, supportWorkGroup, supportWorkOffset, supportWorkPaused,
+  type SupportRecoveryState, type SupportWorkGroup } from "./lib/pilot-support-model";
 import { assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
 import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
@@ -368,6 +369,16 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
     const recovery = await directory.pilotSupportRecovery(staff);
     return recovery ? readPilotSupport(this.#store, recovery) : null;
+  }
+
+  async pilotSupportWork(staff: WorkspaceStaff, group: SupportWorkGroup, offset: number, fingerprint: string) {
+    if (!this.#accepts(staff) || this.#id === demoBrokerageId || staff.brokerage.role !== "Admin" || !staff.brokerage.pilot) return null;
+    const recovery = await this.env.WORKSPACE.getByName(demoBrokerageId).pilotSupportRecovery(staff);
+    if (!recovery) return null;
+    if (recovery.mode !== "Open") return { error: supportWorkPaused };
+    const snapshot = readPilotSupport(this.#store, recovery);
+    if (createHash("sha256").update(JSON.stringify(snapshot)).digest("hex") !== fingerprint) return { error: supportWorkChanged };
+    return readPilotSupportWork(this.#store, group, offset);
   }
   mayCaptureCheckpoint(staff:WorkspaceStaff,revision:number) {
     if(this.#id!==demoBrokerageId)return false;
@@ -1067,7 +1078,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   readWorkspaceRecoveryEdits(staff:WorkspaceStaff,raw:unknown) {
     const input=recoveryEditPage.parse(raw);
     if(!this.mayInspectMaintenance(staff,input.revision))throw new Error("Pause the workspace and refresh before inspecting edits.");
-    const page=recoveryEditRows(this.#store,staff.brokerage.id,input.offset),cycle=maintenanceState(this.#store,staff.brokerage.id).startedAt!;
+    const page=recoveryEditRows(this.#store,staff.brokerage.id,input.offset,input.pendingOnly),cycle=maintenanceState(this.#store,staff.brokerage.id).startedAt!;
     const pending=this.#store.prepare(`SELECT r.editId,e.recordName,e.label FROM brokerage_recovery_replays r
       JOIN brokerage_recovery_edits e ON e.id=r.editId AND e.brokerageId=r.brokerageId WHERE r.brokerageId=? AND r.state='Pending' LIMIT 1`).get(staff.brokerage.id);
     return {...page,pendingReplay:pending?{editId:String(pending.editId),recordName:String(pending.recordName),label:String(pending.label)}:null,
@@ -1889,6 +1900,22 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       if (url.searchParams.get("support") === "1") {
         const denied = () => Response.json({ error: "Only an active pilot admin can read this support report." }, { status: 403, headers });
         if (url.searchParams.get("brokerage") !== identity.brokerage.id || !identity.brokerage.pilot || identity.brokerage.role !== "Admin") return denied();
+        if (url.searchParams.has("work")) {
+          if (request.method !== "GET") return new Response(null, { status: 405, headers: { ...headers, Allow: "GET" } });
+          const group = supportWorkGroup(url.searchParams.get("work"));
+          const fingerprint = z.string().regex(/^[a-f0-9]{64}$/).safeParse(url.searchParams.get("fingerprint"));
+          if (!group || !fingerprint.success) return Response.json({ error: "Preview the report to open its work." }, { status: 400, headers });
+          if (identity.brokerage.maintenance) return Response.json({ error: supportWorkPaused }, { status: 409, headers });
+          try {
+            const work = await env.WORKSPACE.getByName(identity.brokerage.id).pilotSupportWork(identity, group,
+              supportWorkOffset(url.searchParams.get("offset")), fingerprint.data);
+            return work ? Response.json(work, { status: "error" in work ? 409 : 200, headers }) : denied();
+          } catch (failure) {
+            return failure instanceof Error && failure.message.includes(maintenanceMessage)
+              ? Response.json({ error: supportWorkPaused }, { status: 409, headers })
+              : Response.json({ error: supportUnavailable }, { status: 503, headers });
+          }
+        }
         const capture = async (expected?: string) => {
           try {
             const snapshot = await env.WORKSPACE.getByName(identity.brokerage.id).pilotSupportSnapshot(identity);
@@ -1924,7 +1951,8 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         catch(error){return {status:409,error:error instanceof Error?error.message:"Checkpoint review unavailable. Refresh workspace status."};}
       },4096);
       if(request.method==="GET"&&url.searchParams.get("edits")==="1") {
-        const parsed=recoveryEditPage.safeParse({revision:Number(url.searchParams.get("revision")??-1),offset:Number(url.searchParams.get("offset")??0)});
+        const parsed=recoveryEditPage.safeParse({revision:Number(url.searchParams.get("revision")??-1),offset:Number(url.searchParams.get("offset")??0),
+          pendingOnly:url.searchParams.get("pending") === "1"});
         if(!parsed.success)return Response.json({error:"Invalid edit inspection page."},{status:400,headers});
         try {return Response.json({inspection:await env.WORKSPACE.getByName(identity.brokerage.id).inspectWorkspaceRecoveryEdits(identity,parsed.data)},{headers});}
         catch{return Response.json({error:"Edit inspection unavailable. Pause the workspace and refresh its status."},{status:409,headers});}
