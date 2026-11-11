@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { readDirectoryIncident, type DirectoryWorkCounts } from "./directory-drain";
+import { compareDirectoryMaintenanceEvidence, maintenanceEvidenceRows, readDirectoryMaintenanceEvidence } from "./directory-maintenance-evidence";
 import { directoryPauseKey } from "./directory-traffic-pause";
 import type { Store } from "./store";
 
@@ -30,15 +31,21 @@ const projectedRows = z.strictObject({
   })).max(maxRows),
 });
 export type EvidenceRows = z.infer<typeof projectedRows>;
-const evidenceSchema = z.strictObject({
-  version: z.literal(1), id, scope, capturedAt: z.iso.datetime(), incident: z.string().max(80), rows: projectedRows,
-});
+const evidenceFields = { id, scope, capturedAt: z.iso.datetime(), incident: z.string().max(80), rows: projectedRows };
+const evidenceSchema = z.discriminatedUnion("version", [
+  z.strictObject({ version: z.literal(1), ...evidenceFields }),
+  z.strictObject({ version: z.literal(2), ...evidenceFields, maintenance: maintenanceEvidenceRows }),
+]);
 export type Evidence = z.infer<typeof evidenceSchema>;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 export const directoryEvidencePrefix = "operations/directory-recovery/evidence/";
 
 export function captureDirectoryEvidence(db: Store): EvidenceRows {
   return db.transaction(() => readDirectoryEvidenceRows(db));
+}
+
+export function captureDirectoryRecoverySnapshot(db: Store) {
+  return db.transaction(() => ({ rows: readDirectoryEvidenceRows(db), maintenance: readDirectoryMaintenanceEvidence(db) }));
 }
 
 export function readDirectoryEvidenceRows(db: Store): EvidenceRows {
@@ -78,7 +85,7 @@ export async function readEvidence(bucket: R2Bucket, key: string) {
 }
 
 export async function directoryEvidenceHttp(request: Request, bucket: R2Bucket | undefined, deployment: string,
-  counts: () => Promise<DirectoryWorkCounts>, capture: () => Promise<EvidenceRows>) {
+  counts: () => Promise<DirectoryWorkCounts>, capture: () => Promise<ReturnType<typeof captureDirectoryRecoverySnapshot>>) {
   const headers = { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" };
   const problem = (status: number, error: string) => Response.json({ error }, { status, headers });
   const hidden = () => new Response(null, { status: 404, headers });
@@ -97,7 +104,7 @@ export async function directoryEvidenceHttp(request: Request, bucket: R2Bucket |
     const usable = (item: Evidence) => item.scope === deployment && item.id === evidenceId.data &&
       Date.now() - Date.parse(item.capturedAt) <= maxAge;
     const summary = (item: Evidence) => ({
-      id: item.id, capturedAt: item.capturedAt, incident: item.incident,
+      id: item.id, capturedAt: item.capturedAt, incident: item.incident, version: item.version,
       counts: Object.fromEntries(Object.entries(item.rows).map(([group, rows]) => [group, rows.length])),
     });
     if (saved && !usable(saved)) return problem(409, "Evidence is outside this environment or its review window.");
@@ -105,15 +112,18 @@ export async function directoryEvidenceHttp(request: Request, bucket: R2Bucket |
       if (!saved) return hidden();
       const current = await capture();
       if (!await stable()) return problem(409, "The pause or active work changed during the comparison.");
-      const groups = compareEvidence(saved.rows, current, new Date().toISOString());
-      return Response.json({ evidence: summary(saved), groups, matches: groups.every(group => !group.changed) }, { headers });
+      const groups = compareEvidence(saved.rows, current.rows, new Date().toISOString());
+      const accessMatches = groups.every(group => !group.changed);
+      const maintenance = compareDirectoryMaintenanceEvidence(saved.version === 2 ? saved.maintenance : undefined, current.maintenance);
+      return Response.json({ evidence: summary(saved), groups, accessMatches, maintenance,
+        matches: accessMatches && maintenance.status === "matched" }, { headers });
     }
     if (saved) {
       if (saved.incident !== marker.incident) return problem(409, "This evidence ID belongs to a different incident.");
       return Response.json({ evidence: summary(saved) }, { headers });
     }
-    const item: Evidence = { version: 1, id: evidenceId.data, scope: deployment, incident: marker.incident,
-      capturedAt: new Date().toISOString(), rows: await capture() };
+    const item: Evidence = { version: 2, id: evidenceId.data, scope: deployment, incident: marker.incident,
+      capturedAt: new Date().toISOString(), ...await capture() };
     if (!await stable()) return problem(409, "The pause or active work changed during capture.");
     const body = JSON.stringify(item);
     if (Buffer.byteLength(body) > maxBytes) return problem(409, "Evidence exceeds the capture limit.");

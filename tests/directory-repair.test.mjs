@@ -75,3 +75,42 @@ test("reconstruction neither grants access nor rewinds newer member revisions", 
   assert.equal(review.changes.staffRevocations,0);
   assert.equal(review.staffNeedsReview,2);
 });
+
+test("sealed maintenance evidence flags same-count decision changes and missing pending work", async t => {
+  const { db, workspace, other } = fixture(t);
+  const { initializeMaintenance } = await import("../src/lib/workspace-maintenance.ts");
+  const { initializeRecoveryEdits } = await import("../src/lib/recovery-edits.ts");
+  const { initializeRecoveryCheckpoints } = await import("../src/lib/recovery-checkpoints.ts");
+  const { captureDirectoryRecoverySnapshot } = await import("../src/lib/directory-evidence.ts");
+  const { compareDirectoryMaintenanceEvidence } = await import("../src/lib/directory-maintenance-evidence.ts");
+  initializeMaintenance(db);
+  initializeRecoveryEdits(db, true);
+  initializeRecoveryCheckpoints(db);
+  const decision = db.prepare("INSERT INTO brokerage_maintenance_decisions VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+  decision.run("decision", workspace, "cycle", "reference", "fingerprint", "Verified", "private review", "Owner", "owner@example.test", now, "command");
+  decision.run("other-decision", other, "cycle", "reference", "fingerprint", "Verified", "other note", "Owner", "other@example.test", now, "command");
+  db.prepare("INSERT INTO brokerage_restore_jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run("restore", workspace, "checkpoint", "source", "cycle", "Armed", "Owner", "owner@example.test", "note", "command", now, null, "message", "private bookmark");
+  db.prepare("INSERT INTO brokerage_recovery_edits VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run("edit", workspace, "Owner", "owner@example.test", now, "private command", "before", "record", "label", "Pending", null, null, null, null);
+  db.prepare("INSERT INTO brokerage_recovery_checkpoints VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+    .run("checkpoint", workspace, "cycle", "label", "Owner", "owner@example.test", now, now, "private bookmark", "manifest", "command");
+  db.exec("INSERT INTO brokerage_checkpoint_parts VALUES ('checkpoint', 0, 'loans', 'private content')");
+  const saved = captureDirectoryRecoverySnapshot(db).maintenance;
+  const intact = compareDirectoryMaintenanceEvidence(saved, saved);
+  assert.equal(intact.status, "matched");
+  assert.equal(intact.pending.length, 2);
+  db.exec(`UPDATE brokerage_maintenance_decisions SET note='changed' WHERE id='decision';
+    DELETE FROM brokerage_restore_jobs; UPDATE brokerage_checkpoint_parts SET content='older content'`);
+  const current = captureDirectoryRecoverySnapshot(db).maintenance;
+  const review = compareDirectoryMaintenanceEvidence(saved, current);
+  assert.equal(review.status, "changed");
+  assert.deepEqual(review.changes, [
+    { brokerageId:workspace, group:"checkpointParts", saved:1, current:1, savedPending:0, currentPending:0 },
+    { brokerageId:workspace, group:"decisions", saved:1, current:1, savedPending:0, currentPending:0 },
+    { brokerageId:workspace, group:"restores", saved:1, current:0, savedPending:1, currentPending:0 },
+  ]);
+  assert.deepEqual(review.pending, [{ brokerageId:workspace, group:"edits", pending:1 }]);
+  assert.deepEqual(compareDirectoryMaintenanceEvidence(undefined, current), { status:"unavailable", changes:[], pending:review.pending });
+  assert.doesNotMatch(JSON.stringify({ saved, review }), /private|@example\.test|fingerprint|older content/);
+});

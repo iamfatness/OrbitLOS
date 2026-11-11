@@ -1,6 +1,6 @@
 import { commitDirectorySignInReset, directorySignInResetHttp, directorySignInResetPath, previewDirectorySignInReset, readDirectorySignInResetIntent, type SignInResetIntent } from "./lib/directory-sign-in-reset";
 import { applyDirectoryRepair, directoryRepairHttp, directoryRepairPath, loadRepairEvidence, previewDirectoryRepair, readRepairIntent, type RepairIntent } from "./lib/directory-repair";
-import { captureDirectoryEvidence, directoryEvidenceHttp, directoryEvidencePath, type Evidence } from "./lib/directory-evidence";
+import { captureDirectoryRecoverySnapshot, directoryEvidenceHttp, directoryEvidencePath, type Evidence } from "./lib/directory-evidence";
 import { directoryDrainObject, directoryDrainPath, directoryDrainStatus, startDirectoryWork, trackDirectoryResponse, type DirectoryWorkKind } from "./lib/directory-drain";
 import { directoryPauseKey, directoryPauseResponse, directoryPauseRetrySeconds, directoryTrafficPaused } from "./lib/directory-traffic-pause";
 import {restorePreviewInput,restoreStartInput} from "./lib/workspace-restore-model";
@@ -226,7 +226,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if (this.#id !== demoBrokerageId || !await directoryTrafficPaused(this.#documents)) {
       throw new Error("Directory evidence requires an active pause.");
     }
-    return captureDirectoryEvidence(this.#store);
+    return captureDirectoryRecoverySnapshot(this.#store);
   }
 
   async reviewDirectoryRepair(evidence: Evidence) {

@@ -151,7 +151,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     if (count?.active !== 0) throw new Error("Outstanding work blocked the restore");
     const saved=await accessEvidence("POST",journal.evidenceToken,journal.evidenceId,201);
     const repeated=await accessEvidence("POST",journal.evidenceToken,journal.evidenceId,200);
-    if(!same(saved,repeated) || !(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
+    if(saved.evidence.version!==2 || !same(saved,repeated) || !(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
       throw new Error("Independent evidence capture did not seal the reviewed state");
     const undo = await directory.probeDirectoryArm(journal.old);
     next = { ...journal, undo, phase:"directoryOldArmed" };
@@ -165,8 +165,13 @@ export async function directoryRecoveryCommand(action, fixture) {
       throw new Error("Older directory did not demonstrate lost access and routing evidence");
     const pausedRoutes = await checkPausedIngress(application,env,origin,ctx);
     const comparison=await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200);
-    if(comparison.matches || comparison.groups.filter(group=>group.changed).length!==4)
+    if(comparison.matches || comparison.accessMatches || comparison.groups.filter(group=>group.changed).length!==4)
       throw new Error("Independent evidence failed to detect stale access and routing");
+    const maintenanceChanges=comparison.maintenance.changes.filter(item=>item.brokerageId===a.id);
+    if(comparison.maintenance.status!=="changed" ||
+      !maintenanceChanges.some(item=>item.group==="maintenance") ||
+      !maintenanceChanges.some(item=>item.group==="edits"))
+      throw new Error("Independent evidence failed to detect stale maintenance and covered edits");
 
     if ((await readDrain(journal.token)).active !== 0) throw new Error("Verified drain did not survive directory restart");
     const repairUrl=`${origin}${directoryRepairPath}?id=${journal.evidenceId}`;
@@ -184,8 +189,10 @@ export async function directoryRecoveryCommand(action, fixture) {
     if(result.status!==200)throw new Error("Reviewed directory repair was refused");
     const applied=await result.json(), retry=await repair("POST",journal.repairToken,confirmed);
     if(retry.status!==200 || !same(await retry.json(),applied))throw new Error("Directory repair retry changed the receipt");
-    if(!(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
-      throw new Error("Directory evidence did not match after reconstruction");
+    const repairedComparison=await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200);
+    if(!repairedComparison.accessMatches || repairedComparison.matches ||
+      !same(repairedComparison.maintenance,comparison.maintenance))
+      throw new Error("Access reconstruction masked unresolved maintenance evidence");
     if(await directory.brokerageForPortal(state.link.token) || await directory.brokerageForPortal(state.realtor.token) ||
       await directory.leadOwner(a.id,a.officer.email,[]) || !await directory.leadOwner(b.id,b.officer.email,[]))
       throw new Error("Reconstruction did not preserve access restrictions");
@@ -219,7 +226,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     const reconstructed=await directory.probeDirectorySnapshot();
 
     next = { ...journal, phase:"directoryOldRejected", reconstructed, evidence:{
-      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true, reviewedReconstructionMatched:true, reconstructedCounts:applied.applied, repairReceiptRetryMatched:true, olderSignInStateInvalidated:true, signInResetCounts:invalidated, signInResetRetryMatched:true,
+      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true, reviewedReconstructionMatched:true, maintenanceDriftDetected:true, maintenanceDriftSurvivedAccessRepair:true, maintenanceGroupsChanged:maintenanceChanges.map(item=>item.group), reconstructedCounts:applied.applied, repairReceiptRetryMatched:true, olderSignInStateInvalidated:true, signInResetCounts:invalidated, signInResetRetryMatched:true,
     } };
     await save();
   } else if (action === "directoryRecover" && journal?.phase === "directoryOldRejected") {
