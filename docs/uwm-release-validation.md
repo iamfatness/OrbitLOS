@@ -1,3 +1,15 @@
+# Combined release and stage activation — November 10, 2026
+
+- Source `3f4ee6d` includes CRM manager fixes through `5c86442`, acceptance notes `a585ea2`, dedicated UWM user credentials and authenticated portal contract corrections.
+- 428 tests passed, TypeScript and ESLint passed, production and stage Cloudflare builds passed.
+- Production published at 100% as `36788277-ef0b-4039-9afc-112d7ec1a77b`; two clean version-override and two clean ordinary-traffic asset passes (92/92). Landing 200, unconfigured production receivers 503, cross-environment 404 and GET 405 verified. Existing pricing configuration retained.
+- Stage code published as `231f5f15-2342-4924-80bc-54d098fc12e4`, followed by secret-only activation versions. Separate Google client created with explicit user approval, login verified, temporary Basic password removed.
+- Created stage-only non-pilot workspace UWM Integration Test, `b73d9e19-4366-4ece-9467-675c00587a5e`; installed stage user-access and webhook credentials.
+- All four stage receivers rejected unauthenticated requests with 401, saved authenticated synthetic requests with 200 and deduplicated their exact retries. Four receipts verified in the signed-in administrator UI. No actual UWM-originated delivery or loan mutation has been verified.
+- Other Orbit coding chat was notified of exact source/version and asked to merge this release before future publishing.
+
+Prior release history follows; its earlier missing-stage-configuration statements are superseded above.
+
 # UWM publication validation — November 10, 2026
 
 ## Continuation status

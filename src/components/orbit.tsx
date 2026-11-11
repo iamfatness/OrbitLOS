@@ -1780,12 +1780,11 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             showTasks={showGuideTasks} />
           </fieldset>}
 
-          {section === "Integrations" && <section className="integration">
+          {section === "Integrations" && <section className="uwm-integration-page">
+            <header className="uwm-provider-heading"><span className="uwm-provider-mark" aria-hidden="true">UWM</span><div><span className="uwm-eyebrow">Lender connection</span><h2>United Wholesale Mortgage</h2><p>Connect your account and manage your lender services.</p></div></header>
+            <div className="uwm-integration-grid">
             {staff && <UwmAccount key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
-            {staff?.brokerage.role === "Admin" && <UwmReceipts key={`receipts:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />}
-            <div className="integration-head"><span className="metric-icon lavender"><workspaceIcons.integrations size={20} aria-hidden="true" /></span><div><h2>United Wholesale Mortgage</h2></div><span className="pill">{uwmConnection.pricing}</span></div>
-            <p className="integration-description">Pricing, pipeline access and lender actions have separate connection requirements.</p>
-            <UwmConnection connection={uwmConnection} brokerageId={staff?.brokerage.id} admin={admin} />
+            <div className="uwm-service-card"><UwmConnection overview connection={uwmConnection} brokerageId={staff?.brokerage.id} admin={admin} />
             <div className="integration-stats"><span><CircleCheck size={17} /> {uwmCount} linked loans</span><span><ArrowDownUp size={17} /> {state.uwmSyncedAt ? `Last sync ${dateTime(state.uwmSyncedAt)} ET` : "Waiting for first sync"}</span></div>
             <div className="loan-application-actions">{syncButton()}
               {admin && uwmConnection.pipeline === "Sample pipeline" && <Button variant="outline" disabled={busy || !state.uwmSyncedAt || state.mockUwmChangesApplied}
@@ -1794,6 +1793,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             {admin && uwmConnection.pipeline === "Sample pipeline" && <p className="muted">{state.mockUwmChangesApplied
               ? "Sample lender changes applied. Review Charlotte Kim’s alerts under Tasks. My Tasks shows alerts for your assigned loans."
               : "After the first sync, simulate three lender changes on Charlotte Kim’s loan. Assign her loan to yourself to see the alerts in My Tasks."}</p>}
+            </div></div>
+            {staff?.brokerage.role === "Admin" && <UwmReceipts key={`receipts:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />}
           </section>}
           </>}
         </div>

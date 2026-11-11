@@ -839,3 +839,67 @@ button:disabled { cursor: default; }
   .loan-section-picker select { min-width: 0; min-height: 44px; padding: 5px 8px; border: 1px solid var(--control-line);
     border-radius: 8px; background: #fff; color: var(--ink); font-size: 16px; font-weight: 500; }
 }
+
+/* Lender integration workspace: account first, services second, diagnostics on demand. */
+.uwm-integration-page { max-width: 1120px; min-width: 0; }
+.uwm-provider-heading { display: flex; gap: 18px; align-items: center; margin: 0 0 26px; }
+.uwm-provider-mark { display: grid; place-items: center; width: 64px; height: 64px; flex: 0 0 64px; border: 1px solid #e0d8f1; border-radius: 16px; background: #f0eafa; color: #51358a; font-size: 16px; font-weight: 800; letter-spacing: -.06em; }
+.uwm-eyebrow { display: block; margin-bottom: 4px; color: #766b85; font-size: 11px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; }
+.uwm-provider-heading h2 { font-size: 23px; font-weight: 650; letter-spacing: -.035em; line-height: 1.25; }
+.uwm-provider-heading p { margin-top: 6px; color: var(--muted); font-size: 13px; }
+.uwm-integration-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; gap: 22px; }
+.uwm-account-card, .uwm-service-card { min-width: 0; padding: 25px; border: 1px solid var(--line); border-radius: 16px; background: white; }
+.uwm-account-card { border-top: 3px solid #7855c4; box-shadow: 0 4px 18px #38225106; }
+.uwm-card-heading { display: flex; align-items: flex-start; gap: 11px; flex-wrap: wrap; }
+.uwm-card-heading > div { flex: 1; min-width: 150px; }
+.uwm-step-icon { display: grid; place-items: center; background: #f3effb; color: #7251bd; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 10px; }
+.uwm-account-card h3, .uwm-services h3 { font-size: 16px; font-weight: 650; letter-spacing: -.015em; line-height: 1.4; }
+.uwm-card-heading p, .uwm-section-description { font-size: 12px; color: var(--muted); line-height: 1.65; margin-top: 5px; }
+.uwm-status { display: inline-flex; align-items: center; flex-shrink: 0; max-width: 100%; background: #f4f2f7; border: 1px solid #ebe7f0; border-radius: 6px; color: #6b6277; padding: 3px 7px; font-size: 10px; font-weight: 600; line-height: 1.5; }
+.uwm-status.is-ready { background: #edf7f0; color: #296344; border-color: #d6eadc; }
+.uwm-environment { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 23px; padding-bottom: 18px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+.uwm-environment .uwm-status { background: #f4edff; border-color: #e7dbfa; color: #6c459f; }
+.uwm-signin-form { display: grid; gap: 16px; margin-top: 21px; }
+.uwm-signin-form .field { gap: 7px; margin: 0; font-size: 12px; }
+.uwm-signin-form input { width: 100%; min-width: 0; min-height: 43px; padding: 10px 12px; border-radius: 8px; background: #fff; }
+.uwm-signin-form > button { margin-top: 3px; width: 100%; }
+.uwm-security-note { display: flex; gap: 8px; align-items: flex-start; margin-top: 17px; color: var(--muted); font-size: 11px; line-height: 1.7; }
+.uwm-security-note svg { flex-shrink: 0; margin-top: 2px; color: #8b7ba2; }
+.uwm-setup-note { background: #f8f6fb; border-radius: 9px; padding: 16px; margin-top: 20px; font-size: 12px; }
+.uwm-setup-note p { color: var(--muted); margin-top: 5px; line-height: 1.65; }
+.uwm-connected-note { display: flex; gap: 10px; color: #296344; margin: 23px 0 19px; font-size: 13px; }
+.uwm-connected-note svg { flex-shrink: 0; }
+.uwm-connected-note p { color: var(--muted); font-size: 12px; margin-top: 5px; line-height: 1.6; }
+.uwm-account-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.uwm-reconnect { margin-top: 20px; font-size: 12px; color: var(--muted); }
+.uwm-reconnect summary { cursor: pointer; padding: 6px 0; }
+.uwm-service-list { list-style: none; margin: 15px 0 20px; padding: 0; }
+.uwm-service-list li { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 18px 0; }
+.uwm-service-list li:last-child { border: 0; padding-bottom: 0; }
+.uwm-service-list strong { font-size: 13px; font-weight: 600; }
+.uwm-service-list p { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.uwm-service-card .integration-stats { gap: 8px; display: grid; border-top: 1px solid var(--line); padding-top: 19px; margin-top: 21px; }
+.uwm-service-card .integration-stats span { font-size: 11px; }
+.uwm-service-card > .muted { margin-top: 12px; font-size: 12px; line-height: 1.65; }
+.uwm-feedback { padding: 12px 14px; border-radius: 8px; background: #f1f7f3; color: #296344; margin-top: 15px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.uwm-feedback.is-error { color: #9c333e; background: #fff1f2; }
+.uwm-loading { font-size: 12px; color: var(--muted); padding: 15px 0; }
+.uwm-deliveries { margin-top: 24px; border: 1px solid var(--line); border-radius: 12px; background: white; overflow: hidden; }
+.uwm-deliveries > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 18px 22px; cursor: pointer; }
+.uwm-deliveries > summary::-webkit-details-marker { display: none; }
+.uwm-deliveries > summary > svg { color: #887b9a; flex-shrink: 0; }
+.uwm-deliveries summary strong { display: block; font-size: 13px; font-weight: 600; }
+.uwm-deliveries summary small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+.uwm-delivery-count { margin-left: auto; font-size: 11px; color: var(--muted); }
+.uwm-deliveries[open] .uwm-disclosure-icon { transform: rotate(180deg); }
+.uwm-deliveries summary:focus-visible, .uwm-reconnect summary:focus-visible { outline: 2px solid #7855c4; outline-offset: -3px; }
+.uwm-delivery-body { padding: 0 22px 20px; border-top: 1px solid var(--line); }
+.uwm-delivery-body > .uwm-section-description { margin: 16px 0; }
+.uwm-receipt-list { padding: 0; margin: 0 0 17px; list-style: none; }
+.uwm-receipt-list li { padding: 15px 0; border-bottom: 1px solid var(--line); }
+.uwm-receipt-main { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; font-size: 12px; }
+.uwm-receipt-meta { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 11px; margin-top: 7px; }
+.uwm-receipt-reference { margin-top: 7px; font-size: 11px; color: #84788f; overflow-wrap: anywhere; }
+.uwm-empty { display: grid; justify-items: center; text-align: center; gap: 8px; padding: 25px 14px; color: var(--muted); font-size: 12px; }
+@media (max-width: 1100px) { .uwm-integration-grid { grid-template-columns: minmax(0, 1fr); } .uwm-account-card, .uwm-service-card { padding: 22px; } }
+@media (max-width: 600px) { .uwm-provider-heading { align-items: flex-start; gap: 12px; } .uwm-provider-mark { width: 46px; height: 46px; flex-basis: 46px; font-size: 13px; border-radius: 12px; } .uwm-provider-heading h2 { font-size: 20px; } .uwm-account-card, .uwm-service-card { padding: 18px; } .uwm-service-list li { flex-wrap: wrap; } .uwm-deliveries > summary { padding: 16px; gap: 9px; } .uwm-delivery-body { padding: 0 16px 18px; } .uwm-delivery-count { font-size: 10px; } }
