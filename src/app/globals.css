@@ -852,12 +852,12 @@ button:disabled { cursor: default; }
 .record-dialog-scenarios { max-width: min(1160px, 100vw); }
 @media (max-width: 640px) {
   .record-dialog-details .loan-section-nav { display: none; }
-  .loan-dialog-controls { padding: 8px 13px 4px; }
+  .loan-dialog-controls { gap: 2px; padding: 6px 13px 2px; }
   .loan-dialog-identity h2 { font-size: 18px; }
   .loan-snapshot-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .loan-file-snapshot .section-heading > button { min-height: 44px; }
   .loan-section-picker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px;
-    padding: 3px 0; color: var(--ink); font-weight: 650; }
+    padding: 1px 0; color: var(--ink); font-weight: 650; }
   .loan-section-picker select { min-width: 0; min-height: 44px; padding: 5px 8px; border: 1px solid var(--control-line);
     border-radius: 8px; background: #fff; color: var(--ink); font-size: 16px; font-weight: 500; }
 }

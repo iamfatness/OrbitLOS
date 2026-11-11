@@ -151,7 +151,7 @@ function LoanCard({ loan, onOpen, onDrag, onDragEnd }: {
 }) {
   const { name, lenders, openConditions: count, action } = loan;
   return (
-    <button className="loan-card" onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
+    <button className="loan-card" data-loan-record={loan.id} onClick={onOpen} draggable={!pausedLoan(loan)} onDragStart={onDrag} onDragEnd={onDragEnd}>
       <span className="loan-person"><span className={`avatar avatar-${stages.indexOf(loan.stage) % 4}`}>{initials(name)}</span><strong>{name}</strong></span>
       <span className="loan-address"><MapPin size={13} /> <span>{loan.address || "Property pending"}</span></span>
       <span className="loan-value">{money(loan.amount)} <small>{loan.requestedAmount ? "Recorded" : loan.purpose}</small></span>
@@ -1204,12 +1204,14 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     setModal(null);
     const trigger = exceptionTrigger.current;
     const original = recordTrigger.current;
+    const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
     exceptionTrigger.current = null;
     recordTrigger.current = null;
-    if (trigger || original) requestAnimationFrame(() => {
+    if (trigger || original || pipelineLoan) requestAnimationFrame(() => {
+      const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
       const target = trigger && section === "Exceptions" ?
         (trigger.isConnected ? trigger : document.getElementById("owner-exception-filter")) :
-        (original?.isConnected ? original : sectionHeading.current);
+        (original?.isConnected ? original : replacement || sectionHeading.current);
       target?.focus({ preventScroll: true });
     });
   }
@@ -1404,7 +1406,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
                   })}
                 </div>
               ) : pipeline.page.list.loans.length > 0 && <div className="table-scroll"><table className="data-table pipeline-list"><thead><tr><th>Borrower</th><th className="pipeline-list-extra">Stage</th><th className="numeric">Recorded amount</th><th className="pipeline-list-extra">Officer</th><th className="pipeline-list-extra">Lender</th><th className="pipeline-list-extra numeric">Stage age</th><th>Next action</th></tr></thead><tbody>
-                {pipeline.page.list.loans.map((loan) => <tr key={loan.id}><td><button className="name-link" onClick={() => openPipelineLoan(loan.id)}>{loan.name}</button><small>{loan.address}</small><small className="pipeline-mobile-stage">{loan.stage}{pausedLoan(loan) && ` · ${loan.disposition}`}</small></td>
+                {pipeline.page.list.loans.map((loan) => <tr key={loan.id}><td><button className="name-link" data-loan-record={loan.id} onClick={() => openPipelineLoan(loan.id)}>{loan.name}</button><small>{loan.address}</small><small className="pipeline-mobile-stage">{loan.stage}{pausedLoan(loan) && ` · ${loan.disposition}`}</small></td>
                   <td className="pipeline-list-extra"><span className={`stage-dot ${stageColors[stages.indexOf(loan.stage)]}`} /> {loan.stage}{pausedLoan(loan) && <small>{loan.disposition}</small>}</td>
                   <td className="numeric">{money(loan.amount)}{loan.requestedAmount && <small><button className="name-link" type="button"
                     onClick={() => openPipelineLoan(loan.id, loanAmountComparisonTarget)}>1003 request {requestedMoney(loan.requestedAmount)}</button></small>}</td>

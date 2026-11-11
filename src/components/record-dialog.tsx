@@ -975,6 +975,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       focus.open = true;
       focus.querySelector("summary")?.focus({ preventScroll: true });
     } else if (target) focus?.focus({ preventScroll: true });
+    else if (details) element.querySelector<HTMLElement>("#record-title")?.focus({ preventScroll: true });
     if (sectionEntry || (details && !item)) element.scrollTo({ top: 0 });
     else if (details && item) element.scrollTo({
       top: element.scrollTop + item.getBoundingClientRect().top - element.getBoundingClientRect().top - (loanHeader.current?.offsetHeight ?? 0) - 12,
@@ -1141,7 +1142,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           {loan && modal.kind !== "details" && modal.kind !== "assignment" && modal.kind !== "returningClient" && (modal.kind !== "fundingCheckIn" || modal.returnToLoan) &&
             <Button variant="ghost" size="icon" aria-label="Back to loan details" onClick={back}><ArrowLeft /></Button>}
           {detailLoan ? <div className="loan-dialog-identity">
-            <h2 id="record-title"><span className="sr-only">{title} for </span>{borrowerName}</h2>
+            <h2 id="record-title" tabIndex={-1}><span className="sr-only">{title} for </span>{borrowerName}</h2>
             <p><strong>{detailLoan.stage}</strong> · <span suppressHydrationWarning>{stageDays(detailLoan.stageSince)}d in stage</span>
               {pausedLoan(detailLoan) && ` · ${detailLoan.disposition}`}</p>
           </div> : <h2 id="record-title">{title}</h2>}

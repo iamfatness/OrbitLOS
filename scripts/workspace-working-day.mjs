@@ -2,6 +2,7 @@ import { strFromU8, unzipSync } from "fflate";
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { createRequire, registerHooks } from "node:module";
 import { join, resolve, relative, extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -300,11 +301,21 @@ try {
     }
     await signIn(entryOfficer);
     const scoped = (id) => `/workspace?brokerage=${id}`;
-    const browse = (actor, path, choice = "", { headers, method = "GET" } = {}) =>
-      runtime.dispatchFetch(`${origin}${path}`, { method, redirect: "manual", headers: {
+    const browse = (actor, path, choice = "", { headers, method = "GET" } = {}) => new Promise((resolve, reject) => {
+      const request = httpRequest(`${origin}${path}`, { method, headers: {
         Cookie: [`__Host-orbit-session=${actor.token}`, choice].filter(Boolean).join("; "),
         Accept: "text/html", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-User": "?1", ...headers,
-      } });
+      } }, async (response) => {
+        try {
+          const body = await Array.fromAsync(response);
+          resolve({ status: response.statusCode, headers: new Headers(response.headers), text: () => Buffer.concat(body).toString() });
+        } catch (error) {
+          reject(error);
+        }
+      });
+      request.on("error", reject);
+      request.end();
+    });
     const selected = await browse(entryOfficer, scoped(brokerage));
     assert.equal(selected.status, 200);
     const saved = selected.headers.get("set-cookie");
