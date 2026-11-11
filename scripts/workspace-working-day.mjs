@@ -105,6 +105,15 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     }catch(error){return error.message;}
     return "Unexpectedly allowed";
   }
+  dispositionFixtureDates(loanId,fundingDate,dispositionDate) {
+    const sql=this.ctx.storage.sql;
+    if(fundingDate) {
+      sql.exec("UPDATE loans SET stage='Funded' WHERE id=?",loanId);
+      sql.exec("INSERT INTO closing_progress (loanId,fundingDate) VALUES (?,?)",loanId,fundingDate);
+    } else {
+      sql.exec("UPDATE loans SET dispositionDate=? WHERE id=?",dispositionDate,loanId);
+    }
+  }
   retentionFixtureFile(requestId,objectId) {
     this.ctx.storage.sql.exec("INSERT INTO document_files (requestId,objectId,attemptedAt) VALUES (?,?,0) ON CONFLICT(requestId) DO UPDATE SET objectId=excluded.objectId",requestId,objectId);
   }
@@ -3801,6 +3810,53 @@ try {
     assert.equal(releasedManifest.files.length,1);
     assert.equal(releasedManifest.holdHistory[0].releaseReference,release.reference);
 
+  });
+  await stage("Brokerage retention policy queues dated outcomes and protects holds during review", async () => {
+    const workspace=workspaces.getByName(brokerage);
+    const disposition=(input,staff=owner,expected=brokerage)=>action(staff,"accessLoanRetention",input,undefined,expected);
+    const query={type:"dispositionQueue",offset:0};
+    assert.equal((await disposition(query)).policy,null);
+    for(const staff of [officer,processor])assert.match((await disposition(query,staff)).error,/current pilot owners/);
+    assert.match((await disposition(query,owner,randomUUID())).error,/current pilot owners/);
+    async function sample(name) {
+      const result=await write(owner,{type:"loan",contactId:"",borrower:name,borrowerEmail:"",address:"",amount:195000,
+        purpose:"Purchase",stage:"Lead",officer:owner.name,partnerId:null,start1003:false});
+      return result.loanWork.loanId;
+    }
+    const funded=await sample("Fictional disposition funded");
+    const withdrawn=await sample("Fictional disposition withdrawn");
+    const legacy=await sample("Fictional disposition undated");
+    const recent=await sample("Fictional disposition recent");
+    for(const loanId of [withdrawn,legacy,recent])await write(owner,{type:"loanDisposition",loanId,disposition:"Withdrawn",reason:"Fictional borrower withdrew",revision:0});
+    await workspace.dispositionFixtureDates(funded,"2000-01-01",null);
+    await workspace.dispositionFixtureDates(withdrawn,null,"2000-01-01");
+    await workspace.dispositionFixtureDates(legacy,null,null);
+    const policy={type:"saveDispositionPolicy",id:randomUUID(),expected:0,fundedDays:90,closedDays:30,reference:"Fictional owner approval RT-04"};
+    const saved=await disposition(policy);
+    assert.equal(saved.policy.version,1);
+    assert.equal(saved.rows.find(row=>row.id===funded).reviewOn,"2000-03-31");
+    const row=saved.rows.find(row=>row.id===withdrawn);
+    assert.equal(row.reviewOn,"2000-01-31");
+    assert.ok(!saved.rows.some(row=>[legacy,recent].includes(row.id)));
+    assert.deepEqual(await disposition(policy),saved);
+    assert.match((await disposition({...policy,id:randomUUID()})).error,/changed/);
+    const decide={type:"saveDispositionReview",id:randomUUID(),loanId:withdrawn,policyVersion:1,basis:row.basis,previous:null,
+      outcome:"Recommend disposition",reference:"Fictional records reviewed",offset:0};
+    const hold={type:"hold",id:randomUUID(),loanId:withdrawn,reference:"Fictional records hold"};
+    assert.equal((await disposition(hold)).kind,"saved");
+    assert.ok(!(await disposition(query)).rows.some(row=>row.id===withdrawn));
+    assert.match((await disposition(decide)).error,/no longer due/);
+    await disposition({type:"release",id:randomUUID(),loanId:withdrawn,holdId:hold.id,reference:"Fictional hold released"});
+    assert.match((await disposition(decide)).error,/changed/);
+    const reopened=(await disposition(query)).rows.find(row=>row.id===withdrawn);
+    const decision={...decide,basis:reopened.basis};
+    const reviewed=await disposition(decision);
+    assert.equal(reviewed.rows.find(row=>row.id===withdrawn).decision.outcome,decide.outcome);
+    assert.deepEqual(await disposition(decision),reviewed);
+    assert.equal((await file(owner,withdrawn)).loans[0].id,withdrawn);
+    const revised=await disposition({...policy,id:randomUUID(),expected:1,reference:"Fictional updated approval RT-05"});
+    assert.equal(revised.rows.find(row=>row.id===withdrawn).decision,null);
+    assert.match((await disposition({...decision,id:randomUUID()})).error,/policy changed/);
   });
   await stage("Owner checkpoint inspection is complete, role scoped and unavailable while work is open",async()=>{
     const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;

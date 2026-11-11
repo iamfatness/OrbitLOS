@@ -23,7 +23,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
     result.push("Lender evidence or access records changed. Reconcile those records before restoring; Orbit will not rewind them automatically.");
   if(before.activeLoanHolds || current.activeLoanHolds)
     result.push("A loan has an active retention hold. Keep the workspace paused and use the incident recovery review.");
-  const retentionTables=["loan_retention_holds","loan_retention_objects"];
+  const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews"];
   if(retentionTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Loan retention evidence changed. This checkpoint requires a separate retention review.");
   return result;

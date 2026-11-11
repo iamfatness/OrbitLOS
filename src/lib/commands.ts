@@ -2242,7 +2242,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (data.disposition !== "Active" && !reason) throw new WorkspaceError("Enter a reason for changing the loan status.");
           if (loan.disposition === data.disposition && loan.dispositionReason === reason && loan.revisitDate === revisit) break;
           db.prepare(`UPDATE loans SET disposition = ?, dispositionReason = ?, revisitDate = ?,
-            dispositionRevision = dispositionRevision + 1 WHERE id = ?`).run(data.disposition, reason, revisit, data.loanId);
+            dispositionDate = CASE WHEN disposition = ? THEN dispositionDate ELSE ? END,
+            dispositionRevision = dispositionRevision + 1 WHERE id = ?`)
+            .run(data.disposition, reason, revisit, data.disposition, easternDate(new Date(now)), data.loanId);
           if (data.disposition === "Active" && (loan.stage === "Lead" || loan.stage === "Pre-qual") && getApplication(db, data.loanId)?.submittedAt) {
             db.prepare("UPDATE loans SET stage = 'Application', stageSince = ? WHERE id = ?").run(now, data.loanId);
           }

@@ -5,6 +5,7 @@ import { accessLoanRetention } from "@/app/actions";
 import type { LoanRetentionResult } from "@/lib/loan-retention";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
+import { RetentionDisposition } from "./retention-disposition";
 import { Button } from "./ui/button";
 
 type Inventory = Extract<LoanRetentionResult, { kind: "list" }>;
@@ -16,6 +17,8 @@ const initial: Selection = { heldOnly: false, search: "", offset: 0 };
 export function LoanRetention({ brokerageId, paused, openLoan }: {
   brokerageId: string; paused: boolean; openLoan: (id: string) => void;
 }) {
+  const [disposition, setDisposition] = useState(false);
+  const dispositionLink = useRef<HTMLButtonElement>(null);
   const [selection, select] = useState(initial);
   const [search, setSearch] = useState("");
   const [inventory, setInventory] = useState<Inventory & { selection: Selection }>();
@@ -126,15 +129,22 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
 
   if (paused) return <p className="muted">Loan retention is unavailable while the workspace is paused.</p>;
 
+  if (disposition) return <RetentionDisposition brokerageId={brokerageId} openLoan={openLoan} onBack={()=>{
+    setDisposition(false);
+    requestAnimationFrame(()=>dispositionLink.current?.focus());
+  }} />;
+
   return <div className="integration manager-panel record-form loan-retention">
     <div className="section-heading">
       <h2>Loan retention</h2>
+      <Button ref={dispositionLink} type="button" variant="outline" disabled={pending || !!review}
+        onClick={()=>setDisposition(true)}>Disposition review</Button>
       {inventory && <Button variant="outline" aria-pressed={selection.heldOnly} disabled={pending || !!review}
         onClick={() => { setNotice(""); load({ ...selection, heldOnly: !selection.heldOnly, offset: 0 }); }}>
         {inventory.held} {inventory.held === 1 ? "active hold" : "active holds"}
       </Button>}
     </div>
-    <p className="muted">Holds protect the loan and its checklist PDFs from deletion. Retention periods are pending policy review.</p>
+    <p className="muted">Holds protect the loan and its checklist PDFs from deletion.</p>
     <form className="loan-application-actions retention-search" onSubmit={(event) => {
       event.preventDefault();
       setNotice("");
