@@ -336,6 +336,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   const [convertedCall, setConvertedCall] = useState<Omit<CallContinuation, "ownerEmail">>();
   const [savedCall, setSavedCall] = useState<CallContinuation & { callEventId: string }>();
   const [segmentFilter, setSegmentFilter] = useState("");
+  const [campaignSearch, setCampaignSearch] = useState("");
   const [importOpen, setImportOpen] = useState(state.campaignRehearsal?.campaignId === selectedId && state.campaignRehearsal.importedCount < 2);
   const [segmentsOpen, setSegmentsOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
@@ -346,6 +347,7 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
   const [callLeadId, setCallLeadId] = useState<string>();
   const attempt = useRef<{ id: string; name: string } | null>(null);
   const campaign = state.callCampaigns.find((entry) => entry.id === selectedId) ?? state.callCampaigns[0];
+  const matchingCampaigns = state.callCampaigns.filter((entry) => entry.name.toLocaleLowerCase().includes(campaignSearch.trim().toLocaleLowerCase()));
   const canManage = !staff || (staff.brokerage.pilot === true && staff.brokerage.role === "Admin");
   const canReadManagerReports = canManage && (staff || process.env.NODE_ENV === "development");
   const inbox = new Map(state.inboxLeads.map((lead) => [lead.id, lead]));
@@ -512,8 +514,15 @@ export function CallCampaigns({ state, staff, selectedId, select, focusLeadId, f
             openCallback(item);
           }} />}
       </details>}
+      {(state.callCampaigns.length > 8 || campaignSearch.length > 0) && <div className="record-form">
+        <label className="field">Find a campaign<input type="search" value={campaignSearch} onChange={(event) => setCampaignSearch(event.target.value)} placeholder="Search campaign names" /></label>
+        {campaignSearch.trim() && <div className="loan-application-actions"><span className="muted" role="status">
+          {matchingCampaigns.length ? `${matchingCampaigns.length} matching campaigns` : "No matching campaigns. Your current campaign stays selected."}
+        </span><Button size="sm" variant="ghost" onClick={() => setCampaignSearch("")}>Clear campaign search</Button></div>}
+      </div>}
       {campaign && <label className="field">Call campaign<select value={campaign.id} disabled={busy} onChange={(event) => changeCampaign(event.target.value)}>
-        {state.callCampaigns.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+        {!matchingCampaigns.some(({ id }) => id === campaign.id) && <option value={campaign.id}>{campaign.name} · Current campaign</option>}
+        {matchingCampaigns.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
       </select></label>}
       {campaign && <CampaignRulesForm key={campaign.id} campaign={campaign} canManage={canManage} busy={busy} save={save} />}
       {canManage && campaign?.sequenceConfig && <CampaignSequence key={`sequence-editor:${campaign.id}`}

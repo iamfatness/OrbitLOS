@@ -103,6 +103,8 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
   const [feedback, setFeedback] = useState<{ error: boolean; text: string }>();
   const attempt = useRef<{ key: string; eventId: string } | null>(null);
   const panel = useRef<HTMLElement>(null);
+  const queueHeading = useRef<HTMLHeadingElement>(null);
+  const conversationButtons = useRef(new Map<string, HTMLButtonElement>());
   const outcome = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     if (feedback) outcome.current?.focus();
@@ -146,9 +148,14 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
   }, [focus]);
 
   function select(next: ConversationFocus | null) {
+    const previousId = focus && "id" in focus ? focus.id : undefined;
     setAfter(undefined);
     setFeedback(undefined);
     setFocus(next);
+    if (!next) requestAnimationFrame(() => {
+      const trigger = previousId ? conversationButtons.current.get(previousId) : undefined;
+      (trigger ?? queueHeading.current)?.focus();
+    });
   }
 
   async function change(action: Change, afterSave?: () => void) {
@@ -189,7 +196,7 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
   }
 
   return <section className="integration record-form manager-panel" aria-label="Shared communications queue">
-    <div className="section-heading"><h2>Conversations</h2>{list && <span className="pill">Checked {dateTime(list.checkedAt)} ET</span>}</div>
+    <div className="section-heading"><h2 ref={queueHeading} tabIndex={-1} className="crm-preview-summary">Conversations</h2>{list && <span className="pill">Checked {dateTime(list.checkedAt)} ET</span>}</div>
     <p className="muted">Work conversations for leads, loan files, and standalone contacts. Staff share the unread and reply state. History labels distinguish manual activity, campaign calls, and simulated replies.</p>
     <div className="loan-application-actions">
       <label className="field">Conversation status<select value={query.filter} disabled={saving} onChange={(event) => setQuery({ ...query, filter: event.target.value as typeof query.filter, after: undefined })}>
@@ -250,7 +257,9 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
       <div className="document-item-head"><strong>{row.name}</strong><span className="pill">{row.missedCall ? "Missed call" : row.status}{row.unread && " · Unread"}</span></div>
       <p className="muted">{row.leadId ? "Lead" : row.loanId ? `${row.audience} · ${row.loanName}’s loan` : `${row.audience} · Contact conversation`} · {row.owner}
         {row.dueOn && ` · Follow up ${dateLabel(row.dueOn)}`}{row.outreachBlocked && " · Outreach opted out"}{row.held && " · On hold"}</p>
-      <div><Button size="sm" variant="outline" disabled={saving} onClick={() => select({ id: row.id })}>Open conversation</Button></div>
+      <div><Button ref={(element) => { if (element) conversationButtons.current.set(row.id, element); else conversationButtons.current.delete(row.id); }}
+        size="sm" variant="outline" disabled={saving} onClick={() => select({ id: row.id })}
+        aria-label={`Open conversation for ${row.name}`}>Open conversation</Button></div>
     </li>)}</ul> : <div className="record-form"><p className="empty-inline">No conversations match these filters. Start one from {openContacts ? "a contact, lead, or loan" : "a loan"}.</p>
       <div className="loan-application-actions">{openInbox && <Button size="sm" variant="outline" onClick={openInbox}>Open lead inbox</Button>}
         {openContacts && <Button size="sm" variant="outline" onClick={openContacts}>Open contacts</Button>}
