@@ -1,3 +1,4 @@
+import { strFromU8, unzipSync } from "fflate";
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
@@ -103,6 +104,9 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
       else throw new Error("Unknown fixture call");
     }catch(error){return error.message;}
     return "Unexpectedly allowed";
+  }
+  retentionFixtureFile(requestId,objectId) {
+    this.ctx.storage.sql.exec("INSERT INTO document_files (requestId,objectId,attemptedAt) VALUES (?,?,0) ON CONFLICT(requestId) DO UPDATE SET objectId=excluded.objectId",requestId,objectId);
   }
   async missReminderAlarm() {
     const storage = this.ctx.storage;
@@ -3738,7 +3742,7 @@ try {
     assert.equal((await file(owner,loanId)).documentRequests[0].dueOn,"2030-05-01");
     if(process.argv.includes("--preview"))await workspaces.getByName(brokerage).restoreDeadlineFixture(edit.id);
   });
-  await stage("Owner retention holds preserve the loan and require a recorded release", async () => {
+  await stage("Owner retention holds protect PDFs and export verified bytes with hold history", async () => {
     const created = await write(owner, {type:"loan", contactId:"", borrower:"Fictional Retention Borrower",
       borrowerEmail:"retention@example.test", address:"", amount:195000, purpose:"Purchase", stage:"Lead",
       officer:owner.name, partnerId:null, start1003:false});
@@ -3748,6 +3752,18 @@ try {
     assert.equal((await retention(read)).total,0);
     for(const staff of [officer,processor]) assert.match((await retention(read,staff)).error,/current pilot owners/);
     assert.match((await retention(read,owner,randomUUID())).error,/current pilot owners/);
+    await write(owner,{type:"requestDocument",loanId,kind:"Pay stub",instructions:"Fictional retention export."});
+    const requestId=(await file(owner,loanId)).documentRequests[0].id;
+    const first=randomUUID(), second=randomUUID();
+    const bucket=await runtime.getR2Bucket("DOCUMENTS"), workspace=workspaces.getByName(brokerage);
+    const firstKey=`${brokerage}/${first}.pdf`, secondKey=`${brokerage}/${second}.pdf`;
+    await bucket.put(firstKey,demoDocumentPdf("clean"));
+    await workspace.retentionFixtureFile(requestId,first);
+    const archive=(staff=owner,selected=loanId)=>runtime.dispatchFetch(`${origin}/api/loan-retention/export?brokerage=${brokerage}&loan=${encodeURIComponent(selected)}`,{
+      method:"POST",headers:{Origin:origin,Cookie:`__Host-orbit-session=${staff.token}`}
+    });
+    for(const staff of [officer,processor])assert.equal((await archive(staff)).status,404);
+    assert.equal((await archive(owner,randomUUID())).status,404);
     const hold={type:"hold",id:randomUUID(),loanId,reference:"Fictional case RET-101"};
     const saved=await retention(hold);
     assert.equal(saved.message,"Retention hold placed.");
@@ -3755,6 +3771,22 @@ try {
     assert.equal((await retention(read)).loans[0].holdId,hold.id);
     assert.match((await action(owner,"mutate",{type:"deleteLoan",id:loanId})).error,/retention hold/);
     assert.equal((await file(owner,loanId)).loans[0].id,loanId);
+    await workspace.retentionFixtureFile(requestId,second);
+    const missing=await archive();
+    assert.equal(missing.status,409);
+    assert.match((await missing.json()).error,/partial archive/);
+    await bucket.put(secondKey,demoDocumentPdf("replacement"));
+    const downloaded=await archive();
+    assert.equal(downloaded.status,200);
+    assert.equal(downloaded.headers.get("Content-Type"),"application/zip");
+    assert.equal(downloaded.headers.get("Cache-Control"),"private, no-store");
+    const entries=unzipSync(new Uint8Array(await downloaded.arrayBuffer()));
+    const manifest=JSON.parse(strFromU8(entries["manifest.json"]));
+    assert.equal(manifest.loan.id,loanId);
+    assert.equal(manifest.holdHistory[0].reference,hold.reference);
+    assert.equal(manifest.files.length,2);
+    for(const expected of [demoDocumentPdf("clean"),demoDocumentPdf("replacement")])
+      assert(Object.values(entries).some(bytes=>Buffer.from(bytes).equals(expected)));
     const release={type:"release",id:randomUUID(),loanId,holdId:hold.id,reference:"Fictional case RET-101 resolved"};
     assert.match((await retention({...release,holdId:randomUUID()})).error,/changed/);
     assert.equal((await retention(release)).message,"Retention hold released.");
@@ -3762,6 +3794,13 @@ try {
     const history=await retention({type:"history",loanId});
     assert.equal(history.holds[0].releasedBy,owner.name);
     assert.equal(history.holds[0].releaseReference,release.reference);
+    const released=await archive();
+    assert.equal(released.status,200);
+    const releasedEntries=unzipSync(new Uint8Array(await released.arrayBuffer()));
+    const releasedManifest=JSON.parse(strFromU8(releasedEntries["manifest.json"]));
+    assert.equal(releasedManifest.files.length,1);
+    assert.equal(releasedManifest.holdHistory[0].releaseReference,release.reference);
+
   });
   await stage("Owner checkpoint inspection is complete, role scoped and unavailable while work is open",async()=>{
     const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;

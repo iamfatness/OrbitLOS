@@ -1,3 +1,4 @@
+import { auditRetentionExport, retentionExportLoanId, retentionExportPath, retentionExportResponse, reviewRetentionExport } from "./lib/loan-retention-export";
 import { loanRetentionUnavailable, loanRetentionWork } from "./lib/loan-retention";
 import { applyDirectoryRecoveryHold, directoryRecoveryHoldHttp, directoryRecoveryHoldPath, directoryRecoveryHoldRecorded, previewDirectoryRecoveryHold, readDirectoryRecoveryHoldIntent, type RecoveryHoldIntent, type RecoveryHoldResult } from "./lib/directory-recovery-hold";
 import { commitDirectorySignInReset, directorySignInResetHttp, directorySignInResetPath, previewDirectorySignInReset, readDirectorySignInResetIntent, type SignInResetIntent } from "./lib/directory-sign-in-reset";
@@ -911,6 +912,14 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const result = loanRetentionWork(this.#store, input, staff, this.#id);
     if ("kind" in result && result.kind === "saved") await this.#scheduleCleanup();
     return result;
+  }
+
+  retentionExport(staff: WorkspaceStaff, loanId: string) {
+    return reviewRetentionExport(this.#store,staff,this.#id,loanId);
+  }
+
+  confirmRetentionExport(staff: WorkspaceStaff, loanId: string, fingerprint: string) {
+    return auditRetentionExport(this.#store,staff,this.#id,loanId,fingerprint);
   }
 
   borrowerQuestionSets(input: unknown, staff: WorkspaceStaff) {
@@ -1921,6 +1930,25 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         const receipts = await env.WORKSPACE.getByName(staff.brokerage.id).uwmWebhookReceipts(staff, before.data, receiptId?.data);
         return Response.json({ receipts }, { headers });
       } catch { return Response.json({ error: "Receipts unavailable" }, { status: 503, headers }); }
+    }
+    if (url.pathname === retentionExportPath) {
+      const loan = retentionExportLoanId.safeParse(url.searchParams.get("loan"));
+      if (request.method !== "POST") return new Response(null,{status:405,headers:{Allow:"POST","Cache-Control":"private, no-store"}});
+      if (!staff?.brokerage.pilot || staff.brokerage.role !== "Admin" || !loan.success ||
+        url.searchParams.get("brokerage") !== staff.brokerage.id) return fileProblem(404,"This retention export is unavailable.");
+      const identity = staff;
+      const workspace = env.WORKSPACE.getByName(identity.brokerage.id);
+      try {
+        const reviewed = await workspace.retentionExport(identity,loan.data);
+        return await retentionExportResponse(filesEnv.DOCUMENTS,identity.brokerage.id,reviewed,async fingerprint => {
+          const token = google && await staffSessionHash(request,google);
+          const current = token && await directory.staffSessionAccess(token,Date.now(),bootstrapEmails);
+          const access = current && current.identity.email === identity.email && current.brokerages.find(item=>item.id===identity.brokerage.id);
+          return !!access && !access.maintenance && await workspace.confirmRetentionExport({...identity,brokerage:access},loan.data,fingerprint);
+        });
+      } catch {
+        return fileProblem(503,"Orbit could not prepare this retention export. Try again shortly.");
+      }
     }
     if (request.method === "GET" && url.pathname === "/api/documents/download") {
       const requestId = z.uuid().safeParse(url.searchParams.get("request"));

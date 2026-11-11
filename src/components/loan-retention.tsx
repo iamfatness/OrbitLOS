@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { accessLoanRetention } from "@/app/actions";
 import type { LoanRetentionResult } from "@/lib/loan-retention";
 import { dateTime } from "@/lib/utils";
+import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
 type Inventory = Extract<LoanRetentionResult, { kind: "list" }>;
@@ -22,6 +23,8 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
   const [history, setHistory] = useState<Extract<LoanRetentionResult, { kind: "history" }>>();
   const [reference, setReference] = useState("");
   const [pending, setPending] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const receipt = useRef<HTMLParagraphElement>(null);
@@ -62,6 +65,7 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
     setNotice("");
     setReference("");
     setHistory(undefined);
+    setExportStatus("");
     setReview({ loan, action, id: crypto.randomUUID() });
     if (action !== "history") return;
     setPending(true);
@@ -73,6 +77,28 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
       setError("Could not load hold history. Close it and try again.");
     } finally {
       setPending(false);
+    }
+  }
+
+  async function exportHistory(loanId: string) {
+    if (exporting) return;
+    setExporting(true);
+    setError("");
+    setExportStatus("Preparing retention ZIP…");
+    try {
+      const params = new URLSearchParams({ brokerage: brokerageId, loan: loanId });
+      const response = await fetch(`/api/loan-retention/export?${params}`, { method: "POST" });
+      if (!response.ok || response.headers.get("content-type") !== "application/zip") {
+        const problem = await response.json().catch(() => null);
+        throw new Error(typeof problem?.error === "string" ? problem.error : "Could not prepare the retention export. Try again.");
+      }
+      downloadSampleFile(await response.blob(), "orbit-loan-retention.zip");
+      setExportStatus("Retention ZIP sent to your downloads.");
+    } catch (failure) {
+      setExportStatus("");
+      setError(failure instanceof Error ? failure.message : "Could not prepare the retention export. Try again.");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -150,7 +176,11 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
           </Button></div>
         </form>}
       {error && <p role="alert">{error}</p>}
-      <div><Button type="button" variant="outline" disabled={pending} onClick={() => {
+      {exportStatus && <p role="status">{exportStatus}</p>}
+      <div className="loan-application-actions">
+        {review.action === "history" && history && <Button type="button" disabled={exporting}
+          onClick={() => void exportHistory(review.loan.id)}>Download retention ZIP</Button>}
+        <Button type="button" variant="outline" disabled={pending || exporting} onClick={() => {
         const previous = origin.current;
         setReview(undefined);
         setError("");
