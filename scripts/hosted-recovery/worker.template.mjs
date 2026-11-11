@@ -38,6 +38,32 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     if (![this.env.FIXTURE_A,this.env.FIXTURE_B].includes(this.ctx.id.name)) throw new Error("Fictional tenant only");
     return { tenant: this.ctx.id.name, run: this.env.RECOVERY_RUN, source: this.env.RECOVERY_SOURCE };
   }
+  probeProviderRecords(item) {
+    this.probeIdentity();
+    if(item.id!==this.ctx.id.name)throw new Error("Fictional provider fixture tenant mismatch");
+    const revision=this.ctx.storage.sql.exec("SELECT revision FROM applications WHERE loanId=?",item.loanId).one().revision;
+    const at=new Date().toISOString(), states=["Prepared","Dispatching","Acknowledged","Unknown"];
+    const kinds=["import","float","lock","condition-delivery"];
+    // Storage recovery fixtures only. No provider client or network request is used.
+    this.ctx.storage.transactionSync(()=>{
+      states.forEach((state,index)=>{
+        const operation=crypto.randomUUID();
+        this.ctx.storage.sql.exec(`INSERT INTO uwm_operations
+          (id,loanId,applicationRevision,environment,kind,requestDigest,actor,state,transactionId,receiptId,startedAt,updatedAt)
+          VALUES (?,?,?,'stage',?,?,?,?,?,?,?,?)`,operation,item.loanId,revision,kinds[index],String(index+1).repeat(64),item.admin.email,state,
+          index===0?"fictional-recovery-transaction":null,index===2?101:null,at,at);
+        if(index===0)this.ctx.storage.sql.exec("INSERT INTO uwm_import_checks VALUES (?,?,0,0)",operation,JSON.stringify({fixture:true,ready:false}));
+        if(index>0){
+          const request=crypto.randomUUID();
+          this.ctx.storage.sql.exec(`INSERT INTO uwm_live_requests
+            (id,loanId,environment,actor,action,digest,state,result,createdAt,updatedAt)
+            VALUES (?,?,'stage',?,?,?,?,?,?,?)`,request,item.loanId,item.admin.email,kinds[index],String(index+1).repeat(64),state,
+            index===2?JSON.stringify({fixture:true,receipt:101}):null,at,at);
+          this.ctx.storage.sql.exec("INSERT INTO uwm_request_evidence VALUES (?,?,?)",request,revision,JSON.stringify({fixture:true,kind:kinds[index]}));
+        }
+      });
+    });
+  }
   async probeCapture() {
     const identity = this.probeIdentity();
     const rows = Object.fromEntries(tables.map(table => [table,this.ctx.storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`).toArray()]));
@@ -159,7 +185,13 @@ export class RecoveryWorkspace extends OrbitWorkspace {
   probeDamage(loanId) {
     const identity = this.probeIdentity();
     if (loanId !== `demo-presenter:${identity.tenant}:closing`) throw new Error("Fictional loan only");
-    this.ctx.storage.sql.exec("DELETE FROM loans WHERE id=?",loanId);
+    this.ctx.storage.transactionSync(()=>{
+      this.ctx.storage.sql.exec("DELETE FROM uwm_request_evidence WHERE requestId IN (SELECT id FROM uwm_live_requests WHERE loanId=?)",loanId);
+      this.ctx.storage.sql.exec("DELETE FROM uwm_import_checks WHERE operationId IN (SELECT id FROM uwm_operations WHERE loanId=?)",loanId);
+      this.ctx.storage.sql.exec("DELETE FROM uwm_live_requests WHERE loanId=?",loanId);
+      this.ctx.storage.sql.exec("DELETE FROM uwm_operations WHERE loanId=?",loanId);
+      this.ctx.storage.sql.exec("DELETE FROM loans WHERE id=?",loanId);
+    });
   }
 }
 async function command(action, env, origin, ctx) {
@@ -181,6 +213,7 @@ async function command(action, env, origin, ctx) {
     state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE,lenderEvidence,
       link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
     await target.probeVerifyLenderEvidence(a,lenderEvidence);
+    await target.probeProviderRecords(a);
     const session = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     const sessionHash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(session))))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     await directory.createStaffSession(sessionHash,{email:a.officer.email,name:a.officer.name},Date.now()+3600000,Date.now());
@@ -252,7 +285,9 @@ async function command(action, env, origin, ctx) {
       reference:evidence.reference,fingerprint:evidence.fingerprint,outcome:"Preserve observed result",
       note:"Both fictional accepted PDFs remain stored. Preserve this evidence and verify the restored record before reopening."});
     if(saved.error || !saved.decision)throw new Error(saved.error||"Fixture decision not saved");
-    state.maintenance={revision:saved.view.revision,cycle:saved.view.startedAt,decision:saved.decision};
+    if(inspected.inspection.requests.total!==7)throw new Error("Populated provider inspection missed fixture work");
+    state.maintenance={revision:saved.view.revision,cycle:saved.view.startedAt,decision:saved.decision,
+      requests:inspected.inspection.requests.items.map(item=>({reference:item.reference,state:item.state,fingerprint:item.fingerprint}))};
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Normal workspace read remained open before restore");
     await target.probeDamage(a.loanId);
@@ -278,6 +313,10 @@ async function command(action, env, origin, ctx) {
     if(!evidence || JSON.stringify(evidence.decisions[0])!==JSON.stringify(state.maintenance.decision))
       throw new Error("Review decision did not survive tenant restore");
     if(evidence.fingerprint!==state.maintenance.decision.fingerprint)throw new Error("Retained PDF metadata changed after restore");
+    const requests=inspected.inspection.requests.items.map(item=>({reference:item.reference,state:item.state,fingerprint:item.fingerprint}));
+    if(JSON.stringify(requests)!==JSON.stringify(state.maintenance.requests))throw new Error("Provider request state or evidence changed after restore");
+    if(recovered.counts.uwm_operations!==4 || recovered.counts.uwm_live_requests!==3 || recovered.counts.uwm_import_checks!==1 || recovered.counts.uwm_request_evidence!==3)
+      throw new Error("Populated provider records did not restore");
     const refused=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:paused.revision,confirmation:a.admin.brokerage.name});
     if(!refused.error)throw new Error("Restored tenant reopened without a new review");
     const reviewed=await directory.manageWorkspaceMaintenance(a.admin,{type:"review",revision:paused.revision,checks:[true,true,true],
@@ -304,6 +343,7 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
+      syntheticProviderStatesPreserved:true,providerEvidenceFingerprintsPreserved:true,
       maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,
       foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark,acceptedRevisionsPreserved:lenderEvidence.acceptedRevisions,
       lenderReceiptsPreserved:lenderEvidence.lenderReceipts,historicalPdfBytesMatched:state.lenderEvidence.files.length,manualClearancePreserved:true,loanAuditPreserved:recovered.counts.loan_audit>0 };
