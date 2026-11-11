@@ -17,7 +17,7 @@ export function registerUwmRoute(db:Store,raw:unknown) {
 export function routedUwmWorkspace(db:Store,event:UwmWebhookEvent):string|null {
   const row=event.kind==="import" && event.transactionId
     ? db.prepare("SELECT brokerageId FROM uwm_transaction_routes WHERE environment=? AND transactionId=?").get(event.environment,event.transactionId)
-    : event.kind==="conditions" && event.loanNumber
+    : (event.kind==="conditions" || event.kind==="ulad") && event.loanNumber
       ? db.prepare("SELECT brokerageId FROM uwm_loan_routes WHERE environment=? AND loanNumber=?").get(event.environment,event.loanNumber) : null;
   return row ? String(row.brokerageId) : null;
 }

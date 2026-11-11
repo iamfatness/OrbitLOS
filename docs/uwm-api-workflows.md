@@ -54,7 +54,7 @@ Audit evidence retains actor, application revision, timestamps, request digest, 
 - UWM-approved XML/document storage origins in each environment.
 - UWM registers the endpoints in [webhook handoff](uwm-webhook-handoff.md) and sends actual deliveries.
 - A UWM-approved synthetic stage file exercises create/upload/scan/correct/commit/callback, document upload/attach/submit, and each rate action independently.
-- Actual CloudEvents loan-number location and ULAD samples before automatically applying status/date/XML payloads to borrower files.
+- Actual CloudEvents loan-number location and status/date acceptance remain pending. ULAD examples were received and support identifier-only routing; XML does not automatically overwrite borrower files.
 Loan-screen mutations display the environment and selected terms before explicit confirmation. Returning to edit preserves the form. An uncertain browser response keeps the original request ID; its status must be checked before another intent. Administrators can record independently verified lender outcomes from request activity. XML and document upload controls explain when approved storage configuration is still missing.
 
 
@@ -62,6 +62,6 @@ Loan-screen mutations display the environment and selected terms before explicit
 
 Personal grants remain encrypted with workspace ID, staff email and environment as authenticated context. They are not shared between users or workspaces. Workspace membership and loan assignment remain required; revocation removes API access even if a grant is still stored. Shop-wide Insights credentials remain separately mapped to their configured brokerage and are never reused as another workspace's pipeline authorization.
 
-New import transactions register an immutable environment/transaction/workspace/operation route in the directory before XML upload. Commit revalidates registration, including older prepared imports. Authenticated import callbacks use that route; completed loan numbers are reserved to the owning workspace before delivery. Known condition events then route by exact environment/loan number. Conflicting ownership refuses delivery. Retries retain the same route and receipt deduplication. Unknown transactions and unverified status/ULAD mappings remain in the configured reconciliation inbox; they are never broadcast or guessed.
+New import transactions register an immutable environment/transaction/workspace/operation route in the directory before XML upload. Commit revalidates registration, including older prepared imports. Authenticated import callbacks use that route; completed loan numbers are reserved to the owning workspace before delivery. Known condition events and strictly recognized ULAD exports then route by exact environment/loan number. Conflicting ownership refuses delivery. Retries retain the same route and receipt deduplication. Unknown transactions and unverified status/XML mappings remain in the configured reconciliation inbox; they are never broadcast or guessed.
 
 This expands personal API access, not UWM upstream entitlements. Approved upload origins, real webhook acceptance, Insights credentials and lender end-to-end validation remain required.

@@ -20,7 +20,7 @@ test("completion reserves one lender file before routing conditions, rejects con
  assert.throws(()=>bindUwmLoanRoute(db,event("two"),b.brokerageId),/another import/);
  assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"conditions"}),a.brokerageId);
  assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"conditions",environment:"stage"}),null);
- assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"ulad"}),null);
+ assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"ulad"}),a.brokerageId);
  assert.equal(routedUwmWorkspace(db,{...event("one"),kind:"status"}),null);
  initializeUwmRouting(db);assert.equal(routedUwmWorkspace(db,event("one")),a.brokerageId);
 });

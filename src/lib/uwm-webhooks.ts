@@ -1,3 +1,4 @@
+import { uwmUladLoanNumber } from "./uwm-xml";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { Store } from "./store";
@@ -43,9 +44,9 @@ export type UwmWebhookEvent = { environment: UwmWebhookEnvironment; kind: UwmWeb
 export function parseUwmWebhook(environment: UwmWebhookEnvironment, kind: UwmWebhookKind, body: string): UwmWebhookEvent {
   let eventKey = hash(body), transactionId: string | null = null, loanNumber: string | null = null;
   if (kind === "ulad") {
-    // Keep the original XML opaque until UWM's extended ULAD mapping is verified.
-    // Never resolve entities, fetch references, or apply an XML file to a guessed loan.
-    if (!body.trim().startsWith("<") || /<!DOCTYPE|<!ENTITY/i.test(body)) throw new Error("Invalid XML export");
+    // Preserve the exact export; recognize only the lender identifier evidenced
+    // by UWM's sample. This never applies XML fields to a borrower application.
+    loanNumber = uwmUladLoanNumber(body);
   } else {
     const input: unknown = JSON.parse(body);
     if (kind === "import") {

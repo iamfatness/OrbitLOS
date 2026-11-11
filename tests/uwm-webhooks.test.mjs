@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { initializeUwmWebhooks, parseUwmWebhook, readUwmWebhookReceipts, saveUwmWebhook,
-  uwmWebhookHttp, uwmWebhookConnection, uwmWebhookMaxBytes } from "../src/lib/uwm-webhooks.ts";
+import { registerHooks } from "node:module";
+registerHooks({resolve(specifier,context,next){try{return next(specifier,context);}catch(error){if(error.code!=="ERR_MODULE_NOT_FOUND" || !specifier.startsWith("./"))throw error;return next(`${specifier}.ts`,context);}}});
+const { initializeUwmWebhooks, parseUwmWebhook, readUwmWebhookReceipts, saveUwmWebhook,
+  uwmWebhookHttp, uwmWebhookConnection, uwmWebhookMaxBytes } = await import("../src/lib/uwm-webhooks.ts");
 
 const stageId = "c394bec8-16d3-4274-b4f0-13b30d18d65f";
 const productionId = "69011148-c106-4456-a47c-1245140a05f1";
