@@ -111,3 +111,11 @@ Coverage includes arbitrary email domains, personal connection in operational an
 Signed-in live verification confirmed Connect UWM in Orbit demo and UWM Executive Demo, the exact places previously disabled. The stage account card initially showed a saved connection; a read-only Verify brokerage access encountered UWM's rejected refresh grant, retired that grant and displayed an explicit reconnect message. It did not validate a fresh stage authorization. User-entered sign-in is still required. Production proof: `.orbit/uwm-executive-account-live.png`; stage outcome: `.orbit/uwm-stage-account-verification.png`.
 
 Production client files are preserved in ignored `.orbit/uwm-all-production-client`; the worktree's current dist/server is the stage build and must not be deployed as production. Include source58c05bf in subsequent combined releases. Approved upload origins, actual lender callbacks, shop Insights credentials and end-to-end lender acceptance remain outstanding.
+
+## Supplied XML and ULAD examples - November 11, 2026
+
+Source `d4c6a45` is published to production `f2e86c30-79ae-4822-94b9-ab11a6504321` at 100% (predecessor `c58e578d-4977-46cb-80f8-184fa860831d` at 0%) and stage `03940844-f132-417c-bd43-51ef905d31ff` at 100% (predecessor `39d17ced-0fc5-4c57-98d0-b9b2bdbbaf6a` at 0%). Both binding sets exactly matched their predecessors. Staged and ordinary routing each passed two clean 493/493 asset checks in both environments. Full suite: 475 tests passed; types, lint and both builds passed.
+
+The two supplied import examples and ULAD export were parsed locally; only the export had the expected permanent lender number. See [sample evidence](uwm-xml-examples.md). Stage hosted acceptance used synthetic XML containing no borrower data: valid export returned 200 (receipt 5), exact retry returned 200 with duplicate=true, and malformed XML returned 400. This proves Orbit receiver behavior, not actual UWM delivery or lender acceptance. No supplied sample was posted, no real borrower file changed, and no loan or rate request was sent to UWM.
+
+Exact production client assets are retained in ignored `.orbit/uwm-xml-production-client`. Current dist/server is the stage build and must not be deployed to production. Approved upload origins, real lender delivery, Insights credentials and end-to-end lender acceptance remain outstanding.
