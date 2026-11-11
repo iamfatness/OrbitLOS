@@ -114,6 +114,7 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
   const [history, setHistory] = useState<{ focus: ConversationFocus; after: typeof after; version: object; refresh: number; result: ConversationResult }>();
   const current = data?.query === query && data.version === version && data.refresh === refresh ? data.result : undefined;
   const list = current && "kind" in current && current.kind === "list" ? current : undefined;
+  const defaultQueue = query.filter === "Active" && query.mine === !team && !query.after;
   const selected = history?.focus === focus && history?.after === after && history.version === version && history.refresh === refresh ? history.result : undefined;
   const thread = selected && "kind" in selected && selected.kind === "thread" ? selected : undefined;
   const newThread = selected && "kind" in selected && selected.kind === "new" ? selected : undefined;
@@ -260,10 +261,20 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
       <div><Button ref={(element) => { if (element) conversationButtons.current.set(row.id, element); else conversationButtons.current.delete(row.id); }}
         size="sm" variant="outline" disabled={saving} onClick={() => select({ id: row.id })}
         aria-label={`Open conversation for ${row.name}`}>Open conversation</Button></div>
-    </li>)}</ul> : <div className="record-form"><p className="empty-inline">No conversations match these filters. Start one from {openContacts ? "a contact, lead, or loan" : "a loan"}.</p>
-      <div className="loan-application-actions">{openInbox && <Button size="sm" variant="outline" onClick={openInbox}>Open lead inbox</Button>}
-        {openContacts && <Button size="sm" variant="outline" onClick={openContacts}>Open contacts</Button>}
-        <Button size="sm" variant="outline" onClick={openPipeline}>Open pipeline</Button></div></div>)}
+    </li>)}</ul> : <div className="record-form">
+      <p className="empty-inline">{defaultQueue ? "No active conversations yet." : "No conversations match these filters."}</p>
+      {defaultQueue && !focus && <p className="muted">{openContacts
+        ? "Open a contact and choose Open contact conversation, or start from a lead or loan."
+        : "Open a loan’s Communications tab and choose Open borrower conversation."}</p>}
+      <div className="loan-application-actions">
+        {!defaultQueue && <Button size="sm" onClick={() => {
+          queueHeading.current?.focus();
+          setQuery({ type: "list", filter: "Active", mine: !team });
+        }}>Reset filters</Button>}
+        {openContacts && <Button size="sm" variant={defaultQueue ? "default" : "outline"} onClick={openContacts}>Open contacts</Button>}
+        {openInbox && <Button size="sm" variant="outline" onClick={openInbox}>Open lead inbox</Button>}
+        <Button size="sm" variant={defaultQueue && !openContacts ? "default" : "outline"} onClick={openPipeline}>Open pipeline</Button>
+      </div></div>)}
     <div className="loan-application-actions">
       {query.after && <Button size="sm" variant="outline" disabled={saving} onClick={() => setQuery({ ...query, after: undefined })}>First conversation page</Button>}
       {list?.next && <Button size="sm" variant="outline" disabled={saving} onClick={() => setQuery({ ...query, after: list.next ?? undefined })}>Next conversation page</Button>}

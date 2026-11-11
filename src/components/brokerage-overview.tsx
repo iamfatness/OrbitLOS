@@ -20,7 +20,7 @@ function actionCount(count?: number) {
 export function BrokerageOverview({ counts, unavailable, busy, pilot, hasBranches, refresh, openQueue, openReport, openTeam, openCompliance }: {
   counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean; hasBranches: boolean;
   refresh: () => void; openQueue: (queue: BrokerageQueue) => void; openReport: (report: BrokerageReport) => void;
-  openTeam: (panel: "Staff access" | "Branches" | "Loan settings") => void; openCompliance: () => void;
+  openTeam: (panel: "Staff access" | "Branches" | "Loan settings" | "Workspaces") => void; openCompliance: () => void;
 }) {
   return <div className="brokerage-overview record-form">
     <section className="integration record-form" aria-labelledby="brokerage-attention-heading">
@@ -53,8 +53,10 @@ export function BrokerageOverview({ counts, unavailable, busy, pilot, hasBranche
           <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Staff access")}>Staff access<ArrowRight size={16} aria-hidden="true" /></Button></li>
           {hasBranches && <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Branches")}>Branches<ArrowRight size={16} aria-hidden="true" /></Button></li>}
           <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Loan settings")}>Loan settings<ArrowRight size={16} aria-hidden="true" /></Button></li>
-          {pilot && <li><Button size="sm" variant="ghost" disabled={busy} onClick={openCompliance}>Compliance overview<ArrowRight size={16} aria-hidden="true" /></Button></li>}
+          {pilot ? <li><Button size="sm" variant="ghost" disabled={busy} onClick={openCompliance}>Compliance overview<ArrowRight size={16} aria-hidden="true" /></Button></li> :
+            <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Workspaces")}>Find a compliance pilot workspace<ArrowRight size={16} aria-hidden="true" /></Button></li>}
         </ul>
+        {!pilot && <p className="muted">Compliance work queues, research, and retention are available in fictional pilot workspaces.</p>}
       </section>
     </div>
   </div>;
