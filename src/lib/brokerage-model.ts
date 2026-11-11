@@ -17,6 +17,7 @@ export interface Brokerage {
   role: BrokerageRole;
   pilot?: boolean;
   financeAccess?: boolean;
+  maintenance?: boolean;
   accessRevision?: number;
 }
 

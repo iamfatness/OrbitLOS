@@ -1,3 +1,9 @@
+import { initializeMaintenance, maintenanceAdmin, maintenanceState, maintenanceView, changeMaintenance, markMaintenanceDrained } from "./lib/workspace-maintenance";
+import { maintenanceMessage, maintenanceInput, type MaintenanceView } from "./lib/workspace-maintenance-model";
+import { WorkspaceMaintenanceGate, guardWorkspaceMethods } from "./lib/workspace-maintenance-gate";
+import { workspaceMaintenancePage } from "./lib/staff-auth";
+
+const maintenanceGates = new WeakMap<object, WorkspaceMaintenanceGate>();
 import { initializeUwmWorkflows, runUwmWorkflow, readUwmFile } from "./lib/uwm-workflows";
 import { UwmError } from "./lib/uwm-live";
 import { connectUwmUser, disconnectUwmUser, initializeUwmUserAccess, uwmUserStatus } from "./lib/uwm-user-access";
@@ -135,6 +141,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   readonly #auth: StaffAuthStore;
   readonly #id: string;
   readonly #documents?: R2Bucket;
+  #initialized = false;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -154,13 +161,80 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if (!ctx.id.name || !brokerageIdPattern.test(ctx.id.name)) throw new Error("Invalid Orbit workspace name.");
     this.#id = ctx.id.name;
     this.#documents = (env as Cloudflare.Env & DocumentEnvironment).DOCUMENTS;
+    this.#auth = staffAuthStore(this.#store);
+    if (this.#id === demoBrokerageId) this.#initializeWorkspace();
+    else {
+      maintenanceGates.set(this,new WorkspaceMaintenanceGate());
+      ctx.blockConcurrencyWhile(async () => {
+        const state = await env.WORKSPACE.getByName(demoBrokerageId).maintenanceStateFor(this.#id);
+        if (state.mode === "Open") this.#initializeWorkspace();
+        maintenanceGates.get(this)!.apply(state.revision,state.mode !== "Open");
+      });
+    }
+  }
+
+  #initializeWorkspace() {
+    if (this.#initialized) return;
     initializeStore(this.#store, this.#id === demoBrokerageId);
     initializeUwmUserAccess(this.#store);
     initializeUwmOperations(this.#store);
     initializeUwmWorkflows(this.#store);
     initializeUwmWebhooks(this.#store);
-    if (this.#id === demoBrokerageId) initializeBrokerages(this.#store);
-    this.#auth = staffAuthStore(this.#store);
+    if (this.#id === demoBrokerageId) {
+      initializeBrokerages(this.#store);
+      initializeMaintenance(this.#store);
+    }
+    this.#initialized = true;
+  }
+
+  maintenanceStateFor(id: string) {
+    if (this.#id !== demoBrokerageId || !brokerageIdPattern.test(id)) throw new Error("Maintenance status unavailable.");
+    return maintenanceState(this.#store,id);
+  }
+  async maintenanceFence() {
+    if (this.#id === demoBrokerageId) throw new Error("Shared directory cannot enter maintenance.");
+    const state = await this.env.WORKSPACE.getByName(demoBrokerageId).maintenanceStateFor(this.#id);
+    const gate = maintenanceGates.get(this)!;
+    if (state.mode === "Open" && state.revision >= gate.revision) this.#initializeWorkspace();
+    const reopening=gate.closed && state.mode === "Open" && state.revision >= gate.revision;
+    gate.apply(state.revision,state.mode !== "Open");
+    if (reopening) await this.#scheduleCleanup();
+    return {active:gate.active,closed:gate.closed,revision:gate.revision};
+  }
+  mayPrepareMaintenanceReopen(staff: WorkspaceStaff, revision: number) {
+    if (this.#id !== demoBrokerageId) return false;
+    const emails=[...(googleSettings(this.env)?.allowedEmails??[])];
+    const state=maintenanceState(this.#store,staff.brokerage.id);
+    return maintenanceAdmin(this.#store,staff,emails) && state.mode==="Paused" && state.revision===revision &&
+      !!state.reviewedAt && state.checks.every(Boolean);
+  }
+  async prepareMaintenanceReopen(staff: WorkspaceStaff, revision: number) {
+    if (staff.brokerage.id !== this.#id || this.#id === demoBrokerageId ||
+      !await this.env.WORKSPACE.getByName(demoBrokerageId).mayPrepareMaintenanceReopen(staff,revision)) throw new Error("Reopening review unavailable.");
+    const gate=maintenanceGates.get(this)!;
+    if (!gate.closed || gate.active) throw new Error("Wait for active workspace requests to finish.");
+    this.#initializeWorkspace();
+  }
+  async manageWorkspaceMaintenance(staff: WorkspaceStaff,input?: unknown): Promise<MaintenanceView | {error:string}> {
+    if (this.#id !== demoBrokerageId) return {error:"Maintenance controls unavailable."};
+    const emails=[...(googleSettings(this.env)?.allowedEmails??[])];
+    if (!maintenanceAdmin(this.#store,staff,emails)) return {error:"Only an active pilot workspace admin can manage maintenance."};
+    const id=staff.brokerage.id,workspace=this.env.WORKSPACE.getByName(id);
+    if (input !== undefined) {
+      const parsed=maintenanceInput.safeParse(input);
+      if (!parsed.success) return {error:"Complete the maintenance fields and required checks."};
+      if (parsed.data.type==="reopen") {
+        if (!this.mayPrepareMaintenanceReopen(staff,parsed.data.revision)) return {error:"Complete the current reopening review, then refresh the status before reopening."};
+        await workspace.prepareMaintenanceReopen(staff,parsed.data.revision);
+      }
+      const changed=changeMaintenance(this.#store,staff,emails,parsed.data);
+      if (changed.error)return {error:changed.error};
+    }
+    const fence=await workspace.maintenanceFence();
+    if (fence.closed && !fence.active) markMaintenanceDrained(this.#store,id,fence.revision);
+    // Revalidate membership after the cross-object call before returning notes.
+    if (!maintenanceAdmin(this.#store,staff,emails)) return {error:"Maintenance access changed. Sign in again."};
+    return maintenanceView(this.#store,id,fence.active);
   }
 
   #accepts(staff: WorkspaceStaff | null) {
@@ -792,7 +866,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   activateStaff(staff: StaffIdentity, emails: string[]) { return activateBrokerages(this.#store, staff, emails); }
   staffSessionAccess(tokenHash: string, now: number, emails: string[]) {
-    return this.#id === demoBrokerageId ? readStaffAccess(this.#store, tokenHash, now, emails) : null;
+    if (this.#id !== demoBrokerageId) return null;
+    const access=readStaffAccess(this.#store,tokenHash,now,emails);
+    return access ? {...access,brokerages:access.brokerages.map(brokerage=>({...brokerage,
+      maintenance:maintenanceState(this.#store,brokerage.id).mode !== "Open"}))} : null;
   }
   staffBrokerages(email: string, emails: string[]) {
     return this.#store.transaction(() => {
@@ -806,7 +883,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   brokerageDetails(id: string) {
     if (this.#id !== demoBrokerageId) return null;
     const row = this.#store.prepare("SELECT pilot FROM brokerages WHERE id = ?").get(id);
-    return row ? { pilot: Boolean(row.pilot) } : null;
+    return row ? { pilot: Boolean(row.pilot), maintenance: maintenanceState(this.#store,id).mode !== "Open" } : null;
   }
   brokerageForPortal(token: unknown) {
     if (this.#id !== demoBrokerageId || typeof token !== "string") return null;
@@ -815,7 +892,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const row = this.#store.prepare(`SELECT pilot FROM brokerages WHERE id = ? AND NOT EXISTS (
       SELECT 1 FROM revoked_pilot_portals WHERE brokerageId = brokerages.id AND tokenHash = ? AND expiresAt > ?
     )`).get(id, portalHash(token), new Date().toISOString());
-    return row ? { pilot: Boolean(row.pilot) } : null;
+    return row ? { pilot: Boolean(row.pilot), maintenance: maintenanceState(this.#store,id).mode !== "Open" } : null;
   }
   #protectPilotLinks = (links: PilotPortalLink[]) => {
     if (this.#id === demoBrokerageId || links.some((link) => "token" in link && portalBrokerage(link.token) !== this.#id)) return Promise.resolve(false);
@@ -1087,6 +1164,9 @@ async function authorized(header: string | null, password: string) {
   return timingSafeEqual(new Uint8Array(actualHash), new Uint8Array(expectedHash));
 }
 
+guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
+  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance"]));
+
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
@@ -1136,6 +1216,7 @@ export default {
       const id = portalBrokerage(token);
       if (!id) return null;
       const details = id === demoBrokerageId ? { pilot: false } : await directory.brokerageForPortal(token);
+      if (details && "maintenance" in details && details.maintenance) throw new Error(maintenanceMessage);
       return details ? { id, pilot: details.pilot, store: env.WORKSPACE.getByName(id) } : null;
     }
     const filesEnv = env as Cloudflare.Env & DocumentEnvironment;
@@ -1234,7 +1315,7 @@ export default {
           if (access) {
             const { identity } = access;
             brokerages = access.brokerages;
-            const brokerage = requested === null ? brokerages[0] : brokerages.find((entry) => entry.id === requested);
+            const brokerage = requested === null ? brokerages.find(entry=>!entry.maintenance) ?? brokerages[0] : brokerages.find((entry) => entry.id === requested);
             if (requested !== null && !brokerage && (brokerages.length || openingWorkspace)) {
               if (workspaceTarget && await directory.staffInvitedTo(workspaceTarget, identity.email)) return login();
               if (openingWorkspace) return workspaceAccessDenied(workspaceTarget, guide);
@@ -1266,6 +1347,24 @@ export default {
     }
     if (!reading && request.headers.get("Origin") !== url.origin) {
       return new Response("This action must come from Orbit.", { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/api/workspace-maintenance") {
+      const headers={"Cache-Control":"private, no-store"};
+      if (!staff) return Response.json({error:"Sign in to your brokerage first."},{status:403,headers});
+      const identity=staff;
+      if (request.method === "GET") {
+        const value=await directory.manageWorkspaceMaintenance(identity);
+        return Response.json(value,{status:"error" in value?403:200,headers});
+      }
+      if (request.method === "POST") return borrowerJson(request,async input=>{
+        const value=await directory.manageWorkspaceMaintenance(identity,input);
+        return "error" in value ? {status:409,error:value.error} : {value};
+      },4096);
+      return new Response(null,{status:405,headers:{...headers,Allow:"GET, POST"}});
+    }
+    if (staff && url.pathname !== "/workspace-maintenance" && staff.brokerage.maintenance) {
+      return reading && url.pathname === "/workspace" ? workspaceMaintenancePage(staff.brokerage) :
+        Response.json({error:maintenanceMessage},{status:503,headers:{"Cache-Control":"private, no-store","Retry-After":"60"}});
     }
     if (["/api/uwm-file", "/api/uwm-file/read"].includes(url.pathname)) {
       const headers = { "Cache-Control": "private, no-store" };

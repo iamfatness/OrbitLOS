@@ -1,3 +1,4 @@
+import { maintenanceMessage } from "./workspace-maintenance-model";
 import type { BorrowerApplication, BorrowerResult, BorrowerStatusRefresh } from "./application-model";
 import type { BorrowerPortalPreferences } from "./borrower-channel-model";
 import { demoBrokerageId } from "./brokerage-model";
@@ -52,7 +53,8 @@ export async function borrowerJson<T>(request: Request, run: (input: unknown) =>
     if (result instanceof Response) return result;
     if ("error" in result) return problem(result.error, result.status);
     return Response.json(result.value, { headers });
-  } catch {
+  } catch (error) {
+    if(error instanceof Error && error.message.includes(maintenanceMessage)) return problem(maintenanceMessage,503);
     return problem("Orbit could not load or save the application. Try again.", 500);
   }
 }

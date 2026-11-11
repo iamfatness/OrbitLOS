@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { createRequire, registerHooks } from "node:module";
-import { join } from "node:path";
+import { join, resolve, relative, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { readActionResult } from "./action-flight.mjs";
@@ -51,6 +51,24 @@ const fixtureScript = `
 import worker, { OrbitWorkspace } from "./index.js";
 export default worker;
 export class WorkingDayWorkspace extends OrbitWorkspace {
+  holdOwnerLookup() {this.ownerLookupEntered=false;this.ownerLookupHold=new Promise(resolve=>{this.releaseOwner=resolve;});}
+  ownerLookupWaiting() {return this.ownerLookupEntered;}
+  releaseOwnerLookup() {this.releaseOwner?.();this.ownerLookupHold=null;}
+  async leadOwner(...args) {if(this.ownerLookupHold){this.ownerLookupEntered=true;await this.ownerLookupHold;}return super.leadOwner(...args);}
+  restartMaintenanceFixture() { this.ctx.abort("Fictional maintenance restart"); }
+  async rejectedMaintenanceAlarm() {
+    try {await this.alarm();return "Unexpectedly allowed";}catch(error){return error.message;}
+  }
+  async rejectedPeerCall(id,kind,input,staff) {
+    const peer=this.env.WORKSPACE.getByName(id);
+    try {
+      if(kind==="read")await peer.read(staff);
+      else if(kind==="write")await peer.write(input,staff);
+      else if(kind==="alarm")return peer.rejectedMaintenanceAlarm();
+      else throw new Error("Unknown fixture call");
+    }catch(error){return error.message;}
+    return "Unexpectedly allowed";
+  }
   async missReminderAlarm() {
     const storage = this.ctx.storage;
     await storage.deleteAlarm();
@@ -66,7 +84,14 @@ const runtime = new Miniflare({ ...convertV4MiniflareOptions({
   modulesRoot: server, compatibilityDate: config.compatibility_date, compatibilityFlags: config.compatibility_flags,
   bindings: { ORBIT_AUTH_MODE: "google", GOOGLE_CLIENT_ID: "local-fixture", GOOGLE_CLIENT_SECRET: "local-fixture",
     ORBIT_STAFF_EMAILS: owner.email, ORBIT_DOCUMENT_UPLOADS: "mock", ORBIT_PRICING_MODE: "mock" },
-  serviceBindings: { ASSETS: () => new Response(null, { status: 404 }) },
+  serviceBindings: { ASSETS: async request => {
+    if(!process.argv.includes("--preview"))return new Response(null,{status:404});
+    const root=resolve(server,"../client"),pathname=new URL(request.url).pathname;
+    const path=resolve(root,"."+decodeURIComponent(pathname));
+    if(relative(root,path).startsWith(".."))return new Response(null,{status:404});
+    try{return new Response(await readFile(path),{headers:{"Content-Type":({".js":"text/javascript",".css":"text/css",".woff2":"font/woff2",".svg":"image/svg+xml"})[extname(path)]??"application/octet-stream"}});}
+    catch{return new Response(null,{status:404});}
+  } },
   r2Buckets: { DOCUMENTS: "working-day-fictional-documents" },
   durableObjects: { WORKSPACE: { className: "WorkingDayWorkspace", useSQLite: true } },
 }), telemetry: { enabled: false } });
@@ -3484,9 +3509,69 @@ try {
     const history = await action(owner, "readHistoryPage", { record: "loan", id: loanId });
     assert.ok(history.events.some(({ text }) => text.includes("Bank statement · Unsupported")));
   });
+  await stage("Maintenance pauses staff, portals and background work through restart and requires reviewed reopening",async()=>{
+    const create=await write(owner,{type:"loan",contactId:"",borrower:"Fictional Maintenance Borrower",borrowerEmail:"maintenance@example.test",
+      address:"",amount:250000,purpose:"Purchase",stage:"Lead",officer:owner.name,partnerId:null,start1003:true});
+    const loanId=create.loanWork.loanId;
+    const initial=await file(owner,loanId);
+    const token=initial.applications[0].token;
+    assert.ok((await borrower(token,{type:"read"})).draft);
+    const state=await workspace(owner);
+    const realtor=state.realtorPortals.find(row=>row.token);
+    assert.ok(realtor,"Working-day realtor portal required for maintenance acceptance");
+    const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
+    const get=async(actor=owner)=>runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
+    assert.equal((await get(officer)).status,403);assert.equal((await get(processor)).status,403);
+    const original=await (await get()).json();assert.equal(original.mode,"Open");
+    await directory.holdOwnerLookup();
+    const pending=write(owner,{type:"createRealtorPortal",realtorId:realtor.realtorId,officerEmail:officer.email});
+    let waiting=false;
+    for(let i=0;i<50;i++){if(await directory.ownerLookupWaiting()){waiting=true;break;}await delay(20);}
+    assert.ok(waiting,"Fixture must observe the in-flight owner lookup");
+    const draining=await post(endpoint,{type:"pause",revision:original.revision,reason:"Fictional maintenance acceptance and access review.",confirmation:"Fictional Working Day"},owner);
+    assert.equal(draining.mode,"Pausing");assert.equal(draining.active,1);
+    assert.equal((await postResponse(endpoint,{type:"review",revision:draining.revision,review:"Too early to review active work.",checks:[true,true,true]},owner)).status,409);
+    await directory.releaseOwnerLookup();await pending;
+    const paused=await (await get()).json();
+    assert.equal(paused.mode,"Paused");assert.equal(paused.active,0);
+    for(const actor of [owner,officer,processor]){
+      const response=await runtime.dispatchFetch(`${origin}/workspace?brokerage=${brokerage}`,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
+      assert.equal(response.status,503);assert.match(await response.text(),/Workspace paused/);
+    }
+    assert.equal((await postResponse("/api/demo-application",{token,type:"read"})).status,503);
+    assert.equal((await postResponse("/api/borrower-documents/verify",{token,type:"sendCode"})).status,503);
+    assert.equal((await postResponse("/api/realtor-referrals",{token:realtor.token,type:"read"})).status,503);
+    const membership=(await directory.staffBrokerages(owner.email,[owner.email])).find(row=>row.id===brokerage);
+    const identity={email:owner.email,name:owner.name,brokerage:membership},store=workspaces.getByName(brokerage);
+    assert.match(await directory.rejectedPeerCall(brokerage,"read",null,identity),/paused/);
+    assert.match(await directory.rejectedPeerCall(brokerage,"write",{type:"startApplication",loanId},identity),/paused/);
+    assert.match(await directory.rejectedPeerCall(brokerage,"alarm",null,identity),/paused/);
+    const other=randomUUID();
+    assert.equal((await directory.manage({email:owner.email,name:owner.name,brokerage:{id:"orbit-demo"}},[owner.email],
+      {type:"create",id:other,name:"Fictional Unaffected Workspace",pilot:true})).created,other);
+    const unaffected=()=>runtime.dispatchFetch(`${origin}/workspace?brokerage=${other}`,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}});
+    assert.equal((await unaffected()).status,200);
+    try{await store.restartMaintenanceFixture();}catch{/* Following calls verify the fence. */}
+    assert.equal((await (await get()).json()).mode,"Paused");
+    assert.match(await directory.rejectedPeerCall(brokerage,"read",null,identity),/paused/);
+    assert.equal((await postResponse(endpoint,{type:"reopen",revision:paused.revision,confirmation:"Fictional Working Day"},owner)).status,409);
+    const reviewed=await post(endpoint,{type:"review",revision:paused.revision,review:"Verified fictional saved work, documents, access and mock outcomes.",checks:[true,true,true]},owner);
+    assert.equal((await postResponse(endpoint,{type:"reopen",revision:paused.revision,confirmation:"Fictional Working Day"},owner)).status,409);
+    const opened=await post(endpoint,{type:"reopen",revision:reviewed.revision,confirmation:"Fictional Working Day"},owner);
+    assert.equal(opened.mode,"Open");assert.equal(opened.history.length,4);
+    assert.deepEqual((await file(owner,loanId)).applications[0].draft,initial.applications[0].draft);
+    assert.ok((await borrower(token,{type:"read"})).draft);
+    assert.equal((await unaffected()).status,200);
+  });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
+  if(process.argv.includes("--preview")){
+    await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor}),{mode:0o600});
+    console.log(`Local maintenance preview ready at ${origin}`);
+    await new Promise(()=>{});
+  }
 } finally {
   await runtime.dispose();
 }
