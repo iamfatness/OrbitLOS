@@ -281,3 +281,20 @@ This capture supports comparison and investigation. Rebuilding the missing recor
 Application `12c6ab9` passed 497 tests, typecheck, lint, the production build and the 42-stage working-day rehearsal. The separate evidence credential rejected use of the drain status token. The isolated hosted run `orbit-recovery-7321d847` blocked capture while work was outstanding, sealed an idempotent capture after drain, detected differences in all four groups after an actual older directory restore, and matched after recovery to the verified newer point. The evidence, fixture Worker and dedicated bucket were removed after the exercise. [Hosted evidence](evidence/hosted-directory-evidence-2026-11-11.json).
 
 Worker `43532eec-ee78-4f2a-b387-d9a8525c29b6` serves all ordinary traffic. All 23 bindings and all 793 browser assets matched, with two clean staged and live passes. A bounded retry handled intermittent connection errors during asset verification. Public Product, sign-in and authenticated fictional QA data loaded on OrbitLOS.com. The unauthenticated evidence endpoint returned 404. The production pause was inactive throughout.
+
+### Reconstruct reviewed directory records
+
+When a newer trustworthy checkpoint is unavailable, use a known-good sealed evidence record to review what can safely be restored from the older directory. Add `repairTokenSha256` to the active pause marker using a new credential separate from evidence capture and drain status. Review and commit require the repair credential and a drained workspace.
+
+1. Send a GET to `/api/ops/directory-repair?id=<evidence UUID>`. Review the proposed counts, conflicts and staff records that need manual review.
+2. To approve that exact comparison, send a POST to the same path with `id`, `requestId=<new UUID>`, `fingerprint=<preview fingerprint>` and `confirm=repair`. The application checks the pause, work count, evidence and current directory again. The repair and local receipt commit in one SQLite transaction.
+3. After a lost response, repeat the same request with the same UUID and fingerprint. Orbit keeps the request and outcome independently in private R2. A receipt describes the historical action. Confirm current state with the evidence comparison before further work.
+
+The repair restores compatible staff revocations and unexpired portal revocations, and inserts missing transaction and loan routes only when the ownership evidence agrees. It preserves newer staff revisions, longer revocations and existing ownership. It refuses a plan that would remove a brokerage's last active admin or conflicts with recorded ownership. Staff grants and other differences require separate review.
+
+The pause stays in place. Session and sign-in attempts from the older checkpoint, outstanding provider actions, maintenance history and other data outside these four groups need their own reconciliation before reopening.
+
+
+Application `acd1c01` passed 500 tests, typecheck, lint, the production build and the 42-stage working-day rehearsal. Isolated run `orbit-recovery-8eae940a` restored the older shared directory and applied one staff revocation, two portal revocations and four missing lender routes. All four evidence groups matched before using the newer recovery point. Staff and portal restrictions held, the lender route lookups identified the original owners, and an exact retry returned the same receipt. The rehearsal then used the newer point to verify other directory state, including the maintenance cycle and signed-out session. Fixture resources were removed. [Hosted reconstruction evidence](evidence/hosted-directory-reconstruction-2026-11-11.json).
+
+Worker `1b5fa032-9214-4af2-9e50-a9821fdc3425` serves all traffic. All 23 bindings and 843 browser assets matched, with two clean staged and live passes. Sign-in, the public Product page and authenticated fictional QA data loaded on OrbitLOS.com. The unauthenticated repair request returned 404. The production pause remained inactive.
