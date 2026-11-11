@@ -1435,7 +1435,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
               void openScopedLead({ leadId, task: { kind: "campaign", id: taskId, ...(requested ? { expectedCallbackAt: dueAt } : {}) } })}
             openLoan={(loanId) => staff || !state.loans.some(({ id }) => id === loanId) ?
               void openQueueLoan({ kind: "details", loanId }) : show({ kind: "details", loanId })}
-            openConversation={(leadId) => openConversation({ leadId })}
+            openConversation={(leadId) => openConversation({ leadId })} openToday={() => openBrokerageView("Today")}
             convert={(id, after) => convertLead(id, null, false, undefined, after)} /></Activity>}
 
           {section === "Contacts" && <>
