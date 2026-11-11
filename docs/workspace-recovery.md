@@ -298,3 +298,13 @@ The pause stays in place. Session and sign-in attempts from the older checkpoint
 Application `acd1c01` passed 500 tests, typecheck, lint, the production build and the 42-stage working-day rehearsal. Isolated run `orbit-recovery-8eae940a` restored the older shared directory and applied one staff revocation, two portal revocations and four missing lender routes. All four evidence groups matched before using the newer recovery point. Staff and portal restrictions held, the lender route lookups identified the original owners, and an exact retry returned the same receipt. The rehearsal then used the newer point to verify other directory state, including the maintenance cycle and signed-out session. Fixture resources were removed. [Hosted reconstruction evidence](evidence/hosted-directory-reconstruction-2026-11-11.json).
 
 Worker `1b5fa032-9214-4af2-9e50-a9821fdc3425` serves all traffic. All 23 bindings and 843 browser assets matched, with two clean staged and live passes. Sign-in, the public Product page and authenticated fictional QA data loaded on OrbitLOS.com. The unauthenticated repair request returned 404. The production pause remained inactive.
+
+### Invalidate restored sign-in state
+
+After the final directory restore and before reopening traffic, clear the restored staff sessions and pending Google sign-in attempts. The reset covers all staff in the shared directory and requires staff to sign in again. Prepare a dedicated incident credential and put its SHA-256 digest in `signInResetTokenSha256` on the active pause marker, using the same token format as the drain status credential. Keep the pause active until tracked work drains and all in-flight sign-ins have been reconciled.
+
+1. Send a GET to `/api/ops/directory-sign-in-reset` with the reset bearer credential. Review the counts and fingerprint. The response contains no staff, session or sign-in identifiers.
+2. Send a POST to the same path with `requestId=<new UUID>`, `fingerprint=<review fingerprint>` and `confirm=sign-out-all-staff`. Orbit verifies the current marker, drain and reviewed state before deleting the session and sign-in rows in a single transaction.
+3. After a lost response, retry the same request ID and fingerprint. A receipt describes the completed historical reset. Send a fresh GET and verify both counts are zero before continuing the reopening review. If another directory restore occurs, verify the current state and use a new reviewed reset if needed.
+
+The action does not alter brokerage membership or portal access records. Finish the rest of the recovery review before removing the pause.
