@@ -114,6 +114,9 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
       sql.exec("UPDATE loans SET dispositionDate=? WHERE id=?",dispositionDate,loanId);
     }
   }
+  dispositionFixtureDate(loanId) {
+    return this.ctx.storage.sql.exec("SELECT dispositionDate FROM loans WHERE id=?",loanId).one().dispositionDate;
+  }
   retentionFixtureFile(requestId,objectId) {
     this.ctx.storage.sql.exec("INSERT INTO document_files (requestId,objectId,attemptedAt) VALUES (?,?,0) ON CONFLICT(requestId) DO UPDATE SET objectId=excluded.objectId",requestId,objectId);
   }
@@ -3827,7 +3830,8 @@ try {
     const withdrawn=await sample("Fictional disposition withdrawn");
     const legacy=await sample("Fictional disposition undated");
     const recent=await sample("Fictional disposition recent");
-    for(const loanId of [withdrawn,legacy,recent])await write(owner,{type:"loanDisposition",loanId,disposition:"Withdrawn",reason:"Fictional borrower withdrew",revision:0});
+    for(const loanId of [withdrawn,legacy,recent])await write(owner,{type:"loanDisposition",loanId,disposition:"Withdrawn",reason:"Fictional borrower withdrew",revisitDate:null,revision:0});
+    assert.equal(await workspace.dispositionFixtureDate(recent),today);
     await workspace.dispositionFixtureDates(funded,"2000-01-01",null);
     await workspace.dispositionFixtureDates(withdrawn,null,"2000-01-01");
     await workspace.dispositionFixtureDates(legacy,null,null);
