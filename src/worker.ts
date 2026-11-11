@@ -166,7 +166,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   async uwmAccount(staff: WorkspaceStaff, input: { action: "status" | "connect" | "disconnect" | "verify"; credentials?: unknown }) {
     if (!this.#accepts(staff)) return { error: "UWM account unavailable." };
-    const env = Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_CLIENT_ID", "UWM_CLIENT_SECRET", "UWM_ENVIRONMENT",
+    const env = Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_USER_CLIENT_ID", "UWM_USER_CLIENT_SECRET", "UWM_USER_ENVIRONMENT",
       "ORBIT_DEPLOYMENT", "UWM_TOKEN_ENCRYPTION_KEY"].map((key) => [key, runtimeSetting(this.env, key)]));
     try {
       if (input.action === "disconnect") return disconnectUwmUser(this.#store, staff);

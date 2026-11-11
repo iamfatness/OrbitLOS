@@ -14,8 +14,14 @@ const ops = await import("../src/lib/uwm-operations.ts");
 const hooks = await import("../src/lib/uwm-webhooks.ts");
 const brokerageId="11499b2a-1e3d-40f7-a752-f9781ec7fc24", loanId="21499b2a-1e3d-40f7-a752-f9781ec7fc24";
 const staff={name:"Stage user",email:"stage@example.test",brokerage:{id:brokerageId,name:"Test shop",role:"Admin",pilot:false}};
-const env={UWM_BROKERAGE_ID:brokerageId,UWM_ENVIRONMENT:"stage",ORBIT_DEPLOYMENT:"stage",UWM_CLIENT_ID:"fixture-client",UWM_CLIENT_SECRET:"fixture-secret",UWM_TOKEN_ENCRYPTION_KEY:"a".repeat(64)};
+const env={UWM_BROKERAGE_ID:brokerageId,UWM_USER_ENVIRONMENT:"stage",ORBIT_DEPLOYMENT:"stage",UWM_USER_CLIENT_ID:"fixture-client",UWM_USER_CLIENT_SECRET:"fixture-secret",UWM_TOKEN_ENCRYPTION_KEY:"a".repeat(64)};
 const grant={access_token:"fixture-access-token",refresh_token:"fixture-refresh-token",expires_in:3600};
+test("user access cannot reuse pricing credentials or mix a partial client pair",()=>{
+ const pricing={...env,UWM_USER_CLIENT_ID:undefined,UWM_USER_CLIENT_SECRET:undefined,UWM_CLIENT_ID:"pricing-id",UWM_CLIENT_SECRET:"pricing-secret"};
+ assert.throws(()=>access.uwmUserSettings(pricing),/configure UWM/);
+ assert.throws(()=>access.uwmUserSettings({...pricing,UWM_USER_CLIENT_ID:"user-id"}),/configure UWM/);
+ assert.equal(access.uwmUserSettings({...env,...{UWM_CLIENT_ID:"pricing-id",UWM_CLIENT_SECRET:"pricing-secret",UWM_ENVIRONMENT:"production"}}).environment,"stage");
+});
 function database(t) {
  const sqlite=new DatabaseSync(":memory:"); t.after(()=>sqlite.close());
  const db={exec:s=>sqlite.exec(s),prepare:s=>sqlite.prepare(s),transaction:fn=>{

@@ -11,12 +11,12 @@ export function initializeUwmUserAccess(db: Store) {
   )`);
 }
 export function uwmUserSettings(env: UwmEnvironment) {
-  const environment = z.enum(["int", "stage", "production"]).parse(env.UWM_ENVIRONMENT || "stage");
+  const environment = z.enum(["int", "stage", "production"]).parse(env.UWM_USER_ENVIRONMENT || "stage");
   const deployment = env.ORBIT_DEPLOYMENT;
   if (deployment && ({ dev: "int", stage: "stage", production: "production" } as Record<string, string>)[deployment] !== environment) {
     throw new UwmError("UWM environment does not match this Orbit deployment.");
   }
-  if (!env.UWM_CLIENT_ID || !env.UWM_CLIENT_SECRET || !/^[a-f\d]{64}$/i.test(env.UWM_TOKEN_ENCRYPTION_KEY ?? "")) {
+  if (!env.UWM_USER_CLIENT_ID || !env.UWM_USER_CLIENT_SECRET || !/^[a-f\d]{64}$/i.test(env.UWM_TOKEN_ENCRYPTION_KEY ?? "")) {
     throw new UwmError("Your administrator must configure UWM client access and token encryption.");
   }
   return { environment, api: environment === "production" ? "https://api.uwm.com" : "https://stg.api.uwm.com",
@@ -47,7 +47,7 @@ function decrypt(value: string, key: Buffer, aad: Buffer) {
 }
 async function exchange(env: UwmEnvironment, settings: ReturnType<typeof uwmUserSettings>, grant: Record<string, string>) {
   const response = await uwmJson(settings.tokenUrl, { method: "POST", body: new URLSearchParams({
-    client_id: env.UWM_CLIENT_ID!, client_secret: env.UWM_CLIENT_SECRET!, scope: settings.scope, ...grant,
+    client_id: env.UWM_USER_CLIENT_ID!, client_secret: env.UWM_USER_CLIENT_SECRET!, scope: settings.scope, ...grant,
   }) });
   const parsed = tokens.safeParse(response);
   if (!parsed.success) throw new UwmError("UWM returned an invalid user authorization response.");
@@ -83,7 +83,7 @@ export function uwmUserStatus(db: Store, env: UwmEnvironment, staff: WorkspaceSt
     return { configured: true, environment: settings.environment, connectedAt: row?.connectedAt ?? null,
       expiresAt: row?.expiresAt ?? null, message: "" };
   } catch (error) {
-    return { configured: false, environment: env.UWM_ENVIRONMENT || "stage", connectedAt: null, expiresAt: null,
+    return { configured: false, environment: env.UWM_USER_ENVIRONMENT || "stage", connectedAt: null, expiresAt: null,
       message: error instanceof UwmError ? error.message : "UWM configuration needs attention." };
   }
 }
