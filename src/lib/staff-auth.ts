@@ -72,13 +72,17 @@ function safeBrokerageId(value: string | null) {
 }
 
 export async function rememberedStaffWorkspace(request: Request, email: string) {
+  const account = await hash(email);
+  const selected = safeBrokerageId(cookieValue(request, `${workspaceCookie}-${account}`) ?? null);
+  if (selected) return selected;
+
   const [owner, workspace, extra] = cookieValue(request, workspaceCookie)?.split(".") ?? [];
   if (!owner || !workspace || extra !== undefined || !safeBrokerageId(workspace)) return null;
-  return owner === await hash(email) ? workspace : null;
+  return owner === account ? workspace : null;
 }
 
 export async function staffWorkspaceCookie(email: string, brokerage: string) {
-  return cookie(workspaceCookie, `${await hash(email)}.${brokerage}`, 90 * 24 * 60 * 60);
+  return cookie(`${workspaceCookie}-${await hash(email)}`, brokerage, 90 * 24 * 60 * 60);
 }
 
 export function staffLoginUrl(brokerageId: string | null = null, error?: "denied" | "restart", guide?: ReturnType<typeof workspaceGuide>) {

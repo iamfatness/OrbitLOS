@@ -316,26 +316,42 @@ try {
       request.on("error", reject);
       request.end();
     });
-    const selected = await browse(entryOfficer, scoped(brokerage));
-    assert.equal(selected.status, 200);
+    const accountHash = createHash("sha256").update(entryOfficer.email).digest("base64url");
+    const legacy = `__Host-orbit-workspace=${accountHash}.${brokerage}`;
+    assert.equal((await browse(entryOfficer, "/workspace", legacy)).headers.get("location"), scoped(brokerage));
+    const initial = await browse(entryOfficer, "/workspace", "", { headers: { "Sec-Fetch-User": "" } });
+    assert.equal(initial.headers.get("location"), scoped(operational));
+    const selected = await browse(entryOfficer, scoped(brokerage) + "&switch=1");
+    assert.equal(selected.status, 303);
+    assert.equal(selected.headers.get("location"), scoped(brokerage));
     const saved = selected.headers.get("set-cookie");
-    assert.match(saved, /__Host-orbit-workspace=.*HttpOnly; Secure; SameSite=Lax/);
+    assert.match(saved, /__Host-orbit-workspace-[\w-]+=.*HttpOnly; Secure; SameSite=Lax/);
     const choice = saved.split(";", 1)[0];
     assert.equal((await browse(entryOfficer, "/workspace", choice)).headers.get("location"), scoped(brokerage));
-    assert.equal((await browse(entryOfficer, "/workspace")).headers.get("location"), scoped(operational));
-    assert.equal((await browse(owner, "/workspace", choice)).headers.get("location"), scoped(operational));
-    for (const options of [{ method: "HEAD" }, { headers: { "Sec-Purpose": "prefetch" } }, { headers: { "Sec-Fetch-User": "" } }]) {
-      assert.equal((await browse(entryOfficer, scoped(operational), choice, options)).headers.get("set-cookie"), null);
+    assert.equal((await browse(entryOfficer, scoped(operational), choice)).headers.get("set-cookie"), null);
+    const ownerEntry = await browse(owner, "/workspace", choice);
+    assert.equal(ownerEntry.headers.get("location"), scoped(operational));
+    const ownerChoice = ownerEntry.headers.get("set-cookie").split(";", 1)[0];
+    assert.notEqual(ownerChoice.split("=")[0], choice.split("=")[0]);
+    const browserChoices = [choice, ownerChoice].join("; ");
+    assert.equal((await browse(entryOfficer, "/workspace", browserChoices)).headers.get("location"), scoped(brokerage));
+    assert.equal((await browse(owner, "/workspace", browserChoices)).headers.get("location"), scoped(operational));
+    for (const options of [{ method: "HEAD" }, { headers: { "Sec-Purpose": "prefetch" } },
+      { headers: { "Sec-Fetch-User": "" } }, { headers: { "Sec-Fetch-Site": "cross-site" } }]) {
+      assert.equal((await browse(entryOfficer, scoped(operational) + "&switch=1", choice, options)).headers.get("set-cookie"), null);
     }
-    assert.equal((await browse(entryOfficer, scoped(operational) + "&guide=campaign", choice)).headers.get("set-cookie"), null);
-    const other = await browse(entryOfficer, scoped(operational), choice);
+    assert.equal((await browse(entryOfficer, scoped(operational) + "&guide=campaign&switch=1", choice)).headers.get("set-cookie"), null);
+    const other = await browse(entryOfficer, scoped(operational) + "&switch=1", choice);
     const switched = other.headers.get("set-cookie").split(";", 1)[0];
-    assert.equal((await browse(entryOfficer, "/workspace", switched)).headers.get("location"), scoped(operational));
+    assert.equal((await browse(entryOfficer, "/workspace", [switched, legacy].join("; "))).headers.get("location"), scoped(operational));
     await post(`/api/brokerages?brokerage=${operational}`, { type: "revoke", email: entryOfficer.email }, owner);
     const denied = await browse(entryOfficer, "/workspace", switched);
     assert.equal(denied.status, 403);
     assert.match(await denied.text(), /last workspace you opened/);
-    assert.equal((await browse(entryOfficer, "/workspace?available=1", switched)).headers.get("location"), scoped(brokerage));
+    const recovered = await browse(entryOfficer, "/workspace?available=1", switched);
+    assert.equal(recovered.headers.get("location"), scoped(brokerage));
+    const recoveredChoice = recovered.headers.get("set-cookie").split(";", 1)[0];
+    assert.equal((await browse(entryOfficer, "/workspace", recoveredChoice)).headers.get("location"), scoped(brokerage));
   });
 
   await stage("The owner scorecard is scoped through the deployed action", async () => {

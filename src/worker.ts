@@ -1792,7 +1792,6 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
     }
     let staff: WorkspaceStaff | null = null;
     let brokerages: WorkspaceStaff["brokerage"][] = [];
-    let saveWorkspaceChoice = false;
     if (!tokenPage) {
       if (google) {
         const requested = url.searchParams.get("brokerage");
@@ -1800,6 +1799,13 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         const workspaceTarget = openingWorkspace && requested && brokerageIdPattern.test(requested) ? requested : null;
         const guide = openingWorkspace ? workspaceGuide(url.searchParams.get("guide")) : null;
         const dailyEntry = openingWorkspace && !guide;
+        const fetchMode = request.headers.get("Sec-Fetch-Mode");
+        const workspaceNavigation = dailyEntry && request.method === "GET" &&
+          (fetchMode === "navigate" || (fetchMode === null && request.headers.get("Accept")?.includes("text/html"))) &&
+          !request.headers.has("RSC") && !request.headers.has("Next-Router-Prefetch") &&
+          !(request.headers.get("Sec-Purpose") ?? "").includes("prefetch");
+        const chooseWorkspace = workspaceNavigation && request.headers.get("Sec-Fetch-Site") !== "cross-site" &&
+          (fetchMode === null || request.headers.get("Sec-Fetch-User") === "?1");
         const login = () => new Response(null, { status: 303, headers: { Location: staffLoginUrl(workspaceTarget, undefined, guide), "Cache-Control": "no-store" } });
         try {
           const tokenHash = await staffSessionHash(request, google);
@@ -1819,13 +1825,18 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
             }
             if (brokerage) staff = { ...identity, brokerage };
             if (staff && requested === null && openingWorkspace && (dailyEntry || staff.brokerage.id !== demoBrokerageId)) {
-              return new Response(null, { status: 303, headers: { Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" } });
+              const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" });
+              const available = url.searchParams.get("available") === "1";
+              if (!remembered && (available ? chooseWorkspace : workspaceNavigation)) {
+                headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
+              }
+              return new Response(null, { status: 303, headers });
             }
-            saveWorkspaceChoice = Boolean(staff && dailyEntry && workspaceTarget && request.method === "GET" &&
-              ((request.headers.get("Sec-Fetch-Mode") === "navigate" && request.headers.get("Sec-Fetch-User") === "?1") ||
-                (!request.headers.has("Sec-Fetch-Mode") && request.headers.get("Accept")?.includes("text/html"))) &&
-              !request.headers.has("RSC") && !request.headers.has("Next-Router-Prefetch") &&
-              !(request.headers.get("Sec-Purpose") ?? "").includes("prefetch"));
+            if (staff && workspaceTarget && chooseWorkspace && url.searchParams.get("switch") === "1") {
+              const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id), "Cache-Control": "no-store" });
+              headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
+              return new Response(null, { status: 303, headers });
+            }
           }
         }
         catch (error) {
@@ -2132,7 +2143,6 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
     const result = new Response(response.body, response);
     result.headers.set("Cache-Control", "private, no-store");
     result.headers.set("X-Robots-Tag", "noindex");
-    if (staff && saveWorkspaceChoice && result.ok) result.headers.append("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
     if (tokenPage) result.headers.set("Referrer-Policy", "no-referrer");
     return result;
 }
