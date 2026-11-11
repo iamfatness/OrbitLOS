@@ -1,3 +1,7 @@
+import { connectUwmUser, disconnectUwmUser, initializeUwmUserAccess, uwmUserStatus } from "./lib/uwm-user-access";
+import { correlateUwmImport, initializeUwmOperations } from "./lib/uwm-operations";
+import { uwmPublicClient } from "./lib/uwm-public-client";
+import { initializeUwmWebhooks, parseUwmWebhook, readUwmWebhookReceipts, saveUwmWebhook, uwmWebhookConnection, uwmWebhookHttp, type UwmWebhookEvent } from "./lib/uwm-webhooks";
 import { DurableObject } from "cloudflare:workers";
 import { demoRequest } from "./lib/demo-request";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -149,6 +153,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     this.#id = ctx.id.name;
     this.#documents = (env as Cloudflare.Env & DocumentEnvironment).DOCUMENTS;
     initializeStore(this.#store, this.#id === demoBrokerageId);
+    initializeUwmUserAccess(this.#store);
+    initializeUwmOperations(this.#store);
+    initializeUwmWebhooks(this.#store);
     if (this.#id === demoBrokerageId) initializeBrokerages(this.#store);
     this.#auth = staffAuthStore(this.#store);
   }
@@ -156,6 +163,41 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   #accepts(staff: WorkspaceStaff | null) {
     return staff ? staff.brokerage.id === this.#id : this.#id === demoBrokerageId;
   }
+
+  async uwmAccount(staff: WorkspaceStaff, input: { action: "status" | "connect" | "disconnect" | "verify"; credentials?: unknown }) {
+    if (!this.#accepts(staff)) return { error: "UWM account unavailable." };
+    const env = Object.fromEntries(["UWM_BROKERAGE_ID", "UWM_CLIENT_ID", "UWM_CLIENT_SECRET", "UWM_ENVIRONMENT",
+      "ORBIT_DEPLOYMENT", "UWM_TOKEN_ENCRYPTION_KEY"].map((key) => [key, runtimeSetting(this.env, key)]));
+    try {
+      if (input.action === "disconnect") return disconnectUwmUser(this.#store, staff);
+      if (input.action === "connect") return await connectUwmUser(this.#store, env, staff, input.credentials);
+      if (input.action === "verify") {
+        await uwmPublicClient(this.#store, env, staff).brokerAssociations();
+        return { message: "UWM accepted your broker-association request. Broker/branch mapping and live lender actions still require validation." };
+      }
+      return uwmUserStatus(this.#store, env, staff);
+    } catch { return { error: "UWM sign-in failed. Verify your UWM credentials, environment and broker access, then try again." }; }
+  }
+
+  async receiveUwmWebhook(event: UwmWebhookEvent) {
+    const connection = uwmWebhookConnection(runtimeSetting(this.env, "UWM_WEBHOOK_CONFIG"), event.environment);
+    if (!connection || connection.brokerageId !== this.#id) throw new Error("Webhook workspace mismatch");
+    const details = await this.env.WORKSPACE.getByName(demoBrokerageId).brokerageDetails(this.#id);
+    if (!details || details.pilot) throw new Error("Webhook brokerage unavailable");
+    const receipt = saveUwmWebhook(this.#store, parseUwmWebhook(event.environment, event.kind, event.body));
+    if (event.kind === "import") correlateUwmImport(this.#store, Number(receipt.receiptId));
+    return receipt;
+  }
+
+  uwmWebhookReceipts(staff: WorkspaceStaff, before: number, receiptId?: number) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") throw new Error("Webhook receipts unavailable");
+    if (receiptId !== undefined) {
+      const receipt = this.#store.prepare("SELECT * FROM uwm_webhook_receipts WHERE id = ?").get(receiptId);
+      return receipt ?? null;
+    }
+    return readUwmWebhookReceipts(this.#store, before);
+  }
+
 
   read(staff: WorkspaceStaff | null, deferred = false) {
     if (!this.#accepts(staff)) throw new Error("Workspace access denied.");
@@ -1033,6 +1075,10 @@ export default {
       return Response.redirect(url, 308);
     }
     const reading = request.method === "GET" || request.method === "HEAD";
+    if (url.pathname.startsWith("/api/webhooks/uwm/")) {
+      return uwmWebhookHttp(request, runtimeSetting(env, "UWM_WEBHOOK_CONFIG"),
+        (brokerageId, event) => env.WORKSPACE.getByName(brokerageId).receiveUwmWebhook(event), runtimeSetting(env, "ORBIT_DEPLOYMENT"));
+    }
     if (url.pathname === "/api/demo-request") return demoRequest(request, env);
     const marketingPage = /^\/(?:product\/?|integrations\/?|demo\/?|address-lookup\/?)?$/.test(url.pathname);
     if (reading && (/^\/marketing\/(?:pipeline|playbooks|borrower-application|quote-comparison|conditions|social-preview)\.png$/.test(url.pathname) ||
@@ -1199,6 +1245,44 @@ export default {
     }
     if (!reading && request.headers.get("Origin") !== url.origin) {
       return new Response("This action must come from Orbit.", { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/api/uwm-account") {
+      const headers = { "Cache-Control": "private, no-store" };
+      if (!staff) return Response.json({ error: "Sign in to your brokerage first." }, { status: 403, headers });
+      const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
+      if (request.method === "GET") return Response.json(await workspace.uwmAccount(staff, { action: "status" }), { headers });
+      if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      const reader = request.body?.getReader();
+      if (!reader) return Response.json({ error: "Missing request" }, { status: 400, headers });
+      let body = "", bytes = 0;
+      try {
+        const decoder = new TextDecoder("utf-8", { fatal: true });
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          bytes += chunk.value.byteLength;
+          if (bytes > 4096) { await reader.cancel(); return Response.json({ error: "Request too large" }, { status: 413, headers }); }
+          body += decoder.decode(chunk.value, { stream: true });
+        }
+        body += decoder.decode();
+        const input = z.discriminatedUnion("action", [z.object({ action: z.literal("disconnect") }), z.object({ action: z.literal("verify") }),
+          z.object({ action: z.literal("connect"), credentials: z.object({ username: z.string().max(254), password: z.string().max(1024) }) })]).parse(JSON.parse(body));
+        const result = await workspace.uwmAccount(staff, input);
+        return Response.json(result, { status: "error" in result ? 400 : 200, headers });
+      } catch { return Response.json({ error: "UWM account request could not be completed." }, { status: 400, headers }); }
+      finally { reader.releaseLock(); }
+    }
+    if (url.pathname === "/api/uwm-webhook-receipts") {
+      const headers = { "Cache-Control": "private, no-store" };
+      if (!staff || staff.brokerage.role !== "Admin") return Response.json({ error: "Admin access required" }, { status: 403, headers });
+      if (request.method !== "GET") return new Response(null, { status: 405, headers: { ...headers, Allow: "GET" } });
+      const before = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).safeParse(url.searchParams.get("before") ?? Number.MAX_SAFE_INTEGER);
+      const receiptId = url.searchParams.has("receipt") ? z.coerce.number().int().positive().safeParse(url.searchParams.get("receipt")) : null;
+      if (!before.success || (receiptId && !receiptId.success)) return Response.json({ error: "Invalid receipt cursor" }, { status: 400, headers });
+      try {
+        const receipts = await env.WORKSPACE.getByName(staff.brokerage.id).uwmWebhookReceipts(staff, before.data, receiptId?.data);
+        return Response.json({ receipts }, { headers });
+      } catch { return Response.json({ error: "Receipts unavailable" }, { status: 503, headers }); }
     }
     if (request.method === "GET" && url.pathname === "/api/documents/download") {
       const requestId = z.uuid().safeParse(url.searchParams.get("request"));

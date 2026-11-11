@@ -1,4 +1,6 @@
 "use client";
+import { UwmAccount } from "./uwm-account";
+import { UwmReceipts } from "./uwm-receipts";
 import { UwmConnection, type UwmConnectionStatus } from "./uwm-connection";
 
 import { Activity, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
@@ -1775,6 +1777,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           </fieldset>}
 
           {section === "Integrations" && <section className="integration">
+            {staff && <UwmAccount key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
+            {staff?.brokerage.role === "Admin" && <UwmReceipts key={`receipts:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />}
             <div className="integration-head"><span className="metric-icon lavender"><workspaceIcons.integrations size={20} aria-hidden="true" /></span><div><h2>United Wholesale Mortgage</h2></div><span className="pill">{uwmConnection.pricing}</span></div>
             <p className="integration-description">Pricing, pipeline access and lender actions have separate connection requirements.</p>
             <UwmConnection connection={uwmConnection} brokerageId={staff?.brokerage.id} admin={admin} />

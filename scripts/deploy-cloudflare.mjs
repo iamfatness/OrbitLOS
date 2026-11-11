@@ -3,13 +3,18 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { verifyReleaseTarget } from "./cloudflare-targets.mjs";
 
 const inbox = z.email().max(254).safeParse(process.env.ORBIT_DEMO_INBOX?.trim());
 if (!inbox.success) throw new Error("Set ORBIT_DEMO_INBOX to the verified demo recipient before deploying.");
 const output = new URL("../dist/server/", import.meta.url);
 const args = process.argv.slice(2);
+let target = "production";
+if (args[0] === "--target") { args.shift(); target = args.shift(); }
+if (args.some((arg) => !["--dry-run", "--upload-only"].includes(arg))) throw new Error("Unsupported release option.");
 const uploadOnly = args.includes("--upload-only");
 const config = JSON.parse(readFileSync(new URL("wrangler.json", output), "utf8"));
+verifyReleaseTarget(config, target);
 const email = config.send_email?.find(({ name }) => name === "DEMO_EMAIL");
 if (!email) throw new Error("The build is missing the DEMO_EMAIL binding.");
 email.destination_address = inbox.data;

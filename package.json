@@ -8,10 +8,14 @@
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "build:cloudflare": "vite build",
+    "build:cloudflare": "node scripts/build-cloudflare.mjs",
     "preview:cloudflare": "wrangler dev --config dist/server/wrangler.json --local --infer-origin-from-routes=false",
     "deploy:cloudflare": "node --env-file-if-exists=.orbit/release.env scripts/deploy-cloudflare.mjs",
-    "types:cloudflare": "wrangler types --include-runtime=false"
+    "types:cloudflare": "wrangler types --include-runtime=false",
+    "build:cloudflare:dev": "node scripts/build-cloudflare.mjs dev",
+    "deploy:cloudflare:dev": "node --env-file-if-exists=.orbit/release.dev.env scripts/deploy-cloudflare.mjs --target dev",
+    "build:cloudflare:stage": "node scripts/build-cloudflare.mjs stage",
+    "deploy:cloudflare:stage": "node --env-file-if-exists=.orbit/release.stage.env scripts/deploy-cloudflare.mjs --target stage"
   },
   "type": "module",
   "engines": {

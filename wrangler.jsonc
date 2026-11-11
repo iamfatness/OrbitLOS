@@ -3,16 +3,161 @@
   "name": "orbit-crm-demo",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-11-06",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": false,
   "preview_urls": false,
-  "vars": { "ORBIT_DOCUMENT_UPLOADS": "mock", "ORBIT_PRICING_MODE": "uwm-stage" },
-  "routes": [{ "pattern": "orbitlos.com", "custom_domain": true }],
-  "assets": { "not_found_handling": "none", "run_worker_first": true, "binding": "ASSETS" },
-  "send_email": [{ "name": "DEMO_EMAIL", "destination_address": "demo-inbox@example.test" }],
-  "ratelimits": [{ "name": "DEMO_RATE_LIMIT", "namespace_id": "2026110801", "simple": { "limit": 3, "period": 60 } }],
-  "durable_objects": { "bindings": [{ "name": "WORKSPACE", "class_name": "OrbitWorkspace" }] },
-  "r2_buckets": [{ "binding": "DOCUMENTS", "bucket_name": "orbitlos-private-documents" }],
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["OrbitWorkspace"] }],
-  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+  "vars": {
+    "ORBIT_DOCUMENT_UPLOADS": "mock",
+    "ORBIT_PRICING_MODE": "uwm-stage",
+    "ORBIT_DEPLOYMENT": "production"
+  },
+  "routes": [
+    {
+      "pattern": "orbitlos.com",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "not_found_handling": "none",
+    "run_worker_first": true,
+    "binding": "ASSETS"
+  },
+  "send_email": [
+    {
+      "name": "DEMO_EMAIL",
+      "destination_address": "demo-inbox@example.test"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "DEMO_RATE_LIMIT",
+      "namespace_id": "2026110801",
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WORKSPACE",
+        "class_name": "OrbitWorkspace"
+      }
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "DOCUMENTS",
+      "bucket_name": "orbitlos-private-documents"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "OrbitWorkspace"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  },
+  "env": {
+    "dev": {
+      "name": "orbitlos-dev",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vars": {
+        "ORBIT_DEPLOYMENT": "dev",
+        "ORBIT_DOCUMENT_UPLOADS": "mock",
+        "ORBIT_PRICING_MODE": "mock"
+      },
+      "routes": [
+        {
+          "pattern": "dev.orbitlos.com",
+          "custom_domain": true
+        }
+      ],
+      "send_email": [
+        {
+          "name": "DEMO_EMAIL",
+          "destination_address": "demo-inbox@example.test"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "DEMO_RATE_LIMIT",
+          "namespace_id": "2026111002",
+          "simple": {
+            "limit": 3,
+            "period": 60
+          }
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "WORKSPACE",
+            "class_name": "OrbitWorkspace"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "DOCUMENTS",
+          "bucket_name": "orbitlos-dev-private-documents"
+        }
+      ]
+    },
+    "stage": {
+      "name": "orbitlos-stage",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vars": {
+        "ORBIT_DEPLOYMENT": "stage",
+        "ORBIT_DOCUMENT_UPLOADS": "mock",
+        "ORBIT_PRICING_MODE": "mock"
+      },
+      "routes": [
+        {
+          "pattern": "stage.orbitlos.com",
+          "custom_domain": true
+        }
+      ],
+      "send_email": [
+        {
+          "name": "DEMO_EMAIL",
+          "destination_address": "demo-inbox@example.test"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "DEMO_RATE_LIMIT",
+          "namespace_id": "2026111003",
+          "simple": {
+            "limit": 3,
+            "period": 60
+          }
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "WORKSPACE",
+            "class_name": "OrbitWorkspace"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "DOCUMENTS",
+          "bucket_name": "orbitlos-stage-private-documents"
+        }
+      ]
+    }
+  }
 }
