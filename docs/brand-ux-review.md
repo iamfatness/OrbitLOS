@@ -186,3 +186,13 @@ Next design slice: campaign enrollment → Today follow-up → conversation outc
 Source a656e4e adds focus to enrollment preview results and conversation outcome feedback, an explicit All outcomes reset with result counts, keyboard-accessible response tables, clear callback filters, and an upcoming-work action for empty personal callback queues. UI UX Pro Max recovery/focus guidance informed the existing-component changes. Typecheck, lint, 402 tests and the working-day rehearsal passed. Browser acceptance covered fictional CSV campaign import and response filtering/recovery at 1440, 900 and 390 px. Signed-in live QA verified response counts, filter reset and upcoming callback navigation. The full workflow rehearsal covers enrollment, follow-ups, conversations and manager drilldowns; it is scripted local acceptance, not a claim that every transition was repeated live.
 Published Worker 39c0bee0-e96a-4fc4-ad31-3ad6c693521e at 100%, predecessor b8305cd6-cfaf-4fde-a489-c30ce90e8f3c retained at 0%. Staged and live browser assets passed two checks each. Provider configuration is unchanged. Remaining design review should exercise longer campaign lists and returned conversation focus in a further pass.
 
+
+## CRM navigation release — November 10, 2026
+
+Published application source `70d68957182b`, Worker `082ceb43-7de7-4b32-948d-fcba1dd540f8` at 100%.
+
+Long campaign lists now support name search, retain the selected campaign when filtered out, and provide clear empty-result recovery. Closing conversation details restores keyboard focus to the originating queue button, or the queue heading when a resolved conversation has left the filter.
+
+Validation: 402 tests passed, typecheck/lint passed, production build passed, 36-stage local working-day workflow passed. Staged and ordinary live asset checks each passed twice (138/138). Signed-in fictional live QA verified matching/no-match/clear campaign search, selecting a filtered campaign, conversation close/reopen feedback, originating-row and missing-row focus return. The fictional conversation was reopened after the test. Mobile (390x844) and portrait desktop (900x1200) had no document horizontal overflow. Evidence: `.orbit/orbit-crm-navigation-live-mobile.png` in the parent workspace.
+
+Provider configuration unchanged; pricing remains the existing UWM stage configuration. No real messages, scans, or lender submissions exercised. Local multi-role acceptance is distinct from the live admin-session checks. Cross-section return from Communications to the originating Today/campaign context remains the next navigation improvement.
