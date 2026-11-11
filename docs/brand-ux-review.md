@@ -367,3 +367,10 @@ Live signed-in acceptance used only OrbitLOS Role Handoff QA. The Photo ID deadl
 
 
 The owner inspected the unchanged core record counts and zero pending provider rows, retained the documented legacy sample-file limitation in the reopening note, and reopened successfully. The fictional workspace was left Open with 20 maintenance-history entries and its original deadline. Public `/product` copy was checked live and includes covered edit receipts. No account, provider configuration, lender action, email or text was changed by this release.
+
+
+## Controlled deadline recovery candidate — November 11, 2026
+
+The pilot owner uses the existing paused Internal edits view. Eligible rows offer a collapsed Recover saved due-date change form with the exact document, original date and desired date. A reason is retained on failed dispatch. Pending recovery is surfaced above paginated history with Check pending recovery; the durable server reservation blocks reopening until the outcome is resolved. Applied/not-applied results preserve actor, reason and time, and require a new reopening review.
+
+The pass used Orbit's design system and the previously reviewed Impeccable hardening/UI UX Pro Max guidance for disclosure, failure retention, truthful feedback and focus. Browser testing exposed a potentially misleading error after a committed change whose response was lost: the client now refreshes the authoritative receipt and shows the saved result. Desktop 1440x900, portrait 900x1200 and phone 390x844 fit without horizontal overflow; the phone screenshot was visually inspected. Proof: `output/playwright/replay-before-{1440,900,390}.png` and `replay-after-390.png`. All 466 tests and the 40-stage working day passed; actual isolated hosted restore and product replay also passed. Public copy is included in the candidate. Live publication follows below.
