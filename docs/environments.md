@@ -39,6 +39,8 @@ For environment secrets use `node node_modules/wrangler/bin/wrangler.js secret p
 
 ## Verification
 
+For workspace continuity, run `node scripts/workspace-working-day.mjs` against the production build. The scenario saves a fictional account's workspace, starts another session without the browser preference cookie, follows a scoped link, and confirms explicit recovery after revocation. During promotion, open the same signed-in generic workspace URL before and after the traffic change when browser access is available. Confirm it resolves to the same brokerage and record whether the authenticated production check ran.
+
 The stage and dev builds passed artifact-target checks. Sixteen environment/UWM tests, TypeScript and targeted lint passed. Hosted checks verify public page availability, unauthenticated workspace denial, authenticated workspace access, unconfigured webhook rejection and cross-environment rejection. No production data was copied, and no UWM delivery has yet been accepted on either new host.
 
 Reference: [Cloudflare Vite environments](https://developers.cloudflare.com/workers/vite-plugin/reference/cloudflare-environments/).

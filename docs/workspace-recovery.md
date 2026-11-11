@@ -346,4 +346,8 @@ The built fictional browser fixture verified checkpoint comparison, an interrupt
 
 From **Team → Workspaces → Support report**, a pilot admin can preview the saved handoff, lender request, lender operation, and workspace recovery counts. The same report is available from **Workspace maintenance** when the pilot is paused. Up to 200 recent entries are inspected in each of the three history sources. A completed request acknowledgement is distinct from an operation awaiting a final outcome.
 
-Use **Download redacted report** after previewing. If the counts or recovery state changed, refresh the preview and try again. The JSON contains summary counts, maintenance status, capture time, a format version, and a report reference. The reference matches the export event in **Access history**. Use Processing or the existing maintenance inspection when you need to identify the underlying work inside Orbit.
+While the pilot is open, use **Review processing handoffs**, **Review lender requests**, or **Review lender operations** to see the work behind the counts. Open a loan to go to the handoff or lender section. The loan's back action returns to the same report group and page.
+
+While paused, the report links to the pending restore and the internal edit recovery controls when there is work to review. The internal edit link starts with unconfirmed receipts. Use **Show all edits** to see full history.
+
+Use **Download redacted report** after previewing. If the counts or recovery state changed, refresh the preview and try again. The JSON contains summary counts, maintenance status, capture time, a format version, and a report reference. The reference matches the export event in **Access history**.

@@ -1133,3 +1133,13 @@ The built Worker passed 506 tests, lint, typecheck, and the 45-stage working-day
 
 Worker `0a71b965-d872-40a1-998f-b3f516d6d558` was promoted at 100 percent with all 23 bindings preserved. The signed-out smoke covered the updated Demo copy, login and product routes, the sign-in redirect for the report preview, and denial of unauthenticated exports. Work settings prevented signed-in production browser acceptance. The fictional fixture used stored synthetic outcomes and no provider calls.
 All 1,413 browser assets matched on both staged and both live passes.
+
+## Account workspace preference and support report work
+
+Source `bac372f` saves each staff account's explicit workspace selection in the shared directory. Existing browser preferences are carried forward on an intentional daily entry. Plain brokerage and guide links leave the account default intact. Access is still checked against current membership, with an explicit recovery screen if access is lost. The preceding source `832d619` links support counts to exact processing, lender, and recovery work while keeping the export redacted.
+
+The exact build passed 506 tests, lint, typecheck, the 45-stage working-day rehearsal and the populated fictional browser scenarios. These covered a new authenticated session without a preference cookie, cross-account isolation, refresh, named workspace links, revoked access, and support report drilldown and return. [Design and acceptance evidence](brand-ux-review.md#account-workspace-preference-and-support-report-work)
+
+Production Worker `0e6d1bcd-c9f1-4faf-9c6d-1ecbbb33895e` serves 100 percent of traffic with all 23 bindings preserved. Staged and live public and signed-out checks passed, including the Demo update and access denial for unauthenticated support work. Work settings prevented the signed-in production continuity check. No production workspace preferences were modified by verification.
+
+All 1,420 browser assets matched on both staged and both live passes.
