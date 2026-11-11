@@ -6,6 +6,7 @@ out/
 .wrangler/
 .vinext/
 .playwright-cli/
+output/playwright/
 .dev.vars*
 dist/
 .env*

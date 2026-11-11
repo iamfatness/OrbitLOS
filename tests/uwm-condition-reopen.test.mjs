@@ -225,6 +225,28 @@ test("existing acceptance backfill retains only the PDF proven to be the current
   assert.equal(db.prepare("SELECT count(*) AS total FROM document_accepted_files WHERE requestId=?").get(request.id).total,1);
 });
 
+test("legacy presenter request upgrade carries acceptance and retained PDF identity atomically", async (t) => {
+  const {db,staff,apply}=setup(t);
+  await apply({type:"sync"});
+  const scenario=crypto.randomUUID(),loanId=`demo-presenter:${scenario}:closing`,oldId=`${loanId}:insurance`;
+  const at=new Date().toISOString(),objectId=crypto.randomUUID();
+  db.prepare(`INSERT INTO loans (id,contactId,partnerId,address,amount,purpose,officer,officerEmail,stage,stageSince,createdAt)
+    SELECT ?,contactId,partnerId,address,amount,purpose,officer,officerEmail,stage,stageSince,createdAt FROM loans LIMIT 1`).run(loanId);
+  db.prepare("INSERT INTO pilot_scenario VALUES (1,?,?,?,?,?,1)").run(scenario,"fictional-partner",loanId,at,staff.email);
+  db.prepare(`INSERT INTO document_requests (id,loanId,kind,instructions,requestedAt,status,revision)
+    VALUES (?,?,'Homeowners insurance','Legacy fictional request',?,'Accepted',2)`).run(oldId,loanId,at);
+  db.prepare("INSERT INTO document_acceptances VALUES (?,2,?,?)").run(oldId,staff.name,at);
+  db.prepare("INSERT INTO document_files (requestId,objectId,uploadedAt,attemptedAt,uploadMode) VALUES (?,?,?,0,'mock')").run(oldId,objectId,at);
+  initializeStore(db,false);
+  const upgraded=db.prepare("SELECT id FROM document_requests WHERE loanId=?").get(loanId).id;
+  assert.notEqual(upgraded,oldId);
+  assert.equal(downloadableDocument(db,staff,upgraded,undefined,2).objectId,objectId);
+  assert.equal(downloadableDocument(db,staff,oldId,undefined,2),null);
+  assert.equal(db.prepare("SELECT actor FROM document_acceptances WHERE requestId=?").get(upgraded).actor,staff.name);
+  assert.ok(!documentCleanupBatch(db).includes(objectId));
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(),[]);
+});
+
 test("assigned processors can bulk review, deliver, retry and clear only the selected evidence", async (t) => {
   const { db, staff, apply } = setup(t);
   const initial = await apply({ type: "sync" });
