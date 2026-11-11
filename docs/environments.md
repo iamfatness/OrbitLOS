@@ -1,6 +1,6 @@
 # Orbit environments
 
-Dev and stage were provisioned November 10, 2026. Production remains the existing deployment and data; it was not redeployed during environment setup.
+Dev and stage were provisioned November 10, 2026. All three hosts subsequently received the UWM account and webhook receipt release; see [publication validation](uwm-release-validation.md). Production retains its existing data and namespace.
 
 | Target | Host | Worker | Private document bucket | UWM event environment |
 | --- | --- | --- | --- | --- |

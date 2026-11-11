@@ -1,6 +1,6 @@
 # UWM release scope and activation
 
-November 10, 2026. Release branch: `release/uwm-live-2026-11-10`, based on deployed production source `abf1863`. This release preserves existing CRM and stage pricing behavior. It is not certification of a live UWM origination integration.
+November 10, 2026. Release branch: `release/uwm-live-2026-11-10`, including the latest deployed CRM source `ec142e9`. Published source: `4acce3281077e78c49491ab60876da713aa33a8e`. This release preserves existing CRM and stage pricing behavior. It is not certification of a live UWM origination integration.
 
 ## Included
 
@@ -23,4 +23,4 @@ Account tokens never appear in API responses. The admin receipt detail endpoint 
 
 ## Verification and publication
 
-The complete regression suite passed 420 tests, including user-token encryption, disconnect races, refresh, outbound uncertainty, import correlation, webhook dedupe and deployment isolation. TypeScript and ESLint checks passed. Hosted release versions and checks are recorded in `uwm-release-validation.md` after publication. No live lender write or authenticated UWM webhook has been tested.
+The final complete regression suite passed 421 tests, including user-token encryption, disconnect races, refresh, outbound uncertainty, import correlation, webhook dedupe and deployment isolation. TypeScript and ESLint checks passed. Hosted release versions and checks are recorded in [release validation](uwm-release-validation.md). No live lender write or authenticated UWM webhook has been tested.

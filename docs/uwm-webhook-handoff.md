@@ -2,7 +2,7 @@
 
 Prepared November 10, 2026. Receivers are implemented for the three isolated hosts. UWM secrets and brokerage mappings are not configured. **UWM registration and authenticated delivery validation remain pending.** Activate only after the operator checklist below passes. See [release scope and activation](uwm-release.md) for the account flows and remaining live-operation work.
 
-Validation: 18 environment/webhook/UWM tests passed after the X-API-Key correction; TypeScript and targeted ESLint passed. Environment builds and hosted route checks are recorded in [environment setup](environments.md). No authenticated UWM delivery has been verified.
+Validation: the final release passed all 421 regression tests, TypeScript and ESLint. Builds and hosted checks are recorded in [release validation](uwm-release-validation.md). No authenticated UWM delivery has been verified.
 
 ## Message to share with UWM
 
