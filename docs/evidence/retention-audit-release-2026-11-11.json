@@ -1,0 +1,21 @@
+{
+  "widths": [
+    1440,
+    900,
+    390
+  ],
+  "history": true,
+  "filteredExport": true,
+  "invalidFilterRecovered": true,
+  "keyboardFocus": true,
+  "exportVerified": true,
+  "selectedViewVisible": true,
+  "source": "721a4e1",
+  "liveWorker": "e52dc845-5384-4808-90d5-c16fcfc0f15c",
+  "liveFictionalEmptyAuditDownload": true,
+  "testsPassed": 505,
+  "workingDayStages": 44,
+  "removedLoanDecisionRetained": true,
+  "crossBrokerageDenied": true,
+  "nonOwnerDenied": true
+}

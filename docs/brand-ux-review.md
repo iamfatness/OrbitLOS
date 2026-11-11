@@ -406,3 +406,8 @@ Verified for the pilot owner download flow on the built Worker from `38c94d1`. A
 ### Disposition review
 
 Verified for the pilot owner queue on the built Worker from `0fb4550`. The review reused Orbit's inline retention form and actions previously informed by the 21st.dev component references. UI UX Pro Max informed labelled fields and explicit saving, error and saved feedback. The Impeccable check used the rendered panel and flagged existing shared theme and typeface patterns. The browser started with no configured policy, saved a fictional policy, excluded a held loan, recorded an outcome and verified focus on return. Screenshots at 1440 × 900, 900 × 1200 and 390 × 844 were inspected. The final phone pass kept each due-date label together and confirmed the form fit without horizontal overflow.
+
+
+### Retention audit
+
+Verified for the pilot owner audit on built Worker `721a4e1`. The view reused Orbit's policy and decision cards and native controls, following the 21st.dev references used for the existing retention forms. UI UX Pro Max informed labelled filters and pressed-state semantics. The selected view received a visible outline after the first screenshot pass. The final desktop, portrait and phone captures were inspected. Keyboard testing covered version drilldown, invalid filter recovery, JSON download and return focus. Impeccable reported existing shared theme and typography patterns.

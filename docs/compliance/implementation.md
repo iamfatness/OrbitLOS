@@ -94,3 +94,12 @@ In **Compliance → Loan retention → Disposition review**, a pilot owner recor
 Active holds keep loans out of the queue. A review can record **Continue retaining** or **Recommend disposition**, with a reference and actor. Both outcomes leave the loan and documents in place. A changed policy, corrected outcome or intervening hold can require another review. Policy versions and review records are append-only, and normal restore rejects a checkpoint that would rewind them. Production approval and retention enforcement remain separate from pilot recommendations.
 
 Application `0fb4550` is live on Worker `1a8927de-8c14-4026-b167-88a42ca8a260`. The live fictional pilot loaded the unconfigured queue and policy form. The built-Worker 44-stage rehearsal exercised dated outcomes, owner scope, stale decisions, holds and release, and policy changes. All 505 tests passed. The isolated hosted recovery regression used application `5d38544` with the same data and command behavior. [Release evidence](../evidence/disposition-review-release-2026-11-11.json).
+
+
+### Owner retention audit
+
+Open **Compliance → Loan retention → Disposition review → Retention audit**. Policy history shows the recorded calendar-day periods, approval reference and owner. Decisions retain the policy version, reason, reviewer and recorded date. Open the linked policy to see the terms that governed the decision. The audit preserves the decision and loan reference after a loan is removed through the existing workflow. The borrower display name comes from the current loan when available.
+
+**Download audit JSON** includes both policy versions and decisions. The policy version filter applies to the file, including records beyond the visible page. The export limits each category to 1,000 records. Narrow an oversized export by policy version. Orbit records successful export preparation in workspace access history.
+
+Application `721a4e1` is live on Worker `e52dc845-5384-4808-90d5-c16fcfc0f15c`. The live fictional pilot downloaded its empty audit. The built-Worker 44-stage rehearsal verified that an older decision remained exportable after a policy change and fictional loan removal. It also denied access to LOs, processors and mismatched workspaces. The isolated browser verified a populated, version-filtered download and the historical due date. All 505 tests passed. [Release evidence](../evidence/retention-audit-release-2026-11-11.json).
