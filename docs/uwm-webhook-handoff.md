@@ -70,7 +70,7 @@ Thank you.
 
 ## Delivery and storage behavior
 
-- Each environment maps to its configured brokerage, never a workspace selected by the caller or payload.
+- Each environment has a configured reconciliation inbox. Registered import transactions route to their exact originating workspace; authenticated completed imports reserve lender loan numbers for subsequent condition routing. Unknown or unmapped events remain in the reconciliation inbox. No event is broadcast or assigned to an arbitrary caller-selected workspace.
 - Receipts are written transactionally in that brokerage's private Durable Object SQLite storage before `200`. Exact body retries reuse the saved receipt. Different payloads sharing a status event ID are both retained for investigation. Condition IDs are never treated as unique delivery IDs because they recur across updates.
 - Imports retain the transaction ID separately from the permanent loan number, including failures with no loan number. Unknown/unmatched events are preserved; no loan is guessed or created from an unsolicited callback.
 - Original JSON and opaque ULAD bodies are retained. The XML receiver rejects DTD/entity declarations and does not resolve external references. XML schema validation and mapping remain pending UWM samples. Request bodies and API-key headers are not explicitly logged by this implementation.
