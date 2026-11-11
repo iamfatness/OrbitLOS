@@ -1,3 +1,4 @@
+import { commitDirectorySignInReset, directorySignInResetHttp, directorySignInResetPath, previewDirectorySignInReset, readDirectorySignInResetIntent, type SignInResetIntent } from "./lib/directory-sign-in-reset";
 import { applyDirectoryRepair, directoryRepairHttp, directoryRepairPath, loadRepairEvidence, previewDirectoryRepair, readRepairIntent, type RepairIntent } from "./lib/directory-repair";
 import { captureDirectoryEvidence, directoryEvidenceHttp, directoryEvidencePath, type Evidence } from "./lib/directory-evidence";
 import { directoryDrainObject, directoryDrainPath, directoryDrainStatus, startDirectoryWork, trackDirectoryResponse, type DirectoryWorkKind } from "./lib/directory-drain";
@@ -245,6 +246,21 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const counts = await this.env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts();
     if (counts.active || (await this.#documents.head(directoryPauseKey))?.version !== intent.markerVersion) return null;
     return applyDirectoryRepair(this.#store, evidence, intent, new Date().toISOString());
+  }
+
+  async reviewDirectorySignInReset() {
+    if (this.#id !== demoBrokerageId || !await this.#documents?.head(directoryPauseKey))
+      throw new Error("Directory sign-in reset requires an active pause.");
+    return previewDirectorySignInReset(this.#store);
+  }
+
+  async applyDirectorySignInReset(input: SignInResetIntent) {
+    if (this.#id !== demoBrokerageId || !this.#documents) throw new Error("Directory sign-in reset is unavailable.");
+    const intent = await readDirectorySignInResetIntent(this.#documents, input);
+    if (!intent || intent.deployment !== (runtimeSetting(this.env, "ORBIT_DEPLOYMENT") || "fixture")) return null;
+    const counts = await this.env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts();
+    if (counts.active || (await this.#documents.head(directoryPauseKey))?.version !== intent.markerVersion) return null;
+    return commitDirectorySignInReset(this.#store, intent);
   }
 
   #initializeWorkspace() {
@@ -1569,6 +1585,13 @@ export default {
       return failure;
     }
     const preparingDrain = runtimeSetting(env, "ORBIT_DRAIN_ROLLOUT") === "prepare";
+    if (url.pathname === directorySignInResetPath) {
+      if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
+      return directorySignInResetHttp(request, env.DOCUMENTS, runtimeSetting(env, "ORBIT_DEPLOYMENT") || "fixture",
+        () => env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts(),
+        () => env.WORKSPACE.getByName(demoBrokerageId).reviewDirectorySignInReset(),
+        intent => env.WORKSPACE.getByName(demoBrokerageId).applyDirectorySignInReset(intent));
+    }
     if (url.pathname === directoryRepairPath) {
       if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
       return directoryRepairHttp(request, env.DOCUMENTS, runtimeSetting(env, "ORBIT_DEPLOYMENT") || "fixture",

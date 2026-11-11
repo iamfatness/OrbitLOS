@@ -3,7 +3,7 @@
 import application, { OrbitWorkspace } from "./index.js";
 import { directoryRecoveryCommand, readDirectoryJournal, snapshotDirectory } from "./directory-recovery.mjs";
 import { recordFictionalReplacement } from "./recovery-replacement.mjs";
-import { directoryRepairPrefix, sampleDraft, finalStep } from "./recovery-fixtures.mjs";
+import { directorySignInResetPrefix, directoryRepairPrefix, sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 import { expectedDeadline, reviewPending, remainingReplay, sameDocument } from "./recovery-reconciliation.mjs";
 
 const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence", "recovery_edit_proofs", "recovery_replay_proofs"];
@@ -265,6 +265,9 @@ async function command(action, env, origin, ctx) {
     if(saved.checkpoint.id!==repeated.checkpoint.id || saved.view.revision!==repeated.view.revision)throw new Error("Checkpoint retry duplicated a save");
     state.directoryEndedSession=crypto.randomUUID();
     await directory.createStaffSession(state.directoryEndedSession,a.admin,Date.now()+3600000,Date.now());
+    state.directoryOldAttempt=crypto.randomUUID();
+    await directory.startGoogle({state:state.directoryOldAttempt,browserHash:"fictional-browser",nonce:"fictional-nonce",
+      verifier:"fictional-verifier",expiresAt:Date.now()+3600000,brokerageId:a.id,guide:null},Date.now());
     await directory.staffBrokerages(a.admin.email,["recovery-bootstrap@example.test"]);
     state.directoryOld=await directory.probeDirectoryPoint();
     state.productCheckpoint=saved.checkpoint;
@@ -486,6 +489,7 @@ async function command(action, env, origin, ctx) {
   if (action === "cleanup") await env.DOCUMENTS.delete([
     "directory-recovery-journal",`operations/directory-recovery/evidence/${journal.evidenceId}.json`,
     `${directoryRepairPrefix}${journal.repairId}`,`${directoryRepairPrefix}${journal.repairId}.result`,
+    `${directorySignInResetPrefix}${journal.resetId}`,`${directorySignInResetPrefix}${journal.resetId}.result`,
   ]);
   return {...state.result,phase:state.phase,run:state.run};
 }

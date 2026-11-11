@@ -24,13 +24,14 @@ await copyFile(new URL("scripts/hosted-recovery/worker.template.mjs",root),new U
 await copyFile(new URL("scripts/cutover-replacement-fixture.mjs",root),new URL("server/recovery-replacement.mjs",folder));
 await copyFile(new URL("scripts/hosted-recovery/reconciliation.mjs",root),new URL("server/recovery-reconciliation.mjs",folder));
 await copyFile(new URL("scripts/hosted-recovery/directory-recovery.mjs",root),new URL("server/directory-recovery.mjs",folder));
+const {directorySignInResetPath,directorySignInResetPrefix}=await import("../src/lib/directory-sign-in-reset.ts");
 const {directoryRepairPath,directoryRepairPrefix}=await import("../src/lib/directory-repair.ts");
 const {directoryEvidencePath}=await import("../src/lib/directory-evidence.ts");
 const {directoryDrainObject,directoryDrainPath}=await import("../src/lib/directory-drain.ts");
 const {directoryPauseKey}=await import("../src/lib/directory-traffic-pause.ts");
 const {blankApplication,sampleApplication,applicationSteps}=await import("../src/lib/application-model.ts");
 await writeFile(new URL("server/recovery-fixtures.mjs",folder),
-  `export const sampleDraft=${JSON.stringify({...sampleApplication(blankApplication()),confirmedDemo:true})};\nexport const finalStep=${applicationSteps.length-1};\nexport const directoryPauseKey=${JSON.stringify(directoryPauseKey)};\nexport const directoryDrainObject=${JSON.stringify(directoryDrainObject)};\nexport const directoryDrainPath=${JSON.stringify(directoryDrainPath)};\nexport const directoryEvidencePath=${JSON.stringify(directoryEvidencePath)};\nexport const directoryRepairPath=${JSON.stringify(directoryRepairPath)};\nexport const directoryRepairPrefix=${JSON.stringify(directoryRepairPrefix)};\n`);
+  `export const sampleDraft=${JSON.stringify({...sampleApplication(blankApplication()),confirmedDemo:true})};\nexport const finalStep=${applicationSteps.length-1};\nexport const directoryPauseKey=${JSON.stringify(directoryPauseKey)};\nexport const directoryDrainObject=${JSON.stringify(directoryDrainObject)};\nexport const directoryDrainPath=${JSON.stringify(directoryDrainPath)};\nexport const directoryEvidencePath=${JSON.stringify(directoryEvidencePath)};\nexport const directoryRepairPath=${JSON.stringify(directoryRepairPath)};\nexport const directoryRepairPrefix=${JSON.stringify(directoryRepairPrefix)};\nexport const directorySignInResetPath=${JSON.stringify(directorySignInResetPath)};\nexport const directorySignInResetPrefix=${JSON.stringify(directorySignInResetPrefix)};\n`);
 const artifact = createHash("sha256");
 for (const path of (await readdir(new URL("server/",folder),{recursive:true})).filter(path=>/\.m?js$/.test(path)).sort()) {
   const bytes=await readFile(new URL(`server/${path.replaceAll('\\','/')}`,folder));

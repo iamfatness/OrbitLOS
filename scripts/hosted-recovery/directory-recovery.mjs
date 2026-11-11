@@ -1,4 +1,4 @@
-import { directoryDrainObject, directoryDrainPath, directoryEvidencePath, directoryPauseKey, directoryRepairPath } from "./recovery-fixtures.mjs";
+import { directoryDrainObject, directoryDrainPath, directoryEvidencePath, directoryPauseKey, directoryRepairPath, directorySignInResetPath } from "./recovery-fixtures.mjs";
 
 // Only the isolated rehearsal imports this module. Its journal lives in the
 // fixture bucket, outside the Durable Object that is restored.
@@ -105,6 +105,8 @@ export async function directoryRecoveryCommand(action, fixture) {
     }));
     await directory.probeDirectoryRoutes(routes);
     await directory.removeStaffSession(state.directoryEndedSession);
+    if(!await directory.consumeGoogle(state.directoryOldAttempt,"fictional-browser",Date.now()))
+      throw new Error("Fictional pending sign-in was not populated before the older point");
     const open = await directory.manageWorkspaceMaintenance(a.admin);
     if (open.mode === "Open") {
       const paused = await directory.manageWorkspaceMaintenance(a.admin,{type:"pause",revision:open.revision,
@@ -122,17 +124,17 @@ export async function directoryRecoveryCommand(action, fixture) {
     const hex=bytes=>Array.from(bytes,byte=>byte.toString(16).padStart(2,"0")).join("");
     const randomToken=()=>hex(crypto.getRandomValues(new Uint8Array(32)));
     const hash=async token=>hex(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token))));
-    const token=randomToken(), evidenceToken=randomToken(), repairToken=randomToken();
-    const statusTokenSha256=await hash(token), evidenceTokenSha256=await hash(evidenceToken), repairTokenSha256=await hash(repairToken);
+    const token=randomToken(), evidenceToken=randomToken(), repairToken=randomToken(), resetToken=randomToken();
+    const statusTokenSha256=await hash(token), evidenceTokenSha256=await hash(evidenceToken), repairTokenSha256=await hash(repairToken), signInResetTokenSha256=await hash(resetToken);
     next = {
-      token,evidenceToken,repairToken,ticket,repairId:crypto.randomUUID(),evidenceId:crypto.randomUUID(),
+      token,evidenceToken,repairToken,resetToken,ticket,resetId:crypto.randomUUID(),repairId:crypto.randomUUID(),evidenceId:crypto.randomUUID(),
       run:env.RECOVERY_RUN, source:env.RECOVERY_SOURCE, artifact:env.RECOVERY_ARTIFACT,
       phase:"directoryPrepared", old:state.directoryOld, current:source, routes,
       pauseRevision:paused.revision, tenants:[(await target.probeCapture()).hash,(await other.probeCapture()).hash],
       evidence:{ artifactSha256:env.RECOVERY_ARTIFACT },
     };
     await save();
-    await env.DOCUMENTS.put(directoryPauseKey,JSON.stringify({incident:"fictional-recovery",statusTokenSha256,evidenceTokenSha256,repairTokenSha256}));
+    await env.DOCUMENTS.put(directoryPauseKey,JSON.stringify({incident:"fictional-recovery",statusTokenSha256,evidenceTokenSha256,repairTokenSha256,signInResetTokenSha256}));
   } else if (action === "directoryArmOld" && journal?.phase === "directoryPrepared") {
     if (!same(await directory.probeDirectorySnapshot(),journal.current.manifest)) throw new Error("Directory changed after capture");
     await checkPausedIngress(application,env,origin,ctx);
@@ -190,10 +192,33 @@ export async function directoryRecoveryCommand(action, fixture) {
       const event={environment:"stage",kind:"conditions",body:"{}",loanNumber:route.loanNumber};
       if(await directory.uwmWebhookTarget(event)!==route.brokerageId)throw new Error("Reconstruction lost lender routing ownership");
     }
+    if(!await directory.getStaffSession(state.directoryEndedSession,Date.now()))
+      throw new Error("Older checkpoint did not revive the fictional signed-out session");
+    const resetUrl=origin+directorySignInResetPath;
+    const reset=(method,token,url=resetUrl)=>application.fetch(new Request(url,{
+      method,headers:{Authorization:`Bearer ${token}`},
+    }),env,ctx);
+    if((await reset("GET",journal.repairToken)).status!==404)throw new Error("Repair credential could open sign-in reset");
+    const resetReview=await reset("GET",journal.resetToken);
+    if(resetReview.status!==200)throw new Error("Sign-in reset preview unavailable");
+    const preview=await resetReview.json();
+    if(!preview.sessions || preview.attempts!==1)throw new Error("Preview did not find revived sign-in state");
+    const resetRequest=`${resetUrl}?requestId=${journal.resetId}&fingerprint=${preview.fingerprint}&confirm=sign-out-all-staff`;
+    const resetResult=await reset("POST",journal.resetToken,resetRequest);
+    if(resetResult.status!==200)throw new Error("Sign-in reset was refused");
+    const invalidated=(await resetResult.json()).invalidated;
+    const resetRetry=await reset("POST",journal.resetToken,resetRequest);
+    if(resetRetry.status!==200 || !same((await resetRetry.json()).invalidated,invalidated))
+      throw new Error("Sign-in reset did not return the same receipt");
+    const cleared=await (await reset("GET",journal.resetToken)).json();
+    if(cleared.sessions!==0 || cleared.attempts!==0 ||
+      await directory.getStaffSession(state.directoryEndedSession,Date.now()) ||
+      await directory.consumeGoogle(state.directoryOldAttempt,"fictional-browser",Date.now()))
+      throw new Error("Older sign-in state still grants access after reset");
     const reconstructed=await directory.probeDirectorySnapshot();
 
     next = { ...journal, phase:"directoryOldRejected", reconstructed, evidence:{
-      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true, reviewedReconstructionMatched:true, reconstructedCounts:applied.applied, repairReceiptRetryMatched:true,
+      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true, reviewedReconstructionMatched:true, reconstructedCounts:applied.applied, repairReceiptRetryMatched:true, olderSignInStateInvalidated:true, signInResetCounts:invalidated, signInResetRetryMatched:true,
     } };
     await save();
   } else if (action === "directoryRecover" && journal?.phase === "directoryOldRejected") {
