@@ -187,3 +187,6 @@ The owner browser flow passed at 1440x900, 900x1200 and 390x844. Failure before 
 An earlier run (`ce84c607`) completed product recovery but hit an obsolete test-only step attempting the first edit after the second was already applied. That run was discarded and cleaned up; the corrected rehearsal started fresh. It is not acceptance evidence.
 
 Remaining: operator-selected restore with a complete affected-work manifest, directory recovery, broader replay coverage, retention and real provider reconciliation/admission. This feature recovers only the explicitly covered deadline edits; it is not a general undo, full brokerage restore, or lender retry. R4 remains open.
+
+
+Controlled replay publication: `7600977` / `8e911e11-bf65-4150-9bef-30ce4d4464f9` is live. All 23 bindings and all 474 retained/current assets were verified. Ordinary live QA confirmed that already-saved or superseded revisions cannot be replayed, and reviewed reopening succeeded. Product recovery after actual restore is proven by the isolated hosted run above. Next is a reviewed operator-selected checkpoint and full affected-work manifest; R4 and R5 are not complete.
