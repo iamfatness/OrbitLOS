@@ -16,9 +16,10 @@ import { BrokerageBranches } from "./brokerage-branches";
 const teamPanels = ["Staff access", "Branches", "Loan settings", "Workspaces", "Pilot tools", "Access history"] as const;
 export type TeamPanel = (typeof teamPanels)[number];
 
-export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLoan, openDepartureWork }: {
+export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLoan, openDepartureWork, openRouting }: {
   staff: WorkspaceStaff; version: object; refresh: () => Promise<void>; openLoan: (id: string) => void;
   openDepartureWork: (item: DepartureItem) => void; panel: TeamPanel; setPanel: (panel: TeamPanel) => void;
+  openRouting: () => void;
 }) {
   const endpoint = `/api/brokerages?brokerage=${staff.brokerage.id}`;
   const [settings, setSettings] = useState<BrokerageSettings | null>(null);
@@ -26,13 +27,17 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
+  const [invitation, setInvitation] = useState<{ email: string; role: string }>();
+  const [invitationCopy, setInvitationCopy] = useState<{ email: string; url: string; copied: boolean }>();
   const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [offboardingEmail, setOffboardingEmail] = useState<string | null>(null);
   const creating = useRef<string | null>(null);
   const scenarioAttempt = useRef<{ key: string; id: string } | null>(null);
   const resetButton = useRef<HTMLButtonElement>(null);
   const feedback = useRef<HTMLParagraphElement>(null);
+  const inviteFeedback = useRef<HTMLParagraphElement>(null);
   useEffect(() => { if (message) feedback.current?.focus(); }, [message]);
+  useEffect(() => { if (invitation) inviteFeedback.current?.focus(); }, [invitation]);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const feedbackAttempt = useRef<{ id: string; fields: string } | null>(null);
   const measurementAttempt = useRef<{ id: string; fields: string } | null>(null);
@@ -64,7 +69,20 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   async function reloadTeam() {
     const current = await fetch(endpoint);
     if (!current.ok) throw new Error("Reload Team to check current brokerage access.");
-    setSettings(await current.json());
+    const updated = await current.json() as BrokerageSettings;
+    setSettings(updated);
+    return updated;
+  }
+
+  async function refreshAccess() {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await reloadTeam();
+      setMessage("Staff access refreshed.");
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not refresh staff access."); }
+    finally { setBusy(false); }
   }
 
   async function change(action: Record<string, unknown>, reset?: () => void) {
@@ -76,6 +94,13 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       const result = await response.json() as { error?: string; created?: string; message?: string };
       if (!response.ok) throw new Error(result.error ?? "Orbit could not save this change.");
       if (result.created) { window.location.assign(brokerageUrl(result.created)); return; }
+      if (action.type === "invite" && typeof action.email === "string" && typeof action.role === "string") {
+        setInvitation({ email: action.email.trim().toLowerCase(), role: action.role });
+        setInvitationCopy(undefined);
+        reset?.();
+        await reloadTeam();
+        return;
+      }
       if ((action.type === "role" || action.type === "revoke") && action.email === staff.email) {
         window.location.assign(action.type === "revoke" ? "/workspace" : brokerageUrl(staff.brokerage.id));
         return;
@@ -130,6 +155,24 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     } catch { setCopyStatus("Copy the workspace address from your browser."); }
   }
 
+  async function copyInvitation(email: string) {
+    const url = new URL(brokerageUrl(staff.brokerage.id), window.location.origin).href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setInvitationCopy({ email, url, copied: true });
+    } catch { setInvitationCopy({ email, url, copied: false }); }
+  }
+
+  function invitationLink(email: string, primary = false) {
+    const status = invitationCopy?.email === email ? invitationCopy : undefined;
+    return <div className="record-form">
+      <div><Button size="sm" className="min-h-11" variant={primary ? "default" : "outline"} onClick={() => void copyInvitation(email)}>Copy sign-in link</Button></div>
+      {status?.copied && <p role="status" className="muted">Sign-in link copied. Share it with {email}.</p>}
+      {status && !status.copied && <label className="field">Copy this sign-in link
+        <input readOnly value={status.url} onFocus={(event) => event.target.select()} /></label>}
+    </div>;
+  }
+
   return <div className="relationship-stack">
     {admin && <nav className="loan-application-actions team-panel-nav" aria-label="Team views">
       {panels.map((item) => <Button key={item} size="sm" variant={activePanel === item ? "default" : "outline"}
@@ -137,6 +180,8 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
           setPanel(item);
           setConfirmingReset(false);
           setCopyStatus("");
+          setInvitation(undefined);
+          setInvitationCopy(undefined);
         }}>{item}</Button>)}
     </nav>}
     {!settings && !error && <p className="muted" role="status">Loading team…</p>}
@@ -171,7 +216,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     </div>}
     {message && <p ref={feedback} tabIndex={-1} role="status" className="application-message">{message}</p>}
     {admin && settings && activePanel === "Branches" && canUseSampleTools && <BrokerageBranches key={`branches-${staff.brokerage.id}`} endpoint={endpoint}
-      members={settings.members} refreshHistory={reloadTeam} />}
+      members={settings.members} refreshTeam={reloadTeam} openRouting={openRouting} />}
     {admin && settings && activePanel === "Pilot tools" && canUseSampleTools && <section className="pipeline relationship-panel" aria-label="Demo examples">
         <details className="document-form"><summary>Self-guided demo examples</summary>
           <p className="muted">Populate Today, Calendar, Lead Inbox, and the daily workspace with linked fictional records.</p>
@@ -291,9 +336,8 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     {admin && settings && activePanel === "Staff access" &&
       <section className="pipeline relationship-panel team-access-panel" aria-label="Staff access">
         <div className="section-heading team-access-heading"><h2>Staff access</h2>
-          <Button size="sm" variant="outline" onClick={() => void copyWorkspace()}>Copy workspace link</Button></div>
-        <p className="muted">Save an invitation using their Google email, then copy and share the workspace link. Orbit does not send an invitation email. Access activates when that exact account signs in.</p>
-        {copyStatus && <p className="muted" role="status">{copyStatus}</p>}
+          <Button size="sm" className="min-h-11" variant="outline" aria-disabled={busy} onClick={() => { if (!busy) void refreshAccess(); }}>Refresh staff access</Button></div>
+        <p className="muted">Invite staff using their Google email. Share the sign-in link after saving.</p>
         <form className="brokerage-form" onSubmit={(event) => {
           event.preventDefault();
           const form = event.currentTarget;
@@ -305,8 +349,15 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
           <Button type="submit" size="sm" disabled={busy}>Save invitation</Button>
         </form>
         <p id="invite-role-help" className="muted">LOs start in Today. Processors start in Processing with their assigned files. Admins start in the brokerage overview and can manage staff access.</p>
+        {invitation && !settings.members.some((member) => member.email === invitation.email && member.status !== "Invited") &&
+          <section className="document-item record-form" aria-label="Saved invitation">
+            <p ref={inviteFeedback} tabIndex={-1} role="status"><strong>Invitation saved</strong> · {invitation.email} · {invitation.role}</p>
+            <p className="muted">Access activates when they sign in with this Google account.</p>
+            {invitationLink(invitation.email, true)}
+          </section>}
         <ul className="document-list">{settings.members.map((member) => <li className="document-item" key={member.email}>
           <div className="document-item-head"><strong>{member.email}</strong><span className="pill">{member.status}</span></div>
+          {member.status === "Invited" && member.email !== invitation?.email && invitationLink(member.email)}
           {member.status !== "Revoked" && <form className="brokerage-form" key={member.role} onSubmit={(event) => {
             event.preventDefault();
             void change({ type: "role", email: member.email, role: new FormData(event.currentTarget).get("role") });
@@ -320,7 +371,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
           {member.status !== "Invited" && offboardingEmail !== member.email && <Button size="sm" variant="outline" disabled={busy}
             onClick={() => setOffboardingEmail(member.email)}>{member.status === "Revoked" ? "Recover open work" : "Review offboarding"}</Button>}
           {member.status !== "Invited" && offboardingEmail === member.email && <StaffOffboarding key={member.email} email={member.email}
-            viewer={staff.email} endpoint={endpoint} members={settings.members} open={openDepartureWork} onRevoke={reloadTeam} onClose={() => {
+            viewer={staff.email} endpoint={endpoint} members={settings.members} open={openDepartureWork} onRevoke={async () => { await reloadTeam(); }} onClose={() => {
               setOffboardingEmail(null);
               void Promise.all([reloadTeam(), refresh()]).catch((failure: Error) => setError(failure.message));
             }} />}

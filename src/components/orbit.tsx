@@ -191,6 +191,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
   const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff && staff.brokerage.role !== "Admin" ? "Custom reports" : "Owner scorecard");
   const [teamPanel, setTeamPanel] = useState<TeamPanel>("Staff access");
+  const [openLeadRouting, setOpenLeadRouting] = useState(false);
   const [scorecardFilters, setScorecardFilters] = useState<OwnerScorecardFilters>(() => ({ ...currentReportMonth(), owner: "" }));
   const [reportingPeriod, setReportingPeriod] = useState(currentReportingPeriod);
   const [managerExceptionView, setManagerExceptionView] = useState<ManagerExceptionView>("files");
@@ -645,6 +646,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     setFocusArchivedLeadId(undefined);
     setFocusLeadTaskId(undefined);
     setFocusLeadDocumentId(undefined);
+    setOpenLeadRouting(false);
     setQuery("");
     setError("");
     if (workspaceStatus === "failed") setWorkspaceStatus("cold");
@@ -1421,6 +1423,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           }
 
           {section === "Lead Inbox" && <LeadInbox key={attentionVisit?.section === "Lead Inbox" ? attentionVisit.visit : 0}
+            openRouting={openLeadRouting}
             initialView={attentionVisit?.section === "Lead Inbox" ? leadAttentionView : undefined} version={state} staff={staff} now={taskNow} busy={busy}
             focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} focusDocumentId={focusLeadDocumentId} focusArchivedLeadId={focusArchivedLeadId}
             save={(input, after) => save(input, after, true, "inbox")}
@@ -1751,6 +1754,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             openAssignment={canReport ? (loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn }) : undefined} />}
 
           {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
+            openRouting={() => { openBrokerageView("Lead Inbox"); setOpenLeadRouting(true); }}
             openLoan={(loanId) => void openQueueLoan({ kind: "details", loanId })}
             openDepartureWork={(item) => {
               if (item.kind === "Lead") return openLeadWork(item.recordId, item.campaignId);

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { branchLimit, branchStaffCurrent, branchStaffLimit, type BranchChange, type BrokerageBranch } from "@/lib/branch-model";
-import type { VersionedBrokerageMember } from "@/lib/brokerage-model";
+import type { BrokerageSettings, VersionedBrokerageMember } from "@/lib/brokerage-model";
 import { Button } from "./ui/button";
 
 type BranchDraft = Extract<BranchChange, { type: "saveBranch" }>;
@@ -14,13 +14,13 @@ async function branchRequest<Result extends object>(endpoint: string, options?: 
   return result;
 }
 
-export function BrokerageBranches({ endpoint, members, refreshHistory }: {
-  endpoint: string; members: VersionedBrokerageMember[]; refreshHistory: () => Promise<void>;
+export function BrokerageBranches({ endpoint, members, refreshTeam, openRouting }: {
+  endpoint: string; members: VersionedBrokerageMember[]; refreshTeam: () => Promise<BrokerageSettings>; openRouting: () => void;
 }) {
   const [branches, setBranches] = useState<BrokerageBranch[]>();
   const [draft, setDraft] = useState<BranchDraft>();
   const [search, setSearch] = useState("");
-  const [notice, setNotice] = useState<{ message: string } | { error: string }>();
+  const [notice, setNotice] = useState<{ message: string } | { error: string; staff?: true }>();
   const [busy, setBusy] = useState(false);
   const formName = useRef<HTMLInputElement>(null);
   const add = useRef<HTMLButtonElement>(null);
@@ -71,7 +71,7 @@ export function BrokerageBranches({ endpoint, members, refreshHistory }: {
       setBranches(refreshed.branches);
       setDraft(undefined);
       setNotice(result);
-      void refreshHistory().catch(() => undefined);
+      void refreshTeam().catch(() => undefined);
     } catch (failure) { setNotice({ error: failure instanceof Error ? failure.message : "Could not save this branch." }); }
     finally { setBusy(false); }
   }
@@ -81,14 +81,30 @@ export function BrokerageBranches({ endpoint, members, refreshHistory }: {
       ownerEmail: !checked && current.ownerEmail === email ? null : current.ownerEmail });
   }
 
+  async function refreshStaff(current: BranchDraft) {
+    setBusy(true);
+    setNotice(undefined);
+    try {
+      const { members: updated } = await refreshTeam();
+      const staffEmails = current.staffEmails.filter((email) => updated.some((member) => member.email === email && member.status !== "Revoked"));
+      const ownerEmail = updated.some((member) => member.email === current.ownerEmail && member.status === "Active" && member.role !== "Processor")
+        ? current.ownerEmail : null;
+      setDraft({ ...current, staffEmails, ownerEmail });
+      const removed = staffEmails.length !== current.staffEmails.length || ownerEmail !== current.ownerEmail;
+      setNotice({ message: removed ? "Staff access refreshed. Review the updated branch assignments before saving." : "Staff access refreshed." });
+    } catch (failure) { setNotice({ error: failure instanceof Error ? failure.message : "Could not refresh staff access.", staff: true }); }
+    finally { setBusy(false); }
+  }
+
   return <section className="pipeline relationship-panel branch-panel" aria-label="Branches">
     <div className="section-heading"><h2>Branches</h2>
       <Button className="min-h-11" ref={add} disabled={busy || !branches || branches.length >= branchLimit} onClick={() => edit()}>Add branch</Button></div>
     <p className="muted">Assign staff and choose a default LO for website ZIP rules. Existing loan access follows the loan assignment.</p>
+    {!draft && branches?.some(({ active }) => active) && <div><Button size="sm" className="min-h-11" variant="outline" onClick={openRouting}>Open website routing</Button></div>}
     {notice && <p ref={noticeElement} tabIndex={-1} role={"error" in notice ? "alert" : "status"} className="application-message">
       {"error" in notice ? notice.error : notice.message}</p>}
     {!branches && !notice && <p role="status">Loading branches…</p>}
-    {notice && "error" in notice && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void reload()}>Reload branches</Button></div>}
+    {notice && "error" in notice && !notice.staff && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void reload()}>Reload branches</Button></div>}
     {branches?.length === 0 && !draft && <p className="empty-inline">Add a branch to reuse its routing settings across intake profiles.</p>}
     {draft && <form className="record-form branch-editor" aria-label={draft.revision ? "Edit branch" : "New branch"} onSubmit={(event) => {
       event.preventDefault();
@@ -99,7 +115,8 @@ export function BrokerageBranches({ endpoint, members, refreshHistory }: {
         onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
       <fieldset className="record-form" disabled={busy}>
         <legend>Assigned staff · {draft.staffEmails.length}</legend>
-        <p className="muted">Invited staff join this branch when they sign in.</p>
+        <p className="muted">Invited staff join this branch when they sign in. Refresh staff access to select a newly active LO.</p>
+        <div><Button size="sm" className="min-h-11" variant="outline" onClick={() => void refreshStaff(draft)}>Refresh staff access</Button></div>
         {eligible.length > 8 && <label className="field">Find staff<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} /></label>}
         {shown.length ? <div className="branch-member-list">{shown.map(({ name, email, role, status }) => {
           const selected = draft.staffEmails.includes(email);

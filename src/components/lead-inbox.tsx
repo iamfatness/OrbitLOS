@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readArchivePage, readInboxWork } from "@/app/actions";
 import { demoBrokerageId, type BrokerageMember } from "@/lib/brokerage-model";
 import { CrmFieldValues } from "./crm-fields";
@@ -30,15 +30,17 @@ function OwnerOptions({ members }: { members: BrokerageMember[] }) {
   return <>{members.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}</>;
 }
 
-function RoutingForm({ routing, staff, members, busy, save }: {
-  routing: LeadRouting; staff: WorkspaceStaff | null; members: BrokerageMember[]; busy: boolean; save: Save;
+function RoutingForm({ routing, staff, members, busy, save, openOnEntry }: {
+  routing: LeadRouting; staff: WorkspaceStaff | null; members: BrokerageMember[]; busy: boolean; save: Save; openOnEntry?: boolean;
 }) {
   const [realtorRoute, setRealtorRoute] = useState(routing.realtorRoute);
   const [copyStatus, setCopyStatus] = useState("");
+  const entry = useRef<HTMLElement>(null);
+  useEffect(() => { if (openOnEntry) entry.current?.focus(); }, [openOnEntry]);
   const quotePath = routing.quoteToken ? quoteRequestPath(routing.quoteToken) : "";
   const mayPublish = !staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId;
-  return <details className="loan-task-create">
-    <summary>Lead routing and quote form</summary>
+  return <details className="loan-task-create" open={openOnEntry || undefined}>
+    <summary ref={entry}>Lead routing and quote form</summary>
     <form className="record-form" onSubmit={(event) => {
       event.preventDefault();
       const data = new FormData(event.currentTarget);
@@ -332,13 +334,14 @@ function ArchivedLeads({ brokerageId, busy, restore, focusId }: {
   </section>;
 }
 
-export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId, focusTaskId, focusDocumentId, focusArchivedLeadId, save, convert, openCampaign, openConversation }: {
+export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId, focusTaskId, focusDocumentId, focusArchivedLeadId, save, convert, openCampaign, openConversation, openRouting }: {
   version: object; staff: WorkspaceStaff | null;
   now: number; busy: boolean; focusLeadId?: string; focusTaskId?: string; focusArchivedLeadId?: string; save: Save; convert: Convert;
   initialView?: LeadInboxView;
   focusDocumentId?: string;
   openCampaign: (campaignId: string, leadId: string) => void;
   openConversation: (leadId: string) => void;
+  openRouting?: boolean;
 }) {
   const [view, setView] = useState<LeadInboxView>(focusArchivedLeadId ? "Archived" : initialView ?? "All open");
   const [selection, setSelection] = useState<{ from?: string; id?: string }>();
@@ -417,7 +420,8 @@ export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId,
     </div>
     <p className="muted">Work new prospects here before opening a loan. Overdue first contacts surface in Tasks.</p>
     {memberError && <p role="alert">{memberError}</p>}
-    {routing && (!staff || members) && <RoutingForm key={`routing:${routing.revision}`} routing={routing} staff={staff} members={members ?? []} busy={busy} save={save} />}
+    {routing && (!staff || members) && <RoutingForm key={`routing:${routing.revision}`} routing={routing} staff={staff} members={members ?? []}
+      busy={busy} save={save} openOnEntry={openRouting} />}
     {brokerage && members && claimPolicy && <SharedRealtorPolicyForm key={`realtor-claim:${claimPolicy.revision}`}
       policy={claimPolicy} members={members} busy={busy} save={save} />}
     <div className="filter-row">
