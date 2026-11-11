@@ -51,7 +51,7 @@ const fixtureScript = `
 import worker, { OrbitWorkspace } from "./index.js";
 export default worker;
 export class WorkingDayWorkspace extends OrbitWorkspace {
-  async checkpointFixture(staff,revision){return JSON.stringify(await this.captureWorkspaceCheckpoint(staff,revision,false));}
+  async checkpointFixture(staff,revision){try{return JSON.stringify(await this.captureWorkspaceCheckpoint(staff,revision,false));}catch(error){return JSON.stringify({error:String(error),stack:error.stack});}}
   loseNextReplayReply(){this.loseReplayReply=true;}
   async applyWorkspaceRecoveryReplay(...args){const result=await super.applyWorkspaceRecoveryReplay(...args);if(this.loseReplayReply){this.loseReplayReply=false;throw new Error("Fictional lost replay reply");}return result;}
   restoreDeadlineFixture(editId){
@@ -3701,9 +3701,9 @@ try {
     let view=await status();
     assert.equal((await postResponse(endpoint+"&checkpoints=1",{action:"list",revision:view.revision},owner)).status,409);
     view=await post(endpoint,{type:"pause",revision:view.revision,reason:"Fictional checkpoint inspection acceptance",confirmation:"Fictional Working Day"},owner);
-    const identity={...owner,brokerage:{id:brokerage,name:"Fictional Working Day",role:"Admin",pilot:true,accessRevision:1}};
+    const identity={email:owner.email,name:owner.name,brokerage:(await directory.staffBrokerages(owner.email,[owner.email])).find(row=>row.id===brokerage)};
     const captured=JSON.parse(await workspaces.getByName(brokerage).checkpointFixture(identity,view.revision));
-    assert(captured.manifest.tables.length>50);assert(captured.manifest.tables.some(table=>table.name==="loans"));
+    assert(!captured.error,JSON.stringify(captured));assert(captured.manifest.tables.length>50);assert(captured.manifest.tables.some(table=>table.name==="loans"));
     assert.equal(captured.bookmark,"");
     assert.deepEqual((await post(endpoint+"&checkpoints=1",{action:"list",revision:view.revision},owner)).items,[]);
     for(const person of [officer,processor])assert.equal((await postResponse(endpoint+"&checkpoints=1",{action:"list",revision:view.revision},person)).status,409);

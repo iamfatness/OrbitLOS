@@ -29,7 +29,7 @@ export function captureCheckpointManifest(read:Reader,kv:Map<string,unknown>,ala
   const encode=(value:unknown)=>{const encoded=checkpointCanonical(value);bytes+=Buffer.byteLength(encoded);if(bytes>limits.bytes)throw new Error("Workspace exceeds the checkpoint inspection limit. No checkpoint was saved.");return encoded;};
   const hash=(value:unknown)=>createHash("sha256").update(encode(value)).digest("hex");
   const schema=read("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name");
-  const tables=schema.filter(row=>row.type==="table" && !String(row.name).startsWith("__cf"));
+  const tables=schema.filter(row=>row.type==="table" && !String(row.name).startsWith("_cf_"));
   if(tables.length>limits.tables || kv.size>limits.keys)throw new Error("Workspace exceeds the checkpoint inspection limit. No checkpoint was saved.");
   const result:CheckpointManifest={version:1,schema:hash(schema),tables:[],kv:{keys:kv.size,digest:hash(kv)},alarm};
   for(const table of tables){
