@@ -12,7 +12,7 @@ Each Worker owns its own `OrbitWorkspace` Durable Object namespace, including br
 
 ## Access and remaining setup
 
-The two new sites currently use independent temporary Basic authentication for the demo workspace. Username is `orbit`; passwords are in Git-ignored `.orbit/access.dev.json` and `.orbit/access.stage.json`. Public marketing pages remain public, as on production. Use synthetic data only. Pricing, documents, submissions and locks remain mock until explicitly configured.
+Dev still uses temporary Basic authentication for the demo workspace. Username is `orbit`; its password is in Git-ignored `.orbit/access.dev.json`. Stage now uses its own Google OAuth client, verified with the initial administrator; its temporary DEMO_PASSWORD secret was removed. Public marketing pages remain public, as on production. Use synthetic data only. Pricing, documents, submissions and locks remain mock until explicitly configured.
 
 To enable brokerage administration and UWM receipt review, configure Google sign-in separately on each Worker. Register these Google OAuth redirect URLs:
 
@@ -21,7 +21,7 @@ To enable brokerage administration and UWM receipt review, configure Google sign
 
 Install `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ORBIT_STAFF_EMAILS`, and `ORBIT_AUTH_MODE=google` on the corresponding Worker. Prefer separate OAuth clients. The staff list must explicitly include the initial administrator. Existing production secrets cannot be read back through Wrangler and were not copied. Once Google login is verified, remove the temporary `DEMO_PASSWORD` secret.
 
-Create an integration test brokerage in stage (a normal, non-pilot workspace holding synthetic data) and select the production brokerage independently. Follow [UWM webhook onboarding](uwm-webhook-handoff.md) to generate dedicated environment tokens and register receivers. Neither new site currently has a `UWM_WEBHOOK_CONFIG` secret; matching webhook paths return `503` until configured. Wrong-environment webhook paths return `404` even if a mismatched config is installed. UWM OAuth credentials and incoming webhook tokens are separate.
+Create an integration test brokerage in stage (a normal, non-pilot workspace holding synthetic data) and select the production brokerage independently. Follow [UWM webhook onboarding](uwm-webhook-handoff.md) to generate dedicated environment tokens and register receivers. Stage now has a `UWM_WEBHOOK_CONFIG` secret mapped to UWM Integration Test (`b73d9e19-4366-4ece-9467-675c00587a5e`) and passed authenticated synthetic deliveries for all four receivers. Dev and production remain unconfigured and return `503`. Wrong-environment webhook paths return `404` even if a mismatched config is installed. UWM OAuth credentials and incoming webhook tokens are separate.
 
 ## Build and deploy
 
