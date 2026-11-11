@@ -18,13 +18,17 @@ const assets = await Promise.all(paths.map(async (path) => ({
 })));
 
 async function check(asset) {
-  try {
-    const result = await fetch(`https://orbitlos.com/${asset.path}`, { headers, redirect: "error", signal: AbortSignal.timeout(8000) });
-    const hash = digest(Buffer.from(await result.arrayBuffer()));
-    if (!result.ok) return `${asset.path} (${result.status})`;
-    if (!result.headers.get("content-type")?.includes(asset.type) || hash !== asset.hash) return `${asset.path} (response differs from build)`;
-  } catch (error) {
-    return `${asset.path} (${error.message})`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await fetch(`https://orbitlos.com/${asset.path}`, { headers, redirect: "error", signal: AbortSignal.timeout(8000) });
+      const hash = digest(Buffer.from(await result.arrayBuffer()));
+      if (!result.ok) return `${asset.path} (${result.status})`;
+      if (!result.headers.get("content-type")?.includes(asset.type) || hash !== asset.hash) return `${asset.path} (response differs from build)`;
+      return;
+    } catch (error) {
+      if (attempt === 2) return `${asset.path} (${error.message})`;
+      await delay(250 * (attempt + 1));
+    }
   }
 }
 

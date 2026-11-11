@@ -264,3 +264,20 @@ For the first rollout to an environment, upload the same build with `--upload-on
 
 
 The first production promotion briefly returned 503 on sign-in because Cloudflare still served earlier Durable Object code. We rolled back and verified sign-in, then installed the compatible coordinator version before staging and promoting tracked admission. The staged sign-in passed after the compatibility deployment. Final Worker version `8add3c2d-92ae-4735-adf5-04a550edb0ec` serves 100 percent of traffic and has all 23 original bindings. Two staged and two live passes matched all 743 browser assets. Live verification checked the Product page, sign-in, an authenticated QA research read, and rejection of unauthenticated status requests. The 497 automated tests, typecheck, lint, build, role entry benchmark and 42-stage working-day rehearsal passed. The production pause was inactive throughout.
+
+### Capture independent directory evidence
+
+Before a planned recovery drill, capture the known-good directory while the pause marker is active and tracked work has drained. Add `evidenceTokenSha256` to the incident marker using a fresh token separate from the drain status token. Generate and hash it the same way as the status credential. Only the evidence credential can authorize the following requests. The normal workspace login and status token do not grant evidence access.
+
+1. Choose a new UUID and send a POST to `/api/ops/directory-evidence?id=<uuid>` with the evidence bearer credential. Keep that UUID with the incident record. Retrying the same UUID in the same incident returns the existing capture.
+2. After restoring the directory, send a GET to the same URL with the active incident's evidence credential. The response reports counts and differences for staff membership, unexpired portal revocations, lender transaction routes and lender loan routes. Keep traffic paused if a group differs.
+3. Reconcile differences against approved sources and the reviewed incident record before reopening. A matching comparison covers those four groups. Session invalidation, in-flight work and lender outcomes still require separate checks.
+
+The captured object stays in private R2 under `operations/directory-recovery/evidence/`. It is written once through the operator endpoint and read back with a checksum. It contains hashed staff identifiers, role and access state, revocation hashes and the identifiers needed to verify lender routing. It excludes email addresses, session and portal secrets, borrower records and lender payloads. The API returns counts and differences. Review is limited to 30 days to align with the recovery window. Storage deletion and holds require the approved retention policy. Treat a capture made after suspected corruption as observed state, since a checksum cannot establish that the underlying state was correct.
+
+This capture supports comparison and investigation. Rebuilding the missing records from trusted evidence requires a separate reviewed recovery procedure.
+
+
+Application `12c6ab9` passed 497 tests, typecheck, lint, the production build and the 42-stage working-day rehearsal. The separate evidence credential rejected use of the drain status token. The isolated hosted run `orbit-recovery-7321d847` blocked capture while work was outstanding, sealed an idempotent capture after drain, detected differences in all four groups after an actual older directory restore, and matched after recovery to the verified newer point. The evidence, fixture Worker and dedicated bucket were removed after the exercise. [Hosted evidence](evidence/hosted-directory-evidence-2026-11-11.json).
+
+Worker `43532eec-ee78-4f2a-b387-d9a8525c29b6` serves all ordinary traffic. All 23 bindings and all 793 browser assets matched, with two clean staged and live passes. A bounded retry handled intermittent connection errors during asset verification. Public Product, sign-in and authenticated fictional QA data loaded on OrbitLOS.com. The unauthenticated evidence endpoint returned 404. The production pause was inactive throughout.
