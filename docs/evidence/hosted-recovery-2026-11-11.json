@@ -1,0 +1,24 @@
+[
+  {
+    "step": "cleanup",
+    "run": "1aca0c5b-31a3-43a6-b1bd-7a029eb3954b",
+    "source": "629f3a2802c639063d7a4d5476ef49a04f3e8514",
+    "phase": "cleaned",
+    "restoreAndVerifyMs": 1161,
+    "restoredCounts": {
+      "loans": 5,
+      "tasks": 3,
+      "applications": 4,
+      "document_requests": 1,
+      "document_files": 1,
+      "loan_audit": 0
+    },
+    "crossTenantCheckpointRejected": true,
+    "otherBrokeragePreserved": true,
+    "revokedBorrowerBlocked": true,
+    "revokedOfficerBlocked": true,
+    "documentBytesMatched": true,
+    "foreignWriteRejected": true,
+    "undoBookmarkRecorded": true
+  }
+]

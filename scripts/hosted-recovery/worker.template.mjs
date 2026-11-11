@@ -68,6 +68,11 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     const object = await this.env.DOCUMENTS.get(row.objectId);
     return !!object && await digest(await object.arrayBuffer()) === evidence.hash;
   }
+  async probeCleanup(evidence) {
+    const identity = this.probeIdentity();
+    if (!evidence.objectId.startsWith(`${identity.run}/${identity.tenant}/`)) throw new Error("Fixture object mismatch");
+    await this.env.DOCUMENTS.delete(evidence.objectId);
+  }
   probeDamage(loanId) {
     const identity = this.probeIdentity();
     if (loanId !== `demo-presenter:${identity.tenant}:closing`) throw new Error("Fictional loan only");
@@ -78,7 +83,7 @@ async function command(action, env, origin, ctx) {
   const tenants = fixtures(env), [a,b] = tenants;
   const directory = env.WORKSPACE.getByName("orbit-demo"), target = env.WORKSPACE.getByName(a.id), other = env.WORKSPACE.getByName(b.id);
   let state = await directory.probeState();
-  if (action === "status") return state?.result ?? {phase: state?.phase ?? "new",run:env.RECOVERY_RUN,source:env.RECOVERY_SOURCE};
+  if (action === "status") return {...state?.result,phase:state?.phase ?? "new",run:env.RECOVERY_RUN,source:env.RECOVERY_SOURCE};
   if (action === "initialize") {
     if (state) throw new Error("Run already initialized");
     await directory.probeDirectory(tenants);
@@ -137,9 +142,12 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, documentBytesMatched: true, foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark };
+  } else if (action === "cleanup" && state.phase === "verified") {
+    await target.probeCleanup(state.document);
+    state.phase = "cleaned";
   } else throw new Error("Command does not match recovery phase");
   await directory.probeSave(state);
-  return state.result ?? { phase: state.phase, run: state.run };
+  return {...state.result,phase:state.phase,run:state.run};
 }
 const recoveryWorker = {
   async fetch(request, env, ctx) {
@@ -148,7 +156,7 @@ const recoveryWorker = {
     if (url.pathname === "/__recovery" && request.method === "POST") {
       if (Number(request.headers.get("Content-Length")||0)>128) return new Response("Too large",{status:413});
       const action = await request.text();
-      if (!["status","initialize","checkpoint","change","arm","restart","verify"].includes(action)) return new Response("Unknown step",{status:400});
+      if (!["status","initialize","checkpoint","change","arm","restart","verify","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
       try { return Response.json(await command(action,env,url.origin,ctx),{headers:{"Cache-Control":"no-store"}}); }
       catch(error) { return Response.json({error:error.message},{status:409,headers:{"Cache-Control":"no-store"}}); }
     }

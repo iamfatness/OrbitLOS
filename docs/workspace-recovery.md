@@ -50,4 +50,10 @@ Required evidence before calling this gate complete:
 6. Reconcile/replay only acknowledged post-checkpoint edits with original revision and idempotency evidence. Repeated replay must not duplicate tasks or history. Record timings, failures, and the recovery decision before reopening.
 7. Retain sanitized evidence and remove the isolated worker/bucket after verification. A successful isolated run still does not certify production directory recovery, retention policy, disaster response staffing, or real-data admission.
 
-No hosted restore has been performed by this investigation. The existing local rehearsal remains the only completed restore evidence.
+### First hosted result (November 11)
+
+The isolated Worker `orbit-recovery-1aca0c5b` restored a real built OrbitWorkspace using Cloudflare's bookmark and object restart. The target matched its checkpoint across five loans, three tasks, four applications, one document request and one file metadata row. The second fictional brokerage retained its later change. Borrower and staff revocations remained effective through normal application routing. Cross-tenant checkpoint and write attempts were rejected, the sample R2 bytes matched their recorded hash, and an undo bookmark was retained outside the restored tenant. Restore plus verification took 1,161 ms for this fixture; this is not a production recovery-time commitment.
+
+The harness provenance was `629f3a2802c639063d7a4d5476ef49a04f3e8514`; the application build came from `e267adf` (the intervening change only corrected a harness expectation). The cleanup wrapper was updated after verification. The fixture object, isolated Worker and dedicated R2 bucket were deleted after retaining [sanitized evidence](evidence/hosted-recovery-2026-11-11.json). Source lint passed after generated rehearsal copies were excluded from linting.
+
+This establishes the core hosted restore, isolation and document-byte check. It does **not** complete R4: this first fixture had no loan audit rows, did not exercise accepted document revisions or realtor revocation, and did not replay acknowledged later edits. Missing/corrupt-byte rejection, operator maintenance controls, production directory recovery and real-data admission remain separate gates. No production tenant was restored or altered by this rehearsal.
