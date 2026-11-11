@@ -290,7 +290,7 @@ try {
     assert.equal(current.brokerages.find(({ id }) => id === brokerage).role, "Processor");
   });
 
-  await stage("The browser returns to its selected workspace and handles lost access explicitly", async () => {
+  await stage("The account keeps its selected workspace across browser sessions and handles lost access explicitly", async () => {
     const operational = randomUUID();
     const result = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
       [owner.email], { type: "create", id: operational, name: "Fictional Operational Entry", pilot: false });
@@ -318,9 +318,10 @@ try {
     });
     const accountHash = createHash("sha256").update(entryOfficer.email).digest("base64url");
     const legacy = `__Host-orbit-workspace=${accountHash}.${brokerage}`;
-    assert.equal((await browse(entryOfficer, "/workspace", legacy)).headers.get("location"), scoped(brokerage));
     const initial = await browse(entryOfficer, "/workspace", "", { headers: { "Sec-Fetch-User": "" } });
     assert.equal(initial.headers.get("location"), scoped(operational));
+    assert.equal((await browse(entryOfficer, "/workspace", legacy)).headers.get("location"), scoped(brokerage));
+    assert.equal((await browse(entryOfficer, "/workspace")).headers.get("location"), scoped(brokerage));
     const selected = await browse(entryOfficer, scoped(brokerage) + "&switch=1");
     assert.equal(selected.status, 303);
     assert.equal(selected.headers.get("location"), scoped(brokerage));
@@ -329,6 +330,7 @@ try {
     const choice = saved.split(";", 1)[0];
     assert.equal((await browse(entryOfficer, "/workspace", choice)).headers.get("location"), scoped(brokerage));
     assert.equal((await browse(entryOfficer, scoped(operational), choice)).headers.get("set-cookie"), null);
+    assert.equal((await browse(entryOfficer, "/workspace")).headers.get("location"), scoped(brokerage));
     const ownerEntry = await browse(owner, "/workspace", choice);
     assert.equal(ownerEntry.headers.get("location"), scoped(operational));
     const ownerChoice = ownerEntry.headers.get("set-cookie").split(";", 1)[0];
@@ -344,6 +346,10 @@ try {
     const other = await browse(entryOfficer, scoped(operational) + "&switch=1", choice);
     const switched = other.headers.get("set-cookie").split(";", 1)[0];
     assert.equal((await browse(entryOfficer, "/workspace", [switched, legacy].join("; "))).headers.get("location"), scoped(operational));
+    assert.equal((await browse(entryOfficer, "/workspace", choice)).headers.get("location"), scoped(operational));
+    const newSession = { ...entryOfficer, token: randomBytes(32).toString("base64url") };
+    await signIn(newSession);
+    assert.equal((await browse(newSession, "/workspace")).headers.get("location"), scoped(operational));
     await post(`/api/brokerages?brokerage=${operational}`, { type: "revoke", email: entryOfficer.email }, owner);
     const denied = await browse(entryOfficer, "/workspace", switched);
     assert.equal(denied.status, 403);
@@ -352,6 +358,7 @@ try {
     assert.equal(recovered.headers.get("location"), scoped(brokerage));
     const recoveredChoice = recovered.headers.get("set-cookie").split(";", 1)[0];
     assert.equal((await browse(entryOfficer, "/workspace", recoveredChoice)).headers.get("location"), scoped(brokerage));
+    assert.equal((await browse(newSession, "/workspace")).headers.get("location"), scoped(brokerage));
   });
 
   await stage("The owner scorecard is scoped through the deployed action", async () => {

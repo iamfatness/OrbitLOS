@@ -192,7 +192,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
         <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}#pilot-support-report`}>Support report</a></Button>
       </div>}
       <p className="muted">Current workspace · {canUseSampleTools ? "Fictional data and practice workflows" : "Operational workspace"}</p>
-      <p className="muted">Switching here sets your default workspace in this browser.</p>
+      <p className="muted">Switching here saves the workspace that opens when you sign in.</p>
       <div className="loan-application-actions">
         <Button asChild variant="outline" size="sm"><a href={switchWorkspaceUrl(staff.brokerage.id)}>Make this my default</a></Button>
         <Button variant="outline" size="sm" onClick={()=>void copyWorkspace()}>Copy workspace link</Button>

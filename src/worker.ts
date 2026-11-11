@@ -60,7 +60,7 @@ import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
 import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
-import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, history as recordBrokerageHistory, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
+import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, history as recordBrokerageHistory, initializeBrokerages, readStaffAccess, rememberWorkspace, selectedActiveMembers } from "./lib/brokerages";
 import { readPilotSupport, readPilotSupportWork, readSupportRecovery } from "./lib/pilot-support";
 import { supportChanged, supportUnavailable, supportWorkChanged, supportWorkGroup, supportWorkOffset, supportWorkPaused,
   type SupportRecoveryState, type SupportWorkGroup } from "./lib/pilot-support-model";
@@ -1350,6 +1350,9 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return access ? {...access,brokerages:access.brokerages.map(brokerage=>({...brokerage,
       maintenance:maintenanceState(this.#store,brokerage.id).mode !== "Open"}))} : null;
   }
+  rememberStaffWorkspace(tokenHash: string, now: number, emails: string[], brokerageId: string, replace: boolean) {
+    return this.#id === demoBrokerageId && rememberWorkspace(this.#store, tokenHash, now, emails, brokerageId, replace);
+  }
   staffBrokerages(email: string, emails: string[]) {
     return this.#store.transaction(() => {
       bootstrapDemoMembers(this.#store, emails);
@@ -1842,12 +1845,13 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         const login = () => new Response(null, { status: 303, headers: { Location: staffLoginUrl(workspaceTarget, undefined, guide), "Cache-Control": "no-store" } });
         try {
           const tokenHash = await staffSessionHash(request, google);
-          const access = tokenHash && await directory.staffSessionAccess(tokenHash, Date.now(), bootstrapEmails);
-          if (access) {
-            const { identity } = access;
+          const access = tokenHash ? await directory.staffSessionAccess(tokenHash, Date.now(), bootstrapEmails) : null;
+          if (access && tokenHash) {
+            const { identity, preferredWorkspace } = access;
             brokerages = access.brokerages;
-            const remembered = dailyEntry && requested === null && url.searchParams.get("available") !== "1"
-              ? await rememberedStaffWorkspace(request, identity.email) : null;
+            const available = url.searchParams.get("available") === "1";
+            const remembered = dailyEntry && requested === null && !available
+              ? preferredWorkspace ?? await rememberedStaffWorkspace(request, identity.email) : null;
             const choice = requested ?? remembered;
             const brokerage = choice !== null ? brokerages.find((entry) => entry.id === choice) :
               dailyEntry ? defaultWorkspace(brokerages, runtimeSetting(env, "UWM_BROKERAGE_ID")) : brokerages.find((entry) => !entry.maintenance) ?? brokerages[0];
@@ -1859,13 +1863,18 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
             if (brokerage) staff = { ...identity, brokerage };
             if (staff && requested === null && openingWorkspace && (dailyEntry || staff.brokerage.id !== demoBrokerageId)) {
               const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" });
-              const available = url.searchParams.get("available") === "1";
-              if (!remembered && (available ? chooseWorkspace : workspaceNavigation)) {
+              if (chooseWorkspace && (available || (remembered && !preferredWorkspace))) {
+                const saved = await directory.rememberStaffWorkspace(tokenHash, Date.now(), bootstrapEmails, staff.brokerage.id, available);
+                if (!saved) return login();
+              }
+              if (chooseWorkspace || (workspaceNavigation && !remembered && !available)) {
                 headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
               }
               return new Response(null, { status: 303, headers });
             }
             if (staff && workspaceTarget && chooseWorkspace && url.searchParams.get("switch") === "1") {
+              const saved = await directory.rememberStaffWorkspace(tokenHash, Date.now(), bootstrapEmails, staff.brokerage.id, true);
+              if (!saved) return login();
               const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id), "Cache-Control": "no-store" });
               headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
               return new Response(null, { status: 303, headers });

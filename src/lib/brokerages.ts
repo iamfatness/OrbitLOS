@@ -13,6 +13,9 @@ export function initializeBrokerages(db: Store) {
       bootstrap INTEGER NOT NULL DEFAULT 0, accessRevision INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (brokerageId, email)
     );
     CREATE INDEX IF NOT EXISTS brokerage_members_by_email ON brokerage_members(email, status);
+    CREATE TABLE IF NOT EXISTS staff_workspace_preferences (
+      email TEXT PRIMARY KEY, brokerageId TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS brokerage_access_history (
       id TEXT PRIMARY KEY, brokerageId TEXT NOT NULL REFERENCES brokerages(id), actor TEXT NOT NULL,
       action TEXT NOT NULL, subject TEXT NOT NULL, createdAt TEXT NOT NULL
@@ -74,7 +77,21 @@ export function readStaffAccess(db: Store, tokenHash: string, now: number, boots
     const identity = readStaffSession(db, tokenHash, now);
     if (!identity) return null;
     bootstrapDemoMembers(db, bootstrapEmails);
-    return { identity, brokerages: activeBrokerages(db, identity.email, bootstrapEmails) };
+    const preference = db.prepare("SELECT brokerageId FROM staff_workspace_preferences WHERE email = ?").get(identity.email);
+    return { identity, brokerages: activeBrokerages(db, identity.email, bootstrapEmails),
+      preferredWorkspace: typeof preference?.brokerageId === "string" ? preference.brokerageId : null };
+  });
+}
+
+export function rememberWorkspace(db: Store, tokenHash: string, now: number, bootstrapEmails: string[],
+  brokerageId: string, replace: boolean) {
+  return db.transaction(() => {
+    const identity = readStaffSession(db, tokenHash, now);
+    if (!identity || !activeBrokerages(db, identity.email, bootstrapEmails).some(({ id }) => id === brokerageId)) return false;
+    db.prepare(`INSERT INTO staff_workspace_preferences (email, brokerageId) VALUES (?, ?)
+      ON CONFLICT(email) DO UPDATE SET brokerageId = excluded.brokerageId WHERE ?`)
+      .run(identity.email, brokerageId, Number(replace));
+    return true;
   });
 }
 
