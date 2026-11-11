@@ -5,7 +5,7 @@ import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 import { expectedDeadline, reviewPending, remainingReplay, sameDocument } from "./recovery-reconciliation.mjs";
 
-const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_import_checks", "uwm_request_evidence"];
+const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
@@ -243,6 +243,19 @@ async function command(action, env, origin, ctx) {
     await target.probeDamage(a.loanId);
     state.otherAfter = await other.probeCapture();
     if (state.otherBefore.hash === state.otherAfter.hash || (await target.probeCapture()).hash === state.checkpoint.hash) throw new Error("Fixture changes were not observable");
+    const paused=await directory.manageWorkspaceMaintenance(a.admin,{type:"pause",revision:0,
+      reason:"Isolated restore rehearsal: preserve review decisions across tenant recovery.",confirmation:a.admin.brokerage.name});
+    if(paused.error || paused.mode!=="Paused")throw new Error(paused.error||"Fixture did not pause");
+    const inspected=await target.inspectWorkspaceMaintenance(a.admin,{revision:paused.revision,documents:0,requests:0});
+    const evidence=inspected.inspection?.documents.items.find(item=>item.recordId===a.loanId && item.availability==="Available");
+    if(!evidence)throw new Error(inspected.error||"Retained fixture PDF was not inspectable");
+    const saved=await directory.saveMaintenanceDecision(a.admin,{id:crypto.randomUUID(),revision:paused.revision,documents:0,requests:0,
+      reference:evidence.reference,fingerprint:evidence.fingerprint,outcome:"Preserve observed result",
+      note:"Both fictional accepted PDFs remain stored. Preserve this evidence and verify the restored record before reopening."});
+    if(saved.error || !saved.decision)throw new Error(saved.error||"Fixture decision not saved");
+    state.maintenance={revision:saved.view.revision,cycle:saved.view.startedAt,decision:saved.decision};
+    let gated=false;try{await target.read(a.admin);}catch{gated=true;}
+    if(!gated)throw new Error("Normal workspace read remained open before restore");
     state.phase = "changed";
   } else if (action === "arm" && state.phase === "changed") {
     state.undoBookmark = await target.probeArm(state.checkpoint);
@@ -255,6 +268,23 @@ async function command(action, env, origin, ctx) {
     const recovered = await target.probeCapture(), unaffected = await other.probeCapture();
     if (recovered.hash !== state.checkpoint.hash) throw new Error("Target state differs from checkpoint");
     if (unaffected.hash !== state.otherAfter.hash) throw new Error("Other brokerage changed during recovery");
+    const paused=await directory.manageWorkspaceMaintenance(a.admin);
+    if(paused.error || paused.mode!=="Paused" || paused.revision!==state.maintenance.revision || paused.startedAt!==state.maintenance.cycle)
+      throw new Error("Tenant restore changed directory maintenance state");
+    let gated=false;try{await target.read(a.admin);}catch{gated=true;}
+    if(!gated)throw new Error("Restored tenant reopened without review");
+    const inspected=await target.inspectWorkspaceMaintenance(a.admin,{revision:paused.revision,documents:0,requests:0});
+    const evidence=inspected.inspection?.documents.items.find(item=>item.reference===state.maintenance.decision.reference);
+    if(!evidence || JSON.stringify(evidence.decisions[0])!==JSON.stringify(state.maintenance.decision))
+      throw new Error("Review decision did not survive tenant restore");
+    if(evidence.fingerprint!==state.maintenance.decision.fingerprint)throw new Error("Retained PDF metadata changed after restore");
+    const refused=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:paused.revision,confirmation:a.admin.brokerage.name});
+    if(!refused.error)throw new Error("Restored tenant reopened without a new review");
+    const reviewed=await directory.manageWorkspaceMaintenance(a.admin,{type:"review",revision:paused.revision,checks:[true,true,true],
+      review:"Isolated checkpoint, retained PDFs and directory decision verified. Reopening only for the remaining fictional acceptance checks."});
+    if(reviewed.error)throw new Error(reviewed.error);
+    const opened=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:reviewed.revision,confirmation:a.admin.brokerage.name});
+    if(opened.error || opened.mode!=="Open")throw new Error(opened.error||"Reviewed fixture failed to reopen");
     const lenderEvidence=await target.probeVerifyLenderEvidence(a,state.lenderEvidence);
     if (await directory.brokerageForPortal(state.link.token)) throw new Error("Revoked borrower link reopened");
     if (await directory.leadOwner(a.id,a.officer.email,[])) throw new Error("Revoked staff membership reopened");
@@ -274,6 +304,7 @@ async function command(action, env, origin, ctx) {
     state.result = { run: state.run, source: state.source, artifactSha256:env.RECOVERY_ARTIFACT, phase: state.phase, restoreAndVerifyMs: Date.now()-state.restoreStartedAt,
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
+      maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,
       foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark,acceptedRevisionsPreserved:lenderEvidence.acceptedRevisions,
       lenderReceiptsPreserved:lenderEvidence.lenderReceipts,historicalPdfBytesMatched:state.lenderEvidence.files.length,manualClearancePreserved:true,loanAuditPreserved:recovered.counts.loan_audit>0 };
   } else if (action === "replay" && state.phase === "verified") {
