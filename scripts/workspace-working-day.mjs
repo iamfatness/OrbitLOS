@@ -2646,6 +2646,30 @@ try {
     assert.equal(app.draft.urla.additional[0].identity.fields.name, "Jordan Sample");
     assert.equal(current.tasks.filter(({ id }) => id === `application-follow-up:${loanId}`).length, 1);
     await loanAction(officer, loanId, "reviewApplication", { revision: app.revision });
+    const primaryCredit = { type: "runMockCredit", loanId, attemptId: randomUUID(), previousId: null, authorized: true,
+      applicationRevision: app.revision, borrowers: "primary", scenario: "ready" };
+    await write(officer, primaryCredit);
+    const aus = { type: "runMockAus", loanId, attemptId: randomUUID(), previousId: null, method: "DU",
+      creditId: primaryCredit.attemptId, applicationRevision: app.revision, scenario: "uncertain" };
+    assert.match((await action(officer, "mutate", aus)).error, /all borrowers/i);
+    const jointCredit = { ...primaryCredit, attemptId: randomUUID(), previousId: primaryCredit.attemptId, borrowers: "all", scenario: "uncertain" };
+    await write(officer, jointCredit);
+    assert.match((await action(officer, "mutate", { ...jointCredit, attemptId: randomUUID(), previousId: jointCredit.attemptId })).error, /original/i);
+    const confirm = { type: "reconcileMockCreditAus", loanId, attemptId: jointCredit.attemptId };
+    assert.match((await action(competingOfficer, "mutate", confirm)).error, /access/i);
+    await write(officer, confirm);
+    assert.match((await write(officer, confirm)).message, /already/i);
+    await write(officer, { ...aus, creditId: jointCredit.attemptId });
+    const pendingDu = (await file(officer, loanId)).mockCreditAusRuns.find(({ id }) => id === aus.attemptId);
+    assert.equal(pendingDu.result.status, "Awaiting confirmation");
+    await write(officer, { ...confirm, attemptId: pendingDu.id });
+    const orders = (await file(officer, loanId)).mockCreditAusRuns;
+    assert.equal(orders.length, 3);
+    assert.equal(orders[0].reference, pendingDu.reference);
+    assert.equal(orders[0].result.status, "Findings ready");
+    assert.equal(orders[0].borrowerCount, 2);
+    assert.doesNotMatch(JSON.stringify(await borrower(primaryToken, { type: "status" })), /MOCK-AUTH|MOCK-DU/);
+    assert.doesNotMatch(JSON.stringify(await co({ type: "read" })), /MOCK-AUTH|MOCK-DU/);
     const names = [{ first: "Fictional", middle: "Joint", last: "Primary", suffix: "" }, { first: "Jordan", middle: "", last: "Sample", suffix: "" }];
     const exported = await loanAction(officer, loanId, "exportReviewedApplication", { revision: app.revision, lenderRevision: 0, eventId: randomUUID(), names });
     assert.match(exported.mismoXml, /<FirstName>Jordan<\/FirstName>/);

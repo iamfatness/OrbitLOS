@@ -76,7 +76,9 @@ Store the exact input/document/configuration revision used for every issued arti
 
 The hosted workbench records staff demo authorization for the sample credit report. A paired mock order ties both services to the same submitted 1003 revision and credit report. DU and LPA store separate references, findings, and retries. A corrected 1003 requires fresh sample credit before another paired run. [Hosted paired underwriting rehearsal](demo-rehearsal-log.md#hosted-paired-mock-underwriting)
 
-Live ordering still needs borrower selection and consent evidence, vendor access, current service schemas, credentials, and approved data handling. Verify that a lost response can be reconciled without a duplicate charge and that a corrected application retires prior findings from the current file decision. Confirm when findings should create staff work before enabling live use.
+For a joint 1003, the mock credit order records whether the LO attested to authorization for the primary borrower or all borrowers. The request retains the staff actor, timestamp, borrower count, and exact application revision. Mock AUS requires credit covering every borrower on the current submitted 1003. When a simulated response is missing, the LO can check the original reference. The check confirms the existing order and is safe to repeat, even when the application has since changed. A confirmed failure retains its separate retry path.
+
+Live ordering still needs provider-accepted consent evidence, vendor access, current service schemas, credentials, and approved data handling. For each service, confirm which borrower identifiers and consent records the sandbox accepts, whether a status query can locate an order by the original correlation key, and how the provider identifies a safe retry or duplicate charge. The mock workbench attestation records the fictional order scope.
 
 ### F02 — Reviewed income analysis
 

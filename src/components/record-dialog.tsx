@@ -52,7 +52,7 @@ import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
 import { IncomeWorksheet } from "./income-worksheet";
-import { submittedApplicationRevision } from "@/lib/credit-aus-model";
+import { creditApplicantCount, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import { CutoverInventoryDownload } from "./cutover-file-inventory";
@@ -720,7 +720,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           onChanged={() => void save({ type: "refreshApplication", loanId: loan.id })}
           onPrice={processor ? undefined : (source) => openPricing(true, source)} />}
       {fictionalUwm ? <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
-        revision={submittedApplicationRevision(application)} busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} /> :
+        revision={submittedApplicationRevision(application)} borrowerCount={creditApplicantCount(application?.draft)}
+        busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} /> :
         <section className="details-section" id="credit-aus" tabIndex={-1}><h3>Credit &amp; AUS</h3><p className="empty-inline">Use your credit and AUS providers while connections are pending.</p></section>}
       </>}
       {section === "Disclosures" && canOpenDisclosures &&

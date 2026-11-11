@@ -51,7 +51,7 @@ import { checklistInstructions, checklistPresetNames, checklistPresets, conditio
 import { documentRecipientAvailable } from "./borrower-documents";
 import { addDocumentRequest } from "./document-requests";
 import { referralMatches } from "./referral-matches";
-import { mockAusInput, mockCreditInput, mockPairedAusInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
+import { mockAusInput, mockCreditInput, mockPairedAusInput, mockReconcileInput, mockRetryInput, runMockCreditAus } from "./mock-credit-aus";
 import { loadProtectedPilotScenario, trackPilotBorrower, type ProtectPilotLinks } from "./pilot";
 import { contactCsvDuplicateKeys, contactCsvKeys, contactImportRows } from "./contact-csv";
 import { matchingContactCsvKeys } from "./contact-directory";
@@ -329,6 +329,7 @@ const command = z.discriminatedUnion("type", [
   mockAusInput,
   mockPairedAusInput,
   mockRetryInput,
+  mockReconcileInput,
   z.object({ type: z.literal("selectOffer"), loanId: id, runId: id, offerId: id, stageOverride: stageEditOverride.optional() }),
   z.object({ type: z.literal("floatMockRate"), loanId: id, submissionId: id, runId: id, offerId: id, previousFloatReference: id.nullable() }),
   z.object({ type: z.literal("lockMockRate"), loanId: id, floatReference: id, days: z.literal(mockLockPeriods) }),
@@ -373,7 +374,7 @@ const simulatedLenderActions = new Set<z.infer<typeof command>["type"]>([
   "simulateUwmChanges", "sendApplication", "simulateMissingUwmReceipt", "reconcileMockUwmReceipt",
   "sendConditionDocument", "simulateDeliveryFailure", "refreshMockUwmClearance", "reopenMockUwmCondition", "replayMockUwmConditionDelivery",
   "floatMockRate", "lockMockRate", "extendMockLock", "cancelMockLock",
-  "runMockCredit", "runMockAus", "runMockPairedAus", "retryMockCreditAus",
+  "runMockCredit", "runMockAus", "runMockPairedAus", "retryMockCreditAus", "reconcileMockCreditAus",
 ]);
 
 function stageOverrideFor(db: Store, staff: WorkspaceStaff | null, area: StageEditArea,
@@ -545,6 +546,7 @@ function scopedLoanId(data: z.infer<typeof command>) {
     case "runMockAus":
     case "runMockPairedAus":
     case "retryMockCreditAus":
+    case "reconcileMockCreditAus":
     case "saveFeeWorksheet":
     case "saveAllocatedFeeWorksheet":
     case "publishDatedQuote":
@@ -970,7 +972,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
         case "runMockCredit":
         case "runMockAus":
         case "runMockPairedAus":
-        case "retryMockCreditAus": {
+        case "retryMockCreditAus":
+        case "reconcileMockCreditAus": {
           const result = runMockCreditAus(db, data, staff, now);
           if ("error" in result) throw new WorkspaceError(result.error);
           message = result.message;

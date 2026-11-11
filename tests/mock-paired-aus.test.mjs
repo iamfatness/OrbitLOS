@@ -6,6 +6,7 @@ import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { blankApplication } = await import("../src/lib/application-model.ts");
+const { blankBorrower } = await import("../src/lib/urla.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { mockCreditAusRuns, runMockCreditAus } = await import("../src/lib/mock-credit-aus.ts");
 
@@ -112,4 +113,60 @@ test("paired mock AUS rolls back both orders when persistence is interrupted", a
   db.exec("DROP TRIGGER reject_sample_lpa");
   assert.ok((await send(command)).loanWork);
   assert.equal(historyCount(), before + 2);
+});
+
+test("joint credit evidence binds both applicants and checks uncertain results without another order", async (t) => {
+  const { db, send, read } = fixture(t);
+  const draft = blankApplication();
+  draft.urla.credit.fields.type = "Joint";
+  draft.urla.additional.push(blankBorrower());
+  db.prepare("UPDATE applications SET draft = ? WHERE loanId = ?").run(JSON.stringify(draft), loanId);
+  const primary = await orderCredit(send);
+  assert.equal(primary.borrowerCount, 1);
+  assert.match((await send(pair(primary.id))).error, /authorized mock credit/i);
+  const joint = { type: "runMockCredit", attemptId: randomUUID(), previousId: primary.id, authorized: true,
+    borrowers: "all", scenario: "uncertain", applicationRevision: 3 };
+  assert.match((await send(joint)).message, /check the original/i);
+  const pending = read()[0];
+  assert.equal(pending.borrowerCount, 2);
+  assert.equal(pending.result.status, "Awaiting confirmation");
+  assert.match((await send(joint)).message, /already/i);
+  assert.match((await send({ ...joint, attemptId: randomUUID(), previousId: pending.id })).error, /check the original/i);
+  const check = { type: "reconcileMockCreditAus", attemptId: pending.id };
+  const unrelated = { ...officer, email: "other@example.test" };
+  const processor = { ...officer, brokerage: { ...officer.brokerage, role: "Processor" } };
+  assert.match((await send(check, unrelated)).error, /access/i);
+  assert.match((await send(check, processor)).error, /access/i);
+  assert.match((await send({ ...check, attemptId: randomUUID() })).error, /unavailable/i);
+  assert.match((await send(check)).message, /confirmed/i);
+  assert.match((await send(check)).message, /already/i);
+  const report = read()[0];
+  assert.equal(report.id, pending.id);
+  assert.equal(report.reference, pending.reference);
+  assert.deepEqual(report.authorization, pending.authorization);
+  assert.equal(report.result.status, "Report ready");
+  assert.ok(report.reconciledAt);
+  assert.equal(read().length, 2);
+
+  const command = pair(report.id);
+  command.orders.LPA.scenario = "uncertain";
+  assert.match((await send(command)).message, /LPA awaiting confirmation/i);
+  const [lpa, du] = read();
+  assert.equal(lpa.borrowerCount, 2);
+  assert.equal(du.borrowerCount, 2);
+  assert.equal(lpa.result.status, "Awaiting confirmation");
+  assert.match((await send({ type: "retryMockCreditAus", service: "LPA", attemptId: randomUUID(),
+    previousId: lpa.id, applicationRevision: 3 })).error, /check the original/i);
+  const duplicate = pair(report.id);
+  duplicate.orders.DU.previousId = du.id;
+  duplicate.orders.LPA.previousId = lpa.id;
+  assert.match((await send(duplicate)).error, /check the original/i);
+  db.prepare("UPDATE applications SET revision = 4 WHERE loanId = ?").run(loanId);
+  assert.match((await send({ ...check, attemptId: lpa.id })).message, /confirmed/i);
+  assert.equal(read()[0].reference, lpa.reference);
+  assert.equal(read()[0].applicationRevision, 3);
+  assert.equal(read()[0].result.status, "Findings ready");
+  assert.deepEqual(read()[1], du);
+  assert.match((await send(pair(report.id, 4))).error, /authorized mock credit/i);
+  assert.equal(read().length, 4);
 });

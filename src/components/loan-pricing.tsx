@@ -5,7 +5,7 @@ import { BadgeCheck, Calculator, Eye, FlaskConical } from "lucide-react";
 import { submittedRequestedLoanAmount, type ApplicationDraft } from "@/lib/application-model";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { dateLabel } from "@/lib/client-retention";
-import { mockRunMatchesApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
+import { creditApplicantCount, creditCoversApplication, submittedApplicationRevision } from "@/lib/credit-aus-model";
 import { repriceIncomeMessage, type ReviewedIncomeSource } from "@/lib/income-review-model";
 import { offerDisplayName } from "@/lib/manual-pricing-model";
 import type { Loan, Workspace } from "@/lib/model";
@@ -162,7 +162,8 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
   const application = state.applications.find((item) => item.loanId === loan.id);
   const draft = application?.draft;
   const credit = state.mockCreditAusRuns.find((run) => run.loanId === loan.id && run.service === "Credit");
-  const mockScore = credit?.result.status === "Report ready" && mockRunMatchesApplication(credit, submittedApplicationRevision(application))
+  const mockScore = credit?.result.status === "Report ready" &&
+    creditCoversApplication(credit, submittedApplicationRevision(application), creditApplicantCount(draft))
     ? String(credit.result.score) : "";
   const published = state.publishedQuotes.find((quote) => quote.loanId === loan.id);
   const expiryRange = sharedQuoteExpiry();
