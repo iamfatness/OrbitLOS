@@ -1,7 +1,7 @@
 "use client";
 import { UwmConnection, type UwmConnectionStatus } from "./uwm-connection";
 
-import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
+import { Activity, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import {
   ArrowDownUp, ArrowRight, Bell, CircleCheck, List, LogOut, MapPin, Menu, Orbit as OrbitIcon, Plus, RefreshCw, Search, SlidersHorizontal, X,
 } from "lucide-react";
@@ -237,6 +237,8 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   const [taskOfficer, setTaskOfficer] = useState(processorTaskEntry ? "mine" : "");
   const [guideCallbackId, setGuideCallbackId] = useState<string>();
   const [conversationFocus, setConversationFocus] = useState<ConversationFocus | null>(null);
+  const [conversationOrigin, setConversationOrigin] = useState<"Today" | "Call Campaigns">();
+  const conversationReturn = useRef<{ trigger: HTMLElement | null; x: number; y: number } | undefined>(undefined);
   const [communicationView, setCommunicationView] = useState<"Conversations" | "Inbound review">("Conversations");
   const [focusLeadId, setFocusLeadId] = useState<string>();
   const [focusArchivedLeadId, setFocusArchivedLeadId] = useState<string>();
@@ -623,12 +625,13 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     else loadCampaigns(id);
   }
 
-  function navigate(next: Section, refresh = true, campaignId?: string, attention = false) {
+  function navigate(next: Section, refresh = true, campaignId?: string, attention = false, preserveConversationOrigin = false) {
+    if (!preserveConversationOrigin) setConversationOrigin(undefined);
     openingRecord.current = false;
     recordTrigger.current = null;
     if (next !== "Call Campaigns") deferredCampaignLoad.current = undefined;
     setSection(next);
-    setAttentionVisit((last) => attention ? { section: next, visit: (last?.visit ?? 0) + 1 } : undefined);
+    if (!preserveConversationOrigin) setAttentionVisit((last) => attention ? { section: next, visit: (last?.visit ?? 0) + 1 } : undefined);
     if (next !== "Contacts") setContactToolsOpen(false);
     setGuideCallbackId(undefined);
     setFocusContactTask(undefined);
@@ -982,9 +985,35 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   }
 
   function openConversation(focus: ConversationFocus) {
-    navigate("Communications", false);
+    const origin = section === "Today" || section === "Call Campaigns" ? section : undefined;
+    conversationReturn.current = origin ? {
+      trigger: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      x: window.scrollX, y: window.scrollY,
+    } : undefined;
+    navigate("Communications", false, undefined, false, Boolean(origin));
+    setConversationOrigin(origin);
     setCommunicationView("Conversations");
     setConversationFocus(focus);
+  }
+
+  function returnFromConversation() {
+    if (!conversationOrigin) return;
+    const target = conversationReturn.current;
+    if (conversationOrigin === "Call Campaigns") loadCampaigns(selectedCampaignId, true);
+    setSection(conversationOrigin);
+    setConversationOrigin(undefined);
+    setConversationFocus(null);
+    setReviewVersion((value) => value + 1);
+    requestAnimationFrame(() => {
+      const trigger = target?.trigger;
+      if (target && trigger?.isConnected && trigger.getClientRects().length) {
+        trigger.focus({ preventScroll: true });
+        window.scrollTo(target.x, target.y);
+      } else {
+        sectionHeading.current?.focus({ preventScroll: true });
+        sectionHeading.current?.scrollIntoView({ block: "start" });
+      }
+    });
   }
 
   function openConversationCallback(callback: ConversationCallback) {
@@ -1389,7 +1418,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             save={(input, after) => save(input, after, true, "inbox")}
             convert={(id, contactId, allowDuplicate, after, intakeReview) => convertLead(id, contactId, allowDuplicate, "inbox", after, intakeReview)}
             openCampaign={(campaignId, leadId) => openLeadWork(leadId, campaignId)} openConversation={(leadId) => openConversation({ leadId })} />}
-          {section === "Call Campaigns" && !processor && <CallCampaigns state={state} staff={staff} selectedId={selectedCampaignId} select={selectCampaign}
+          {(section === "Call Campaigns" || conversationOrigin === "Call Campaigns") && !processor && <Activity mode={section === "Call Campaigns" ? "visible" : "hidden"}><CallCampaigns state={state} staff={staff} selectedId={selectedCampaignId} select={selectCampaign}
             focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} now={taskNow} busy={busy} save={save} openLead={(id) => { navigate("Lead Inbox"); setFocusLeadId(id); }}
             openManagerRecord={({ leadId, loanId, archived }) => {
               if (loanId) void openQueueLoan({ kind: "details", loanId });
@@ -1403,7 +1432,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             openLoan={(loanId) => staff || !state.loans.some(({ id }) => id === loanId) ?
               void openQueueLoan({ kind: "details", loanId }) : show({ kind: "details", loanId })}
             openConversation={(leadId) => openConversation({ leadId })}
-            convert={(id, after) => convertLead(id, null, false, undefined, after)} />}
+            convert={(id, after) => convertLead(id, null, false, undefined, after)} /></Activity>}
 
           {section === "Contacts" && <>
             <ContactsDirectory brokerageId={staff?.brokerage.id ?? demoBrokerageId} version={state} admin={admin} busy={busy}
@@ -1424,7 +1453,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             openQueue={(queue) => openBrokerageView(brokerageQueueSections[queue], queue !== "exceptions")} openReport={openBrokerageReport}
             openTeam={(panel) => { setTeamPanel(panel); openBrokerageView("Team"); }}
             openCompliance={() => openBrokerageView("Compliance")} />}
-          {section === "Today" && canOpenToday && <OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
+          {(section === "Today" || conversationOrigin === "Today") && canOpenToday && <Activity mode={section === "Today" ? "visible" : "hidden"}><OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             complianceWork={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
@@ -1434,7 +1463,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
             openStalled={(loanId) => void openQueueLoan({ kind: "details", loanId }, { kind: "stalled" })}
             refreshStalled={() => setError((current) => current === stalledLoanUnavailable ? "" : current)}
             openOpportunity={(item) => void openQueueLoan({ kind: "details", loanId: item.loanId, target: searchTaskTarget(item.id) }, { kind: "retention", id: item.id })}
-            openPastClients={() => navigate("Past Clients")} />}
+            openPastClients={() => navigate("Past Clients")} /></Activity>}
           {section === "Calendar" && canOpenCalendar && <div className="record-form">
             {admin && (!staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) &&
               <DisclosureCalendar brokerageId={staff?.brokerage.id ?? demoBrokerageId}
@@ -1585,6 +1614,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           </section>}
 
           {section === "Communications" && <div className="record-form">
+            {conversationOrigin && <div><Button variant="outline" onClick={returnFromConversation}>Return to {conversationOrigin}</Button></div>}
             {canReviewReplies && <div className="view-toggle" role="group" aria-label="Communications view">
               <button type="button" aria-pressed={communicationView === "Conversations"} onClick={() => setCommunicationView("Conversations")}>Conversations</button>
               <button type="button" aria-pressed={communicationView === "Inbound review"} onClick={() => setCommunicationView("Inbound review")}>Inbound review</button>
