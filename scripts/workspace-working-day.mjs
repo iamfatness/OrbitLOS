@@ -190,7 +190,7 @@ try {
     const invited = await entry();
     assert.equal(invited.status, 303);
     assert.equal(invited.headers.get("location"), `/login?brokerage=${brokerage}&guide=campaign`);
-    await signIn(newcomer);
+    await directory.activateStaff({ email: newcomer.email, name: newcomer.name }, [owner.email]);
     assert.equal((await entry()).status, 200);
     await team(owner, { type: "revoke", email: newcomer.email });
     const denied = await entry();
@@ -204,7 +204,7 @@ try {
     assert.notEqual(api.status, 200);
     await team(owner, { type: "invite", email: newcomer.email, role: "Processor" });
     assert.equal((await entry()).status, 303);
-    await signIn({ ...newcomer, role: "Processor" });
+    await directory.activateStaff({ email: newcomer.email, name: newcomer.name }, [owner.email]);
     assert.equal((await entry()).status, 200);
     const current = await directory.staffSessionAccess(createHash("sha256").update(newcomer.token).digest("base64url"), now, [owner.email]);
     assert.equal(current.brokerages.find(({ id }) => id === brokerage).role, "Processor");
