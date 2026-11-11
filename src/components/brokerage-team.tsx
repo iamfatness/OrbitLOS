@@ -136,9 +136,9 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     {!settings && !error && <p className="muted" role="status">Loading team…</p>}
     {(!admin || activePanel === "Workspaces") && <section className="pipeline relationship-panel" aria-label="Brokerage workspaces">
       <div className="section-heading"><h2>{staff.brokerage.name}</h2><span className="pill">{pilot ? "Pilot · " : ""}{staff.brokerage.role}</span></div>
+      {admin && pilot && <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}`}>Workspace maintenance</a></Button>}
       <div className="loan-application-actions">{settings?.brokerages.filter((item) => item.id !== staff.brokerage.id).map((item) =>
         <Button key={item.id} asChild size="sm" variant="outline"><a href={brokerageUrl(item.id)}>Open {item.name}</a></Button>)}</div>
-      {admin && pilot && <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}`}>Workspace maintenance</a></Button>}
       {admin && <details className="document-form"><summary>Create brokerage</summary><form onSubmit={create}>
         <label className="field">Brokerage name<input name="name" required minLength={2} maxLength={80} /></label>
         <label className="demo-confirm"><input name="pilot" type="checkbox" /> Create as a fictional pilot workspace</label>
