@@ -103,6 +103,10 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
   const [feedback, setFeedback] = useState<{ error: boolean; text: string }>();
   const attempt = useRef<{ key: string; eventId: string } | null>(null);
   const panel = useRef<HTMLElement>(null);
+  const outcome = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (feedback) outcome.current?.focus();
+  }, [feedback]);
   const context = useRef<{ brokerageId: string; focus: ConversationFocus | null; version: object }>(null);
   const [data, setData] = useState<{ query: typeof query; version: object; refresh: number; result: ConversationResult }>();
   const [history, setHistory] = useState<{ focus: ConversationFocus; after: typeof after; version: object; refresh: number; result: ConversationResult }>();
@@ -201,7 +205,7 @@ export function ConversationQueue({ brokerageId, signedIn, team, version, focus,
         <Button size="sm" variant="ghost" disabled={saving} onClick={() => select(null)}>Close details</Button></div>
       {!selected && <p className="muted" role="status">Loading conversation…</p>}
       {selected && "error" in selected && <p role="alert">{selected.error}</p>}
-      {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
+      {feedback && <p ref={outcome} tabIndex={-1} className="crm-preview-summary" role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
       {newThread && <>
         <p className="muted">{"leadId" in newThread.subject ? newThread.convertedLoan ? "Borrower · Converted loan" : "Lead" : "loanId" in newThread.subject ?
           `${newThread.subject.audience} · ${newThread.loanName}’s loan` : `${newThread.subject.audience} · Contact conversation`} · {newThread.owner}</p>

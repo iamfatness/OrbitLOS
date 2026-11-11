@@ -62,6 +62,8 @@ export function PersonalCampaignCallbacks({ brokerageId, version, busy, openCall
       </li>)}</ul> : <p className="empty-inline">{page.next ? "No actionable callbacks on this page. Check the next page." :
         query.after ? "No more callbacks on this page." : query.view === "Due" ? "No callbacks or retries are due for you." :
           "You have no upcoming callbacks or retries."}</p>}
+      {!page.items.length && !page.next && !query.after && query.view === "Due" &&
+        <div><Button size="sm" variant="outline" onClick={() => setQuery({ view: "Upcoming" })}>View upcoming callbacks</Button></div>}
       {(query.after || page.next) && <div className="loan-application-actions">
         {query.after && <Button size="sm" variant="outline" onClick={firstPage}>First page</Button>}
         {page.next && <Button size="sm" variant="outline" onClick={() => setQuery({ view: query.view, after: page.next ?? undefined })}>Next page</Button>}

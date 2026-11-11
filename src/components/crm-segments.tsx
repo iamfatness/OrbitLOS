@@ -40,6 +40,7 @@ export function CrmSegments({ segments, campaign, brokerageId, busy, save }: {
   segments: CrmSegment[]; campaign?: CallCampaign; brokerageId: string; busy: boolean; save: Save;
 }) {
   const [selected, setSelected] = useState("");
+  const previewSummary = useRef<HTMLParagraphElement>(null);
   const [result, setResult] = useState<{ key: string; preview: SegmentPreview; selectedIds: string[] }>();
   const segment = segments.find((item) => item.id === selected);
   const attachedKind = campaign?.sequenceConfig?.attachedKind;
@@ -63,6 +64,7 @@ export function CrmSegments({ segments, campaign, brokerageId, busy, save }: {
         key, preview: segmentPreview,
         selectedIds: previous?.key === key && previous.preview.fingerprint === segmentPreview.fingerprint ? previous.selectedIds : [],
       } : undefined);
+      if (segmentPreview) requestAnimationFrame(() => previewSummary.current?.focus());
     }, enroll);
   };
 
@@ -83,7 +85,7 @@ export function CrmSegments({ segments, campaign, brokerageId, busy, save }: {
       <div><Button size="sm" variant="outline" disabled={busy} onClick={() => run(false)}>Preview segment</Button></div>
       {preview && <>
         {preview.sequence && <p className="muted">Eligible borrowers start {preview.sequence.kind} v{preview.sequence.version}. Assigned steps appear in Today.</p>}
-        <p role="status"><strong>{preview.eligible} eligible · {preview.excluded} excluded</strong></p>
+        <p ref={previewSummary} tabIndex={-1} className="crm-preview-summary" role="status"><strong>{preview.eligible} eligible · {preview.excluded} excluded</strong></p>
         {preview.eligible > 0 && <div className="loan-application-actions">
           <span className="pill" role="status">{selectedIds.length} selected</span>
           <Button size="sm" variant="outline"

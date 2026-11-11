@@ -400,6 +400,8 @@ button:disabled { cursor: default; }
 .quote-terms dd small { display: block; margin-top: 2px; }
 .pricing-panel .field small { font-size: 12px; }
 .pricing-navigation { display: flex; gap: 8px; flex-wrap: wrap; }
+.crm-preview-summary { scroll-margin-top: 88px; }
+.crm-preview-summary:focus { outline: 2px solid var(--accent); outline-offset: 4px; }
 .pricing-navigation > button { min-height: 44px; }
 .pricing-panel :is(.pricing-form, .pricing-results, .quote-saved) { scroll-margin-top: 76px; }
 .pricing-panel :is(.pricing-form, .pricing-results, .quote-saved):focus { outline: 2px solid var(--accent); outline-offset: 3px; }

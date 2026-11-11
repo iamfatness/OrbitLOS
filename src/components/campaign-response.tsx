@@ -52,10 +52,12 @@ export function CampaignResponse({ records, now, openLead, openLoan }: {
     </div>
     <div className="loan-application-actions">
       <span className="pill">Median after assignment · {medianDuration(times)}</span>
+      <Button size="sm" variant="outline" aria-pressed={view === "All outcomes"} onClick={() => setView("All outcomes")}>All outcomes</Button>
       <Button size="sm" variant="outline" aria-pressed={view === "On time"} onClick={() => setView(view === "On time" ? "All outcomes" : "On time")}>{onTime} on time</Button>
       <Button size="sm" variant="outline" aria-pressed={view === "Missed deadline"} onClick={() => setView(view === "Missed deadline" ? "All outcomes" : "Missed deadline")}>{missed} missed deadlines</Button>
     </div>
-    {officers.size > 0 && <div className="table-scroll"><table className="data-table">
+    <p className="muted" role="status">{view} · {visible.length} {visible.length === 1 ? "lead" : "leads"}</p>
+    {officers.size > 0 && <div className="table-scroll" role="region" aria-label="Response performance by owner" tabIndex={0}><table className="data-table">
       <caption>Response time and missed deadlines by owner</caption>
       <thead><tr><th scope="col">Owner</th><th scope="col">First outreach logged</th><th scope="col">Median after assignment</th><th scope="col">Missed deadlines</th></tr></thead>
       <tbody>{[...officers].map(([email, officer]) => <tr key={email ?? "shared"}>

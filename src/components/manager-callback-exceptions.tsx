@@ -47,6 +47,7 @@ export function ManagerCallbackExceptions({ brokerageId, campaigns, officers, te
         </select>
       </label>
       <Button size="sm" variant="outline" onClick={firstPage}>Refresh overdue callbacks</Button>
+      {(query.campaignId || query.ownerEmail !== undefined) && <Button size="sm" variant="ghost" onClick={() => setQuery({})}>Clear callback filters</Button>}
     </div>
     {!current && <p className="muted" role="status">Loading overdue callbacks…</p>}
     {current && "error" in current && <p role="alert">{current.error}</p>}
