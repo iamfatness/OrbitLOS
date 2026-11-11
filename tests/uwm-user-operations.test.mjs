@@ -66,6 +66,13 @@ test("expired tokens refresh; changed brokerage/encryption context and deploymen
  await assert.rejects(access.uwmUserToken(db,{...env,ORBIT_DEPLOYMENT:"production"},staff),/environment/);
  await assert.rejects(access.uwmUserToken(db,env,{...staff,brokerage:{...staff.brokerage,id:crypto.randomUUID()}}),/unavailable/);
 });
+test("rejected refresh clears only that expired grant and prompts a reconnect",async t=>{
+ const db=database(t);await connect(t,db);db.prepare("UPDATE uwm_user_access SET expiresAt=0").run();
+ t.mock.method(globalThis,"fetch",async()=>new Response("invalid grant",{status:400}));
+ await assert.rejects(access.uwmUserToken(db,env,staff),/Reconnect your UWM account/);
+ assert.equal(access.uwmUserStatus(db,env,staff).connectedAt,null);
+ assert.equal(db.prepare("SELECT encrypted FROM uwm_user_access").get().encrypted,null);
+});
 const lockBody={productId:362,calculationTypeId:1,targetRate:6.5,targetPrice:0,targetCash:0,commitmentPeriod:30,compensationType:1,
  waiveUWFeeIndicator:false,escrowWaiver:false,waiveEscrowOption:1,flexTerm:30,tracTypeId:0,loanShieldTypeId:"0",loppBasisPoints:0,
  cypBasisPoints:0,buydownTypeId:"None",firstTimeHomebuyerId:"1",freeLockExtensionDays:0};

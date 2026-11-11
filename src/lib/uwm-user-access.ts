@@ -94,7 +94,19 @@ export async function uwmUserToken(db: Store, env: UwmEnvironment, staff: Worksp
   const value = decrypt(String(row.encrypted), settings.key, settings.aad);
   if (Number(row.expiresAt) > Date.now() + 60_000) return value.access_token;
   if (!value.refresh_token) throw new UwmError("Your UWM authorization expired. Reconnect in Integrations.");
-  const refreshed = await exchange(env, settings, { grant_type: "refresh_token", refresh_token: value.refresh_token });
+  let refreshed: Tokens;
+  try {
+    refreshed = await exchange(env, settings, { grant_type: "refresh_token", refresh_token: value.refresh_token });
+  } catch (error) {
+    if (error instanceof UwmError && /HTTP (400|401)\b/.test(error.message)) {
+      // Retire only the rejected grant. A concurrent successful reconnect or
+      // refresh must not be removed by this older request's rejection.
+      db.prepare("UPDATE uwm_user_access SET encrypted=NULL,expiresAt=0,connectedAt=NULL WHERE email=? AND environment=? AND revision=? AND encrypted=?")
+        .run(staff.email, settings.environment, String(row.revision), String(row.encrypted));
+      throw new UwmError("UWM could not renew your authorization. Reconnect your UWM account in Integrations.");
+    }
+    throw error;
+  }
   const current = db.prepare("SELECT revision, encrypted, expiresAt FROM uwm_user_access WHERE email=? AND environment=?").get(staff.email, settings.environment);
   if (!current?.encrypted || current.revision !== row.revision) throw new UwmError("Your UWM connection changed. Retry the action.");
   if (current.encrypted !== row.encrypted) return decrypt(String(current.encrypted), settings.key, settings.aad).access_token;
