@@ -23,3 +23,8 @@ Use target `dev` with `UWM_ENVIRONMENT=int` and `--env dev` for INT. Production 
 In Orbit Integrations, connect the UWM account and run **Verify UWM broker access**. Passwords are sent only for the token exchange and are not persisted by Orbit. User access and refresh tokens are encrypted per brokerage and user. A successful read-only association request does not validate loan submission or rate-lock contracts.
 
 The inbound `UWM_WEBHOOK_CONFIG` remains separate. Follow [webhook onboarding](uwm-webhook-handoff.md) to register and test it. Neither user credentials nor pricing credentials belong in webhook headers.
+
+
+## Stage acceptance recorded November 10, 2026
+
+Google sign-in and the dedicated UWM client configuration are installed on stage. The non-pilot UWM Integration Test workspace is `b73d9e19-4366-4ece-9467-675c00587a5e`. The user's UWM sign-in succeeded, encrypted authorization was retained, and the broker-association request was accepted. No password was recorded in release notes. Branch/contact selection, approved storage origins, real synthetic import/document/lock acceptance, Insights credentials and production enablement remain separate gates.

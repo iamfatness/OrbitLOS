@@ -1,3 +1,12 @@
+# Integrations UI and onboarding release — November 10, 2026
+
+- Published source `38f8861` to production version `6b20cec9-7b37-4cb5-85da-5bbd689371fe` at 100%. Includes the Integrations redesign and onboarding recovery through `4a9378a`.
+- Account connection is the primary card; configured environment and connection status are separate. Connected accounts show verification/disconnect controls and collapsed reconnect fields. Service readiness has its own card. Delivery activity is collapsed by default and labels event types in plain language.
+- Final stage version: `bdb1ab76-1383-475e-856f-ef827103a06e`, source `38f8861`. Post-deploy Google redirects and webhook environment guards passed.
+- Stage UI reviewed at desktop and 390px mobile width without horizontal overflow. Expanded receipts and refresh worked. The user's stage UWM sign-in succeeded; a read-only broker-association request was accepted. No live loan submission, document delivery or lock was performed.
+- 429 merged tests passed; TypeScript, ESLint and Cloudflare builds passed. Version-override and ordinary-routing assets each reached two clean passes (91/91). Production signed UI and preserved stage pricing/disclosures were verified.
+- Production user-write credentials and production webhook registration remain disabled. Stage callbacks passed Orbit-generated synthetic tests; actual UWM-originated delivery is still pending.
+
 # Combined release and stage activation — November 10, 2026
 
 - Source `3f4ee6d` includes CRM manager fixes through `5c86442`, acceptance notes `a585ea2`, dedicated UWM user credentials and authenticated portal contract corrections.

@@ -45,7 +45,7 @@ Thank you.
 ## Current stage setup
 
 - Workspace: **UWM Integration Test**, `b73d9e19-4366-4ece-9467-675c00587a5e`. Normal non-pilot workspace on stage only, containing synthetic receiver tests.
-- Google login is configured and verified. Stage user-authorized UWM client credentials and encryption key are installed; the personal UWM connection is awaiting login/verification.
+- Google login is configured and verified. Stage user-authorized UWM client credentials and encryption key are installed; the personal UWM login succeeded and UWM accepted the read-only broker-association request. Actual branch/contact mapping and lender writes still require validation.
 - Stage credential file: `.orbit/uwm-webhook-credentials.stage.txt` inside the release worktree. Contains the inbound key; share it only through the agreed secure channel, not in a ticket or repository.
 - Each receiver returned 401 without the key, 200 after durable authenticated receipt, and 200 with duplicate=true for the identical retry. Wrong-environment path returned 404. All four receipts were visible to the signed-in stage administrator.
 
