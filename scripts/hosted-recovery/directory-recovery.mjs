@@ -78,7 +78,7 @@ async function restart(directory) {
 }
 
 export async function directoryRecoveryCommand(action, fixture) {
-  const { env, ctx, origin, application, directory, target, other, state, tenants:[a,b], journal } = fixture;
+  const { env, ctx, origin, application, directory, target, other, state, tenants:[a,b,unrelated], journal } = fixture;
   let next = journal;
   const save = () => env.DOCUMENTS.put(journalKey, JSON.stringify(next));
   const coordinator=env.WORKSPACE.getByName(directoryDrainObject);
@@ -229,7 +229,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     }),env,ctx);
     if((await hold("GET",journal.evidenceToken)).status!==404)throw new Error("Evidence credential could reserve a hold");
     const holdPreview=await hold("GET",journal.holdToken);
-    const unaffected=await hold("GET",journal.holdToken,holdUrl(b.id));
+    const unaffected=await hold("GET",journal.holdToken,holdUrl(unrelated.id));
     if(holdPreview.status!==200 || unaffected.status!==200)throw new Error("Recovery hold preview unavailable");
     const holdReview=await holdPreview.json();
     if(!holdReview.canHold || (await unaffected.json()).canHold)throw new Error("Recovery hold did not isolate the affected brokerage");
@@ -248,7 +248,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     const temporarySessions=[];
     try {
       const encode=bytes=>btoa(String.fromCharCode(...bytes)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
-      for(const item of [a,b]){
+      for(const item of [a,unrelated]){
         const token=encode(crypto.getRandomValues(new Uint8Array(32)));
         const hash=encode(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token))));
         await directory.createStaffSession(hash,item.admin,Date.now()+60000,Date.now());

@@ -44,7 +44,7 @@ const config = { name, main:"server/recovery-entry.mjs", no_bundle:true, find_ad
   compatibility_flags:built.compatibility_flags, workers_dev:true, preview_urls:false,
   durable_objects:{bindings:[{name:"WORKSPACE",class_name:"RecoveryWorkspace"}]}, migrations:[{tag:"v1",new_sqlite_classes:["RecoveryWorkspace"]}],
   r2_buckets:[{binding:"DOCUMENTS",bucket_name:`${name}-documents`}],
-  vars:{RECOVERY_RUN:run,RECOVERY_SOURCE:source,RECOVERY_ARTIFACT:artifactSha256,FIXTURE_A:randomUUID(),FIXTURE_B:randomUUID(),
+  vars:{RECOVERY_RUN:run,RECOVERY_SOURCE:source,RECOVERY_ARTIFACT:artifactSha256,FIXTURE_A:randomUUID(),FIXTURE_B:randomUUID(),FIXTURE_C:randomUUID(),
     ORBIT_AUTH_MODE:"google",GOOGLE_CLIENT_ID:"fictional-recovery",GOOGLE_CLIENT_SECRET:"fictional-recovery",ORBIT_STAFF_EMAILS:"recovery-bootstrap@example.test",
     ORBIT_PRICING_MODE:"mock",ORBIT_DOCUMENT_UPLOADS:"mock"}, limits:{cpu_ms:1000} };
 await writeFile(new URL("wrangler.json",folder),JSON.stringify(config,null,2));

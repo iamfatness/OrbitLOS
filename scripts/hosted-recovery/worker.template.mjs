@@ -11,7 +11,7 @@ const digest = async value => Array.from(new Uint8Array(await crypto.subtle.dige
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
 function fixtures(env) {
-  return [env.FIXTURE_A, env.FIXTURE_B].map((id, index) => {
+  return [env.FIXTURE_A, env.FIXTURE_B, env.FIXTURE_C].map((id, index) => {
     const brokerage = { id, name: `Fictional Recovery ${index + 1}`, role: "Admin", pilot: true, accessRevision: 1 };
     const admin = { email: `recovery-admin-${index}@example.test`, name: "Fictional Recovery Admin", brokerage };
     const officer = { email: `recovery-lo-${index}@example.test`, name: "Fictional Recovery LO", brokerage: { ...brokerage, role: "LO" } };
@@ -236,7 +236,7 @@ async function command(action, env, origin, ctx) {
   if (action === "initialize") {
     if (state) throw new Error("Run already initialized");
     await directory.probeDirectory(tenants);
-    for (const item of tenants) {
+    for (const item of [a,b]) {
       const workspace = env.WORKSPACE.getByName(item.id);
       requireOk(await workspace.loadPilot(item.admin,{type:"loadPilotScenario",id:item.scenario,previousId:null,officerEmail:item.officer.email,presenter:true},item.officer));
       requireOk(await workspace.write({type:"startApplication",loanId:item.loanId},item.officer));
