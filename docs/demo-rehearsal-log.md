@@ -1151,3 +1151,13 @@ Source `2b75fc4` detects a restored default that points to a different brokerage
 The production build passed 507 tests, lint, typecheck and the 45-stage working day. Worker `7f40132d-057c-4c70-a0a5-b80a2bcaa81d` serves all traffic with the same 23 bindings. Eight staged and live checks covered the public update, sign-in routing, and unauthenticated operator and support endpoint denial. The Demo note was checked at three widths. Production was not paused or restored. Provider settings were preserved, and hosted recovery used fictional provider state.
 
 All 1,420 browser assets matched on both staged and both live passes.
+
+## Confirm an interrupted processor assignment
+
+Application `6d62bf6` added a receipt that commits with the processor assignment and audit entry. An admin in the assignment editor can check the original request after a lost response. Checking reads the exact receipt and refreshes the current assignment. A newer processing revision remains in place. The API denies an LO or processor and limits receipt lookup to the original admin, loan, and brokerage.
+
+The fictional browser run exercised a committed response loss, reload, failed read and retry, a request that never committed, and a later assignment. The built-Worker working day verified receipt matching, an exact repeat, role denial and independent brokerage scope. The full test suite has 508 passing tests. Lint, typecheck and production build passed. [Design and browser evidence](brand-ux-review.md#processor-assignment-receipt)
+
+Worker `001fd528-7446-41ee-9e56-717081c08297` serves all traffic with the same 23 bindings. Nine staged and ordinary public and signed-out checks passed. The first ordinary Demo request immediately after promotion still returned earlier copy. It passed on retry. No signed-in production assignment was attempted. Provider settings stayed as configured, and the fictional flow used simulated lender operations.
+
+All 1,425 browser assets matched on both staged and both live passes. The ordinary production browser also rendered the updated Demo copy.

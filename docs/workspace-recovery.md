@@ -353,3 +353,9 @@ While the pilot is open, use **Review processing handoffs**, **Review lender req
 While paused, the report links to the pending restore and the internal edit recovery controls when there is work to review. The internal edit link starts with unconfirmed receipts. Use **Show all edits** to see full history.
 
 Use **Download redacted report** after previewing. If the counts or recovery state changed, refresh the preview and try again. The JSON contains summary counts, maintenance status, capture time, a format version, and a report reference. The reference matches the export event in **Access history**.
+
+### Confirm an interrupted processor assignment
+
+In **Team → Loan settings → Loan reassignment**, or from the loan’s **Manage assignment** action, Orbit keeps the request reference in the current browser tab if the save response is interrupted. Reopen the same loan in that tab after a reload and choose **Check processor change**. Checking reads the original save receipt without changing access. If processing has since advanced, Orbit confirms the earlier save and reloads the current assignment. If no receipt is available, check again or choose **Review current access** before starting another change.
+
+The assignment, audit entry, and receipt commit together. An exact repeat can confirm the saved revision without adding another audit event. The read is scoped to the admin who made the change, the loan and the brokerage. This check covers interruptions in the assignment editor. Processor queue and playbook shortcuts still use their existing save flows. The receipt lives with the loan, so verification after restoring an older tenant checkpoint needs separate recovery evidence.
