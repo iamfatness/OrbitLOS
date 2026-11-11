@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Activity, useEffect, useRef, useState } from "react";
 import { readMigrationRecovery, readPipelineExport } from "@/app/actions";
 import { borrowerChannelBlocked, borrowerChannels } from "@/lib/borrower-channel-model";
 import { downloadSampleFile } from "./sample-download";
@@ -25,8 +25,8 @@ function ChannelEvidence({ requested, blocked, projected }: { requested: number;
   </>;
 }
 
-function PipelineMigration({ busy, save, brokerageId, openRecord }: {
-  busy: boolean; save: Save; brokerageId: string; openRecord: (destination: MigrationDestination) => void;
+function PipelineMigration({ busy, save, brokerageId, openRecord, reviewCutover }: {
+  busy: boolean; save: Save; brokerageId: string; openRecord: (destination: MigrationDestination) => void; reviewCutover: () => void;
 }) {
   const [file, setFile] = useState<ReturnType<typeof migrationFile>>();
   const [mapping, setMapping] = useState<ReturnType<typeof migrationFile>["mapping"]>({});
@@ -277,8 +277,11 @@ function PipelineMigration({ busy, save, brokerageId, openRecord }: {
             </select>}
           </div>}</td>
         </tr>)}</tbody></table></div>
-      {!applied && <div>
-        {stale && <p className="muted">Preview again to apply your choices and check related records.</p>}
+      {applied && <div><Button variant="outline" onClick={reviewCutover}>Review cutover checklist</Button></div>}
+      {!applied && <div className="record-form">
+        {stale ? <p className="muted">Preview again to apply your choices and check related records.</p>
+          : report.rows.some((row) => row.status === "Review") && <p className="muted">Resolve or skip the {report.rows.filter((row) => row.status === "Review").length} records marked Review, then preview again before importing.</p>}
+        {(stale || report.rows.some((row) => row.status === "Review")) && <div><Button variant="outline" disabled={busy} onClick={() => run(false)}>Preview updated choices</Button></div>}
         <Button disabled={busy || stale || report.rows.some((row) => row.status === "Review") ||
           Boolean(correctionKeys && !report.rows.some((row) => row.correction && (row.status === "Create" || row.status === "Reuse contact")))}
           onClick={() => run(true)}>{correctionKeys ? "Import reviewed corrections" : "Import reviewed records"}</Button>
@@ -441,10 +444,28 @@ export function MigrationWorkspace({ busy, save, openLinkedLoan, openRecord, bro
   busy: boolean; save: Save; openLinkedLoan: (id: string, target: string) => void; openRecord: (destination: MigrationDestination) => void;
   brokerageId: string; version: object;
 }) {
+  const views = ["CRM import and export", "Loan file import", "Cutover checklist", "Import recovery"] as const;
+  const [view, setView] = useState<(typeof views)[number]>("CRM import and export");
+  const navigation = useRef<HTMLElement>(null);
+  const [visit, setVisit] = useState(0);
+  useEffect(() => { if (visit) navigation.current?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus(); }, [visit]);
+  function navigate(next: (typeof views)[number]) { setView(next); setVisit(value => value + 1); }
   return <div className="record-form">
-    <MigrationCutoverChecklist key={brokerageId} brokerageId={brokerageId} version={version} busy={busy} openLoan={openLinkedLoan} openRecord={openRecord} save={save} />
-    <PipelineMigration busy={busy} save={save} brokerageId={brokerageId} openRecord={openRecord} />
-    <MigrationRecovery key={brokerageId} brokerageId={brokerageId} busy={busy} save={save} openRecord={openRecord} />
-    <LoanFileRehearsal key={brokerageId} busy={busy} save={save} openLoan={(id) => openLinkedLoan(id, "loan-application")} brokerageId={brokerageId} />
+    <nav ref={navigation} className="loan-application-actions" aria-label="Migration views">
+      {views.map(item => <Button key={item} size="sm" variant={view === item ? "default" : "outline"}
+        aria-current={view === item ? "page" : undefined} disabled={busy} onClick={() => navigate(item)}>{item}</Button>)}
+    </nav>
+    <Activity mode={view === "CRM import and export" ? "visible" : "hidden"}>
+      <PipelineMigration busy={busy} save={save} brokerageId={brokerageId} openRecord={openRecord} reviewCutover={() => navigate("Cutover checklist")} />
+    </Activity>
+    <Activity mode={view === "Cutover checklist" ? "visible" : "hidden"}>
+      <MigrationCutoverChecklist key={brokerageId} brokerageId={brokerageId} version={version} busy={busy} openLoan={openLinkedLoan} openRecord={openRecord} save={save} />
+    </Activity>
+    <Activity mode={view === "Import recovery" ? "visible" : "hidden"}>
+      <MigrationRecovery key={brokerageId} brokerageId={brokerageId} busy={busy} save={save} openRecord={openRecord} />
+    </Activity>
+    <Activity mode={view === "Loan file import" ? "visible" : "hidden"}>
+      <LoanFileRehearsal key={brokerageId} busy={busy} save={save} openLoan={(id) => openLinkedLoan(id, "loan-application")} brokerageId={brokerageId} />
+    </Activity>
   </div>;
 }
