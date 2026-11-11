@@ -1093,3 +1093,7 @@ The 44-stage working-day run verified both accepted document revisions, current 
 The signed-in operational brokerage now points owners to Workspaces for the fictional Compliance pilot. The Conversations view explains how to start when the active queue is empty. Hosted Role Handoff QA showed Compliance research, loan retention, a populated conversation outcome form, and a version 1 JSON downloaded from a fictional loan. Provider configuration was unchanged. [Design evidence](brand-ux-review.md#conversation-and-compliance-discoverability-and-cutover-inventory)
 
 Worker `14a6cd34-a8dc-4f5b-98eb-8b5cd39cd8da` from `89b9094` serves 100 percent of traffic. All 1,244 assets matched on two staged passes and two ordinary live passes after propagation.
+
+## Loan details and workspace continuity
+
+Source `783e5ee` passed 505 tests, lint, typecheck, the production build and the 45-stage working-day rehearsal. Playwright verified the LO review and processor handoff, direct document navigation, sample acceptance and both directions of workspace switching in a built fictional fixture. The operational fallback is still used on the first generic visit. An intentional, authenticated workspace navigation remembers the selected brokerage for that account in the same browser. Explicitly scoped URLs, access checks and separate brokerage records continue to apply. [Design evidence](brand-ux-review.md#loan-details-and-workspace-continuity)
