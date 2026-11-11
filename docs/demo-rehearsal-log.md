@@ -1143,3 +1143,11 @@ The exact build passed 506 tests, lint, typecheck, the 45-stage working-day rehe
 Production Worker `0e6d1bcd-c9f1-4faf-9c6d-1ecbbb33895e` serves 100 percent of traffic with all 23 bindings preserved. Staged and live public and signed-out checks passed, including the Demo update and access denial for unauthenticated support work. Work settings prevented the signed-in production continuity check. No production workspace preferences were modified by verification.
 
 All 1,420 browser assets matched on both staged and both live passes.
+
+## Verify workspace choices after directory recovery
+
+Source `2b75fc4` detects a restored default that points to a different brokerage even when the account count is unchanged. Version 3 evidence retains a digest and count. Earlier captures remain readable and do not verify workspace choices. The isolated Cloudflare drill found the discrepancy in an actual older restore, kept it visible after access repair, recovered the newer point and verified a fresh session routed to the intended workspace. It preserved both tenant databases and then removed the fixture Worker and bucket. [Hosted evidence](evidence/hosted-workspace-preference-recovery-2026-11-11.json)
+
+The production build passed 507 tests, lint, typecheck and the 45-stage working day. Worker `7f40132d-057c-4c70-a0a5-b80a2bcaa81d` serves all traffic with the same 23 bindings. Eight staged and live checks covered the public update, sign-in routing, and unauthenticated operator and support endpoint denial. The Demo note was checked at three widths. Production was not paused or restored. Provider settings were preserved, and hosted recovery used fictional provider state.
+
+All 1,420 browser assets matched on both staged and both live passes.

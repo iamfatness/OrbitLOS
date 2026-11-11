@@ -1,0 +1,14 @@
+{
+  "run": "7a0d456d-a95a-47c8-b143-8a8c3ce63366",
+  "source": "2b75fc4107f551eba247654961fe8381bda1d0d9",
+  "artifactSha256": "dd15f0cf3c9a46bc403cad577652ac9286800e57633c8a3bd832980ccb350358",
+  "workspacePreferenceDriftDetected": true,
+  "workspacePreferenceDriftSurvivedAccessRepair": true,
+  "recoveredWorkspacePreferenceOpened": true,
+  "sharedDirectoryRestored": true,
+  "sealedEvidenceMatchedAfterRecovery": true,
+  "directoryTablesVerified": 17,
+  "directoryTenantDatabasesUnchanged": 2,
+  "directoryTrafficResumed": true,
+  "fixtureResourcesRemoved": true
+}
