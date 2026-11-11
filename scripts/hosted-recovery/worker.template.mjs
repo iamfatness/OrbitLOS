@@ -4,7 +4,7 @@ import application, { OrbitWorkspace } from "./index.js";
 import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 
-const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "closing_plans"];
+const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
@@ -55,7 +55,7 @@ export class RecoveryWorkspace extends OrbitWorkspace {
   probeApplication(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,expiresAt FROM applications WHERE loanId=?",loanId).one(); }
   probeRealtor() { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,realtorId FROM realtor_portals").one(); }
   probeDocument(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT id,revision,deadlineRevision,dueOn FROM document_requests WHERE loanId=? AND kind='Homeowners insurance' ORDER BY id LIMIT 1",loanId).one(); }
-  async probeLenderEvidence(item) {
+  async probeLenderEvidence(item,origin) {
     this.probeIdentity();
     if (item.id!==this.ctx.id.name) throw new Error("Fictional tenant mismatch");
     const write=async input=>requireOk(await this.write({...input,loanId:item.loanId},item.admin));
@@ -75,12 +75,32 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     const conditionId=crypto.randomUUID();
     await write({type:"saveManualCondition",submissionId,conditionId,revision:0,category:"Income",description:"Review the fictional recovery pay stub.",owner:item.admin.name});
     await write({type:"requestDocument",kind:"Pay stub",instructions:"Provide the fictional recovery pay stub.",condition:{submissionId,conditionId}});
-    const replacement=await recordFictionalReplacement({read,write,borrower:input=>this.borrower({...input,token:link.token},true),submissionId,conditionId});
+    const post=async(path,input)=>{
+      const response=await application.fetch(new Request(`${origin}/api/borrower-documents/${path}`,{method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},body:JSON.stringify({...input,token:link.token})}),this.env,this.ctx);
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||"Fictional PDF route failed");
+      return result;
+    };
+    const code=await post("verify",{type:"sendCode"});
+    const verified=await post("verify",{type:"verifyCode",code:code.demoCode});
+    let uploads=0;
+    const replacement=await recordFictionalReplacement({read,write,borrower:async input=>{
+      if(uploads++)await new Promise(resolve=>setTimeout(resolve,1100));
+      return post("upload",{requestId:input.requestId,revision:input.revision,session:verified.session,fixture:uploads===1?"clean":"replacement"});
+    },submissionId,conditionId});
     const requestId=read().documentRequests.find(request=>request.conditionId===conditionId).id;
     const accepted=this.ctx.storage.sql.exec("SELECT revision FROM document_acceptances WHERE requestId=? ORDER BY revision",requestId).toArray().map(row=>row.revision);
     if (JSON.stringify(accepted)!==JSON.stringify(replacement.document.evidence.acceptedRevisions)) throw new Error("Acceptance history does not match receipt fixture");
     if (this.ctx.storage.sql.exec("SELECT count(*) AS total FROM loan_audit WHERE loanId=?",item.loanId).one().total<1) throw new Error("Loan audit fixture is empty");
-    return {requestId,submissionId,conditionId,replacement};
+    const files=[];
+    for(const row of this.ctx.storage.sql.exec("SELECT revision,objectId FROM document_accepted_files WHERE requestId=? ORDER BY revision",requestId).toArray()){
+      const objectKey=`${item.id}/${row.objectId}.pdf`;
+      const object=await this.env.DOCUMENTS.get(objectKey);
+      if(!object)throw new Error("Accepted PDF was removed during replacement");
+      files.push({requestId,acceptedRevision:row.revision,objectId:row.objectId,objectKey,hash:await digest(await object.arrayBuffer())});
+    }
+    if(files.length!==2||files[0].hash===files[1].hash)throw new Error("Expected distinct prior and replacement PDFs");
+    return {requestId,submissionId,conditionId,replacement,files};
   }
   probeVerifyLenderEvidence(item,evidence) {
     this.probeIdentity();
@@ -104,39 +124,30 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     requireOk(await this.write(receipt.command,actor));
     if (JSON.stringify(this.probeDocument(receipt.command.loanId)) !== JSON.stringify(receipt.after)) throw new Error("Receipt replay differs from acknowledged state");
   }
-  async probeAttach(loanId,requestId) {
-    const identity = this.probeIdentity();
-    const document = requestId ? this.ctx.storage.sql.exec("SELECT id FROM document_requests WHERE loanId=? AND id=?",loanId,requestId).one() : this.probeDocument(loanId);
-    const objectId = `${identity.run}/${identity.tenant}/${document.id}`;
-    const bytes = new TextEncoder().encode("Fictional Orbit recovery document. Not borrower data.");
-    await this.env.DOCUMENTS.put(objectId,bytes);
-    this.ctx.storage.sql.exec("INSERT INTO document_files (requestId,objectId,uploadedAt,attemptedAt,failed,uploadMode) VALUES (?,?,?,0,0,'mock') ON CONFLICT(requestId) DO UPDATE SET objectId=excluded.objectId,uploadedAt=excluded.uploadedAt", document.id,objectId,new Date().toISOString());
-    return { requestId: document.id, objectId, hash: await digest(bytes) };
-  }
   async probeBytes(evidence) {
     this.probeIdentity();
-    const row = this.ctx.storage.sql.exec("SELECT objectId FROM document_files WHERE requestId=?",evidence.requestId).one();
+    const row = this.ctx.storage.sql.exec("SELECT objectId FROM document_accepted_files WHERE requestId=? AND revision=?",evidence.requestId,evidence.acceptedRevision).one();
     if (row.objectId !== evidence.objectId) return false;
-    const object = await this.env.DOCUMENTS.get(row.objectId);
+    const object = await this.env.DOCUMENTS.get(evidence.objectKey);
     return !!object && await digest(await object.arrayBuffer()) === evidence.hash;
   }
   async probeCleanup(evidence) {
     const identity = this.probeIdentity();
-    if (!evidence.objectId.startsWith(`${identity.run}/${identity.tenant}/`)) throw new Error("Fixture object mismatch");
-    await this.env.DOCUMENTS.delete(evidence.objectId);
+    if (evidence.objectKey!==`${identity.tenant}/${evidence.objectId}.pdf`) throw new Error("Fixture object mismatch");
+    await this.env.DOCUMENTS.delete(evidence.objectKey);
   }
   async probeByteFailures(evidence) {
     const identity = this.probeIdentity();
-    if (!evidence.objectId.startsWith(`${identity.run}/${identity.tenant}/`)) throw new Error("Fixture object mismatch");
-    const object = await this.env.DOCUMENTS.get(evidence.objectId);
+    if (evidence.objectKey!==`${identity.tenant}/${evidence.objectId}.pdf`) throw new Error("Fixture object mismatch");
+    const object = await this.env.DOCUMENTS.get(evidence.objectKey);
     if (!object) throw new Error("Sample document unavailable before negative checks");
     const original = await object.arrayBuffer();
     try {
-      await this.env.DOCUMENTS.delete(evidence.objectId);
+      await this.env.DOCUMENTS.delete(evidence.objectKey);
       if (await this.probeBytes(evidence)) throw new Error("Missing bytes passed reconciliation");
-      await this.env.DOCUMENTS.put(evidence.objectId,"Deliberately corrupted fictional bytes");
+      await this.env.DOCUMENTS.put(evidence.objectKey,"Deliberately corrupted fictional bytes");
       if (await this.probeBytes(evidence)) throw new Error("Corrupted bytes passed reconciliation");
-    } finally { await this.env.DOCUMENTS.put(evidence.objectId,original); }
+    } finally { await this.env.DOCUMENTS.put(evidence.objectKey,original); }
     if (!await this.probeBytes(evidence)) throw new Error("Sample bytes not restored after negative checks");
   }
   probeDamage(loanId) {
@@ -160,9 +171,9 @@ async function command(action, env, origin, ctx) {
       const doc = await workspace.probeDocument(item.loanId);
       requireOk(await workspace.write({type:"setDocumentDeadline",loanId:item.loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-01-01"},item.officer));
     }
-    const lenderEvidence=await target.probeLenderEvidence(a);
+    const lenderEvidence=await target.probeLenderEvidence(a,origin);
     state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE,lenderEvidence,
-      document: await target.probeAttach(a.loanId,lenderEvidence.requestId), link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
+      link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
     await target.probeVerifyLenderEvidence(a,lenderEvidence);
     const session = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
     const sessionHash = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(session))))).replaceAll("+","-").replaceAll("/","_").replace(/=+$/, "");
@@ -220,8 +231,10 @@ async function command(action, env, origin, ctx) {
     if (realtorResponse.status !== 404) throw new Error("Normal realtor route did not reject revoked link");
     const staffResponse = await application.fetch(new Request(`${origin}/workspace?brokerage=${a.id}`, {headers:{Cookie:`__Host-orbit-session=${state.session}`}}),env,ctx);
     if (staffResponse.status !== 403) throw new Error("Normal workspace route did not reject revoked staff");
-    if (!await target.probeBytes(state.document)) throw new Error("Restored document metadata has missing or different bytes");
-    await target.probeByteFailures(state.document);
+    for(const file of state.lenderEvidence.files){
+      if (!await target.probeBytes(file)) throw new Error("Restored document metadata has missing or different bytes");
+      await target.probeByteFailures(file);
+    }
     const wrong = await target.write({type:"startApplication",loanId:a.loanId},b.officer);
     if (!wrong.error) throw new Error("Foreign brokerage write accepted");
     state.phase = "verified";
@@ -229,7 +242,7 @@ async function command(action, env, origin, ctx) {
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
       foreignWriteRejected: true, undoBookmarkRecorded: !!state.undoBookmark,acceptedRevisionsPreserved:lenderEvidence.acceptedRevisions,
-      lenderReceiptsPreserved:lenderEvidence.lenderReceipts,manualClearancePreserved:true,loanAuditPreserved:recovered.counts.loan_audit>0 };
+      lenderReceiptsPreserved:lenderEvidence.lenderReceipts,historicalPdfBytesMatched:state.lenderEvidence.files.length,manualClearancePreserved:true,loanAuditPreserved:recovered.counts.loan_audit>0 };
   } else if (action === "replay" && state.phase === "verified") {
     for (const invalid of [{...state.receipt,status:"pending"},{...state.receipt,tenant:b.id}]) {
       let refused=false;
@@ -250,7 +263,7 @@ async function command(action, env, origin, ctx) {
     state.phase="replayVerified";
     Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true});
   } else if (action === "cleanup" && state.phase === "replayVerified") {
-    await target.probeCleanup(state.document);
+    for(const file of state.lenderEvidence.files)await target.probeCleanup(file);
     state.phase = "cleaned";
   } else throw new Error("Command does not match recovery phase");
   await directory.probeSave(state);

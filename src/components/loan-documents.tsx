@@ -141,6 +141,16 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
           <a href={`/api/documents/download?brokerage=${brokerageId}&request=${request.id}`}>Download {request.status === "Needs replacement" ? "previous " : ""}{pdfLabel}</a>
         </Button></div> : request.submittedAt && <SampleDocument kind={request.kind} />}
         <ConditionEvidenceHistory request={request} brokerageId={brokerageId} />
+        {!!request.acceptedVersions?.length && <details className="document-form">
+          <summary>Accepted versions ({request.acceptedVersions.length})</summary>
+          <ul className="document-list">{[...request.acceptedVersions].sort((a, b) => b.revision - a.revision).map((version) => <li key={version.revision}>
+            <p><strong>Revision {version.revision}</strong>{request.status === "Accepted" && request.revision === version.revision ? " · Current" : " · Previous"}</p>
+            <p className="muted">Accepted by {version.actor} · {dateTime(version.at)} ET</p>
+            {version.pdf ? <Button size="sm" variant="outline" asChild>
+              <a href={`/api/documents/download?brokerage=${brokerageId}&request=${request.id}&revision=${version.revision}`}>Download revision {version.revision}</a>
+            </Button> : <p className="muted">No retained PDF for this revision.</p>}
+          </li>)}</ul>
+        </details>}
         {request.uwmReceipt && request.uwmSentAt && <p className="muted"><strong>Sent to UWM · Mock</strong><br />
           {dateTime(request.uwmSentAt)} ET · Receipt {request.uwmReceipt}</p>}
         {request.previousUwmDeliveries.length > 0 && <details className="document-form"><summary>Previous mock deliveries</summary>

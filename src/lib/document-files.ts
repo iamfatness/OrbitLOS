@@ -137,8 +137,11 @@ export function failDocumentUpload(db: Store, requestId: string, objectId: strin
   });
 }
 
-export function downloadableDocument(db: Store, staff: WorkspaceStaff, requestId: string, evidenceId?: string) {
-  const item = evidenceId ? db.prepare(`SELECT evidence.objectId, request.loanId, evidence.kind FROM condition_document_sources evidence
+export function downloadableDocument(db: Store, staff: WorkspaceStaff, requestId: string, evidenceId?: string, acceptedRevision?: number) {
+  if (evidenceId && acceptedRevision !== undefined) return null;
+  const item = acceptedRevision !== undefined ? db.prepare(`SELECT retained.objectId, request.loanId, request.kind FROM document_accepted_files retained
+    JOIN document_requests request ON request.id = retained.requestId WHERE retained.requestId = ? AND retained.revision = ?`).get(requestId, acceptedRevision) :
+    evidenceId ? db.prepare(`SELECT evidence.objectId, request.loanId, evidence.kind FROM condition_document_sources evidence
     JOIN document_requests request ON request.id = evidence.requestId
     WHERE evidence.id = ? AND request.id = ? AND evidence.objectId IS NOT NULL`).get(evidenceId, requestId) :
     db.prepare(`SELECT files.objectId, requests.loanId, requests.kind FROM document_files files
@@ -148,13 +151,15 @@ export function downloadableDocument(db: Store, staff: WorkspaceStaff, requestId
     ? { objectId: String(item.objectId), loanId: String(item.loanId), kind: item.kind as DocumentKind } : null;
 }
 
-export function recordDocumentDownload(db: Store, staff: WorkspaceStaff, requestId: string, objectId: string, evidenceId?: string) {
+export function recordDocumentDownload(db: Store, staff: WorkspaceStaff, requestId: string, objectId: string, evidenceId?: string, acceptedRevision?: number) {
   return db.transaction(() => {
-    const item = downloadableDocument(db, staff, requestId, evidenceId);
+    const item = downloadableDocument(db, staff, requestId, evidenceId, acceptedRevision);
     if (!item || item.objectId !== objectId) return false;
     const now = new Date().toISOString();
-    accessEvent(db, staff, evidenceId ? "Downloaded linked evidence revision" : "Downloaded borrower PDF", evidenceId ?? requestId, now);
-    addApplicationActivity(db, item.loanId, `${evidenceId ? "Linked evidence revision downloaded" : "Borrower PDF downloaded"} · ${item.kind}`, now);
+    const revisionLabel = acceptedRevision !== undefined ? `Accepted document revision ${acceptedRevision} downloaded` :
+      evidenceId ? "Linked evidence revision downloaded" : "Borrower PDF downloaded";
+    accessEvent(db, staff, revisionLabel, evidenceId ?? requestId, now);
+    addApplicationActivity(db, item.loanId, `${revisionLabel} · ${item.kind}`, now);
     return true;
   });
 }

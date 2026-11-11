@@ -27,7 +27,7 @@ const { readUwmDelivery } = await import("../src/lib/uwm-delivery.ts");
 const { latestMockConditionUpdate, receiveMockConditionUpdate } = await import("../src/lib/uwm-condition-events.ts");
 const { conditionEvidenceKey } = await import("../src/lib/condition-evidence-model.ts");
 const { borrowerDocuments } = await import("../src/lib/borrower-documents.ts");
-const { documentCleanupBatch, downloadableDocument } = await import("../src/lib/document-files.ts");
+const { documentCleanupBatch, downloadableDocument, recordDocumentDownload } = await import("../src/lib/document-files.ts");
 
 function setup(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -166,8 +166,63 @@ test("linked condition evidence keeps the accepted PDF revision through delivery
   assert.equal(downloadableDocument(db, processor, target.id, link.linkId).objectId, original);
   assert.ok(!documentCleanupBatch(db).includes(original));
   db.prepare("DELETE FROM document_requests WHERE id = ?").run(target.id);
+  assert.ok(!documentCleanupBatch(db).includes(original), "The source acceptance still retains the original PDF");
+  db.prepare("DELETE FROM document_requests WHERE id = ?").run(source.id);
   assert.equal(documentCleanupBatch(db).filter((id) => id === original).length, 1);
   assert.equal(downloadableDocument(db, processor, target.id, link.linkId), null);
+});
+
+test("accepted PDFs survive replacement and restart, authorize exact revisions, and clean up with their request", async (t) => {
+  const { db, staff, apply } = setup(t);
+  const initial=await apply({type:"sync"});
+  const file=initial.submissions.find(row=>row.conditions.some(condition=>!condition.satisfiedAt));
+  const condition=file.conditions.find(row=>!row.satisfiedAt);
+  const state=await apply({type:"requestDocument",loanId:file.loanId,kind:"Pay stub",instructions:"Fictional replacement history",
+    condition:{submissionId:file.id,conditionId:condition.id}});
+  const request=state.documentRequests.find(row=>row.conditionId===condition.id);
+  const first=crypto.randomUUID(),second=crypto.randomUUID(),at=new Date().toISOString();
+  db.prepare("UPDATE document_requests SET status='Received',revision=1,submittedAt=? WHERE id=?").run(at,request.id);
+  db.prepare("INSERT INTO document_files (requestId,objectId,uploadedAt,attemptedAt,uploadMode) VALUES (?,?,?,0,'mock')").run(request.id,first,at);
+  const review=(revision,decision)=>apply({type:"reviewDocument",loanId:file.loanId,requestId:request.id,revision,decision,replacementNote:decision==="Needs replacement"?"Use the corrected sample":""});
+  await review(1,"Accepted");
+  await review(2,"Needs replacement");
+  db.prepare("UPDATE document_files SET objectId=? WHERE requestId=?").run(second,request.id);
+  db.prepare("UPDATE document_requests SET status='Received',revision=4 WHERE id=?").run(request.id);
+  const accepted=await review(4,"Accepted");
+  assert.deepEqual(accepted.documentRequests.find(row=>row.id===request.id).acceptedVersions.map(row=>[row.revision,row.pdf]),[[2,true],[5,true]]);
+  initializeStore(db,false);
+  assert.ok(!documentCleanupBatch(db).includes(first));
+  assert.equal(downloadableDocument(db,staff,request.id,undefined,2).objectId,first);
+  assert.equal(downloadableDocument(db,staff,request.id,undefined,5).objectId,second);
+  assert.equal(downloadableDocument(db,staff,request.id,undefined,3),null);
+  assert.equal(downloadableDocument(db,staff,crypto.randomUUID(),undefined,2),null);
+  assert.equal(downloadableDocument(db,staff,request.id,crypto.randomUUID(),2),null);
+  const unrelated={...staff,email:"unassigned@example.test",brokerage:{...staff.brokerage,role:"LO"}};
+  assert.equal(downloadableDocument(db,unrelated,request.id,undefined,2),null);
+  assert.equal(recordDocumentDownload(db,staff,request.id,second,undefined,2),false);
+  assert.equal(recordDocumentDownload(db,staff,request.id,first,undefined,2),true);
+  assert.match(String(db.prepare("SELECT text FROM activity WHERE loanId=? ORDER BY rowid DESC LIMIT 1").get(file.loanId).text),/revision 2 downloaded/);
+  db.prepare("DELETE FROM document_requests WHERE id=?").run(request.id);
+  assert.ok(documentCleanupBatch(db).includes(first));
+  assert.ok(documentCleanupBatch(db).includes(second));
+  assert.equal(downloadableDocument(db,staff,request.id,undefined,2),null);
+});
+
+test("existing acceptance backfill retains only the PDF proven to be the current accepted revision", async (t) => {
+  const {db,staff,apply}=setup(t);
+  const initial=await apply({type:"sync"});
+  const loan=initial.loans[0];
+  const requested=await apply({type:"requestDocument",loanId:loan.id,kind:"Pay stub",instructions:"Legacy acceptance fixture"});
+  const request=requested.documentRequests.find(row=>row.loanId===loan.id&&row.kind==="Pay stub");
+  const objectId=crypto.randomUUID(),at=new Date().toISOString();
+  db.prepare("UPDATE document_requests SET status='Accepted',revision=5 WHERE id=?").run(request.id);
+  db.prepare("INSERT INTO document_files (requestId,objectId,uploadedAt,attemptedAt,uploadMode) VALUES (?,?,?,0,'mock')").run(request.id,objectId,at);
+  for(const revision of [2,5])db.prepare("INSERT INTO document_acceptances VALUES (?,?,?,?)").run(request.id,revision,staff.name,at);
+  initializeStore(db,false);
+  assert.equal(downloadableDocument(db,staff,request.id,undefined,2),null);
+  assert.equal(downloadableDocument(db,staff,request.id,undefined,5).objectId,objectId);
+  initializeStore(db,false);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM document_accepted_files WHERE requestId=?").get(request.id).total,1);
 });
 
 test("assigned processors can bulk review, deliver, retry and clear only the selected evidence", async (t) => {

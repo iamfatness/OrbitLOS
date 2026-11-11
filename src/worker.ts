@@ -700,13 +700,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     failDocumentUpload(this.#store, requestId, objectId);
     await this.#scheduleCleanup();
   }
-  downloadDocument(staff: WorkspaceStaff, requestId: string, evidenceId?: string) {
-    return this.#accepts(staff) ? downloadableDocument(this.#store, staff, requestId, evidenceId) ??
-      (evidenceId ? null : downloadableLeadDocument(this.#store, staff, requestId)) : null;
+  downloadDocument(staff: WorkspaceStaff, requestId: string, evidenceId?: string, acceptedRevision?: number) {
+    return this.#accepts(staff) ? downloadableDocument(this.#store, staff, requestId, evidenceId, acceptedRevision) ??
+      (evidenceId || acceptedRevision !== undefined ? null : downloadableLeadDocument(this.#store, staff, requestId)) : null;
   }
-  auditDocumentDownload(staff: WorkspaceStaff, requestId: string, objectId: string, evidenceId?: string) {
-    return this.#accepts(staff) && (recordDocumentDownload(this.#store, staff, requestId, objectId, evidenceId) ||
-      (!evidenceId && recordLeadDocumentDownload(this.#store, staff, requestId, objectId)));
+  auditDocumentDownload(staff: WorkspaceStaff, requestId: string, objectId: string, evidenceId?: string, acceptedRevision?: number) {
+    return this.#accepts(staff) && (recordDocumentDownload(this.#store, staff, requestId, objectId, evidenceId, acceptedRevision) ||
+      (!evidenceId && acceptedRevision === undefined && recordLeadDocumentDownload(this.#store, staff, requestId, objectId)));
   }
 
   leadDocuments(staff: WorkspaceStaff, input: unknown) {
@@ -1288,15 +1288,17 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/documents/download") {
       const requestId = z.uuid().safeParse(url.searchParams.get("request"));
       const evidence = z.uuid().optional().safeParse(url.searchParams.get("evidence") ?? undefined);
-      if (!staff || !filesEnv.DOCUMENTS || !requestId.success || !evidence.success) return fileProblem(404, "This PDF is unavailable.");
+      const revision = z.coerce.number().int().positive().optional().safeParse(url.searchParams.get("revision") ?? undefined);
+      if (!staff || !filesEnv.DOCUMENTS || !requestId.success || !evidence.success || !revision.success ||
+        (evidence.data && revision.data !== undefined)) return fileProblem(404, "This PDF is unavailable.");
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       try {
-        const document = await workspace.downloadDocument(staff, requestId.data, evidence.data);
+        const document = await workspace.downloadDocument(staff, requestId.data, evidence.data, revision.data);
         if (!document) return fileProblem(404, "This PDF is unavailable.");
         const object = await filesEnv.DOCUMENTS.get(documentKey(staff.brokerage.id, document.objectId));
         if (!object) return fileProblem(404, "This PDF is unavailable.");
         const access = (await directory.staffBrokerages(staff.email, bootstrapEmails)).find((item) => item.id === staff?.brokerage.id);
-        if (!access || !await workspace.auditDocumentDownload({ ...staff, brokerage: access }, requestId.data, document.objectId, evidence.data)) {
+        if (!access || !await workspace.auditDocumentDownload({ ...staff, brokerage: access }, requestId.data, document.objectId, evidence.data, revision.data)) {
           await object.body.cancel();
           return fileProblem(404, "This PDF is unavailable.");
         }

@@ -1339,6 +1339,12 @@ export function initializeStore(db: Store, seedDemo = true) {
       requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE, revision INTEGER NOT NULL,
       actor TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY(requestId, revision)
     );
+    CREATE TABLE IF NOT EXISTS document_accepted_files (
+      requestId TEXT NOT NULL, revision INTEGER NOT NULL, objectId TEXT NOT NULL, uploadedAt TEXT, uploadMode TEXT,
+      PRIMARY KEY(requestId, revision),
+      FOREIGN KEY(requestId, revision) REFERENCES document_acceptances(requestId, revision) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS document_accepted_files_by_object ON document_accepted_files(objectId);
     CREATE TABLE IF NOT EXISTS condition_document_sources (
       id TEXT PRIMARY KEY, requestId TEXT NOT NULL REFERENCES document_requests(id) ON DELETE CASCADE, revision INTEGER NOT NULL,
       sourceId TEXT NOT NULL, sourceRevision INTEGER NOT NULL, kind TEXT NOT NULL, reviewedAt TEXT, reviewedBy TEXT,
@@ -1375,6 +1381,12 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TRIGGER IF NOT EXISTS condition_document_sources_deleted AFTER DELETE ON condition_document_sources BEGIN
       INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId WHERE OLD.objectId IS NOT NULL;
     END;
+    CREATE TRIGGER IF NOT EXISTS preserve_accepted_document_objects BEFORE INSERT ON document_file_cleanup
+      WHEN EXISTS (SELECT 1 FROM document_accepted_files WHERE objectId = NEW.objectId)
+      BEGIN SELECT RAISE(IGNORE); END;
+    CREATE TRIGGER IF NOT EXISTS document_accepted_files_deleted AFTER DELETE ON document_accepted_files BEGIN
+      INSERT OR IGNORE INTO document_file_cleanup SELECT OLD.objectId;
+    END;
     CREATE TABLE IF NOT EXISTS lead_document_links (
       id TEXT PRIMARY KEY, leadId TEXT NOT NULL REFERENCES referral_leads(id) ON DELETE CASCADE, tokenHash TEXT NOT NULL UNIQUE,
       codeHash TEXT NOT NULL, createdBy TEXT NOT NULL, createdAt TEXT NOT NULL, expiresAt TEXT NOT NULL, revokedAt TEXT
@@ -1405,6 +1417,13 @@ export function initializeStore(db: Store, seedDemo = true) {
     if (!db.prepare("PRAGMA table_info(document_files)").all().some(({ name }) => name === "uploadMode")) {
       db.exec("ALTER TABLE document_files ADD COLUMN uploadMode TEXT");
     }
+    // Only the current accepted revision can be safely matched to an existing PDF.
+    db.exec(`INSERT OR IGNORE INTO document_accepted_files (requestId, revision, objectId, uploadedAt, uploadMode)
+      SELECT acceptance.requestId, acceptance.revision, files.objectId, files.uploadedAt, files.uploadMode
+      FROM document_acceptances acceptance JOIN document_requests request ON request.id = acceptance.requestId
+      JOIN document_files files ON files.requestId = request.id
+      WHERE request.status = 'Accepted' AND request.revision = acceptance.revision AND files.objectId IS NOT NULL;
+      DELETE FROM document_file_cleanup WHERE objectId IN (SELECT objectId FROM document_accepted_files);`);
     // Earlier presenter scenarios seeded a request ID that staff actions reject.
     if (!db.prepare("PRAGMA table_info(borrower_upload_access)").all().some((column) => column.name === "recipient")) {
       const columns = "loanId, tokenHash, email, codeHash, codeUntil, sendWindow, sendCount, sentAt, attempts, sessionHash, sessionUntil";
@@ -1428,6 +1447,9 @@ export function initializeStore(db: Store, seedDemo = true) {
       for (const table of ["uwm_document_deliveries", "uwm_document_delivery_history", "mock_delivery_failures", "document_files"]) {
         db.prepare(`UPDATE ${table} SET requestId = ? WHERE requestId = ?`).run(newId, oldId);
       }
+      db.prepare(`INSERT INTO document_acceptances (requestId, revision, actor, at)
+        SELECT ?, revision, actor, at FROM document_acceptances WHERE requestId = ?`).run(newId, oldId);
+      db.prepare("UPDATE document_accepted_files SET requestId = ? WHERE requestId = ?").run(newId, oldId);
       db.prepare("DELETE FROM document_requests WHERE id = ?").run(oldId);
       db.prepare("UPDATE document_requests SET kind = 'Homeowners insurance' WHERE id = ?").run(newId);
     }
@@ -1607,20 +1629,26 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
     callReportFiles: includeReports ? callReportFiles(db, loanId) : null,
     mismoLoans: rows<{ loanId: string }>(db, `SELECT loanId FROM mismo_rehearsals ${where()}`, ...args).map((row) => row.loanId),
     applications: staffApplications(db, loanId),
-    documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries"> & { evidenceJson: string }>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
+    documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries"> & { evidenceJson: string; acceptedJson: string }>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
       failures.failedAt AS uwmDeliveryFailedAt, origin.revision AS templateRevision, json_extract(version.config, '$.title') AS templateTitle,
       origin.applicationRevision AS templateApplicationRevision, ${pdfColumns()},
       (SELECT json_group_array(json_object('id', link.id, 'revision', link.revision, 'sourceId', link.sourceId, 'sourceRevision', link.sourceRevision,
         'kind', link.kind, 'reviewedAt', link.reviewedAt, 'reviewedBy', link.reviewedBy, 'linkedAt', link.linkedAt, 'linkedBy', link.linkedBy,
         'pdf', json(CASE WHEN link.objectId IS NULL THEN 'false' ELSE 'true' END)))
-        FROM condition_document_sources link WHERE link.requestId = requests.id) AS evidenceJson
+        FROM condition_document_sources link WHERE link.requestId = requests.id) AS evidenceJson,
+      (SELECT json_group_array(json_object('revision', approval.revision, 'actor', approval.actor, 'at', approval.at,
+        'pdf', json(CASE WHEN retained.objectId IS NULL THEN 'false' ELSE 'true' END)))
+        FROM document_acceptances approval LEFT JOIN document_accepted_files retained
+          ON retained.requestId = approval.requestId AND retained.revision = approval.revision
+        WHERE approval.requestId = requests.id) AS acceptedJson
       FROM document_requests requests LEFT JOIN uwm_document_deliveries deliveries ON deliveries.requestId = requests.id
       LEFT JOIN document_files files ON files.requestId = requests.id
       LEFT JOIN mock_delivery_failures failures ON failures.requestId = requests.id AND failures.revision = requests.revision
       LEFT JOIN document_checklist_origins origin ON origin.requestId = requests.id
       LEFT JOIN document_checklist_versions version ON version.templateId = origin.templateId AND version.revision = origin.revision
-      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, templateApplicationRevision, evidenceJson, ...request }) =>
+      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, templateApplicationRevision, evidenceJson, acceptedJson, ...request }) =>
       ({ ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}),
+        ...(acceptedJson !== "[]" ? { acceptedVersions: JSON.parse(acceptedJson) as LoanDocumentRequest["acceptedVersions"] } : {}),
         ...(evidenceJson !== "[]" ? { evidenceLinks: JSON.parse(evidenceJson) as LoanDocumentRequest["evidenceLinks"] } : {}),
         ...(templateApplicationRevision !== null ? { templateApplicationRevision } : {}), previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
         FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),

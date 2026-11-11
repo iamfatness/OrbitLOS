@@ -75,6 +75,7 @@ export interface LoanDocumentRequest extends DocumentRequest {
   uwmDeliveryFailedAt: string | null;
   previousUwmDeliveries: { receipt: string; sentAt: string; documentRevision: number | null }[];
   evidenceLinks?: import("./condition-evidence-model").ConditionEvidenceReceipt[];
+  acceptedVersions?: { revision: number; actor: string; at: string; pdf: boolean }[];
 }
 
 export interface BorrowerLoanStatus {
