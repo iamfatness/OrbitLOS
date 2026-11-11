@@ -1,6 +1,6 @@
 # UWM webhook onboarding — OrbitLOS
 
-Updated November 10, 2026. Receivers are implemented on all three isolated hosts. **Stage is configured and passed authenticated synthetic delivery and duplicate tests for all four receivers. UWM registration and delivery from UWM remain pending.** Production and INT keys/workspaces are not configured. See [release scope and activation](uwm-release.md) for the account flows and remaining live-operation work.
+Updated November 10, 2026. Receivers are implemented on all three isolated hosts. **Stage and production are configured and passed authenticated synthetic delivery and duplicate tests for all four receivers. UWM registration and delivery from UWM remain pending.** INT is not configured. See [release scope and activation](uwm-release.md) for the account flows and remaining live-operation work.
 
 Validation: the initial publication passed its regression tests, TypeScript and ESLint. Builds and hosted checks are recorded in [release validation](uwm-release-validation.md). No delivery originating from UWM has been verified. Orbit-generated stage tests are saved as receipts 1–4 in the UWM Integration Test workspace.
 
@@ -12,7 +12,7 @@ Subject: OrbitLOS — webhook registration and end-to-end validation
 
 Hello UWM team,
 
-Our stage receivers are configured and have passed authenticated synthetic delivery and duplicate tests. Please register stage subscriptions and send synthetic events for end-to-end validation. Production URLs below are reserved for later activation; please do not activate them yet.
+Our stage and production receivers are configured and have passed authenticated synthetic delivery and duplicate tests. Please register the subscriptions for both environments and coordinate synthetic end-to-end deliveries before sending real loan events.
 
 | Subscription | Stage receiver | Production receiver |
 | --- | --- | --- |
@@ -23,7 +23,7 @@ Our stage receivers are configured and have passed authenticated synthetic deliv
 
 INT receivers use `https://dev.orbitlos.com/api/webhooks/uwm/int/{import|status|conditions|ulad}`. Each deployment accepts only its assigned UWM environment. Please confirm which environments each subscription supports before activation.
 
-Authentication: `X-API-Key: <environment-specific webhook key>` (confirmed by Sanjay Patel on November 10, 2026). The stage key is ready to share through an agreed secure channel. Production and INT keys are not yet issued. This is a dedicated inbound webhook credential, separate from our UWM OAuth client secret. Do not put credentials in the URL.
+Authentication: `X-API-Key: <environment-specific webhook key>` (confirmed by Sanjay Patel on November 10, 2026). Separate stage and production keys are ready to share through an agreed secure channel. INT is not yet enabled. This is a dedicated inbound webhook credential, separate from our UWM OAuth client secret. Do not put credentials in the URL.
 
 Content type: `application/json` for imports, dates/status and conditions; `application/xml` or `text/xml` for ULAD. Use UTF-8, uncompressed request bodies, one event/file per request. Our body limit is 1 MiB. Thank you for confirming this is sufficient; we will validate it against Phil’s export samples.
 
@@ -41,6 +41,14 @@ Please confirm:
 For validation, please send an import success and failure, an exact duplicate delivery, two updates to the same condition (including a reopen), a status/date event, and a sample ULAD file. We will verify saved receipts and correlation before enabling automatic loan updates.
 
 Thank you.
+
+## Production setup
+
+- Workspace: **OrbitLOS Production**, `ec2cceac-edb2-4513-bf32-9d6beb24caf4`, on orbitlos.com. No demo loans were copied into it.
+- Installed the production-specific Public API client credentials from Sanjay’s original November 10 email, separate token encryption key and production-only webhook mapping. Existing demo pricing credentials remain unchanged.
+- Production client authentication and four disclosure groups were verified against api.uwm.com. Personal production sign-in is separate from stage.
+- All four production receivers passed authenticated synthetic receipt and exact-duplicate tests. No actual UWM-originated delivery or production loan mutation has been verified.
+- Production key is in `.orbit/uwm-webhook-credentials.production.txt` inside the release worktree. Share only through the agreed secure channel.
 
 ## Current stage setup
 

@@ -1,3 +1,14 @@
+# Production UWM activation — November 10, 2026
+
+- Created a clean non-pilot **OrbitLOS Production** workspace, `ec2cceac-edb2-4513-bf32-9d6beb24caf4`, owned by the existing signed-in administrator. Existing demo records were not moved.
+- Located production credentials in Sanjay Patel's original email. Installed dedicated UWM_USER_* production settings, encryption key and independent production webhook key. Existing stage/demo pricing settings were preserved.
+- Published configuration version `436271c0-bd77-4164-a56a-1b24cc6e7d5c`, then corrected the misleading setup empty state in source `0fd2a5f`, version `1d61ac69-6e2c-410c-a73f-75637c265cd7`. The unconfigured card no longer suggests an in-app enable switch.
+- Production client-credentials authentication and four disclosure groups succeeded against api.uwm.com. All four production webhook types passed unauthenticated 401, authenticated durable receipt 200, exact duplicate 200 and cross-environment 404 checks. These are Orbit-generated synthetic checks, not actual UWM deliveries.
+- Production sign-in form verified in the new workspace. Personal production user login is awaiting the user; stage tokens are not reused. UWM subscription registration and real event delivery remain pending. Live pricing, pipeline sync, submissions, document delivery and locks are not enabled by this account configuration alone.
+- Typecheck, targeted ESLint and production build passed. Asset preview reached two clean 90/90 passes; live checks follow the deployment log.
+
+Earlier sections below are historical; production credential and receiver status is superseded by this section.
+
 # Integrations UI and onboarding release — November 10, 2026
 
 - Published source `38f8861` to production version `6b20cec9-7b37-4cb5-85da-5bbd689371fe` at 100%. Includes the Integrations redesign and onboarding recovery through `4a9378a`.
