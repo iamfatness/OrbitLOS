@@ -15,7 +15,8 @@ export function initializeRecoveryEdits(db:Store,directory:boolean) {
     id TEXT PRIMARY KEY,brokerageId TEXT NOT NULL REFERENCES brokerages(id),actor TEXT NOT NULL,actorEmail TEXT NOT NULL,
     at TEXT NOT NULL,command TEXT NOT NULL,beforeState TEXT NOT NULL,recordName TEXT NOT NULL,label TEXT NOT NULL,
     state TEXT NOT NULL,proof TEXT,reviewNote TEXT,reviewer TEXT,reviewedAt TEXT
-  ); CREATE INDEX IF NOT EXISTS brokerage_recovery_edits_recent ON brokerage_recovery_edits(brokerageId,at DESC,id DESC);`);
+  ); CREATE INDEX IF NOT EXISTS brokerage_recovery_edits_recent ON brokerage_recovery_edits(brokerageId,at DESC,id DESC);
+  CREATE INDEX IF NOT EXISTS brokerage_recovery_edits_pending ON brokerage_recovery_edits(brokerageId) WHERE state='Pending';`);
 }
 export function recoveryWriter(db:Store,staff:WorkspaceStaff,emails:string[]) {
   const current=activeBrokerages(db,staff.email,emails).find(row=>row.id===staff.brokerage.id);

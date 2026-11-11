@@ -60,7 +60,9 @@ import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
 import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
-import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
+import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, departureRoster, history as recordBrokerageHistory, initializeBrokerages, readStaffAccess, selectedActiveMembers } from "./lib/brokerages";
+import { readPilotSupport, readSupportRecovery } from "./lib/pilot-support";
+import { supportChanged, supportUnavailable, type SupportRecoveryState } from "./lib/pilot-support-model";
 import { assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
 import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
@@ -346,6 +348,26 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const state=maintenanceState(this.#store,staff.brokerage.id);
     return maintenanceAdmin(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])]) &&
       state.mode === "Paused" && state.revision === revision;
+  }
+  pilotSupportRecovery(staff: WorkspaceStaff, audit?: { reference: string; recovery: SupportRecoveryState }) {
+    if (this.#id !== demoBrokerageId ||
+      !maintenanceAdmin(this.#store, staff, [...(googleSettings(this.env)?.allowedEmails ?? [])])) return null;
+    const id = staff.brokerage.id;
+    const recovery = readSupportRecovery(this.#store, id);
+    if (audit) {
+      if (!z.uuid().safeParse(audit.reference).success) return null;
+      if (JSON.stringify(recovery) === JSON.stringify(audit.recovery)) {
+        recordBrokerageHistory(this.#store, id, staff.email, "Generated redacted support report", audit.reference, new Date().toISOString());
+      }
+    }
+    return recovery;
+  }
+
+  async pilotSupportSnapshot(staff: WorkspaceStaff) {
+    if (!this.#accepts(staff) || this.#id === demoBrokerageId || staff.brokerage.role !== "Admin" || !staff.brokerage.pilot) return null;
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const recovery = await directory.pilotSupportRecovery(staff);
+    return recovery ? readPilotSupport(this.#store, recovery) : null;
   }
   mayCaptureCheckpoint(staff:WorkspaceStaff,revision:number) {
     if(this.#id!==demoBrokerageId)return false;
@@ -1611,7 +1633,7 @@ async function authorized(header: string | null, password: string) {
 }
 
 guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
-  new Set(["authorizedWorkspaceRestore","saveWorkspaceRestoreOutcome","applyWorkspaceRestore","workspaceRestore","mayCaptureCheckpoint","captureWorkspaceCheckpoint","workspaceCheckpoints","maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit","authorizedRecoveryReplay","recoverWorkspaceEdit","applyWorkspaceRecoveryReplay"]));
+  new Set(["authorizedWorkspaceRestore","saveWorkspaceRestoreOutcome","applyWorkspaceRestore","workspaceRestore","mayCaptureCheckpoint","captureWorkspaceCheckpoint","workspaceCheckpoints","maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance","readMaintenanceDecisions","saveMaintenanceDecision","readWorkspaceRecoveryEdits","inspectWorkspaceRecoveryEdits","confirmWorkspaceRecoveryEdit","authorizedRecoveryReplay","recoverWorkspaceEdit","applyWorkspaceRecoveryReplay","pilotSupportSnapshot"]));
 
 export default {
   async fetch(request, env, context) {
@@ -1864,6 +1886,35 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       const headers={"Cache-Control":"private, no-store"};
       if (!staff) return Response.json({error:"Sign in to your brokerage first."},{status:403,headers});
       const identity=staff;
+      if (url.searchParams.get("support") === "1") {
+        const denied = () => Response.json({ error: "Only an active pilot admin can read this support report." }, { status: 403, headers });
+        if (url.searchParams.get("brokerage") !== identity.brokerage.id || !identity.brokerage.pilot || identity.brokerage.role !== "Admin") return denied();
+        const capture = async (expected?: string) => {
+          try {
+            const snapshot = await env.WORKSPACE.getByName(identity.brokerage.id).pilotSupportSnapshot(identity);
+            if (!snapshot) return denied();
+            const fingerprint = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+            const checkedAt = new Date().toISOString();
+            if (expected === undefined) return Response.json({ checkedAt, fingerprint, snapshot }, { headers });
+            if (expected !== fingerprint) return Response.json({ error: supportChanged }, { status: 409, headers });
+            const reference = crypto.randomUUID();
+            const recovery = await directory.pilotSupportRecovery(identity, { reference, recovery: snapshot.recovery });
+            if (!recovery) return denied();
+            if (JSON.stringify(recovery) !== JSON.stringify(snapshot.recovery)) return Response.json({ error: supportChanged }, { status: 409, headers });
+            return Response.json({ schemaVersion: 1, reference, checkedAt, snapshot }, {
+              headers: { ...headers, "Content-Disposition": 'attachment; filename="orbit-pilot-support.json"' },
+            });
+          } catch {
+            return Response.json({ error: supportUnavailable }, { status: 503, headers });
+          }
+        };
+        if (request.method === "GET") return capture();
+        if (request.method === "POST") return borrowerJson(request, async raw => {
+          const parsed = z.object({ fingerprint: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(raw);
+          return parsed.success ? capture(parsed.data.fingerprint) : { status: 400, error: "Preview the report before downloading." };
+        }, 1024);
+        return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      }
       if(request.method==="POST"&&url.searchParams.get("restore")==="1")return borrowerJson(request,async input=>{
         try{return {value:await directory.workspaceRestore(identity,input)};}
         catch(error){return {status:409,error:error instanceof Error?error.message:"Restore outcome unavailable. Check the saved request before retrying."};}

@@ -8,6 +8,8 @@ registerHooks({resolve(specifier,context,next){try{return next(specifier,context
 const {initializeBrokerages}=await import("../src/lib/brokerages.ts");
 const {initializeMaintenance,maintenanceState,changeMaintenance,markMaintenanceDrained,maintenanceView,recordMaintenanceDecision,maintenanceDecisions}=await import("../src/lib/workspace-maintenance.ts");
 const {WorkspaceMaintenanceGate,guardWorkspaceMethods}=await import("../src/lib/workspace-maintenance-gate.ts");
+const {initializeRecoveryEdits}=await import("../src/lib/recovery-edits.ts");
+const {readPilotSupport,readSupportRecovery}=await import("../src/lib/pilot-support.ts");
 function fixture() {
   const sqlite=new DatabaseSync(":memory:");
   const db={exec:q=>sqlite.exec(q),prepare:q=>sqlite.prepare(q),transaction:run=>{
@@ -64,6 +66,41 @@ test("live brokerages and revoked admins cannot operate pilot maintenance",()=>{
     db.prepare("UPDATE brokerages SET pilot=1 WHERE id=?").run(staff.brokerage.id);
     db.prepare("UPDATE brokerage_members SET status='Revoked'").run();
     assert.ok(changeMaintenance(db,staff,[],pause).error);
+  }finally{close();}
+});
+test("the pilot support snapshot counts bounded saved work without copying private values",()=>{
+  const {db,staff,close}=fixture();try{
+    initializeRecoveryEdits(db,true);
+    const id=staff.brokerage.id;
+    const pause={type:"pause",revision:0,reason:"Private maintenance note.",confirmation:staff.brokerage.name};
+    assert.equal(changeMaintenance(db,staff,[],pause).state.mode,"Pausing");
+    markMaintenanceDrained(db,id,1);
+    db.prepare(`INSERT INTO brokerage_recovery_edits (id,brokerageId,actor,actorEmail,at,command,beforeState,recordName,label,state)
+      VALUES ('private-edit',?,'Private staff','private@example.test','2026-11-11','private command','{}','Private borrower','Private request','Pending')`).run(id);
+    db.exec(`CREATE TABLE loans(id TEXT PRIMARY KEY,disposition TEXT,stage TEXT);
+      CREATE TABLE loan_processing(loanId TEXT PRIMARY KEY,status TEXT,processorEmail TEXT,note TEXT,updatedAt TEXT);
+      CREATE TABLE uwm_live_requests(state TEXT,result TEXT,action TEXT);
+      CREATE TABLE uwm_operations(state TEXT,transactionId TEXT);
+      INSERT INTO loans VALUES ('private-loan-a','Active','Processing'),('private-loan-b','Active','Processing'),
+        ('private-loan-c','Active','Processing'),('private-loan-d','Active','Funded');
+      INSERT INTO loan_processing VALUES ('private-loan-a','Ready for processing','private@example.test','Private note','2026-11-11'),
+        ('private-loan-b','Returned to LO','private@example.test','Private note','2026-11-11'),
+        ('private-loan-c','Unassigned',NULL,'Private note','2026-11-11'),
+        ('private-loan-d','Ready for processing','private@example.test','Private note','2026-11-11');
+      INSERT INTO uwm_operations VALUES ('Prepared','private transaction'),('Acknowledged','private transaction'),('Unknown','private transaction'),('Rejected','private transaction');
+      INSERT INTO uwm_live_requests VALUES ('Rejected','old private payload','submit-documents');
+      WITH RECURSIVE items(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM items WHERE i<198)
+      INSERT INTO uwm_live_requests SELECT 'Completed','private payload','submit-documents' FROM items;
+      INSERT INTO uwm_live_requests VALUES ('Dispatching','private payload','submit-documents'),('Acknowledged','private payload','prepare-import'),
+        ('Unknown','private payload','submit-documents'),('Unknown','private payload','reconcile-request');`);
+    const recovery=readSupportRecovery(db,id);
+    assert.deepEqual(recovery,{mode:"Paused",revision:2,pendingRestore:false,pendingReplay:false,pendingEditReceipt:true});
+    assert.equal(readSupportRecovery(db,"independent-brokerage").pendingEditReceipt,false);
+    const report=readPilotSupport(db,recovery);
+    assert.deepEqual(report.processing,{sampled:4,limited:false,awaitingAcceptance:1,returnedToOfficer:1,unassigned:1});
+    assert.deepEqual(report.lenderRequests,{sampled:200,limited:true,awaitingOutcome:1,needsReconciliation:1,unsuccessful:0});
+    assert.deepEqual(report.lenderOperations,{sampled:4,limited:false,awaitingOutcome:2,needsReconciliation:1,unsuccessful:1});
+    assert.doesNotMatch(JSON.stringify(report),/private|example\.test|private-loan/i);
   }finally{close();}
 });
 test("pause refuses new methods while allowing a started promise to finish",async()=>{

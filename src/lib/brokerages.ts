@@ -90,7 +90,7 @@ export function activateBrokerages(db: Store, staff: StaffIdentity, bootstrapEma
   });
 }
 
-function history(db: Store, id: string, actor: string, action: string, subject: string, now: string) {
+export function history(db: Store, id: string, actor: string, action: string, subject: string, now: string) {
   db.prepare("INSERT INTO brokerage_access_history VALUES (?, ?, ?, ?, ?, ?)").run(crypto.randomUUID(), id, actor, action, subject, now);
 }
 

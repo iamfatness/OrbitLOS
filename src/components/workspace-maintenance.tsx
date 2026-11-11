@@ -9,6 +9,7 @@ import { MaintenanceInspectionPanel } from "./maintenance-inspection";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { brokerageUrl } from "@/lib/brokerage-model";
 import { maintenanceChecks, type MaintenanceView } from "@/lib/workspace-maintenance-model";
+import { PilotSupportReport } from "./pilot-support-report";
 
 export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
   const [view,setView]=useState<MaintenanceView|null>(null);
@@ -92,6 +93,7 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
         {reviewBlocked&&<p className="application-message" role="status">
           {view.pendingRestore?"Verify the pending restore before recording a reopening review.":"Resolve the pending internal edit recovery before recording a reopening review."}
         </p>}
+        <PilotSupportReport endpoint={endpoint}/>
         <ol className="maintenance-steps" aria-label="Maintenance steps">{[[PauseCircle,"Pause activity"],[ShieldCheck,"Review outcome"],[CheckCircle2,"Reopen workspace"]].map(([Icon,label],index)=>{
           const Symbol=Icon as typeof PauseCircle;
           const step=view.mode==="Open"?0:view.reviewedAt?2:1;

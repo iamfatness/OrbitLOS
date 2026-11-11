@@ -187,7 +187,10 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     {!settings && !error && <p className="muted" role="status">Loading team…</p>}
     {(!admin || activePanel === "Workspaces") && <section className="pipeline relationship-panel" aria-label="Brokerage workspaces">
       <div className="section-heading"><h2>{staff.brokerage.name}</h2><span className="pill">{pilot ? "Pilot · " : ""}{staff.brokerage.role}</span></div>
-      {admin && pilot && <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}`}>Workspace maintenance</a></Button>}
+      {admin && pilot && <div className="loan-application-actions">
+        <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}`}>Workspace maintenance</a></Button>
+        <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}#pilot-support-report`}>Support report</a></Button>
+      </div>}
       <p className="muted">Current workspace · {canUseSampleTools ? "Fictional data and practice workflows" : "Operational workspace"}</p>
       <p className="muted">Switching here sets your default workspace in this browser.</p>
       <div className="loan-application-actions">
