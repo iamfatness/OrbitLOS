@@ -48,6 +48,7 @@ export interface BrokerageSettings {
   pilotMetrics?: { label: string; count: number; minutes: number | null }[];
   pilotMeasurements?: PilotMeasurement[];
   pilotBenchmarks?: PilotBenchmark[];
+  pendingPilotBenchmarks?: PendingPilotBenchmark[];
 }
 
 export const pilotSteps = ["Referral and intake", "New lead and 1003", "Pricing", "Documents", "UWM conditions", "Closing and funding", "CRM and follow-up", "Access and recovery", "Other"] as const;
@@ -77,7 +78,13 @@ export interface PilotHandling {
 }
 export interface PilotBenchmarkRun extends PilotRunMetrics {
   handling?: PilotHandling;
+  notes?: string;
+  outcome?: "Completed" | "Blocked";
 }
+export type PilotBenchmarkSide = "orbit" | "baseline";
+export const pilotBenchmarkWorkflow: Record<PilotBenchmarkSide, string> = {
+  orbit: "Orbit", baseline: "Current brokerage workflow",
+};
 export interface PilotMeasurement extends PilotRunMetrics {
   id: string;
   walkthrough: PilotWalkthrough;
@@ -91,6 +98,14 @@ export interface PilotBenchmark {
   orbit: PilotBenchmarkRun;
   baseline: PilotBenchmarkRun;
   createdAt: string;
+}
+
+export interface PendingPilotBenchmark {
+  id: string;
+  walkthrough: PilotWalkthrough;
+  caseLabel: string;
+  side: PilotBenchmarkSide;
+  run: PilotBenchmarkRun;
 }
 
 export interface DemoGuideState {

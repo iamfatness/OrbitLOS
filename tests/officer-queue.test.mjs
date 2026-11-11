@@ -537,6 +537,48 @@ test("paired pilot measurements preserve legacy runs, distinguish zero from miss
   assert.deepEqual(rows.find(({ id }) => id === pair.id).orbit, pair.orbit);
   assert.deepEqual(rows.find(({ id }) => id === pair.id).baseline, pair.baseline);
   assert.deepEqual(pilotReview(outside.db).pilotBenchmarks, []);
+
+  db.exec("DROP TABLE pilot_benchmark_runs");
+  initializeStore(db, false);
+  const start = { type: "recordPilotBenchmarkRun", action: "start", id: crypto.randomUUID(),
+    walkthrough: pair.walkthrough, caseLabel: "Fictional workflow comparison", side: "baseline",
+    run: { ...pair.baseline, notes: "Manually checked the sample submission." } };
+  const finish = { type: start.type, action: "finish", id: start.id, side: "orbit",
+    run: { ...pair.orbit, outcome: "Blocked", notes: "Waiting for the mock provider contract." } };
+  const save = (input) => recordPilotMeasurement(db, admin, input);
+  assert.match(save(finish).error, /changed/);
+  assert.match(save(start).message, /First run saved/);
+  assert.match(save(start).message, /First run saved/);
+  assert.match(save({ ...start, run: { ...start.run, repeatEntries: 0 } }).error, /changed/);
+  assert.match(save({ ...pair, id: start.id }).error, /already exists/);
+  assert.equal(pilotReview(db).pilotBenchmarks.length, 2);
+  assert.deepEqual(pilotReview(db).pendingPilotBenchmarks, [{ id: start.id, walkthrough: start.walkthrough,
+    caseLabel: start.caseLabel, side: "baseline", run: start.run }]);
+  assert.deepEqual(pilotReview(outside.db).pendingPilotBenchmarks, []);
+  assert.match(recordPilotMeasurement(outside.db, admin, finish).error, /changed/);
+  assert.match(recordPilotMeasurement(db, officer, finish).error, /pilot admin/);
+  assert.match(save({ ...finish, side: start.side }).error, /changed/);
+  assert.match(save({ ...finish, run: { ...finish.run, notes: " " } }).error, /what blocked/);
+  assert.match(save(finish).message, /Paired benchmark/);
+  assert.match(save(finish).message, /Paired benchmark/);
+  assert.match(save(start).message, /Paired benchmark/);
+  assert.match(save({ ...finish, run: { ...finish.run, seconds: 241 } }).error, /changed/);
+  assert.deepEqual(pilotReview(db).pendingPilotBenchmarks, []);
+  const saved = pilotReview(db).pilotBenchmarks.find(({ id }) => id === start.id);
+  assert.deepEqual(saved.orbit, finish.run);
+  assert.deepEqual(saved.baseline, start.run);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM pilot_benchmarks").get().n, 2);
+
+  const next = { ...start, id: crypto.randomUUID(), side: "orbit" };
+  const discard = { type: next.type, action: "discard", id: next.id };
+  assert.ok(save(next).message);
+  assert.match(save(discard).message, /discarded/);
+  assert.match(save(discard).message, /discarded/);
+  assert.match(save(next).error, /changed/);
+  assert.match(save({ ...finish, id: next.id, side: "baseline" }).error, /changed/);
+  assert.deepEqual(pilotReview(db).pendingPilotBenchmarks, []);
+  assert.deepEqual({ ...db.prepare("SELECT caseLabel, orbit, baseline FROM pilot_benchmark_runs WHERE id = ?").get(next.id) },
+    { caseLabel: "", orbit: null, baseline: null });
 });
 
 test("the presenter scenario reseeds dated work and report outcomes without duplicating or crossing the fixture", async (t) => {

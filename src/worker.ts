@@ -2091,7 +2091,8 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           const result = await workspace.pilotTriage(staff, parsed.data);
           return "error" in result ? { status: 409, error: result.error } : { value: result };
         }
-        if (input && typeof input === "object" && "type" in input && input.type === "recordPilotMeasurement") {
+        if (input && typeof input === "object" && "type" in input &&
+          (input.type === "recordPilotMeasurement" || input.type === "recordPilotBenchmarkRun")) {
           if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin") return { status: 403, error: "Only a pilot admin can record measurements." };
           const result = await workspace.pilotMeasurement(staff, input);
           return "error" in result ? { status: 409, error: result.error } : { value: result };

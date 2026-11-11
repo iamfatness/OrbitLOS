@@ -85,7 +85,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     finally { setBusy(false); }
   }
 
-  async function change(action: Record<string, unknown>, reset?: () => void) {
+  async function change(action: Record<string, unknown>, reset?: () => void, onError?: (message: string) => void) {
     setBusy(true);
     setError("");
     setMessage("");
@@ -107,9 +107,9 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       }
       if (action.type === "loadPilotScenario" || action.type === "loadPilotExploration" || action.type === "role" || action.type === "revoke") await refresh();
       await reloadTeam();
-      setMessage(result.message ?? "Saved.");
+      if (!onError) setMessage(result.message ?? "Saved.");
       reset?.();
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Orbit could not save this change."); }
+    } catch (failure) { (onError ?? setError)(failure instanceof Error ? failure.message : "Orbit could not save this change."); }
     finally { setBusy(false); }
   }
 
@@ -275,7 +275,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       <h2>Pilot measurements</h2>
       <ul>{settings.pilotMetrics?.map((item) => <li key={item.label}>{item.label} · {item.minutes === null ? "No completed samples" :
         `${item.minutes.toFixed(1)} min average across ${item.count} completed samples`}</li>)}</ul>
-      <PilotBenchmarks benchmarks={settings.pilotBenchmarks ?? []} busy={busy} save={change} />
+      <PilotBenchmarks benchmarks={settings.pilotBenchmarks ?? []} pending={settings.pendingPilotBenchmarks ?? []} busy={busy} save={change} />
       <details className="loan-task-create"><summary>Record a timed walkthrough</summary>
         <form className="record-form" onSubmit={(event) => {
           event.preventDefault();

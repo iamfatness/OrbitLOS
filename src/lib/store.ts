@@ -640,6 +640,14 @@ export function initializeStore(db: Store, seedDemo = true) {
       id TEXT PRIMARY KEY, walkthrough TEXT NOT NULL, caseLabel TEXT NOT NULL,
       orbit TEXT NOT NULL, baseline TEXT NOT NULL, createdAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS pilot_benchmark_runs (
+      id TEXT PRIMARY KEY, walkthrough TEXT NOT NULL, caseLabel TEXT NOT NULL,
+      orbit TEXT, baseline TEXT, createdAt TEXT NOT NULL, completedAt TEXT, discardedAt TEXT
+    );
+    CREATE INDEX IF NOT EXISTS pilot_benchmark_runs_pending
+      ON pilot_benchmark_runs(createdAt DESC) WHERE discardedAt IS NULL AND completedAt IS NULL;
+    CREATE INDEX IF NOT EXISTS pilot_benchmark_runs_completed
+      ON pilot_benchmark_runs(completedAt DESC) WHERE completedAt IS NOT NULL;
     CREATE TABLE IF NOT EXISTS mock_credit_aus_runs (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       service TEXT NOT NULL CHECK (service IN ('Credit', 'DU', 'LPA')), reference TEXT NOT NULL,

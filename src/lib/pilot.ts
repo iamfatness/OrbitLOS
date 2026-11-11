@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, portalToken,
-  type PilotBenchmark, type PilotFeedback, type PilotMeasurement, type PilotScenario } from "./brokerage-model";
+  type PendingPilotBenchmark, type PilotBenchmark, type PilotBenchmarkRun, type PilotFeedback, type PilotMeasurement, type PilotScenario } from "./brokerage-model";
 import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import { insertContact, insertLoan, type Store } from "./store";
 import { easternDate, synchronizeRetentionTasks } from "./client-retention";
@@ -48,18 +48,31 @@ const pilotBenchmarkRun = z.object({
     waitingSeconds: optionalSeconds,
     staffHandoffs: z.number().int().nonnegative().max(2000).optional(),
   }).optional(),
+  notes: z.string().trim().max(800).optional(),
+  outcome: z.enum(["Completed", "Blocked"]).optional(),
 });
 const pilotMeasurementBase = z.object({
   type: z.literal("recordPilotMeasurement"), id: z.uuid(), walkthrough: z.enum(pilotWalkthroughs),
 });
+const legacyBenchmarkRun = pilotBenchmarkRun.omit({ notes: true, outcome: true });
 const pilotMeasurementInput = z.union([
   pilotMeasurementBase.extend({
-    caseLabel: z.string().trim().min(2).max(80), orbit: pilotBenchmarkRun, baseline: pilotBenchmarkRun,
+    caseLabel: z.string().trim().min(2).max(80), orbit: legacyBenchmarkRun, baseline: legacyBenchmarkRun,
   }),
   pilotMeasurementBase.extend({
     workflow: z.enum(["Orbit", "Current brokerage workflow"]), ...pilotRunMetrics,
   }),
 ]);
+const benchmarkRunAction = z.object({ type: z.literal("recordPilotBenchmarkRun"), id: z.uuid() });
+const benchmarkRunInput = z.discriminatedUnion("action", [
+  benchmarkRunAction.extend({ action: z.literal("start"), walkthrough: z.enum(pilotWalkthroughs),
+    caseLabel: z.string().trim().min(2).max(80), side: z.enum(["orbit", "baseline"]), run: pilotBenchmarkRun }),
+  benchmarkRunAction.extend({ action: z.literal("finish"), side: z.enum(["orbit", "baseline"]), run: pilotBenchmarkRun }),
+  benchmarkRunAction.extend({ action: z.literal("discard") }),
+]);
+
+const waitingTimeInvalid = (run: PilotBenchmarkRun) => (run.handling?.waitingSeconds ?? 0) > run.seconds;
+const missingBlocker = (run: PilotBenchmarkRun) => run.outcome === "Blocked" && !run.notes;
 
 function scenarioRow(db: Store) {
   return db.prepare("SELECT id, realtorId, loanId, loadedAt, officerEmail, presenter FROM pilot_scenario WHERE singleton = 1").get();
@@ -131,11 +144,18 @@ export function pilotReview(db: Store) {
   });
   const pilotMeasurements = db.prepare("SELECT * FROM pilot_measurements ORDER BY createdAt DESC, rowid DESC LIMIT 100")
     .all().map((item) => ({ ...item }) as unknown as PilotMeasurement);
-  const pilotBenchmarks = db.prepare("SELECT * FROM pilot_benchmarks ORDER BY createdAt DESC, rowid DESC LIMIT 30").all().map((item): PilotBenchmark => ({
+  const pilotBenchmarks = db.prepare(`SELECT id, walkthrough, caseLabel, orbit, baseline, createdAt FROM pilot_benchmarks
+    UNION ALL SELECT id, walkthrough, caseLabel, orbit, baseline, completedAt AS createdAt FROM pilot_benchmark_runs
+    WHERE completedAt IS NOT NULL ORDER BY createdAt DESC, id DESC LIMIT 30`).all().map((item): PilotBenchmark => ({
     id: String(item.id), walkthrough: item.walkthrough as PilotBenchmark["walkthrough"], caseLabel: String(item.caseLabel),
     orbit: JSON.parse(String(item.orbit)), baseline: JSON.parse(String(item.baseline)), createdAt: String(item.createdAt),
   }));
-  return { pilotScenario, pilotFeedback, pilotMetrics, pilotMeasurements, pilotBenchmarks };
+  const pendingPilotBenchmarks = db.prepare(`SELECT id, walkthrough, caseLabel, orbit, baseline FROM pilot_benchmark_runs
+    WHERE discardedAt IS NULL AND completedAt IS NULL ORDER BY createdAt DESC, rowid DESC LIMIT 30`).all().map((item): PendingPilotBenchmark => ({
+    id: String(item.id), walkthrough: item.walkthrough as PendingPilotBenchmark["walkthrough"], caseLabel: String(item.caseLabel),
+    side: item.orbit === null ? "baseline" : "orbit", run: JSON.parse(String(item.orbit ?? item.baseline)),
+  }));
+  return { pilotScenario, pilotFeedback, pilotMetrics, pilotMeasurements, pilotBenchmarks, pendingPilotBenchmarks };
 }
 
 export function trackPilotBorrower(db: Store, realtorId: string, contactId: string) {
@@ -345,15 +365,21 @@ export function triagePilotFeedback(db: Store, staff: WorkspaceStaff, input: unk
 }
 
 export function recordPilotMeasurement(db: Store, staff: WorkspaceStaff, input: unknown): PilotMutation {
+  if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin") return { error: "Only a pilot admin can record measurements." };
+  const benchmark = benchmarkRunInput.safeParse(input);
+  if (benchmark.success) return recordBenchmarkRun(db, staff, benchmark.data);
   const parsed = pilotMeasurementInput.safeParse(input);
-  if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin" || !parsed.success) return { error: "Check the walkthrough and measurement fields." };
+  if (!parsed.success) return { error: "Check the walkthrough and measurement fields." };
   const measurement = parsed.data;
   const { id, walkthrough } = measurement;
-  if ("caseLabel" in measurement && [measurement.orbit, measurement.baseline].some((run) => (run.handling?.waitingSeconds ?? 0) > run.seconds)) {
+  if ("caseLabel" in measurement && [measurement.orbit, measurement.baseline].some(waitingTimeInvalid)) {
     return { error: "Waiting time must fit within the elapsed time for each run." };
   }
   return db.transaction(() => {
     if ("caseLabel" in measurement) {
+      if (db.prepare("SELECT 1 FROM pilot_benchmark_runs WHERE id = ?").get(id)) {
+        return { error: "This benchmark already exists. Refresh Pilot tools to check the saved runs." };
+      }
       const { caseLabel, orbit, baseline } = measurement;
       const orbitJson = JSON.stringify(orbit);
       const baselineJson = JSON.stringify(baseline);
@@ -376,5 +402,50 @@ export function recordPilotMeasurement(db: Store, staff: WorkspaceStaff, input: 
       accessEvent(db, staff, "Recorded pilot walkthrough measurement", id, now);
     }
     return { message: "Walkthrough measurement recorded." };
+  });
+}
+
+function recordBenchmarkRun(db: Store, staff: WorkspaceStaff, input: z.infer<typeof benchmarkRunInput>): PilotMutation {
+  const { id, action } = input;
+  if (action !== "discard" && waitingTimeInvalid(input.run)) return { error: "Waiting time must fit within the elapsed time." };
+  if (action !== "discard" && missingBlocker(input.run)) return { error: "Describe what blocked the run before saving." };
+  const changed = { error: "This benchmark changed. Refresh Pilot tools to check the saved runs." };
+  const firstSaved = { message: "First run saved. Add the matching run when it’s ready." };
+  const complete = { message: "Paired benchmark recorded." };
+  const discarded = { message: "First run discarded." };
+  return db.transaction(() => {
+    const existing = db.prepare("SELECT * FROM pilot_benchmark_runs WHERE id = ?").get(id);
+    const now = new Date().toISOString();
+    if (action === "discard") {
+      if (!existing || existing.completedAt) return changed;
+      if (existing.discardedAt) return discarded;
+      db.prepare("UPDATE pilot_benchmark_runs SET discardedAt = ?, caseLabel = '', orbit = NULL, baseline = NULL WHERE id = ?").run(now, id);
+      accessEvent(db, staff, "Discarded incomplete pilot benchmark", id, now);
+      return discarded;
+    }
+    if (existing?.discardedAt) return changed;
+    const run = JSON.stringify(input.run);
+    if (existing?.completedAt) {
+      const sameCase = action === "finish" || (existing.walkthrough === input.walkthrough && existing.caseLabel === input.caseLabel);
+      return sameCase && existing[input.side] === run ? complete : changed;
+    }
+    if (action === "start") {
+      const { caseLabel, walkthrough, side } = input;
+      if (existing) {
+        return existing.caseLabel === caseLabel && existing.walkthrough === walkthrough && existing[side] === run
+          ? firstSaved : changed;
+      }
+      if (db.prepare("SELECT 1 FROM pilot_benchmarks WHERE id = ?").get(id)) return changed;
+      db.prepare(`INSERT INTO pilot_benchmark_runs (id, walkthrough, caseLabel, orbit, baseline, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?)`).run(id, walkthrough, caseLabel, side === "orbit" ? run : null, side === "baseline" ? run : null, now);
+      accessEvent(db, staff, "Recorded first pilot benchmark run", id, now);
+      return firstSaved;
+    }
+    if (!existing || existing[input.side] !== null) return changed;
+    const orbit = input.side === "orbit" ? run : existing.orbit;
+    const baseline = input.side === "baseline" ? run : existing.baseline;
+    db.prepare("UPDATE pilot_benchmark_runs SET orbit = ?, baseline = ?, completedAt = ? WHERE id = ?").run(orbit, baseline, now, id);
+    accessEvent(db, staff, "Recorded paired pilot benchmark", id, now);
+    return complete;
   });
 }
