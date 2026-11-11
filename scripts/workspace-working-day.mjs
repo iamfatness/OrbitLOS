@@ -71,6 +71,16 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
   releaseOwnerLookup() {this.releaseOwner?.();this.ownerLookupHold=null;}
   async leadOwner(...args) {if(this.ownerLookupHold){this.ownerLookupEntered=true;await this.ownerLookupHold;}return super.leadOwner(...args);}
   restartMaintenanceFixture() { this.ctx.abort("Fictional maintenance restart"); }
+  async directoryPauseAlarmProbe() {
+    const prior = await this.ctx.storage.getAlarm();
+    try {
+      await this.alarm();
+      return await this.ctx.storage.getAlarm();
+    } finally {
+      if (prior === null) await this.ctx.storage.deleteAlarm();
+      else await this.ctx.storage.setAlarm(prior);
+    }
+  }
   async rejectedMaintenanceAlarm() {
     try {await this.alarm();return "Unexpectedly allowed";}catch(error){return error.message;}
   }
@@ -90,6 +100,7 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     storage.sql.exec("UPDATE document_reminder_schedule SET nextAt = ? WHERE id = 1", Date.now() - 1000);
   }
 }`;
+const { directoryPauseKey } = await import("../src/lib/directory-traffic-pause.ts");
 const runtime = new Miniflare({ ...convertV4MiniflareOptions({
   name: "orbit-working-day", host: "127.0.0.1",
   modules: [{ type: "ESModule", path: join(server, "working-day-entry.mjs"), contents: fixtureScript },
@@ -3735,6 +3746,28 @@ try {
     assert.equal((await postResponse(endpoint+"&checkpoints=1",{action:"list",revision:view.revision-1},owner)).status,409);
     view=await post(endpoint,{type:"review",revision:view.revision,review:"Verified bounded full SQL checkpoint inspection and access checks.",checks:[true,true,true]},owner);
     assert.equal((await post(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
+  });
+  await stage("Directory traffic pause blocks new staff and portal work and defers alarms",async()=>{
+    const bucket=await runtime.getR2Bucket("DOCUMENTS");
+    const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
+    const response=()=>runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}});
+    assert.equal((await response()).status,200);
+    await bucket.put(directoryPauseKey,"Fictional exercise");
+    try {
+      const blocked=await response();
+      assert.equal(blocked.status,503);
+      assert.equal(blocked.headers.get("X-Orbit-Maintenance"),"directory-recovery");
+      assert.equal(blocked.headers.get("Retry-After"),"60");
+      for(const path of ["/api/demo-application","/api/realtor-referrals","/api/webhooks/uwm/stage/import","/api/demo-request"]){
+        assert.equal((await postResponse(path,{},owner)).status,503);
+      }
+      const start=Date.now();
+      const rescheduled=await workspaces.getByName(brokerage).directoryPauseAlarmProbe();
+      assert(rescheduled>=start+60000 && rescheduled<=Date.now()+60000);
+    } finally {
+      await bucket.delete(directoryPauseKey);
+    }
+    assert.equal((await response()).status,200);
   });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],

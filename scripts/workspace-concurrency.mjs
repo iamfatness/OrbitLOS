@@ -167,6 +167,7 @@ function start() {
     compatibilityDate: config.compatibility_date, compatibilityFlags: config.compatibility_flags,
     bindings: { ...config.vars, ORBIT_AUTH_MODE: "google", GOOGLE_CLIENT_ID: "local-fixture", GOOGLE_CLIENT_SECRET: "local-fixture", ORBIT_STAFF_EMAILS: bootstrap },
     serviceBindings: { ASSETS: () => new Response(null, { status: 404 }) },
+    r2Buckets: { DOCUMENTS: "concurrency-fictional-documents" },
     durableObjects: { WORKSPACE: { className: "BenchmarkWorkspace", useSQLite: true } },
     resourcePersistencePath: persistence,
   }), telemetry: { enabled: false } });

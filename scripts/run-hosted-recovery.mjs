@@ -14,8 +14,8 @@ catch(error) {if(error.code!=="ENOENT")throw error;}
 assert.ok(Array.isArray(evidence)&&evidence.every(item=>item.run===run.run&&item.source===run.source),"Evidence belongs to another run");
 const anonymous=await fetch(new URL('/__recovery',url),{method:'POST',body:'initialize'});
 assert.equal(anonymous.status,404);
-const steps=['initialize','checkpoint','prepareChange','interrupt','restartInterrupted','reconcile','change','arm','restart','verify','replay','restartReplay','verifyReplay','directoryPrepare','directoryArmOld','directoryRejectOld','directoryRecover','directoryVerify','cleanup'];
-const phases=['new','initialized','checkpointed','prepared','interrupted','reconciled','changed','armed','restarted','verified','replayed','replayRestarted','replayVerified','directoryPrepared','directoryOldArmed','directoryOldRejected','directoryRecoveryArmed','directoryVerified','cleaned'];
+const steps=['initialize','checkpoint','prepareChange','interrupt','restartInterrupted','reconcile','change','arm','restart','verify','replay','restartReplay','verifyReplay','directoryPrepare','directoryArmOld','directoryRejectOld','directoryRecover','directoryVerify','directoryResume','cleanup'];
+const phases=['new','initialized','checkpointed','prepared','interrupted','reconciled','changed','armed','restarted','verified','replayed','replayRestarted','replayVerified','directoryPrepared','directoryOldArmed','directoryOldRejected','directoryRecoveryArmed','directoryVerified','directoryResumed','cleaned'];
 const statusResponse=await fetch(new URL('/__recovery',url),{method:'POST',headers:{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`},body:'status'});
 assert.equal(statusResponse.status,200);
 const current=await statusResponse.json();assert.equal(current.run,run.run);assert.equal(current.source,run.source);

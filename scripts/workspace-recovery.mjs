@@ -79,6 +79,7 @@ function start(path, modules) {
     bindings: { ORBIT_AUTH_MODE: "google", GOOGLE_CLIENT_ID: "local-fixture", GOOGLE_CLIENT_SECRET: "local-fixture",
       ORBIT_STAFF_EMAILS: bootstrap, ORBIT_DOCUMENT_UPLOADS: "mock" },
     serviceBindings: { ASSETS: () => new Response(null, { status: 404 }) },
+    r2Buckets: { DOCUMENTS: "recovery-fictional-documents" },
     durableObjects: { WORKSPACE: { className: "RecoveryWorkspace", useSQLite: true } },
     resourcePersistencePath: path,
   }), telemetry: { enabled: false } });

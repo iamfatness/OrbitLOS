@@ -23,6 +23,7 @@ const runtime=new Miniflare({...convertV4MiniflareOptions({name:'orbit-scenario-
   serviceBindings:{ASSETS:async request=>{const path=resolve(client,'.'+decodeURIComponent(new URL(request.url).pathname));
     if(!path.startsWith(client+sep))return new Response(null,{status:404});
     try{return new Response(await readFile(path),{headers:{'Content-Type':({'.js':'text/javascript','.css':'text/css','.woff2':'font/woff2','.png':'image/png','.svg':'image/svg+xml'})[extname(path)]??'application/octet-stream'}});}catch{return new Response(null,{status:404});}}},
+    r2Buckets: { DOCUMENTS: "scenario-fictional-documents" },
   durableObjects:{WORKSPACE:{className:'OrbitWorkspace',useSQLite:true}},
 }),telemetry:{enabled:false}});
 try {

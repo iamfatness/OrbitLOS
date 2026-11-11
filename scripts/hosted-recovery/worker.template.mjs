@@ -472,7 +472,7 @@ async function command(action, env, origin, ctx) {
     state.phase="replayVerified";
     Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true,undispatchedEditNotAcknowledged:true,
       lostAcknowledgmentReconciledAfterRestart:true,reviewedEditReplayed:true,operatorRecoveredChain:true});
-  } else if (action === "cleanup" && state.phase === "replayVerified" && journal?.phase === "directoryVerified") {
+  } else if (action === "cleanup" && state.phase === "replayVerified" && journal?.phase === "directoryResumed") {
     for(const file of state.lenderEvidence.files)await target.probeCleanup(file);
     state.phase = "cleaned";
     Object.assign(state.result,journal.evidence);
@@ -489,7 +489,7 @@ const recoveryWorker = {
     if (url.pathname === "/__recovery" && request.method === "POST") {
       if (Number(request.headers.get("Content-Length")||0)>128) return new Response("Too large",{status:413});
       const action = await request.text();
-      if (!["status","initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change","arm","restart","verify","replay","restartReplay","verifyReplay","directoryPrepare","directoryArmOld","directoryRejectOld","directoryRecover","directoryVerify","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
+      if (!["status","initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change","arm","restart","verify","replay","restartReplay","verifyReplay","directoryPrepare","directoryArmOld","directoryRejectOld","directoryRecover","directoryVerify","directoryResume","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
       try { return Response.json(await command(action,env,url.origin,ctx),{headers:{"Cache-Control":"no-store"}}); }
       catch(error) { return Response.json({error:error.message},{status:409,headers:{"Cache-Control":"no-store"}}); }
     }

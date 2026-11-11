@@ -1,3 +1,4 @@
+import { directoryPauseResponse, directoryPauseRetrySeconds, directoryTrafficPaused } from "./lib/directory-traffic-pause";
 import {restorePreviewInput,restoreStartInput} from "./lib/workspace-restore-model";
 import {restoreSourceMatches,restoreStateHash,restoreAccess,restoreCheckpoint,previewRestore,priorRestore,reserveRestore,readRestoreJob,authorizedRestore,recordRestoreOutcome} from "./lib/workspace-restore";
 import {captureCheckpointFiles,verifyCheckpointFiles} from "./lib/recovery-checkpoint-files";
@@ -1140,6 +1141,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   async alarm() {
+    if (await directoryTrafficPaused(this.#documents)) {
+      await this.ctx.storage.setAlarm(Date.now() + directoryPauseRetrySeconds * 1000);
+      return;
+    }
     runScheduledDocumentReminders(this.#store);
     if (this.#documents) {
       const objects = documentCleanupBatch(this.#store);
@@ -1466,11 +1471,6 @@ export default {
       return Response.redirect(url, 308);
     }
     const reading = request.method === "GET" || request.method === "HEAD";
-    if (url.pathname.startsWith("/api/webhooks/uwm/")) {
-      return uwmWebhookHttp(request, runtimeSetting(env, "UWM_WEBHOOK_CONFIG"),
-        (_brokerageId, event) => env.WORKSPACE.getByName(demoBrokerageId).routeUwmWebhook(event), runtimeSetting(env, "ORBIT_DEPLOYMENT"));
-    }
-    if (url.pathname === "/api/demo-request") return demoRequest(request, env);
     const marketingPage = /^\/(?:product\/?|integrations\/?|demo\/?|address-lookup\/?)?$/.test(url.pathname);
     if (reading && (/^\/marketing\/(?:pipeline|playbooks|borrower-application|quote-comparison|conditions|social-preview)\.png$/.test(url.pathname) ||
       url.pathname === "/fonts/InterVariable.woff2" || url.pathname === "/fonts/OFL-Inter.txt")) {
@@ -1495,6 +1495,14 @@ export default {
       failure.headers.set("Cache-Control", "no-store");
       return failure;
     }
+    // Check independent storage before auth, workspace RPCs, or provider work.
+    const filesEnv = env as Cloudflare.Env & DocumentEnvironment;
+    if (await directoryTrafficPaused(filesEnv.DOCUMENTS)) return directoryPauseResponse(request);
+    if (url.pathname.startsWith("/api/webhooks/uwm/")) {
+      return uwmWebhookHttp(request, runtimeSetting(env, "UWM_WEBHOOK_CONFIG"),
+        (_brokerageId, event) => env.WORKSPACE.getByName(demoBrokerageId).routeUwmWebhook(event), runtimeSetting(env, "ORBIT_DEPLOYMENT"));
+    }
+    if (url.pathname === "/api/demo-request") return demoRequest(request, env);
     const google = googleSettings(env);
     const demoPassword = runtimeSetting(env, "DEMO_PASSWORD");
     if (!google && !demoPassword) {
@@ -1510,7 +1518,6 @@ export default {
       if (details && "maintenance" in details && details.maintenance) throw new Error(maintenanceMessage);
       return details ? { id, pilot: details.pilot, store: env.WORKSPACE.getByName(id) } : null;
     }
-    const filesEnv = env as Cloudflare.Env & DocumentEnvironment;
     const uploads = google ? uploadSettings(filesEnv, url) : null;
     async function uploadWorkspace(token: string) {
       const link = await linkedWorkspace(token);

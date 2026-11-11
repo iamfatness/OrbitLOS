@@ -1,3 +1,5 @@
+import { directoryPauseKey } from "./recovery-fixtures.mjs";
+
 // Only the isolated rehearsal imports this module. Its journal lives in the
 // fixture bucket, outside the Durable Object that is restored.
 const journalKey = "directory-recovery-journal";
@@ -38,6 +40,25 @@ export async function readDirectoryJournal(env) {
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const changed = (expected, actual) => expected.filter((table, index) => !same(table, actual[index])).map(table => table.name);
 
+async function checkPausedIngress(application, env, origin, ctx) {
+  const routes = [
+    ["GET", "/workspace"], ["GET", "/api/auth/google/callback"],
+    ["POST", "/api/demo-application"], ["POST", "/api/realtor-referrals"],
+    ["POST", "/api/borrower-documents/upload"], ["POST", "/api/shared-lead-documents"],
+    ["POST", "/api/webhooks/uwm/stage/import"], ["POST", "/api/demo-request"],
+  ];
+  // Deliberately omit the directory and all outbound provider bindings.
+  for (const [method,path] of routes) {
+    const response = await application.fetch(new Request(origin+path,{method}),{DOCUMENTS:env.DOCUMENTS},ctx);
+    if (response.status !== 503 || response.headers.get("X-Orbit-Maintenance") !== "directory-recovery" ||
+        response.headers.get("Cache-Control") !== "private, no-store") throw new Error(`Traffic pause did not cover ${path}`);
+  }
+  const publicAsset = await application.fetch(new Request(origin+"/fonts/InterVariable.woff2"),
+    {ASSETS:{fetch:()=>new Response("Fictional public asset")}},ctx);
+  if (publicAsset.status !== 200) throw new Error("Directory pause blocked public assets");
+  return routes.length;
+}
+
 async function restart(directory) {
   try {
     await directory.probeDirectoryRestart();
@@ -77,8 +98,10 @@ export async function directoryRecoveryCommand(action, fixture) {
       evidence:{ artifactSha256:env.RECOVERY_ARTIFACT },
     };
     await save();
+    await env.DOCUMENTS.put(directoryPauseKey,"Fictional directory recovery");
   } else if (action === "directoryArmOld" && journal?.phase === "directoryPrepared") {
     if (!same(await directory.probeDirectorySnapshot(),journal.current.manifest)) throw new Error("Directory changed after capture");
+    await checkPausedIngress(application,env,origin,ctx);
     const undo = await directory.probeDirectoryArm(journal.old);
     next = { ...journal, undo, phase:"directoryOldArmed" };
     await save();
@@ -89,8 +112,9 @@ export async function directoryRecoveryCommand(action, fixture) {
     const differences = changed(journal.current.manifest,actual);
     if (!differences.includes("revoked_pilot_portals") || !differences.includes("uwm_transaction_routes"))
       throw new Error("Older directory did not demonstrate lost access and routing evidence");
+    const pausedRoutes = await checkPausedIngress(application,env,origin,ctx);
     next = { ...journal, phase:"directoryOldRejected", evidence:{
-      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences,
+      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes,
     } };
     await save();
   } else if (action === "directoryRecover" && journal?.phase === "directoryOldRejected") {
@@ -119,10 +143,6 @@ export async function directoryRecoveryCommand(action, fixture) {
     const paused = await directory.manageWorkspaceMaintenance(a.admin);
     if (paused.mode !== "Paused" || paused.revision !== journal.pauseRevision)
       throw new Error("The current maintenance fence did not survive");
-    const denied = await application.fetch(new Request(`${origin}/workspace?brokerage=${a.id}`,{
-      headers:{Cookie:`__Host-orbit-session=${state.session}`},
-    }),env,ctx);
-    if (denied.status !== 403) throw new Error("Revoked staff could enter the restored workspace");
     for (const route of journal.routes) {
       for (const kind of ["import","conditions","ulad"]) {
         const event = { environment:"stage", kind, body:"{}", transactionId:route.transactionId, loanNumber:route.loanNumber };
@@ -136,6 +156,19 @@ export async function directoryRecoveryCommand(action, fixture) {
       directoryTenantDatabasesUnchanged:2, directoryPortalRevocationsPreserved:2,
       directoryLoggedOutSessionDenied:true, directoryMaintenanceFencePreserved:true, directoryRevokedStaffDenied:true, directoryOtherStaffPreserved:true, directoryRoutesVerified:journal.routes.length*3,
     } };
+    await save();
+  } else if (action === "directoryResume" && journal?.phase === "directoryVerified") {
+    if (!same(await directory.probeDirectorySnapshot(),journal.current.manifest))
+      throw new Error("Directory changed before reopening");
+    await env.DOCUMENTS.delete(directoryPauseKey);
+    const denied = await application.fetch(new Request(`${origin}/workspace?brokerage=${a.id}`,{
+      headers:{Cookie:`__Host-orbit-session=${state.session}`},
+    }),env,ctx);
+    if (denied.status !== 403) {
+      await env.DOCUMENTS.put(directoryPauseKey,"Fictional recovery verification failed");
+      throw new Error("Revoked staff could enter the restored workspace");
+    }
+    next = { ...journal, phase:"directoryResumed", evidence:{ ...journal.evidence, directoryTrafficResumed:true } };
     await save();
   } else throw new Error("Command does not match the directory recovery phase");
 
