@@ -245,3 +245,19 @@ Signed-in ordinary live acceptance in the fictional QA brokerage verified that t
 Campaign draft/selection return and Today Next 7 days return were verified on live traffic before promotion. The full multi-role workflow was tested locally on the combined build; the post-promotion browser check used the existing QA admin session. No real messages, scans or lender submissions were performed, and existing provider configuration was preserved.
 
 Next coherent product gate: owner/LO/processor onboarding acceptance and hosted fictional-workspace recovery. Keep future publications based on the combined UWM source to prevent regression of either workstream.
+
+## Staff entry and invitation recovery candidate — November 10, 2026
+
+Source `4a9378a`, with rehearsal correction `0388324`, replaces the plain inaccessible-workspace response with a responsive recovery screen. Staff can open an available workspace or switch Google accounts while keeping the intended brokerage and guide. Invited accounts continue through sign-in activation; revoked accounts receive a 403 without brokerage details. API access checks and role grants are unchanged. The login screen explains exact invited-email matching; Team explains manual invitation sharing, role landing pages, and focuses saved feedback.
+
+UI UX Pro Max error-recovery guidance and Impeccable source checks informed this pass. The source scan is not a full accessibility audit. Separate local owner, LO and processor browser sessions verified role landing pages, invitation save and focus, denied entry, account-switch target preservation and recovery to an available workspace. Widths 1440, 900 and 390 passed overflow checks. Screenshot: parent `.orbit/staff-entry-denied-mobile.png`.
+
+429 tests, lint, typecheck and production build passed. The extended 37-stage working-day rehearsal verifies invited activation, revocation, denied entry, re-invitation and changed Processor membership against the built Worker, in addition to the full existing loan/CRM flow. The initial rehearsal attempted to insert a duplicate fixture session; the correction activates the existing session and the complete run passed. This is local role acceptance, not hosted OAuth certification.
+
+Publication is coordinated with the concurrent Integrations UI release; shared handoff names the complete branch. No independent upload or production promotion has been issued. Live acceptance must be recorded after the final combined source publishes. Remaining R4 gates include operator-facing migration/reconciliation and hosted fictional-tenant recovery.
+
+### Staff entry published acceptance
+
+Combined source `38f8861` is live at 100% on Worker `6b20cec9-7b37-4cb5-85da-5bbd689371fe`, published by the coordinated UWM release thread with the Integrations redesign. Ordinary signed-in traffic verified the inaccessible-workspace page, account-switch link preserving brokerage and campaign guide, and return to an authorized workspace. Team in the fictional QA workspace shows manual invitation sharing and role landing guidance. Both entry and Team layouts fit at 390 px. Screenshot: parent `.orbit/staff-entry-live-mobile.png`.
+
+The publisher verified 429 merged tests, typecheck/lint, production build and staged/ordinary assets. This thread independently matched the staged candidate's 45/45 assets twice. The corrected 37-stage local rehearsal lives in `0388324`; it changes only the test fixture, not deployed application code. The separate owner/LO/processor activation and revocation checks remain local acceptance; live entry used the existing QA admin account without changing staff permissions. No provider sends or real borrower records were involved.
