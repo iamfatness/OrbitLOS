@@ -1,5 +1,7 @@
 # UWM release scope and activation
 
+Current status: stage and production account/client settings and webhook receivers are configured. Stage personal login and broker-association checks succeeded; production personal login is awaiting the user. Both environments passed synthetic receiver checks. See [current validation](uwm-release-validation.md) and [UWM handoff](uwm-webhook-handoff.md). The original release notes below are historical; live loan actions still require implementation and acceptance.
+
 November 10, 2026. Release branch: `release/uwm-live-2026-11-10`, including the latest deployed CRM source `ec142e9`. Published source: `4acce3281077e78c49491ab60876da713aa33a8e`. This release preserves existing CRM and stage pricing behavior. It is not certification of a live UWM origination integration.
 
 ## Included

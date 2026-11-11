@@ -42,14 +42,14 @@ export function UwmAccount({ brokerageId }: { brokerageId: string }) {
   </form>;
   return <section className="uwm-account-card" aria-label="Your UWM account" aria-busy={busy}>
     <div className="uwm-card-heading"><span className="uwm-step-icon"><Link2 size={20} aria-hidden="true" /></span>
-      <div><h3>{connected ? "Your UWM account" : "Connect your UWM account"}</h3>
-        <p>{connected ? "Manage your personal lender connection." : "Sign in to check your brokerage access."}</p></div>
-      {account && <span className={`uwm-status ${connected ? "is-ready" : ""}`}>{connected ? "Connected" : account.configured ? "Not connected" : "Setup needed"}</span>}
+      <div><h3>{connected || !account?.configured ? "Your UWM account" : "Connect your UWM account"}</h3>
+        <p>{connected ? "Manage your personal lender connection." : account?.configured ? "Sign in to check your brokerage access." : "Account access for this workspace."}</p></div>
+      {account && <span className={`uwm-status ${connected ? "is-ready" : ""}`}>{connected ? "Connected" : account.configured ? "Not connected" : "Not enabled"}</span>}
     </div>
     {!account && !error && <p className="uwm-loading" role="status">Checking your connection…</p>}
     {account?.configured && <div className="uwm-environment"><span className="uwm-status">{account.environment === "production" ? "Production" : "Test environment"}</span>
       <span>{account.environment === "production" ? "Your brokerage’s UWM connection" : "For testing with synthetic loan data"}</span></div>}
-    {account && !account.configured && <div className="uwm-setup-note"><strong>Workspace setup comes first</strong><p>Your brokerage administrator needs to enable UWM account access for this workspace.</p></div>}
+    {account && !account.configured && <div className="uwm-setup-note"><strong>UWM account access isn’t enabled here</strong><p>Orbit configures this connection during brokerage onboarding. There is no setting in this workspace to turn it on.</p><p>Once access is enabled, your UWM sign-in form will appear here. Connections on the test site are separate from production.</p></div>}
     {account?.configured && <>
       {connected ? <>
         <div className="uwm-connected-note"><CheckCircle2 size={20} aria-hidden="true" /><div><strong>Account connected</strong><p>Verify access to confirm the UWM brokerages available to you.</p></div></div>
