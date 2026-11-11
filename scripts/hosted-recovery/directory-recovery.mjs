@@ -1,4 +1,4 @@
-import { directoryDrainObject, directoryDrainPath, directoryEvidencePath, directoryPauseKey } from "./recovery-fixtures.mjs";
+import { directoryDrainObject, directoryDrainPath, directoryEvidencePath, directoryPauseKey, directoryRepairPath } from "./recovery-fixtures.mjs";
 
 // Only the isolated rehearsal imports this module. Its journal lives in the
 // fixture bucket, outside the Durable Object that is restored.
@@ -122,17 +122,17 @@ export async function directoryRecoveryCommand(action, fixture) {
     const hex=bytes=>Array.from(bytes,byte=>byte.toString(16).padStart(2,"0")).join("");
     const randomToken=()=>hex(crypto.getRandomValues(new Uint8Array(32)));
     const hash=async token=>hex(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token))));
-    const token=randomToken(), evidenceToken=randomToken();
-    const statusTokenSha256=await hash(token), evidenceTokenSha256=await hash(evidenceToken);
+    const token=randomToken(), evidenceToken=randomToken(), repairToken=randomToken();
+    const statusTokenSha256=await hash(token), evidenceTokenSha256=await hash(evidenceToken), repairTokenSha256=await hash(repairToken);
     next = {
-      token,evidenceToken,ticket,evidenceId:crypto.randomUUID(),
+      token,evidenceToken,repairToken,ticket,repairId:crypto.randomUUID(),evidenceId:crypto.randomUUID(),
       run:env.RECOVERY_RUN, source:env.RECOVERY_SOURCE, artifact:env.RECOVERY_ARTIFACT,
       phase:"directoryPrepared", old:state.directoryOld, current:source, routes,
       pauseRevision:paused.revision, tenants:[(await target.probeCapture()).hash,(await other.probeCapture()).hash],
       evidence:{ artifactSha256:env.RECOVERY_ARTIFACT },
     };
     await save();
-    await env.DOCUMENTS.put(directoryPauseKey,JSON.stringify({incident:"fictional-recovery",statusTokenSha256,evidenceTokenSha256}));
+    await env.DOCUMENTS.put(directoryPauseKey,JSON.stringify({incident:"fictional-recovery",statusTokenSha256,evidenceTokenSha256,repairTokenSha256}));
   } else if (action === "directoryArmOld" && journal?.phase === "directoryPrepared") {
     if (!same(await directory.probeDirectorySnapshot(),journal.current.manifest)) throw new Error("Directory changed after capture");
     await checkPausedIngress(application,env,origin,ctx);
@@ -166,13 +166,39 @@ export async function directoryRecoveryCommand(action, fixture) {
       throw new Error("Independent evidence failed to detect stale access and routing");
 
     if ((await readDrain(journal.token)).active !== 0) throw new Error("Verified drain did not survive directory restart");
-    next = { ...journal, phase:"directoryOldRejected", evidence:{
-      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true,
+    const repairUrl=`${origin}${directoryRepairPath}?id=${journal.evidenceId}`;
+    async function repair(method, token, url=repairUrl) {
+      return application.fetch(new Request(url,{method,headers:{Authorization:`Bearer ${token}`}}),env,ctx);
+    }
+    if((await repair("GET",journal.evidenceToken)).status!==404)throw new Error("Evidence credential could open repair");
+    const reviewResponse=await repair("GET",journal.repairToken);
+    if(reviewResponse.status!==200)throw new Error("Directory repair preview unavailable");
+    const review=await reviewResponse.json();
+    if(review.conflicts || review.changes.staffRevocations!==1 || review.changes.portalRevocations!==2 ||
+      review.changes.transactionRoutes!==2 || review.changes.loanRoutes!==2)throw new Error("Directory repair missed saved records");
+    const confirmed=`${repairUrl}&confirm=repair&requestId=${journal.repairId}&fingerprint=${review.fingerprint}`;
+    const result=await repair("POST",journal.repairToken,confirmed);
+    if(result.status!==200)throw new Error("Reviewed directory repair was refused");
+    const applied=await result.json(), retry=await repair("POST",journal.repairToken,confirmed);
+    if(retry.status!==200 || !same(await retry.json(),applied))throw new Error("Directory repair retry changed the receipt");
+    if(!(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
+      throw new Error("Directory evidence did not match after reconstruction");
+    if(await directory.brokerageForPortal(state.link.token) || await directory.brokerageForPortal(state.realtor.token) ||
+      await directory.leadOwner(a.id,a.officer.email,[]) || !await directory.leadOwner(b.id,b.officer.email,[]))
+      throw new Error("Reconstruction did not preserve access restrictions");
+    for(const route of journal.routes){
+      const event={environment:"stage",kind:"conditions",body:"{}",loanNumber:route.loanNumber};
+      if(await directory.uwmWebhookTarget(event)!==route.brokerageId)throw new Error("Reconstruction lost lender routing ownership");
+    }
+    const reconstructed=await directory.probeDirectorySnapshot();
+
+    next = { ...journal, phase:"directoryOldRejected", reconstructed, evidence:{
+      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true, reviewedReconstructionMatched:true, reconstructedCounts:applied.applied, repairReceiptRetryMatched:true,
     } };
     await save();
   } else if (action === "directoryRecover" && journal?.phase === "directoryOldRejected") {
     const actual = await directory.probeDirectorySnapshot();
-    if (same(actual,journal.old.manifest)) {
+    if (same(actual,journal.reconstructed)) {
       await directory.probeDirectoryArm({ ...journal.current, bookmark:journal.undo });
       next = { ...journal, phase:"directoryRecoveryArmed" };
       await save();

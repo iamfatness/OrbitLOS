@@ -1,6 +1,7 @@
-import { captureDirectoryEvidence, directoryEvidenceHttp, directoryEvidencePath } from "./lib/directory-evidence";
+import { applyDirectoryRepair, directoryRepairHttp, directoryRepairPath, loadRepairEvidence, previewDirectoryRepair, readRepairIntent, type RepairIntent } from "./lib/directory-repair";
+import { captureDirectoryEvidence, directoryEvidenceHttp, directoryEvidencePath, type Evidence } from "./lib/directory-evidence";
 import { directoryDrainObject, directoryDrainPath, directoryDrainStatus, startDirectoryWork, trackDirectoryResponse, type DirectoryWorkKind } from "./lib/directory-drain";
-import { directoryPauseResponse, directoryPauseRetrySeconds, directoryTrafficPaused } from "./lib/directory-traffic-pause";
+import { directoryPauseKey, directoryPauseResponse, directoryPauseRetrySeconds, directoryTrafficPaused } from "./lib/directory-traffic-pause";
 import {restorePreviewInput,restoreStartInput} from "./lib/workspace-restore-model";
 import {restoreSourceMatches,restoreStateHash,restoreAccess,restoreCheckpoint,previewRestore,priorRestore,reserveRestore,readRestoreJob,authorizedRestore,recordRestoreOutcome} from "./lib/workspace-restore";
 import {captureCheckpointFiles,verifyCheckpointFiles} from "./lib/recovery-checkpoint-files";
@@ -225,6 +226,25 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       throw new Error("Directory evidence requires an active pause.");
     }
     return captureDirectoryEvidence(this.#store);
+  }
+
+  async reviewDirectoryRepair(evidence: Evidence) {
+    if (this.#id !== demoBrokerageId || !await this.#documents?.head(directoryPauseKey)) {
+      throw new Error("Directory repair requires an active pause.");
+    }
+    return previewDirectoryRepair(this.#store, evidence, new Date().toISOString());
+  }
+
+  async commitDirectoryRepair(input: RepairIntent) {
+    if (this.#id !== demoBrokerageId || !this.#documents) throw new Error("Directory repair is unavailable.");
+    const intent = await readRepairIntent(this.#documents, input);
+    const deployment = runtimeSetting(this.env, "ORBIT_DEPLOYMENT") || "fixture";
+    if (!intent || intent.deployment !== deployment) return null;
+    const evidence = await loadRepairEvidence(this.#documents, intent.evidenceId, deployment);
+    if (!evidence) return null;
+    const counts = await this.env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts();
+    if (counts.active || (await this.#documents.head(directoryPauseKey))?.version !== intent.markerVersion) return null;
+    return applyDirectoryRepair(this.#store, evidence, intent, new Date().toISOString());
   }
 
   #initializeWorkspace() {
@@ -1549,6 +1569,13 @@ export default {
       return failure;
     }
     const preparingDrain = runtimeSetting(env, "ORBIT_DRAIN_ROLLOUT") === "prepare";
+    if (url.pathname === directoryRepairPath) {
+      if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
+      return directoryRepairHttp(request, env.DOCUMENTS, runtimeSetting(env, "ORBIT_DEPLOYMENT") || "fixture",
+        () => env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts(),
+        evidence => env.WORKSPACE.getByName(demoBrokerageId).reviewDirectoryRepair(evidence),
+        intent => env.WORKSPACE.getByName(demoBrokerageId).commitDirectoryRepair(intent));
+    }
     if (url.pathname === directoryEvidencePath) {
       if (preparingDrain) return new Response(null,{status:404,headers:{"Cache-Control":"no-store"}});
       return directoryEvidenceHttp(request, env.DOCUMENTS, runtimeSetting(env, "ORBIT_DEPLOYMENT") || "fixture",

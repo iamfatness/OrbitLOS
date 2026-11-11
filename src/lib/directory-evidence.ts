@@ -29,16 +29,19 @@ const projectedRows = z.strictObject({
     environment, loanNumber: routeValue, brokerageId: id, transactionId: routeValue,
   })).max(maxRows),
 });
-type EvidenceRows = z.infer<typeof projectedRows>;
+export type EvidenceRows = z.infer<typeof projectedRows>;
 const evidenceSchema = z.strictObject({
   version: z.literal(1), id, scope, capturedAt: z.iso.datetime(), incident: z.string().max(80), rows: projectedRows,
 });
-type Evidence = z.infer<typeof evidenceSchema>;
+export type Evidence = z.infer<typeof evidenceSchema>;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-const prefix = "operations/directory-recovery/evidence/";
+export const directoryEvidencePrefix = "operations/directory-recovery/evidence/";
 
 export function captureDirectoryEvidence(db: Store): EvidenceRows {
-  return db.transaction(() => {
+  return db.transaction(() => readDirectoryEvidenceRows(db));
+}
+
+export function readDirectoryEvidenceRows(db: Store): EvidenceRows {
     const bounded = (query: string) => db.prepare(`${query} LIMIT ?`).all(maxRows + 1);
     const staff = bounded("SELECT brokerageId,email,role,status,accessRevision,bootstrap FROM brokerage_members ORDER BY brokerageId,email")
       .map(({ email, ...row }) => ({ ...row, memberHash: digest(String(email)) }));
@@ -48,7 +51,6 @@ export function captureDirectoryEvidence(db: Store): EvidenceRows {
       transactions: bounded("SELECT environment,transactionId,brokerageId,operationId FROM uwm_transaction_routes ORDER BY environment,transactionId"),
       loans: bounded("SELECT environment,loanNumber,brokerageId,transactionId FROM uwm_loan_routes ORDER BY environment,loanNumber"),
     });
-  });
 }
 
 function compareEvidence(before: EvidenceRows, current: EvidenceRows, now: string) {
@@ -63,7 +65,7 @@ function compareEvidence(before: EvidenceRows, current: EvidenceRows, now: strin
   }));
 }
 
-async function readEvidence(bucket: R2Bucket, key: string) {
+export async function readEvidence(bucket: R2Bucket, key: string) {
   const object = await bucket.get(key);
   if (!object) return null;
   if (object.size > maxBytes) {
@@ -87,7 +89,7 @@ export async function directoryEvidenceHttp(request: Request, bucket: R2Bucket |
     const evidenceId = id.safeParse(new URL(request.url).searchParams.get("id"));
     if (!evidenceId.success) return problem(400, "Supply a recovery evidence UUID.");
     if (!scope.safeParse(deployment).success) return problem(503, "Recovery evidence scope is unavailable.");
-    const key = `${prefix}${evidenceId.data}.json`;
+    const key = `${directoryEvidencePrefix}${evidenceId.data}.json`;
     const stable = async () => (await counts()).active === 0 &&
       (await bucket.head(directoryPauseKey))?.version === marker.version;
     if (!await stable()) return problem(409, "Keep the current pause in place and wait for tracked work to drain.");
