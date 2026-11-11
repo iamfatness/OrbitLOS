@@ -318,8 +318,25 @@ try {
     });
     const accountHash = createHash("sha256").update(entryOfficer.email).digest("base64url");
     const legacy = `__Host-orbit-workspace=${accountHash}.${brokerage}`;
-    const initial = await browse(entryOfficer, "/workspace", "", { headers: { "Sec-Fetch-User": "" } });
+    const firstOfficer = actor("Fictional First Entry Officer", "first-entry-officer@example.test", "LO");
+    for (const id of [brokerage, operational]) {
+      await post(`/api/brokerages?brokerage=${id}`, { type: "invite", email: firstOfficer.email, role: firstOfficer.role }, owner);
+    }
+    await signIn(firstOfficer);
+    const firstHash = createHash("sha256").update(firstOfficer.token).digest("base64url");
+    const firstAccess = () => directory.staffSessionAccess(firstHash, Date.now(), [owner.email]);
+    const prefetch = await browse(firstOfficer, "/workspace", "", { headers: { "Sec-Purpose": "prefetch" } });
+    assert.equal(prefetch.headers.get("set-cookie"), null);
+    assert.equal((await firstAccess()).preferredWorkspace, null);
+    assert.equal((await browse(firstOfficer, scoped(brokerage))).status, 200);
+    assert.equal((await browse(firstOfficer, scoped(brokerage) + "&guide=1")).status, 200);
+    assert.equal((await firstAccess()).preferredWorkspace, null);
+    const initial = await browse(firstOfficer, "/workspace", "", { headers: { "Sec-Fetch-User": "", "Sec-Fetch-Site": "cross-site" } });
     assert.equal(initial.headers.get("location"), scoped(operational));
+    assert.equal((await firstAccess()).preferredWorkspace, operational);
+    const firstNewSession = { ...firstOfficer, token: randomBytes(32).toString("base64url") };
+    await signIn(firstNewSession);
+    assert.equal((await browse(firstNewSession, "/workspace")).headers.get("location"), scoped(operational));
     assert.equal((await browse(entryOfficer, "/workspace", legacy)).headers.get("location"), scoped(brokerage));
     assert.equal((await browse(entryOfficer, "/workspace")).headers.get("location"), scoped(brokerage));
     const selected = await browse(entryOfficer, scoped(brokerage) + "&switch=1");

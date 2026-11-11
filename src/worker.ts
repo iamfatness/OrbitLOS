@@ -1870,12 +1870,22 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
             }
             if (brokerage) staff = { ...identity, brokerage };
             if (staff && requested === null && openingWorkspace && (dailyEntry || staff.brokerage.id !== demoBrokerageId)) {
-              const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" });
-              if (chooseWorkspace && (available || (remembered && !preferredWorkspace))) {
+              const recoverWorkspace = chooseWorkspace && available;
+              const establishWorkspace = !available && !preferredWorkspace && (remembered ? chooseWorkspace : workspaceNavigation);
+              if (recoverWorkspace || establishWorkspace) {
                 const saved = await directory.rememberStaffWorkspace(tokenHash, Date.now(), bootstrapEmails, staff.brokerage.id, available);
                 if (!saved) return login();
+                if (establishWorkspace) {
+                  // A concurrent switch can win the insert. Open the saved choice in that case.
+                  const current = await directory.staffSessionAccess(tokenHash, Date.now(), bootstrapEmails);
+                  if (!current) return login();
+                  const selected = current.brokerages.find(({ id }) => id === current.preferredWorkspace);
+                  if (!selected) return workspaceAccessDenied(null, guide, true);
+                  staff.brokerage = selected;
+                }
               }
-              if (chooseWorkspace || (workspaceNavigation && !remembered && !available)) {
+              const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id, guide), "Cache-Control": "no-store" });
+              if (chooseWorkspace || establishWorkspace) {
                 headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
               }
               return new Response(null, { status: 303, headers });
