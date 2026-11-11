@@ -1,3 +1,4 @@
+import { retainedObject } from "./loan-retention";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { addApplicationActivity } from "./applications";
@@ -167,11 +168,11 @@ export function recordDocumentDownload(db: Store, staff: WorkspaceStaff, request
 export function documentCleanupBatch(db: Store, now = Date.now()) {
   db.prepare("UPDATE document_files SET pendingId = NULL, pendingUntil = NULL, failed = 1 WHERE pendingUntil <= ?").run(now);
   db.prepare("UPDATE lead_document_requests SET pendingId = NULL, pendingUntil = NULL, failed = 1 WHERE pendingUntil <= ?").run(now);
-  return db.prepare("SELECT objectId FROM document_file_cleanup LIMIT 100").all().map((row) => String(row.objectId));
+  return db.prepare(`SELECT objectId FROM document_file_cleanup WHERE NOT ${retainedObject} LIMIT 100`).all().map((row) => String(row.objectId));
 }
 
 export function nextDocumentCleanup(db: Store, now = Date.now()) {
-  if (db.prepare("SELECT 1 FROM document_file_cleanup LIMIT 1").get()) return now + minute;
+  if (db.prepare(`SELECT 1 FROM document_file_cleanup WHERE NOT ${retainedObject} LIMIT 1`).get()) return now + minute;
   const lease = db.prepare(`SELECT min(due) AS due FROM (
     SELECT min(pendingUntil) AS due FROM document_files UNION ALL SELECT min(pendingUntil) FROM lead_document_requests)`).get()?.due;
   return typeof lease === "number" ? Math.max(now + 1000, lease) : null;

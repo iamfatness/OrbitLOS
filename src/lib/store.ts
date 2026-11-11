@@ -1,3 +1,4 @@
+import { initializeLoanRetention } from "./loan-retention";
 import type { BrokerageTemplate, ClosingItem, ClosingPlan, ClosingProgress, CommunicationDraft, Contact, ContactActivity, Loan, LoanTask, PastClientProfile, ReferralLead, RealtorPortal, Submission, UnlinkedReferral, Workspace } from "./model";
 import { carriedCallbacks } from "./carried-campaign-callback";
 import { contactCompletionSql } from "./record-history";
@@ -1453,6 +1454,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       db.prepare("DELETE FROM document_requests WHERE id = ?").run(oldId);
       db.prepare("UPDATE document_requests SET kind = 'Homeowners insurance' WHERE id = ?").run(newId);
     }
+    initializeLoanRetention(db);
     const rateColumns = new Set(db.prepare("PRAGMA table_info(mock_uwm_rates)").all().map((column) => column.name));
     const mockOrderColumns = new Set(db.prepare("PRAGMA table_info(mock_credit_aus_runs)").all().map((column) => column.name));
     for (const [column, type] of Object.entries({ applicationRevision: "INTEGER", authorization: "TEXT", batchId: "TEXT", requestKey: "TEXT" })) {

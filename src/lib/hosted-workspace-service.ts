@@ -1,3 +1,4 @@
+import { loanRetentionUnavailable } from "./loan-retention";
 import { env } from "cloudflare:workers";
 import { checkUwmPublicConnection, uwmConnectionSettings } from "./uwm-live";
 import { runtimeSetting } from "./staff-auth";
@@ -310,6 +311,11 @@ export async function workOnDisclosureTemplates(input: unknown, staff: Workspace
 
 export async function workOnComplianceCases(input: unknown, staff: WorkspaceStaff) {
   return staff.brokerage.pilot ? staffWorkspace(staff).complianceCases(input, staff) : { error: complianceWorkUnavailable };
+}
+
+export async function workOnLoanRetention(input: unknown, staff: WorkspaceStaff) {
+  return staff.brokerage.pilot && staff.brokerage.role === "Admin" ?
+    staffWorkspace(staff).loanRetention(input, staff) : { error: loanRetentionUnavailable };
 }
 
 export async function workOnBorrowerQuestionSets(input: unknown, staff: WorkspaceStaff | null) {

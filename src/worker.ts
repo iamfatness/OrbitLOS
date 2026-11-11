@@ -1,3 +1,4 @@
+import { loanRetentionUnavailable, loanRetentionWork } from "./lib/loan-retention";
 import { applyDirectoryRecoveryHold, directoryRecoveryHoldHttp, directoryRecoveryHoldPath, directoryRecoveryHoldRecorded, previewDirectoryRecoveryHold, readDirectoryRecoveryHoldIntent, type RecoveryHoldIntent, type RecoveryHoldResult } from "./lib/directory-recovery-hold";
 import { commitDirectorySignInReset, directorySignInResetHttp, directorySignInResetPath, previewDirectorySignInReset, readDirectorySignInResetIntent, type SignInResetIntent } from "./lib/directory-sign-in-reset";
 import { applyDirectoryRepair, directoryRepairHttp, directoryRepairPath, loadRepairEvidence, previewDirectoryRepair, readRepairIntent, type RepairIntent } from "./lib/directory-repair";
@@ -368,6 +369,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       if(!this.#documents)throw new Error("Document storage is unavailable.");
       return this.#documents.get(documentKey(this.#id,id));
     });
+    manifest.activeLoanHolds = Number(this.#store.prepare("SELECT count(*) AS n FROM loan_retention_holds WHERE releasedAt IS NULL").get()?.n ?? 0);
     const at=new Date().toISOString(),point=bookmark?await this.ctx.storage.getCurrentBookmark():"";
     if(await this.ctx.storage.getAlarm()!==alarm)throw new Error("Scheduled work changed during capture. Capture the checkpoint again.");
     return {manifest,bookmark:point,at};
@@ -898,6 +900,17 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     } catch {
       return { error: complianceWorkUnavailable };
     }
+  }
+
+  async loanRetention(input: unknown, staff: WorkspaceStaff) {
+    if (!this.#accepts(staff) || !staff.brokerage.pilot || staff.brokerage.role !== "Admin")
+      return { error: loanRetentionUnavailable };
+    const emails = [...(googleSettings(this.env)?.allowedEmails ?? [])];
+    const roster = await this.env.WORKSPACE.getByName(demoBrokerageId).complianceRoster(staff, emails);
+    if (!roster) return { error: loanRetentionUnavailable };
+    const result = loanRetentionWork(this.#store, input, staff, this.#id);
+    if ("kind" in result && result.kind === "saved") await this.#scheduleCleanup();
+    return result;
   }
 
   borrowerQuestionSets(input: unknown, staff: WorkspaceStaff) {

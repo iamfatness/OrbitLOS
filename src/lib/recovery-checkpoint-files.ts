@@ -4,7 +4,8 @@ import type {CheckpointFiles} from "./recovery-checkpoint-model";
 const objectId=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const sources=["SELECT objectId FROM document_files WHERE objectId IS NOT NULL","SELECT objectId FROM document_accepted_files WHERE objectId IS NOT NULL",
   "SELECT objectId FROM condition_document_sources WHERE objectId IS NOT NULL","SELECT objectId FROM lead_document_requests WHERE objectId IS NOT NULL",
-  "SELECT objectId FROM lender_package_files WHERE objectId IS NOT NULL"];
+  "SELECT objectId FROM lender_package_files WHERE objectId IS NOT NULL",
+  "SELECT objectId FROM loan_retention_objects JOIN loan_retention_holds ON id=holdId WHERE releasedAt IS NULL"];
 export type CheckpointFileReader=(id:string)=>Promise<{size:number;arrayBuffer():Promise<ArrayBuffer>}|null>;
 export function pendingCheckpointUploads(db:Store){
   return Number(db.prepare("SELECT (SELECT COUNT(*) FROM document_files WHERE pendingId IS NOT NULL)+(SELECT COUNT(*) FROM lead_document_requests WHERE pendingId IS NOT NULL) AS n").get()?.n??0);

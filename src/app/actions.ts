@@ -29,7 +29,8 @@ import { customReportUnavailable } from "@/lib/custom-report-model";
 import { disclosureCalendarUnavailable } from "@/lib/disclosure-calendar-model";
 import { disclosureTemplateUnavailable } from "@/lib/disclosure-template-model";
 import { complianceWorkUnavailable } from "@/lib/compliance-case-model";
-import { workOnComplianceCases } from "@/lib/workspace-service";
+import { loanRetentionUnavailable } from "@/lib/loan-retention";
+import { workOnComplianceCases, workOnLoanRetention } from "@/lib/workspace-service";
 import { questionSetsUnavailable } from "@/lib/borrower-question-set-model";
 import { workOnBorrowerQuestionSets } from "@/lib/workspace-service";
 import { stageEditUnavailable } from "@/lib/loan-stage-edit-model";
@@ -370,6 +371,13 @@ export async function accessComplianceCases(input: unknown, expectedBrokerage: s
   const staff = await currentStaff();
   if (!staff?.brokerage.pilot || staff.brokerage.id !== expectedBrokerage) return { error: complianceWorkUnavailable };
   return workOnComplianceCases(input, staff);
+}
+
+export async function accessLoanRetention(input: unknown, expectedBrokerage: string) {
+  const staff = await currentStaff();
+  if (!staff?.brokerage.pilot || staff.brokerage.role !== "Admin" || staff.brokerage.id !== expectedBrokerage)
+    return { error: loanRetentionUnavailable };
+  return workOnLoanRetention(input, staff);
 }
 
 export async function accessBorrowerQuestionSets(input: unknown, expectedBrokerage: string) {

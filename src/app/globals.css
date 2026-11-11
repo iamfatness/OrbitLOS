@@ -737,6 +737,12 @@ button:disabled { cursor: default; }
 .compliance-inventory > summary { width: 100%; min-height: 44px; padding-block: 11px; font-size: 14px; }
 .compliance-work .compliance-row { align-items: center; }
 .compliance-work .loan-task-copy span { font-size: 13px; }
+.loan-retention { overflow-wrap: anywhere; }
+.loan-retention .loan-task-list > li { min-width: 0; }
+.loan-retention .section-heading { flex-wrap: wrap; }
+.loan-retention button { min-height: 44px; }
+.loan-retention .retention-search { align-items: end; }
+.loan-retention .retention-search .field { flex: 1 1 12rem; min-width: 0; }
 .compliance-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 8px; }
 .brokerage-overview { max-width: 1100px; container-type: inline-size; }
 .brokerage-overview .integration { max-width: none; min-width: 0; }

@@ -3738,6 +3738,31 @@ try {
     assert.equal((await file(owner,loanId)).documentRequests[0].dueOn,"2030-05-01");
     if(process.argv.includes("--preview"))await workspaces.getByName(brokerage).restoreDeadlineFixture(edit.id);
   });
+  await stage("Owner retention holds preserve the loan and require a recorded release", async () => {
+    const created = await write(owner, {type:"loan", contactId:"", borrower:"Fictional Retention Borrower",
+      borrowerEmail:"retention@example.test", address:"", amount:195000, purpose:"Purchase", stage:"Lead",
+      officer:owner.name, partnerId:null, start1003:false});
+    const loanId = created.loanWork.loanId;
+    const read = {type:"list", heldOnly:true, search:"Fictional Retention Borrower", offset:0};
+    const retention = (input, staff=owner, scope=brokerage) => action(staff, "accessLoanRetention", input, undefined, scope);
+    assert.equal((await retention(read)).total,0);
+    for(const staff of [officer,processor]) assert.match((await retention(read,staff)).error,/current pilot owners/);
+    assert.match((await retention(read,owner,randomUUID())).error,/current pilot owners/);
+    const hold={type:"hold",id:randomUUID(),loanId,reference:"Fictional case RET-101"};
+    const saved=await retention(hold);
+    assert.equal(saved.message,"Retention hold placed.");
+    assert.deepEqual(await retention(hold),saved);
+    assert.equal((await retention(read)).loans[0].holdId,hold.id);
+    assert.match((await action(owner,"mutate",{type:"deleteLoan",id:loanId})).error,/retention hold/);
+    assert.equal((await file(owner,loanId)).loans[0].id,loanId);
+    const release={type:"release",id:randomUUID(),loanId,holdId:hold.id,reference:"Fictional case RET-101 resolved"};
+    assert.match((await retention({...release,holdId:randomUUID()})).error,/changed/);
+    assert.equal((await retention(release)).message,"Retention hold released.");
+    assert.equal((await retention(read)).total,0);
+    const history=await retention({type:"history",loanId});
+    assert.equal(history.holds[0].releasedBy,owner.name);
+    assert.equal(history.holds[0].releaseReference,release.reference);
+  });
   await stage("Owner checkpoint inspection is complete, role scoped and unavailable while work is open",async()=>{
     const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
     const status=async()=> (await runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}})).json();

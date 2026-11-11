@@ -1,3 +1,4 @@
+import { loanRetentionUnavailable, type LoanRetentionResult } from "./loan-retention";
 import { mkdirSync } from "node:fs";
 import { checkUwmPublicConnection, uwmConnectionSettings } from "./uwm-live";
 
@@ -422,6 +423,9 @@ export async function workOnDisclosureTemplates(input: unknown, staff: Workspace
 
 export const workOnComplianceCases: (input: unknown, staff: WorkspaceStaff) => Promise<ComplianceCaseResult> =
   async () => ({ error: complianceWorkUnavailable });
+
+export const workOnLoanRetention: (input: unknown, staff: WorkspaceStaff) => Promise<LoanRetentionResult> =
+  async () => ({ error: loanRetentionUnavailable });
 
 export async function workOnBorrowerQuestionSets(input: unknown, staff: WorkspaceStaff | null) {
   return borrowerQuestionSetWork(database(), input, staff ?? (process.env.NODE_ENV === "development" ? localAdmin : null), demoBrokerageId);

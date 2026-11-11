@@ -2191,6 +2191,9 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "deleteLoan":
+          if (db.prepare("SELECT 1 FROM loan_retention_holds WHERE loanId=? AND releasedAt IS NULL").get(data.id)) {
+            throw new WorkspaceError("This loan has a retention hold. Review it in Compliance before deleting the file.");
+          }
           if (db.prepare("SELECT 1 FROM loan_financials WHERE loanId = ? LIMIT 1").get(data.id)) {
             throw new WorkspaceError("This loan has retained records and cannot be deleted.");
           }

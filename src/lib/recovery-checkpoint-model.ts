@@ -6,7 +6,7 @@ export type CheckpointRow={table:string;key:string;digest:string;record:string|n
 export type CheckpointImpact={version:1;records:CheckpointRecord[];rows:CheckpointRow[];parts?:number};
 export type CheckpointImpactReview={records:(CheckpointRecord&{effect:"Would remove"|"Would restore"|"Would change";added:number;removed:number;changed:number})[];
   total:number;offset:number;next:number|null;unlinked:number;added:number;removed:number;changed:number};
-export type CheckpointManifest={version:1;schema:string;tables:{name:string;rows:number;digest:string}[];kv:{keys:number;digest:string};alarm:number|null;files?:CheckpointFiles;impact?:CheckpointImpact};
+export type CheckpointManifest={version:1;schema:string;tables:{name:string;rows:number;digest:string}[];kv:{keys:number;digest:string};alarm:number|null;activeLoanHolds?:number;files?:CheckpointFiles;impact?:CheckpointImpact};
 export type CheckpointSummary={id:string;label:string;actor:string;at:string;expiresAt:string;tables:number;rows:number};
 export type CheckpointComparison={checkpoint:CheckpointSummary;at:string;revision:number;schemaChanged:boolean;kvChanged:boolean;alarmChanged:boolean;
   changed:{name:string;area:string;before:number;now:number;change:"Added"|"Removed"|"Changed"}[];unchanged:number;impact:CheckpointImpactReview|null};

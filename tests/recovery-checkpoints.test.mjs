@@ -84,7 +84,7 @@ test("directory chunks round-trip a large record index and reject missing pieces
 
 test("document checkpoint evidence verifies exact bytes and rejects missing, corrupt and in-flight uploads",async t=>{
  const {captureCheckpointFiles,verifyCheckpointFiles}=await import("../src/lib/recovery-checkpoint-files.ts");
- const f=fixture(t);f.db.exec("CREATE TABLE document_files(objectId TEXT,pendingId TEXT);CREATE TABLE document_accepted_files(objectId TEXT,requestId TEXT,revision INTEGER);CREATE TABLE condition_document_sources(objectId TEXT);CREATE TABLE lead_document_requests(objectId TEXT,pendingId TEXT);CREATE TABLE lender_package_files(objectId TEXT);CREATE TABLE document_acceptances(requestId TEXT,revision INTEGER)");
+ const f=fixture(t);f.db.exec("CREATE TABLE document_files(objectId TEXT,pendingId TEXT);CREATE TABLE document_accepted_files(objectId TEXT,requestId TEXT,revision INTEGER);CREATE TABLE condition_document_sources(objectId TEXT);CREATE TABLE lead_document_requests(objectId TEXT,pendingId TEXT);CREATE TABLE lender_package_files(objectId TEXT);CREATE TABLE document_acceptances(requestId TEXT,revision INTEGER);CREATE TABLE loan_retention_holds(id TEXT,releasedAt TEXT);CREATE TABLE loan_retention_objects(holdId TEXT,objectId TEXT)");
  const id=crypto.randomUUID(),bytes=new TextEncoder().encode('fictional PDF');f.db.prepare("INSERT INTO document_files VALUES (?,NULL)").run(id);f.db.prepare("INSERT INTO document_accepted_files VALUES (?,'r',1)").run(id);f.db.exec("INSERT INTO document_acceptances VALUES ('r',1),('legacy',2)");
  const get=async()=>({size:bytes.byteLength,arrayBuffer:async()=>bytes.buffer});const files=await captureCheckpointFiles(f.db,get);
  assert.equal(files.references,2);assert.equal(files.items.length,1);assert.equal(files.unretained,1);assert.deepEqual(await verifyCheckpointFiles(files,get),{verified:1,unretained:1});
@@ -147,4 +147,49 @@ test('unresolved restore stays pending and cannot reopen or start a second job',
  assert.throws(()=>restore.reserveRestore(f.db,f.staff,[],{...f.input,id:crypto.randomUUID()},f.capture()),/pending recovery/);
  assert.throws(()=>restore.priorRestore(f.db,f.staff,[],{...f.input,note:'Different confirmation intent'}),/different review/);
  assert.throws(()=>restore.authorizedRestore(f.db,{...f.staff,brokerage:{...f.staff.brokerage,accessRevision:999}},[],job.id),/current pilot admin/);
+});
+
+
+test("an owner hold protects a replaced PDF, blocks deletion and restore, and records a scoped release",async t=>{
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {documentCleanupBatch,nextDocumentCleanup}=await import("../src/lib/document-files.ts");
+ const {captureCheckpointFiles}=await import("../src/lib/recovery-checkpoint-files.ts");
+ const f=ownerFixture(t), {db,staff}=f, scope=staff.brokerage.id;
+ initializeStore(db,false);
+ const id=crypto.randomUUID(),request=crypto.randomUUID(),original=crypto.randomUUID(),replacement=crypto.randomUUID();
+ db.exec("INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','borrower@example.test','','Borrower')");
+ db.prepare("INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince) VALUES (?,'borrower','LO','',1,'Purchase','Lead','2026-11-11')").run(id);
+ db.prepare("INSERT INTO document_requests (id,loanId,kind,instructions,requestedAt) VALUES (?,?,'Bank statement','','2026-11-11')").run(request,id);
+ db.prepare("INSERT INTO document_files (requestId,objectId,attemptedAt) VALUES (?,?,0)").run(request,original);
+ const hold={type:"hold",id:crypto.randomUUID(),loanId:id,reference:"Fictional dispute"};
+ for(const role of ["LO","Processor"]) assert("error" in loanRetentionWork(db,hold,{...staff,brokerage:{...staff.brokerage,role}},scope));
+ assert("error" in loanRetentionWork(db,hold,staff,crypto.randomUUID()));
+ const saved=loanRetentionWork(db,hold,staff,scope);
+ assert.equal(saved.kind,"saved");
+ assert.deepEqual(loanRetentionWork(db,hold,staff,scope),saved);
+ assert("error" in loanRetentionWork(db,{...hold,id:crypto.randomUUID()},staff,scope));
+ db.prepare("UPDATE document_files SET objectId=? WHERE requestId=?").run(replacement,request);
+ assert.equal(db.prepare("SELECT objectId FROM document_file_cleanup").get().objectId,original);
+ assert.deepEqual(documentCleanupBatch(db),[]);
+ assert.equal(nextDocumentCleanup(db),null);
+ const inventory=loanRetentionWork(db,{type:"list",heldOnly:true,search:"Borrower",offset:0},staff,scope);
+ assert.deepEqual(inventory.loans.map(row=>[row.id,row.requests,row.pdfs,row.holdId]),[[id,1,2,hold.id]]);
+ assert.throws(()=>db.prepare("DELETE FROM loans WHERE id=?").run(id),/retention hold/);
+ assert.throws(()=>db.prepare("DELETE FROM document_requests WHERE id=?").run(request),/retention hold/);
+ const checkpoint=await captureCheckpointFiles(db,async()=>({size:1,arrayBuffer:async()=>new Uint8Array([1]).buffer}));
+ assert.deepEqual(checkpoint.items.map(row=>row.objectId).sort(),[original,replacement].sort());
+ const manifest={...f.capture(),files:checkpoint,activeLoanHolds:1};
+ assert(restore.restoreBlockers(manifest,manifest).some(message=>/active retention hold/.test(message)));
+ const release={type:"release",id:crypto.randomUUID(),loanId:id,holdId:hold.id,reference:"Fictional issue resolved"};
+ assert("error" in loanRetentionWork(db,{...release,holdId:crypto.randomUUID()},staff,scope));
+ const released=loanRetentionWork(db,release,staff,scope);
+ assert.equal(released.kind,"saved");
+ assert.deepEqual(loanRetentionWork(db,release,staff,scope),released);
+ assert.deepEqual(documentCleanupBatch(db),[original]);
+ assert.notEqual(nextDocumentCleanup(db),null);
+ const history=loanRetentionWork(db,{type:"history",loanId:id},staff,scope);
+ assert.equal(history.holds[0].releaseReference,release.reference);
+ assert(!JSON.stringify(history).includes(staff.email));
+ assert(restore.restoreBlockers(manifest,{...f.capture(),files:checkpoint,activeLoanHolds:0}).some(message=>/retention evidence changed/.test(message)));
 });

@@ -79,6 +79,12 @@ function resetLoanArgs(scenario: ScenarioRow) {
   return [current, previous, closing, scenario.loanId, `demo-rate:${id}`, scenario.realtorId, pilotSegmentLeadPrefix(id)];
 }
 
+const heldResetMessage = "A sample loan has a retention hold. Review it in Compliance before resetting.";
+function resetHasHeldLoan(db: Store, scenario: ScenarioRow) {
+  return !!db.prepare(`SELECT 1 FROM loan_retention_holds WHERE releasedAt IS NULL
+    AND loanId IN (SELECT id FROM loans WHERE ${resetLoanScope}) LIMIT 1`).get(...resetLoanArgs(scenario));
+}
+
 function activeResetLinks(db: Store, scenario: ScenarioRow, now: string): PilotPortalLink[] {
   return db.prepare(`WITH resetLoans AS (SELECT id FROM loans WHERE ${resetLoanScope}),
     resetLeads AS (SELECT id FROM referral_leads WHERE realtorId = ? OR instr(requestId, ?) = 1)
@@ -203,6 +209,7 @@ export async function loadProtectedPilotScenario(db: Store, staff: WorkspaceStaf
   }
   const scenario = scenarioRow(db);
   if (!scenario || scenario.id !== parsed.data.previousId) return loadPilotScenario(db, staff, input, owner, clock);
+  if (resetHasHeldLoan(db, scenario)) return { error: heldResetMessage };
   const links = activeResetLinks(db, scenario, clock.toISOString());
   if (links.length > resetPortalLimit) return { error: "Revoke some active sample links before resetting this scenario." };
   if (links.length && !await protectLinks(links)) return { error: "Orbit could not protect the old links. Try resetting again." };
@@ -222,6 +229,7 @@ export function loadPilotScenario(db: Store, staff: WorkspaceStaff | null, input
       ? { message: "Pilot scenario is ready." } : { error: "Start a new scenario request to change its setup." };
     if ((previous?.id ?? null) !== previousId) return { error: "The scenario changed. Refresh the workspace before trying again." } as const;
     if (previous) {
+      if (resetHasHeldLoan(db, previous)) return { error: heldResetMessage };
       if (protectedTokens && activeResetLinks(db, previous, clock.toISOString()).some((link) => !protectedTokens.has(pilotLinkKey(link)))) {
         return { error: "A sample link changed during reset. Review the scenario and try again." } as const;
       }
