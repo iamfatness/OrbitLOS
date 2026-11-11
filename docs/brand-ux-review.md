@@ -233,3 +233,15 @@ Source `5c86442` on `release/manager-work-feedback-2026-11-10` keeps sequence pa
 Typecheck, lint, 403 tests, production build and the 36-stage working-day run passed. Local browser verification resumed a paused fictional sequence and observed the row disappear, Paused sequences remain selected, the count become zero, and focus land on persistent confirmation. Portrait 900px and phone 390px widths had no document overflow. UI UX Pro Max focus guidance and Impeccable source scan used; the scan is not rendered accessibility certification.
 
 Not published independently. Production promotion is held for the UWM coordinated source, after verifying that `release/uwm-live-2026-11-10` includes changes absent from this CRM branch. Merge this branch as a whole after their common `30c3739` ancestor; it also includes the previously verified inline manager assignment work. Combined build, provider configuration checks and ordinary live acceptance must run on the final merged source. No provider actions or settings changed in this candidate.
+
+## Combined CRM publication acceptance — November 10, 2026
+
+Published source `3f4ee6d` includes the manager assignment and persistent action feedback changes, together with the coordinated UWM contract corrections. Production Worker `36788277-ef0b-4039-9afc-112d7ec1a77b` serves 100% of traffic. The UWM release thread performed publication; no competing CRM deployment was issued.
+
+Final candidate passed 428 tests, lint, typecheck and production build. This thread independently ran the 36-stage working-day rehearsal on the final built source, including campaign enrollment, manager assignment/stale-owner rejection, Today callbacks, conversation outcomes, sequence controls and manager counts. Staged assets matched 92/92 twice; the publishing thread also verified ordinary live assets twice.
+
+Signed-in ordinary live acceptance in the fictional QA brokerage verified that the paused Rowan Reactivation Example survived deployment at step 2, scheduled November 11 at 9 AM ET, assigned to Opus Audio. Resuming from Manager view removed the row, preserved the Paused sequences filter, changed the count from one to zero and focused persistent confirmation with the refreshed count. The fictional sequence was restored to running with its original owner, step and schedule. Phone 390 px and portrait desktop 900 px checks showed no page-level horizontal overflow. Evidence: parent `.orbit/orbit-combined-manager-live-mobile.png`.
+
+Campaign draft/selection return and Today Next 7 days return were verified on live traffic before promotion. The full multi-role workflow was tested locally on the combined build; the post-promotion browser check used the existing QA admin session. No real messages, scans or lender submissions were performed, and existing provider configuration was preserved.
+
+Next coherent product gate: owner/LO/processor onboarding acceptance and hosted fictional-workspace recovery. Keep future publications based on the combined UWM source to prevent regression of either workstream.
