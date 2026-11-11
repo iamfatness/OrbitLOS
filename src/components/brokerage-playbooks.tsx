@@ -20,6 +20,7 @@ import type { ManualReturnAssignment } from "@/lib/lender-export-model";
 import type { ReportingPeriod } from "@/lib/call-report-readiness-model";
 import { ReportingReadinessPanel } from "./call-report-readiness";
 import { ManagerCallbackExceptions } from "./manager-callback-exceptions";
+import { ProcessorAssignmentRecovery, useProcessorAssignmentShortcut } from "./processor-assignment-recovery";
 
 export type ManagerExceptionView = "files" | "owners" | "reporting" | "callbacks" | "compliance";
 const reminderTimingOptions = Array.from({ length: 2 * documentReminderTimingLimit + 1 }, (_, index) => index - documentReminderTimingLimit);
@@ -45,7 +46,9 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
 }) {
   const brokerageId = staff?.brokerage.id ?? demoBrokerageId;
   const signedIn = !!staff;
-  const [changing, setChanging] = useState(false);
+  const [changingOwner, setChanging] = useState(false);
+  const recovery = useProcessorAssignmentShortcut(brokerageId, staff?.brokerage.role === "Admin");
+  const changing = changingOwner || Boolean(recovery.activity);
   const [metadata, setMetadata] = useState<{ brokerageId: string; result: ManagerExceptionResult }>();
   const [ownership, setOwnership] = useState<{ brokerageId: string; version: object; filters: ManagerExceptionFilters;
     page?: ManagerExceptionPage; error?: string; appended?: boolean }>();
@@ -131,9 +134,17 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
       await save({ type: "assignContactFollowUp", contactId: item.recordId, eventId: item.id, revision: item.activity.revision, email });
       return;
     }
-    const action = item.kind === "assign" || item.kind === "accept" || item.kind === "processor-owner" ?
-      { type: "assignProcessor", loanId: item.recordId, email, revision: processingRevision } :
-      { type: "assign", loanId: item.recordId, email, previousEmail: item.ownerEmail };
+    if (item.kind === "assign" || item.kind === "accept" || item.kind === "processor-owner") {
+      if (recovery.pending) return;
+      const result = await recovery.save({ loanId: item.recordId, email, revision: processingRevision }, item.name);
+      if (result.kind === "rejected") setError(result.error);
+      if (result.kind === "saved") {
+        setMessage(result.message);
+        void refresh();
+      }
+      return;
+    }
+    const action = { type: "assign", loanId: item.recordId, email, previousEmail: item.ownerEmail };
     setChanging(true);
     try {
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
@@ -153,6 +164,7 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
       openLoan={openFunding} openLead={openCampaignRun} openDocument={openDocument} refreshWorkspace={refresh} />
     <section className="integration record-form manager-panel" aria-label="Manager exception queue">
       <div className="section-heading"><h2>Manager exception queue</h2>{view === "owners" && page && <span className="pill">{exceptions.length} shown</span>}</div>
+      <ProcessorAssignmentRecovery recovery={recovery} open={openAssignment} refresh={() => { void refresh(); }} />
       <div className="loan-application-actions" aria-label="Exception queue view">
         <Button size="sm" variant={view === "files" ? "default" : "outline"} aria-pressed={view === "files"} onClick={() => setView("files")}>File exceptions</Button>
         <Button size="sm" variant={view === "owners" && filters.type !== "Campaign recovery" ? "default" : "outline"}
@@ -243,10 +255,11 @@ export function BrokeragePlaybooks({ staff, busy, save, refresh, open, openLead,
             const email = String(new FormData(event.currentTarget).get("owner") ?? "");
             if (email) void reassign(row, email);
           }}>
-            <label className="field">{processor ? "New processor" : "New loan officer"}<select name="owner" defaultValue={backup ?? ""} required>
+            <label className="field">{processor ? "New processor" : "New loan officer"}<select name="owner" defaultValue={backup ?? ""} required
+              disabled={processor && recovery.pending}>
               <option value="">Select team member</option>{choices.map((member) => <option key={member.email} value={member.email}>{member.name}</option>)}
             </select></label>
-            <Button size="sm" type="submit" disabled={busy || changing}>{assignmentLabel}</Button>
+            <Button size="sm" type="submit" disabled={busy || changing || (processor && recovery.pending)}>{assignmentLabel}</Button>
           </form>}
           {staff && members && !choices.length && <small className="muted">No other active {processor ? "processor" : "loan officer"} is available.</small>}
         </li>;

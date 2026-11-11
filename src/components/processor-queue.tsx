@@ -5,7 +5,6 @@ import { readProcessingWork, saveProcessingView } from "@/app/actions";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import type { IncomingLoanWorkItem } from "@/lib/incoming-loan-work-model";
 import { dateLabel, easternDate } from "@/lib/client-retention";
-import type { LoanProcessing } from "@/lib/processing-model";
 import { serviceOrderTarget, serviceOrderViews } from "@/lib/service-order-model";
 import { closingWorkloadWindows, conditionAgingDays, processingExceptions, processingViewFilters,
   type ProcessingViewChange, type ProcessorQueueFile, type ProcessorQueuePage, type ProcessorQueueQuery } from "@/lib/processor-queue-model";
@@ -13,6 +12,7 @@ import { dateTime } from "@/lib/utils";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { ConversationReplies } from "./conversation-replies";
 import { IncomingLoanWorkQueue } from "./incoming-loan-work-queue";
+import { ProcessorAssignmentRecovery, useProcessorAssignmentShortcut } from "./processor-assignment-recovery";
 import { Button } from "./ui/button";
 
 const descriptions = {
@@ -71,13 +71,14 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
   openReply: (id: string) => void;
   openAssignment?: (id: string) => void;
-  onAssignment?: (processing: LoanProcessing) => void;
+  onAssignment?: () => void;
   complianceWork?: ReactNode;
 }) {
   const [query, setQuery] = useState<ProcessorQueueQuery>({ readyOnly: false });
   const [data, setData] = useState<{ version: object; query: ProcessorQueueQuery; result: ProcessorQueuePage | { error: string } }>();
   const [assignmentLoanId, setAssignmentLoanId] = useState<string>();
-  const [assigning, setAssigning] = useState(false);
+  const recovery = useProcessorAssignmentShortcut(brokerageId, Boolean(onAssignment));
+  const assigning = Boolean(recovery.activity);
   const [assignmentResult, setAssignmentResult] = useState<AssignmentResult>();
   const assignmentAction = useRef<HTMLButtonElement>(null);
   const [selectedView, setSelectedView] = useState("");
@@ -146,23 +147,16 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
     } finally { setSavingView(false); }
   }
   async function assign(file: ProcessorQueueFile, email: string) {
-    if (assigning || file.assignmentRevision === undefined || !onAssignment) return;
-    setAssigning(true);
+    if (assigning || recovery.pending || file.assignmentRevision === undefined || !onAssignment) return;
     setAssignmentResult(undefined);
-    try {
-      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        type: "assignProcessor", loanId: file.id, email, revision: file.assignmentRevision, requireUnassigned: true,
-      }) });
-      const result = await response.json() as { processing?: LoanProcessing; error?: string };
-      if (page?.files.length === 1) refresh();
-      else select({ ...query });
-      if (response.ok && result.processing?.loanId === file.id && result.processing.processorEmail) {
-        onAssignment(result.processing);
-        setAssignmentResult({ brokerageId, name: file.name, loanId: result.processing.loanId, processorName: result.processing.processorName });
-      } else setAssignmentResult({ brokerageId, error: result.error ?? "Could not assign the processor. Try refreshing the queue." });
-    } catch {
-      setAssignmentResult({ brokerageId, error: "Could not confirm the assignment. Refresh the queue before trying again." });
-    } finally { setAssigning(false); }
+    const result = await recovery.save({ loanId: file.id, email, revision: file.assignmentRevision, requireUnassigned: true }, file.name);
+    if (result.kind === "unconfirmed") return;
+    if (page?.files.length === 1) refresh();
+    else select({ ...query });
+    if (result.kind === "saved" && result.processing) {
+      onAssignment();
+      setAssignmentResult({ brokerageId, name: file.name, loanId: result.processing.loanId, processorName: result.processing.processorName });
+    } else if (result.kind === "rejected") setAssignmentResult({ brokerageId, error: result.error });
   }
   return <section className="integration record-form manager-panel processing-panel" aria-label="Processing queue">
     <div className="section-heading"><h2>{team ? "Team processing queue" : "My processing queue"}</h2>
@@ -236,7 +230,11 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
         })}><span>{window}</span><strong>{count ?? "—"}</strong><span>{count === 1 ? "file" : "files"}</span></button>;
       })}</div>
     </>}
-    {assignment && ("error" in assignment ? <p role="alert">{assignment.error}</p> :
+    <ProcessorAssignmentRecovery recovery={recovery} open={openAssignment} refresh={() => {
+      setAssignmentLoanId(undefined);
+      onAssignment?.();
+    }} />
+    {assignment && !recovery.pending && ("error" in assignment ? <p role="alert">{assignment.error}</p> :
       <div className="document-item" role="group" aria-label="Processor assignment confirmation">
         <div role="status"><strong>Processor assigned</strong>
           <p id="processing-assignment-file" className="muted">{assignment.name} · {assignment.processorName}</p></div>
@@ -289,7 +287,7 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
           {file.closingDate ? `Closing recorded ${dateLabel(file.closingDate)}` : file.targetDate && `Target closing ${dateLabel(file.targetDate)}`}
         </p>}
         <div className="loan-application-actions">
-          {canAssign && !assignmentOpen && <Button size="sm" disabled={assigning} onClick={() => {
+          {canAssign && !assignmentOpen && <Button size="sm" disabled={assigning || recovery.pending} onClick={() => {
             setAssignmentResult(undefined);
             setAssignmentLoanId(file.id);
           }}>Assign processor</Button>}
@@ -301,7 +299,8 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
           {(file.closing || file.targetDate || file.closingDate) && <Button size="sm" variant="outline" onClick={() => openLoan(file.id, file.closing?.target ?? "closing-workbench")}>
             {file.closing?.target ? "Open next closing item" : "Open closing"}</Button>}
         </div>
-        {assignmentOpen && <QueueProcessorForm endpoint={endpoint} file={file} busy={assigning} save={(email) => void assign(file, email)} cancel={() => setAssignmentLoanId(undefined)} />}
+        {assignmentOpen && <QueueProcessorForm endpoint={endpoint} file={file} busy={assigning || recovery.pending}
+          save={(email) => void assign(file, email)} cancel={() => setAssignmentLoanId(undefined)} />}
       </li>;})}</ul> : <p className="empty-inline">{workload ? "No active processing files match this closing window and assignee." :
         exception ? empty[exception] : readyOnly ? "No assigned handoffs are waiting for acceptance." : "No active assigned processing files."}</p>}
       <div className="loan-application-actions">

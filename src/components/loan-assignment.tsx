@@ -4,19 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import type { AssignmentDetail, AssignmentLoan, AssignmentPage } from "@/lib/loan-assignments";
 import type { ManualReturnAssignment } from "@/lib/lender-export-model";
-import type { ProcessorAssignmentReceipt } from "@/lib/loan-processing";
 import { dateTime } from "@/lib/utils";
+import { assignmentEndpoint as endpoint, checkProcessorReceipt, processorSaveKey, readProcessorSave, writeProcessorSave } from "./processor-assignment-recovery";
 import { Button } from "./ui/button";
 
 type Assignment = AssignmentDetail & { members: BrokerageMember[] };
 type Change = { type: "assign"; loanId: string; previousEmail: string | null; email: string; manualReturn?: ManualReturnAssignment } |
   { type: "assignProcessor"; loanId: string; revision: number; email: string | null };
 const loadError = "Could not load loan assignment. Try again.";
-const endpoint = (brokerageId: string) => `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}`;
-
-function pendingProcessorSave(key: string) {
-  try { return sessionStorage.getItem(key) ?? ""; } catch { return ""; }
-}
 
 async function read<T>(brokerageId: string, input: Record<string, string>, signal?: AbortSignal) {
   const response = await fetch(`${endpoint(brokerageId)}&${new URLSearchParams(input)}`, { signal });
@@ -58,8 +53,8 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
   const saving = activity !== null;
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const receiptKey = `orbit:processor-save:${brokerageId}:${loanId}`;
-  const [requestId, setRequestId] = useState(() => manualReturn ? "" : pendingProcessorSave(receiptKey));
+  const receiptKey = processorSaveKey(brokerageId, loanId);
+  const [requestId, setRequestId] = useState(() => manualReturn ? "" : readProcessorSave(receiptKey));
   const [receiptMissing, setReceiptMissing] = useState(false);
   const receiptFeedback = useRef<HTMLParagraphElement>(null);
   const focusFeedback = useRef(false);
@@ -83,12 +78,7 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
   function trackProcessorSave(id: string) {
     setRequestId(id);
     setReceiptMissing(false);
-    try {
-      if (id) sessionStorage.setItem(receiptKey, id);
-      else sessionStorage.removeItem(receiptKey);
-    } catch {
-      // The editor can still check this request while the tab remains open.
-    }
+    writeProcessorSave(receiptKey, id);
   }
 
   function refreshAssignment() {
@@ -135,13 +125,13 @@ export function LoanAssignmentEditor({ brokerageId, loanId, version, onChanged, 
     setMessage("");
     setReceiptMissing(false);
     try {
-      const result = await read<ProcessorAssignmentReceipt>(brokerageId, { view: "processor-assignment-receipt", loanId, requestId });
-      if (result.outcome === "missing") setReceiptMissing(true);
-      else if (result.outcome === "saved" || result.outcome === "newer") {
+      const outcome = await checkProcessorReceipt(brokerageId, loanId, requestId);
+      if (outcome === "missing") setReceiptMissing(true);
+      else {
         trackProcessorSave("");
-        setMessage(result.outcome === "saved" ? "Processor change saved." : "This change was saved. A newer processing update is shown below.");
+        setMessage(outcome === "saved" ? "Processor change saved." : "This change was saved. A newer processing update is shown below.");
         refreshAssignment();
-      } else throw new Error(loadError);
+      }
     } catch {
       setError("Orbit couldn’t check this save. Try checking again.");
     } finally {
