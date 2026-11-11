@@ -28,3 +28,8 @@ The inbound `UWM_WEBHOOK_CONFIG` remains separate. Follow [webhook onboarding](u
 ## Stage acceptance recorded November 10, 2026
 
 Google sign-in and the dedicated UWM client configuration are installed on stage. The non-pilot UWM Integration Test workspace is `b73d9e19-4366-4ece-9467-675c00587a5e`. The user's UWM sign-in succeeded, encrypted authorization was retained, and the broker-association request was accepted. No password was recorded in release notes. Branch/contact selection, approved storage origins, real synthetic import/document/lock acceptance, Insights credentials and production enablement remain separate gates.
+
+
+## Personal access expansion — November 11, 2026
+
+On a configured deployment, every authenticated workspace member may connect their own UWM account regardless of email domain. The former single-workspace personal-login restriction is removed. `UWM_BROKERAGE_ID` remains the preferred operational landing workspace and the strict scope of the separately supplied shop-wide Insights credentials; it is no longer a personal-user access allowlist. Grants stay encrypted per workspace/user/environment. Fictional/demo workspaces allow connection and branch verification, while retaining sample file workflows. Operational workspaces expose the authenticated file API controls. Stage and production retain separate client credentials and encryption keys.

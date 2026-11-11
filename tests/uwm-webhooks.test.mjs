@@ -113,5 +113,6 @@ test("worker routes provider callbacks before browser CSRF and restricts receipt
   const worker = readFileSync(new URL("../src/worker.ts", import.meta.url), "utf8");
   assert.ok(worker.indexOf('url.pathname.startsWith("/api/webhooks/uwm/")') < worker.indexOf('request.headers.get("Origin")'));
   assert.match(worker, /!staff \|\| staff.brokerage.role !== "Admin"/);
-  assert.match(worker, /connection.brokerageId !== this.#id/);
+  assert.match(worker, /target \?\? connection.brokerageId\) !== this.#id/);
+  assert.match(worker, /getByName\(demoBrokerageId\).routeUwmWebhook\(event\)/);
 });

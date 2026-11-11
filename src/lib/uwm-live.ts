@@ -25,7 +25,7 @@ export function uwmConnectionSettings(env: UwmEnvironment, staff: WorkspaceStaff
   return {
     pricing: !fictional ? "Not configured" : env.ORBIT_PRICING_MODE !== "uwm-stage" ? "Sample pricing" :
       hasStageCredentials ? "UWM stage API" : "Stage credentials required",
-    pipeline: connected && env.UWM_INSIGHTS_CLIENT_ID && env.UWM_INSIGHTS_CLIENT_SECRET ? "UWM Insights" : fictional ? "Sample pipeline" : "Insights credentials required",
+    pipeline: uwmInsightsWorkspaceEnabled(env, staff) && env.UWM_INSIGHTS_CLIENT_ID && env.UWM_INSIGHTS_CLIENT_SECRET ? "UWM Insights" : fictional ? "Sample pipeline" : "Insights credentials required",
     lenderActions: fictional ? "Simulated" : connected ? "Loan-screen controls" : "Onboarding required",
   };
 }
@@ -42,10 +42,15 @@ export async function checkUwmPublicConnection(env: UwmEnvironment, staff: Works
   } catch (error) { return { error: error instanceof UwmError ? error.message : "UWM verification failed." }; }
 }
 
-// A server configuration binds credentials to exactly one authenticated brokerage.
-export function uwmWorkspaceEnabled(env: UwmEnvironment, staff: WorkspaceStaff | null) {
-  return !!staff && !staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId &&
-    !!env.UWM_BROKERAGE_ID && staff.brokerage.id === env.UWM_BROKERAGE_ID;
+// Personal grants are scoped to the signed-in user and workspace.
+export function uwmAccountEnabled(staff: WorkspaceStaff | null) { return !!staff; }
+
+// Shop-wide Insights credentials remain bound to their configured brokerage.
+export function uwmInsightsWorkspaceEnabled(env: UwmEnvironment, staff: WorkspaceStaff | null) {
+  return uwmWorkspaceEnabled(env, staff) && !!env.UWM_BROKERAGE_ID && staff!.brokerage.id === env.UWM_BROKERAGE_ID;
+}
+export function uwmWorkspaceEnabled(_env: UwmEnvironment, staff: WorkspaceStaff | null) {
+  return !!staff && !staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId;
 }
 
 export async function uwmJson(url: string, init: RequestInit = {}) {

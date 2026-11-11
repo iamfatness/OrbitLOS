@@ -64,7 +64,7 @@ test("expired tokens refresh; changed brokerage/encryption context and deploymen
  assert.equal(await access.uwmUserToken(db,env,staff),"refreshed");
  await assert.rejects(access.uwmUserToken(db,{...env,UWM_TOKEN_ENCRYPTION_KEY:"b".repeat(64)},staff),/Reconnect/);
  await assert.rejects(access.uwmUserToken(db,{...env,ORBIT_DEPLOYMENT:"production"},staff),/environment/);
- await assert.rejects(access.uwmUserToken(db,env,{...staff,brokerage:{...staff.brokerage,id:crypto.randomUUID()}}),/unavailable/);
+ await assert.rejects(access.uwmUserToken(db,env,{...staff,brokerage:{...staff.brokerage,id:crypto.randomUUID()}}),/Reconnect/);
 });
 test("rejected refresh clears only that expired grant and prompts a reconnect",async t=>{
  const db=database(t);await connect(t,db);db.prepare("UPDATE uwm_user_access SET expiresAt=0").run();
@@ -186,4 +186,19 @@ test("NotCompleted callbacks finish failed imports; null and undocumented status
   const receipt=hooks.saveUwmWebhook(db,hooks.parseUwmWebhook("stage","import",JSON.stringify({TransactionId:"tx-fail",LoanNumber:null,LoanStatus:status,Message:"fixture",LogDateTime:"2026-11-10T21:00:00Z"})));
   assert.equal(ops.correlateUwmImport(db,Number(receipt.receiptId)),status==="NotCompleted"?"Failed":"Needs review");
  }
+});
+
+
+test("personal sign-in works for arbitrary email domains and workspaces without sharing grants",async t=>{
+ const first=database(t),second=database(t);
+ t.mock.method(globalThis,"fetch",async()=>Response.json(grant));
+ for(const [db,person] of [[first,{...staff,email:"officer@uwm.com",brokerage:{...staff.brokerage,id:crypto.randomUUID()}}],[second,{...staff,email:"officer@another.example",brokerage:{...staff.brokerage,id:"orbit-demo",pilot:true}}]]) {
+  assert.equal(access.uwmUserStatus(db,env,person).configured,true);
+  await access.connectUwmUser(db,env,person,{username:"fixture",password:"fixture"});
+  assert.equal(await access.uwmUserToken(db,env,person),grant.access_token);
+  await assert.rejects(access.uwmUserToken(db,env,{...person,email:"different@example.test"}),/Connect/);
+  assert.equal(access.uwmUserStatus(db,env,person).fileActions,!person.brokerage.pilot);
+ }
+ assert.equal(first.prepare("SELECT COUNT(*) AS n FROM uwm_user_access").get().n,1);
+ assert.equal(second.prepare("SELECT COUNT(*) AS n FROM uwm_user_access").get().n,1);
 });

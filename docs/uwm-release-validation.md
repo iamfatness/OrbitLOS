@@ -100,3 +100,14 @@ Team > Workspaces shows operational workspaces separately and collapses fictiona
 
 
 Workspace cleanup source `6d9eeae` published as `0c20d624-c0ff-4f4c-b996-f568fa557cd4` at 100%, predecessor `f5085d5b-2a68-4738-910a-030346811b93` at 0%. All 23 bindings preserved; staged and live each passed two clean 374/374 asset checks. Final typecheck and focused auth tests passed. Live browser verified `/workspace` selects OrbitLOS Production, all 73 demo/pilot entries are collapsed, searching finds the demo, its explicit URL still opens Orbit demo, and Insights guidance states the missing brokerage access. Left the browser on production Team > Workspaces. Screenshot: `.orbit/workspace-cleanup-live.png`. No workspace data or memberships were changed.
+
+
+## Personal UWM access across workspaces — November 11, 2026
+
+Source `58c05bf` is published to production `c58e578d-4977-46cb-80f8-184fa860831d` at 100% (predecessor `8e911e11-bf65-4150-9bef-30ce4d4464f9` at 0%) and stage `39d17ced-0fc5-4c57-98d0-b9b2bdbbaf6a` at 100% (predecessor `e920eff0-5350-468e-a48a-a57b91ad4cec` at 0%). Both deployment binding sets exactly matched their respective predecessors; all 23 production bindings were preserved. Both candidates and ordinary routing each reached two clean 479/479 asset passes. Final full suite: 472 tests passed; types, lint and both builds passed.
+
+Coverage includes arbitrary email domains, personal connection in operational and fictional workspaces, encrypted workspace/user isolation, continued Insights shop scoping, immutable transaction routes, exact environment matching, repeated callbacks, lender-number ownership conflicts before tenant writes, failed delivery retry ownership, unknown-event quarantine, and import registration failure before XML upload. No account or personal grant is copied across workspaces. No live borrower or rate request was sent.
+
+Signed-in live verification confirmed Connect UWM in Orbit demo and UWM Executive Demo, the exact places previously disabled. The stage account card initially showed a saved connection; a read-only Verify brokerage access encountered UWM's rejected refresh grant, retired that grant and displayed an explicit reconnect message. It did not validate a fresh stage authorization. User-entered sign-in is still required. Production proof: `.orbit/uwm-executive-account-live.png`; stage outcome: `.orbit/uwm-stage-account-verification.png`.
+
+Production client files are preserved in ignored `.orbit/uwm-all-production-client`; the worktree's current dist/server is the stage build and must not be deployed as production. Include source58c05bf in subsequent combined releases. Approved upload origins, actual lender callbacks, shop Insights credentials and end-to-end lender acceptance remain outstanding.
