@@ -154,6 +154,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   readonly #id: string;
   readonly #documents?: R2Bucket;
   #initialized = false;
+  #checkpointReading = false;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -227,6 +228,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       !await this.env.WORKSPACE.getByName(demoBrokerageId).mayPrepareMaintenanceReopen(staff,revision)) throw new Error("Reopening review unavailable.");
     const gate=maintenanceGates.get(this)!;
     if (!gate.closed || gate.active) throw new Error("Wait for active workspace requests to finish.");
+    if(this.#checkpointReading)throw new Error("Checkpoint inspection is running. Wait for it to finish before reopening.");
     this.#initializeWorkspace();
   }
   mayInspectMaintenance(staff: WorkspaceStaff, revision: number) {
@@ -243,13 +245,18 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     if(this.#id===demoBrokerageId || staff.brokerage.id!==this.#id)throw new Error("Checkpoint workspace mismatch.");
     const directory=this.env.WORKSPACE.getByName(demoBrokerageId),gate=maintenanceGates.get(this)!;
     if(!await directory.mayCaptureCheckpoint(staff,revision)||!gate.closed||gate.active)throw new Error("Wait for paused workspace activity to finish.");
+    if(this.#checkpointReading)throw new Error("Another checkpoint inspection is running. Try again after it finishes.");
+    this.#checkpointReading=true;
+    try {
     const kv=await this.ctx.storage.list({limit:101}),alarm=await this.ctx.storage.getAlarm();
     if(!gate.closed||gate.active)throw new Error("Workspace changed during capture. Refresh its status.");
     const manifest=captureCheckpointManifest((query,...values)=>this.ctx.storage.sql.exec(query,...values).toArray(),kv,alarm);
     const at=new Date().toISOString();
     const point=bookmark?await this.ctx.storage.getCurrentBookmark():"";
     if(!await directory.mayCaptureCheckpoint(staff,revision)||!gate.closed||gate.active)throw new Error("Workspace changed during capture. Refresh its status.");
+    if(await this.ctx.storage.getAlarm()!==alarm)throw new Error("Scheduled work changed during capture. Capture the checkpoint again.");
     return {manifest,bookmark:point,at};
+    }finally{this.#checkpointReading=false;}
   }
   async workspaceCheckpoints(staff:WorkspaceStaff,raw:unknown) {
     if(this.#id!==demoBrokerageId)throw new Error("Checkpoint directory unavailable.");
@@ -879,7 +886,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const gate=maintenanceGates.get(this);
     if(this.#id!==staff.brokerage.id||!gate?.closed||gate.active)throw new Error("Wait for the workspace to pause before recovering edits.");
     const reservation=await this.env.WORKSPACE.getByName(demoBrokerageId).authorizedRecoveryReplay(staff,editId);
-    if(!gate.closed||gate.active||reservation.replay.state!=="Pending")throw new Error("Recovery is no longer pending in a paused workspace.");
+    if(this.#checkpointReading||!gate.closed||gate.active||reservation.replay.state!=="Pending")throw new Error("Recovery is no longer pending in a paused workspace.");
     return applyRecoveryReplay(this.#store,staff,reservation);
   }
 

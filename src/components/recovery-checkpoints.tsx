@@ -7,21 +7,22 @@ export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint
   const [items,setItems]=useState<CheckpointSummary[]|null>(null),[label,setLabel]=useState("");
   const [selected,setSelected]=useState(""),[comparison,setComparison]=useState<CheckpointComparison|null>(null);
   const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
-  const request=useRef<{id:string;revision:number;label:string}|null>(null),feedback=useRef<HTMLParagraphElement>(null);
+  const [request,setRequest]=useState<{id:string;revision:number;label:string}|null>(null),[loadedAt,setLoadedAt]=useState(0);
+  const feedback=useRef<HTMLParagraphElement>(null);
   const stale=!!comparison&&comparison.revision!==revision;
   async function call(input:Record<string,unknown>){
     const response=await fetch(`${endpoint}&checkpoints=1`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(input)});
     const result=await response.json() as {error?:string;checkpoint:CheckpointSummary;view:MaintenanceView;items:CheckpointSummary[];comparison:CheckpointComparison};if(!response.ok)throw new Error(result.error??"Checkpoint review unavailable.");return result;
   }
   async function act(action:"list"|"create"|"compare"){
-    setBusy(true);setError("");setMessage("");
+    setLoadedAt(Date.now());setBusy(true);setError("");setMessage("");
     try{
       if(action==="create"){
         // Retain the exact request across a lost reply; retries cannot create another checkpoint.
-        request.current??={id:crypto.randomUUID(),revision,label:label.trim()};
-        const result=await call({action,...request.current});
+        const attempt=request??{id:crypto.randomUUID(),revision,label:label.trim()};setRequest(attempt);
+        const result=await call({action,...attempt});
         const saved=result.checkpoint as CheckpointSummary;
-        onSaved(result.view);setSelected(saved.id);setComparison(null);setLabel("");request.current=null;
+        onSaved(result.view);setSelected(saved.id);setComparison(null);setLabel("");setRequest(null);
         setItems(previous=>[saved,...(previous??[]).filter(item=>item.id!==saved.id)]);
         setMessage("Checkpoint saved. The workspace remains paused.");
       }else if(action==="list"){
@@ -40,15 +41,15 @@ export function RecoveryCheckpoints({endpoint,revision,paused,onSaved}:{endpoint
       {message&&<p ref={feedback} tabIndex={-1} role="status" className="application-message">{message}</p>}</div>
     <div className="maintenance-columns">
       <section><h3>Save checkpoint</h3><form className="maintenance-form" onSubmit={event=>{event.preventDefault();void act("create");}}>
-        <label className="field">Checkpoint name<input required minLength={3} maxLength={100} value={label} disabled={busy||!!request.current} onChange={event=>setLabel(event.target.value)} placeholder="Before reviewing document recovery"/></label>
-        <Button type="submit" disabled={!paused||busy}>{busy?"Working…":request.current?"Check saved checkpoint":"Save checkpoint"}</Button>
-        {request.current&&<Button type="button" variant="outline" disabled={busy} onClick={()=>{request.current=null;setError("");setMessage("Request cleared. Refresh the list before creating another checkpoint.");}}>Clear pending request</Button>}
+        <label className="field">Checkpoint name<input required minLength={3} maxLength={100} value={label} disabled={busy||!!request} onChange={event=>setLabel(event.target.value)} placeholder="Before reviewing document recovery"/></label>
+        <Button type="submit" disabled={!paused||busy}>{busy?"Working…":request?"Check saved checkpoint":"Save checkpoint"}</Button>
+        {request&&<Button type="button" variant="outline" disabled={busy} onClick={()=>{setRequest(null);setError("");setMessage("Request cleared. Refresh the list before creating another checkpoint.");}}>Clear pending request</Button>}
       </form></section>
       <section><h3>Compare with current work</h3><div className="maintenance-form">
         <Button variant="outline" disabled={!paused||busy} onClick={()=>void act("list")}>{items?"Refresh checkpoints":"Load checkpoints"}</Button>
         {items&&items.length===0&&<p className="muted">No checkpoints saved for this workspace.</p>}
         {!!items?.length&&<><label className="field">Checkpoint<select value={selected} disabled={busy} onChange={event=>{setSelected(event.target.value);setComparison(null);setMessage("");}}>
-          <option value="">Choose a checkpoint</option>{items.map(item=><option key={item.id} value={item.id} disabled={Date.parse(item.expiresAt)<=Date.now()}>{item.label} · {new Date(item.at).toLocaleString()}{Date.parse(item.expiresAt)<=Date.now()?" · Expired":""}</option>)}</select></label>
+          <option value="">Choose a checkpoint</option>{items.map(item=><option key={item.id} value={item.id} disabled={Date.parse(item.expiresAt)<=loadedAt}>{item.label} · {new Date(item.at).toLocaleString()}{Date.parse(item.expiresAt)<=loadedAt?" · Expired":""}</option>)}</select></label>
           <Button variant="outline" disabled={!paused||busy||!selected} onClick={()=>void act("compare")}>Compare checkpoint</Button></>}
       </div></section>
     </div>

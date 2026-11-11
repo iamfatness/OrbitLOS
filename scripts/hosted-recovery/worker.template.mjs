@@ -69,6 +69,10 @@ export class RecoveryWorkspace extends OrbitWorkspace {
     const rows = Object.fromEntries(tables.map(table => [table,this.ctx.storage.sql.exec(`SELECT * FROM ${table} ORDER BY rowid`).toArray()]));
     return { ...identity, hash: await digest(JSON.stringify(rows)), counts: Object.fromEntries(Object.entries(rows).map(([key,value]) => [key,value.length])) };
   }
+  probeCheckpointBookmark(id,brokerageId) {
+    if(this.ctx.id.name!=="orbit-demo")throw new Error("Directory only");
+    return this.ctx.storage.sql.exec("SELECT bookmark FROM brokerage_recovery_checkpoints WHERE id=? AND brokerageId=?",id,brokerageId).one().bookmark;
+  }
   async probeCheckpoint() {
     const capture = await this.probeCapture();
     return { ...capture, bookmark: await this.ctx.storage.getCurrentBookmark() };
@@ -223,7 +227,19 @@ async function command(action, env, origin, ctx) {
   }
   if (!state || state.run !== env.RECOVERY_RUN || state.source !== env.RECOVERY_SOURCE) throw new Error("Run provenance unavailable");
   if (action === "checkpoint" && state.phase === "initialized") {
-    state.checkpoint = await target.probeCheckpoint();
+    let view=await directory.manageWorkspaceMaintenance(a.admin);
+    view=await directory.manageWorkspaceMaintenance(a.admin,{type:"pause",revision:view.revision,reason:"Create isolated product checkpoint",confirmation:a.admin.brokerage.name});
+    const input={action:"create",id:crypto.randomUUID(),revision:view.revision,label:"Before isolated restore acceptance"};
+    const saved=await directory.workspaceCheckpoints(a.admin,input);
+    const repeated=await directory.workspaceCheckpoints(a.admin,input);
+    if(saved.checkpoint.id!==repeated.checkpoint.id || saved.view.revision!==repeated.view.revision)throw new Error("Checkpoint retry duplicated a save");
+    state.productCheckpoint=saved.checkpoint;
+    state.checkpoint={...await target.probeCapture(),bookmark:await directory.probeCheckpointBookmark(saved.checkpoint.id,a.id)};
+    const compare=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:saved.checkpoint.id,revision:saved.view.revision});
+    if(compare.comparison.changed.length || compare.comparison.schemaChanged || compare.comparison.kvChanged)throw new Error("New product checkpoint differs from capture");
+    view=await directory.manageWorkspaceMaintenance(a.admin,{type:"review",revision:saved.view.revision,review:"Captured complete checkpoint and verified immediate comparison.",checks:[true,true,true]});
+    view=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:view.revision,confirmation:a.admin.brokerage.name});
+    if(view.mode!=="Open")throw new Error("Checkpoint fixture failed to reopen");
     state.otherBefore = await other.probeCapture();
     let refused = false;
     try { await other.probeArm(state.checkpoint); } catch { refused = true; }
@@ -275,7 +291,7 @@ async function command(action, env, origin, ctx) {
     requireOk(await other.write({type:"setDocumentDeadline",loanId:b.loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-01-02"},b.officer));
     state.otherAfter = await other.probeCapture();
     if (state.otherBefore.hash === state.otherAfter.hash || (await target.probeCapture()).hash === state.checkpoint.hash) throw new Error("Fixture changes were not observable");
-    const paused=await directory.manageWorkspaceMaintenance(a.admin,{type:"pause",revision:0,
+    const paused=await directory.manageWorkspaceMaintenance(a.admin,{type:"pause",revision:(await directory.manageWorkspaceMaintenance(a.admin)).revision,
       reason:"Isolated restore rehearsal: preserve review decisions across tenant recovery.",confirmation:a.admin.brokerage.name});
     if(paused.error || paused.mode!=="Paused")throw new Error(paused.error||"Fixture did not pause");
     const inspected=await target.inspectWorkspaceMaintenance(a.admin,{revision:paused.revision,documents:0,requests:0});
@@ -292,6 +308,9 @@ async function command(action, env, origin, ctx) {
     state.internalEdits=editInspection.items.filter(item=>item.command.loanId===a.loanId && ["2030-02-03","2030-02-10"].includes(item.command.dueOn));
     if(state.internalEdits.length!==2 || state.internalEdits.some(item=>item.state!=="Recorded"||!item.proof||!item.sourceProof))
       throw new Error("Actual document edits did not retain both recovery receipts");
+    const comparison=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:state.productCheckpoint.id,revision:paused.revision});
+    if(comparison.comparison.changed.length || comparison.comparison.schemaChanged || comparison.comparison.kvChanged)throw new Error("Restored full database differs from product checkpoint manifest");
+    state.checkpointComparison={tables:comparison.comparison.unchanged,changed:0,schemaChanged:false,kvChanged:false,alarmChanged:comparison.comparison.alarmChanged};
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Normal workspace read remained open before restore");
     await target.probeDamage(a.loanId);
@@ -310,6 +329,9 @@ async function command(action, env, origin, ctx) {
     let paused=await directory.manageWorkspaceMaintenance(a.admin);
     if(paused.error || paused.mode!=="Paused" || paused.revision!==state.maintenance.revision || paused.startedAt!==state.maintenance.cycle)
       throw new Error("Tenant restore changed directory maintenance state");
+    const comparison=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:state.productCheckpoint.id,revision:paused.revision});
+    if(comparison.comparison.changed.length || comparison.comparison.schemaChanged || comparison.comparison.kvChanged)throw new Error("Restored full database differs from product checkpoint manifest");
+    state.checkpointComparison={tables:comparison.comparison.unchanged,changed:0,schemaChanged:false,kvChanged:false,alarmChanged:comparison.comparison.alarmChanged};
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Restored tenant reopened without review");
     const inspected=await target.inspectWorkspaceMaintenance(a.admin,{revision:paused.revision,documents:0,requests:0});

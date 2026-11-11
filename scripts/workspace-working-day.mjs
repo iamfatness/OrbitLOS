@@ -51,6 +51,7 @@ const fixtureScript = `
 import worker, { OrbitWorkspace } from "./index.js";
 export default worker;
 export class WorkingDayWorkspace extends OrbitWorkspace {
+  async checkpointFixture(staff,revision){return JSON.stringify(await this.captureWorkspaceCheckpoint(staff,revision,false));}
   loseNextReplayReply(){this.loseReplayReply=true;}
   async applyWorkspaceRecoveryReplay(...args){const result=await super.applyWorkspaceRecoveryReplay(...args);if(this.loseReplayReply){this.loseReplayReply=false;throw new Error("Fictional lost replay reply");}return result;}
   restoreDeadlineFixture(editId){
@@ -3693,6 +3694,22 @@ try {
     assert.equal((await post(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
     assert.equal((await file(owner,loanId)).documentRequests[0].dueOn,"2030-05-01");
     if(process.argv.includes("--preview"))await workspaces.getByName(brokerage).restoreDeadlineFixture(edit.id);
+  });
+  await stage("Owner checkpoint inspection is complete, role scoped and unavailable while work is open",async()=>{
+    const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
+    const status=async()=> (await runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}})).json();
+    let view=await status();
+    assert.equal((await postResponse(endpoint+"&checkpoints=1",{action:"list",revision:view.revision},owner)).status,409);
+    view=await post(endpoint,{type:"pause",revision:view.revision,reason:"Fictional checkpoint inspection acceptance",confirmation:"Fictional Working Day"},owner);
+    const identity={...owner,brokerage:{id:brokerage,name:"Fictional Working Day",role:"Admin",pilot:true,accessRevision:1}};
+    const captured=JSON.parse(await workspaces.getByName(brokerage).checkpointFixture(identity,view.revision));
+    assert(captured.manifest.tables.length>50);assert(captured.manifest.tables.some(table=>table.name==="loans"));
+    assert.equal(captured.bookmark,"");
+    assert.deepEqual((await post(endpoint+"&checkpoints=1",{action:"list",revision:view.revision},owner)).items,[]);
+    for(const person of [officer,processor])assert.equal((await postResponse(endpoint+"&checkpoints=1",{action:"list",revision:view.revision},person)).status,409);
+    assert.equal((await postResponse(endpoint+"&checkpoints=1",{action:"list",revision:view.revision-1},owner)).status,409);
+    view=await post(endpoint,{type:"review",revision:view.revision,review:"Verified bounded full SQL checkpoint inspection and access checks.",checks:[true,true,true]},owner);
+    assert.equal((await post(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
   });
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
