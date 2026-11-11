@@ -19,7 +19,9 @@ export async function startDirectoryWork(namespace: { getByName(name: string): D
     if (!await tracker.beginDirectoryWork(id, kind)) return null;
     return async () => {
       try {
-        await tracker.endDirectoryWork(id);
+        // A coordinator restart can invalidate the admission stub. Completion
+        // is idempotent and can be recorded through a fresh connection.
+        await namespace.getByName(directoryDrainObject).endDirectoryWork(id);
       } catch {
         console.warn("Orbit could not record recovery work completion.");
       }
