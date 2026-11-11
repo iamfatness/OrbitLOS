@@ -64,7 +64,12 @@ export function uwmPublicClient(db: Store, env: UwmEnvironment, staff: Workspace
   const loan = (number: string) => `/public/products/v1/loans/${uwmLoanNumber.parse(number)}`;
   const documents = (number: string) => `/public/v1/deal/loans/${z.string().regex(/^\d{10}$/).parse(number)}`;
   return {
-    brokerAssociations: async () => verified(await request("/public/rolodex/v1/current-user/broker-associations"), uwmBrokerAssociations),
+    brokerAssociations: async () => {
+      const response = await request("/public/rolodex/v1/current-user/broker-associations");
+      const parsed = uwmBrokerAssociations.safeParse(response.body);
+      if (!parsed.success) throw new UwmRequestError("UWM returned broker access in an unexpected format. Contact Orbit support; no loan action was sent.", response.status, "unknown");
+      return { ...response, body: parsed.data };
+    },
     alternativeContacts: (entityId: string) => request(`/public/rolodex/v1/brokers/${id(entityId)}/alternative-contacts`),
     createTransaction: async () => {
       const response = await request("/public/v1/transactions", "POST");

@@ -195,7 +195,8 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
         return { associations: associations.body, message: `UWM verified ${associations.body.branches.length} available branches. Choose the branch and loan officer when preparing a file.` };
       }
       return uwmUserStatus(this.#store, env, staff);
-    } catch { return { error: "UWM sign-in failed. Verify your UWM credentials, environment and broker access, then try again." }; }
+    } catch (error) { return { error: input.action === "verify" && error instanceof UwmError ? error.message
+      : "UWM sign-in failed. Verify your UWM credentials, environment and broker access, then try again." }; }
   }
 
   async receiveUwmWebhook(event: UwmWebhookEvent) {
