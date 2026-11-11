@@ -147,3 +147,10 @@ After checkpointing, normal inspection displayed all seven operation/request ref
 [Sanitized evidence](evidence/hosted-recovery-provider-states-2026-11-11.json) records the provenance and results. Restore plus initial verification took 2,737 ms for this small fixture, excluding replay. Local fixture preparation and focused lint passed. The dedicated Worker, sample PDFs and bucket were removed, and the operator token deleted. No production data or lender request was involved.
 
 This closes the previously empty-table **storage rehearsal** gap for these provider records. It does not prove external provider outcome reconciliation, live credential/link recovery, full transactional recovery across stores, directory restoration, general controlled replay or production admission. R4 remains open.
+
+
+### Decision UI published and verified — November 11, 2026
+
+The coordinated `ef4a99b` / `f5085d5b-2a68-4738-910a-030346811b93` release published the maintenance decisions above. Live fictional acceptance proved persisted decisions, append-only visible history, invalidation of the earlier reopening approval, responsive layouts and reviewed reopening. The public product page is updated. This supersedes the earlier pending-publication note; details are in `brand-ux-review.md`.
+
+Next: an operator reconciliation and controlled replay workflow for supported internal edits, followed by directory recovery. Evidence decisions remain attestations; they do not authorize uncertain lender retries. Synthetic populated-provider storage recovery is now rehearsed, while actual provider-outcome reconciliation, credential/link recovery, retention policy and production admission remain open.
