@@ -71,8 +71,17 @@ In **Compliance → Loan retention**, a current pilot owner can search loans by 
 
 An active hold blocks loan deletion and a sample reset that would remove the loan. It preserves existing and replacement checklist PDFs while normal loan work continues. Releasing a hold restores the normal cleanup rules for obsolete copies. The loan and current documents follow their existing lifecycle. Hold history survives release. The ordinary restore flow blocks active holds and checkpoints that would rewind hold history. Use the incident review for a workspace with an active hold. Keep this protection in active and rollback releases while any hold exists.
 
-This pilot covers loan and checklist records. Policy periods, holds for other record types, archived-byte export, and review of production retention and disposition remain open.
+This pilot covers loan and checklist records. Policy periods, holds for other record types, and review of production retention and disposition remain open.
 
 ### Release verification
 
 Application `ca18588` is live on Worker `b7e7d2c9-c341-4f7b-97ee-216396d55d12`. All 505 tests, type checking, lint and the 43-stage working day passed. The local browser verified search, placement, release, history, focus and role restrictions at desktop, portrait and phone widths. The live QA owner loaded the inventory. The first hosted run hit a Cloudflare compound-query limit during checkpoint capture. The corrected isolated run `orbit-recovery-a8a8959a` verified the existing tenant and shared-directory restore paths, including the existing brokerage maintenance hold. Unit tests separately verified that an active loan retention hold protects replaced PDF bytes and blocks ordinary restore. The fixture Workers, buckets and test credentials were removed. [Release evidence](../evidence/loan-retention-release-2026-11-11.json).
+
+
+### Owner retention export
+
+Open **Compliance → Loan retention → Hold history → Download retention ZIP** on an existing pilot loan. The ZIP contains a JSON manifest with the loan, recorded hold and release history, distinct saved checklist PDFs, and the sources that reference each PDF. Each file has a SHA-256 checksum. Legacy acceptance revisions that lack a recorded file association appear in the manifest for review. Copies retained solely by an active hold follow the normal cleanup rules after release.
+
+A missing or invalid referenced file, stale loan snapshot, or changed access blocks the export. The workspace records a successful preparation in its access history. A loan export can include up to 100 distinct PDFs totaling 32 MiB, with up to 1,000 hold records and document associations per export category.
+
+Application `38c94d1` is live on Worker `9b1db552-ccbd-420c-acee-e5b33266d657`. A live fictional loan with no saved PDFs returned its ZIP. The isolated built-Worker rehearsal verified an original and replacement PDF byte for byte, preserved release history, denied LO and processor requests, and blocked a missing file. Browser checks verified retry and file checksums at desktop, portrait and phone widths. All 505 tests and the 43-stage working day passed. [Release evidence](../evidence/retention-export-release-2026-11-11.json).

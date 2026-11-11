@@ -1,0 +1,21 @@
+{
+  "widths": [
+    1440,
+    900,
+    390
+  ],
+  "populated": true,
+  "download": true,
+  "retry": true,
+  "keyboardFocus": true,
+  "verifiedZipFiles": 2,
+  "source": "38c94d1",
+  "liveWorker": "9b1db552-ccbd-420c-acee-e5b33266d657",
+  "liveFictionalHistoryZip": true,
+  "liveFictionalPdfCount": 0,
+  "testsPassed": 505,
+  "workingDayStages": 43,
+  "missingPdfBlocked": true,
+  "releasedOnlyPdfExcluded": true,
+  "nonOwnerDenied": true
+}

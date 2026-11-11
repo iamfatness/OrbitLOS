@@ -396,3 +396,8 @@ Live acceptance: Worker aadaa0a5 passed checkpoint create,199-table unchanged co
 ### Loan retention inventory and holds
 
 The owner inventory uses the existing Compliance navigation, a borrower search and an active-hold count that filters the records. The review names the borrower and the effect of the action. Feedback moves focus to the receipt, and closing history returns focus to its originating button. The Playwright pass checked 1440, 900 and 390 pixels, with a 44-pixel confirmation control and no horizontal overflow. UI UX Pro Max informed feedback and filter wrapping. Impeccable's rendered scan reported the existing Inter typeface and global theme effects. The new panel uses the shared typography and neutral surfaces. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill).
+
+
+### Retention export
+
+Verified for the pilot owner download flow on the built Worker from `38c94d1`. A fictional loan had a long borrower name, two stored PDFs and a mix of active and released hold history. Screenshots at 1440 × 900, 900 × 1200 and 390 × 844 were inspected. Moving the download and close controls above the history kept them near the selected loan. The controls measured 44 pixels or more, and the panel fit each width. The browser exercised a failed response, retry, successful ZIP, and focus preservation on download and return. The rendered Impeccable scan reported the shared typeface and theme effects. [Impeccable polish](https://impeccable.style/docs/polish/) · [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill).
