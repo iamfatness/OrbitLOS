@@ -26,9 +26,9 @@ const documents = [
 ];
 const requests = [
   {name:"UWM request history",sql:`SELECT 'request:' || id AS reference, 'UWM request' AS source, loanId AS recordId,
-    action, state, updatedAt AS at, environment, digest || COALESCE(result,'') AS basis FROM uwm_live_requests WHERE state IN ('Dispatching','Unknown','Acknowledged') AND action <> 'reconcile-request'`},
+    action, state, updatedAt AS at, environment, json_array(digest,result) AS basis FROM uwm_live_requests WHERE state IN ('Dispatching','Unknown','Acknowledged') AND action <> 'reconcile-request'`},
   {name:"UWM operation history",sql:`SELECT 'operation:' || id AS reference, 'UWM operation' AS source, loanId AS recordId,
-    kind AS action, state, updatedAt AS at, environment, requestDigest || COALESCE(transactionId,'') || COALESCE(receiptId,'') AS basis FROM uwm_operations WHERE state IN ('Prepared','Dispatching','Acknowledged','Unknown')`},
+    kind AS action, state, updatedAt AS at, environment, json_array(requestDigest,transactionId,receiptId) AS basis FROM uwm_operations WHERE state IN ('Prepared','Dispatching','Acknowledged','Unknown')`},
   {name:"Pending loan uploads",sql:`SELECT 'upload:' || requestId AS reference, 'Document upload' AS source, requests.loanId AS recordId,
     requests.kind AS action, 'Pending upload' AS state, CAST(attemptedAt AS TEXT) AS at, COALESCE(uploadMode,'Unknown') AS environment, pendingId AS basis
     FROM document_files files JOIN document_requests requests ON requests.id=files.requestId WHERE pendingId IS NOT NULL`},

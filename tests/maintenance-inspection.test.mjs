@@ -87,13 +87,16 @@ test("evidence fingerprints detect storage identity and provider response change
     db.prepare("INSERT INTO document_requests VALUES('doc','Pay stub','loan',1)").run();
     db.prepare("INSERT INTO document_files VALUES('doc',?,NULL,0,'mock')").run(objectId);
     db.prepare("INSERT INTO uwm_live_requests VALUES('req','loan','lock','Unknown','2026-11-11','stage','private first response','digest')").run();
+    db.prepare("INSERT INTO uwm_operations VALUES('op','loan','import','Prepared','2026-11-11','stage','digest','12',3)").run();
     const before=await inspectMaintenanceStore(db,{revision:2},async()=>({size:120,etag:'first'}));
     const same=await inspectMaintenanceStore(db,{revision:2},async()=>({size:120,etag:'first'}));
     assert.equal(before.documents.items[0].fingerprint,same.documents.items[0].fingerprint);
     db.prepare("UPDATE uwm_live_requests SET result='private changed response'").run();
+    db.prepare("UPDATE uwm_operations SET transactionId='1',receiptId=23 WHERE id='op'").run();
     const changed=await inspectMaintenanceStore(db,{revision:2},async()=>({size:120,etag:'different'}));
     assert.notEqual(before.documents.items[0].fingerprint,changed.documents.items[0].fingerprint);
-    assert.notEqual(before.requests.items[0].fingerprint,changed.requests.items[0].fingerprint);
+    for(const reference of ['request:req','operation:op'])assert.notEqual(before.requests.items.find(row=>row.reference===reference).fingerprint,
+      changed.requests.items.find(row=>row.reference===reference).fingerprint);
     assert.ok(!JSON.stringify(changed).includes('private changed response'));
     assert.ok(!JSON.stringify(changed).includes(objectId));
   }finally{close();}
