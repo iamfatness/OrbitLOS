@@ -24,7 +24,7 @@ export type RecoveryHoldResult = z.infer<typeof resultSchema>;
 function inspect(db: Store, evidence: Evidence, brokerageId: string) {
   const state = maintenanceState(db, brokerageId);
   const pilot = db.prepare("SELECT pilot FROM brokerages WHERE id=?").get(brokerageId)?.pilot === 1;
-  const saved = evidence.version === 2 ? evidence.maintenance.filter(row => row.brokerageId === brokerageId) : undefined;
+  const saved = evidence.version === 1 ? undefined : evidence.maintenance.filter(row => row.brokerageId === brokerageId);
   const current = readDirectoryMaintenanceEvidence(db).filter(row => row.brokerageId === brokerageId);
   const { status, changes, pending } = compareDirectoryMaintenanceEvidence(saved, current);
   const fingerprint = createHash("sha256").update(JSON.stringify([evidence.id, brokerageId, pilot, state, saved, current])).digest("hex");

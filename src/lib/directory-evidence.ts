@@ -31,10 +31,14 @@ const projectedRows = z.strictObject({
   })).max(maxRows),
 });
 export type EvidenceRows = z.infer<typeof projectedRows>;
+const workspacePreferenceEvidence = z.strictObject({
+  count: z.number().int().min(0).max(maxRows), digest: hex,
+});
 const evidenceFields = { id, scope, capturedAt: z.iso.datetime(), incident: z.string().max(80), rows: projectedRows };
 const evidenceSchema = z.discriminatedUnion("version", [
   z.strictObject({ version: z.literal(1), ...evidenceFields }),
   z.strictObject({ version: z.literal(2), ...evidenceFields, maintenance: maintenanceEvidenceRows }),
+  z.strictObject({ version: z.literal(3), ...evidenceFields, maintenance: maintenanceEvidenceRows, workspacePreferences: workspacePreferenceEvidence }),
 ]);
 export type Evidence = z.infer<typeof evidenceSchema>;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -45,7 +49,17 @@ export function captureDirectoryEvidence(db: Store): EvidenceRows {
 }
 
 export function captureDirectoryRecoverySnapshot(db: Store) {
-  return db.transaction(() => ({ rows: readDirectoryEvidenceRows(db), maintenance: readDirectoryMaintenanceEvidence(db) }));
+  return db.transaction(() => {
+    const preferences = db.prepare("SELECT email, brokerageId FROM staff_workspace_preferences ORDER BY email LIMIT ?").all(maxRows + 1);
+    return {
+      rows: readDirectoryEvidenceRows(db),
+      maintenance: readDirectoryMaintenanceEvidence(db),
+      workspacePreferences: workspacePreferenceEvidence.parse({
+        count: preferences.length,
+        digest: digest(JSON.stringify(preferences.map(row => [row.email, row.brokerageId]))),
+      }),
+    };
+  });
 }
 
 export function readDirectoryEvidenceRows(db: Store): EvidenceRows {
@@ -106,6 +120,7 @@ export async function directoryEvidenceHttp(request: Request, bucket: R2Bucket |
     const summary = (item: Evidence) => ({
       id: item.id, capturedAt: item.capturedAt, incident: item.incident, version: item.version,
       counts: Object.fromEntries(Object.entries(item.rows).map(([group, rows]) => [group, rows.length])),
+      ...(item.version === 3 ? { workspacePreferenceCount: item.workspacePreferences.count } : {}),
     });
     if (saved && !usable(saved)) return problem(409, "Evidence is outside this environment or its review window.");
     if (request.method === "GET") {
@@ -114,15 +129,23 @@ export async function directoryEvidenceHttp(request: Request, bucket: R2Bucket |
       if (!await stable()) return problem(409, "The pause or active work changed during the comparison.");
       const groups = compareEvidence(saved.rows, current.rows, new Date().toISOString());
       const accessMatches = groups.every(group => !group.changed);
-      const maintenance = compareDirectoryMaintenanceEvidence(saved.version === 2 ? saved.maintenance : undefined, current.maintenance);
-      return Response.json({ evidence: summary(saved), groups, accessMatches, maintenance,
-        matches: accessMatches && maintenance.status === "matched" }, { headers });
+      const maintenance = compareDirectoryMaintenanceEvidence(saved.version === 1 ? undefined : saved.maintenance, current.maintenance);
+      const savedPreferences = saved.version === 3 ? saved.workspacePreferences : null;
+      const preferencesMatch = savedPreferences?.digest === current.workspacePreferences.digest &&
+        savedPreferences.count === current.workspacePreferences.count;
+      const workspacePreferences = {
+        status: !savedPreferences ? "unavailable" : preferencesMatch ? "matched" : "changed",
+        saved: savedPreferences?.count ?? null,
+        current: current.workspacePreferences.count,
+      };
+      return Response.json({ evidence: summary(saved), groups, accessMatches, maintenance, workspacePreferences,
+        matches: accessMatches && maintenance.status === "matched" && workspacePreferences.status === "matched" }, { headers });
     }
     if (saved) {
       if (saved.incident !== marker.incident) return problem(409, "This evidence ID belongs to a different incident.");
       return Response.json({ evidence: summary(saved) }, { headers });
     }
-    const item: Evidence = { version: 2, id: evidenceId.data, scope: deployment, incident: marker.incident,
+    const item: Evidence = { version: 3, id: evidenceId.data, scope: deployment, incident: marker.incident,
       capturedAt: new Date().toISOString(), ...await capture() };
     if (!await stable()) return problem(409, "The pause or active work changed during capture.");
     const body = JSON.stringify(item);

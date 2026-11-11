@@ -88,6 +88,7 @@ export default function DemoPage() {
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Save the two runs for the same fictional case as you finish them. Compare staff time and handoffs, and record any external steps or blockers.</li>
           <li>Open the work behind pilot support counts and download a redacted report for handoffs and recovery.</li>
+          <li>Choose your default brokerage once. Orbit checks saved workspace choices after directory recovery.</li>
         </ul>
         <p className="marketing-request-note">In a fresh hosted pilot, the guided walkthrough reached all seven steps and opened a separate rate-watch refinance in 3 minutes 58 seconds. One signed-in staff account worked the CSV import, mock lender clearance with two sample PDFs, funding, and repeat-client follow-up. The borrower and realtor used separate fictional views. Timing excluded sign-in and spoken narration.</p>
         <p className="marketing-request-note">Prefer email? <a href="mailto:demo@orbitlos.com">demo@orbitlos.com</a></p>

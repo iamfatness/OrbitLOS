@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { registerHooks } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -14,6 +15,58 @@ const { captureDirectoryEvidence } = await import("../src/lib/directory-evidence
 const { applyDirectoryRepair, previewDirectoryRepair } = await import("../src/lib/directory-repair.ts");
 const now = "2026-11-11T15:00:00.000Z";
 
+test("sealed directory evidence detects changed account defaults without exposing them", async t => {
+  const { db, workspace, other } = fixture(t);
+  const { initializeMaintenance } = await import("../src/lib/workspace-maintenance.ts");
+  const { initializeRecoveryEdits } = await import("../src/lib/recovery-edits.ts");
+  const { initializeRecoveryCheckpoints } = await import("../src/lib/recovery-checkpoints.ts");
+  const { captureDirectoryRecoverySnapshot, directoryEvidenceHttp, directoryEvidencePrefix } = await import("../src/lib/directory-evidence.ts");
+  const { directoryPauseKey } = await import("../src/lib/directory-traffic-pause.ts");
+  initializeMaintenance(db);
+  initializeRecoveryEdits(db, true);
+  initializeRecoveryCheckpoints(db);
+  const digest = value => createHash("sha256").update(value).digest("hex");
+  const token = "a".repeat(64);
+  const incident = { incident: "fixture", evidenceTokenSha256: digest(token) };
+  const id = crypto.randomUUID();
+  const key = directoryEvidencePrefix + id + ".json";
+  const objects = new Map([[directoryPauseKey, JSON.stringify(incident)]]);
+  const bucket = {
+    async get(key) {
+      const value = objects.get(key);
+      return value === undefined ? null : { size: Buffer.byteLength(value), version: "paused",
+        json: async () => JSON.parse(value), text: async () => value, customMetadata: { sha256: digest(value) } };
+    },
+    async head() { return { version: "paused" }; },
+    async put(key, value) { objects.set(key, value); return {}; },
+  };
+  const request = method => directoryEvidenceHttp(new Request("https://fixture.invalid/api/ops/directory-evidence?id="+id,
+    { method, headers: { Authorization: "Bearer " + token } }), bucket, "fixture",
+    async () => ({ active: 0 }), async () => captureDirectoryRecoverySnapshot(db));
+  db.prepare("INSERT INTO staff_workspace_preferences VALUES (?,?)").run("owner@example.test", workspace);
+  assert.equal((await request("POST")).status, 201);
+  const saved = JSON.parse(objects.get(key));
+  assert.equal(saved.version, 3);
+  assert.deepEqual(Object.keys(saved.workspacePreferences), ["count", "digest"]);
+  assert.doesNotMatch(objects.get(key), /owner@example\.test/);
+  assert.equal((await (await request("GET")).json()).matches, true);
+
+  db.prepare("UPDATE staff_workspace_preferences SET brokerageId=?").run(other);
+  const changed = await (await request("GET")).json();
+  assert.equal(changed.accessMatches, true);
+  assert.deepEqual(changed.workspacePreferences, { status: "changed", saved: 1, current: 1 });
+  assert.equal(changed.matches, false);
+  assert.doesNotMatch(JSON.stringify(changed), /owner@example\.test|digest/);
+
+  const { workspacePreferences, ...legacy } = saved;
+  assert.ok(workspacePreferences);
+  objects.set(key, JSON.stringify({ ...legacy, version: 2 }));
+  const older = await (await request("GET")).json();
+  assert.deepEqual(older.workspacePreferences, { status: "unavailable", saved: null, current: 1 });
+  assert.equal(older.maintenance.status, "matched");
+  assert.equal(older.matches, false);
+});
+
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => sqlite.close());
@@ -28,6 +81,7 @@ function fixture(t) {
   };
   db.exec(`CREATE TABLE brokerages (id TEXT PRIMARY KEY,pilot INTEGER);
     CREATE TABLE brokerage_members (brokerageId TEXT,email TEXT,role TEXT,status TEXT,accessRevision INTEGER,bootstrap INTEGER);
+    CREATE TABLE staff_workspace_preferences (email TEXT PRIMARY KEY,brokerageId TEXT NOT NULL);
     CREATE TABLE revoked_pilot_portals (brokerageId TEXT,tokenHash TEXT,expiresAt TEXT,PRIMARY KEY(brokerageId,tokenHash));
     CREATE TABLE uwm_transaction_routes (environment TEXT,transactionId TEXT,brokerageId TEXT,operationId TEXT,PRIMARY KEY(environment,transactionId));
     CREATE TABLE uwm_loan_routes (environment TEXT,loanNumber TEXT,brokerageId TEXT,transactionId TEXT,PRIMARY KEY(environment,loanNumber));`);

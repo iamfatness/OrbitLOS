@@ -5,7 +5,7 @@ import { directoryDrainObject, directoryDrainPath, directoryEvidencePath, direct
 const journalKey = "directory-recovery-journal";
 const directoryTables = [
   "brokerages", "brokerage_members", "brokerage_access_history", "revoked_pilot_portals",
-  "staff_sessions", "staff_google_attempts", "brokerage_maintenance", "brokerage_maintenance_history",
+  "staff_sessions", "staff_google_attempts", "staff_workspace_preferences", "brokerage_maintenance", "brokerage_maintenance_history",
   "brokerage_maintenance_decisions", "brokerage_recovery_edits", "brokerage_recovery_replays",
   "brokerage_recovery_checkpoints", "brokerage_checkpoint_parts", "brokerage_restore_jobs",
   "uwm_transaction_routes", "uwm_loan_routes",
@@ -104,6 +104,8 @@ export async function directoryRecoveryCommand(action, fixture) {
       loanNumber: `fictional-recovery-loan-${index}`, operationId: crypto.randomUUID(),
     }));
     await directory.probeDirectoryRoutes(routes);
+    if (!await directory.rememberStaffWorkspace(state.directoryEndedSession, Date.now(), [], b.id, true))
+      throw new Error("Could not save the newer fictional workspace default");
     await directory.removeStaffSession(state.directoryEndedSession);
     if(!await directory.consumeGoogle(state.directoryOldAttempt,"fictional-browser",Date.now()))
       throw new Error("Fictional pending sign-in was not populated before the older point");
@@ -116,7 +118,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     const paused = await directory.manageWorkspaceMaintenance(a.admin);
     const source = await directory.probeDirectoryPoint();
     const differences = changed(source.manifest,state.directoryOld.manifest);
-    for (const name of ["brokerage_members","revoked_pilot_portals","uwm_transaction_routes","uwm_loan_routes","brokerage_recovery_edits","staff_sessions"]) {
+    for (const name of ["brokerage_members","revoked_pilot_portals","uwm_transaction_routes","uwm_loan_routes","brokerage_recovery_edits","staff_sessions","staff_workspace_preferences"]) {
       if (!differences.includes(name)) throw new Error(`Rehearsal did not cover changed ${name}`);
     }
     const ticket=crypto.randomUUID();
@@ -151,7 +153,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     if (count?.active !== 0) throw new Error("Outstanding work blocked the restore");
     const saved=await accessEvidence("POST",journal.evidenceToken,journal.evidenceId,201);
     const repeated=await accessEvidence("POST",journal.evidenceToken,journal.evidenceId,200);
-    if(saved.evidence.version!==2 || !same(saved,repeated) || !(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
+    if(saved.evidence.version!==3 || !same(saved,repeated) || !(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
       throw new Error("Independent evidence capture did not seal the reviewed state");
     const undo = await directory.probeDirectoryArm(journal.old);
     next = { ...journal, undo, phase:"directoryOldArmed" };
@@ -167,6 +169,8 @@ export async function directoryRecoveryCommand(action, fixture) {
     const comparison=await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200);
     if(comparison.matches || comparison.accessMatches || comparison.groups.filter(group=>group.changed).length!==4)
       throw new Error("Independent evidence failed to detect stale access and routing");
+    if (!same(comparison.workspacePreferences, { status: "changed", saved: 1, current: 1 }))
+      throw new Error("Independent evidence missed a same-count workspace preference rollback");
     const maintenanceChanges=comparison.maintenance.changes.filter(item=>item.brokerageId===a.id);
     if(comparison.maintenance.status!=="changed" ||
       !maintenanceChanges.some(item=>item.group==="maintenance") ||
@@ -191,8 +195,9 @@ export async function directoryRecoveryCommand(action, fixture) {
     if(retry.status!==200 || !same(await retry.json(),applied))throw new Error("Directory repair retry changed the receipt");
     const repairedComparison=await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200);
     if(!repairedComparison.accessMatches || repairedComparison.matches ||
-      !same(repairedComparison.maintenance,comparison.maintenance))
-      throw new Error("Access reconstruction masked unresolved maintenance evidence");
+      !same(repairedComparison.maintenance,comparison.maintenance) ||
+      !same(repairedComparison.workspacePreferences,comparison.workspacePreferences))
+      throw new Error("Access reconstruction masked unresolved directory evidence");
     if(await directory.brokerageForPortal(state.link.token) || await directory.brokerageForPortal(state.realtor.token) ||
       await directory.leadOwner(a.id,a.officer.email,[]) || !await directory.leadOwner(b.id,b.officer.email,[]))
       throw new Error("Reconstruction did not preserve access restrictions");
@@ -275,7 +280,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     const reconstructed=await directory.probeDirectorySnapshot();
 
     next = { ...journal, phase:"directoryOldRejected", reconstructed, evidence:{
-      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true, reviewedReconstructionMatched:true, maintenanceDriftDetected:true, maintenanceDriftSurvivedAccessRepair:true, maintenanceGroupsChanged:maintenanceChanges.map(item=>item.group), reconstructedCounts:applied.applied, repairReceiptRetryMatched:true, olderSignInStateInvalidated:true, signInResetCounts:invalidated, signInResetRetryMatched:true, affectedBrokerageHeld:true, unaffectedBrokerageAccessible:true, holdRetryMatched:true, holdInvalidatedReopeningReview:true, heldMaintenanceGroups:holdResult.groups,
+      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true, sealedEvidenceDetectedStaleDirectory:true, reviewedReconstructionMatched:true, maintenanceDriftDetected:true, maintenanceDriftSurvivedAccessRepair:true, maintenanceGroupsChanged:maintenanceChanges.map(item=>item.group), workspacePreferenceDriftDetected:true, workspacePreferenceDriftSurvivedAccessRepair:true, reconstructedCounts:applied.applied, repairReceiptRetryMatched:true, olderSignInStateInvalidated:true, signInResetCounts:invalidated, signInResetRetryMatched:true, affectedBrokerageHeld:true, unaffectedBrokerageAccessible:true, holdRetryMatched:true, holdInvalidatedReopeningReview:true, heldMaintenanceGroups:holdResult.groups,
     } };
     await save();
   } else if (action === "directoryRecover" && journal?.phase === "directoryOldRejected") {
@@ -323,7 +328,23 @@ export async function directoryRecoveryCommand(action, fixture) {
   } else if (action === "directoryResume" && journal?.phase === "directoryVerified") {
     if (!same(await directory.probeDirectorySnapshot(),journal.current.manifest))
       throw new Error("Directory changed before reopening");
+    const encode=bytes=>btoa(String.fromCharCode(...bytes)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
+    const token=encode(crypto.getRandomValues(new Uint8Array(32)));
+    const hash=encode(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token))));
+    await directory.createStaffSession(hash,a.admin,Date.now()+60000,Date.now());
     await env.DOCUMENTS.delete(directoryPauseKey);
+    try {
+      const entry = await application.fetch(new Request(`${origin}/workspace`,{
+        headers:{Cookie:`__Host-orbit-session=${token}`},
+      }),env,ctx);
+      if (entry.status !== 303 || entry.headers.get("Location") !== `/workspace?brokerage=${b.id}`)
+        throw new Error("A new session did not open the recovered workspace preference");
+    } catch (error) {
+      await env.DOCUMENTS.put(directoryPauseKey,"Fictional workspace preference verification failed");
+      throw error;
+    } finally {
+      await directory.removeStaffSession(hash);
+    }
     const denied = await application.fetch(new Request(`${origin}/workspace?brokerage=${a.id}`,{
       headers:{Cookie:`__Host-orbit-session=${state.session}`},
     }),env,ctx);
@@ -332,7 +353,7 @@ export async function directoryRecoveryCommand(action, fixture) {
       await env.DOCUMENTS.put(directoryPauseKey,"Fictional recovery verification failed");
       throw new Error("Revoked staff could enter the restored workspace");
     }
-    next = { ...journal, phase:"directoryResumed", evidence:{ ...journal.evidence, directoryTrafficResumed:true } };
+    next = { ...journal, phase:"directoryResumed", evidence:{ ...journal.evidence, directoryTrafficResumed:true, recoveredWorkspacePreferenceOpened:true } };
     await save();
   } else throw new Error("Command does not match the directory recovery phase");
 

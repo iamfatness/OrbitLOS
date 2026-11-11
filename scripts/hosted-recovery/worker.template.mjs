@@ -33,6 +33,9 @@ export class RecoveryWorkspace extends OrbitWorkspace {
           "INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,?,'Active',1)",
           item.id, actor.email, actor.name, actor.brokerage.role);
       }
+      const [first, second] = tenants;
+      this.ctx.storage.sql.exec("INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,'LO','Active',1)",
+        second.id, first.admin.email, first.admin.name);
     });
   }
   probeIdentity() {
@@ -265,6 +268,8 @@ async function command(action, env, origin, ctx) {
     if(saved.checkpoint.id!==repeated.checkpoint.id || saved.view.revision!==repeated.view.revision)throw new Error("Checkpoint retry duplicated a save");
     state.directoryEndedSession=crypto.randomUUID();
     await directory.createStaffSession(state.directoryEndedSession,a.admin,Date.now()+3600000,Date.now());
+    if (!await directory.rememberStaffWorkspace(state.directoryEndedSession, Date.now(), [], a.id, true))
+      throw new Error("Could not save the older fictional workspace default");
     state.directoryOldAttempt=crypto.randomUUID();
     await directory.startGoogle({state:state.directoryOldAttempt,browserHash:"fictional-browser",nonce:"fictional-nonce",
       verifier:"fictional-verifier",expiresAt:Date.now()+3600000,brokerageId:a.id,guide:null},Date.now());
