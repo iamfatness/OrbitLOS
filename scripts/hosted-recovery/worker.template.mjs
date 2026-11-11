@@ -29,7 +29,7 @@ export class RecoveryWorkspace extends OrbitWorkspace {
       for (const item of tenants) {
         this.ctx.storage.sql.exec("INSERT INTO brokerages (id,name,pilot) VALUES (?,?,1)", item.id, item.admin.brokerage.name);
         for (const actor of [item.admin,item.officer]) this.ctx.storage.sql.exec(
-          "INSERT INTO brokerage_members (brokerageId,email,name,role,status) VALUES (?,?,?,?,'Active')",
+          "INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,?,'Active',1)",
           item.id, actor.email, actor.name, actor.brokerage.role);
       }
     });
