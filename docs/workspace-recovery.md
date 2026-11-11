@@ -247,3 +247,15 @@ Use the Cloudflare account's approved access for the incident. Confirm the Worke
 
 
 Application `0eb52ee` and rehearsal `9639770` passed 495 automated tests, typecheck, lint, the production build, the 42-stage local working day and the independent local recovery drill. Worker version `38035c17-7e79-4a6e-b286-0feb0f672180` is the sole version in the active production deployment. All 23 bindings matched the previous release, and two staged and two live passes matched all 693 current and retained browser assets. The public Product page and the signed-in fictional QA research queue loaded on OrbitLOS.com. Production traffic stayed open during release verification.
+
+### Confirm that admitted work drained
+
+Protected HTTP requests and executing workspace alarm handlers record a ticket in a dedicated Durable Object within the existing workspace namespace. The ticket is persisted before checking the independent pause marker. A request racing the pause either appears in the count or sees the pause before entering its handler. HTTP tickets cover the handler, response stream and tasks it registers with the Worker execution context. Alarm tickets cover document reminder and cleanup work. A missing completion stays outstanding across restarts.
+
+Prepare a JSON pause marker with `incident` set to the incident reference (letters, digits, underscores or hyphens, up to 80 characters) and `statusTokenSha256` set to the lowercase SHA-256 digest of a new 64-character lowercase hex token. Generate the token from 32 random bytes and keep it in the incident's approved credential store. Hash the hex text itself. Upload the JSON marker using the pause command above. Request `GET https://orbitlos.com/api/ops/directory-drain` with that token as the Authorization bearer credential. The status endpoint is read-only and independent of Orbit sign-in.
+
+The response reports the incident, check time, HTTP and alarm totals, and the start time of the oldest outstanding ticket. Wait for **Tracked work drained** for the current marker. If tickets stop clearing, investigate the corresponding request or alarm. Tickets have no expiry. Removing the marker also removes access to the incident status. Retire the credential after the incident.
+
+Use the result alongside directory integrity checks. A zero count covers work admitted by versions that implement these tickets. Direct maintenance RPCs, Durable Object startup, alarm rescheduling metadata and external provider outcomes require separate verification.
+
+The local working-day rehearsal held an authenticated HTTP request, paused new admission, restarted the coordinator, confirmed the ticket survived, and then saw it clear after completion. The isolated Cloudflare drill required the count to reach zero, restored the shared directory, and verified the independent count, revocations, lender routes and both tenant databases. [Hosted drain evidence](evidence/hosted-directory-drain-2026-11-11.json).
