@@ -1,3 +1,5 @@
+import { inspectMaintenanceStore } from "./lib/maintenance-inspection";
+import { maintenanceInspectionInput } from "./lib/maintenance-inspection-model";
 import { initializeMaintenance, maintenanceAdmin, maintenanceState, maintenanceView, changeMaintenance, markMaintenanceDrained } from "./lib/workspace-maintenance";
 import { maintenanceMessage, maintenanceInput, type MaintenanceView } from "./lib/workspace-maintenance-model";
 import { WorkspaceMaintenanceGate, guardWorkspaceMethods } from "./lib/workspace-maintenance-gate";
@@ -214,6 +216,33 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const gate=maintenanceGates.get(this)!;
     if (!gate.closed || gate.active) throw new Error("Wait for active workspace requests to finish.");
     this.#initializeWorkspace();
+  }
+  mayInspectMaintenance(staff: WorkspaceStaff, revision: number) {
+    if(this.#id !== demoBrokerageId)return false;
+    const state=maintenanceState(this.#store,staff.brokerage.id);
+    return maintenanceAdmin(this.#store,staff,[...(googleSettings(this.env)?.allowedEmails??[])]) &&
+      state.mode === "Paused" && state.revision === revision;
+  }
+  async inspectWorkspaceMaintenance(staff: WorkspaceStaff, raw: unknown) {
+    const parsed=maintenanceInspectionInput.safeParse(raw);
+    if(!parsed.success || staff.brokerage.id !== this.#id || this.#id === demoBrokerageId) return {error:"Workspace inspection unavailable."};
+    const directory=this.env.WORKSPACE.getByName(demoBrokerageId), input=parsed.data;
+    if(!await directory.mayInspectMaintenance(staff,input.revision))return {error:"Pause this workspace and refresh its status before inspecting it."};
+    const gate=maintenanceGates.get(this)!;
+    if(!gate.closed || gate.active)return {error:"Wait for active workspace work to finish before inspecting it."};
+    let report;
+    try {
+      report=await inspectMaintenanceStore(this.#store,input,async objectId=>{
+        if(!this.#documents)throw new Error("Document storage unavailable.");
+        return this.#documents.head(documentKey(this.#id,objectId));
+      });
+    } catch {
+      return {error:"Inspection could not be completed. Refresh the maintenance status and inspect the first page again."};
+    }
+    // A review/reopen or access change during R2 reads invalidates the response.
+    if(!gate.closed || gate.active || !await directory.mayInspectMaintenance(staff,input.revision))
+      return {error:"Workspace status or access changed during inspection. Refresh before continuing."};
+    return {inspection:report};
   }
   async manageWorkspaceMaintenance(staff: WorkspaceStaff,input?: unknown): Promise<MaintenanceView | {error:string}> {
     if (this.#id !== demoBrokerageId) return {error:"Maintenance controls unavailable."};
@@ -1165,7 +1194,7 @@ async function authorized(header: string | null, password: string) {
 }
 
 guardWorkspaceMethods(OrbitWorkspace.prototype, instance => maintenanceGates.get(instance) ?? null,
-  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance"]));
+  new Set(["maintenanceStateFor","maintenanceFence","mayPrepareMaintenanceReopen","prepareMaintenanceReopen","manageWorkspaceMaintenance","mayInspectMaintenance","inspectWorkspaceMaintenance"]));
 
 export default {
   async fetch(request, env, context) {
@@ -1352,6 +1381,15 @@ export default {
       const headers={"Cache-Control":"private, no-store"};
       if (!staff) return Response.json({error:"Sign in to your brokerage first."},{status:403,headers});
       const identity=staff;
+      if (request.method === "GET" && url.searchParams.get("inspect") === "1") {
+        const parsed=maintenanceInspectionInput.safeParse({revision:Number(url.searchParams.get("revision") ?? -1),
+          documents:Number(url.searchParams.get("documents") ?? 0), requests:Number(url.searchParams.get("requests") ?? 0)});
+        if(!parsed.success)return Response.json({error:"Invalid inspection page."},{status:400,headers});
+        if(!await directory.mayInspectMaintenance(identity,parsed.data.revision))
+          return Response.json({error:"Inspection requires a current pilot admin and a paused workspace."},{status:403,headers});
+        const value=await env.WORKSPACE.getByName(identity.brokerage.id).inspectWorkspaceMaintenance(identity,parsed.data);
+        return Response.json(value,{status:"error" in value?409:200,headers});
+      }
       if (request.method === "GET") {
         const value=await directory.manageWorkspaceMaintenance(identity);
         return Response.json(value,{status:"error" in value?403:200,headers});

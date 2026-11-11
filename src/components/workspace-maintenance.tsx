@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, CheckCircle2, PauseCircle, ShieldCheck } from "lucide-react";
 import { Button } from "./ui/button";
+import { MaintenanceInspectionPanel } from "./maintenance-inspection";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { brokerageUrl } from "@/lib/brokerage-model";
 import { maintenanceChecks, type MaintenanceView } from "@/lib/workspace-maintenance-model";
@@ -78,7 +79,9 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
             <label className="field">Reason<textarea name="reason" required minLength={8} maxLength={500} rows={3} placeholder="What will your team investigate or recover?"/></label>
             <label className="field">Enter {staff?.brokerage.name} to confirm<input name="confirmation" required autoComplete="off"/></label>
             <Button disabled={busy} type="submit">Pause workspace</Button>
-          </form></section>:<div className="maintenance-columns">
+          </form></section>:<>
+          <MaintenanceInspectionPanel key={view.revision} endpoint={endpoint} revision={view.revision} paused={view.mode==="Paused"}/>
+          <div className="maintenance-columns">
           <section className="pipeline relationship-panel"><h2>Reopening review</h2><p className="muted">Confirm the outcome of your investigation or recovery. Check each item only after reviewing its evidence.</p>
             <form key={view.startedAt} className="maintenance-form" onSubmit={event=>submit(event,"review")}>
               <fieldset disabled={busy||view.mode!=="Paused"}><legend className="sr-only">Required reopening checks</legend>
@@ -96,7 +99,7 @@ export function WorkspaceMaintenance({staff}:{staff:WorkspaceStaff|null}) {
             </form>
             <p className="muted">Started by {view.startedBy} · {view.startedAt&&new Date(view.startedAt).toLocaleString()}</p><p>{view.reason}</p>
           </section>
-        </div>}
+        </div></>}
         <details className="pipeline relationship-panel maintenance-history"><summary>Maintenance history <span className="pill">{view.history.length}</span></summary>
           {view.history.length?<ol>{view.history.map((event,index)=><li key={`${event.at}-${index}`}><strong>{event.action}</strong><p className="muted">{event.actor} · {new Date(event.at).toLocaleString()}</p><p>{event.note}</p></li>)}</ol>:
             <p className="muted">No maintenance has been recorded for this workspace.</p>}</details>

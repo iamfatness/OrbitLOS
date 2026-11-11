@@ -3523,6 +3523,8 @@ try {
     const get=async(actor=owner)=>runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
     assert.equal((await get(officer)).status,403);assert.equal((await get(processor)).status,403);
     const original=await (await get()).json();assert.equal(original.mode,"Open");
+    const inspect=async(revision,actor=owner)=>runtime.dispatchFetch(origin+endpoint+`&inspect=1&revision=${revision}`,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
+    assert.equal((await inspect(original.revision)).status,403);
     await directory.holdOwnerLookup();
     const pending=write(owner,{type:"saveRealtorLinkOwner",realtorId:realtor.realtorId,token:realtor.token,revision:realtor.revision,officerEmail:officer.email});
     let waiting=false;
@@ -3530,10 +3532,21 @@ try {
     assert.ok(waiting,"Fixture must observe the in-flight owner lookup");
     const draining=await post(endpoint,{type:"pause",revision:original.revision,reason:"Fictional maintenance acceptance and access review.",confirmation:"Fictional Working Day"},owner);
     assert.equal(draining.mode,"Pausing");assert.equal(draining.active,1);
+    assert.equal((await inspect(draining.revision)).status,403);
     assert.equal((await postResponse(endpoint,{type:"review",revision:draining.revision,review:"Too early to review active work.",checks:[true,true,true]},owner)).status,409);
     await directory.releaseOwnerLookup();await pending;
     const paused=await (await get()).json();
     assert.equal(paused.mode,"Paused");assert.equal(paused.active,0);
+    assert.equal((await inspect(paused.revision,officer)).status,403);
+    assert.equal((await inspect(paused.revision,processor)).status,403);
+    assert.equal((await inspect(paused.revision-1)).status,403);
+    const inspected=await (await inspect(paused.revision)).json();
+    assert.ok(inspected.inspection,JSON.stringify(inspected));
+    assert.deepEqual(inspected.inspection.unavailable,[]);
+    assert.ok(inspected.inspection.records.find(item=>item.label==="Loans").count>0);
+    assert.ok(inspected.inspection.documents.total>0);
+    assert.ok(inspected.inspection.documents.items.some(item=>item.availability==="Available"));
+    assert.equal((await (await get()).json()).revision,paused.revision);
     for(const actor of [owner,officer,processor]){
       const response=await runtime.dispatchFetch(`${origin}/workspace?brokerage=${brokerage}`,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
       assert.equal(response.status,503);assert.match(await response.text(),/Workspace paused/);
@@ -3553,12 +3566,16 @@ try {
     assert.equal((await unaffected()).status,200);
     try{await store.restartMaintenanceFixture();}catch{/* Following calls verify the fence. */}
     assert.equal((await (await get()).json()).mode,"Paused");
+    const afterRestart=await (await inspect(paused.revision)).json();
+    assert.deepEqual(afterRestart.inspection.records,inspected.inspection.records);
+    assert.deepEqual(afterRestart.inspection.documents,inspected.inspection.documents);
     assert.match(await directory.rejectedPeerCall(brokerage,"read",null,identity),/paused/);
     assert.equal((await postResponse(endpoint,{type:"reopen",revision:paused.revision,confirmation:"Fictional Working Day"},owner)).status,409);
     const reviewed=await post(endpoint,{type:"review",revision:paused.revision,review:"Verified fictional saved work, documents, access and mock outcomes.",checks:[true,true,true]},owner);
     assert.equal((await postResponse(endpoint,{type:"reopen",revision:paused.revision,confirmation:"Fictional Working Day"},owner)).status,409);
     const opened=await post(endpoint,{type:"reopen",revision:reviewed.revision,confirmation:"Fictional Working Day"},owner);
     assert.equal(opened.mode,"Open");assert.equal(opened.history.length,4);
+    assert.equal((await inspect(paused.revision)).status,403);
     assert.deepEqual((await file(owner,loanId)).applications[0].draft,initial.applications[0].draft);
     assert.ok((await borrower(token,{type:"read"})).draft);
     assert.equal((await unaffected()).status,200);

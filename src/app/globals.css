@@ -935,3 +935,22 @@ button:disabled { cursor: default; }
   .maintenance-steps li { padding: 8px 12px; }
   .maintenance-form :is(input,textarea) { font-size: 16px; }
 }
+
+/* Recovery evidence uses the same focused panels as maintenance decisions. */
+.maintenance-inspection { margin-bottom: 20px; }
+.maintenance-inspection > .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 16px; }
+.maintenance-inspection h2 { margin-bottom: 8px; }
+.inspection-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin: 20px 0; }
+.inspection-counts > div { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.inspection-counts dt { color: var(--muted); font-size: 13px; }
+.inspection-counts dd { margin: 4px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.inspection-details { border-top: 1px solid var(--line); padding: 12px 0; }
+.inspection-details > summary { cursor: pointer; min-height: 44px; align-content: center; font-weight: 600; }
+.inspection-items { list-style: none; padding: 0; margin: 16px 0; }
+.inspection-items > li { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.inspection-items .section-heading { flex-wrap: wrap; gap: 8px; }
+.inspection-items p { margin: 8px 0; }
+.inspection-items code { font: inherit; }
+.maintenance-inspection button { min-height: 44px; }
+
+.inspection-items summary { cursor: pointer; min-height: 44px; align-content: center; color: var(--muted); }
