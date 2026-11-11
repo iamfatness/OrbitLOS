@@ -4,15 +4,16 @@ import type {CheckpointFiles} from "./recovery-checkpoint-model";
 const objectId=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const sources=["SELECT objectId FROM document_files WHERE objectId IS NOT NULL","SELECT objectId FROM document_accepted_files WHERE objectId IS NOT NULL",
   "SELECT objectId FROM condition_document_sources WHERE objectId IS NOT NULL","SELECT objectId FROM lead_document_requests WHERE objectId IS NOT NULL",
-  "SELECT objectId FROM lender_package_files WHERE objectId IS NOT NULL",
-  "SELECT objectId FROM loan_retention_objects JOIN loan_retention_holds ON id=holdId WHERE releasedAt IS NULL"];
+  "SELECT objectId FROM lender_package_files WHERE objectId IS NOT NULL"];
+const retained = "SELECT objectId FROM loan_retention_objects JOIN loan_retention_holds ON id=holdId WHERE releasedAt IS NULL";
 export type CheckpointFileReader=(id:string)=>Promise<{size:number;arrayBuffer():Promise<ArrayBuffer>}|null>;
 export function pendingCheckpointUploads(db:Store){
   return Number(db.prepare("SELECT (SELECT COUNT(*) FROM document_files WHERE pendingId IS NOT NULL)+(SELECT COUNT(*) FROM lead_document_requests WHERE pendingId IS NOT NULL) AS n").get()?.n??0);
 }
 export async function captureCheckpointFiles(db:Store,get:CheckpointFileReader):Promise<CheckpointFiles>{
   if(pendingCheckpointUploads(db))throw new Error("Finish or resolve pending document uploads before saving a recovery checkpoint.");
-  const union=sources.join(" UNION ALL "),references=Number(db.prepare(`SELECT COUNT(*) AS n FROM (${union})`).get()?.n??0);
+  const union=`SELECT objectId FROM (${sources.join(" UNION ALL ")}) UNION ALL ${retained}`;
+  const references=Number(db.prepare(`SELECT COUNT(*) AS n FROM (${union})`).get()?.n??0);
   const objects=db.prepare(`SELECT DISTINCT objectId FROM (${union}) ORDER BY objectId LIMIT 101`).all();
   if(objects.length>100)throw new Error("This pilot exceeds the 100-file recovery inspection limit.");
   const unretained=Number(db.prepare(`SELECT COUNT(*) AS n FROM document_acceptances a LEFT JOIN document_accepted_files f ON f.requestId=a.requestId AND f.revision=a.revision WHERE f.objectId IS NULL`).get()?.n??0);
