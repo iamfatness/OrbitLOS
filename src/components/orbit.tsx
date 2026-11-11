@@ -626,7 +626,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
   }
 
   function navigate(next: Section, refresh = true, campaignId?: string, attention = false, preserveConversationOrigin = false) {
-    if (!preserveConversationOrigin) setConversationOrigin(undefined);
+    if (!preserveConversationOrigin) { setConversationOrigin(undefined); conversationReturn.current = undefined; }
     openingRecord.current = false;
     recordTrigger.current = null;
     if (next !== "Call Campaigns") deferredCampaignLoad.current = undefined;
@@ -996,10 +996,13 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
     setConversationFocus(focus);
   }
 
-  function returnFromConversation() {
-    if (!conversationOrigin) return;
+  async function returnFromConversation() {
+    if (!conversationOrigin || pending.current) return;
     const target = conversationReturn.current;
-    if (conversationOrigin === "Call Campaigns") loadCampaigns(selectedCampaignId, true);
+    if (conversationOrigin === "Call Campaigns") {
+      await save({ type: "openCampaigns", campaignId: selectedCampaignId || undefined, loadIntake: true }, undefined, false);
+      if (conversationReturn.current !== target) return;
+    }
     setSection(conversationOrigin);
     setConversationOrigin(undefined);
     setConversationFocus(null);
@@ -1614,7 +1617,7 @@ export function Orbit({ initial, staff, initialGuide, deferredWorkspace, uwmConn
           </section>}
 
           {section === "Communications" && <div className="record-form">
-            {conversationOrigin && <div><Button variant="outline" onClick={returnFromConversation}>Return to {conversationOrigin}</Button></div>}
+            {conversationOrigin && <div><Button variant="outline" disabled={busy} onClick={() => void returnFromConversation()}>Return to {conversationOrigin}</Button></div>}
             {canReviewReplies && <div className="view-toggle" role="group" aria-label="Communications view">
               <button type="button" aria-pressed={communicationView === "Conversations"} onClick={() => setCommunicationView("Conversations")}>Conversations</button>
               <button type="button" aria-pressed={communicationView === "Inbound review"} onClick={() => setCommunicationView("Inbound review")}>Inbound review</button>
