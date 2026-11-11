@@ -129,7 +129,8 @@ export function RetentionDisposition({ brokerageId, openLoan, onBack }:{
       {!queue.rows.length && <p>No loans are due for review.</p>}
       <ul className="loan-task-list">{queue.rows.map(row=><li key={row.id} className="loan-task document-item record-form">
         <div className="section-heading"><strong>{row.borrower}</strong><span>{row.decision?.outcome??"Needs review"}</span></div>
-        <p className="muted">{row.category} {row.eventDate} · Review due {row.reviewOn}</p>
+        <p className="muted">{row.category} <time className="whitespace-nowrap" dateTime={row.eventDate}>{row.eventDate}</time>
+          {" · "}<span className="whitespace-nowrap">Review due <time dateTime={row.reviewOn}>{row.reviewOn}</time></span></p>
         {row.decision && <p>{row.decision.reference} · {row.decision.actor}</p>}
         <div className="loan-application-actions">
           <Button type="button" variant="outline" disabled={busy||!!review} onClick={()=>openLoan(row.id)}>Open loan</Button>
