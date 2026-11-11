@@ -136,3 +136,14 @@ The directory's maintenance cycle and revision survived unchanged. Normal tenant
 [Sanitized evidence](evidence/hosted-recovery-maintenance-2026-11-11.json) records source and artifact identity. The dedicated Worker and bucket were deleted after sample-file cleanup; local operator tokens were removed. Local fixture preparation and focused lint also passed. The fixture membership revision was corrected to match its synthetic staff identity before hosted execution.
 
 This proves that the new pilot maintenance controls and directory decisions survive a **tenant** restore under this isolated procedure. It does not prove recovery of the directory itself, populated provider operations, automatic lender reconciliation or a broker-operated restore/replay product. Those admission gates remain open. The production maintenance-decision UI is still awaiting the coordinated API-controls release; this rehearsal alone is not a publication claim.
+
+
+### Populated provider-state recovery rehearsal — November 11, 2026
+
+Isolated run `orbit-recovery-99d8085c`, harness `d0528e1` with application build `4817b85`, added synthetic stored UWM operations in Prepared, Dispatching, Acknowledged and Unknown states, three associated request rows, one import-check row and three request-evidence rows. The wrapper inserted these fixed fictional storage fixtures without invoking a provider client. They are not genuine UWM receipts or sandbox acceptance evidence.
+
+After checkpointing, normal inspection displayed all seven operation/request references. The test-only damage step removed the provider records and fictional loan. Hosted tenant restore recovered all four operations, three requests and their supporting rows; the complete captured-state hash and all inspected request fingerprints matched the checkpoint observations. No state was promoted to completion or automatically retried. The maintenance fence, saved review decision, reviewed reopening, accepted PDF bytes, receipt history, isolation, revoked access and repeat-replay checks passed again.
+
+[Sanitized evidence](evidence/hosted-recovery-provider-states-2026-11-11.json) records the provenance and results. Restore plus initial verification took 2,737 ms for this small fixture, excluding replay. Local fixture preparation and focused lint passed. The dedicated Worker, sample PDFs and bucket were removed, and the operator token deleted. No production data or lender request was involved.
+
+This closes the previously empty-table **storage rehearsal** gap for these provider records. It does not prove external provider outcome reconciliation, live credential/link recovery, full transactional recovery across stores, directory restoration, general controlled replay or production admission. R4 remains open.
