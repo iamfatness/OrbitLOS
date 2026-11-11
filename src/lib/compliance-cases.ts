@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { researchRequest } from "./compliance-research-model";
+import { complianceResearchWork } from "./compliance-research";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import { complianceAttention, complianceCaseKinds as kinds, complianceCaseStatuses as statuses, complianceWorkUnavailable,
   sampleReviewDecisions, type ComplianceAttention } from "./compliance-case-model";
@@ -20,6 +22,7 @@ const decisionFields = {
 const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.string().max(800), snapshot: z.number().int().nonnegative() });
 const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("research"), input: researchRequest }),
   z.strictObject({ type: z.literal("list"), loanId: id.optional(), kind: z.enum(kinds).optional(), status: z.enum(statuses).optional(),
     attention: z.enum(complianceAttention).optional(), after: cursor.optional() }),
   z.strictObject({ type: z.literal("overview") }),
@@ -312,6 +315,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   if (!parsed.success) return unavailable;
   const data = parsed.data;
   return db.transaction(() => {
+    if (data.type === "research") return complianceResearchWork(db, data.input, staff, roster, now);
     if (data.type === "inventory" || data.type === "advanceInventory") {
       if (staff.brokerage.role !== "Admin") return unavailable;
       initializeComplianceInventory(db);

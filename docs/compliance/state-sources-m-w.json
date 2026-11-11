@@ -1,0 +1,152 @@
+[
+  {
+    "code": "MT",
+    "name": "Montana",
+    "sourceUrl": "https://eld.mt.gov/BFID/mortgage-consumer-finance/MBguide",
+    "summary": "Broker licensing, disclosure, five-year last-activity retention and advertising duties; reconcile disclosure timing against statute."
+  },
+  {
+    "code": "NE",
+    "name": "Nebraska",
+    "sourceUrl": "https://ndbf.nebraska.gov/industries/mortgage-lending-license",
+    "summary": "Mortgage banker licensing includes brokers; company, branch and individual authority require validation."
+  },
+  {
+    "code": "NV",
+    "name": "Nevada",
+    "sourceUrl": "https://www.mld.nv.gov/industry-info/statutes-and-regulations/",
+    "summary": "NRS/NAC 645B regulate mortgage companies and originators; NRS 598D unfair lending overlay requires review."
+  },
+  {
+    "code": "NH",
+    "name": "New Hampshire",
+    "sourceUrl": "https://www.gc.nh.gov/rsa/html/XXXV/397-A/397-A-mrg.htm",
+    "summary": "RSA 397-A licensing includes loans from New Hampshire and New Hampshire collateral; advance-fee explanation and lock rules."
+  },
+  {
+    "code": "NJ",
+    "name": "New Jersey",
+    "sourceUrl": "https://www.nj.gov/dobi/division_banking/hoa03outline.htm",
+    "summary": "Home Ownership Security Act requires distinct high-cost loan review; validate current thresholds and broker applicability."
+  },
+  {
+    "code": "NM",
+    "name": "New Mexico",
+    "sourceUrl": "https://www.rld.nm.gov/financial-institutions/about-us/faqs/",
+    "summary": "Mortgage loan company and branch licensing; state compensation, loan-summary and lock disclosures."
+  },
+  {
+    "code": "NY",
+    "name": "New York",
+    "sourceUrl": "https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies",
+    "summary": "DFS mortgage broker registration and banker licensing; distinct cybersecurity and state disclosure overlays."
+  },
+  {
+    "code": "NC",
+    "name": "North Carolina",
+    "sourceUrl": "https://nccob.nc.gov/financial-institutions/mortgage/licensing-information/mortgage-lender-broker-licensing-requirements",
+    "summary": "SAFE Act licensing, qualifying individual and branch authority for North Carolina residential collateral."
+  },
+  {
+    "code": "ND",
+    "name": "North Dakota",
+    "sourceUrl": "https://www.nd.gov/dfi/sites/www/files/documents/Regulatory%20Guidance/North%20Dakota%20Legislation%20Notice%202023.pdf",
+    "summary": "2023 residential mortgage lender regime supersedes older money-broker guidance for covered activity; validate broker classification."
+  },
+  {
+    "code": "OH",
+    "name": "Ohio",
+    "sourceUrl": "https://codes.ohio.gov/ohio-revised-code/section-1322.07",
+    "summary": "Principal and branch mortgage registration and individual MLO licensing under Chapter 1322."
+  },
+  {
+    "code": "OK",
+    "name": "Oklahoma",
+    "sourceUrl": "https://oklahoma.gov/okdocc/licenses-we-regulate.html",
+    "summary": "Department of Consumer Credit licenses mortgage brokers, lenders and originators; reconcile current SAFE Act rules."
+  },
+  {
+    "code": "OR",
+    "name": "Oregon",
+    "sourceUrl": "https://www.oregonlegislature.gov/bills_laws/ors/ors086a.html",
+    "summary": "Chapter 86A mortgage licensing, records and disclosures; analyze product-specific overlays."
+  },
+  {
+    "code": "PA",
+    "name": "Pennsylvania",
+    "sourceUrl": "https://www.pa.gov/agencies/dobs/non-bank-licensees",
+    "summary": "Chapter 61 licensing and conduct regulations; obsolete one-page state disclosure requires policy reconciliation."
+  },
+  {
+    "code": "RI",
+    "name": "Rhode Island",
+    "sourceUrl": "https://rules.sos.ri.gov/regulations/part/230-40-10-2",
+    "summary": "Loan-broker licensing rules require action history from solicitation through final disposition and remote-work controls."
+  },
+  {
+    "code": "SC",
+    "name": "South Carolina",
+    "sourceUrl": "https://consumer.sc.gov/business-resourceslaws/licensing/mortgage-broker",
+    "summary": "Broker licensing includes table funding and independent processors; annual report and mortgage log."
+  },
+  {
+    "code": "SD",
+    "name": "South Dakota",
+    "sourceUrl": "https://dlr.sd.gov/banking/mortgage_licenses/default.aspx",
+    "summary": "Separate mortgage brokerage and lender/servicer licenses; nonresidential lending is not categorically license exempt."
+  },
+  {
+    "code": "TN",
+    "name": "Tennessee",
+    "sourceUrl": "https://www.tn.gov/tdfi/mortgage-consumer-lending/mortgage.html",
+    "summary": "Residential Lending, Brokerage and Servicing Act licensing includes compensated arranging and table-funded activity. Official source indexed in search; direct retrieval blocked (403/timeout), so full text remains unverified."
+  },
+  {
+    "code": "TX",
+    "name": "Texas",
+    "sourceUrl": "https://www.sml.texas.gov/wp-content/uploads/2026/02/mortgage-compliance-guide-v12.pdf",
+    "summary": "2026 SML compliance guide includes home-equity, refinance, reverse and wrap-loan documents and processing logs."
+  },
+  {
+    "code": "UT",
+    "name": "Utah",
+    "sourceUrl": "https://dfi.utah.gov/non-depository/mortgage-lending/",
+    "summary": "Utah DRE and DFI regulate different activities; a DFI notification or MLO license does not itself authorize retail closed-end first-mortgage brokering."
+  },
+  {
+    "code": "VT",
+    "name": "Vermont",
+    "sourceUrl": "https://legislature.vermont.gov/statutes/fullchapter/08/073",
+    "summary": "Broker agreements and role restrictions; broker cannot issue own-name rate locks or commitments; financial privacy overlay."
+  },
+  {
+    "code": "VA",
+    "name": "Virginia",
+    "sourceUrl": "https://law.lis.virginia.gov/vacodefull/title6.2/chapter16/",
+    "summary": "Chapter 16 company licensing and conduct; individual MLO and remote-location rules require separate review."
+  },
+  {
+    "code": "WA",
+    "name": "Washington",
+    "sourceUrl": "https://app.leg.wa.gov/wac/default.aspx?cite=208-660-430",
+    "summary": "Disclosure deadlines and required evidence when lender provides disclosures; fee and lock requirements."
+  },
+  {
+    "code": "WV",
+    "name": "West Virginia",
+    "sourceUrl": "https://apps.sos.wv.gov/adlaw/csr/readfile.aspx?DocId=58849&Format=PDF",
+    "summary": "May 2026 mortgage rules include role-dependent retention triggers; additional CSO obligations require review."
+  },
+  {
+    "code": "WI",
+    "name": "Wisconsin",
+    "sourceUrl": "https://dfi.wi.gov/Pages/FinancialServices/MortgageBanking/FAQs.aspx",
+    "summary": "Banker license does not substitute for broker license; independent processing and underwriting company requirements."
+  },
+  {
+    "code": "WY",
+    "name": "Wyoming",
+    "sourceUrl": "https://wyomingbankingdivision.wyo.gov/mortgage-lending/general-information-press-releases",
+    "summary": "Residential Mortgage Practices Act licensing before mortgage lending or brokering; current rule detail remains open."
+  }
+]

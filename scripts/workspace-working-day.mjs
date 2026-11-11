@@ -1510,6 +1510,26 @@ try {
     const recorded = await compliance(owner, evidence);
     assert.equal(recorded.sampleReview.mode, "Sample workbench review");
     assert.equal(recorded.item.status, "Open");
+    // Research work uses the same authenticated action and canonical case store as file findings.
+    const research = (staff, input, expected) => compliance(staff, { type: "research", input }, expected);
+    const researchOpen = { operation: "open", sourceKey: "STATE-MI", kind: "Requirement review" };
+    assert.ok((await research(officer, researchOpen)).error);
+    assert.ok((await research(owner, researchOpen, randomUUID())).error);
+    const researchCase = await research(owner, researchOpen);
+    assert.equal(researchCase.kind, "researchDetail");
+    assert.equal((await research(owner, researchOpen)).item.id, researchCase.item.id);
+    const researchSave = { operation: "save", caseId: researchCase.item.id, expectedRevision: researchCase.item.revision,
+      requestId: randomUUID(), ownerEmail: owner.email, status: "Awaiting review", followUpOn: today,
+      nextAction: "Confirm Michigan applicability with the assigned compliance reviewer.", note: "Fictional source review queued; no legal approval recorded." };
+    const researchSaved = await research(owner, researchSave);
+    assert.equal(researchSaved.item.status, "Awaiting review");
+    assert.equal(researchSaved.coverage.legalApproval, false);
+    assert.equal((await research(owner, researchSave)).item.revision, researchSaved.item.revision);
+    assert.ok((await research(owner, { ...researchSave, requestId: randomUUID() })).error);
+    assert.ok((await research(processor, { operation: "read", caseId: researchCase.item.id })).error);
+    const researchQueue = await research(owner, { operation: "list", filters: { jurisdiction: "MI", status: "Awaiting review", ownership: "mine" } });
+    assert.equal(researchQueue.counts.total, 1);
+    assert.equal(researchQueue.items[0].id, researchCase.item.id);
     const ready = (await preflight()).preflight;
     assert.ok(ready.checks.every(({ state }) => state === "Ready"), JSON.stringify(ready.checks));
     assert.equal((await review(officer, { type: "resubmit", id: reviewId, revision: 1, eventId: randomUUID(),
