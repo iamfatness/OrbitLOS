@@ -1,4 +1,4 @@
-import { directoryPauseKey } from "./recovery-fixtures.mjs";
+import { directoryDrainObject, directoryDrainPath, directoryPauseKey } from "./recovery-fixtures.mjs";
 
 // Only the isolated rehearsal imports this module. Its journal lives in the
 // fixture bucket, outside the Durable Object that is restored.
@@ -47,17 +47,22 @@ async function checkPausedIngress(application, env, origin, ctx) {
     ["POST", "/api/borrower-documents/upload"], ["POST", "/api/shared-lead-documents"],
     ["POST", "/api/webhooks/uwm/stage/import"], ["POST", "/api/demo-request"],
   ];
-  // Deliberately omit the directory and all outbound provider bindings.
+  // Only the independent coordinator can be reached from these requests.
+  const isolated={WORKSPACE:{getByName(name){
+    if(name!==directoryDrainObject)throw new Error("Protected handler reached the directory");
+    return env.WORKSPACE.getByName(name);
+  }}};
+
   for (const [method,path] of routes) {
-    const response = await application.fetch(new Request(origin+path,{method}),{DOCUMENTS:env.DOCUMENTS},ctx);
+    const response = await application.fetch(new Request(origin+path,{method}),isolated,ctx);
     if (response.status !== 503 || response.headers.get("X-Orbit-Maintenance") !== "directory-recovery" ||
         response.headers.get("Cache-Control") !== "private, no-store") throw new Error(`Traffic pause did not cover ${path}`);
   }
   const unavailable = await application.fetch(new Request(origin+"/workspace"),{
-    DOCUMENTS:{head:()=>Promise.reject(new Error("Fictional storage failure"))},
+    WORKSPACE:{getByName:()=>{throw new Error("Fictional coordinator failure");}},
   },ctx);
   if (unavailable.status !== 503 || unavailable.headers.get("X-Orbit-Maintenance") !== "directory-recovery")
-    throw new Error("Workspace admission opened when control storage failed");
+    throw new Error("Workspace admission opened when the coordinator failed");
   const publicAsset = await application.fetch(new Request(origin+"/fonts/InterVariable.woff2"),
     {ASSETS:{fetch:()=>new Response("Fictional public asset")}},ctx);
   if (publicAsset.status !== 200) throw new Error("Directory pause blocked public assets");
@@ -76,6 +81,14 @@ export async function directoryRecoveryCommand(action, fixture) {
   const { env, ctx, origin, application, directory, target, other, state, tenants:[a,b], journal } = fixture;
   let next = journal;
   const save = () => env.DOCUMENTS.put(journalKey, JSON.stringify(next));
+  const coordinator=env.WORKSPACE.getByName(directoryDrainObject);
+  async function readDrain(token) {
+    const response=await application.fetch(new Request(origin+directoryDrainPath,{
+      headers:{Authorization:`Bearer ${token}`},
+    }),env,ctx);
+    if(response.status!==200)throw new Error("Operator drain status unavailable");
+    return response.json();
+  }
 
   if (action === "directoryPrepare" && !journal && state?.phase === "replayVerified") {
     const routes = [a,b].map((item,index) => ({
@@ -96,17 +109,32 @@ export async function directoryRecoveryCommand(action, fixture) {
     for (const name of ["brokerage_members","revoked_pilot_portals","uwm_transaction_routes","uwm_loan_routes","brokerage_recovery_edits","staff_sessions"]) {
       if (!differences.includes(name)) throw new Error(`Rehearsal did not cover changed ${name}`);
     }
+    const ticket=crypto.randomUUID();
+    if(!await coordinator.beginDirectoryWork(ticket,"http"))throw new Error("Could not admit the fictional outstanding request");
+    const token=Array.from(crypto.getRandomValues(new Uint8Array(32)), byte=>byte.toString(16).padStart(2,"0")).join("");
+    const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token));
+    const statusTokenSha256=Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,"0")).join("");
     next = {
+      token,ticket,
       run:env.RECOVERY_RUN, source:env.RECOVERY_SOURCE, artifact:env.RECOVERY_ARTIFACT,
       phase:"directoryPrepared", old:state.directoryOld, current:source, routes,
       pauseRevision:paused.revision, tenants:[(await target.probeCapture()).hash,(await other.probeCapture()).hash],
       evidence:{ artifactSha256:env.RECOVERY_ARTIFACT },
     };
     await save();
-    await env.DOCUMENTS.put(directoryPauseKey,"Fictional directory recovery");
+    await env.DOCUMENTS.put(directoryPauseKey,JSON.stringify({incident:"fictional-recovery",statusTokenSha256}));
   } else if (action === "directoryArmOld" && journal?.phase === "directoryPrepared") {
     if (!same(await directory.probeDirectorySnapshot(),journal.current.manifest)) throw new Error("Directory changed after capture");
     await checkPausedIngress(application,env,origin,ctx);
+    if ((await readDrain(journal.token)).http < 1) throw new Error("Outstanding ticket was not visible");
+    await coordinator.endDirectoryWork(journal.ticket);
+    let count;
+    for(let attempt=0;attempt<20;attempt++){
+      count=await readDrain(journal.token);
+      if(!count.active)break;
+      await new Promise(resolve=>setTimeout(resolve,50));
+    }
+    if (count?.active !== 0) throw new Error("Outstanding work blocked the restore");
     const undo = await directory.probeDirectoryArm(journal.old);
     next = { ...journal, undo, phase:"directoryOldArmed" };
     await save();
@@ -118,8 +146,9 @@ export async function directoryRecoveryCommand(action, fixture) {
     if (!differences.includes("revoked_pilot_portals") || !differences.includes("uwm_transaction_routes"))
       throw new Error("Older directory did not demonstrate lost access and routing evidence");
     const pausedRoutes = await checkPausedIngress(application,env,origin,ctx);
+    if ((await readDrain(journal.token)).active !== 0) throw new Error("Verified drain did not survive directory restart");
     next = { ...journal, phase:"directoryOldRejected", evidence:{
-      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes,
+      ...journal.evidence, olderDirectoryRejected:true, changedDirectoryTables:differences, pausedIngressRoutes:pausedRoutes, trackedDrainBeforeRestore:true, trackedDrainSurvivedRestore:true,
     } };
     await save();
   } else if (action === "directoryRecover" && journal?.phase === "directoryOldRejected") {
@@ -169,6 +198,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     const denied = await application.fetch(new Request(`${origin}/workspace?brokerage=${a.id}`,{
       headers:{Cookie:`__Host-orbit-session=${state.session}`},
     }),env,ctx);
+    await denied.arrayBuffer();
     if (denied.status !== 403) {
       await env.DOCUMENTS.put(directoryPauseKey,"Fictional recovery verification failed");
       throw new Error("Revoked staff could enter the restored workspace");

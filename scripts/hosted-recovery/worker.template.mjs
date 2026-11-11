@@ -429,10 +429,13 @@ async function command(action, env, origin, ctx) {
     if (await directory.brokerageForPortal(state.link.token)) throw new Error("Revoked borrower link reopened");
     if (await directory.leadOwner(a.id,a.officer.email,[])) throw new Error("Revoked staff membership reopened");
     const portalResponse = await application.fetch(new Request(`${origin}/api/demo-application`, { method: "POST", headers: { Origin: origin, "Content-Type":"application/json" }, body:JSON.stringify({type:"read",token:state.link.token}) }),env,ctx);
+    await portalResponse.arrayBuffer();
     if (portalResponse.status !== 404) throw new Error("Normal borrower route did not reject revoked link");
     const realtorResponse = await application.fetch(new Request(`${origin}/api/realtor-referrals`, {method:"POST",headers:{Origin:origin,"Content-Type":"application/json"},body:JSON.stringify({type:"read",token:state.realtor.token})}),env,ctx);
+    await realtorResponse.arrayBuffer();
     if (realtorResponse.status !== 404) throw new Error("Normal realtor route did not reject revoked link");
     const staffResponse = await application.fetch(new Request(`${origin}/workspace?brokerage=${a.id}`, {headers:{Cookie:`__Host-orbit-session=${state.session}`}}),env,ctx);
+    await staffResponse.arrayBuffer();
     if (staffResponse.status !== 403) throw new Error("Normal workspace route did not reject revoked staff");
     for(const file of state.lenderEvidence.files){
       if (!await target.probeBytes(file)) throw new Error("Restored document metadata has missing or different bytes");

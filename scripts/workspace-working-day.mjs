@@ -71,6 +71,16 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
   releaseOwnerLookup() {this.releaseOwner?.();this.ownerLookupHold=null;}
   async leadOwner(...args) {if(this.ownerLookupHold){this.ownerLookupEntered=true;await this.ownerLookupHold;}return super.leadOwner(...args);}
   restartMaintenanceFixture() { this.ctx.abort("Fictional maintenance restart"); }
+  holdStaffAccess() {
+    this.staffAccessEntered=false;
+    this.staffAccessHold=new Promise(resolve=>{this.releaseStaffAccess=resolve;});
+  }
+  staffAccessWaiting() {return this.staffAccessEntered;}
+  unholdStaffAccess() {this.releaseStaffAccess?.();this.staffAccessHold=null;}
+  async staffSessionAccess(...args) {
+    if(this.staffAccessHold){this.staffAccessEntered=true;await this.staffAccessHold;}
+    return super.staffSessionAccess(...args);
+  }
   async directoryPauseAlarmProbe() {
     const prior = await this.ctx.storage.getAlarm();
     try {
@@ -100,6 +110,7 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     storage.sql.exec("UPDATE document_reminder_schedule SET nextAt = ? WHERE id = 1", Date.now() - 1000);
   }
 }`;
+const {directoryDrainObject,directoryDrainPath}=await import("../src/lib/directory-drain.ts");
 const { directoryPauseKey } = await import("../src/lib/directory-traffic-pause.ts");
 const runtime = new Miniflare({ ...convertV4MiniflareOptions({
   name: "orbit-working-day", host: "127.0.0.1",
@@ -3747,13 +3758,28 @@ try {
     view=await post(endpoint,{type:"review",revision:view.revision,review:"Verified bounded full SQL checkpoint inspection and access checks.",checks:[true,true,true]},owner);
     assert.equal((await post(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
   });
-  await stage("Directory traffic pause blocks new staff and portal work and defers alarms",async()=>{
+  await stage("Directory pause proves admitted HTTP work drains after coordinator restart and defers alarms",async()=>{
     const bucket=await runtime.getR2Bucket("DOCUMENTS");
     const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
     const response=()=>runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}});
+    const token=randomBytes(32).toString("hex");
+    const marker={incident:"fixture-drain",statusTokenSha256:createHash("sha256").update(token).digest("hex")};
+    const drain=async()=>runtime.dispatchFetch(origin+directoryDrainPath,{headers:{Authorization:`Bearer ${token}`}});
     assert.equal((await response()).status,200);
-    await bucket.put(directoryPauseKey,"Fictional exercise");
+    assert.equal((await drain()).status,404);
+    await directory.holdStaffAccess();
+    const admitted=response();
     try {
+      for(let i=0;i<50&&!await directory.staffAccessWaiting();i++)await new Promise(resolve=>setTimeout(resolve,10));
+      assert(await directory.staffAccessWaiting(),"The request must already be admitted");
+      await bucket.put(directoryPauseKey,JSON.stringify(marker));
+      assert.equal((await runtime.dispatchFetch(origin+directoryDrainPath)).status,404);
+      const outstanding=await (await drain()).json();
+      assert.equal(outstanding.state,"Tracked work outstanding");assert(outstanding.http>=1);
+      const coordinator=workspaces.getByName(directoryDrainObject);
+      try {await coordinator.restartMaintenanceFixture();} catch {/* Restart is expected. */}
+      assert((await (await drain()).json()).http>=1,"An in-flight ticket must survive restart");
+
       const blocked=await response();
       assert.equal(blocked.status,503);
       assert.equal(blocked.headers.get("X-Orbit-Maintenance"),"directory-recovery");
@@ -3764,7 +3790,18 @@ try {
       const start=Date.now();
       const rescheduled=await workspaces.getByName(brokerage).directoryPauseAlarmProbe();
       assert(rescheduled>=start+60000 && rescheduled<=Date.now()+60000);
+      await directory.unholdStaffAccess();
+      const completed=await admitted;
+      assert.equal(completed.status,200);
+      await completed.arrayBuffer();
+      let count;
+      for(let i=0;i<50;i++){
+        count=await (await drain()).json();if(count.active===0)break;
+        await new Promise(resolve=>setTimeout(resolve,10));
+      }
+      assert.equal(count.state,"Tracked work drained");
     } finally {
+      await directory.unholdStaffAccess();
       await bucket.delete(directoryPauseKey);
     }
     assert.equal((await response()).status,200);

@@ -1,3 +1,4 @@
+import { directoryDrainObject, directoryDrainPath, directoryDrainStatus, startDirectoryWork, trackDirectoryResponse, type DirectoryWorkKind } from "./lib/directory-drain";
 import { directoryPauseResponse, directoryPauseRetrySeconds, directoryTrafficPaused } from "./lib/directory-traffic-pause";
 import {restorePreviewInput,restoreStartInput} from "./lib/workspace-restore-model";
 import {restoreSourceMatches,restoreStateHash,restoreAccess,restoreCheckpoint,previewRestore,priorRestore,reserveRestore,readRestoreJob,authorizedRestore,recordRestoreOutcome} from "./lib/workspace-restore";
@@ -175,10 +176,14 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       },
       transaction: (run) => storage.transactionSync(run),
     };
-    if (!ctx.id.name || !brokerageIdPattern.test(ctx.id.name)) throw new Error("Invalid Orbit workspace name.");
+    if (!ctx.id.name || (ctx.id.name !== directoryDrainObject && !brokerageIdPattern.test(ctx.id.name))) throw new Error("Invalid Orbit workspace name.");
     this.#id = ctx.id.name;
     this.#documents = (env as Cloudflare.Env & DocumentEnvironment).DOCUMENTS;
     this.#auth = staffAuthStore(this.#store);
+    if (this.#id === directoryDrainObject) {
+      sql.exec("CREATE TABLE IF NOT EXISTS directory_work_tickets (id TEXT PRIMARY KEY, kind TEXT NOT NULL, startedAt INTEGER NOT NULL)");
+      return;
+    }
     if (this.#id === demoBrokerageId) this.#initializeWorkspace();
     else {
       maintenanceGates.set(this,new WorkspaceMaintenanceGate());
@@ -188,6 +193,30 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
         maintenanceGates.get(this)!.apply(state.revision,state.mode !== "Open");
       });
     }
+  }
+
+  async beginDirectoryWork(id: string, kind: DirectoryWorkKind) {
+    if (this.#id !== directoryDrainObject) throw new Error("Directory drain coordinator unavailable.");
+    if (!/^[a-f0-9-]{36}$/.test(id) || (kind !== "http" && kind !== "alarm")) return false;
+    // Record the ticket first. A request racing a pause either appears in the
+    // count or sees the marker before it can enter the protected handler.
+    this.#store.prepare("INSERT INTO directory_work_tickets VALUES (?,?,?)").run(id, kind, Date.now());
+    if (!await directoryTrafficPaused(this.#documents)) return true;
+    this.endDirectoryWork(id);
+    return false;
+  }
+
+  endDirectoryWork(id: string) {
+    if (this.#id !== directoryDrainObject) throw new Error("Directory drain coordinator unavailable.");
+    this.#store.prepare("DELETE FROM directory_work_tickets WHERE id=?").run(id);
+  }
+
+  directoryWorkCounts() {
+    if (this.#id !== directoryDrainObject) throw new Error("Directory drain coordinator unavailable.");
+    const row = this.#store.prepare(`SELECT COUNT(*) AS active, SUM(kind='http') AS http,
+      SUM(kind='alarm') AS alarms, MIN(startedAt) AS oldestAt FROM directory_work_tickets`).get();
+    return { active: Number(row?.active ?? 0), http: Number(row?.http ?? 0),
+      alarms: Number(row?.alarms ?? 0), oldestAt: row?.oldestAt == null ? null : Number(row.oldestAt) };
   }
 
   #initializeWorkspace() {
@@ -1141,10 +1170,20 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
 
   async alarm() {
-    if (await directoryTrafficPaused(this.#documents)) {
+    if (this.#id === directoryDrainObject) return;
+    const end = await startDirectoryWork(this.env.WORKSPACE, "alarm");
+    if (!end) {
       await this.ctx.storage.setAlarm(Date.now() + directoryPauseRetrySeconds * 1000);
       return;
     }
+    try {
+      await this.#runWorkspaceAlarm();
+    } finally {
+      await end();
+    }
+  }
+
+  async #runWorkspaceAlarm() {
     runScheduledDocumentReminders(this.#store);
     if (this.#documents) {
       const objects = documentCleanupBatch(this.#store);
@@ -1495,9 +1534,18 @@ export default {
       failure.headers.set("Cache-Control", "no-store");
       return failure;
     }
-    // Check independent storage before auth, workspace RPCs, or provider work.
+    if (url.pathname === directoryDrainPath) {
+      return directoryDrainStatus(request, env.DOCUMENTS,
+        () => env.WORKSPACE.getByName(directoryDrainObject).directoryWorkCounts());
+    }
+    const end = await startDirectoryWork(env.WORKSPACE, "http");
+    if (!end) return directoryPauseResponse(request);
+    return trackDirectoryResponse(context, end, tracked => handleWorkspaceTraffic(request, env, tracked, url, reading));
+  },
+} satisfies ExportedHandler<Cloudflare.Env>;
+
+async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, context: ExecutionContext, url: URL, reading: boolean) {
     const filesEnv = env as Cloudflare.Env & DocumentEnvironment;
-    if (await directoryTrafficPaused(filesEnv.DOCUMENTS)) return directoryPauseResponse(request);
     if (url.pathname.startsWith("/api/webhooks/uwm/")) {
       return uwmWebhookHttp(request, runtimeSetting(env, "UWM_WEBHOOK_CONFIG"),
         (_brokerageId, event) => env.WORKSPACE.getByName(demoBrokerageId).routeUwmWebhook(event), runtimeSetting(env, "ORBIT_DEPLOYMENT"));
@@ -1911,5 +1959,4 @@ export default {
     result.headers.set("X-Robots-Tag", "noindex");
     if (tokenPage) result.headers.set("Referrer-Policy", "no-referrer");
     return result;
-  },
-} satisfies ExportedHandler<Cloudflare.Env>;
+}
