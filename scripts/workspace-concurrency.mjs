@@ -562,7 +562,7 @@ try {
     const entries = {};
     for (const data of tenants.slice(0, 2)) {
       entries[data.profile] = {};
-      for (const [role, heading] of [["officer", "Today"], ["admin", "Today"], ["processor", "Processing"]]) {
+      for (const [role, heading] of [["officer", "Today"], ["admin", "Brokerage overview"], ["processor", "Processing"]]) {
         const { body, ...entry } = await enter(data, data[role]);
         entries[data.profile][role] = entry;
         if (!entryBefore) {

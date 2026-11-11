@@ -25,6 +25,7 @@ const start=phaseIndex+(phaseIndex>=4?1:0);
 if(start===steps.length)console.log(JSON.stringify(current,null,2));
 for(const step of steps.slice(start)){
  const response=await fetch(new URL('/__recovery',url),{method:'POST',headers:{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`},body:step,signal:AbortSignal.timeout(60000)});
+ assert.ok(response.headers.get("content-type")?.includes("application/json"),`${step}: hosted response was not JSON (HTTP ${response.status})`);
  const result=await response.json();
  if(step==='interrupt') {
    assert.equal(response.status,409);assert.equal(result.error,'Simulated lost acknowledgment');
@@ -34,7 +35,9 @@ for(const step of steps.slice(start)){
  }
  assert.equal(response.status,200,`${step}: ${result.error}`);
  if(result.artifactSha256)assert.equal(result.artifactSha256,run.artifactSha256,"Hosted artifact differs from prepared modules");
- evidence.push({step,...result});
+ assert.equal(result.run,run.run);
+ if(result.source)assert.equal(result.source,run.source);
+ evidence.push({step,...result,source:run.source});
  await writeFile(resolve(folder,'evidence.json'),JSON.stringify(evidence,null,2));
  console.log(`${step}: ${result.phase}`);
 }
