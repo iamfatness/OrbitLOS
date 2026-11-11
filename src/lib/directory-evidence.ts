@@ -82,7 +82,7 @@ export async function directoryEvidenceHttp(request: Request, bucket: R2Bucket |
   const hidden = () => new Response(null, { status: 404, headers });
   if (!bucket || !["GET", "POST"].includes(request.method)) return hidden();
   try {
-    const marker = await readDirectoryIncident(request, bucket);
+    const marker = await readDirectoryIncident(request, bucket, "evidence");
     if (!marker) return hidden();
     const evidenceId = id.safeParse(new URL(request.url).searchParams.get("id"));
     if (!evidenceId.success) return problem(400, "Supply a recovery evidence UUID.");

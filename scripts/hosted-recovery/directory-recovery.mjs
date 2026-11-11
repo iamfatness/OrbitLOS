@@ -119,23 +119,25 @@ export async function directoryRecoveryCommand(action, fixture) {
     }
     const ticket=crypto.randomUUID();
     if(!await coordinator.beginDirectoryWork(ticket,"http"))throw new Error("Could not admit the fictional outstanding request");
-    const token=Array.from(crypto.getRandomValues(new Uint8Array(32)), byte=>byte.toString(16).padStart(2,"0")).join("");
-    const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token));
-    const statusTokenSha256=Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,"0")).join("");
+    const hex=bytes=>Array.from(bytes,byte=>byte.toString(16).padStart(2,"0")).join("");
+    const randomToken=()=>hex(crypto.getRandomValues(new Uint8Array(32)));
+    const hash=async token=>hex(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token))));
+    const token=randomToken(), evidenceToken=randomToken();
+    const statusTokenSha256=await hash(token), evidenceTokenSha256=await hash(evidenceToken);
     next = {
-      token,ticket,evidenceId:crypto.randomUUID(),
+      token,evidenceToken,ticket,evidenceId:crypto.randomUUID(),
       run:env.RECOVERY_RUN, source:env.RECOVERY_SOURCE, artifact:env.RECOVERY_ARTIFACT,
       phase:"directoryPrepared", old:state.directoryOld, current:source, routes,
       pauseRevision:paused.revision, tenants:[(await target.probeCapture()).hash,(await other.probeCapture()).hash],
       evidence:{ artifactSha256:env.RECOVERY_ARTIFACT },
     };
     await save();
-    await env.DOCUMENTS.put(directoryPauseKey,JSON.stringify({incident:"fictional-recovery",statusTokenSha256}));
+    await env.DOCUMENTS.put(directoryPauseKey,JSON.stringify({incident:"fictional-recovery",statusTokenSha256,evidenceTokenSha256}));
   } else if (action === "directoryArmOld" && journal?.phase === "directoryPrepared") {
     if (!same(await directory.probeDirectorySnapshot(),journal.current.manifest)) throw new Error("Directory changed after capture");
     await checkPausedIngress(application,env,origin,ctx);
     if ((await readDrain(journal.token)).http < 1) throw new Error("Outstanding ticket was not visible");
-    await accessEvidence("POST",journal.token,journal.evidenceId,409);
+    await accessEvidence("POST",journal.evidenceToken,journal.evidenceId,409);
     await coordinator.endDirectoryWork(journal.ticket);
     let count;
     for(let attempt=0;attempt<20;attempt++){
@@ -144,9 +146,9 @@ export async function directoryRecoveryCommand(action, fixture) {
       await new Promise(resolve=>setTimeout(resolve,50));
     }
     if (count?.active !== 0) throw new Error("Outstanding work blocked the restore");
-    const saved=await accessEvidence("POST",journal.token,journal.evidenceId,201);
-    const repeated=await accessEvidence("POST",journal.token,journal.evidenceId,200);
-    if(!same(saved,repeated) || !(await accessEvidence("GET",journal.token,journal.evidenceId,200)).matches)
+    const saved=await accessEvidence("POST",journal.evidenceToken,journal.evidenceId,201);
+    const repeated=await accessEvidence("POST",journal.evidenceToken,journal.evidenceId,200);
+    if(!same(saved,repeated) || !(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
       throw new Error("Independent evidence capture did not seal the reviewed state");
     const undo = await directory.probeDirectoryArm(journal.old);
     next = { ...journal, undo, phase:"directoryOldArmed" };
@@ -159,7 +161,7 @@ export async function directoryRecoveryCommand(action, fixture) {
     if (!differences.includes("revoked_pilot_portals") || !differences.includes("uwm_transaction_routes"))
       throw new Error("Older directory did not demonstrate lost access and routing evidence");
     const pausedRoutes = await checkPausedIngress(application,env,origin,ctx);
-    const comparison=await accessEvidence("GET",journal.token,journal.evidenceId,200);
+    const comparison=await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200);
     if(comparison.matches || comparison.groups.filter(group=>group.changed).length!==4)
       throw new Error("Independent evidence failed to detect stale access and routing");
 
@@ -183,7 +185,7 @@ export async function directoryRecoveryCommand(action, fixture) {
   } else if (action === "directoryVerify" && journal?.phase === "directoryRecoveryArmed") {
     const actual = await directory.probeDirectorySnapshot();
     if (!same(actual,journal.current.manifest)) throw new Error("Directory recovery does not match current evidence");
-    if (!(await accessEvidence("GET",journal.token,journal.evidenceId,200)).matches)
+    if (!(await accessEvidence("GET",journal.evidenceToken,journal.evidenceId,200)).matches)
       throw new Error("Independent evidence comparison did not confirm recovery");
     if ((await target.probeCapture()).hash !== journal.tenants[0] || (await other.probeCapture()).hash !== journal.tenants[1])
       throw new Error("Directory restore changed a tenant");

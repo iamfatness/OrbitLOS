@@ -3764,7 +3764,9 @@ try {
     const endpoint=`/api/workspace-maintenance?brokerage=${brokerage}`;
     const response=()=>runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}});
     const token=randomBytes(32).toString("hex");
-    const marker={incident:"fixture-drain",statusTokenSha256:createHash("sha256").update(token).digest("hex")};
+    const evidenceToken=randomBytes(32).toString("hex");
+    const marker={incident:"fixture-drain",statusTokenSha256:createHash("sha256").update(token).digest("hex"),
+      evidenceTokenSha256:createHash("sha256").update(evidenceToken).digest("hex")};
     const drain=async()=>runtime.dispatchFetch(origin+directoryDrainPath,{headers:{Authorization:`Bearer ${token}`}});
     assert.equal((await response()).status,200);
     assert.equal((await drain()).status,404);
@@ -3803,9 +3805,12 @@ try {
       assert.equal(count.state,"Tracked work drained");
       const evidenceId=randomUUID();
       const evidence=(method,authenticated=true)=>runtime.dispatchFetch(origin+directoryEvidencePath+`?id=${evidenceId}`,{
-        method,headers:authenticated?{Authorization:`Bearer ${token}`}:{},
+        method,headers:authenticated?{Authorization:`Bearer ${evidenceToken}`}:{},
       });
       assert.equal((await evidence("GET",false)).status,404);
+      assert.equal((await runtime.dispatchFetch(origin+directoryEvidencePath+`?id=${evidenceId}`,{
+        method:"POST",headers:{Authorization:`Bearer ${token}`},
+      })).status,404);
       const saved=await evidence("POST");
       assert.equal(saved.status,201);
       const summary=await saved.json();
