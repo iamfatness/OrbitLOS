@@ -1161,3 +1161,13 @@ The fictional browser run exercised a committed response loss, reload, failed re
 Worker `001fd528-7446-41ee-9e56-717081c08297` serves all traffic with the same 23 bindings. Nine staged and ordinary public and signed-out checks passed. The first ordinary Demo request immediately after promotion still returned earlier copy. It passed on retry. No signed-in production assignment was attempted. Provider settings stayed as configured, and the fictional flow used simulated lender operations.
 
 All 1,425 browser assets matched on both staged and both live passes. The ordinary production browser also rendered the updated Demo copy.
+
+## Confirm processor assignments from queues
+
+Source `c533b35` extends the read-only assignment receipt to Processing → Unassigned and Playbooks → Ownership and deadlines. A single unresolved shortcut reference per workspace remains in the current browser tab. The original row can leave the list while the receipt stays available. The owner can check again or open the exact current assignment.
+
+The built fictional browser walkthrough verified committed and missing responses, a failed receipt read, reload, cross-queue return, focus and a newer assignment. The receipt checks sent no additional assignment request. The 45-stage working day, 508 tests, lint, typecheck and production build passed. [Design and browser evidence](brand-ux-review.md#processor-assignment-checks-from-queues)
+
+Worker `5db6bfa1-edb3-4808-8c2b-02e5860bccf4` serves all traffic with the same 23 bindings. Nine staged and ordinary public and signed-out checks passed. The public Demo note was verified at three widths. Signed-in assignment was verified in the local fictional fixture. No provider configuration or production loan data changed.
+
+All 1,429 browser assets matched on both staged and both live passes. The ordinary production browser also rendered the queue recovery update.
