@@ -1024,3 +1024,8 @@ button:disabled { cursor: default; }
 .checkpoint-pages { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 
 .checkpoint-restore{border-top:1px solid var(--border);margin-top:1.5rem;padding-top:1.5rem}.checkpoint-restore fieldset{border:0;padding:0;min-width:0}.checkpoint-restore .maintenance-check{display:flex;gap:.65rem;align-items:flex-start;margin:.8rem 0}.checkpoint-restore .maintenance-check input{margin-top:.25rem;flex-shrink:0}
+.migration-cutover-source { display: none; }
+@media (max-width: 600px) {
+  .migration-cutover-heading { flex-wrap: wrap; }
+  .migration-cutover-source { display: block; overflow-wrap: anywhere; }
+}

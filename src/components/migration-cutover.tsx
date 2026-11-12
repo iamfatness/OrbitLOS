@@ -313,7 +313,7 @@ export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan
   }
 
   return <section className="integration record-form manager-panel" aria-label="Migration cutover checklist">
-    <div className="section-heading"><h2>Migration cutover checklist</h2>
+    <div className="section-heading migration-cutover-heading"><h2>Migration cutover checklist</h2>
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => { setNotice(undefined); setRequest({ ...request }); }}>Refresh cutover checklist</Button></div>
     <p className="muted">Review source receipts and linked fictional 1003 drafts. Record separate checks for information that still needs reconciliation.</p>
     {!data && <p role="status">Loading migration evidence…</p>}
@@ -328,6 +328,7 @@ export function MigrationCutoverChecklist({ brokerageId, version, busy, openLoan
         setCallbacksOpen(false);
         setRequest({ origin: event.target.value });
       }}>{current.sources.map((origin) => <option key={origin}>{origin}</option>)}</select></label>
+      <p className="muted migration-cutover-source">{evidence.origin}</p>
       <p className="muted">{evidence.batch ? `Most recently committed numbered export · ${evidence.basis.slice(0, 8)}` :
         `Most recent unnumbered import receipt · ${evidence.basis.slice(0, 8)}`}</p>
       <div className="details-grid">
