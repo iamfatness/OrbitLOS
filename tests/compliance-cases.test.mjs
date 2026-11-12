@@ -46,6 +46,12 @@ test("broker agreement evidence keeps state triggers and corrections with the ac
   assert.equal(corrected.review.timing[1].result, "Same date, order unresolved");
   assert.equal(corrected.history[1].facts.exclusiveDisclosure, undefined);
   assert.equal(read(indiana, "IN", processor).history.length, 2);
+  const repeatedHour = record({ ...inSave, requestId: crypto.randomUUID(), expectedRevision: 2,
+    correction: "Fictional repeated clock hour", facts: { ...inSave.facts,
+      signed: date("01:45", "2026-11-01"), deliveredCopy: date("01:45", "2026-11-01"),
+      exclusiveDisclosure: date("01:30", "2026-11-01") } }, officer);
+  assert.deepEqual(repeatedHour.review.timing.map(item => item.result),
+    ["Repeated local hour, order unresolved", "Repeated local hour, order unresolved"]);
   const ilSave = save(illinois, { state: "IL", applicationSigned: date("09:30"), consideration: date("08:30"),
     deliveredCopy: date("09:03"), incorporatedDisclosureVersion: "Fictional disclosure v1" });
   assert.deepEqual(record(ilSave).review.timing.map(item => item.result), ["Before", "After"]);
@@ -53,6 +59,12 @@ test("broker agreement evidence keeps state triggers and corrections with the ac
     disclosureDelivered: date("08:30"), explanation: date("08:45"), acknowledgment: date("09:00") });
   assert.deepEqual(record(wiSave).review.timing.map(item => item.result), ["Before", "Before", "Same recorded minute"]);
   assert.equal(record(wiSave).review.gaps.length, 1);
+  const skippedHour = record({ ...wiSave, requestId: crypto.randomUUID(), expectedRevision: 1,
+    correction: "Fictional skipped clock hour", facts: { ...wiSave.facts,
+      signed: date("03:10", "2026-03-08"), acknowledgment: date("02:45", "2026-03-08"),
+      explanation: date("02:30", "2026-03-08"), disclosureDelivered: date("01:45", "2026-03-08") } });
+  assert.deepEqual(skippedHour.review.timing.map(item => item.result),
+    ["Before", "Skipped local hour, order unresolved", "Skipped local hour, order unresolved"]);
   db.prepare("UPDATE applications SET draft=? WHERE loanId=?").run(JSON.stringify({ propertyLocation: { state: "IL" } }), indiana);
   assert.ok(read(indiana, "IN", officer).error);
   assert.equal(read(indiana, "IL", officer).revision, 0);
