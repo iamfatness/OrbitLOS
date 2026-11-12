@@ -621,3 +621,7 @@ Impeccable guided alignment and one-time credential presentation within the sele
 ### Simulated delivery retry scheduling and archive
 
 Reused Orbit's accepted 21st.dev-informed filter, labeled select and exact-event history. Impeccable Polish guided preserving the existing delivery hierarchy. UI UX Pro Max disabled-state and reflow guidance informed the due-time message, unavailable retry controls and aligned filter row. The archive retains the source and both attempts.
+
+### Owner delivery exceptions
+
+Reused the 21st.dev-informed Integrations disclosure and owner exception list. Impeccable Polish guided aligning the event name and retry status, keeping the destination and short event reference on their own lines, and reusing the exact attempt detail. UI UX Pro Max empty-state and focus guidance informed the filters and keyboard return to the selector after a row clears.
