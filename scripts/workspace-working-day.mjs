@@ -347,6 +347,22 @@ try {
     assert.equal(current.brokerages.find(({ id }) => id === brokerage).role, "Processor");
   });
 
+  const browse = (actor, path, choice = "", { headers, method = "GET" } = {}) => new Promise((resolve, reject) => {
+    const request = httpRequest(`${origin}${path}`, { method, headers: {
+      Cookie: [`__Host-orbit-session=${actor.token}`, choice].filter(Boolean).join("; "),
+      Accept: "text/html", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-User": "?1", ...headers,
+    } }, async (response) => {
+      try {
+        const body = await Array.fromAsync(response);
+        resolve({ status: response.statusCode, headers: new Headers(response.headers), text: () => Buffer.concat(body).toString() });
+      } catch (error) {
+        reject(error);
+      }
+    });
+    request.on("error", reject);
+    request.end();
+  });
+
   await stage("The account keeps its selected workspace across browser sessions and handles lost access explicitly", async () => {
     const operational = randomUUID();
     const result = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
@@ -358,21 +374,6 @@ try {
     }
     await signIn(entryOfficer);
     const scoped = (id) => `/workspace?brokerage=${id}`;
-    const browse = (actor, path, choice = "", { headers, method = "GET" } = {}) => new Promise((resolve, reject) => {
-      const request = httpRequest(`${origin}${path}`, { method, headers: {
-        Cookie: [`__Host-orbit-session=${actor.token}`, choice].filter(Boolean).join("; "),
-        Accept: "text/html", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-User": "?1", ...headers,
-      } }, async (response) => {
-        try {
-          const body = await Array.fromAsync(response);
-          resolve({ status: response.statusCode, headers: new Headers(response.headers), text: () => Buffer.concat(body).toString() });
-        } catch (error) {
-          reject(error);
-        }
-      });
-      request.on("error", reject);
-      request.end();
-    });
     const accountHash = createHash("sha256").update(entryOfficer.email).digest("base64url");
     const legacy = `__Host-orbit-workspace=${accountHash}.${brokerage}`;
     const firstOfficer = actor("Fictional First Entry Officer", "first-entry-officer@example.test", "LO");
@@ -4045,10 +4046,7 @@ try {
     const get=async(actor=owner)=>runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${actor.token}`}});
     assert.equal((await get(officer)).status,403);assert.equal((await get(processor)).status,403);
     const ownerHash = createHash("sha256").update(owner.token).digest("base64url");
-    const entry = (path, actor = owner) => runtime.dispatchFetch(origin + path, {
-      redirect: "manual", headers: { Cookie: `__Host-orbit-session=${actor.token}`, Accept: "text/html",
-        "Sec-Fetch-Mode": "navigate", "Sec-Fetch-User": "?1", "Sec-Fetch-Site": "same-origin" },
-    });
+    const entry = (path, actor = owner) => browse(actor, path, "", { headers: { "Sec-Fetch-Site": "same-origin" } });
     const scoped = `/workspace?brokerage=${brokerage}`;
     assert.equal((await entry(scoped + "&default=1")).headers.get("location"), scoped);
     assert.equal((await entry("/workspace")).headers.get("location"), scoped);
@@ -4089,7 +4087,6 @@ try {
     const visit = await entry(alternate);
     assert.equal(visit.status, 200);
     assert.equal(visit.headers.get("set-cookie"), null);
-    await visit.body?.cancel();
     const legacyVisit = await entry("/workspace?available=1");
     assert.equal(legacyVisit.headers.get("location"), alternate);
     assert.equal(legacyVisit.headers.get("set-cookie"), null);
