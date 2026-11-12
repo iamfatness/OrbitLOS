@@ -40,3 +40,9 @@ Scope: internal compliance pilot, 2026-11-11. Built source `00498e79efca`; produ
 The owner and staff mutations ran in an isolated fictional workspace. Live verification exercised public routes and signed-out boundaries. Tests cover tenant and role checks. Course revision authoring, filing and real regulatory coverage remain outside this release.
 
 The review used the approved Orbit design system and brand references, Impeccable, and UI UX Pro Max. It reused the accepted Orbit form, list/detail, action and feedback patterns for the 21st.dev component reference requirement.
+
+## Published quote-intake consent
+
+Verified for stated fictional pilot scope on app `632f0ee3b515`, Worker `4311c417-7b8c-422f-b423-90f271a73839`. The owner opened and published the Purchase profile by keyboard, reviewed the draft preview and publication history, and saw focused feedback. A borrower with an earlier version kept entered contact, ZIP and unchanged question fields. The stale notice focused above the updated, unchecked consent. Keyboard submission moved focus to confirmation. The assigned LO opened the selected lead and the exact converted file and saw the stored wording in each. The rehearsal checked staff scope and the legacy receipt in SQLite.
+
+Checked 1440, 900 and 390 px. Inspected final desktop and phone captures in `.orbit/quote-intake-consent-{editor,form,lead,converted}-*.png`. The phone editor shows the complete sample wording at its initial height. Public Demo copy, sign-in, and signed-out settings and invalid borrower-link boundaries passed on staged and live routing. Authenticated changes used isolated fictional records. [Design evidence](brand-ux-review.md#published-quote-intake-consent)

@@ -1383,3 +1383,9 @@ Worker `e093046a-a4de-4545-8fe5-e4337c3debca` serves app `d72fde1b4e25`. Rehears
 ### Borrower and LO financing actions
 
 Worker `4422c5bb-6127-4af3-8e09-24cfb35b411a` serves app `a7fc5b2e6677`. The 62-stage fictional working day verified that the first consent creates no publication item, the second creates one for the assigned LO, and the loan read returns the exact current request. Publishing clears the item. SQLite tests checked the Today count, expired and stale quotes, and role scope. The first Cloudflare rehearsal identified a compound-query limit. The revised query passed the built rehearsal and final browser acceptance, including the stacked phone row, exact focus and return to Today. All 587 tests, typecheck, lint and the Cloudflare build passed. Public Demo, signed-out boundaries and the existing OrbitLOS Production workspace passed live. Loan and permission actions ran in the fictional fixture.
+
+### Published quote-intake consent
+
+Worker `4311c417-7b8c-422f-b423-90f271a73839` serves app `632f0ee3b515` at 100 percent with all 24 bindings preserved. All 3,384 browser assets matched on both staged and both live passes. Public Demo, signed-out settings and invalid quote-link boundaries passed. The same signed-in Chrome session opened OrbitLOS Production from the generic workspace URL before and after promotion.
+
+The 63-stage fictional working day verified owner publication, rejection of stale and missing confirmation, immutable receipt replay, selected lead access, and the receipt after loan conversion. The browser verified 1440, 900 and 390 px, the populated owner editor and preview, retained applicant answers, fresh permission and focus, and the assigned LO's lead and 1003 evidence. All 588 tests, typecheck, lint and the Cloudflare build passed. Authenticated quote-intake writes were exercised in the isolated fictional workspace. [Visual evidence](ui-review-coverage.md#published-quote-intake-consent)

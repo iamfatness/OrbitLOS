@@ -656,3 +656,9 @@ The built LO opened the selected purchase file from Pipeline, recovered a lost r
 Impeccable Polish informed the existing next-action card and Today row placement. UI UX Pro Max keyboard guidance informed direct focus on the borrower decision and loan disclosure, plus return focus to the incoming heading after publication. Orbit reused its accepted 21st.dev-informed action cards and responsive lender-return row pattern. At phone width the new row puts the button below the complete borrower and action labels.
 
 The built browser exercised each borrower’s action, an interrupted response, immediate item removal, persistence after reload, the assigned LO’s populated Today item, exact loan focus, publication and return, and subsequent realtor revocation. The final 1440, 900 and 390 px captures are `.orbit/realtor-financing-actions-{borrower-next,co-borrower-next,today-ready,loan-ready,today-return}-*.png`.
+
+### Published quote-intake consent
+
+Impeccable Polish informed the order of the editor label, multiline wording and permission checkbox. UI UX Pro Max input labels and error recovery informed keeping unchanged fields filled and focusing the update above the checkbox. The editor and selected-record disclosure reuse the existing 21st.dev-informed Orbit forms. The phone pass gave the wording room to wrap and kept the checkbox label and disclosure easy to tap.
+
+The built fictional browser exercised the populated owner editor and draft preview, keyboard publication and history, the already-filled borrower form while a newer version was published, and the selected lead and converted loan. Checked 1440, 900 and 390 px and opened the final desktop and phone evidence in `.orbit/quote-intake-consent-{editor,form,lead,converted}-*.png`. The 900 px check used the focused borrower control. The public Demo copy was checked separately.
