@@ -35,3 +35,7 @@ Retain the source, section, retrieval date, effective dates and reviewer for eac
 
 Run `node --test tests/compliance-research.test.mjs tests/compliance-cases.test.mjs`, `npm run typecheck`, `npm run lint` and `npm run build:cloudflare` to validate the pilot integration. Legal review and operational evidence remain separate release requirements.
 
+
+## Compliance Suite execution
+
+The user authorized execution of the [suite plan](compliance-suite-plan.md) and [specification](compliance-suite-spec.md). Michigan is the first pilot, all 50 states remain research scope, and user then lawyer review is required before launch. See the [execution and release ledger](compliance-suite-execution.md) for implemented scope, remaining packages and unverified browser acceptance.

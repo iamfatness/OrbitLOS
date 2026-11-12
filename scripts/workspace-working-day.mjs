@@ -1681,6 +1681,30 @@ try {
     const researchQueue = await research(owner, { operation: "list", filters: { jurisdiction: "MI", status: "Awaiting review", ownership: "mine" } });
     assert.equal(researchQueue.counts.total, 1);
     assert.equal(researchQueue.items[0].id, researchCase.item.id);
+    const program=(staff,input,target=brokerage)=>action(staff,"accessComplianceCases",{type:"program",input},undefined,target);
+    const entityRequest={operation:"createEntity",requestId:randomUUID(),name:"Michigan Pilot Compliance LLC",nmls:"",scopeNote:"Michigan pilot; user review and lawyer approval required before launch"};
+    assert.ok((await program(officer,entityRequest)).error);
+    assert.ok((await program(owner,entityRequest,randomUUID())).error);
+    const entityResult=await program(owner,entityRequest);
+    const entity=entityResult.entities.find(item=>item.name===entityRequest.name);
+    assert.equal((await program(owner,entityRequest)).entities.length,entityResult.entities.length);
+    const period=new Date().toISOString().slice(0,7);
+    const schedule={operation:"schedule",requestId:randomUUID(),entityId:entity.id,month:period,title:"Review Michigan broker reporting scope",category:"Reporting preparation",ownerEmail:owner.email,internalTarget:period+"-01",instructions:"Confirm quarterly activity and annual financial obligations with lawyer"};
+    let monthly=await program(owner,schedule);
+    assert.equal(monthly.items.length,1);
+    assert.equal((await program(owner,schedule)).items.length,1);
+    const progress={operation:"update",requestId:randomUUID(),entityId:entity.id,month:period,id:monthly.items[0].id,expectedRevision:1,status:"Awaiting review",ownerEmail:owner.email,internalTarget:period+"-28",evidence:"Fictional review memo MI-001",note:"Prepared a source-linked review for the pilot owner"};
+    monthly=await program(owner,progress);
+    assert.equal(monthly.items[0].revision,2);
+    assert.equal((await program(owner,progress)).items[0].revision,2);
+    assert.ok((await program(owner,{...progress,requestId:randomUUID()})).error);
+    const monthlyReview={operation:"reviewMonth",requestId:randomUUID(),entityId:entity.id,month:period,fingerprint:monthly.fingerprint,note:"Reporting scope still awaiting lawyer review before launch"};
+    monthly=await program(owner,monthlyReview);
+    assert.equal(monthly.counts.open,1);
+    assert.equal(monthly.reviews[0].current,true);
+    assert.equal(monthly.coverage,"Regulatory applicability not evaluated");
+    assert.ok((await program(processor,{operation:"month",entityId:entity.id,month:period})).error);
+
     const ready = (await preflight()).preflight;
     assert.ok(ready.checks.every(({ state }) => state === "Ready"), JSON.stringify(ready.checks));
     assert.equal((await review(officer, { type: "resubmit", id: reviewId, revision: 1, eventId: randomUUID(),
