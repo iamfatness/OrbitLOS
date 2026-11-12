@@ -2368,13 +2368,14 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         }
         if (request.method === "GET") {
           const reportId = url.searchParams.get("reportId"), cursor = url.searchParams.get("before");
-          const result = await workspace.reportSchedules(staff, reportId ? { type: "history", reportId, before: cursor === null ? undefined : Number(cursor) } :
-            { type: "list", archiveBefore: cursor === null ? undefined : Number(cursor) });
+          const result = await workspace.reportSchedules(staff, url.searchParams.get("attention") === "1" ? { type: "attention" } :
+            reportId ? { type: "history", reportId, before: cursor === null ? undefined : Number(cursor) } :
+              { type: "list", archiveBefore: cursor === null ? undefined : Number(cursor) });
           return Response.json(result, { status: "error" in result ? 400 : 200, headers });
         }
         if (request.method === "POST") return borrowerJson(request, async input => {
           const parsed = reportScheduleQuery.safeParse(input);
-          if (!parsed.success || parsed.data.type === "list" || parsed.data.type === "history") {
+          if (!parsed.success || parsed.data.type === "list" || parsed.data.type === "history" || parsed.data.type === "attention") {
             return { status: 400, error: "Check the report schedule settings." };
           }
           const result = await workspace.reportSchedules(staff, parsed.data);

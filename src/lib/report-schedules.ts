@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import { easternDate, easternDayStart } from "./client-retention";
-import { customReportWork } from "./custom-reports";
+import { customReportFilterUnavailable, customReportWork } from "./custom-reports";
 import { customReportLimit } from "./custom-report-model";
 import { shiftReportDate } from "./report-date-range";
-import { reportScheduleQuery, type ReportSchedule, type ReportScheduleCadence, type ReportSchedulePreview, type ReportScheduleReceipt,
+import { reportScheduleQuery, type ReportSchedule, type ReportScheduleCadence, type ReportScheduleAttention, type ReportSchedulePreview, type ReportScheduleReceipt,
   type ReportScheduleRecipient, type ReportScheduleResult } from "./report-schedule-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -15,11 +15,12 @@ type ScheduleRow = Omit<ReportSchedule, "state" | "recipients" | "paused"> & {
   recipients: string;
   paused: number;
   archivedAt: string | null;
+  reportDefinition: string;
   operationId: string;
   operationDigest: string;
 };
 
-const selectSchedule = `SELECT s.rowid AS archiveSequence, s.*, r.name AS reportName, r.revision AS currentReportRevision, r.archivedAt
+const selectSchedule = `SELECT s.rowid AS archiveSequence, s.*, r.name AS reportName, r.revision AS currentReportRevision, r.definition AS reportDefinition, r.archivedAt
   FROM custom_report_schedules s JOIN custom_reports r ON r.id = s.reportId`;
 const changed = { error: "The schedule changed. Refresh it before continuing." };
 const unavailable = { error: "Report schedules are available to admins in this brokerage." };
@@ -53,18 +54,19 @@ function currentRecipients(row: ScheduleRow, roster: Recipient[]) {
   return { configured, matching, valid: matching.every(Boolean) };
 }
 
-function project(row: ScheduleRow, roster: Recipient[]): ReportSchedule {
+function project(db: Store, row: ScheduleRow, roster: Recipient[]): ReportSchedule {
   const { reportId, reportName, reportRevision, currentReportRevision, revision, cadence, startsOn, nextOn, paused, archivedAt } = row;
   const { configured, matching, valid } = currentRecipients(row, roster);
   const state = archivedAt ? "Report archived" : reportRevision !== currentReportRevision ? "Report changed" :
-    !valid ? "Recipients changed" : paused ? "Paused" : "Active";
+    !valid ? "Recipients changed" : customReportFilterUnavailable(db, row.reportDefinition) ? "Report filter unavailable" :
+      paused ? "Paused" : "Active";
   const recipients = configured.map(({ email, name }, index) => ({ email, name: matching[index]?.name ?? name }));
   return { reportId, reportName, reportRevision, currentReportRevision, revision, cadence, startsOn, nextOn, paused: Boolean(paused), recipients, state };
 }
 
 function previewReport(db: Store, row: ScheduleRow, roster: Recipient[], staff: WorkspaceStaff,
   date: string, today: string): ReportSchedulePreview | { error: string } {
-  const schedule = project(row, roster);
+  const schedule = project(db, row, roster);
   if (schedule.state !== "Active") return { error: "Review the saved report, recipients and schedule status before running it." };
   if (date > today) return { error: "The report is scheduled for a future day." };
   const run = customReportWork(db, { type: "run", id: schedule.reportId, revision: schedule.reportRevision },
@@ -90,13 +92,27 @@ export function reportScheduleWork(db: Store, input: unknown, staff: WorkspaceSt
   const today = easternDate(now);
   const read = (id: string) => db.prepare(`${selectSchedule} WHERE s.reportId = ?`).get(id) as unknown as ScheduleRow | undefined;
 
+  if (query.type === "attention") {
+    const rows = db.prepare(`${selectSchedule} WHERE r.archivedAt IS NULL AND s.paused = 0
+      ORDER BY s.nextOn, r.name COLLATE NOCASE, r.id LIMIT ?`).all(customReportLimit) as unknown as ScheduleRow[];
+    const due: ReportScheduleAttention["items"] = [], blocked: ReportScheduleAttention["items"] = [];
+    for (const row of rows) {
+      const { reportId, reportName, nextOn, state } = project(db, row, roster);
+      if (state === "Report changed" || state === "Recipients changed" || state === "Report filter unavailable") {
+        blocked.push({ reportId, reportName, nextOn, status: state });
+      } else if (state === "Active" && nextOn <= today) {
+        due.push({ reportId, reportName, nextOn, status: nextOn < today ? "Overdue" : "Due today" });
+      }
+    }
+    return { kind: "attention", due: due.length, blocked: blocked.length, items: [...due, ...blocked] };
+  }
   if (query.type === "list") {
     const active = db.prepare(`${selectSchedule} WHERE r.archivedAt IS NULL ORDER BY r.name COLLATE NOCASE, r.id LIMIT ?`)
       .all(customReportLimit) as unknown as ScheduleRow[];
     const archived = db.prepare(`${selectSchedule}
       WHERE r.archivedAt IS NOT NULL ${query.archiveBefore ? "AND s.rowid < ?" : ""} ORDER BY s.rowid DESC LIMIT 21`)
       .all(...(query.archiveBefore ? [query.archiveBefore] : [])) as unknown as (ScheduleRow & { archiveSequence: number })[];
-    return { kind: "list", today, schedules: [...active, ...archived.slice(0, 20)].map(row => project(row, roster)),
+    return { kind: "list", today, schedules: [...active, ...archived.slice(0, 20)].map(row => project(db, row, roster)),
       recipients: roster.map(({ email, name }) => ({ email, name })), nextArchive: archived.length > 20 ? archived[19].archiveSequence : null };
   }
   if (query.type === "history") {
@@ -134,20 +150,21 @@ export function reportScheduleWork(db: Store, input: unknown, staff: WorkspaceSt
       return receipt;
     }
 
-    if (row?.operationId === query.operationId) return row.operationDigest === requestDigest ? { kind: "saved", schedule: project(row, roster) } : changed;
+    if (row?.operationId === query.operationId) return row.operationDigest === requestDigest ? { kind: "saved", schedule: project(db, row, roster) } : changed;
     if ((row?.revision ?? 0) !== query.revision) return changed;
     if (db.prepare("SELECT 1 FROM custom_report_schedules WHERE operationId = ?").get(query.operationId)) return changed;
     if (query.type === "setPaused") {
       if (!row || row.archivedAt) return { error: "This saved report is unavailable." };
-      const schedule = project(row, roster);
+      const schedule = project(db, row, roster);
       if (!query.paused && schedule.state !== "Active" && schedule.state !== "Paused") return { error: "Review the report version and recipients before resuming." };
       if (schedule.paused === query.paused) return { kind: "saved", schedule };
       db.prepare("UPDATE custom_report_schedules SET paused = ?, revision = revision + 1, operationId = ?, operationDigest = ? WHERE reportId = ?")
         .run(Number(query.paused), query.operationId, requestDigest, query.reportId);
       accessEvent(db, staff, query.paused ? "Paused report schedule" : "Resumed report schedule", query.reportId, at);
     } else {
-      const report = db.prepare("SELECT revision FROM custom_reports WHERE id = ? AND archivedAt IS NULL").get(query.reportId);
+      const report = db.prepare("SELECT revision, definition FROM custom_reports WHERE id = ? AND archivedAt IS NULL").get(query.reportId);
       if (!report || Number(report.revision) !== query.reportRevision) return { error: "Reload the current saved report before scheduling it." };
+      if (customReportFilterUnavailable(db, String(report.definition))) return { error: "Update the saved report’s CRM filter before scheduling it." };
       const selected = roster.filter(member => query.recipients.includes(member.email));
       if (selected.length !== query.recipients.length) return { error: "Select active brokerage admins as recipients." };
       const recipients = JSON.stringify(selected.map(({ email, name, accessRevision }) => ({ email, name, accessRevision })));
@@ -169,6 +186,6 @@ export function reportScheduleWork(db: Store, input: unknown, staff: WorkspaceSt
     }
     const saved = read(query.reportId);
     if (!saved) throw new Error("Could not read the saved report schedule.");
-    return { kind: "saved", schedule: project(saved, roster) };
+    return { kind: "saved", schedule: project(db, saved, roster) };
   });
 }

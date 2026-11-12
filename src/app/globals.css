@@ -879,6 +879,7 @@ button:disabled { cursor: default; }
   .automation-delivery-filters, .automation-delivery-filters.with-history { grid-template-columns: minmax(0, 1fr); justify-items: start; }
   .automation-delivery-filters .field { width: 100%; }
   .automation-subscriptions { grid-template-columns: minmax(0, 1fr); }
+  .report-schedule-panel .form-grid { grid-template-columns: minmax(0, 1fr); }
   .automation-deliveries :is(button, select, .automation-payload summary, .automation-subscription) { min-height: 44px; }
 }
 .staff-first-day > .muted { margin-bottom: 4px; }

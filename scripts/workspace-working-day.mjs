@@ -5461,6 +5461,49 @@ try {
     }
   });
 
+  await stage("Brokerage report attention opens exact due and blocked schedules", async () => {
+    const base = (id = brokerage) => `/api/brokerages?brokerage=${id}&view=report-schedules`;
+    const attention = (id = brokerage) => base(id) + "&attention=1";
+    const reportWork = (input) => action(owner, "accessCustomReport", input);
+    const definition = { dataset: "Intake cohort", period: { kind: "Last 30 days" }, groupBy: "None",
+      metrics: ["inquiries", "converted"], columns: [], source: "", purpose: "", roles: [] };
+    const make = async (name, startsOn = today) => {
+      const id = randomUUID();
+      const report = await reportWork({ type: "save", id, revision: 0, definition: { ...definition, name } });
+      assert.equal(report.report.revision, 1);
+      const input = { type: "save", reportId: id, reportRevision: 1, revision: 0, operationId: randomUUID(),
+        cadence: "Weekly", startsOn, recipients: [owner.email] };
+      await post(base(), input, owner);
+      return { id, input };
+    };
+    const due = await make("Fictional due brokerage intake report with a long name");
+    const blocked = await make("Fictional blocked brokerage production schedule");
+    const future = await make("Fictional report due next week", shiftReportDate(today, 7));
+    const revised = "Fictional blocked brokerage production schedule revised";
+    assert.equal((await reportWork({ type: "save", id: blocked.id, revision: 1, definition: { ...definition, name: revised } })).report.revision, 2);
+    const get = async (staff = owner, id = brokerage) => {
+      const response = await browse(staff, attention(id));
+      assert.equal(response.status, 200);
+      return JSON.parse(response.text());
+    };
+    const queue = await get();
+    assert.deepEqual(queue.items.map(item => [item.reportId, item.status]), [[due.id, "Due today"], [blocked.id, "Report changed"]]);
+    assert.equal(queue.due, 1);
+    assert.equal(queue.blocked, 1);
+    assert.ok(!queue.items.some(item => item.reportId === future.id));
+    assert.equal((await browse(officer, attention())).status, 403);
+    assert.equal((await browse(processor, attention())).status, 403);
+    assert.ok(!(await get(owner, lenderBrokerage)).items.some(item => item.reportId === due.id));
+    assert.equal((await postResponse(base(), { type: "preview", reportId: blocked.id, revision: 1, scheduledOn: today }, owner)).status, 409);
+
+    if (!process.argv.includes("--preview")) {
+      const preview = await post(base(), { type: "preview", reportId: due.id, revision: 1, scheduledOn: today }, owner);
+      await post(base(), { type: "run", reportId: due.id, revision: 1, scheduledOn: today,
+        operationId: randomUUID(), fingerprint: preview.fingerprint }, owner);
+      assert.equal((await get()).due, 0);
+    }
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

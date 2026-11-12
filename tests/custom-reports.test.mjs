@@ -403,3 +403,54 @@ test("monthly schedules preserve their anchor through shorter months and require
   assert.equal(work({ ...save, reportRevision: 2, revision: 3, operationId: crypto.randomUUID() }, february).schedule.nextOn, "2027-02-28");
   assert.equal(run("2027-02-28", 4, february).nextOn, "2027-03-31");
 });
+
+test("owner schedule attention separates due work from report and recipient blockers", t => {
+  const f = fixture(t);
+  const admin = { ...f.admin, brokerage: { ...f.admin.brokerage, accessRevision: 0 } };
+  const self = { email: admin.email, name: admin.name, role: "Admin", status: "Active", accessRevision: 0 };
+  const recipient = { email: "other-admin@example.test", name: "Other admin", role: "Admin", status: "Active", accessRevision: 4 };
+  const roster = [self, recipient];
+  const work = (input, options = {}) => reportScheduleWork(f.db, input, options.staff ?? admin,
+    options.brokerageId ?? f.brokerageId, options.roster ?? roster, options.now ?? f.now);
+  function schedule(name, startsOn = "2026-11-10", recipients = [self.email], extra = {}) {
+    const definition = { ...defaultCustomReport, name, ...extra };
+    const { report } = f.save(definition);
+    const result = work({ type: "save", reportId: report.id, reportRevision: 1, revision: 0,
+      cadence: "Weekly", startsOn, recipients, operationId: crypto.randomUUID() });
+    assert.equal(result.kind, "saved");
+    return { id: report.id, definition };
+  }
+  const due = schedule("Due intake summary");
+  const changed = schedule("Report revision blocked");
+  const recipientsChanged = schedule("Recipient approval blocked", "2026-11-17", [recipient.email]);
+  const paused = schedule("Paused schedule");
+  schedule("Future schedule", "2026-11-17");
+  const archived = schedule("Archived report");
+  assert.equal(f.work({ type: "archive", id: archived.id, revision: 1 }).kind, "archived");
+  const fieldId = crypto.randomUUID();
+  assert.equal(crmFieldWork(f.db, { type: "saveField", fieldId, revision: 0,
+    definition: { label: "Outreach score", kind: "Number", options: [], roles: [] } }, admin, f.brokerageId).kind, "savedField");
+  const field = schedule("Unavailable CRM filter", "2026-11-12", [self.email], { customFilter: { fieldId, value: "10" } });
+  assert.equal(crmFieldWork(f.db, { type: "archiveField", fieldId, revision: 1 }, admin, f.brokerageId).kind, "archived");
+  assert.equal(f.work({ type: "save", id: changed.id, revision: 1, definition: { ...changed.definition, name: "Changed intake report" } }).kind, "saved");
+  assert.equal(work({ type: "setPaused", reportId: paused.id, revision: 1, paused: true,
+    operationId: crypto.randomUUID() }).schedule.state, "Paused");
+  const newRoster = [self, { ...recipient, accessRevision: 5 }];
+  const attention = work({ type: "attention" }, { roster: newRoster });
+  assert.equal(attention.due, 1);
+  assert.equal(attention.blocked, 3);
+  assert.deepEqual(attention.items.map(item => [item.reportId, item.status]), [
+    [due.id, "Due today"], [changed.id, "Report changed"], [field.id, "Report filter unavailable"], [recipientsChanged.id, "Recipients changed"],
+  ]);
+  assert.doesNotMatch(JSON.stringify(attention), /@example|totals|recipientEmail/);
+  assert.equal(work({ type: "attention" }, { now: new Date("2026-11-10T04:59:59Z"), roster: newRoster }).due, 0);
+  assert.equal(work({ type: "attention" }, { now: new Date("2026-11-11T05:00:00Z"), roster: newRoster }).items[0].status, "Overdue");
+  assert.match(work({ type: "attention" }, { staff: f.officer }).error, /admins/);
+  assert.match(work({ type: "attention" }, { brokerageId: crypto.randomUUID() }).error, /admins/);
+
+  const preview = work({ type: "preview", reportId: due.id, revision: 1, scheduledOn: "2026-11-10" });
+  const run = work({ type: "run", reportId: due.id, revision: 1, scheduledOn: "2026-11-10", fingerprint: preview.fingerprint,
+    operationId: crypto.randomUUID() });
+  assert.equal(run.kind, "receipt");
+  assert.equal(work({ type: "attention" }, { roster: newRoster }).due, 0);
+});

@@ -3,6 +3,7 @@
 import { ArrowRight, BarChart3, Inbox, ListChecks, ShieldCheck, UsersRound } from "lucide-react";
 import type { ActionCounts } from "./use-action-counts";
 import { Button } from "./ui/button";
+import { ReportScheduleAttentionPanel } from "./report-schedule-attention";
 
 const queues = [
   { key: "exceptions", label: "File and delivery exceptions", action: "Open exceptions", icon: ShieldCheck },
@@ -17,9 +18,11 @@ function actionCount(count?: number) {
   return count === undefined ? "—" : count >= 100 ? "100+" : String(count);
 }
 
-export function BrokerageOverview({ counts, unavailable, busy, pilot, hasBranches, refresh, openQueue, openReport, openTeam, openCompliance }: {
-  counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean; hasBranches: boolean;
+export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilot, hasBranches, refresh, openQueue, openReport,
+  openSchedule, scheduleReturn, openTeam, openCompliance }: {
+  brokerageId: string; counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean; hasBranches: boolean;
   refresh: () => void; openQueue: (queue: BrokerageQueue) => void; openReport: (report: BrokerageReport) => void;
+  openSchedule: (reportId?: string) => void; scheduleReturn?: { reportId?: string };
   openTeam: (panel: "Staff access" | "Branches" | "Loan settings" | "Workspaces") => void; openCompliance: () => void;
 }) {
   return <div className="brokerage-overview record-form">
@@ -39,6 +42,7 @@ export function BrokerageOverview({ counts, unavailable, busy, pilot, hasBranche
         </button>)}
       </div>
     </section>
+    <ReportScheduleAttentionPanel key={brokerageId} brokerageId={brokerageId} busy={busy} open={openSchedule} returning={scheduleReturn} />
     <div className="brokerage-overview-links">
       <section className="integration record-form" aria-labelledby="brokerage-performance-heading">
         <h2 id="brokerage-performance-heading"><BarChart3 size={19} aria-hidden="true" /> Performance</h2>

@@ -199,6 +199,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const [searchContact, setSearchContact] = useState<SearchContact>();
   const [contactToolsOpen, setContactToolsOpen] = useState(false);
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
+  const [reportScheduleTarget, setReportScheduleTarget] = useState<{ reportId?: string }>();
+  const [reportScheduleReturn, setReportScheduleReturn] = useState<{ reportId?: string }>();
   const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff && staff.brokerage.role !== "Admin" ? "Custom reports" : "Owner scorecard");
   const [teamPanel, setTeamPanel] = useState<TeamPanel>("Staff access");
   const [firstDayDestination, setFirstDayDestination] = useState<FirstDayStepId | "pilot-tools">();
@@ -646,6 +648,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     recordTrigger.current = null;
     if (next !== "Call Campaigns") deferredCampaignLoad.current = undefined;
     setSection(next);
+    setReportScheduleTarget(undefined);
+    setReportScheduleReturn(undefined);
     setFirstDayDestination(undefined);
     if (!preserveConversationOrigin) setAttentionVisit((last) => attention ? { section: next, visit: (last?.visit ?? 0) + 1 } : undefined);
     if (next !== "Contacts") setContactToolsOpen(false);
@@ -712,6 +716,18 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   function openBrokerageReport(report: BrokerageReport) {
     setReportTab(report);
     openBrokerageView("Reports");
+  }
+
+  function openReportSchedule(reportId?: string) {
+    navigate("Reports", false);
+    setReportTab("Custom reports");
+    setReportScheduleTarget({ reportId });
+  }
+
+  function returnToReportScheduleQueue() {
+    const target = reportScheduleTarget;
+    navigate("Brokerage", false);
+    setReportScheduleReturn(target);
   }
 
   function show(next: Modal) {
@@ -1532,11 +1548,11 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             {admin && <CrmFieldSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           </>}
 
-          {section === "Brokerage" && canReport && <BrokerageOverview counts={actionCounts} unavailable={countsUnavailable} busy={busy || !controlsReady}
+          {section === "Brokerage" && canReport && <BrokerageOverview brokerageId={staff.brokerage.id} counts={actionCounts} unavailable={countsUnavailable} busy={busy || !controlsReady}
             pilot={Boolean(staff.brokerage.pilot)} hasBranches={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId} refresh={refreshCounts}
             openQueue={(queue) => openBrokerageView(brokerageQueueSections[queue], queue !== "exceptions")} openReport={openBrokerageReport}
             openTeam={(panel) => { setTeamPanel(panel); openBrokerageView("Team"); }}
-            openCompliance={() => openBrokerageView("Compliance")} />}
+            openCompliance={() => openBrokerageView("Compliance")} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
           {(section === "Today" || conversationOrigin === "Today") && canOpenToday && <Activity mode={section === "Today" ? "visible" : "hidden"}><OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             complianceWork={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
@@ -1741,8 +1757,9 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                 variant={reportTab === tab ? "default" : "outline"} onClick={() => setReportTab(tab)}>{tab}</Button>)}
             </div>
             {!canOpenManagerReports || reportTab === "Custom reports" ? <Suspense fallback={<p role="status">Opening custom reports…</p>}>
-              <CustomReports brokerageId={staff?.brokerage.id ?? demoBrokerageId} role={staff?.brokerage.role ?? "Admin"} scheduling={Boolean(staff)}
-                openRecord={({ destination }, metric) => {
+              <CustomReports key={reportScheduleTarget ? reportScheduleTarget.reportId ?? "report-schedules" : "custom-reports"}
+                brokerageId={staff?.brokerage.id ?? demoBrokerageId} role={staff?.brokerage.role ?? "Admin"} scheduling={Boolean(staff)}
+                scheduleTarget={reportScheduleTarget} onScheduleBack={returnToReportScheduleQueue} openRecord={({ destination }, metric) => {
                   if (destination.kind === "lead") return void openScopedLead({ leadId: destination.id }, true);
                   const target = processor ? undefined : metric === "funding" || metric === "cohortFunded" ? "loan-funding" :
                     metric === "applications" || metric === "converted" ? "loan-application" : undefined;

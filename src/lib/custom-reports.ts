@@ -26,6 +26,11 @@ function reportFilter(db: Store, report: CustomReportDefinition) {
   return report.customFilter ? resolveCrmFieldFilter(db, report.customFilter, customReportFieldRecords[report.dataset]) : null;
 }
 
+export function customReportFilterUnavailable(db: Store, savedDefinition: string) {
+  const report = customReportDefinition.parse(JSON.parse(savedDefinition));
+  return Boolean(report.customFilter && !reportFilter(db, report));
+}
+
 function visibleReport(report: CustomReport, staff: WorkspaceStaff, filter: ReturnType<typeof reportFilter>) {
   const { role } = staff.brokerage;
   if (role === "Admin") return true;

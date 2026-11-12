@@ -12,6 +12,7 @@ const recipients = z.array(z.email().max(254).transform(value => value.toLowerCa
 const reference = { reportId: id, revision: positiveRevision, scheduledOn: date };
 export const reportScheduleQuery = z.discriminatedUnion("type", [
   z.object({ type: z.literal("list"), archiveBefore: positiveRevision.optional() }).strict(),
+  z.object({ type: z.literal("attention") }).strict(),
   z.object({ type: z.literal("history"), reportId: id, before: positiveRevision.optional() }).strict(),
   z.object({ type: z.literal("preview"), ...reference }).strict(),
   z.object({ type: z.literal("save"), reportId: id, reportRevision: positiveRevision, revision, operationId: id,
@@ -32,7 +33,7 @@ export type ReportSchedule = {
   nextOn: string;
   paused: boolean;
   recipients: ReportScheduleRecipient[];
-  state: "Active" | "Paused" | "Report changed" | "Report archived" | "Recipients changed";
+  state: "Active" | "Paused" | "Report changed" | "Report archived" | "Recipients changed" | "Report filter unavailable";
 };
 
 type Summary = {
@@ -51,6 +52,13 @@ type Summary = {
 export type ReportSchedulePreview = Summary & { kind: "preview"; fingerprint: string };
 export type ReportScheduleReceipt = Summary & { kind: "receipt"; id: string; recordedAt: string; actor: string; nextOn: string };
 export type ReportScheduleList = { kind: "list"; today: string; schedules: ReportSchedule[]; recipients: ReportScheduleRecipient[]; nextArchive: number | null };
-export type ReportScheduleResult = ReportScheduleList | { kind: "saved"; schedule: ReportSchedule } |
+export type ReportScheduleAttention = {
+  kind: "attention";
+  due: number;
+  blocked: number;
+  items: { reportId: string; reportName: string; nextOn: string; status: "Due today" | "Overdue" |
+    "Report changed" | "Recipients changed" | "Report filter unavailable" }[];
+};
+export type ReportScheduleResult = ReportScheduleList | ReportScheduleAttention | { kind: "saved"; schedule: ReportSchedule } |
   { kind: "history"; receipts: ReportScheduleReceipt[]; next: number | null } |
   ReportSchedulePreview | ReportScheduleReceipt | { error: string };

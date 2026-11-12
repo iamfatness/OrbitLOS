@@ -92,13 +92,14 @@ function MetricCounts({ report, counts, busy, onSelect, group }: {
     onClick={() => onSelect(metric)}>{customReportMetricLabels[metric]} · {counts[metric] ?? 0}</Button>)}</div>;
 }
 
-export function CustomReports({ brokerageId, role, scheduling, openRecord }: {
+export function CustomReports({ brokerageId, role, scheduling, scheduleTarget, onScheduleBack, openRecord }: {
   brokerageId: string; role: "Admin" | "LO" | "Processor"; scheduling: boolean;
+  scheduleTarget?: { reportId?: string }; onScheduleBack: () => void;
   openRecord: (record: CustomReportRecord, metric: CustomReportMetric) => void;
 }) {
   const admin = role === "Admin";
   const [catalog, setCatalog] = useState<CustomReport[]>();
-  const [selected, setSelected] = useState<string>();
+  const [selected, setSelected] = useState(scheduleTarget?.reportId);
   const [edit, setEdit] = useState<Edit>();
   const [run, setRun] = useState<CustomReportRun>();
   const [drill, setDrill] = useState<Drill>();
@@ -236,7 +237,8 @@ export function CustomReports({ brokerageId, role, scheduling, openRecord }: {
         setEdit({ id: crypto.randomUUID(), revision: 0, definition: defaultCustomReport });
       }}>New report</Button>}
     </div>}
-    {admin && scheduling && catalog && <OwnerReportSchedules brokerageId={brokerageId} reports={catalog} selectedReportId={active?.id} />}
+    {admin && scheduling && catalog && <OwnerReportSchedules brokerageId={brokerageId} reports={catalog} selectedReportId={scheduleTarget?.reportId ?? active?.id}
+      fromOverview={Boolean(scheduleTarget)} onBack={onScheduleBack} />}
     {catalog?.length === 0 && !edit && <p className="muted">{admin ? "No saved custom reports yet." : "No reports have been shared with your role."}</p>}
     {edit && <ReportEditor edit={edit} brokerageId={brokerageId} busy={busy} change={(update) => {
       setEdit({ ...edit, definition: { ...edit.definition, ...update } });

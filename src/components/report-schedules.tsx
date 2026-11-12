@@ -22,21 +22,24 @@ async function scheduleRequest(endpoint: string, action?: object, signal?: Abort
   return result;
 }
 
-export function OwnerReportSchedules({ brokerageId, reports, selectedReportId }: {
-  brokerageId: string; reports: CustomReport[]; selectedReportId?: string;
+export function OwnerReportSchedules({ brokerageId, reports, selectedReportId, fromOverview, onBack }: {
+  brokerageId: string; reports: CustomReport[]; selectedReportId?: string; fromOverview: boolean; onBack: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  return <details className="uwm-deliveries automation-deliveries report-schedule-panel" onToggle={event => setOpen(event.currentTarget.open)}>
+  const [open, setOpen] = useState(fromOverview);
+  return <details className="uwm-deliveries automation-deliveries report-schedule-panel" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>
       <CalendarClock size={19} aria-hidden="true" />
       <span><strong>Report delivery schedules</strong><small>Simulation only</small></span>
       <ChevronDown className="uwm-disclosure-icon" size={17} aria-hidden="true" />
     </summary>
-    {open && <ScheduleCatalog brokerageId={brokerageId} reports={reports} initialReportId={selectedReportId} />}
+    {open && <ScheduleCatalog brokerageId={brokerageId} reports={reports} initialReportId={selectedReportId}
+      fromOverview={fromOverview} onBack={onBack} />}
   </details>;
 }
 
-function ScheduleCatalog({ brokerageId, reports, initialReportId }: { brokerageId: string; reports: CustomReport[]; initialReportId?: string }) {
+function ScheduleCatalog({ brokerageId, reports, initialReportId, fromOverview, onBack }: {
+  brokerageId: string; reports: CustomReport[]; initialReportId?: string; fromOverview: boolean; onBack: () => void;
+}) {
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=report-schedules`;
   const [reportId, setReportId] = useState(initialReportId ?? "");
   const [data, setData] = useState<ReportScheduleList>();
@@ -44,6 +47,8 @@ function ScheduleCatalog({ brokerageId, reports, initialReportId }: { brokerageI
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const chooser = useRef<HTMLSelectElement>(null);
+  const overviewFocused = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -67,10 +72,18 @@ function ScheduleCatalog({ brokerageId, reports, initialReportId }: { brokerageI
   const report = reports.find(item => item.id === reportId);
   const saved = data?.schedules.find(item => item.reportId === reportId);
   const archived = data?.schedules.filter(item => item.state === "Report archived" && !reports.some(report => report.id === item.reportId));
+  useEffect(() => {
+    if (!fromOverview || overviewFocused.current || (!data && !error)) return;
+    overviewFocused.current = true;
+    if (!report && !saved) chooser.current?.focus();
+  }, [data, error, fromOverview, report, saved]);
   return <div className="uwm-delivery-body record-form">
     <p className="muted">Schedule report summaries for active brokerage admins. Run due deliveries here to record a receipt without sending email.</p>
+
+    {fromOverview && <div className="loan-application-actions"><Button type="button" size="sm" variant="outline" disabled={editing}
+      onClick={onBack}>Back to Brokerage</Button></div>}
     <div className="loan-application-actions">
-      <label className="field automation-destination-name">Report to schedule<select value={reportId} disabled={editing}
+      <label className="field automation-destination-name">Report to schedule<select ref={chooser} value={reportId} disabled={editing}
         onChange={event => setReportId(event.target.value)}>
         <option value="">Choose a saved report</option>
         {reports.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -84,7 +97,8 @@ function ScheduleCatalog({ brokerageId, reports, initialReportId }: { brokerageI
     {data && !report && !saved && <p className="empty-inline">{reports.length || archived?.length ?
       "Choose a report to set its schedule or view receipts." : "Save a custom report to schedule its summary."}</p>}
     {data && (report || saved) && <ScheduleDetail key={reportId} endpoint={endpoint} reportId={reportId} report={report} saved={saved}
-      today={data.today} recipients={data.recipients} onBusy={setEditing} onRun={refresh} onSave={schedule =>
+      focusOnOpen={fromOverview && reportId === initialReportId} today={data.today} recipients={data.recipients}
+      onBusy={setEditing} onRun={refresh} onSave={schedule =>
         setData(previous => previous ? { ...previous, schedules: [...previous.schedules.filter(item => item.reportId !== reportId), schedule] } : previous)} />}
     {data?.nextArchive != null && <div className="loan-application-actions">
       <Button size="sm" variant="outline" disabled={loading || editing} onClick={() => refresh(data.nextArchive)}>Load older archived reports</Button>
@@ -92,8 +106,8 @@ function ScheduleCatalog({ brokerageId, reports, initialReportId }: { brokerageI
   </div>;
 }
 
-function ScheduleDetail({ endpoint, reportId, report, saved, today, recipients, onSave, onRun, onBusy }: {
-  endpoint: string; reportId: string; report?: CustomReport; saved?: ReportSchedule; today: string; recipients: ReportScheduleRecipient[];
+function ScheduleDetail({ endpoint, reportId, report, saved, focusOnOpen, today, recipients, onSave, onRun, onBusy }: {
+  endpoint: string; reportId: string; report?: CustomReport; saved?: ReportSchedule; focusOnOpen: boolean; today: string; recipients: ReportScheduleRecipient[];
   onSave: (schedule: ReportSchedule) => void; onRun: () => void; onBusy: (busy: boolean) => void;
 }) {
   const [cadence, setCadence] = useState<ReportScheduleCadence>(saved?.cadence ?? "Weekly");
@@ -104,9 +118,11 @@ function ScheduleDetail({ endpoint, reportId, report, saved, today, recipients, 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error?: boolean }>();
   const pending = useRef<{ key: string; operationId: string } | null>(null);
+  const scheduleHeading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLParagraphElement>(null);
   const previewHeading = useRef<HTMLHeadingElement>(null);
 
+  useEffect(() => { if (focusOnOpen) scheduleHeading.current?.focus(); }, [focusOnOpen]);
   useEffect(() => { if (notice) feedback.current?.focus(); }, [notice]);
   useEffect(() => { if (preview) previewHeading.current?.focus(); }, [preview]);
 
@@ -157,11 +173,13 @@ function ScheduleDetail({ endpoint, reportId, report, saved, today, recipients, 
   const canEdit = report && saved?.state !== "Report archived";
   const due = saved?.state === "Active" && saved.nextOn <= today;
   return <section className="document-item record-form" aria-label="Selected report schedule">
-    <div className="document-item-head"><h3>{report?.name ?? saved?.reportName}</h3>{saved && <span className="pill">{saved.state}</span>}</div>
-    {saved && <p className="muted">Report version {saved.reportRevision} · Schedule version {saved.revision}
+    <div className="document-item-head"><h3 tabIndex={-1} ref={scheduleHeading}>{report?.name ?? saved?.reportName}</h3>{saved && <span className="pill">{saved.state}</span>}</div>
+    {saved && <p className="muted">Report version {saved.reportRevision}
+      {saved.state === "Report changed" && ` · Current report version ${saved.currentReportRevision}`} · Schedule version {saved.revision}
       {saved.state !== "Report archived" && ` · Next delivery ${dateLabel(saved.nextOn)} ET`}</p>}
     {saved?.state === "Report changed" && <p>Review the current saved report and save these schedule settings to use its new version.</p>}
     {saved?.state === "Recipients changed" && <p>Review the recipients and save the schedule again.</p>}
+    {saved?.state === "Report filter unavailable" && <p>Update the saved report’s CRM filter, then save these schedule settings again.</p>}
     {notice && <p ref={feedback} tabIndex={-1} role={notice.error ? "alert" : "status"}
       className={`application-message${notice.error ? " banner-error" : ""}`}>{notice.text}</p>}
     {canEdit && <form className="record-form" onSubmit={save} aria-label="Report delivery settings">
