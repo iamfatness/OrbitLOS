@@ -13,6 +13,52 @@ registerHooks({ resolve(specifier, context, next) {
 
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
+const { staffApplications } = await import("../src/lib/applications.ts");
+
+test("broker agreement evidence keeps state triggers and corrections with the accessible pilot loan", (t) => {
+  const { db, work, addLoan, admin, officer, processor, unrelated } = fixture(t);
+  const indiana = addLoan({ state: "in " });
+  const illinois = addLoan({ state: "IL" });
+  const wisconsin = addLoan({ state: "WI" });
+  assert.equal(staffApplications(db, indiana)[0].brokerAgreementState, "IN");
+  assert.equal(staffApplications(db, indiana)[0].draft, null);
+  const record = (input, actor) => work({ type: "stateBrokerAgreement", input }, actor);
+  const date = (time, on = "2026-11-08") => ({ on, time, reference: "Fictional supporting document" });
+  const facts = { applicability: "Covered for internal review", scopeReference: "Fictional review scope",
+    agreementVersion: "Fictional agreement v1", zone: "America/Chicago", signed: date("09:00") };
+  const save = (loanId, evidence) => ({ operation: "save", loanId, facts: { ...facts, ...evidence },
+    requestId: crypto.randomUUID(), expectedRevision: 0 });
+  const read = (loanId, state, actor) => record({ operation: "read", loanId, state }, actor);
+  const inSave = save(indiana, { state: "IN", deliveredCopy: date("09:00"), exclusiveLender: "Applies" });
+  assert.equal(read(indiana, "IN", processor).revision, 0);
+  assert.ok(read(indiana, "IN", unrelated).error);
+  assert.ok(read(indiana, "IL", admin).error);
+  assert.ok(record(inSave, processor).error);
+  assert.ok(record({ ...inSave, facts: { ...inSave.facts, signed: date("09:00", "2026-11-11") } }, officer).error);
+  const initial = record(inSave, officer);
+  assert.deepEqual(initial.review.timing.map(item => item.result), ["Same recorded minute", "Evidence missing"]);
+  assert.equal(record(inSave, officer).revision, 1);
+  assert.ok(record({ ...inSave, requestId: crypto.randomUUID() }, officer).error);
+  assert.ok(record({ ...inSave, requestId: crypto.randomUUID(), expectedRevision: 1 }, officer).error);
+  const corrected = record({ ...inSave, requestId: crypto.randomUUID(), expectedRevision: 1,
+    correction: "Fictional correction receipt", facts: { ...inSave.facts, exclusiveDisclosure: date(undefined) } }, officer);
+  assert.equal(corrected.revision, 2);
+  assert.equal(corrected.review.timing[1].result, "Same date, order unresolved");
+  assert.equal(corrected.history[1].facts.exclusiveDisclosure, undefined);
+  assert.equal(read(indiana, "IN", processor).history.length, 2);
+  const ilSave = save(illinois, { state: "IL", applicationSigned: date("09:30"), consideration: date("08:30"),
+    deliveredCopy: date("09:03"), incorporatedDisclosureVersion: "Fictional disclosure v1" });
+  assert.deepEqual(record(ilSave).review.timing.map(item => item.result), ["Before", "After"]);
+  const wiSave = save(wisconsin, { state: "WI", form: "MB302TRID", disclosureVersion: "Fictional MB600 v1",
+    disclosureDelivered: date("08:30"), explanation: date("08:45"), acknowledgment: date("09:00") });
+  assert.deepEqual(record(wiSave).review.timing.map(item => item.result), ["Before", "Before", "Same recorded minute"]);
+  assert.equal(record(wiSave).review.gaps.length, 1);
+  db.prepare("UPDATE applications SET draft=? WHERE loanId=?").run(JSON.stringify({ propertyLocation: { state: "IL" } }), indiana);
+  assert.ok(read(indiana, "IN", officer).error);
+  assert.equal(read(indiana, "IL", officer).revision, 0);
+  db.prepare("UPDATE loans SET disposition='Paused' WHERE id=?").run(illinois);
+  assert.ok(record(ilSave).error);
+});
 
 test("lead history backfill resumes, keeps source references and separates unknown times from task deadlines", (t) => {
   const { db, work, addLoan, admin, officer, processor, brokerageId } = fixture(t);

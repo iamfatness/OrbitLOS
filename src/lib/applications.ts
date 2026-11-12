@@ -37,8 +37,9 @@ import { sameManualQuote, type ManualQuoteBasis } from "./manual-pricing-model";
 import { applicationQuestionnaireInput } from "./application-questionnaire-model";
 import { pinApplicationQuestionnaire, prepareApplicationAnswers, readApplicationQuestionnaire,
   sameApplicationAnswers, saveApplicationAnswers } from "./application-questionnaires";
+import { brokerAgreementStates } from "./state-broker-agreement-model";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "lastExportProfile" |
+type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "brokerAgreementState" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "lastExportProfile" |
   "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt" | "manualLenderRejected"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
@@ -97,6 +98,8 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       currentManualFile: string | null; currentManualExportPrepared: number; manualLenderRejected: number;
       pendingRevision: number | null; pendingAttemptedAt: string | null };
     const draft = JSON.parse(row.draft);
+    const draftState = typeof draft?.propertyLocation?.state === "string" ? draft.propertyLocation.state.trim().toUpperCase() : "";
+    const brokerAgreementState = brokerAgreementStates.find(state => state === draftState);
     const prior = db.prepare(`SELECT draft FROM application_versions WHERE loanId = ? AND revision < ?
       ORDER BY reviewedAt IS NOT NULL DESC, revision DESC LIMIT 1`).get(row.loanId, row.revision);
     const versions = db.prepare("SELECT revision, submittedAt, reviewedAt, uwmReceipt, uwmSentAt FROM application_versions WHERE loanId = ? ORDER BY revision DESC")
@@ -118,6 +121,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       submittedAt: row.submittedAt, reviewedAt: row.reviewedAt, secondReviewApproved: Boolean(row.secondReviewApproved), uwmReference: row.uwmReference,
       ...(row.pendingRevision !== null && row.pendingAttemptedAt ? { uwmPendingReceipt: { revision: row.pendingRevision, attemptedAt: row.pendingAttemptedAt } } : {}),
       draft: row.submittedAt ? applicationDraft.parse(draft) : null,
+      ...(brokerAgreementState ? { brokerAgreementState } : {}),
       ...(!row.submittedAt && typeof draft?.propertyAddress === "string" && draft.propertyAddress.trim()
         ? { draftHasPropertyStreet: true } : {}),
       lender: lender.get(row.loanId) ?? null,

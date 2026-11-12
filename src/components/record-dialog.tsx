@@ -50,6 +50,7 @@ import { LoanServiceOrders } from "./loan-service-orders";
 import { serviceOrdersTarget, serviceOrderTargetPrefix } from "@/lib/service-order-model";
 import { DisclosureWorkbench } from "./disclosure-workbench";
 import { TridEvidencePanel } from "./trid-evidence-panel";
+import { StateBrokerAgreement } from "./state-broker-agreement";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
@@ -631,6 +632,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
     submission.id === request.submissionId && submission.conditions.some((condition) => condition.id === request.conditionId && !condition.satisfiedAt)))
     .map((request) => request.id));
   const application = state.applications.find((item) => item.loanId === loan.id);
+  const propertyState = application?.draft?.propertyLocation?.state?.trim().toUpperCase();
+  const agreementState = application?.brokerAgreementState;
   const propertyStatus = application && !application.submittedAt
     ? (application.draftHasPropertyStreet ? "Address entered in 1003 draft" : "Awaiting 1003 submission")
     : "Address pending";
@@ -739,8 +742,11 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "Disclosures" && canOpenDisclosures &&
         <DisclosureWorkbench loan={loan} state={state} busy={busy} readOnly={processor} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           save={save} open={open} refresh={refreshDisclosures} />}
-      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && application?.draft?.propertyLocation?.state?.trim().toUpperCase() === "MI" &&
+      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && propertyState === "MI" &&
         <TridEvidencePanel key={`${staff.brokerage.id}:${loan.id}`} loanId={loan.id} brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
+      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && agreementState &&
+        <StateBrokerAgreement key={`${staff.brokerage.id}:${loan.id}:${agreementState}`} state={agreementState} loanId={loan.id}
+          brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
         loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}
         admin={staff.brokerage.role === "Admin"} openDisclosures={() => open(disclosureTarget)} />}
