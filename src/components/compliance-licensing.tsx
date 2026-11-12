@@ -10,6 +10,37 @@ import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 const ownerKey = ({ email, accessRevision }: LicenseRenewalOwner) => JSON.stringify({ email, accessRevision });
+const entityActivities = ["Mortgage brokerage", "Mortgage lending", "Mortgage servicing", "Brokerage and lending",
+  "Brokerage and servicing", "Lending and servicing", "Brokerage, lending and servicing", "Other", "Still determining scope"];
+const entityStates = [...licenseJurisdictions].sort((first, second) => stateName(first).localeCompare(stateName(second)));
+
+function EntityScopeFields({ states, setStates }: { states: string[]; setStates: (states: string[]) => void }) {
+  const statePicker = useRef<HTMLSelectElement>(null);
+  return <>
+    <div className="form-grid">
+      <label className="field">Business activity<select name="entityActivity" defaultValue="" required>
+        <option value="">Select a business activity</option>
+        {entityActivities.map(activity => <option key={activity}>{activity}</option>)}
+      </select></label>
+      <label className="field">States in scope<select ref={statePicker} value="" onChange={event => {
+        if (event.target.value) setStates([...states, event.target.value]);
+      }}>
+        <option value="">Add a state</option>
+        {entityStates.filter(state => !states.includes(state)).map(state => <option key={state} value={state}>{stateName(state)}</option>)}
+      </select></label>
+    </div>
+    {!!states.length && <ul aria-label="States in scope" className="loan-application-actions list-none">
+      {states.map(state => <li key={state}><Button type="button" variant="outline" size="sm" className="min-h-11"
+        aria-label={`Remove ${stateName(state)}`} onClick={() => {
+          setStates(states.filter(item => item !== state));
+          statePicker.current?.focus();
+        }}>
+        {stateName(state)} ×
+      </Button></li>)}
+    </ul>}
+    <label className="field">Scope notes (optional)<textarea name="scopeNote" maxLength={700} rows={2} /></label>
+  </>;
+}
 
 function RenewalHistory({ brokerageId, entityId, licenseId }: { brokerageId: string; entityId: string; licenseId: string }) {
   const [open, setOpen] = useState(false);
@@ -55,6 +86,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
   const [filter, setFilter] = useState("");
   const [renewalOnly, setRenewalOnly] = useState(false);
   const [holderKind, setHolderKind] = useState<LicenseHolder["kind"]>("Company");
+  const [entityScopeStates, setEntityScopeStates] = useState<string[]>([]);
   const [editing, setEditing] = useState<ProgramLicense | "new" | "entity" | undefined>(setupEntity ? "entity" : undefined);
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -136,11 +168,21 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
       jurisdiction: field("jurisdiction"), licenseType: field("licenseType"), licenseNumber: field("licenseNumber"),
       status: field("status"), effectiveOn: field("effectiveOn") || null, expiresOn: field("expiresOn") || null, evidence: field("evidence"),
     };
-    const key = JSON.stringify([entityId, selected?.id, selected?.revision, [...form]]);
+    const key = JSON.stringify([entityId, selected?.id, selected?.revision, [...form], editing === "entity" ? entityScopeStates : []]);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
     const requestId = attempt.current.id;
     let input: ProgramRequest;
-    if (editing === "entity") input = { operation: "createEntity", requestId, name: field("name"), nmls: field("nmls"), scopeNote: field("scopeNote") };
+    if (editing === "entity") {
+      const activity = field("entityActivity");
+      if (!entityActivities.includes(activity)) {
+        setFeedback({ message: "Select the legal entity’s business activity.", error: true });
+        return;
+      }
+      const states = entityScopeStates.map(stateName).join(", ");
+      const notes = field("scopeNote").trim();
+      const scopeNote = [activity, states ? `States in scope · ${states}` : "States in scope · Still determining", notes].filter(Boolean).join("\n");
+      input = { operation: "createEntity", requestId, name: field("name"), nmls: field("nmls"), scopeNote };
+    }
     else {
       const parsed = licenseFields.safeParse(values);
       if (!parsed.success) { setFeedback({ message: "Check the state, license type, number and dates.", error: true }); return; }
@@ -188,6 +230,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
 
   function choose(next: ProgramLicense | "new" | "entity") {
     setFeedback(undefined);
+    if (next === "entity") setEntityScopeStates([]);
     setEditing(next);
     setHolderKind(typeof next === "object" ? next.holder.kind : "Company");
   }
@@ -252,7 +295,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
     </div>}
     {selectedEntity && !renewal && <div className="licensing-entity">
       <strong>{selectedEntity.name}</strong>{selectedEntity.nmls && <span> · NMLS {selectedEntity.nmls}</span>}
-      <p className="muted">{selectedEntity.scopeNote}</p>
+      <p className="muted whitespace-pre-line break-words">{selectedEntity.scopeNote}</p>
     </div>}
     {editing ? <section className="record-form" aria-label={renewal ? "Renewal details" : "License editor"}>
       <h3 ref={editor} tabIndex={-1}>{renewal && selected ? `${stateName(selected.jurisdiction)} · ${selected.holderLabel}` :
@@ -266,7 +309,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
           {editing === "entity" ? <>
             <label className="field">Legal entity name<input name="name" required minLength={3} maxLength={160} /></label>
             <label className="field">Company NMLS ID (optional)<input name="nmls" inputMode="numeric" pattern="[0-9]*" maxLength={15} /></label>
-            <label className="field">Where and how the company operates<textarea name="scopeNote" required minLength={5} maxLength={1500} rows={2} placeholder="For example, the states you serve and the type of loans you broker." /></label>
+            <EntityScopeFields states={entityScopeStates} setStates={setEntityScopeStates} />
           </> : <>
             <div className="form-grid">{!renewal && identityFields}{renewalDates}</div>
             {!renewal && holderHelp}
