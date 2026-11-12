@@ -7,16 +7,17 @@ registerHooks({ resolve(specifier, context, next) { try { return next(specifier,
   return next(`${specifier}.ts`, context);
 } } });
 const { initializeComplianceObligations, complianceObligationsWork } = await import("../src/lib/compliance-obligations.ts");
+const { initializeComplianceProgram } = await import("../src/lib/compliance-program.ts");
 const { obligationPeriod, obligationRequest } = await import("../src/lib/compliance-obligations-model.ts");
 function fixture(t) {
   const sql = new DatabaseSync(":memory:"); t.after(() => sql.close());
   const db = { exec: s => sql.exec(s), prepare: s => sql.prepare(s), transaction(work) {
     sql.exec("BEGIN"); try { const result = work(); sql.exec("COMMIT"); return result; } catch(e) { sql.exec("ROLLBACK"); throw e; }
   } };
-  sql.exec("PRAGMA foreign_keys=ON; CREATE TABLE compliance_program_entities(brokerageId TEXT,id TEXT,PRIMARY KEY(brokerageId,id));");
+  sql.exec("PRAGMA foreign_keys=ON");initializeComplianceProgram(db);
   initializeComplianceObligations(db);
   const entityId=crypto.randomUUID(),tenant=crypto.randomUUID(),id=crypto.randomUUID();
-  sql.prepare("INSERT INTO compliance_program_entities VALUES (?,?)").run(tenant,entityId);
+  sql.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,?,?,?)").run(tenant,entityId,"Fictional Michigan","","Review pending","2026-11-11");
   const actor={email:"admin@example.test",role:"Admin",status:"Active",accessRevision:1};
   const staff={email:actor.email,brokerage:{id:tenant,role:"Admin",pilot:true,accessRevision:1}};
   const draft={title:"Review reporting scope",sourceUrl:"https://example.test/official",authority:"Fictional authority fixture",basis:"Fictional review basis",
@@ -45,6 +46,31 @@ test("period history preserves original versions and remains entity scoped",t=>{
  assert.equal(f.run({...query,offset:50}).items.length,0);
  assert.ok(f.run({...query,entityId:crypto.randomUUID()}).error);
  assert.ok(f.run(query,f.staff,[]).error);
+});
+
+test("planning a period creates one owned monthly item and retains its original basis",t=>{
+ const f=fixture(t);f.run(f.save());f.run(f.generate());
+ f.run(f.save({expectedRevision:1,draft:{...f.draft,title:"New version title"}}));
+ const request={operation:"planWork",entityId:f.entityId,id:f.id,period:"2024-02",requestId:crypto.randomUUID()};
+ const first=f.run(request);assert.equal(first.kind,"obligationWorkPlanned");
+ assert.deepEqual(f.run(request),first);
+ assert.equal(f.run({...request,requestId:crypto.randomUUID()}).workId,first.workId);
+ const items=f.sql.prepare("SELECT * FROM compliance_program_items").all();assert.equal(items.length,1);
+ assert.equal(items[0].title,f.draft.title);assert.equal(items[0].status,"Planned");
+ assert.match(items[0].instructions,/Applicability review gap/);assert.match(items[0].instructions,/version 1/);
+ assert.equal(items[0].month,"2024-02");
+ assert.ok(f.run({...request,entityId:crypto.randomUUID(),requestId:crypto.randomUUID()}).error);
+});
+
+test("planning rejects unavailable owners and rolls back monthly work on audit failure",t=>{
+ const f=fixture(t);f.run(f.save());f.run(f.generate());
+ const request={operation:"planWork",entityId:f.entityId,id:f.id,period:"2024-02",requestId:crypto.randomUUID()};
+ const nextActor={...f.actor,accessRevision:2};
+ assert.ok(f.run(request,{...f.staff,brokerage:{...f.staff.brokerage,accessRevision:2}},[nextActor]).error);
+ f.sql.exec("CREATE TRIGGER fail_link BEFORE INSERT ON compliance_obligation_work BEGIN SELECT RAISE(ABORT,'link failed'); END");
+ assert.throws(()=>f.run(request),/link failed/);
+ assert.equal(f.sql.prepare("SELECT count(*) n FROM compliance_program_items").get().n,0);
+ assert.equal(f.sql.prepare("SELECT count(*) n FROM compliance_program_events").get().n,0);
 });
 test("strict schema rejects legal activation claims and missing review evidence",t=>{
   const f=fixture(t);assert.ok(f.run({...f.save(),lawyerApproved:true}).error);
