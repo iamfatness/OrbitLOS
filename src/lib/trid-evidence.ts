@@ -50,8 +50,12 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
   }
   if (!scope) return "Record the covered scenario and office calendar first.";
   if (event.type === "feeSnapshot") {
-    if (!active.some(entry => entry.sequence === event.evidenceSequence && entry.event.type === "sent")) {
+    const source = active.find(entry => entry.sequence === event.evidenceSequence)?.event;
+    if (source?.type !== "sent") {
       return "Select an active disclosure send as the source for the amounts.";
+    }
+    if (!source.document.endsWith("CD") && event.lines.some(line => line.notObtained)) {
+      return "Record services the borrower did not obtain on the Closing Disclosure snapshot.";
     }
     const snapshots = active.map(entry => entry.event).filter(item => item.type === "feeSnapshot");
     if (snapshots.some(item => item.evidenceSequence === event.evidenceSequence)) {

@@ -7,6 +7,7 @@ const feeLine = z.strictObject({
   label: z.string().trim().min(1).max(160),
   borrowerCents: z.number().int().min(0).max(100_000_000_00),
   bucket: z.enum(feeReviewBuckets),
+  notObtained: z.literal(true).optional(),
 });
 export const disclosureFeeSnapshot = z.strictObject({
   evidenceSequence: z.number().int().positive(),
@@ -17,6 +18,7 @@ export const disclosureFeeSnapshot = z.strictObject({
   const seen = new Set<string>();
   for (const [index, line] of lines.entries()) {
     if (seen.has(line.key)) ctx.addIssue({ code: "custom", path: ["lines", index, "key"], message: "Use one line per matched charge key." });
+    if (line.notObtained && line.borrowerCents !== 0) ctx.addIssue({ code: "custom", path: ["lines", index, "borrowerCents"], message: "Use zero for a service the borrower did not obtain." });
     seen.add(line.key);
   }
 });
@@ -37,18 +39,23 @@ export function compareDisclosureFees(estimateInput: DisclosureFeeSnapshot, actu
     const charged = actuals.get(key);
     const classificationConflict = Boolean(estimated && charged && estimated.bucket !== charged.bucket);
     const bucket = classificationConflict ? "Unclassified" : (estimated ?? charged)!.bucket;
+    const needsClosingEvidence = bucket === "Ten percent aggregate" && !!estimated && !charged;
+    const notObtained = charged?.notObtained === true;
     const estimatedCents = estimated?.borrowerCents ?? (estimate.complete ? 0 : null);
-    const chargedCents = charged?.borrowerCents ?? (actual.complete ? 0 : null);
+    const chargedCents = charged?.borrowerCents ?? (actual.complete && !needsClosingEvidence ? 0 : null);
     const differenceCents = estimatedCents === null || chargedCents === null ? null : chargedCents - estimatedCents;
     return {
-      key, label: (charged ?? estimated)!.label, bucket, classificationConflict, estimatedCents, chargedCents, differenceCents,
+      key, label: (charged ?? estimated)!.label, bucket, classificationConflict, needsClosingEvidence, notObtained,
+      estimatedCents, chargedCents, differenceCents,
       individualExcessCents: bucket === "Individual" && differenceCents !== null ? Math.max(0, differenceCents) : null,
     };
   });
-  const aggregateRows = rows.filter(row => row.bucket === "Ten percent aggregate");
-  const unresolvedKeys = rows.filter(row => row.bucket === "Unclassified" || row.differenceCents === null).map(row => row.key);
-  const complete = estimate.complete && actual.complete && unresolvedKeys.length === 0;
-  const aggregate = complete ? {
+  const aggregateRows = rows.filter(row => row.bucket === "Ten percent aggregate" && !row.notObtained);
+  const unresolved = rows.filter(row => row.bucket === "Unclassified" || row.differenceCents === null);
+  const variationRows = rows.filter(row => row.bucket === "Variation review");
+  const amountsComplete = estimate.complete && actual.complete && unresolved.length === 0;
+  const complete = amountsComplete && variationRows.length === 0;
+  const aggregate = amountsComplete ? {
     estimatedCents: aggregateRows.reduce((sum, row) => sum + row.estimatedCents!, 0),
     chargedCents: aggregateRows.reduce((sum, row) => sum + row.chargedCents!, 0),
   } : null;
@@ -57,9 +64,9 @@ export function compareDisclosureFees(estimateInput: DisclosureFeeSnapshot, actu
     : null;
   const individualExcessCents = rows.reduce((sum, row) => sum + (row.individualExcessCents ?? 0), 0);
   return {
-    rows, unresolvedKeys, complete,
+    rows, unresolvedKeys: rows.filter(row => row.bucket === "Unclassified" || row.bucket === "Variation review" || row.differenceCents === null).map(row => row.key), complete,
     estimateSequence: estimate.evidenceSequence, actualSequence: actual.evidenceSequence,
     aggregate, aggregateExcessCents, individualExcessCents,
-    potentialExcessCents: aggregateExcessCents === null ? null : individualExcessCents + aggregateExcessCents,
+    potentialExcessCents: complete && aggregateExcessCents !== null ? individualExcessCents + aggregateExcessCents : null,
   };
 }
