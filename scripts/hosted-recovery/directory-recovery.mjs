@@ -203,7 +203,9 @@ export async function directoryRecoveryCommand(action, fixture) {
       throw new Error("Reconstruction did not preserve access restrictions");
     for(const route of journal.routes){
       const event={environment:"stage",kind:"conditions",body:"{}",loanNumber:route.loanNumber};
-      if(await directory.uwmWebhookTarget(event)!==route.brokerageId)throw new Error("Reconstruction lost lender routing ownership");
+      const candidate = await directory.uwmWebhookRoute(event);
+      if (candidate?.brokerageId !== route.brokerageId || candidate.operationId !== route.operationId)
+        throw new Error("Reconstruction lost lender routing ownership");
     }
     if(!await directory.getStaffSession(journal.endedSession,Date.now()))
       throw new Error("Older checkpoint did not revive the fictional signed-out session");
@@ -314,9 +316,14 @@ export async function directoryRecoveryCommand(action, fixture) {
     for (const route of journal.routes) {
       for (const kind of ["import","conditions","ulad"]) {
         const event = { environment:"stage", kind, body:"{}", transactionId:route.transactionId, loanNumber:route.loanNumber };
-        if (await directory.uwmWebhookTarget(event) !== route.brokerageId ||
-            await directory.uwmWebhookTarget({ ...event, environment:"production" }))
+        const candidate = await directory.uwmWebhookRoute(event);
+        if (candidate?.brokerageId !== route.brokerageId || candidate.operationId !== route.operationId ||
+            await directory.uwmWebhookRoute({ ...event, environment:"production" }))
           throw new Error("Directory restore changed lender routing ownership or environment isolation");
+        // These fixture routes lack a canonical completed import. Restoring the
+        // directory mapping cannot by itself authorize conditions or exports.
+        if (kind !== "import" && await env.WORKSPACE.getByName(route.brokerageId).verifyUwmLoanRoute(candidate,event))
+          throw new Error("Directory restore unexpectedly activated an unverified lender route");
       }
     }
     next = { ...journal, phase:"directoryVerified", evidence:{

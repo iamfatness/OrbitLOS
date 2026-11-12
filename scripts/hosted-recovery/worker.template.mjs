@@ -6,7 +6,7 @@ import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { directoryRecoveryHoldPrefix, directorySignInResetPrefix, directoryRepairPrefix, sampleDraft, finalStep } from "./recovery-fixtures.mjs";
 import { expectedDeadline, reviewPending, remainingReplay, sameDocument } from "./recovery-reconciliation.mjs";
 
-const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence", "recovery_edit_proofs", "recovery_replay_proofs"];
+const tables = ["loans", "tasks", "applications", "document_requests", "document_files", "loan_audit", "activity", "workspace_access_history", "realtor_portals", "submissions", "document_acceptances", "document_accepted_files", "closing_plans", "closing_items", "uwm_live_requests", "uwm_operations", "uwm_import_checks", "uwm_request_evidence", "recovery_edit_proofs", "recovery_replay_proofs"];
 const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",
   typeof value === "string" ? new TextEncoder().encode(value) : value))).map(byte => byte.toString(16).padStart(2, "0")).join("");
 const requireOk = result => { if (result?.error || !result?.message) throw new Error(result?.error || "Fixture mutation failed"); return result; };
@@ -122,6 +122,10 @@ export class RecoveryWorkspace extends OrbitWorkspace {
   probeRestart() { this.probeIdentity(); this.ctx.abort("Isolated fictional recovery restart"); }
   probeApplication(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,expiresAt FROM applications WHERE loanId=?",loanId).one(); }
   probeRealtor() { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT token,realtorId FROM realtor_portals").one(); }
+  probeClosingItem(loanId, itemId) {
+    this.probeIdentity();
+    return this.ctx.storage.sql.exec("SELECT id,revision,completedAt FROM closing_items WHERE loanId=? AND id=?",loanId,itemId).one();
+  }
   probeDocument(loanId) { this.probeIdentity(); return this.ctx.storage.sql.exec("SELECT id,revision,deadlineRevision,dueOn FROM document_requests WHERE loanId=? AND kind='Homeowners insurance' ORDER BY id LIMIT 1",loanId).one(); }
   async probeLenderEvidence(item,origin) {
     this.probeIdentity();
@@ -257,8 +261,17 @@ async function command(action, env, origin, ctx) {
       const doc = await workspace.probeDocument(item.loanId);
       requireOk(await workspace.write({type:"setDocumentDeadline",loanId:item.loanId,requestId:doc.id,revision:doc.revision,deadlineRevision:doc.deadlineRevision,dueOn:"2030-01-01"},item.officer));
     }
+    const checklist = [];
+    for (const [title, completed] of [["Verify title review", true], ["Review settlement figures", false]]) {
+      const itemId = crypto.randomUUID();
+      await target.write({type:"saveClosingItem",loanId:a.loanId,itemId,revision:0,title,owner:a.officer.name,dueDate:"2030-04-02"},a.officer).then(requireOk);
+      if (!completed) await target.write({type:"completeClosingItem",loanId:a.loanId,itemId,revision:1,completed:true},a.officer).then(requireOk);
+      const before = await target.probeClosingItem(a.loanId,itemId);
+      if (Boolean(before.completedAt) === completed) throw new Error("Closing checklist fixture starts in its intended end state");
+      checklist.push({before,command:{type:"completeClosingItem",loanId:a.loanId,itemId,revision:before.revision,completed}});
+    }
     const lenderEvidence=await target.probeLenderEvidence(a,origin);
-    state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE,lenderEvidence,
+    state = { phase: "initialized", run: env.RECOVERY_RUN, source: env.RECOVERY_SOURCE,lenderEvidence,checklist,
       link: await target.probeApplication(a.loanId), realtor: await target.probeRealtor() };
     await target.probeVerifyLenderEvidence(a,lenderEvidence);
     await target.probeProviderRecords(a);
@@ -337,6 +350,12 @@ async function command(action, env, origin, ctx) {
     state.phase = "reconciled";
   } else if (action === "change" && state.phase === "reconciled") {
     const before = state.receipt.before;
+    for (const item of state.checklist) {
+      requireOk(await target.write(item.command,a.officer));
+      item.after = await target.probeClosingItem(a.loanId,item.command.itemId);
+      if (Boolean(item.after.completedAt) !== item.command.completed || item.after.revision !== item.before.revision + 1)
+        throw new Error("Normal checklist edit did not advance the expected revision");
+    }
     const stale = await target.write({...state.receipt.command,deadlineRevision:before.deadlineRevision+5,dueOn:"2030-03-04"},a.admin);
     if (!stale.error) throw new Error("Conflicting deadline change was accepted");
     requireOk(await target.write({type:"revokeApplication",loanId:a.loanId,token:state.link.token},a.officer));
@@ -352,6 +371,8 @@ async function command(action, env, origin, ctx) {
     if(paused.error || paused.mode!=="Paused")throw new Error(paused.error||"Fixture did not pause");
     const changedComparison=await directory.workspaceCheckpoints(a.admin,{action:"compare",id:state.productCheckpoint.id,revision:paused.revision});
     if(!changedComparison.comparison.changed.some(table=>table.name==="document_requests"&&table.before===table.now))throw new Error("Same-count deadline change was not detected");
+    if(!changedComparison.comparison.changed.some(table=>table.name==="closing_items"&&table.before===table.now))
+      throw new Error("Same-count closing checklist changes were not detected");
     const inspected=await target.inspectWorkspaceMaintenance(a.admin,{revision:paused.revision,documents:0,requests:0});
     const evidence=inspected.inspection?.documents.items.find(item=>item.recordId===a.loanId && item.availability==="Available");
     if(!evidence)throw new Error(inspected.error||"Retained fixture PDF was not inspectable");
@@ -366,6 +387,13 @@ async function command(action, env, origin, ctx) {
     state.internalEdits=editInspection.items.filter(item=>item.command.loanId===a.loanId && ["2030-02-03","2030-02-10"].includes(item.command.dueOn));
     if(state.internalEdits.length!==2 || state.internalEdits.some(item=>item.state!=="Recorded"||!item.proof||!item.sourceProof))
       throw new Error("Actual document edits did not retain both recovery receipts");
+    state.checklistEdits = state.checklist.map(({command,before,after})=>{
+      const receipt = editInspection.items.find(item=>item.command.itemId===command.itemId && item.command.completed===command.completed);
+      if (!receipt || receipt.state!=="Recorded" || !receipt.sourceProof || !receipt.proof ||
+          JSON.stringify(receipt.proof.before)!==JSON.stringify(before) || JSON.stringify(receipt.proof.after)!==JSON.stringify(after))
+        throw new Error("Normal checklist change did not retain its exact recovery receipt");
+      return receipt;
+    });
     let gated=false;try{await target.read(a.admin);}catch{gated=true;}
     if(!gated)throw new Error("Normal workspace read remained open before restore");
     // Product restores refuse rewinding lender operation evidence. Prove the
@@ -455,6 +483,27 @@ async function command(action, env, origin, ctx) {
         throw new Error("Repeated product recovery changed saved work or directory history");
       paused=result.view;
     }
+    for (const {id,command,before,proof} of state.checklistEdits) {
+      const original = await target.probeClosingItem(a.loanId,command.itemId);
+      const page = await target.inspectWorkspaceRecoveryEdits(a.admin,{revision:paused.revision,offset:0});
+      const item = page.items.find(edit=>edit.id===id);
+      if (JSON.stringify(original)!==JSON.stringify(before) || !item?.canReplay || item.sourceProof ||
+          item.finding!=="Original revision present" || JSON.stringify(item.proof)!==JSON.stringify(proof))
+        throw new Error("Hosted restore did not preserve the checklist receipt and rewind the exact item revision");
+      const input = {revision:paused.revision,offset:0,id,fingerprint:item.fingerprint,
+        note:"Isolated owner recovered the exact confirmed checklist status after tenant restoration."};
+      let denied = false;
+      try { await directory.recoverWorkspaceEdit(a.processor,input); } catch { denied = true; }
+      if (!denied) throw new Error("Processor unexpectedly started owner recovery");
+      const result = await directory.recoverWorkspaceEdit(a.admin,input);
+      const after = await target.probeClosingItem(a.loanId,command.itemId);
+      if (JSON.stringify(after)!==JSON.stringify(proof.after)) throw new Error("Checklist replay did not restore the exact acknowledged result");
+      const capture = await target.probeCapture();
+      const repeat = await directory.recoverWorkspaceEdit(a.admin,{id,resume:true});
+      if (JSON.stringify(result.view)!==JSON.stringify(repeat.view) || (await target.probeCapture()).hash!==capture.hash)
+        throw new Error("Repeated checklist recovery changed work or history");
+      paused = result.view;
+    }
     const refused=await directory.manageWorkspaceMaintenance(a.admin,{type:"reopen",revision:paused.revision,confirmation:a.admin.brokerage.name});
     if(!refused.error)throw new Error("Restored tenant reopened without a new review");
     const reviewed=await directory.manageWorkspaceMaintenance(a.admin,{type:"review",revision:paused.revision,checks:[true,true,true],
@@ -493,7 +542,8 @@ async function command(action, env, origin, ctx) {
       restoredCounts: recovered.counts, crossTenantCheckpointRejected: true, otherBrokeragePreserved: true, revokedBorrowerBlocked: true,
       revokedOfficerBlocked: true, revokedRealtorBlocked:true, documentBytesMatched: true, missingBytesRejected:true, corruptedBytesRejected:true,
       productCheckpoint:true,productRestore:true,protectedLenderEvidenceBlocked:true,processorAccessRewindBlocked:true,processorReceiptRewindBlocked:true,
-      processorAccessVerifiedAfterReopen:true,sourceCheckpointRetained:true,restoreRetryUnchanged:true,pendingRestoreBlocksReview:true,checkpointComparison:state.checkpointComparison,operatorReplayApplied:2,operatorRepeatUnchanged:true,
+      processorAccessVerifiedAfterReopen:true,sourceCheckpointRetained:true,restoreRetryUnchanged:true,pendingRestoreBlocksReview:true,checkpointComparison:state.checkpointComparison,operatorReplayApplied:2+state.checklistEdits.length,operatorRepeatUnchanged:true,
+      checklistRecovery:{replayed:state.checklistEdits.length,originalTimestampPreserved:true,processorDenied:true,retryUnchanged:true},
       internalEditReceiptsSurvivedRestore:state.internalEdits.length,rolledBackAtomicProofsAbsent:true,originalRevisionDetected:true,
       syntheticProviderStatesPreserved:true,providerEvidenceFingerprintsPreserved:true,
       maintenancePauseSurvivedRestore:true,decisionSurvivedTenantRestore:true,unreviewedReopenRejected:true,reviewedReopenSucceeded:true,
@@ -509,7 +559,7 @@ async function command(action, env, origin, ctx) {
     // The legacy full-chain reconciliation must now recognize that outcome.
     await target.probeReplayBatch([state.receipt,state.interrupted],a.admin);
     state.replayed = await target.probeCapture();
-    if (state.replayed.counts.activity !== state.checkpoint.counts.activity+2 || state.replayed.counts.workspace_access_history !== state.checkpoint.counts.workspace_access_history+2) throw new Error("Replay did not record exactly two history events");
+    if (state.replayed.counts.activity !== state.checkpoint.counts.activity+2+state.checklistEdits.length || state.replayed.counts.workspace_access_history !== state.checkpoint.counts.workspace_access_history+2) throw new Error("Replay did not record one loan history entry for each recovered edit");
     state.phase="replayed";
   } else if (action === "restartReplay" && state.phase === "replayed") {
     try {await target.probeRestart();} catch { /* Next command proves persistence. */ }
@@ -521,6 +571,7 @@ async function command(action, env, origin, ctx) {
     state.phase="replayVerified";
     Object.assign(state.result,{acknowledgedEditReplayed:true,repeatReplayAfterRestartUnchanged:true,pendingReceiptRejected:true,foreignReceiptRejected:true,undispatchedEditNotAcknowledged:true,
       lostAcknowledgmentReconciledAfterRestart:true,reviewedEditReplayed:true,operatorRecoveredChain:true});
+    state.result.checklistRecovery.restartUnchanged=true;
   } else if (action === "cleanup" && state.phase === "replayVerified" && journal?.phase === "directoryResumed") {
     for(const file of state.lenderEvidence.files)await target.probeCleanup(file);
     state.phase = "cleaned";
