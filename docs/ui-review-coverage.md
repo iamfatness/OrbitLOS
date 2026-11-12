@@ -128,3 +128,14 @@ The assigned LO loaded the picker on a quote priced for Michigan ZIP 48067. The 
 Checked 1440 × 900, 900 × 1200 and 390 × 844 and inspected final owner, picker, worksheet and borrower captures in `.orbit/fee-state-{owner,picker,worksheet,borrower}-*.png`. Used Impeccable layout review and UI UX Pro Max guidance on form labels, focus and long content. Reused Orbit's property-state select, worksheet and disclosure patterns informed by 21st.dev. The source scan, 618 tests, lint, typecheck, production build and 70-stage mock rehearsal passed. Authenticated role checks used isolated fictional records.
 
 The updated Product and Demo pages passed at desktop and phone widths. Fourteen public, portal and signed-out checks passed staged and live. All 4,036 browser assets matched the build in two staged passes and two ordinary live passes.
+
+
+## Simulated fee-provider estimates
+
+Verified on app `64bb1e2415e7`, Worker `d7e0afb2-bdd5-4e04-9341-e17e0ed6266d`. In an isolated fictional pilot, the assigned LO received a no-coverage response and confirmed the worksheet kept its entered amount. The LO loaded a matching brokerage template, simulated a temporary failure, and retried. The browser interrupted the response after the retry receipt was stored. Repeating the request returned the same reference. The worksheet kept the template values until the LO explicitly loaded the available estimate, and focus returned to the provider disclosure.
+
+The provider returned $675 for appraisal, $1,325 for title and settlement, and $285 for recording and transfer fees. The LO changed appraisal to $680, saved, and reopened the exact shared quote after reload. The staff record retained the provider reference and marked the edit. The borrower saw the final itemized fees. Automated checks covered loan and pilot scope, immutable request replay, cross-offer rejection, fallback and preservation of the original provider amounts.
+
+Checked 1440 × 900, 900 × 1200 and 390 × 844. Inspected final fallback, estimate, worksheet and borrower captures in `.orbit/fee-provider-{fallback,ready,worksheet,borrower}-*.png`. Used Impeccable's operational layout and UI UX Pro Max guidance on error recovery and empty states. Reused Orbit's accepted worksheet, status and disclosure patterns informed by 21st.dev. Source scan, 618 tests, lint, typecheck, production build and 70-stage mock rehearsal passed. The estimate flow used isolated fictional records.
+
+The updated Product and Demo pages passed staged and live at desktop and phone widths. Fourteen public, portal and signed-out checks passed staged and live. The live signed-out estimate POST returned HTTP 401. All 4,088 browser assets matched the build in two staged passes and two ordinary live passes.
