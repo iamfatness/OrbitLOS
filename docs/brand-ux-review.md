@@ -585,3 +585,7 @@ Reused Orbit’s native disclosures and labeled numeric, selection and evidence 
 ### Shared processor fee terms
 
 Reused Orbit’s native disclosure, evidence history and draft recovery patterns. Impeccable Polish informed the separation between the agreed fee and latest offer. UI UX Pro Max feedback guidance informed focus after stale-save rejection. The final form wraps long agreement references. Populated admin, assigned processor and history states were inspected at desktop, portrait and phone widths.
+
+### Pending processing fee offers
+
+Reused Orbit’s queue filters, record rows and exact loan focus pattern. Impeccable Polish informed one action per offer and concise replaced and empty states. UI UX Pro Max keyboard guidance informed focus on the exact fee disclosure and return to the filter when a row cleared. Populated, selected, replaced and empty states were inspected on desktop, portrait and phone.

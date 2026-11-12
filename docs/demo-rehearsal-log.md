@@ -1319,3 +1319,7 @@ Worker `9cdbc694-af00-4c97-bb3d-f6c8f93a4b7f` serves app `9b6f744d1bcd`. A ficti
 ### Shared processor fee terms
 
 Worker `a4e25303-280f-4cf2-bcb7-44f35de041a9` serves app `c2db7db04b7a`. An admin and a shared processor used two fictional brokerages. A concurrent change rejected a stale draft and preserved it for review. The processor declined one revision, accepted another and viewed the prior exact amount. Removing the processor on the first loan ended access there and kept the second assignment and its fee available. The live Demo and signed-out routes passed. The rehearsal created no payments and called no providers.
+
+### Pending processing fee offers
+
+Worker `f009e619-1a3f-4b8c-8aa7-dc6d7a2bec43` serves app `c2af847ea325`. The fictional processor opened v2 from the first brokerage’s queue while the owner recorded v3. Refreshing the loan kept v2 readable and removed decision actions. Closing the loan refreshed the queue. The processor then opened v3, accepted it and returned to an empty queue with focus on the filter. The second brokerage still had its own v1, which the processor declined. Public Demo and signed-out checks passed. The rehearsal created no payments or provider activity.
