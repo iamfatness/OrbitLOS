@@ -633,3 +633,8 @@ Reused the accepted 21st.dev-informed Integrations disclosure, checkbox group an
 ### Report schedule attention
 
 Reused the 21st.dev-informed Brokerage action rows and the existing schedule editor. Impeccable Polish guided the due and blocked summary, exact report version labels and single-column phone controls. UI UX Pro Max focus guidance informed returning to the original schedule action, or the section heading after its row clears.
+### Pilot staff seat capacity
+
+The existing Staff access form, inline receipt and roster disclosures supply the 21st.dev-informed pattern. Impeccable's polish pass informed the compact count strip and aligned editor. UI UX Pro Max error-recovery guidance informed preserving a draft and refreshing the roster when the saved revision changes. Phone widths give the limit field its own row and keep the two actions together. The editor focuses its input, Cancel returns focus to Edit seat limit, and a save focuses its confirmation.
+
+The built fictional owner exercised the populated roster, a selected limit, an invitation that filled the last seat, interrupted responses, and canceling the invitation. The owner returned through the phone menu after reload. The LO could not see the controls or read the totals. The final 1440, 900 and 390 px editor and full-state captures are `.orbit/pilot-staff-seats-{editor,full}-*.png`.
