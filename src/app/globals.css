@@ -1228,6 +1228,7 @@ button:disabled { cursor: default; }
 .license-state-controls { width: min(100%, 24rem); }
 .license-state-controls .field { flex: 1 1 12rem; width: auto; }
 .work-queue.license-state-result { margin: 0; overflow-wrap: anywhere; }
+.license-state-entity + .license-state-entity { border-top: 1px solid var(--line); padding-top: 8px; }
 .licensing-entity { overflow-wrap: anywhere; }
 .licensing-entity p { margin: 4px 0 0; }
 .state-rollout-requirement + .state-rollout-requirement { border-top: 1px solid var(--line); padding-top: 12px; }

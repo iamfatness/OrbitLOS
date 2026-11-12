@@ -14,24 +14,28 @@ export function LicenseRecordStatus({ counts }: { counts: LicenseRecordCounts })
     {expired > 0 && ` · ${expired} expired`}{review > 0 && ` · ${review} to review`}</>;
 }
 
-export function LeadLicenseStateReview({ brokerageId, propertyState }: { brokerageId: string; propertyState: string }) {
+export function LeadLicenseStateReview({ brokerageId, leadId, propertyState, officerEmail }: {
+  brokerageId: string; leadId: string; propertyState: string; officerEmail: string | null;
+}) {
   const [jurisdiction, setJurisdiction] = useState(propertyState);
-  const [result, setResult] = useState<LicenseStateCheck>();
+  const [outcome, setOutcome] = useState<{ scope: string; result?: LicenseStateCheck; error?: string }>();
   const [checking, setChecking] = useState(false);
-  const [error, setError] = useState("");
+  const scope = JSON.stringify([jurisdiction, officerEmail]);
+  const { result, error } = outcome?.scope === scope ? outcome : {};
+  const assignment = result?.assignment;
 
   async function check(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!jurisdiction || checking) return;
     setChecking(true);
-    setResult(undefined);
-    setError("");
+    setOutcome(undefined);
+    const failure = { scope, error: "Could not check license records. Try again." };
     try {
-      const response = await accessComplianceCases({ type: "program", input: { operation: "licenseStateCheck", jurisdiction } }, brokerageId);
-      if ("error" in response || response.kind !== "licenseStateCheck") {
-        setError("Could not check license records. Try again.");
-      } else setResult(response);
-    } catch { setError("Could not check license records. Try again."); }
+      const response = await accessComplianceCases({ type: "program", input: {
+        operation: "licenseStateCheck", jurisdiction, assignment: { leadId, officerEmail },
+      } }, brokerageId);
+      setOutcome("error" in response || response.kind !== "licenseStateCheck" ? failure : { scope, result: response });
+    } catch { setOutcome(failure); }
     finally { setChecking(false); }
   }
 
@@ -39,14 +43,13 @@ export function LeadLicenseStateReview({ brokerageId, propertyState }: { brokera
     <summary>Check state licenses</summary>
     <div className="record-form">
       <p className="muted">{propertyState
-        ? `Intake listed ${propertyStateName(propertyState)}. A different selection applies to this check only.`
-        : "Choose the property state to review company license records before assigning the lead."}</p>
+        ? `Saved property state is ${propertyStateName(propertyState)}. A different selection applies to this check only.`
+        : "Choose a property state to review license records for this assignment."}</p>
       <form onSubmit={check}>
         <div className="loan-application-actions licensing-controls license-state-controls">
           <label className="field">Property state<select required value={jurisdiction} disabled={checking} onChange={event => {
             setJurisdiction(event.target.value);
-            setResult(undefined);
-            setError("");
+            setOutcome(undefined);
           }}>
             <PropertyStateOptions />
           </select></label>
@@ -57,13 +60,32 @@ export function LeadLicenseStateReview({ brokerageId, propertyState }: { brokera
       </form>
       {checking && <p className="muted" role="status">Checking license records…</p>}
       {error && <p role="alert">{error}</p>}
-      {result && <div className="work-queue license-state-result" aria-label="Company license check" role="status">
-        <h4 className="font-semibold">{propertyStateName(result.jurisdiction)} company records</h4>
-        {result.entities.length ? <ul>{result.entities.map(entity => <li key={entity.id}>
-          <strong>{entity.name}</strong> · <LicenseRecordStatus counts={entity.company} />
-        </li>)}</ul> : <p>No legal entities on file. Add one in Compliance → Licensing.</p>}
+      {result && <section className="work-queue license-state-result record-form" aria-label="Assignment license records">
+        <h4 className="font-semibold">{propertyStateName(result.jurisdiction)} license records</h4>
+        <p className="sr-only" role="status">License check updated for {propertyStateName(result.jurisdiction)}.</p>
+        {assignment?.officer?.name ? <p>Proposed owner · <strong>{assignment.officer.name}</strong></p> :
+          assignment?.officer ? <p>The selected officer is unavailable. Refresh the workspace before assigning.</p> :
+            <p>Shared inbox selected. Choose an owner to check their license records.</p>}
+        {assignment?.intakeBranchWithoutLink && <p className="muted">Intake branch · {assignment.intakeBranchWithoutLink} has no managed branch link.</p>}
+        {assignment?.officer?.name && !assignment.branches.length &&
+          <p className="muted">No active branch assignments on file for this officer.</p>}
+        {result.entities.length ? result.entities.map(entity => <div key={entity.id} className="license-state-entity">
+          <h5 className="font-semibold">{entity.name}</h5>
+          <ul>
+            <li>Company · <LicenseRecordStatus counts={entity.company} /></li>
+            {entity.officer && <li>Loan officer · <LicenseRecordStatus counts={entity.officer} /></li>}
+            {assignment?.branches.map(branch => {
+              const counts = entity.branches?.find(item => item.id === branch.id)?.counts;
+              return counts && <li key={branch.id}>
+                Branch · <strong>{branch.name}</strong>{branch.atIntake && " · At intake"}{!branch.active && " · Archived"} · <LicenseRecordStatus counts={counts} />
+                {branch.atIntake && branch.active && branch.officerAssigned === false &&
+                  <div className="muted">The proposed owner has no current assignment at this branch.</div>}
+              </li>;
+            })}
+          </ul>
+        </div>) : <p>No legal entities on file. Add one in Compliance → Licensing.</p>}
         <p className="muted">Staff-entered records for internal review. Verify authorization before originating.</p>
-      </div>}
+      </section>}
     </div>
   </details>;
 }

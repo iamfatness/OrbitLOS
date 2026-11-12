@@ -336,3 +336,59 @@ test("property-state check reports company records per entity, honors dates and 
   assert.ok(complianceCaseWork(f.db,{type:"program",input:request},
     {...operational,brokerage:{...operational.brokerage,features:{uwm:false,compliance:false}}},f.tenant,f.roster,now).error);
 });
+
+test("assignment license check includes the intake branch and current officer memberships with historical records distinguished", t => {
+  const f = fixture(t);
+  const entity = f.entity();
+  const leadId = crypto.randomUUID();
+  f.db.prepare(`INSERT INTO referral_leads (id,requestId,name,email,phone,purpose,officer,createdAt,dueAt,propertyState)
+    VALUES (?,?,'Fictional Prospect','','','Purchase','',?,?,'MI')`).run(leadId, leadId, now, now);
+  const branch = (name, staffEmails = []) => {
+    const id = crypto.randomUUID();
+    assert.ok(updateBranch(f.db, { type:"saveBranch", id, revision:0, name, staffEmails, ownerEmail:null },
+      f.staff(), f.tenant, f.roster).message);
+    return id;
+  };
+  const intake = branch("West Intake");
+  const primary = branch("East Office",[f.lo.email]);
+  const additional = branch("North Office",[f.lo.email]);
+  const unrelated = branch("South Office",[f.backup.email]);
+  const receipt = {profile:"General",formRevision:1,websiteRevision:1,rule:"Branch default",
+    branch:{name:"West Intake",id:intake,zip:"480",revision:1},destination:"Shared inbox",note:"",campaign:null};
+  f.db.prepare("INSERT INTO quote_intake_receipts (leadId,formRevision,timing,answer,routingReceipt) VALUES (?,1,'','',?)")
+    .run(leadId,JSON.stringify(receipt));
+  const save = (licenseNumber, holder, expiresOn = null) => f.run({ operation:"saveLicense", entityId:entity.id,
+    id:crypto.randomUUID(), requestId:crypto.randomUUID(), revision:0, jurisdiction:"MI", licenseType:"Broker license",
+    licenseNumber, status:"Active", effectiveOn:null, expiresOn, evidence:"", holder });
+  assert.equal(save("COMPANY",{kind:"Company"}).kind,"programLicenses");
+  assert.equal(save("WEST",{kind:"Branch",id:intake}).kind,"programLicenses");
+  assert.equal(save("EAST",{kind:"Branch",id:primary},"2026-11-10").kind,"programLicenses");
+  assert.equal(save("SOUTH",{kind:"Branch",id:unrelated}).kind,"programLicenses");
+  assert.equal(save("OFFICER",{kind:"Loan officer",id:f.lo.email,accessRevision:1}).kind,"programLicenses");
+  const request = {operation:"licenseStateCheck",jurisdiction:"MI",assignment:{leadId,officerEmail:f.lo.email}};
+  const result = f.run(request);
+  assert.deepEqual(result.assignment.branches.map(branch=>[branch.id,branch.atIntake,branch.officerAssigned]),[
+    [primary,false,true],[additional,false,true],[intake,true,false],
+  ]);
+  assert.deepEqual(result.entities[0].branches.map(branch=>[branch.id,branch.counts]),[
+    [primary,{current:0,expired:1,review:0}],[additional,{current:0,expired:0,review:0}],[intake,{current:1,expired:0,review:0}],
+  ]);
+  assert.equal(result.entities[0].company.current,1);
+  assert.equal(result.entities[0].officer.current,1);
+  const shared = f.run({...request,assignment:{leadId,officerEmail:null}});
+  assert.deepEqual(shared.assignment.branches.map(branch=>branch.id),[intake]);
+  assert.equal(shared.entities[0].officer,undefined);
+  const unavailableOfficer = f.run({...request,assignment:{leadId,officerEmail:"missing@example.test"}});
+  assert.deepEqual(unavailableOfficer.assignment.officer,{name:null});
+  assert.equal(unavailableOfficer.entities[0].officer,undefined);
+  assert.ok(updateBranch(f.db, {type:"setBranchActive",id:intake,revision:1,active:false}, f.staff(), f.tenant, f.roster).message);
+  const reinstated = f.roster.map(member=>member.email===f.lo.email ? {...member,accessRevision:3} : member);
+  const history = f.run(request,f.owner,reinstated);
+  assert.deepEqual(history.assignment.branches.map(branch=>[branch.id,branch.active]),[[intake,false]]);
+  assert.equal(history.entities[0].branches[0].counts.review,1);
+  assert.equal(history.entities[0].officer.review,1);
+  assert.ok(f.run(request,f.lo).error);
+  assert.ok(f.run({...request,assignment:{...request.assignment,leadId:crypto.randomUUID()}}).error);
+  f.db.prepare("UPDATE referral_leads SET resolvedAt=? WHERE id=?").run(now,leadId);
+  assert.ok(f.run(request).error);
+});

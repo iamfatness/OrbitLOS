@@ -138,6 +138,30 @@ function LeadPropertyStateEditor({ lead, busy, save }: { lead: InboxLead; busy: 
   </details>;
 }
 
+function LeadOwnerAssignment({ lead, members, busy, assign, staff }: {
+  lead: InboxLead; members: BrokerageMember[]; busy: boolean; assign: (email: string | null) => void; staff: WorkspaceStaff | null;
+}) {
+  const [selection, setSelection] = useState<{ savedOwner: string | null; ownerEmail: string }>();
+  const ownerEmail = selection?.savedOwner === lead.officerEmail ? selection.ownerEmail : lead.officerEmail ?? "";
+  const unavailableOwner = ownerEmail && !members.some(member => member.email === ownerEmail);
+  return <>
+    {members.length > 0 && <form className="task-form" onSubmit={event => {
+      event.preventDefault();
+      if (!busy) assign(ownerEmail || null);
+    }}>
+      <label className="field">Lead owner<select value={ownerEmail} onChange={event => setSelection({ savedOwner: lead.officerEmail, ownerEmail: event.target.value })} disabled={busy}>
+        <option value="">Shared inbox</option>
+        {unavailableOwner && <option value={ownerEmail}>{lead.officer || ownerEmail} · Unavailable</option>}
+        <OwnerOptions members={members} />
+      </select></label>
+      <Button size="sm" type="submit" disabled={busy}>Save owner</Button>
+    </form>}
+    {staff && workspaceFeatures(staff.brokerage).compliance &&
+      <LeadLicenseStateReview key={lead.propertyState} brokerageId={staff.brokerage.id} leadId={lead.id}
+        propertyState={lead.propertyState} officerEmail={ownerEmail || null} />}
+  </>;
+}
+
 function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentId, save, convert, openCampaign, openConversation, close }: {
   lead: InboxLead; staff: WorkspaceStaff | null; members: BrokerageMember[]; now: number; busy: boolean; focusTaskId?: string; save: Save; convert: Convert;
   focusDocumentId?: string;
@@ -198,18 +222,8 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         {lead.quoteConsent !== undefined && <QuoteConsentEvidence receipt={lead.quoteConsent} />}
         {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
         <LeadPropertyStateEditor lead={lead} busy={busy} save={save} />
-        {staff?.brokerage.role === "Admin" && workspaceFeatures(staff.brokerage).compliance &&
-          <LeadLicenseStateReview key={`${lead.id}:${lead.propertyState}`} brokerageId={staff.brokerage.id} propertyState={lead.propertyState} />}
-        {isAdmin && members.length > 0 && <form className="task-form" key={lead.officerEmail ?? ""} onSubmit={(event) => {
-          event.preventDefault();
-          const email = String(new FormData(event.currentTarget).get("owner") ?? "");
-          assign(email || null);
-        }}>
-          <label className="field">Lead owner<select name="owner" defaultValue={lead.officerEmail ?? ""}>
-            <option value="">Shared inbox</option><OwnerOptions members={members} />
-          </select></label>
-          <Button size="sm" type="submit" disabled={busy}>Save owner</Button>
-        </form>}
+        {isAdmin && <LeadOwnerAssignment key={lead.id} lead={lead}
+          members={members} busy={busy} assign={assign} staff={staff} />}
         {lead.heldAt ? <div className="work-queue">
           <p><strong>On hold</strong> · {lead.holdReason}</p>
           <p className="muted">Original deadlines stay on the record. {lead.campaignId

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { readBranches } from "./branches";
+import { branchStaffCurrent } from "./branch-model";
+import { storedQuoteRouting } from "./quote-intake-model";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
@@ -124,6 +126,50 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
     history: events.slice(0, 50).map(row => ({ id: String(row.id), actor: String(row.actor), at: String(row.at), action: String(row.action), note: String(row.note) })),
     moreHistory: events.length > 50, owners: owners.map(({ email, name }) => ({ email, name })), coverage: "Regulatory applicability not evaluated" };
 }
+function checkLicenseState(db: Store, tenant: string, data: Extract<ProgramRequest, { operation: "licenseStateCheck" }>,
+  roster: readonly VersionedBrokerageMember[], asOf: string): LicenseStateCheck | typeof unavailable {
+  const selection = data.assignment;
+  const lead = selection && db.prepare(`SELECT receipt.routingReceipt FROM referral_leads lead
+    LEFT JOIN quote_intake_receipts receipt ON receipt.leadId=lead.id
+    WHERE lead.id=? AND lead.resolvedAt IS NULL`).get(selection.leadId);
+  if (selection && !lead) return unavailable;
+
+  const intakeBranch = storedQuoteRouting(lead?.routingReceipt)?.branch;
+  const officer = selection?.officerEmail ? roster.find(member =>
+    member.email === selection.officerEmail && member.status === "Active" && member.role !== "Processor") : undefined;
+  const branches = selection ? readBranches(db).flatMap(branch => {
+    const atIntake = branch.id === intakeBranch?.id;
+    const officerAssigned = officer ? branch.staff.some(assignment => assignment.email === officer.email && branchStaffCurrent(assignment, officer)) : undefined;
+    return atIntake || (branch.active && officerAssigned) ?
+      [{ id: branch.id, name: branch.name, active: branch.active, atIntake, officerAssigned }] : [];
+  }) : [];
+  const records = db.prepare(`SELECT entityId,status,effectiveOn,expiresOn,holder FROM compliance_program_licenses
+    WHERE brokerageId=? AND jurisdiction=? AND (holder IS NULL OR json_extract(holder,'$.holder.kind')='Company'
+      OR (json_extract(holder,'$.holder.kind')='Branch' AND json_extract(holder,'$.holder.id') IN (SELECT value FROM json_each(?)))
+      OR (json_extract(holder,'$.holder.kind')='Loan officer' AND json_extract(holder,'$.holder.id')=?))`)
+    .all(tenant, data.jurisdiction, JSON.stringify(branches.map(branch => branch.id)), officer?.email ?? null) as
+      (Pick<LicenseFields, "status" | "effectiveOn" | "expiresOn"> & { entityId: string; holder: string | null })[];
+  const byEntity = Map.groupBy(records.map(({ holder, ...record }) => ({ ...record, holder: licenseHolderRecord(holder).holder })), record => record.entityId);
+  return { kind: "licenseStateCheck", jurisdiction: data.jurisdiction, asOf,
+    ...(selection ? { assignment: {
+      officer: selection.officerEmail ? { name: officer?.name ?? null } : null,
+      intakeBranchWithoutLink: intakeBranch && !branches.some(branch => branch.atIntake) ? intakeBranch.name : undefined,
+      branches,
+    } } : {}),
+    entities: entities(db, tenant).entities.map(({ id, name }) => {
+      const licenses = byEntity.get(id) ?? [];
+      const company = countLicenseRecords(licenses.filter(record => record.holder.kind === "Company"), asOf);
+      return { id, name, company,
+        ...(officer ? { officer: countLicenseRecords(licenses.flatMap(record => record.holder.kind === "Loan officer" ?
+          [{ ...record, holderAvailable: record.holder.accessRevision === (officer.accessRevision ?? 0) }] : []), asOf) } : {}),
+        ...(branches.length ? { branches: branches.map(branch => ({ id: branch.id, counts: countLicenseRecords(
+          licenses.filter(record => record.holder.kind === "Branch" && record.holder.id === branch.id)
+            .map(record => ({ ...record, holderAvailable: branch.active })), asOf) })) } : {}),
+      };
+    }),
+  };
+}
+
 /** Runs within the authenticated compliance-case transaction. No external effects. */
 export function complianceProgramWork(db: Store, input: ProgramRequest, staff: WorkspaceStaff, roster: readonly VersionedBrokerageMember[], now: string) {
   if (staff.brokerage.role !== "Admin") return unavailable;
@@ -131,16 +177,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (!parsed.success) return unavailable;
   const data = parsed.data, tenant = staff.brokerage.id;
   if (data.operation === "entities") return entities(db, tenant);
-  if (data.operation === "licenseStateCheck") {
-    const asOf = now.slice(0, 10);
-    const records = db.prepare(`SELECT entityId,status,effectiveOn,expiresOn FROM compliance_program_licenses
-      WHERE brokerageId=? AND jurisdiction=? AND (holder IS NULL OR json_extract(holder,'$.holder.kind')='Company')`)
-      .all(tenant, data.jurisdiction) as (Pick<LicenseFields, "status" | "effectiveOn" | "expiresOn"> & { entityId: string })[];
-    const byEntity = Map.groupBy(records, record => record.entityId);
-    const result: LicenseStateCheck = { kind: "licenseStateCheck", jurisdiction: data.jurisdiction, asOf,
-      entities: entities(db, tenant).entities.map(({ id, name }) => ({ id, name, company: countLicenseRecords(byEntity.get(id) ?? [], asOf) })) };
-    return result;
-  }
+  if (data.operation === "licenseStateCheck") return checkLicenseState(db, tenant, data, roster, now.slice(0, 10));
   const owners = new Map(roster.filter(member => member.status === "Active" && member.role === "Admin").map(member => [member.email,
     { email: member.email, accessRevision: member.accessRevision ?? 0, name: member.name }]));
   if (data.operation === "licenseRenewals") {

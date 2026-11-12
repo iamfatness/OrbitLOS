@@ -18,7 +18,7 @@ export default function DemoPage() {
       <div><p className="marketing-kicker">Your walkthrough</p><h2>See the work come together.</h2>
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
-          <li>Use the owner’s first-day checklist to find branch setup and state licensing. Carry the property state from quote requests and realtor referrals into the 1003 and license check. Correct a lead’s property state with a history entry and keep it in CRM CSV transfers.</li>
+          <li>Use the owner’s first-day checklist to find branch setup and state licensing. Carry the property state from quote requests and realtor referrals into the 1003 and license check. Correct a lead’s property state with a history entry and keep it in CRM CSV transfers. Review company, branch, and loan officer license records during assignment.</li>
           <li>See how admins manage UWM and Compliance by workspace and use temporary, fictional workspaces for release testing.</li>
           <li>Hand off loans, follow-ups, and branch lead routing when staff leave a pilot brokerage.</li>
           <li>In a fictional compliance pilot, record internal reviews and obligations, and assign staff training or policies for acknowledgment.</li>

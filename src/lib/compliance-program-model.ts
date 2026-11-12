@@ -49,7 +49,14 @@ export function countLicenseRecords(records: readonly (Pick<LicenseFields, "stat
   return counts;
 }
 export type LicenseStateCheck = { kind: "licenseStateCheck"; jurisdiction: string; asOf: string;
-  entities: { id: string; name: string; company: LicenseRecordCounts }[] };
+  assignment?: {
+    officer: { name: string | null } | null;
+    intakeBranchWithoutLink?: string;
+    branches: { id: string; name: string; active: boolean; atIntake: boolean; officerAssigned?: boolean }[];
+  };
+  entities: { id: string; name: string; company: LicenseRecordCounts; officer?: LicenseRecordCounts;
+    branches?: { id: string; counts: LicenseRecordCounts }[] }[] };
+
 export type ProgramLicenses = { kind: "programLicenses"; entity: ProgramEntity; asOf: string; licenses: ProgramLicense[];
   holderChoices: LicenseHolderChoice[]; renewalOwners: (LicenseRenewalOwner & { name: string })[] };
 export type LicenseHistory = { kind: "licenseHistory"; entries: { id: string; actor: string; at: string; action: string;
@@ -67,7 +74,8 @@ export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("licenseRenewals"), scope: z.enum(["mine", "brokerage"]).optional(), after: licenseRenewalCursor.optional() }),
   z.strictObject({ operation: z.literal("licenseHistory"), entityId: z.uuid(), licenseId: z.uuid() }),
   z.strictObject({ operation: z.literal("licenses"), entityId: z.uuid() }),
-  z.strictObject({ operation: z.literal("licenseStateCheck"), jurisdiction: licenseJurisdiction }),
+  z.strictObject({ operation: z.literal("licenseStateCheck"), jurisdiction: licenseJurisdiction,
+    assignment: z.strictObject({ leadId: z.uuid(), officerEmail: z.email().toLowerCase().max(254).nullable() }).optional() }),
   z.strictObject({ operation: z.literal("saveLicense"), ...change, entityId: z.uuid(), id: z.uuid(), revision: z.number().int().nonnegative(), ...licenseFields.shape, holder: licenseHolder.optional(),
     renewalOwner: licenseRenewalOwner.nullable().optional(), renewalNote: z.string().trim().max(500).optional() }),
   z.strictObject({ operation: z.literal("month"), ...scope }),
