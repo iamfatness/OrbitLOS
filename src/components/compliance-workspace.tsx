@@ -39,12 +39,12 @@ function inventoryStatus(data: Overview) {
   return `${scanned} of ${data.fileTotal} files inventoried${state === "Scanning" ? " · Scan in progress" : ""}${asOf ? ` · ${dateTime(asOf)} ET` : ""}`;
 }
 
-export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals, onLicenseSaved }: {
+export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals, onLicenseSaved, openLicensing }: {
   brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
   openHistoryRecord: (destination: MigrationDestination) => void;
-  licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void; onLicenseSaved?: () => void;
+  licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void; onLicenseSaved?: () => void; openLicensing?: boolean;
 }) {
-  const [view, setView] = useState<View>(pilot && !licenseTarget ? "Overview" : "Licensing");
+  const [view, setView] = useState<View>(pilot && !licenseTarget && !openLicensing ? "Overview" : "Licensing");
   const [attention, setAttention] = useState<ComplianceAttention>();
   const [overview, setOverview] = useState<Overview | { error: string }>();
   const [revision, refresh] = useState(0);

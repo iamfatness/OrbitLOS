@@ -8,8 +8,8 @@ import { Button } from "./ui/button";
 
 const labels: Record<BrokerageRole, string> = { Admin: "Brokerage admin", LO: "Loan officer", Processor: "Processor" };
 
-export function StaffFirstDay({ brokerageId, role, pilot, openStep, openPractice }: {
-  brokerageId: string; role: BrokerageRole; pilot: boolean;
+export function StaffFirstDay({ brokerageId, role, pilot, complianceEnabled, openStep, openPractice, returning }: {
+  brokerageId: string; role: BrokerageRole; pilot: boolean; complianceEnabled: boolean; returning?: FirstDayStepId | "pilot-tools";
   openStep: (id: FirstDayStepId) => void; openPractice: () => void;
 }) {
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=staff-first-day`;
@@ -20,6 +20,7 @@ export function StaffFirstDay({ brokerageId, role, pilot, openStep, openPractice
   const [saving, setSaving] = useState<FirstDayStepId>();
   const [error, setError] = useState("");
   const alert = useRef<HTMLParagraphElement>(null);
+  const returnAction = useRef<HTMLButtonElement>(null);
   const busy = useRef(false);
 
   useEffect(() => {
@@ -33,6 +34,7 @@ export function StaffFirstDay({ brokerageId, role, pilot, openStep, openPractice
     return () => controller.abort();
   }, [endpoint, loadVersion]);
 
+  useEffect(() => { if (returning) returnAction.current?.focus(); }, [returning]);
   useEffect(() => { if (error) alert.current?.focus(); }, [error]);
 
   async function update(current: FirstDayProgress["steps"][number]) {
@@ -73,13 +75,15 @@ export function StaffFirstDay({ brokerageId, role, pilot, openStep, openPractice
     <ol className="first-day-list">
       {steps.map(step => {
         const current = progress?.steps.find(item => item.id === step.id);
+        const needsCompliance = step.id === "licensing" && !complianceEnabled;
         return <li key={step.id} className="first-day-step">
           <div className="first-day-copy">
             <h3>{step.title}</h3>
-            <p className="muted">{step.description}</p>
+            <p className="muted">{needsCompliance ? "Enable Compliance in workspace settings to review the license register and set renewal owners." : step.description}</p>
           </div>
           <div className="first-day-actions">
-            <Button type="button" variant="outline" size="sm" onClick={() => openStep(step.id)}>{step.action}<ArrowRight aria-hidden="true" /></Button>
+            <Button type="button" variant="outline" size="sm" ref={returning === step.id ? returnAction : undefined}
+              onClick={() => openStep(step.id)}>{needsCompliance ? "Open workspace settings" : step.action}<ArrowRight aria-hidden="true" /></Button>
             <label className="first-day-review">
               <input type="checkbox" checked={current?.completed ?? false} disabled={!current || loading}
                 aria-label={`Reviewed (${step.title})`} aria-disabled={Boolean(saving)}
@@ -92,7 +96,7 @@ export function StaffFirstDay({ brokerageId, role, pilot, openStep, openPractice
     </ol>
     {pilot && role === "Admin" && <div className="first-day-practice">
       <p className="muted">Give your team sample leads, loans, and processing handoffs to practice with.</p>
-      <Button type="button" size="sm" variant="outline" onClick={openPractice}>Open pilot tools</Button>
+      <Button type="button" size="sm" variant="outline" ref={returning === "pilot-tools" ? returnAction : undefined} onClick={openPractice}>Open pilot tools</Button>
     </div>}
   </section>;
 }

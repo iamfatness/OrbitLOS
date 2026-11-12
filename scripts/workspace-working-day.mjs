@@ -4942,10 +4942,17 @@ try {
       return data.steps;
     };
     const staffStep = { step: "staff-access", completed: true, revision: 0 };
-    assert.deepEqual((await checklist(owner)).map(({ id }) => id), ["staff-access", "loan-defaults", "lead-routing", "assign-processing"]);
+    assert.deepEqual((await checklist(owner)).map(({ id }) => id), ["staff-access", "branches", "licensing", "loan-defaults", "lead-routing", "assign-processing"]);
     assert.deepEqual((await checklist(officer)).map(({ id }) => id), ["today", "lead-inbox", "loan-pipeline"]);
     assert.deepEqual((await checklist(processor)).map(({ id }) => id), ["accept-handoff", "assigned-files", "processing-tasks"]);
     assert.equal((await postResponse(endpoint(), staffStep, officer)).status, 409);
+    for (const step of ["branches", "licensing"]) {
+      const review = { step, completed: true, revision: 0 };
+      assert.equal((await postResponse(endpoint(), review, officer)).status, 409);
+      assert.equal((await postResponse(endpoint(), review, processor)).status, 409);
+      const { steps } = await post(endpoint(), review, owner);
+      assert.deepEqual(steps.find(item => item.id === step), { id: step, revision: 1, completed: true });
+    }
     assert.equal((await postResponse(endpoint(), { ...staffStep, email: processor.email }, owner)).status, 400);
     assert.equal((await browse(owner, "/api/brokerages?view=staff-first-day")).status, 403);
     const parallel = await Promise.all([post(endpoint(), staffStep, owner), post(endpoint(), staffStep, owner)]);

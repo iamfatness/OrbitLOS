@@ -3,6 +3,8 @@ import type { BrokerageRole } from "./brokerage-model";
 export const firstDaySteps = {
   Admin: [
     { id: "staff-access", title: "Set up staff access", description: "Review your roster and invite loan officers and processors into this brokerage.", action: "Open staff access" },
+    { id: "branches", title: "Review branch setup", description: "Add any branches you use, assign staff, and choose who should receive leads routed to each branch.", action: "Open branches" },
+    { id: "licensing", title: "Review state licensing", description: "Record the legal entity and its state licenses, including any branch or officer licenses and who owns renewal follow-up.", action: "Open licensing" },
     { id: "loan-defaults", title: "Review loan settings", description: "Check loan defaults and the document and fee templates your team will use.", action: "Open loan settings" },
     { id: "lead-routing", title: "Review lead routing", description: "Check who receives website leads and where unassigned inquiries go.", action: "Open lead routing" },
     { id: "assign-processing", title: "Review the processing queue", description: "Find files that need a processor and confirm who owns the next handoff.", action: "Open processing queue" },

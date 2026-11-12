@@ -210,6 +210,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const [reportScheduleReturn, setReportScheduleReturn] = useState<{ reportId?: string }>();
   const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff && staff.brokerage.role !== "Admin" ? "Custom reports" : "Owner scorecard");
   const [teamPanel, setTeamPanel] = useState<TeamPanel>("Staff access");
+  const [firstDayReturn, setFirstDayReturn] = useState<FirstDayStepId | "pilot-tools">();
   const [firstDayDestination, setFirstDayDestination] = useState<FirstDayStepId | "pilot-tools">();
   const [openLeadRouting, setOpenLeadRouting] = useState(false);
   const [scorecardFilters, setScorecardFilters] = useState<OwnerScorecardFilters>(() => ({ ...currentReportMonth(), owner: "" }));
@@ -660,6 +661,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     setReportScheduleTarget(undefined);
     setReportScheduleReturn(undefined);
     setFirstDayDestination(undefined);
+    setFirstDayReturn(undefined);
     if (!preserveConversationOrigin) setAttentionVisit((last) => attention ? { section: next, visit: (last?.visit ?? 0) + 1 } : undefined);
     if (next !== "Contacts") setContactToolsOpen(false);
     setGuideCallbackId(undefined);
@@ -699,6 +701,17 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         setTeamPanel(step === "staff-access" ? "Staff access" : step === "loan-defaults" ? "Loan settings" : "Pilot tools");
         openBrokerageView("Team");
         break;
+      case "branches":
+        setTeamPanel("Branches");
+        openBrokerageView("Team");
+        break;
+      case "licensing":
+        if (complianceEnabled) openBrokerageView("Compliance");
+        else {
+          setTeamPanel("Workspaces");
+          openBrokerageView("Team");
+        }
+        break;
       case "lead-routing":
       case "lead-inbox":
         openBrokerageView("Lead Inbox");
@@ -720,6 +733,15 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         break;
     }
     setFirstDayDestination(step);
+  }
+
+  function openFirstDayChecklist() {
+    if (!firstDayDestination) {
+      openBrokerageView("First-day checklist");
+      return;
+    }
+    navigate("First-day checklist", false);
+    setFirstDayReturn(firstDayDestination);
   }
 
   function openBrokerageReport(report: BrokerageReport) {
@@ -1427,7 +1449,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               <div className="heading-actions pipeline-actions">
                 {!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}
                 {syncButton()}
-                {firstDayDestination && <Button type="button" variant="outline" onClick={() => openBrokerageView("First-day checklist")}>Back to checklist</Button>}
+                {firstDayDestination && <Button type="button" variant="outline" onClick={openFirstDayChecklist}>Back to checklist</Button>}
                 {!processor && <Button className="pipeline-demo" variant="ghost" disabled={!controlsReady} onClick={() => navigate("Demo Guide")}><workspaceIcons.demo aria-hidden="true" /> Guided demo</Button>}
               </div>
             </div>
@@ -1446,7 +1468,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                 onClick={() => openBrokerageView(staffHome)}>Back to {staffHome}</Button>}
               {staff && (firstDayDestination || section === staffHome || section === "Team") && <Button type="button"
                 variant={firstDayDestination ? "outline" : "ghost"} disabled={!controlsReady}
-                onClick={() => openBrokerageView("First-day checklist")}>{firstDayDestination ? "Back to checklist" : "First-day checklist"}</Button>}
+                onClick={openFirstDayChecklist}>{firstDayDestination ? "Back to checklist" : "First-day checklist"}</Button>}
               {section === "Brokerage" && canReport && <>
                 <Button disabled={busy || !controlsReady} onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>
                 <Button variant="outline" disabled={busy || !controlsReady} onClick={() => openBrokerageView("Today")}>My work today</Button>
@@ -1612,6 +1634,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
           {section === "Compliance" && admin && staff && complianceEnabled && <ComplianceWorkspace key={staff.brokerage.id} licenseTarget={renewalVisit?.target}
             returnToRenewals={renewalVisit ? returnToLicenseRenewals : undefined} onLicenseSaved={refreshCounts}
+            openLicensing={firstDayDestination === "licensing"}
             brokerageId={staff.brokerage.id} pilot={staff.brokerage.pilot === true} paused={!!modal || busy}
             openHistoryRecord={openMigrationDestination}
             openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}
@@ -1884,7 +1907,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             openAssignment={canReport ? (loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn }) : undefined} />}
 
           {section === "First-day checklist" && staff && <StaffFirstDay key={staff.brokerage.id} brokerageId={staff.brokerage.id}
-            role={staff.brokerage.role} pilot={Boolean(staff.brokerage.pilot)} openStep={openFirstDayStep}
+            role={staff.brokerage.role} pilot={Boolean(staff.brokerage.pilot)} complianceEnabled={complianceEnabled}
+            openStep={openFirstDayStep} returning={firstDayReturn}
             openPractice={() => openFirstDayStep("pilot-tools")} />}
 
           {section === "Team" && staff && <BrokerageTeam staff={staff} uwmConnection={uwmConnection} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
