@@ -166,13 +166,17 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
     </section>}
     {stateScopes && stateScopes.total > 0 && <section className="compliance-home-attention" aria-labelledby="compliance-state-records">
       <h2 id="compliance-state-records" tabIndex={-1}>Saved state records</h2>
-      <p className="muted">{stateScopes.needsRecheck} {stateScopes.needsRecheck === 1 ? "needs" : "need"} recheck · {stateScopes.total - stateScopes.needsRecheck} awaiting scope review</p>
+      <p className="muted">{stateScopes.total} {stateScopes.total === 1 ? "record" : "records"} · {stateScopes.needsRecheck} {stateScopes.needsRecheck === 1 ? "needs" : "need"} recheck</p>
       <ul className="compliance-home-list">{stateScopes.items.map(item => {
         const id = `compliance-state-${item.entityId}-${item.jurisdiction}`;
         return <WorkRow key={id} id={id} title={`${propertyStateName(item.jurisdiction)} · ${item.entityName}`} action="Open state record"
           onOpen={() => openState({ entityId: item.entityId, jurisdiction: item.jurisdiction }, id)}>
-          <p>{item.changes.length ? "Needs recheck" : "Awaiting scope review"} · Version {item.revision}</p>
+          <p>{item.changes.length ? "Needs recheck" : "Business facts saved"} · Version {item.revision}</p>
           {!!item.changes.length && <p className="muted">{item.changes.join(" · ")}</p>}
+          <p className="muted">{[
+            item.openQuestions ? `${item.openQuestions} open ${item.openQuestions === 1 ? "question" : "questions"}` : "",
+            item.completedQuestions ? `${item.completedQuestions} completed ${item.completedQuestions === 1 ? "question" : "questions"}` : "",
+          ].filter(Boolean).join(" · ") || "No review questions recorded"}</p>
         </WorkRow>;
       })}</ul>
       {stateScopes.total > stateScopePageSize && <div className="loan-application-actions">

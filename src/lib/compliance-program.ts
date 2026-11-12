@@ -92,11 +92,19 @@ function licenseRecord(row: Record<string, SqlValue>, choices: ReadonlyMap<strin
 
 function ownerStateScopes(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>,
   holderChoices: readonly LicenseHolderChoice[], offset: number) {
-  const scopes = db.prepare(`SELECT s.entityId,s.jurisdiction,s.revision,s.sourceHash,s.entitySnapshot,s.licenseSnapshots,e.name,e.nmls,e.scopeNote
+  const scopes = db.prepare(`WITH questions AS (
+    SELECT r.entityId,r.jurisdiction,r.scopeRevision,count(*) AS total,
+      sum(CASE WHEN i.status='Completed' THEN 1 ELSE 0 END) AS completed
+    FROM compliance_scope_reviews r JOIN compliance_program_items i ON i.brokerageId=r.brokerageId AND i.id=r.workId
+    WHERE r.brokerageId=? GROUP BY r.entityId,r.jurisdiction,r.scopeRevision
+  )
+    SELECT s.entityId,s.jurisdiction,s.revision,s.sourceHash,s.entitySnapshot,s.licenseSnapshots,e.name,e.nmls,e.scopeNote,
+      COALESCE(q.total,0)-COALESCE(q.completed,0) AS openQuestions,COALESCE(q.completed,0) AS completedQuestions
     FROM compliance_state_scope_versions s JOIN compliance_program_entities e ON e.brokerageId=s.brokerageId AND e.id=s.entityId
+    LEFT JOIN questions q ON q.entityId=s.entityId AND q.jurisdiction=s.jurisdiction AND q.scopeRevision=s.revision
     WHERE s.brokerageId=? AND s.revision=(SELECT max(v.revision) FROM compliance_state_scope_versions v
       WHERE v.brokerageId=s.brokerageId AND v.entityId=s.entityId AND v.jurisdiction=s.jurisdiction)
-    ORDER BY s.jurisdiction,e.name,s.entityId`).all(tenant);
+    ORDER BY s.jurisdiction,e.name,s.entityId`).all(tenant, tenant);
   if (!scopes.length) return { total: 0, needsRecheck: 0, items: [] };
   const { today, renewalThrough } = renewalWindow(now);
   const holders = new Map(holderChoices.map(choice => [JSON.stringify(choice.holder), choice.label]));
@@ -118,9 +126,13 @@ function ownerStateScopes(db: Store, tenant: string, now: string, owners: Readon
     if (basis.licensesChanged) changes.push("License records changed");
     if (basis.sourceChanged) changes.push("Research sources changed");
     if (basis.licenseBasisMissing) changes.push("License records were not captured");
-    return { entityId: String(entityId), entityName: String(name), jurisdiction: String(jurisdiction), revision: Number(row.revision), changes };
+    return {
+      entityId: String(entityId), entityName: String(name), jurisdiction: String(jurisdiction), revision: Number(row.revision),
+      openQuestions: Number(row.openQuestions), completedQuestions: Number(row.completedQuestions), changes,
+    };
   });
-  items.sort((a, b) => Number(!!b.changes.length) - Number(!!a.changes.length));
+  items.sort((a, b) => Number(!!b.changes.length) - Number(!!a.changes.length) ||
+    Number(b.openQuestions > 0) - Number(a.openQuestions > 0));
   return { total: items.length, needsRecheck: items.filter(item => item.changes.length).length, items: items.slice(offset, offset + stateScopePageSize) };
 }
 

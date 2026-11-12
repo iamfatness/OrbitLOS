@@ -136,7 +136,7 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initia
       if (result.revision !== result.latestRevision) setVersion(result.revision);
       setDraft(undefined);
       retry.current = null;
-      setNotice(`Scope version ${result.revision} saved for counsel review.`);
+      setNotice(`Business facts saved as version ${result.revision}.`);
     } catch {
       setError("Save could not be confirmed. Retry the same scope or refresh to check the outcome.");
     } finally { setBusy(false); }
@@ -167,7 +167,7 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initia
         <option key={item.revision} value={item.revision}>Version {item.revision} · {item.savedAt.slice(0, 10)}</option>)}</select></label>}
       {current && <>
         <p className="muted">{current.revision ? `Version ${current.revision} · ${
-          version !== undefined && version !== current.latestRevision ? "Historical record" : needsRecheck ? "Needs recheck" : "Awaiting scope review"}` :
+          version !== undefined && version !== current.latestRevision ? "Historical record" : needsRecheck ? "Needs recheck" : "Business facts saved"}` :
           "No scope saved for this entity and state."}</p>
         {current.sourceChanged && <p role="status">Research sources changed since this version was recorded.</p>}
         {current.entityChanged && <p role="status">Entity details changed since this version was recorded.</p>}

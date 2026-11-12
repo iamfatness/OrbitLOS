@@ -81,6 +81,7 @@ export function ComplianceScopeReviews({ brokerageId, entityId, jurisdiction, sc
       onClick={() => { setReadError(""); refresh(value => value + 1); }}>Retry review questions</Button></div>}
     {(saveError || notice) && <p ref={feedback} tabIndex={-1} role={saveError ? "alert" : "status"}>{saveError || notice}</p>}
     {data && <>
+      {data.items.length === 0 && offset === 0 && <p className="muted">No review questions recorded for this version.</p>}
       {data.items.length > 0 && <ul className="document-list">{data.items.map(item => <li className="document-item" key={item.target.itemId}>
         <div className="min-w-0 break-words">
           <strong>{item.question}</strong>

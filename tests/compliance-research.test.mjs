@@ -300,14 +300,14 @@ test("owner home separates current and changed company state records and pages t
     status: "Active", effectiveOn: null, expiresOn: null, evidence: "Fictional register reference" };
   assert.equal(work("program", license).kind, "programLicenses");
   assert.deepEqual(home().stateScopes.items[0], { entityId: south, entityName: "Fictional South LLC", jurisdiction: "MI",
-    revision: 1, changes: ["License records changed"] });
+    revision: 1, openQuestions: 0, completedQuestions: 0, changes: ["License records changed"] });
   assert.equal(save(south, "MI", 1).revision, 2);
   assert.equal(home().stateScopes.needsRecheck, 0);
   f.db.prepare("UPDATE compliance_state_scope_versions SET sourceHash=?,licenseSnapshots=NULL WHERE entityId=? AND jurisdiction=? AND revision=2")
     .run("previous research source", south, "MI");
   f.db.prepare("UPDATE compliance_program_entities SET name=? WHERE id=?").run("Fictional South Updated LLC", south);
   assert.deepEqual(home().stateScopes.items[0], { entityId: south, entityName: "Fictional South Updated LLC", jurisdiction: "MI",
-    revision: 2, changes: ["Company details changed", "Research sources changed", "License records were not captured"] });
+    revision: 2, openQuestions: 0, completedQuestions: 0, changes: ["Company details changed", "Research sources changed", "License records were not captured"] });
   assert.ok(work("program", { operation: "ownerHome" }, f.lo).error);
   assert.equal(work("program", { operation: "ownerHome" }, f.owner, crypto.randomUUID()).stateScopes.total, 0);
 });
@@ -426,6 +426,9 @@ test("an owner can track a state question without a source and record an externa
     products: "Purchase", responsibility: "", reportingBasis: "", counselPacketReference: "" };
   assert.equal(work("stateScope", { operation: "save", entityId, jurisdiction: "MI", expectedRevision: 0, facts,
     requestId: crypto.randomUUID() }).revision, 1);
+  const home = () => work("program", { operation: "ownerHome" });
+  const questionCounts = () => home().stateScopes.items.map(({ openQuestions, completedQuestions }) => [openQuestions, completedQuestions]);
+  assert.deepEqual(questionCounts(), [[0, 0]]);
   const basis = { entityId, jurisdiction: "MI", scopeRevision: 1 };
   const read = { operation: "read", ...basis };
   const [owner] = work("scopeReview", read).reviewers;
@@ -438,8 +441,8 @@ test("an owner can track a state question without a source and record an externa
   assert.deepEqual(work("scopeReview", submit), result);
   assert.ok(work("scopeReview", { ...submit, sourceKey: "REQ-MI-LOAN-FEES" }).error);
   const { month, itemId } = result.target;
-  const home = work("program", { operation: "ownerHome" });
-  assert.ok(home.reviews.items.some(item => item.id === itemId && item.ownerName === owner.name && item.title.includes(question)));
+  assert.ok(home().reviews.items.some(item => item.id === itemId && item.ownerName === owner.name && item.title.includes(question)));
+  assert.deepEqual(questionCounts(), [[1, 0]]);
   const [pending] = work("program", { operation: "month", entityId, month }).items;
   assert.equal(pending.stateReview.source, null);
   assert.deepEqual(pending.stateReview.facts, facts);
@@ -454,6 +457,11 @@ test("an owner can track a state question without a source and record an externa
   assert.equal(saved[0].source, null);
   assert.equal(saved[0].latestNote, update.note);
   assert.equal(saved[0].evidence, update.evidence);
+  assert.deepEqual(questionCounts(), [[0, 1]]);
+  assert.equal(work("stateScope", { operation: "save", entityId, jurisdiction: "MI", expectedRevision: 1,
+    facts: { ...facts, products: "Purchase and refinance" }, requestId: crypto.randomUUID() }).revision, 2);
+  assert.deepEqual(questionCounts(), [[0, 0]]);
+  assert.equal(work("scopeReview", read).items[0].status, "Completed");
 });
 test("opening research is idempotent, canonical, and preserves research-only status", (t) => {
   const f = fixture(t);

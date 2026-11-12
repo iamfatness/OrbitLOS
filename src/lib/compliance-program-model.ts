@@ -116,6 +116,7 @@ export type StateScopeTarget = { entityId: string; jurisdiction: string };
 export const stateScopePageSize = 5;
 export type StateScopeSummary = StateScopeTarget & {
   entityName: string; revision: number;
+  openQuestions: number; completedQuestions: number;
   changes: ("Company details changed" | "License records changed" | "Research sources changed" | "License records were not captured")[];
 };
 
