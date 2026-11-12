@@ -1339,3 +1339,7 @@ Worker `032198ce-5e71-46ca-bccd-a4e661fadad3` serves app `f480cab2886f` with reh
 ### Simulated automation destinations
 
 Worker `aea92362-7e68-420f-b83d-4a8467aa81e0` serves app `087b3b7ca2b9`. The 52-stage fictional working day verified fan-out when a new lead matched two subscriptions, independence of their attempts, delivery under the original subscription after an edit, filtering by funding, and blocked attempts and new capture after disconnect. In the browser, the owner recovered a lost creation acknowledgment, refreshed a stale draft without clearing it, paused a failed event from a second session, then resumed and retried. Disconnect preserved both attempts. Live signed-in verification opened the operational admin destination list and returned to Brokerage. Public Demo and signed-out routes passed staged and live. Destination changes and attempts ran in the fictional rehearsal.
+
+### Simulated automation batches
+
+Worker `70a1d8b7-4efa-4fe6-a807-5c4f47d8e7d6` serves app `6b42bb36ca08`. The 53-stage fictional working day verified scoped oldest-first batches, stale and paused rejection, exact receipt replay, an independent failed-only retry, and history after disconnect. The browser recovered a lost acknowledgement, opened the exact event and returned to the receipt, then reopened the original mixed outcome after a successful retry. Live verification exercised the public Demo and signed-out endpoint boundary. Authenticated batch writes ran in the fictional rehearsal.

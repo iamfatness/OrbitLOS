@@ -605,3 +605,7 @@ Reused the existing Integrations disclosure and Orbit list/detail and feedback p
 ### Simulated automation destinations
 
 Reused the accepted Orbit Integrations disclosure, list/detail rows and inline feedback as the established 21st.dev component patterns. Impeccable Polish informed keeping workspace history and destination controls in the existing panel. UI UX Pro Max confirmation guidance informed the inline disconnect confirmation, cancel focus and saved outcome. Inspected the form, long destination name, paused event and disconnected attempt history at desktop, portrait and phone widths.
+
+### Simulated automation batches
+
+Reused Orbit’s existing disclosures, receipt rows and keyboard return as the accepted 21st.dev patterns. Impeccable Polish informed keeping preview, receipt, and history in the selected destination. UI UX Pro Max error-recovery guidance informed the stale preview message and the saved receipt focus. Inspected 1440, 900 and 390 px layouts.
