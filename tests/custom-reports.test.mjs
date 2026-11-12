@@ -13,6 +13,7 @@ registerHooks({ resolve(specifier, context, next) {
 
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { customReportWork } = await import("../src/lib/custom-reports.ts");
+const { reportScheduleWork } = await import("../src/lib/report-schedules.ts");
 const { defaultCustomReport } = await import("../src/lib/custom-report-model.ts");
 const { crmFieldWork } = await import("../src/lib/crm-fields.ts");
 const { readCsv } = await import("../src/lib/contact-csv.ts");
@@ -332,4 +333,73 @@ test("production reports use event dates and restrict processors before aggregat
   db.exec("DELETE FROM loan_processing WHERE loanId = 'old'");
   assert.equal(run(report, processor).totals.applications, 0);
   assert.ok(records(report, "inquiries", processor).error);
+});
+
+test("scheduled report previews pin their date, recipients and counts and record one recoverable receipt", t => {
+  const f = fixture(t);
+  const admin = { ...f.admin, brokerage: { ...f.admin.brokerage, accessRevision: 2 } };
+  const recipient = { email: "recipient@example.test", name: "Fictional second admin", status: "Active", role: "Admin", accessRevision: 3 };
+  const members = [{ ...admin, status: "Active", role: "Admin", accessRevision: 2 }, recipient];
+  const scope = (input, options = {}) => reportScheduleWork(f.db, input, options.staff ?? admin, options.brokerageId ?? f.brokerageId,
+    options.members ?? members, options.now ?? f.now);
+  const { report } = f.save({ ...defaultCustomReport, name: "Scheduled intake", period: { kind: "Last 30 days" } });
+  const reportId = report.id;
+  const save = { type: "save", reportId, reportRevision: 1, revision: 0, operationId: crypto.randomUUID(),
+    cadence: "Weekly", startsOn: "2026-11-10", recipients: [recipient.email, admin.email] };
+  assert.match(scope(save, { staff: f.officer }).error, /admins/);
+  assert.match(scope(save, { brokerageId: crypto.randomUUID() }).error, /admins/);
+  assert.match(scope({ ...save, recipients: [f.officer.email] }).error, /active brokerage admins/);
+  assert.equal(scope(save).schedule.nextOn, "2026-11-10");
+  assert.equal(scope(save).schedule.revision, 1);
+  const reference = { reportId, revision: 1, scheduledOn: "2026-11-10" };
+  assert.match(scope({ type: "preview", ...reference }, { now: new Date("2026-11-10T04:59:59.999Z") }).error, /future day/);
+  f.inquiry("first", f.officer);
+  const original = scope({ type: "preview", ...reference });
+  assert.equal(original.totals.inquiries, 1);
+  assert.equal(original.through, "2026-11-10");
+  const run = { type: "run", ...reference, fingerprint: original.fingerprint, operationId: crypto.randomUUID() };
+  f.inquiry("second", f.officer);
+  assert.match(scope(run).error, /summary changed/);
+  const preview = scope({ type: "preview", ...reference });
+  const accepted = { ...run, fingerprint: preview.fingerprint };
+  const receipt = scope(accepted);
+  assert.equal(receipt.kind, "receipt");
+  assert.equal(receipt.totals.inquiries, 2);
+  assert.equal(receipt.nextOn, "2026-11-17");
+  assert.equal(receipt.fingerprint, undefined);
+  assert.deepEqual(scope(accepted), receipt);
+  assert.match(scope({ ...accepted, operationId: crypto.randomUUID() }).error, /schedule changed/i);
+  assert.equal(scope({ type: "history", reportId }).receipts.length, 1);
+  assert.equal(f.work({ type: "archive", id: reportId, revision: 1 }).kind, "archived");
+  assert.equal(scope({ type: "list" }).schedules[0].state, "Report archived");
+  assert.deepEqual(scope({ type: "history", reportId }).receipts[0], receipt);
+});
+
+test("monthly schedules preserve their anchor through shorter months and require current approvals after changes", t => {
+  const f = fixture(t);
+  const staff = { ...f.admin, brokerage: { ...f.admin.brokerage, accessRevision: 0 } };
+  const owner = { email: staff.email, name: staff.name, role: "Admin", status: "Active", accessRevision: 0 };
+  const recipient = { email: "another@example.test", name: "Another admin", role: "Admin", status: "Active", accessRevision: 1 };
+  const { report } = f.save({ ...defaultCustomReport, name: "Monthly production" });
+  const reportId = report.id;
+  const work = (input, at, members = [owner, recipient]) => reportScheduleWork(f.db, { reportId, ...input }, staff, f.brokerageId, members, new Date(at));
+  const save = { type: "save", reportRevision: 1, revision: 0, cadence: "Monthly", startsOn: "2027-01-31",
+    recipients: [recipient.email], operationId: crypto.randomUUID() };
+  const january = "2027-01-31T12:00:00.000Z", february = "2027-02-28T12:00:00.000Z";
+  const reference = { scheduledOn: "2027-01-31", revision: 1 };
+  assert.equal(work(save, january).schedule.nextOn, "2027-01-31");
+  assert.match(work({ type: "preview", ...reference }, january, [owner, { ...recipient, accessRevision: 2 }]).error, /recipients/);
+  assert.equal(work({ type: "setPaused", paused: true, revision: 1, operationId: crypto.randomUUID() }, january).schedule.state, "Paused");
+  assert.match(work({ type: "preview", ...reference, revision: 2 }, january).error, /status/);
+  assert.equal(work({ type: "setPaused", paused: false, revision: 2, operationId: crypto.randomUUID() }, january).schedule.state, "Active");
+  const run = (scheduledOn, revision, at) => {
+    const preview = work({ type: "preview", scheduledOn, revision }, at);
+    return work({ type: "run", scheduledOn, revision, operationId: crypto.randomUUID(), fingerprint: preview.fingerprint }, at);
+  };
+  assert.equal(run("2027-01-31", 3, january).nextOn, "2027-02-28");
+  const revised = f.work({ type: "save", id: reportId, revision: 1, definition: { ...defaultCustomReport, name: "Updated monthly production" } });
+  assert.equal(revised.report.revision, 2);
+  assert.match(work({ type: "preview", scheduledOn: "2027-02-28", revision: 3 }, february).error, /saved report/);
+  assert.equal(work({ ...save, reportRevision: 2, revision: 3, operationId: crypto.randomUUID() }, february).schedule.nextOn, "2027-02-28");
+  assert.equal(run("2027-02-28", 4, february).nextOn, "2027-03-31");
 });

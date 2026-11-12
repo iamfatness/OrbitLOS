@@ -5415,6 +5415,52 @@ try {
     }
   });
 
+  await stage("Owner report schedules pin approved recipients and retain a simulated receipt after archive", async () => {
+    const endpoint = (id = brokerage) => `/api/brokerages?brokerage=${id}&view=report-schedules`;
+    const reportWork = (staff, input) => action(staff, "accessCustomReport", input);
+    const definition = { name: "Fictional owner report schedule", dataset: "Intake cohort", period: { kind: "Last 30 days" },
+      groupBy: "None", metrics: ["inquiries", "converted"], columns: [], source: "", purpose: "", roles: ["LO"] };
+    const reportId = randomUUID();
+    const { report } = await reportWork(owner, { type: "save", id: reportId, revision: 0, definition });
+    assert.equal(report.revision, 1);
+    const save = { type: "save", reportId, reportRevision: 1, revision: 0, operationId: randomUUID(),
+      cadence: "Weekly", startsOn: today, recipients: [owner.email] };
+    const read = async (path, staff = owner) => {
+      const response = await browse(staff, path);
+      assert.equal(response.status, 200);
+      return JSON.parse(response.text());
+    };
+    assert.equal((await browse(officer, endpoint())).status, 403);
+    assert.equal((await postResponse(endpoint(), save, processor)).status, 403);
+    assert.equal((await postResponse(endpoint(), { ...save, recipients: [officer.email] }, owner)).status, 409);
+    assert.equal((await postResponse(endpoint(lenderBrokerage), save, owner)).status, 409);
+    const configured = await post(endpoint(), save, owner);
+    assert.equal(configured.schedule.nextOn, today);
+    assert.deepEqual(await post(endpoint(), save, owner), configured);
+    const reference = { reportId, revision: 1, scheduledOn: today };
+    const preview = await post(endpoint(), { type: "preview", ...reference }, owner);
+    const reportCounts = await reportWork(owner, { type: "run", id: reportId, revision: 1 });
+    assert.deepEqual(preview.totals, reportCounts.totals);
+    const run = { type: "run", ...reference, operationId: randomUUID(), fingerprint: preview.fingerprint };
+    assert.equal((await postResponse(endpoint(), { ...run, fingerprint: "0".repeat(64) }, owner)).status, 409);
+    const [receipt, replay] = await Promise.all([post(endpoint(), run, owner), post(endpoint(), run, owner)]);
+    assert.deepEqual(receipt, replay);
+    assert.equal(receipt.nextOn, shiftReportDate(today, 7));
+    assert.deepEqual(receipt.recipients.map(({ email }) => email), [owner.email]);
+    assert.equal((await read(endpoint() + "&reportId=" + reportId)).receipts.length, 1);
+    await reportWork(owner, { type: "archive", id: reportId, revision: 1 });
+    assert.equal((await read(endpoint())).schedules.find(item => item.reportId === reportId).state, "Report archived");
+    assert.deepEqual((await read(endpoint() + "&reportId=" + reportId)).receipts[0], receipt);
+
+    if (process.argv.includes("--preview")) {
+      await reportWork(owner, { type: "save", id: randomUUID(), revision: 0,
+        definition: { ...definition, name: "Fictional monthly production report for the owner" } });
+      const recipient = actor("Fictional Brokerage Admin for Reporting", "schedule-admin@example.test", "Admin");
+      await team(owner, { type: "invite", email: recipient.email, role: "Admin" });
+      await signIn(recipient);
+    }
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

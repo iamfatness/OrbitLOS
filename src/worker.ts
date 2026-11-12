@@ -144,6 +144,8 @@ import { readEditableLead } from "./lib/editable-lead";
 import { changeSalesSettings, readSalesDashboard } from "./lib/sales-dashboard";
 import { changeOwnerScorecardSettings, readOwnerScorecard } from "./lib/owner-scorecard";
 import { customReportWork } from "./lib/custom-reports";
+import { reportScheduleWork } from "./lib/report-schedules";
+import { reportScheduleQuery } from "./lib/report-schedule-model";
 import { crmFieldWork } from "./lib/crm-fields";
 import { disclosureCalendarWork } from "./lib/disclosure-calendar";
 import { disclosureTemplateWork } from "./lib/disclosure-templates";
@@ -1011,6 +1013,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
 
   ownerScorecardSettings(input: unknown, staff: WorkspaceStaff) {
     return changeOwnerScorecardSettings(this.#store, input, staff, this.#id);
+  }
+
+  async reportSchedules(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: "Report schedules are unavailable." } as const;
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const roster = await directory.teamMembers(staff, [...(googleSettings(this.env)?.allowedEmails ?? [])]);
+    return roster ? reportScheduleWork(this.#store, input, staff, this.#id, roster) : { error: "Report schedules are unavailable." } as const;
   }
 
   customReport(input: unknown, staff: WorkspaceStaff) {
@@ -2351,6 +2360,26 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           const result = await workspace.automationBatches(staff, query.data);
           return "error" in result ? { status: 409, error: result.error } : { value: result };
         }, 1024);
+        return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      }
+      if (view === "report-schedules") {
+        if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: "Open report schedules as an admin in this brokerage." }, { status: 403, headers });
+        }
+        if (request.method === "GET") {
+          const reportId = url.searchParams.get("reportId"), cursor = url.searchParams.get("before");
+          const result = await workspace.reportSchedules(staff, reportId ? { type: "history", reportId, before: cursor === null ? undefined : Number(cursor) } :
+            { type: "list", archiveBefore: cursor === null ? undefined : Number(cursor) });
+          return Response.json(result, { status: "error" in result ? 400 : 200, headers });
+        }
+        if (request.method === "POST") return borrowerJson(request, async input => {
+          const parsed = reportScheduleQuery.safeParse(input);
+          if (!parsed.success || parsed.data.type === "list" || parsed.data.type === "history") {
+            return { status: 400, error: "Check the report schedule settings." };
+          }
+          const result = await workspace.reportSchedules(staff, parsed.data);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }, 4096);
         return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
       }
       if (view === "automation-exceptions") {

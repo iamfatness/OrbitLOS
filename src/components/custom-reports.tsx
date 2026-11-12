@@ -11,6 +11,7 @@ import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { CrmFieldFilterEditor } from "./crm-fields";
 import { downloadSampleFile } from "./sample-download";
+import { OwnerReportSchedules } from "./report-schedules";
 
 type Edit = { id: string; revision: number; definition: CustomReportDefinition };
 type Drill = { metric: CustomReportMetric; group?: CustomReportGroup; page: CustomReportRecords };
@@ -91,8 +92,8 @@ function MetricCounts({ report, counts, busy, onSelect, group }: {
     onClick={() => onSelect(metric)}>{customReportMetricLabels[metric]} · {counts[metric] ?? 0}</Button>)}</div>;
 }
 
-export function CustomReports({ brokerageId, role, openRecord }: {
-  brokerageId: string; role: "Admin" | "LO" | "Processor";
+export function CustomReports({ brokerageId, role, scheduling, openRecord }: {
+  brokerageId: string; role: "Admin" | "LO" | "Processor"; scheduling: boolean;
   openRecord: (record: CustomReportRecord, metric: CustomReportMetric) => void;
 }) {
   const admin = role === "Admin";
@@ -235,6 +236,7 @@ export function CustomReports({ brokerageId, role, openRecord }: {
         setEdit({ id: crypto.randomUUID(), revision: 0, definition: defaultCustomReport });
       }}>New report</Button>}
     </div>}
+    {admin && scheduling && catalog && <OwnerReportSchedules brokerageId={brokerageId} reports={catalog} selectedReportId={active?.id} />}
     {catalog?.length === 0 && !edit && <p className="muted">{admin ? "No saved custom reports yet." : "No reports have been shared with your role."}</p>}
     {edit && <ReportEditor edit={edit} brokerageId={brokerageId} busy={busy} change={(update) => {
       setEdit({ ...edit, definition: { ...edit.definition, ...update } });

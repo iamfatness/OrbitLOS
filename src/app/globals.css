@@ -861,6 +861,8 @@ button:disabled { cursor: default; }
 .automation-subscriptions legend { font-weight: 650; }
 .automation-subscription { display: flex; gap: 8px; align-items: center; min-height: 40px; font-size: 14px; cursor: pointer; }
 .automation-subscription input { inline-size: 18px; block-size: 18px; accent-color: var(--accent); flex: none; }
+.report-schedule-panel .automation-subscriptions { grid-template-columns: minmax(0, 1fr); max-width: none; }
+.report-schedule-panel :is(p, .automation-subscription span) { min-width: 0; overflow-wrap: anywhere; }
 .automation-deliveries button { min-height: 40px; }
 .automation-batch-panel > summary { cursor: pointer; min-height: 44px; padding-block: 10px; font-weight: 650; }
 .automation-batch-panel[open] > summary { margin-bottom: 8px; }

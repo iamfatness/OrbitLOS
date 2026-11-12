@@ -675,6 +675,19 @@ export function initializeStore(db: Store, seedDemo = true) {
       PRIMARY KEY (destinationId, eventSequence, attempt),
       FOREIGN KEY (destinationId, eventSequence) REFERENCES automation_destination_events(destinationId, eventSequence)
     );
+    CREATE TABLE IF NOT EXISTS custom_report_schedules (
+      reportId TEXT PRIMARY KEY REFERENCES custom_reports(id), reportRevision INTEGER NOT NULL,
+      revision INTEGER NOT NULL, cadence TEXT NOT NULL CHECK (cadence IN ('Weekly', 'Monthly')),
+      startsOn TEXT NOT NULL, nextOn TEXT NOT NULL, recipients TEXT NOT NULL,
+      paused INTEGER NOT NULL DEFAULT 0, operationId TEXT NOT NULL UNIQUE, operationDigest TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS custom_report_schedule_receipts (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, operationId TEXT NOT NULL UNIQUE,
+      reportId TEXT NOT NULL REFERENCES custom_report_schedules(reportId), scheduledOn TEXT NOT NULL,
+      actorEmail TEXT NOT NULL, requestDigest TEXT NOT NULL, receipt TEXT NOT NULL, UNIQUE(reportId, scheduledOn)
+    );
+    CREATE INDEX IF NOT EXISTS custom_report_schedule_receipts_report
+      ON custom_report_schedule_receipts(reportId, sequence DESC);
     CREATE TABLE IF NOT EXISTS automation_delivery_reviews (
       destinationId TEXT NOT NULL, eventSequence INTEGER NOT NULL, actorEmail TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL,
       PRIMARY KEY (destinationId, eventSequence),

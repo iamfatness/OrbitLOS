@@ -1741,7 +1741,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                 variant={reportTab === tab ? "default" : "outline"} onClick={() => setReportTab(tab)}>{tab}</Button>)}
             </div>
             {!canOpenManagerReports || reportTab === "Custom reports" ? <Suspense fallback={<p role="status">Opening custom reports…</p>}>
-              <CustomReports brokerageId={staff?.brokerage.id ?? demoBrokerageId} role={staff?.brokerage.role ?? "Admin"}
+              <CustomReports brokerageId={staff?.brokerage.id ?? demoBrokerageId} role={staff?.brokerage.role ?? "Admin"} scheduling={Boolean(staff)}
                 openRecord={({ destination }, metric) => {
                   if (destination.kind === "lead") return void openScopedLead({ leadId: destination.id }, true);
                   const target = processor ? undefined : metric === "funding" || metric === "cohortFunded" ? "loan-funding" :
