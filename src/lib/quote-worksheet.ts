@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { PricingOffer, PricingRun, PricingScenario } from "./pricing-model";
 import { offerDisplayName } from "./manual-pricing-model";
 import { propertyStateName } from "./property-state";
+import type { FeeProviderEvidence } from "./fee-provider-model";
 
 export const feeLabels = {
   origination: "Origination fee", appraisal: "Appraisal", creditReport: "Credit report", settlement: "Title and settlement",
@@ -59,7 +60,9 @@ export const quoteSelection = z.object({ runId: id, offerId: id, feeRevision: z.
 export const saveFeeWorksheetInput = z.object({
   type: z.literal("saveFeeWorksheet"), loanId: id, ...quoteSelection.shape, worksheet, template: feeTemplateChoice.nullable().optional(),
 });
-export const saveAllocatedFeeWorksheetInput = saveFeeWorksheetInput.extend({ type: z.literal("saveAllocatedFeeWorksheet") });
+export const saveAllocatedFeeWorksheetInput = saveFeeWorksheetInput.extend({
+  type: z.literal("saveAllocatedFeeWorksheet"), estimateId: z.uuid().optional(),
+});
 export type SaveFeeWorksheet = z.infer<typeof saveFeeWorksheetInput> | z.infer<typeof saveAllocatedFeeWorksheetInput>;
 export type FeeInputs = z.infer<typeof worksheet>;
 export interface FeeTemplateOrigin extends z.infer<typeof feeTemplateChoice> {
@@ -72,6 +75,7 @@ export interface FeeTemplateOrigin extends z.infer<typeof feeTemplateChoice> {
   fees: FeeInputs["fees"];
   allocations?: FeeInputs["allocations"];
   calculations?: Partial<Record<FeeKey, FeeCalculation>>;
+  providerEstimate?: FeeProviderEvidence;
 }
 
 export type FeePropertyLocation = { zip: string; state?: string };

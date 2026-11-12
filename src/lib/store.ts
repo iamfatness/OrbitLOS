@@ -827,6 +827,11 @@ export function initializeStore(db: Store, seedDemo = true) {
       runId TEXT NOT NULL REFERENCES pricing_runs(id) ON DELETE CASCADE, offerId TEXT NOT NULL,
       inputs TEXT NOT NULL, revision INTEGER NOT NULL, origin TEXT, PRIMARY KEY (runId, offerId)
     );
+    CREATE TABLE IF NOT EXISTS fee_provider_estimates (
+      id TEXT PRIMARY KEY, runId TEXT NOT NULL REFERENCES pricing_runs(id) ON DELETE CASCADE, offerId TEXT NOT NULL,
+      actorEmail TEXT NOT NULL, scenario TEXT NOT NULL, retryOf TEXT, result TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS fee_provider_estimates_by_offer ON fee_provider_estimates(runId, offerId, actorEmail);
     CREATE TABLE IF NOT EXISTS published_quotes (
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,

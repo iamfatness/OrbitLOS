@@ -135,13 +135,14 @@ function SharedQuoteChanges({ shared, proposed }: { shared: QuotePresentation; p
   });
 }
 
-export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote, focusFees, canRehearseUnsupported, canRunSamplePricing }: {
+export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore, lenderHandoff, sourceQuote, reviewedIncome, openIncome, openApplication, reviewSharedQuote, focusFees, canRehearseUnsupported, canRunSamplePricing, canRequestFeeEstimate }: {
   loan: Loan; state: Workspace; busy: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   useMockScore?: boolean;
   reviewSharedQuote?: boolean;
   focusFees?: string;
   canRehearseUnsupported: boolean;
   canRunSamplePricing?: boolean;
+  canRequestFeeEstimate?: boolean;
   brokerageId: string;
   sourceQuote?: Pick<PublishedQuote, "runId" | "offerId">;
   reviewedIncome?: ReviewedIncomeSource;
@@ -471,7 +472,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
         {primary && presentation ? <>
           <FeeWorksheetEditor key={`${primary.key}:${primary.worksheet?.revision ?? 0}`}
             run={primary.run} offer={primary.offer} saved={primary.worksheet} busy={busy} save={feeEdits.save} stageBlocked={feeEdits.blocked}
-            brokerageId={brokerageId} current={!savedNeedsReprice} focused={focusFees} />
+            brokerageId={brokerageId} current={!savedNeedsReprice} focused={focusFees} canRequestEstimate={canRequestFeeEstimate} />
           {comparable.length > 0 && <details className="document-form">
             <summary>Choose alternatives to compare</summary>
             <p className="muted">Include up to two alternatives for the same loan purpose. Save each worksheet to include its fees.</p>
@@ -489,7 +490,7 @@ export function LoanPricing({ loan, state, busy, save, brokerageId, useMockScore
           </details>}
           {alternatives.map((item) => <FeeWorksheetEditor key={`${item.key}:${item.worksheet?.revision ?? 0}`}
             run={item.run} offer={item.offer} saved={item.worksheet} busy={busy} save={feeEdits.save} stageBlocked={feeEdits.blocked}
-            brokerageId={brokerageId} current={isCurrent(item.run)} />)}
+            brokerageId={brokerageId} current={isCurrent(item.run)} canRequestEstimate={canRequestFeeEstimate} />)}
           <SampleQuotePresentation quote={presentation} />
           <SampleMetrics scenario={saved.scenario} offer={selected} />
         </> : <><Terms offer={selected} /><SampleMetrics scenario={saved.scenario} offer={selected} /></>}

@@ -1244,6 +1244,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
           brokerageId={staff?.brokerage.id ?? demoBrokerageId}
           canRehearseUnsupported={fictionalUwm}
           canRunSamplePricing={separateSamplePricing && Boolean(staff?.brokerage.pilot)}
+          canRequestFeeEstimate={Boolean(staff?.brokerage.pilot && staff.brokerage.role !== "Processor")}
           openApplication={() => show({ kind: "details", loanId: loan.id, campaignLender, target: "loan-application" })}
           reviewedIncome={modal.reviewedIncome}
           openIncome={(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) ?
