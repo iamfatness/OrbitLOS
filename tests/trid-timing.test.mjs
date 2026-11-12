@@ -28,6 +28,11 @@ test("Michigan booklet review compares its own application event and preserves u
   assert.equal(review({ ...application, delivery: { ...delivery, on: "2026-07-09" } }).chronology, "Recorded before application");
   assert.equal(review({ ...application, delivery }).chronology, "Recorded after application");
   assert.match(review({ ...application, delivery }).issues.join(" "), /application channel with counsel/);
+  for (const [on, localTime, providedTime] of [["2026-11-01", "01:10", "01:50"], ["2026-03-08", "01:55", "02:05"]]) {
+    const ambiguous = review({ ...application, on, localTime, delivery: { ...delivery, on, localTime: providedTime } });
+    assert.equal(ambiguous.chronology, "Same date, order unresolved");
+    assert.match(ambiguous.issues.join(" "), /do not establish the order/);
+  }
   assert.equal(michiganBookletReview.safeParse({ ...application, delivery: { ...delivery, edition: "" } }).success, false);
 });
 

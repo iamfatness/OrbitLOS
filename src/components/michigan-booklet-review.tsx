@@ -39,6 +39,7 @@ export function MichiganBookletFields() {
 export function MichiganBookletEvidence({ event }: { event: MichiganBookletReview }) {
   const delivery = event.delivery;
   return <>
+    <p>Recorded scope · {event.applicability}</p>
     <p>Application · {event.channel} · {event.on}{event.localTime && ` ${event.localTime}`}</p>
     <p className="muted">Application evidence · {event.reference}</p>
     {delivery && <>

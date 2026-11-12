@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { compareEvidence } from "./michigan-evidence-order";
 import type { TridEntry } from "./trid-model";
 
 export const michiganBookletAuthority = "https://legislature.mi.gov/Laws/MCL?objectName=mcl-445-1636";
@@ -41,14 +42,15 @@ export function reviewMichiganBooklet(active: readonly TridEntry[]) {
   }
   if (delivery.provider === "Other or unresolved" || delivery.method === "Other or unresolved")
     issues.push("Confirm who provided the booklet and how.");
-  if (delivery.on === event.on && (!delivery.localTime || !event.localTime)) {
-    issues.push("Review when the booklet was provided. The dates alone do not establish timing.");
+  const order = compareEvidence(event, delivery);
+  if (order === "unclear") {
+    if (event.localTime && event.localTime === delivery.localTime) {
+      return { sequence: record.sequence, chronology: "Same recorded minute", issues };
+    }
+    issues.push("Review when the booklet was provided. The recorded local dates and times do not establish the order.");
     return { sequence: record.sequence, chronology: "Same date, order unresolved", issues };
   }
-  const applied = `${event.on}T${event.localTime ?? "00:00"}`;
-  const provided = `${delivery.on}T${delivery.localTime ?? "00:00"}`;
-  if (provided > applied) issues.push("Review the interval and the application channel with counsel.");
-  const chronology = provided > applied ? "Recorded after application" :
-    provided < applied ? "Recorded before application" : "Same recorded minute";
+  if (order === "after") issues.push("Review the interval and the application channel with counsel.");
+  const chronology = order === "after" ? "Recorded after application" : "Recorded before application";
   return { sequence: record.sequence, chronology, issues };
 }

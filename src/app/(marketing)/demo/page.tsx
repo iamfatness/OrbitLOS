@@ -28,6 +28,7 @@ export default function DemoPage() {
           <li>In a fictional pilot, link state reporting obligations to a saved scope and flag new periods for review when the reporting basis changes.</li>
           <li>Track compliance research, case ownership and evidence across all 50 states in a fictional pilot.</li>
           <li>On a fictional Michigan loan, review application and disclosure receipt dates, borrower intent to proceed, and fee timing.</li>
+          <li>In a fictional Michigan loan, review charge and rate guarantee evidence and record when the application booklet was provided.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>
           <li>Review the affected charges and timing on a revised Loan Estimate while keeping the original comparison available.</li>
           <li>On a fictional closing, compare refund evidence and corrected Closing Disclosure timing with the original disclosures.</li>

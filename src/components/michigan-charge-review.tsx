@@ -74,6 +74,7 @@ export function MichiganChargeReviews({ active, reviews }: {
 
 export function MichiganChargeEvidence({ event }: { event: Extract<TridEntry["event"], { type: "miChargeReview" }> }) {
   return <>
+    <p>Recorded scope · {event.applicability}</p>
     <p>{event.category} · {money.format(event.chargedCents / 100)} charged</p>
     {event.paidCents !== undefined && <p>{money.format(event.paidCents / 100)} paid before refunds
       {event.collections !== undefined && ` · ${event.collections} collections`}</p>}

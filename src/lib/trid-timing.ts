@@ -1,3 +1,4 @@
+import { compareEvidence } from "./michigan-evidence-order";
 import { shiftReportDate } from "./report-date-range";
 import { isLoanEstimateReceipt, tridElements, type TridEntry, type TridEvent } from "./trid-model";
 
@@ -44,21 +45,6 @@ export function tridPreciseInterval(start: string, days: number) {
 export function activeTridEntries(entries: TridEntry[]) {
   const voided = new Set(entries.flatMap(({ event }) => event.type === "void" ? [event.sequence] : []));
   return entries.filter(({ sequence, event }) => event.type !== "void" && !voided.has(sequence));
-}
-
-type DatedEvidence = { on: string; localTime?: string };
-function compareEvidence(first: DatedEvidence, second: DatedEvidence) {
-  if (first.on !== second.on) return first.on < second.on ? "after" : "before";
-  if (!first.localTime || !second.localTime || first.localTime === second.localTime) return "unclear";
-  // In Michigan, the first Sunday in November repeats the hour after 01:00.
-  const month = first.on.slice(5, 7);
-  const day = Number(first.on.slice(8));
-  const sunday = weekday(first.on) === 0;
-  const repeatedHour = sunday && month === "11" && day <= 7 &&
-    first.localTime.startsWith("01:") && second.localTime.startsWith("01:");
-  const missingHour = sunday && month === "03" && day >= 8 && day <= 14 &&
-    (first.localTime.startsWith("02:") || second.localTime.startsWith("02:"));
-  return repeatedHour || missingHour ? "unclear" : first.localTime < second.localTime ? "after" : "before";
 }
 
 function feeEvidence(active: TridEntry[]) {
