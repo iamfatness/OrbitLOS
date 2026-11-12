@@ -39,7 +39,7 @@ export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string
   }, [brokerageId, entityId, month, paused, version]);
   useEffect(() => { heading.current?.focus(); }, [screen, itemId]);
   useEffect(() => { if (error || notice) feedback.current?.focus(); }, [error, notice]);
-  function reload() { setLoading(true); setError(""); setData(undefined); refresh(v => v + 1); }
+  function reload() { setLoading(true); setError(""); setNotice(""); setData(undefined); refresh(v => v + 1); }
   function navigate(next: typeof screen) { setError(""); setNotice(""); setScreen(next); }
   async function save(input: Omit<Extract<ProgramRequest, { requestId: string }>, "requestId"> | object) {
     if (busy || paused) return;
@@ -72,10 +72,10 @@ export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string
   }
   const formTitle = screen === "entity" ? "Add entity profile" : screen === "schedule" ? "Schedule review work" : screen === "review" ? "Record monthly review" : selected?.title ?? "Monthly review";
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
-  return <section className="record-form" aria-label="Compliance program">
+  return <section className="record-form compliance-pilot-form" aria-label="Compliance program">
     <h2 ref={heading} tabIndex={-1}>{screen === "list" ? "Monthly review" : formTitle}</h2>
     <p className="muted">Internal planning and evidence review. Regulatory applicability and legal deadlines still require review before launch.</p>
-    <div ref={feedback} tabIndex={-1} role={error ? "alert" : "status"}>{error || notice}</div>
+    {(error || notice) && <div ref={feedback} tabIndex={-1} className={error ? "application-message banner-error" : "application-message"} role={error ? "alert" : "status"}>{error || notice}</div>}
     {screen === "list" ? <>
       <div className="form-grid">
         <label className="field">Legal entity<select value={entityId} disabled={busy} onChange={e => { setEntity(e.target.value); setData(undefined); setLoading(true); setError(""); }}>
@@ -122,7 +122,7 @@ export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string
             <p className="muted">Reference reviewed records; keep borrower data and privileged material out of these notes. Completion requires Awaiting review and an evidence reference.</p>
             <label className="field">Reason or progress note<textarea name="note" required minLength={5} maxLength={1500} /></label></>}
         </>}
-        <div className="loan-application-actions"><Button type="submit">{busy ? "Saving…" : "Save review work"}</Button><Button type="button" variant="outline" onClick={() => navigate("list")}>Back to monthly review</Button></div>
+        <div className="loan-application-actions"><Button type="submit">{busy ? "Saving…" : "Save review work"}</Button><Button type="button" variant="outline" onClick={() => { navigate("list"); reload(); }}>Back to monthly review</Button></div>
       </fieldset>
     </form>}
   </section>;

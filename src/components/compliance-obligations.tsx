@@ -20,7 +20,8 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
  const [selected,setSelected]=useState<Row|null>(),[history,setHistory]=useState<z.infer<typeof periods>>();
  const [historyOffset,setHistoryOffset]=useState(0);
  const [filter,setFilter]=useState("");
- const [loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
+ const [loadingEntities,setLoadingEntities]=useState(true);
+ const [loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const feedback=useRef<HTMLDivElement>(null), heading=useRef<HTMLHeadingElement>(null);
  const alive=useRef(false),retry=useRef<{body:string;id:string}|undefined>(undefined),newId=useRef("");
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -32,7 +33,7 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
    void accessComplianceCases({type:"program",input:{operation:"entities"}},brokerageId).then(r=>{
      if(!current)return;
      if("error" in r)setError(r.error);else if(r.kind==="programEntities")setEntities(r.entities);
-   }).catch(()=>{if(current)setError("Could not load entities. Refresh to retry.");}).finally(()=>{if(current)setLoading(false);});
+   }).catch(()=>{if(current)setError("Could not load entities. Refresh to retry.");}).finally(()=>{if(current)setLoadingEntities(false);});
    return()=>{current=false;};
  },[brokerageId,paused,revision]);
  useEffect(()=>{
@@ -58,7 +59,7 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
    }).catch(()=>{if(current)setError("Could not load period history. Return and reopen to retry.");});
    return()=>{current=false;};
  },[brokerageId,entityId,selected,paused,historyOffset,revision]);
- function back(){setSelected(undefined);setHistory(undefined);setError("");setHistoryOffset(0);}
+ function back(){setSelected(undefined);setHistory(undefined);setError("");setHistoryOffset(0);setLoading(Boolean(entityId));refresh(v=>v+1);}
  async function mutate(input:object,close:boolean){
    if(busy||paused)return;
    const body=JSON.stringify([brokerageId,input]);
@@ -73,7 +74,8 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
      if(!["obligationSaved","obligationOccurrence"].includes(result.kind??""))throw new Error("Save could not be confirmed. Retry the unchanged form.");
      retry.current=undefined;
      if(close)back();
-     setNotice(close?"Saved a new obligation version.":"Period recorded. Existing period evidence is preserved.");refresh(v=>v+1);
+     setNotice(close?"Saved a new obligation version.":"Period recorded. Existing period evidence is preserved.");
+     if(!close)refresh(v=>v+1);
    }catch(e){if(alive.current)setError(e instanceof Error?e.message:"Save could not be confirmed. Retry the unchanged form.");}
    finally{if(alive.current)setBusy(false);}
  }
@@ -86,16 +88,16 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
  }
  const draft:Partial<ObligationDraft>=selected?.draft??{};
  if(paused)return <p>Obligations are unavailable while the workspace is paused.</p>;
- return <section className="record-form" aria-label="Obligations">
+ return <section className="record-form compliance-pilot-form" aria-label="Obligations">
    <h2 ref={heading} tabIndex={-1}>{selected===undefined?"Obligations":selected?selected.draft.title:"Add obligation"}</h2>
    <p className="muted">Internal planning. Applicability and statutory deadlines require legal review; generated periods do not prove filing or compliance.</p>
-   <div ref={feedback} tabIndex={-1} role={error?"alert":"status"}>{error||notice}</div>
+   {(error||notice)&&<div ref={feedback} tabIndex={-1} className={error?"application-message banner-error":"application-message"} role={error?"alert":"status"}>{error||notice}</div>}
    {selected===undefined?<>
-     <div className="form-grid"><label className="field">Legal entity<select value={entityId} onChange={e=>{setEntity(e.target.value);setItems([]);setOffset(0);setMore(false);setError("");setNotice("");setLoading(Boolean(e.target.value));}}><option value="">Select an entity</option>{entities.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+     <div className="form-grid"><label className="field">Legal entity<select value={entityId} disabled={loadingEntities} onChange={e=>{setEntity(e.target.value);setItems([]);setOffset(0);setMore(false);setError("");setNotice("");setLoading(Boolean(e.target.value));}}><option value="">Select an entity</option>{entities.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
      <label className="field">Applicability on this page<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All decisions</option>{["Needs review","Required","Not applicable"].map(s=><option key={s}>{s}</option>)}</select></label></div>
-     <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();setSelected(null);setNotice("");}}>Add obligation</Button><Button variant="outline" onClick={()=>{setLoading(true);setError("");refresh(v=>v+1);}}>Refresh</Button></div>
+     <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();setSelected(null);setNotice("");}}>Add obligation</Button><Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
      {!entityId&&<p>Create entity profiles in Monthly review, then select one here.</p>}
-     {loading?<p role="status">Loading obligations…</p>:entityId&&<>
+     {loading||loadingEntities?<p role="status">Loading obligations…</p>:entityId&&!error&&<>
        <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p></div><Button variant="outline" onClick={()=>{setSelected(i);setNotice("");setHistory(undefined);}}>Review obligation</Button></li>)}</ul>
        {!items.some(i=>!filter||i.draft.applicability===filter)&&<p>No obligations match this page and filter.</p>}
        <div className="loan-application-actions"><Button variant="outline" disabled={!offset} onClick={()=>{setOffset(Math.max(0,offset-50));setLoading(true);}}>Previous page</Button><Button variant="outline" disabled={!more} onClick={()=>{setOffset(offset+50);setLoading(true);}}>Next page</Button></div>
@@ -114,7 +116,7 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
        <div className="loan-application-actions"><Button type="submit">{busy?"Saving…":"Save new version"}</Button><Button type="button" variant="outline" onClick={back}>Back to obligations</Button></div>
      </fieldset></form>
      {selected&&<><form className="record-form" onSubmit={e=>{e.preventDefault();void mutate({operation:"generate",entityId,id:selected.id,expectedRevision:selected.revision,period:text(new FormData(e.currentTarget),"period")},false);}}><h3>Record an internal period</h3><p>Uses saved version {selected.revision}; unsaved edits above are not included. Choose January for annual work or January, April, July or October for quarterly work.</p><label className="field">Period first month<input type="month" name="period" required min="2000-01" max="2099-12"/></label><Button type="submit" disabled={busy}>Record period</Button></form>
-       <h3>Period history</h3>{!history?<p role="status">Loading history…</p>:<><ul className="document-list">{history.items.map(p=><li className="document-item" key={p.period}><div><strong>{p.period} · Version {p.version}</strong><p>{p.status}</p><p>Internal target: {p.internalTarget} · Recorded by {p.createdBy}</p></div></li>)}</ul>{!history.items.length&&<p>No periods recorded.</p>}<div className="loan-application-actions"><Button variant="outline" disabled={!historyOffset||busy} onClick={()=>{setHistory(undefined);setHistoryOffset(v=>Math.max(0,v-50));}}>Newer periods</Button><Button variant="outline" disabled={!history.more||busy} onClick={()=>{setHistory(undefined);setHistoryOffset(v=>v+50);}}>Older periods</Button></div></>}
+       <h3>Period history</h3>{!history?(error?null:<p role="status">Loading history…</p>):<><ul className="document-list">{history.items.map(p=><li className="document-item" key={p.period}><div><strong>{p.period} · Version {p.version}</strong><p>{p.status}</p><p>Internal target: {p.internalTarget} · Recorded by {p.createdBy}</p></div></li>)}</ul>{!history.items.length&&<p>No periods recorded.</p>}<div className="loan-application-actions"><Button variant="outline" disabled={!historyOffset||busy} onClick={()=>{setHistory(undefined);setHistoryOffset(v=>Math.max(0,v-50));}}>Newer periods</Button><Button variant="outline" disabled={!history.more||busy} onClick={()=>{setHistory(undefined);setHistoryOffset(v=>v+50);}}>Older periods</Button></div></>}
      </>}
    </>}
  </section>;

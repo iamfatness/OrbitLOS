@@ -83,7 +83,7 @@ export function ComplianceWorkspace({ brokerageId, paused, openLoan, openHistory
   return <div className="record-form compliance-work">
     <div className="document-item compliance-coverage">
       <strong>Coverage not evaluated</strong>
-      <p>Fictional pilot. Action blockers and overdue obligations have yet to be evaluated.</p>
+      <p>Fictional pilot for internal planning and evidence review. Regulatory coverage remains undetermined.</p>
     </div>
     <nav className="loan-application-actions" aria-label="Compliance views">
       {views.map((option) => <Button key={option} size="sm" variant={view === option ? "default" : "outline"}

@@ -11,6 +11,10 @@ const detailSchema=z.object({version:versionSchema,assignment:z.object({id:z.str
 const assignmentSchema=z.object({items:z.array(z.object({id:z.string(),employeeEmail:z.string(),dueAt:z.string(),active:z.boolean(),completed:z.boolean()})),next:z.number().nullable()});
 type Detail=z.infer<typeof detailSchema>;
 const value=(f:FormData,k:string)=>String(f.get(k)??"");
+const learningSaveMessages: Record<string,string> = {
+  createVersion: "Draft saved.", review: "Review recorded for this version.", publish: "Version published for internal use.",
+  assign: "Assignment saved.", revokeAssignment: "Assignment revoked. Existing completion evidence is retained.",
+};
 export function ComplianceLearning({brokerageId,paused,admin=false}:{brokerageId:string;paused:boolean;admin?:boolean}){
  const [page,setPage]=useState<z.infer<typeof listSchema>>(),[detail,setDetail]=useState<Detail>();
  const [selected,setSelected]=useState(""),[after,setAfter]=useState<number>(),[revision,refresh]=useState(0),[create,setCreate]=useState(false);
@@ -21,7 +25,7 @@ export function ComplianceLearning({brokerageId,paused,admin=false}:{brokerageId
  const retry=useRef<{body:string;id:string}|undefined>(undefined),contentId=useRef("");
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{if(error||notice)feedback.current?.focus();},[error,notice]);
- useEffect(()=>{if(selected||create)heading.current?.focus();},[selected,create]);
+ useEffect(()=>{heading.current?.focus();},[selected,create]);
  useEffect(()=>{
    if(!admin||!selected||paused)return;
    let current=true;
@@ -60,7 +64,7 @@ export function ComplianceLearning({brokerageId,paused,admin=false}:{brokerageId
      if(result.error)throw new Error(result.error);
      if(!["learningMutation","learningEvidence"].includes(result.kind??""))throw new Error("Save could not be confirmed. Retry the unchanged form.");
      retry.current=undefined;
-     setNotice(result.completed===false?`Assessment: ${result.correct} of ${result.total} correct. Review the material and try again.`:result.completed?"Completion recorded for this version.":"Saved.");
+     setNotice(result.completed===false?`Assessment: ${result.correct} of ${result.total} correct. Review the material and try again.`:result.completed?"Completion recorded for this version.":learningSaveMessages[parsed.data.operation]??"Saved.");
      if(close)back();else refresh(v=>v+1);
    }catch(e){if(alive.current)setError(e instanceof Error?e.message:"Save could not be confirmed. Retry the unchanged form.");}
    finally{if(alive.current)setBusy(false);}
@@ -71,19 +75,19 @@ export function ComplianceLearning({brokerageId,paused,admin=false}:{brokerageId
      questions:kind==="Policy"?[]:Array.from({length:questions},(_,i)=>({prompt:value(f,`prompt${i}`),options:[value(f,`a${i}`),value(f,`b${i}`)],correctIndex:Number(value(f,`correct${i}`)),explanation:value(f,`explanation${i}`)}))},true);
  }
  if(paused)return <p>Training and policies are unavailable while the workspace is paused.</p>;
- return <section className="record-form" aria-label={admin?"Training and policies":"My training and policies"}>
+ return <section className="record-form compliance-pilot-form" aria-label={admin?"Training and policies":"My training and policies"}>
    <h2 ref={heading} tabIndex={-1}>{create?"Draft training or policy":detail?.version.title??(admin?"Training & policies":"My training & policies")}</h2>
    <p className="muted">Internal learning and policy evidence. Not accredited continuing education. User and lawyer review are required before publication.</p>
-   <div role={error?"alert":"status"} ref={feedback} tabIndex={-1}>{error||notice}</div>
+   {(error||notice)&&<div role={error?"alert":"status"} ref={feedback} tabIndex={-1} className={error?"application-message banner-error":"application-message"}>{error||notice}</div>}
    {!create&&!selected?<>
-     <div className="loan-application-actions">{admin&&<Button onClick={()=>{contentId.current=crypto.randomUUID();setCreate(true);setError("");setNotice("");}}>Draft content</Button>}<Button variant="outline" onClick={()=>{setPage(undefined);setError("");refresh(v=>v+1);}}>Refresh</Button></div>
-     {!page?<p role="status">Loading…</p>:<><ul className="document-list">{page.items.map(i=><li className="document-item" key={i.id}><div><strong>{i.title??"Assigned training or policy"}</strong><p>{i.state??`Target: ${i.dueAt?.slice(0,10)}`}</p></div><Button variant="outline" onClick={()=>{setSelected(i.id);setDetail(undefined);setNotice("");setError("");}}>Open {admin?"content":"assignment"}</Button></li>)}</ul>{!page.items.length&&<p>{admin?"No content versions recorded.":"No assignments on this page."}</p>}<div className="loan-application-actions"><Button variant="outline" disabled={!after} onClick={()=>{setPage(undefined);setAfter(undefined);}}>First page</Button><Button variant="outline" disabled={!page.next} onClick={()=>{setPage(undefined);setAfter(page.next??undefined);}}>Next page</Button></div></>}
+     <div className="loan-application-actions">{admin&&<Button onClick={()=>{contentId.current=crypto.randomUUID();setCreate(true);setError("");setNotice("");}}>Draft content</Button>}<Button variant="outline" onClick={()=>{setPage(undefined);setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
+     {!page?(error?null:<p role="status">Loading…</p>):<><ul className="document-list">{page.items.map(i=><li className="document-item" key={i.id}><div><strong>{i.title??"Assigned training or policy"}</strong><p>{i.state??`Target: ${i.dueAt?.slice(0,10)}`}</p></div><Button variant="outline" onClick={()=>{setSelected(i.id);setDetail(undefined);setNotice("");setError("");}}>Open {admin?"content":"assignment"}</Button></li>)}</ul>{!page.items.length&&<p>{admin?"No content versions recorded.":"No assignments on this page."}</p>}<div className="loan-application-actions"><Button variant="outline" disabled={!after} onClick={()=>{setPage(undefined);setAfter(undefined);}}>First page</Button><Button variant="outline" disabled={!page.next} onClick={()=>{setPage(undefined);setAfter(page.next??undefined);}}>Next page</Button></div></>}
    </>:create?<form className="record-form" onSubmit={createVersion}><fieldset className="record-form" disabled={busy}>
      <label className="field">Content type<select value={kind} onChange={e=>setKind(e.target.value)}><option>Policy</option><option>Course</option></select></label>
      <label className="field">Title<input name="title" required maxLength={160}/></label><label className="field">Content<textarea name="body" required maxLength={40000} rows={12}/></label><label className="field">Sources and content rights<textarea name="sourceReferences" required maxLength={4000}/></label>
      {kind==="Course"&&<><label className="field">Passing percentage<input name="passPercent" type="number" min={1} max={100} required defaultValue={80}/></label>{Array.from({length:questions},(_,i)=><fieldset className="record-form" key={i}><legend>Question {i+1}</legend><label className="field">Question<input name={`prompt${i}`} required maxLength={1000}/></label><label className="field">First answer<input name={`a${i}`} required maxLength={500}/></label><label className="field">Second answer<input name={`b${i}`} required maxLength={500}/></label><label className="field">Correct answer<select name={`correct${i}`}><option value="0">First answer</option><option value="1">Second answer</option></select></label><label className="field">Explanation<textarea name={`explanation${i}`} required maxLength={1000}/></label></fieldset>)}<Button variant="outline" type="button" disabled={questions>=20} onClick={()=>setQuestions(v=>v+1)}>Add question</Button></>}
      <div className="loan-application-actions"><Button type="submit">Save draft</Button><Button type="button" variant="outline" onClick={back}>Back to library</Button></div>
-   </fieldset></form>:!detail?<><p role="status">Loading content…</p><Button variant="outline" onClick={back}>Back to list</Button></>:<>
+   </fieldset></form>:!detail?<>{!error&&<p role="status">Loading content…</p>}<div className="loan-application-actions"><Button variant="outline" onClick={back}>Back to list</Button>{error&&<Button variant="outline" onClick={()=>{setError("");refresh(v=>v+1);}}>Retry loading content</Button>}</div></>:<>
      <p>{detail.version.kind} · {detail.version.state}</p><div style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{detail.version.body}</div><details><summary>Sources</summary><p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{detail.version.sourceReferences}</p></details>
      {admin? <>
        {detail.version.state==="Draft"&&<form className="record-form" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget);void save({operation:"review",versionId:selected,note:value(f,"note"),lawyerReviewReference:value(f,"lawyer"),rightsConfirmed:f.get("rights")==="on",userReviewed:f.get("reviewed")==="on"});}}><fieldset className="record-form" disabled={busy}><h3>Record completed review</h3><label className="field">Review findings<textarea name="note" required maxLength={2000}/></label><label className="field">Lawyer review evidence reference<textarea name="lawyer" required maxLength={2000}/></label><label><input type="checkbox" name="reviewed" required/> Owner has reviewed this exact version</label><label><input type="checkbox" name="rights" required/> Content rights are confirmed</label><Button type="submit">Record review</Button></fieldset></form>}
@@ -93,7 +97,7 @@ export function ComplianceLearning({brokerageId,paused,admin=false}:{brokerageId
        {detail.version.kind==="Policy"?<label><input type="checkbox" name="ack" required/> I have read and acknowledge this policy version.</label>:detail.version.questions.map((q,i)=><fieldset key={i}><legend>{q.prompt}</legend>{q.options.map((o,j)=><label className="field" key={j}><span><input type="radio" required name={`answer${i}`} value={j}/> {o}</span></label>)}</fieldset>)}<Button type="submit">{detail.version.kind==="Policy"?"Record acknowledgment":"Submit assessment"}</Button>
      </fieldset></form>:<p>This assignment is no longer active.</p>}
      {admin&&<details><summary>Assignments and completion</summary>{!assignments?<p>Loading assignments…</p>:<><ul className="document-list">{assignments.items.map(a=><li className="document-item" key={a.id}><div><strong>{a.employeeEmail}</strong><p>{a.completed?"Completed — evidence retained":"Not completed"} · {a.active?"Active":"Revoked or access changed"} · Target {a.dueAt.slice(0,10)}</p>{a.active&&<form className="record-form" onSubmit={e=>{e.preventDefault();void save({operation:"revokeAssignment",assignmentId:a.id,note:value(new FormData(e.currentTarget),"note")});}}><label className="field">Reason for revoking assignment<input name="note" required maxLength={2000} disabled={busy}/></label><Button variant="outline" type="submit" disabled={busy}>Revoke assignment</Button></form>}</div></li>)}</ul>{!assignments.items.length&&<p>No assignments on this page.</p>}<div className="loan-application-actions"><Button variant="outline" disabled={!assignmentAfter||busy} onClick={()=>{setAssignments(undefined);setAssignmentAfter(undefined);}}>First assignment page</Button><Button variant="outline" disabled={!assignments.next||busy} onClick={()=>{setAssignments(undefined);setAssignmentAfter(assignments.next??undefined);}}>More assignments</Button></div></>}</details>}
-     <div className="loan-application-actions"><Button variant="outline" disabled={busy} onClick={back}>Back to {admin?"library":"assignments"}</Button><Button variant="outline" disabled={busy} onClick={()=>{setError("");refresh(v=>v+1);}}>Refresh content</Button></div>
+     <div className="loan-application-actions"><Button variant="outline" disabled={busy} onClick={back}>Back to {admin?"library":"assignments"}</Button><Button variant="outline" disabled={busy} onClick={()=>{setError("");setNotice("");refresh(v=>v+1);}}>Refresh content</Button></div>
    </>}
  </section>;
 }

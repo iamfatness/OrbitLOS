@@ -683,6 +683,14 @@ button:disabled { cursor: default; }
 }
 .staff-offboarding { display: grid; gap: 10px; min-width: 0; padding-top: 12px; border-top: 1px solid var(--line); }
 .staff-offboarding .field select { min-width: 0; width: 100%; }
+.compliance-pilot-form > h2 { font-size: 1.125rem; font-weight: 650; line-height: 1.35; }
+.compliance-pilot-form h3 { font-size: 1rem; font-weight: 650; }
+.compliance-pilot-form :is(fieldset, .field, .document-item) { min-width: 0; }
+.compliance-pilot-form :is(p, h2, legend, strong) { overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .compliance-pilot-form .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .compliance-pilot-form :is(select, input:not([type="checkbox"], [type="radio"]), button) { min-height: 44px; }
+}
 @media (max-width: 520px) {
   .staff-offboarding-branch-form .field { flex-basis: 100%; }
 }
