@@ -34,7 +34,7 @@ export function AddressEditor({ label, required, value, change, lookupEnabled, m
   const zipRequest = useRef<AbortController | null>(null);
   const placeRequest = useRef<AbortController | null>(null);
   const session = useRef("");
-  const lastSuggestion = useRef<CityState | null>(null);
+  const lastSuggestion = useRef<Partial<CityState> | null>(null);
   const query = street.trim();
   const demo = !lookupEnabled && query.length >= 3 ? sampleAddresses.filter((address) =>
     address.street.toLowerCase().includes(query.toLowerCase()) && (address.street.toLowerCase() !== query.toLowerCase() || address.location.zip !== location.zip)) : [];
@@ -45,6 +45,10 @@ export function AddressEditor({ label, required, value, change, lookupEnabled, m
   }, []);
 
   function setLocation(key: keyof AddressLocation, answer: string) {
+    if (key === "state") {
+      zipRequest.current?.abort();
+      setNotice("");
+    }
     change((previous) => ({ ...previous, location: { ...previous.location, [key]: answer } }));
   }
 
@@ -70,10 +74,12 @@ export function AddressEditor({ label, required, value, change, lookupEnabled, m
       city: address.location.city === previous?.city ? "" : address.location.city,
       state: address.location.state === previous?.state ? "" : address.location.state,
     } }));
-    if (domestic && usZip.test(zip)) void lookupZip(zip);
+    if (domestic && usZip.test(zip)) void lookupZip(zip,
+      location.state === previous?.state ? "" : location.state,
+      location.city === previous?.city ? "" : location.city);
   }
 
-  async function lookupZip(zip: string) {
+  async function lookupZip(zip: string, enteredState = location.state, enteredCity = location.city) {
     zipRequest.current?.abort();
     const controller = new AbortController();
     zipRequest.current = controller;
@@ -82,10 +88,14 @@ export function AddressEditor({ label, required, value, change, lookupEnabled, m
       if (!response.ok) throw new Error("Lookup unavailable");
       const suggestion: CityState = await response.json();
       if (controller.signal.aborted) return;
-      lastSuggestion.current = suggestion;
+      if (enteredState && enteredState.trim().toUpperCase() !== suggestion.state) {
+        setNotice(`This ZIP lookup returned ${suggestion.state}. Check the ZIP and state before continuing.`);
+        return;
+      }
+      lastSuggestion.current = { city: enteredCity ? undefined : suggestion.city, state: enteredState ? undefined : suggestion.state };
       change((previous) => {
         const saved = previous.location;
-        if (saved.zip.slice(0, 5) !== zip.slice(0, 5)) return previous;
+        if (saved.zip.slice(0, 5) !== zip.slice(0, 5) || (saved.state && saved.state.trim().toUpperCase() !== suggestion.state)) return previous;
         return { ...previous, location: { ...saved, city: saved.city || suggestion.city, state: saved.state || suggestion.state } };
       });
       setNotice(`ZIP suggestion · ${suggestion.city}, ${suggestion.state}. City and state are editable.`);

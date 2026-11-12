@@ -182,7 +182,7 @@ export function addApplicationActivity(db: Store, loanId: string, text: string, 
 function fillPropertyLocality(location: AddressLocation): AddressLocation {
   if (location.city && location.state) return location;
   const locality = zipCityState(location.zip);
-  if (!locality || (location.state && location.state.toUpperCase() !== locality.state)) return location;
+  if (!locality || (location.state && location.state.trim().toUpperCase() !== locality.state)) return location;
   return { ...location, city: location.city || locality.city, state: location.state || locality.state };
 }
 

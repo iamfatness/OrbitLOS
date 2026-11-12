@@ -4102,8 +4102,11 @@ try {
     await write(officer, { type: "leadContact", leadId: lead.id, revision: current.followUp.revision, channel: "Call", outcome: "Connected",
       note: "Fictional borrower confirmed a purchase application." });
     const converted = await post(`/api/lead-conversion?brokerage=${brokerage}`, { type: "convertReferral", referralId: lead.id, contactId: null }, officer);
-    const referralDraft = await borrower(converted.inboxLoan.applications[0].token, { type: "read" });
+    const referralApplication = converted.inboxLoan.applications[0].token;
+    const referralDraft = await borrower(referralApplication, { type: "read" });
     assert.equal(referralDraft.draft.propertyLocation.state, "MI");
+    await borrower(referralApplication, { type: "save", revision: referralDraft.revision, step: referralDraft.step,
+      draft: { ...referralDraft.draft, propertyLocation: { ...referralDraft.draft.propertyLocation, city: "Royal Oak", zip: "48067" } } });
     const funded = await fundMockLoan(converted.referralLoanId, "Purchase", returningBorrower.name);
     const portal = await realtor(realtorToken);
     assert.ok(portal.referrals.some(({ borrowerName, stage }) => borrowerName === returningBorrower.name && stage === "Funded"));
