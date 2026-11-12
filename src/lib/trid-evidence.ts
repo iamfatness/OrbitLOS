@@ -3,7 +3,7 @@ import type { Store } from "./store";
 import { loanAccess } from "./workspace-access";
 import { activeTridEntries, tridLocalDate, tridTiming } from "./trid-timing";
 import { isLoanEstimateReceipt, type TridEntry, type TridEvent, type TridRequest } from "./trid-model";
-import { reviewDisclosureFees } from "./trid-fee-evidence";
+import { estimateRevisionBasis, reviewDisclosureFees, reviewEstimateRevisions } from "./trid-fee-evidence";
 
 export function initializeTridEvidence(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_trid_evidence (
@@ -68,6 +68,12 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
     return;
   }
   if (event.type !== "closing" && event.on > tridLocalDate(now, scope.zone)) return "Receipt and delivery evidence cannot be dated in the future.";
+  if (event.type === "estimateRevision") {
+    if (!estimateRevisionBasis(active, event)) return "Choose active original and revised Loan Estimates with the affected charge keys.";
+    if (active.some(entry => entry.event.type === "estimateRevision" && entry.event.revisedSequence === event.revisedSequence)) {
+      return "Withdraw the earlier revision review before recording a replacement.";
+    }
+  }
   if (event.type === "element" && active.some(entry => entry.event.type === "element" && entry.event.element === event.element)) {
     return "Withdraw the original entry with a correction reference before recording a replacement.";
   }
@@ -116,6 +122,7 @@ export function tridEvidenceWork(db: Store, input: TridRequest, staff: Workspace
     entries,
     timing: tridTiming(entries, now),
     feeReview: reviewDisclosureFees(activeTridEntries(entries), input.operation === "read" ? input.feeBasis : undefined),
+    estimateRevisions: reviewEstimateRevisions(activeTridEntries(entries)),
   });
   if (input.operation === "read") return current();
   if (access === "processor") return { error: "Only the assigned loan officer or an admin can record TRID evidence." };

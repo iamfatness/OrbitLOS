@@ -16,6 +16,6 @@ An estimated aggregate charge missing from the closing snapshot needs evidence a
 
 Separate fictional owner, LO and processor sessions verified fee entry, failed-save recovery, withdrawal and read-only review. The live checks covered the Demo and signed-out routes. See [UI review coverage](../ui-review-coverage.md).
 
-Next, link changed-circumstance evidence to the affected charges and exact revised estimate. Selection of a revised estimate, credits and actual cure evidence require their own review steps.
+The revised-estimate review is implemented locally. Choose **Record revised estimate review** to link an original and revised Loan Estimate snapshot, reason, date sufficient information was received, affected charge keys, and source and review references. **Revised estimate reviews** shows original and proposed amounts, the office-calendar send check, initial Closing Disclosure chronology, and actual receipt compared to planned consummation. A withdrawn snapshot makes the review unresolved. The original fee comparison remains the reference and revised amounts require a separate basis decision. Actual consummation and cure evidence are next.
 
 Regulatory basis for review. [CFPB Regulation Z §1026.19](https://www.consumerfinance.gov/rules-policy/regulations/1026/19/).

@@ -31,6 +31,16 @@ function after(start: string, count: number, isBusinessDay: (date: string) => bo
   return null;
 }
 
+export function tridOfficeDeadline(start: string, scope: Scope) {
+  if (start < scope.calendarFrom) return null;
+  return after(start, 3, day => !scope.closures.includes(day) &&
+    (scope.extraOpen.includes(day) || scope.openWeekdays.includes(weekday(day))), scope.calendarThrough);
+}
+
+export function tridPreciseInterval(start: string, days: number) {
+  return after(start, days, preciseBusinessDay);
+}
+
 export function activeTridEntries(entries: TridEntry[]) {
   const voided = new Set(entries.flatMap(({ event }) => event.type === "void" ? [event.sequence] : []));
   return entries.filter(({ sequence, event }) => event.type !== "void" && !voided.has(sequence));
@@ -91,10 +101,7 @@ export function tridTiming(entries: TridEntry[], now: string) {
   const cd = events.find(event => event.type === "sent" && event.document === "Initial CD") as Sent | undefined;
   const closingOn = events.findLast(event => event.type === "closing")?.on ?? null;
   const today = tridLocalDate(now, scope?.zone ?? "America/Detroit");
-  const leDue = scope && applicationOn && applicationOn >= scope.calendarFrom
-    ? after(applicationOn, 3, day => !scope.closures.includes(day) &&
-      (scope.extraOpen.includes(day) || scope.openWeekdays.includes(weekday(day))), scope.calendarThrough)
-    : null;
+  const leDue = scope && applicationOn ? tridOfficeDeadline(applicationOn, scope) : null;
   const leStatus = !scope || !applicationOn || !leDue ? "Needs scope, application or office calendar evidence"
     : le && le.sender !== scope.leSender ? "Review sender responsibility"
     : le && le.on < applicationOn ? "Review delivery before recorded application"

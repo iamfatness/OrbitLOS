@@ -1754,6 +1754,17 @@ try {
       assert.equal(afterWithdrawal.feeReview.unavailable, true);
       assert.equal(afterWithdrawal.feeReview.comparison, null);
       assert.ok(afterWithdrawal.entries.some(entry => entry.sequence === 17 && entry.event.type === "feeSnapshot"));
+      const revisedSend = { ...initialLe, document: "Revised LE", version: "fixture-revised-le", on: "2026-07-09" };
+      assert.equal((await recordTrid(owner, 18, revisedSend)).result.revision, 19);
+      assert.equal((await recordTrid(owner, 19, snapshot(19, 11250))).result.revision, 20);
+      const revisionReview = { type: "estimateRevision", originalSequence: 16, revisedSequence: 20, on: "2026-07-08",
+        reason: "Changed settlement charges", chargeKeys: ["appraisal"], reference: "Fictional changed circumstance",
+        reviewReference: "Fictional reviewer evidence" };
+      assert.match((await recordTrid(officer, 20, { ...revisionReview, chargeKeys: ["missing"] })).result.error, /affected charge keys/);
+      assert.equal((await recordTrid(officer, 20, revisionReview)).result.revision, 21);
+      assert.match((await readTrid(processor)).result.estimateRevisions[0].status, /on or after the initial Closing Disclosure/);
+      assert.equal((await recordTrid(owner, 21, { type: "void", sequence: 20, reference: "Fictional revised amounts corrected" })).result.revision, 22);
+      assert.match((await readTrid(processor)).result.estimateRevisions[0].status, /Needs active original and revised estimate evidence/);
     }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;

@@ -18,3 +18,5 @@ Scope: internal compliance pilot, 2026-11-11. Built source `00498e79efca`; produ
 The owner and staff mutations ran in an isolated fictional workspace. Live verification exercised public routes and signed-out boundaries. Tests cover tenant and role checks. Course revision authoring, filing and real regulatory coverage remain outside this release.
 
 The review used the approved Orbit design system and brand references, Impeccable, and UI UX Pro Max. It reused the accepted Orbit form, list/detail, action and feedback patterns for the 21st.dev component reference requirement.
+
+Michigan loan → Disclosures → Revised estimate reviews. Status Not reviewed. Exercise selected original and revised estimates, several affected charge keys, date evidence, stale save, withdrawn basis, processor read-only view, keyboard return and long labels at phone width. Uses the same Orbit disclosure form and record patterns. Source detector ran without regex findings and rendered checks remain pending.

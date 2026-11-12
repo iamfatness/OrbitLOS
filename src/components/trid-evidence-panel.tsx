@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
-import { isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
+import { estimateRevisionReasons, isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
 import { Button } from "./ui/button";
-import { readFeeSnapshotLines, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
+import { readFeeSnapshotLines, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
 
 type Result = Extract<ComplianceCaseResult, { kind: "trid" }>["result"];
 type Evidence = Exclude<Result, { error: string }>;
@@ -14,6 +14,7 @@ const actions = {
   received: "Record disclosure receipt", intent: "Record intent to proceed", fee: "Record fee activity",
   closing: "Record planned consummation", void: "Withdraw incorrect evidence",
   feeSnapshot: "Record disclosure fee snapshot",
+  estimateRevision: "Record revised estimate review",
 } as const;
 const dates = (value: string) => value.split(/[\s,]+/).filter(Boolean);
 const recordedWhen = (event: { on: string; localTime?: string }) => event.localTime ? `${event.on} ${event.localTime}` : event.on;
@@ -29,6 +30,7 @@ function describe(event: TridEvent) {
     case "closing": return `Planned consummation ${event.on}`;
     case "void": return `Withdrew entry ${event.sequence}`;
     case "feeSnapshot": return `Fee snapshot for disclosure entry ${event.evidenceSequence}`;
+    case "estimateRevision": return `${event.reason} · Revised estimate snapshot ${event.revisedSequence}`;
   }
 }
 
@@ -94,6 +96,10 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
       case "closing": input = { type: action, reference, on }; break;
       case "feeSnapshot": input = { type: action, reference, evidenceSequence: Number(get("evidenceSequence")),
         complete: form.has("feeComplete"), lines: readFeeSnapshotLines(form) }; break;
+      case "estimateRevision": input = { type: action, reference, on, reason: get("revisionReason"),
+        originalSequence: Number(get("originalSequence")), revisedSequence: Number(get("revisedSequence")),
+        chargeKeys: get("chargeKeys").split(/\r?\n/).map(key => key.trim()).filter(Boolean),
+        reviewReference: get("reviewReference").trim() || undefined }; break;
       case "void": input = { type: action, reference, sequence: Number(get("sequence")) }; break;
     }
     const parsed = tridEvent.safeParse(input);
@@ -175,6 +181,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           </ul>
         </details>
         <TridFeeComparison active={active} />
+        <TridEstimateRevisionReviews active={active} reviews={data.estimateRevisions} />
         {readOnly ? <p className="muted">Evidence is read-only for this view.</p> : <section className="record-form" aria-label="Record evidence">
           <h3>Record evidence</h3>
           <p className="muted">Use source references. Leave out SSNs and other borrower values.</p>
@@ -187,6 +194,22 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           <form key={`${action}:${formRevision}`} onSubmit={record} className="record-form">
             <fieldset disabled={busy} className="record-form">
               {action === "feeSnapshot" && <TridFeeSnapshotFields active={active} />}
+              {action === "estimateRevision" && <>
+                <div className="form-grid">
+                  {([["originalSequence", "Initial LE", "Original estimate snapshot"],
+                    ["revisedSequence", "Revised LE", "Revised estimate snapshot"]] as const).map(([name, document, label]) =>
+                    <label className="field" key={name}>{label}<select name={name} required>
+                      <option value="">Choose a snapshot</option>
+                      {data.feeReview.snapshots.filter(item => item.document === document).map(item =>
+                        <option value={item.sequence} key={item.sequence}>{item.version} · {item.sentOn}</option>)}
+                    </select></label>)}
+                  <label className="field">Reason for the revision<select name="revisionReason">
+                    {estimateRevisionReasons.map(reason => <option key={reason}>{reason}</option>)}
+                  </select></label>
+                </div>
+                <label className="field">Affected charge keys (one per line)<textarea name="chargeKeys" required maxLength={12150} /></label>
+                <label className="field">Review evidence reference (if available)<input name="reviewReference" maxLength={180} /></label>
+              </>}
               {action === "scope" && <>
                 <label className="compliance-choice"><input type="checkbox" name="coveredScenario" required /> This file matches the pilot scenario above.</label>
                 <label className="field">Creditor<input name="creditor" required maxLength={180} defaultValue={timing.scope?.creditor} /></label>
@@ -244,7 +267,8 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                 {data.entries.filter(entry => entry.event.type !== "void" && !withdrawn.has(entry.sequence)).map(entry =>
                   <option value={entry.sequence} key={entry.sequence}>{entry.sequence}. {describe(entry.event)}</option>)}
               </select></label> : action !== "scope" && action !== "feeSnapshot" && <label className="field">{action === "closing" ? "Planned consummation date"
-                : action === "sent" ? "Send date" : action === "intent" ? "Intent date" : action === "fee" ? "Activity date" : "Receipt date"}<input name="on" type="date" required /></label>}
+                : action === "sent" ? "Send date" : action === "intent" ? "Intent date" : action === "fee" ? "Activity date"
+                : action === "estimateRevision" ? "Date sufficient information was received" : "Receipt date"}<input name="on" type="date" required /></label>}
               {(action === "received" || action === "intent" || action === "fee") &&
                 <label className="field">Local time (optional)<input name="localTime" type="time" />
                   <span className="muted">Enter the time in the recorded review time zone when it helps establish same-day order.</span>

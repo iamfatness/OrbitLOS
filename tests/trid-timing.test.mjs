@@ -11,6 +11,30 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 const { tridElements } = await import("../src/lib/trid-model.ts");
 const { preciseBusinessDay, tridTiming } = await import("../src/lib/trid-timing.ts");
+const { reviewEstimateRevisions } = await import("../src/lib/trid-fee-evidence.ts");
+
+test("revised LE dates use the office calendar and actual receipt uses the precise interval", () => {
+  const original = { type: "sent", document: "Initial LE", version: "LE-1", sender: "Creditor", on: "2026-07-01" };
+  const revised = { type: "sent", document: "Revised LE", version: "LE-2", sender: "Creditor", on: "2026-07-08" };
+  const line = { key: "appraisal", label: "Appraisal", borrowerCents: 10000, bucket: "Individual" };
+  const snapshot = (evidenceSequence, cents) => ({ type: "feeSnapshot", evidenceSequence, complete: true, lines: [{ ...line, borrowerCents: cents }] });
+  const evidence = [
+    scope, original, revised, snapshot(2, 10000), snapshot(3, 11500),
+    { type: "received", document: "Revised LE", version: "LE-2", on: "2026-07-09" },
+    { type: "sent", document: "Initial CD", on: "2026-07-10" },
+    { type: "closing", on: "2026-07-14" },
+    { type: "estimateRevision", originalSequence: 4, revisedSequence: 5, chargeKeys: ["appraisal"], on: "2026-07-02", reviewReference: "Fixture" },
+  ];
+  const review = events => reviewEstimateRevisions(events.map((event, index) => ({ sequence: index + 1, event })))[0];
+  const result = review(evidence);
+  assert.equal(result.dueOn, "2026-07-08");
+  assert.equal(result.receivedOn, "2026-07-09");
+  assert.match(result.status, /Recorded dates meet the checks/);
+  evidence[7] = { type: "closing", on: "2026-07-13" };
+  assert.match(review(evidence).status, /four-day interval/);
+  evidence[6] = { type: "sent", document: "Initial CD", on: "2026-07-08" };
+  assert.match(review(evidence).status, /on or after/);
+});
 
 const now = "2026-07-20T12:00:00Z";
 const scope = { type: "scope", coveredScenario: true, creditor: "Fictional creditor", leSender: "Creditor",

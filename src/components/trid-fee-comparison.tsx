@@ -2,12 +2,43 @@
 
 import { useEffect, useRef, useState } from "react";
 import { feeReviewBuckets } from "@/lib/trid-fee-comparison";
-import { reviewDisclosureFees } from "@/lib/trid-fee-evidence";
+import { estimateRevisionBasis, reviewDisclosureFees, type reviewEstimateRevisions } from "@/lib/trid-fee-evidence";
 import type { TridEntry } from "@/lib/trid-model";
 import { Button } from "./ui/button";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (cents: number | null) => cents === null ? "Missing" : dollars.format(cents / 100);
+
+export function TridEstimateRevisionReviews({ active, reviews }: {
+  active: TridEntry[];
+  reviews: ReturnType<typeof reviewEstimateRevisions>;
+}) {
+  return <details className="details-section">
+    <summary>Revised estimate reviews ({reviews.length})</summary>
+    <div className="record-form">
+      <p className="muted">Review the reason, dates and affected charges. The original fee comparison remains available.</p>
+      {!reviews.length && <p>No revised estimate reviews recorded.</p>}
+      {reviews.map(review => {
+        const entry = active.find(item => item.sequence === review.sequence);
+        if (entry?.event.type !== "estimateRevision") return null;
+        const event = entry.event;
+        const basis = estimateRevisionBasis(active, event);
+        return <article className="record-form" key={review.sequence}>
+          <strong>{event.reason}</strong>
+          <p>{review.status}</p>
+          <p>Information received {event.on} · Send due {review.dueOn ?? "Unresolved"} · Actual receipt {review.receivedOn ?? "Missing"}</p>
+          <p>Source {event.reference}{event.reviewReference && ` · Review ${event.reviewReference}`}</p>
+          {basis && <ul className="document-list">{event.chargeKeys.map(key => {
+            const original = basis.original.snapshot.lines.find(line => line.key === key);
+            const revised = basis.revised.snapshot.lines.find(line => line.key === key)!;
+            return <li className="document-item" key={key}><div><strong>{revised.label}</strong>
+              <p>Original {money(original?.borrowerCents ?? null)} · Proposed {money(revised.borrowerCents)}</p></div></li>;
+          })}</ul>}
+        </article>;
+      })}
+    </div>
+  </details>;
+}
 
 export function TridFeeSnapshotFields({ active }: { active: TridEntry[] }) {
   const [keys, setKeys] = useState([0]);
