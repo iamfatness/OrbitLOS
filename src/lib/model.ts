@@ -244,6 +244,7 @@ export interface InboxLead extends Omit<ReferralLead, "realtorId" | "realtorName
   realtorId: string | null;
   realtorName: string | null;
   zip: string;
+  propertyState: string;
   importedContactId: string | null;
   campaignId: string | null;
   campaignTaskId: string | null;

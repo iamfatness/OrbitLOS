@@ -6,7 +6,7 @@ import type { CampaignQueueSnapshot } from "./lead-work-model";
 import type { RealtorClaimPolicy } from "./realtor-claim-model";
 import { quotePrefillSelection } from "./quote-intake-questions";
 
-export type InboxLeadSummary = Pick<InboxLead, "id" | "name" | "realtorName" | "source" | "purpose" | "zip" |
+export type InboxLeadSummary = Pick<InboxLead, "id" | "name" | "realtorName" | "source" | "purpose" | "zip" | "propertyState" |
   "officer" | "officerEmail" | "dueAt" | "heldAt" | "revisitDate" | "outreachSuppressed"> & {
   followUp: Pick<InboxLead["followUp"], "firstContactAt" | "replyReceivedAt">;
 };

@@ -5,6 +5,7 @@ import { portalTokenPattern } from "@/lib/brokerage-model";
 import { defaultQuoteIntakeConfig, quoteConsentWording, quoteFormChanged, quotePurpose, quoteResponseIssue, quoteTimelines,
   type PublicQuoteForm, type QuotePurpose } from "@/lib/quote-intake-model";
 import { collectQuoteAnswers, type QuoteIntakeQuestion } from "@/lib/quote-intake-questions";
+import { OptionalPropertyState } from "./property-state-field";
 import { QuoteQuestionFields } from "./quote-question-fields";
 import { Button } from "./ui/button";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
@@ -35,6 +36,7 @@ export function QuoteIntakeFields({ config, purpose, changePurpose, busy = false
       </select></label>
       <label className="field">{config.contact === "Email required" ? "Email (required)" : "Email"}<input name="email" type="email" maxLength={160} autoComplete="off" required={config.contact === "Email required"} disabled={busy} /></label>
       <label className="field">{config.contact === "Phone required" ? "Phone (required)" : "Phone"}<input name="phone" type="tel" maxLength={40} autoComplete="off" required={config.contact === "Phone required"} disabled={busy} /></label>
+      <OptionalPropertyState disabled={busy} />
       {config.zip !== "Hidden" && <label className="field" key={`zip:${purpose}`}>{config.zip === "Optional" ? "Property ZIP (optional)" : "Property ZIP"}
         <input name="zip" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} required={config.zip === "Required"} disabled={busy} /></label>}
       {config.timing !== "Hidden" && <label className="field" key={`timing:${purpose}`}>{config.timing === "Optional" ? "When are you hoping to move forward? (optional)" : "When are you hoping to move forward?"}
@@ -103,7 +105,7 @@ function PublishedQuoteRequest({ token, initialPurpose }: { token: string; initi
     const answers = Object.fromEntries(form.config.questions.filter(({ id }) => fields.has(`intake:${id}`))
       .map(({ id }) => [id, text(`intake:${id}`)]));
     const payload = { token, formRevision: form.revision, consentFingerprint: form.consentFingerprint, name: text("name"), email: text("email"), phone: text("phone"),
-      zip: text("zip"), timing: text("timing"), answer: text("answer"), purpose, answers,
+      propertyState: text("propertyState"), zip: text("zip"), timing: text("timing"), answer: text("answer"), purpose, answers,
       consent: fields.has("consent"), website: text("website") };
     const problem = quoteResponseIssue(form.config, payload);
     if (problem) { setError(problem); return; }

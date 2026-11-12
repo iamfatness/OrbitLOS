@@ -5,6 +5,7 @@ import type { RealtorReferralCursor, RealtorReferrals } from "./model";
 import { borrowerJson } from "./borrower-http";
 import { portalTokenPattern } from "./brokerage-model";
 import { accessEvent } from "./workspace-access";
+import { intakePropertyState } from "./property-state";
 import { leadContactFields } from "./lead-inbox-model";
 import { firstContactDue, leadRouting, startLeadFollowUp } from "./lead-inbox";
 import type { StaffIdentity } from "./staff-store";
@@ -17,7 +18,7 @@ export type RealtorPortalResult = { value: RealtorReferrals } | { status: number
 const token = z.string().regex(portalTokenPattern);
 const referralSubmission = z.object({
   type: z.literal("submit"), token, requestId: z.uuid(),
-  ...leadContactFields, consent: z.literal(true),
+  ...leadContactFields, propertyState: intakePropertyState, consent: z.literal(true),
 }).refine((value) => !!(value.email || value.phone));
 const referralCursor = z.object({ at: z.string().min(1).max(80), id: z.string().min(1).max(200), source: z.enum(["loan", "referral"]) });
 const portalCommand = z.union([referralSubmission, z.object({ type: z.literal("read").optional(), token, after: referralCursor.optional() })]);
@@ -45,7 +46,7 @@ export function saveRealtorLinkOwner(db: Store, input: { realtorId: string; toke
 export function realtorReferrals(db: Store, input: unknown, now = new Date().toISOString(), pilot = false,
   routed?: { revision: number; linkRevision?: number; owner: StaffIdentity | null }): RealtorPortalResult {
   const parsed = portalCommand.safeParse(input);
-  if (!parsed.success) return { status: 400, error: "Check your referral link and enter a name, a valid email or phone number, and permission to share." };
+  if (!parsed.success) return { status: 400, error: "Check your referral link and enter a name, a valid email or phone number, a valid property state if provided, and permission to share." };
   const data = parsed.data;
   return db.transaction(() => {
     const portal = db.prepare(`SELECT portal.realtorId, portal.officer, portal.officerEmail, portal.revision, contacts.name
@@ -67,10 +68,10 @@ export function realtorReferrals(db: Store, input: unknown, now = new Date().toI
       const useLinkOwner = !routed && routing.realtorRoute === "Link owner";
       const id = crypto.randomUUID();
       const ownerEmail = useLinkOwner ? portal.officerEmail : routed?.owner?.email ?? null;
-      db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, realtorSharedSince)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, data.requestId, portal.realtorId, data.name,
+      db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, realtorSharedSince, propertyState)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, data.requestId, portal.realtorId, data.name,
         data.email, data.phone, data.purpose, useLinkOwner ? portal.officer : routed?.owner?.name.slice(0, 160) ?? "",
-        ownerEmail, now, firstContactDue(now, routing), ownerEmail === null ? now : null);
+        ownerEmail, now, firstContactDue(now, routing), ownerEmail === null ? now : null, data.propertyState);
       queueAutomationEvent(db, { eventType: "lead.created", kind: "lead", id, revision: 1, origin: "Realtor referral" }, now);
       startLeadFollowUp(db, id, now, data);
       if (pilot) accessEvent(db, { name: "Realtor", email: "Realtor" }, "Pilot referral received", id, now);

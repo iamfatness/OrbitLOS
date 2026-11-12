@@ -96,7 +96,7 @@ function LeadHeading({ lead, now, flagged }: { lead: InboxLeadSummary; now: numb
     <div className="document-item-head"><strong>{lead.name}</strong><span className={overdue ? "open-chip" : "pill"}>
       {lead.heldAt ? "On hold" : lead.outreachSuppressed ? "Outreach opted out" : followUp.replyReceivedAt ? "Reply received" :
         overdue ? "First contact overdue" : followUp.firstContactAt ? "Outreach logged" : "First contact due"}</span></div>
-    <p>{lead.realtorName ? `Realtor referral · ${lead.realtorName}` : lead.source} · {lead.purpose}{lead.zip && ` · ZIP ${lead.zip}`}</p>
+    <p>{lead.realtorName ? `Realtor referral · ${lead.realtorName}` : lead.source} · {lead.purpose}{lead.propertyState && ` · Property ${lead.propertyState}`}{lead.zip && ` · ZIP ${lead.zip}`}</p>
     <p className="muted">{lead.officer || "Shared inbox"}{lead.heldAt
       ? lead.revisitDate && ` · Revisit ${lead.revisitDate}`
       : ` · ${dateTime(followUp.replyReceivedAt ?? followUp.firstContactAt ?? lead.dueAt)} ET`}{flagged && " · Possible duplicate"}</p>
@@ -163,7 +163,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         {lead.quoteConsent !== undefined && <QuoteConsentEvidence receipt={lead.quoteConsent} />}
         {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
         {staff?.brokerage.role === "Admin" && workspaceFeatures(staff.brokerage).compliance &&
-          <LeadLicenseStateReview key={lead.id} brokerageId={staff.brokerage.id} />}
+          <LeadLicenseStateReview key={lead.id} brokerageId={staff.brokerage.id} propertyState={lead.propertyState} />}
         {isAdmin && members.length > 0 && <form className="task-form" key={lead.officerEmail ?? ""} onSubmit={(event) => {
           event.preventDefault();
           const email = String(new FormData(event.currentTarget).get("owner") ?? "");

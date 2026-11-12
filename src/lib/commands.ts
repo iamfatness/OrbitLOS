@@ -1435,7 +1435,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             db.prepare("INSERT INTO tasks (id, loanId, title, dueAt, completedAt, purpose) VALUES (?, ?, 'Make first contact', ?, ?, 'Prospecting')")
               .run(`first-contact:${loanId}`, loanId, lead.dueAt, firstContactAt);
           }
-          if (!startApplication(db, loanId, now, staff?.brokerage.id, { email, phone, propertyZip: String(lead.zip ?? ""), reviewedFields })) {
+          if (!startApplication(db, loanId, now, staff?.brokerage.id, { email, phone, propertyZip: String(lead.zip ?? ""),
+            propertyState: String(lead.propertyState ?? ""), reviewedFields })) {
             throw new WorkspaceError("Orbit could not create the borrower link.");
           }
           if (typeof lead.pastClientLoanId === "string") {

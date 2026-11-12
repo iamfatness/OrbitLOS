@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { intakePropertyState } from "./property-state";
 import { portalTokenPattern } from "./brokerage-model";
 import type { BranchChoice } from "./branch-model";
 import { leadContactFields } from "./lead-inbox-model";
@@ -136,7 +137,7 @@ export const quoteIntakeSettingsRequest = z.discriminatedUnion("type", [
 
 export const quoteLeadInput = z.object({
   type: z.literal("submit").optional(), token, requestId: z.uuid(), formRevision: revision.default(0), ...leadContactFields,
-  zip: propertyZip.default(""), timing: z.enum(["", ...quoteTimelines]).default(""),
+  propertyState: intakePropertyState, zip: propertyZip.default(""), timing: z.enum(["", ...quoteTimelines]).default(""),
   answer: z.string().trim().max(200).default(""), consent: z.literal(true), website: z.literal("").optional(),
   consentFingerprint: quoteConsentFingerprint.optional(),
   answers: quoteQuestionAnswers,

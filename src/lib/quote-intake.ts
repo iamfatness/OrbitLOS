@@ -186,7 +186,7 @@ function campaignReceipt(route: QuoteRouting, destination: string, note: string)
 export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnType<typeof quoteIntakeRouting>, members: QuoteRoutingMember[] = [],
   now = new Date().toISOString()): QuotePortalResult {
   const parsed = quotePortalRequest.safeParse(input);
-  if (!parsed.success) return { status: 400, error: "Enter a name, an email or phone, a valid ZIP if provided, and permission to follow up." };
+  if (!parsed.success) return { status: 400, error: "Enter a name, an email or phone, a valid property state and ZIP if provided, and permission to follow up." };
   const data = parsed.data;
   return db.transaction(() => {
     const current = leadRouting(db);
@@ -226,10 +226,10 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
     const zip = form.config.zip === "Hidden" ? "" : data.zip;
     const timing = form.config.timing === "Hidden" ? "" : data.timing;
     const answer = form.config.question ? data.answer : "";
-    db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, zip, importSource)
-      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Website quote request')`)
+    db.prepare(`INSERT INTO referral_leads (id, requestId, realtorId, name, email, phone, purpose, officer, officerEmail, createdAt, dueAt, zip, propertyState, importSource)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Website quote request')`)
       .run(id, data.requestId, data.name, data.email, data.phone, data.purpose, owner?.name.slice(0, 160) ?? "", owner?.email ?? null, now,
-        firstContactDue(now, current), zip);
+        firstContactDue(now, current), zip, data.propertyState);
     queueAutomationEvent(db, { eventType: "lead.created", kind: "lead", id, revision: 1, origin: "Website quote request" }, now);
     startLeadFollowUp(db, id, now, data);
     let enrolled: string | null = null;

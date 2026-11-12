@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { countLicenseRecords, licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseRenewalOwner, licenseStatuses,
   type LicenseHistory, type LicenseHolder, type LicenseRenewalOwner, type LicenseRenewalTarget, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
-import { licenseStateName as stateName, LicenseRecordStatus } from "./license-state-review";
+import { propertyStateName as stateName } from "@/lib/property-state";
+import { LicenseRecordStatus } from "./license-state-review";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 

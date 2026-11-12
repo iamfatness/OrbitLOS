@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 import { SharedPreapprovalDownload } from "./shared-preapproval";
+import { OptionalPropertyState } from "./property-state-field";
 import { FinancingTerms } from "./realtor-financing-summary";
 
 class ReferralRequestError extends Error {
@@ -38,7 +39,8 @@ function ReferralForm({ token, initiallyOpen, onSubmitted }: { token: string; in
     const form = event.currentTarget;
     const fields = new FormData(form);
     const referral = { name: String(fields.get("name") ?? "").trim(), email: String(fields.get("email") ?? "").trim(),
-      phone: String(fields.get("phone") ?? "").trim(), purpose: fields.get("purpose"), consent: fields.has("consent") };
+      phone: String(fields.get("phone") ?? "").trim(), purpose: fields.get("purpose"),
+      propertyState: fields.get("propertyState"), consent: fields.has("consent") };
     setError("");
     if (!referral.email && !referral.phone) {
       setError("Enter an email address or phone number.");
@@ -73,6 +75,7 @@ function ReferralForm({ token, initiallyOpen, onSubmitted }: { token: string; in
         <label className="field">Loan purpose<select name="purpose" disabled={busy}><option>Purchase</option><option>Refinance</option></select></label>
         <label className="field">Prospect email<input name="email" type="email" autoComplete="off" maxLength={160} disabled={busy} /></label>
         <label className="field">Prospect phone<input name="phone" type="tel" autoComplete="off" maxLength={40} disabled={busy} /></label>
+        <OptionalPropertyState disabled={busy} />
       </div>
       <label className="demo-confirm"><input type="checkbox" name="consent" required disabled={busy} /> I have permission to share these details with the loan team.</label>
       <div><Button type="submit" disabled={busy}>{busy ? "Submitting…" : "Submit referral"}</Button></div>

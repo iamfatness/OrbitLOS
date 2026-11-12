@@ -182,12 +182,12 @@ export function addApplicationActivity(db: Store, loanId: string, text: string, 
 function fillPropertyLocality(location: AddressLocation): AddressLocation {
   if (location.city && location.state) return location;
   const locality = zipCityState(location.zip);
-  if (!locality) return location;
+  if (!locality || (location.state && location.state.toUpperCase() !== locality.state)) return location;
   return { ...location, city: location.city || locality.city, state: location.state || locality.state };
 }
 
 export function startApplication(db: Store, loanId: string, now: string, brokerageId?: string,
-  intake?: { email?: string; phone?: string; propertyZip?: string; propertyAddress?: string;
+  intake?: { email?: string; phone?: string; propertyZip?: string; propertyAddress?: string; propertyState?: string;
     reviewedFields?: Partial<Pick<ApplicationDraft, "occupancy" | "loanAmount" | "estimatedValue">> }) {
   const loan = db.prepare(`SELECT loans.address, loans.amount, loans.purpose, contacts.name, contacts.email, contacts.phone
     FROM loans JOIN contacts ON contacts.id = loans.contactId WHERE loans.id = ?`).get(loanId);
@@ -207,7 +207,7 @@ export function startApplication(db: Store, loanId: string, now: string, brokera
   const purpose = loan.purpose === "Refinance" ? "Refinance" : "Purchase";
   const draft: ApplicationDraft = {
     ...blankApplication(), borrowerName: String(loan.name), propertyAddress: property.street,
-    propertyLocation: fillPropertyLocality({ ...property.location, zip }),
+    propertyLocation: fillPropertyLocality({ ...property.location, zip, state: property.location.state || intake?.propertyState || "" }),
     email: email.length <= 160 ? email : "", phone: intake?.phone || String(loan.phone),
     loanAmount: Number(loan.amount) > 0 ? String(loan.amount) : "",
     purpose,

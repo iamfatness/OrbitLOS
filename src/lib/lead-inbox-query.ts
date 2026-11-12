@@ -26,7 +26,7 @@ export function inboxLeadScope(staff: WorkspaceStaff | null) {
 }
 
 function readInboxBatch(db: Store, where: string, args: SqlValue[], after: LeadCursor | undefined, limit: number) {
-  return db.prepare(`SELECT lead.id, lead.name, lead.officer, lead.officerEmail, lead.purpose, lead.zip, lead.dueAt, lead.heldAt, lead.revisitDate,
+  return db.prepare(`SELECT lead.id, lead.name, lead.officer, lead.officerEmail, lead.purpose, lead.zip, lead.propertyState, lead.dueAt, lead.heldAt, lead.revisitDate,
     contact.name AS realtorName, coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
     lead.email, lead.phone, lead.importedContactId AS contactId, coalesce(member.lastOutcome = 'Opted out', 0) AS campaignOptedOut,
     follow.firstContactAt, follow.replyReceivedAt

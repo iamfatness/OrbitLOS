@@ -4089,17 +4089,21 @@ try {
   const returningBorrower = { name: "Fictional Lake Campaign Client", email: "working-day-lake-client@example.test", phone: "202-555-0187" };
   const crmFilter = { from: today, through: today, owner: `email:${officer.email}`, windowDays: 0 };
   const original = await stage("A portal realtor referral reaches funding and reconciles to its original partner", async () => {
-    const referral = { type: "submit", token: realtorToken, requestId: randomUUID(), ...returningBorrower, purpose: "Purchase", consent: true };
+    const referral = { type: "submit", token: realtorToken, requestId: randomUUID(), ...returningBorrower, purpose: "Purchase", propertyState: "mi", consent: true };
+    assert.equal((await postResponse("/api/realtor-referrals", { ...referral, propertyState: "XX" })).status, 400);
     const result = await post("/api/realtor-referrals", referral);
     assert.ok(result.referrals.some(({ borrowerName, stage }) => borrowerName === returningBorrower.name && stage === "Referral received"));
     const { leads } = await action(officer, "readInboxWork", { type: "list", view: "Needs first contact" });
     const lead = leads.find(({ name }) => name === returningBorrower.name);
     assert.equal(lead?.officerEmail, officer.email);
+    assert.equal(lead?.propertyState, "MI");
     assert.ok((await action(competingOfficer, "readInboxWork", { type: "open", id: lead.id })).error);
     const { lead: current } = await action(officer, "readInboxWork", { type: "open", id: lead.id });
     await write(officer, { type: "leadContact", leadId: lead.id, revision: current.followUp.revision, channel: "Call", outcome: "Connected",
       note: "Fictional borrower confirmed a purchase application." });
     const converted = await post(`/api/lead-conversion?brokerage=${brokerage}`, { type: "convertReferral", referralId: lead.id, contactId: null }, officer);
+    const referralDraft = await borrower(converted.inboxLoan.applications[0].token, { type: "read" });
+    assert.equal(referralDraft.draft.propertyLocation.state, "MI");
     const funded = await fundMockLoan(converted.referralLoanId, "Purchase", returningBorrower.name);
     const portal = await realtor(realtorToken);
     assert.ok(portal.referrals.some(({ borrowerName, stage }) => borrowerName === returningBorrower.name && stage === "Funded"));
@@ -5720,13 +5724,14 @@ try {
     const old = await read();
     const payload = { type: "submit", token: quoteToken, purpose: profile, requestId: randomUUID(), formRevision: old.revision,
       consentFingerprint: old.consentFingerprint, name: "Fictional consent receipt", email: "working-day-consent@example.test", phone: "",
-      zip: "48304", timing: "In 1 to 3 months", answer: "A fictional home.", consent: true };
+      propertyState: "oh", zip: "48304", timing: "In 1 to 3 months", answer: "A fictional home.", consent: true };
     const next = await post(path, { type: "publish", profile, revision: first.revision, config: { ...config, consentText: nextWording } }, owner);
     assert.equal((await postResponse(publicPath, payload)).status, 409);
     const form = await read();
     assert.equal(form.config.consentText, nextWording);
     const accepted = { ...payload, formRevision: form.revision, consentFingerprint: form.consentFingerprint };
     assert.equal((await postResponse(publicPath, { ...accepted, consentFingerprint: undefined })).status, 409);
+    assert.equal((await postResponse(publicPath, { ...accepted, propertyState: "XX" })).status, 400);
     assert.deepEqual(await post(publicPath, accepted), { received: true });
     const lead = (await workspace(owner)).inboxLeads.find(({ name }) => name === payload.name);
     assert.ok(lead);
@@ -5734,6 +5739,7 @@ try {
     const selected = await action(officer, "readInboxWork", { type: "open", id: lead.id });
     assert.equal(selected.kind, "open", selected.error);
     assert.ok((await action(processor, "readInboxWork", { type: "open", id: lead.id })).error);
+    assert.equal(selected.lead.propertyState, "OH");
     assert.equal(selected.lead.quoteConsent.wording, nextWording);
     assert.equal(selected.lead.quoteConsent.formRevision, next.revision);
     const replacement = await post(path, { type: "publish", profile, revision: next.revision, config: { ...config, consentText: wording } }, owner);
@@ -5743,6 +5749,8 @@ try {
       { type: "convertReferral", referralId: lead.id, contactId: null }, officer);
     const loanId = converted.inboxLoan.loanId;
     assert.deepEqual((await file(officer, loanId)).quoteConsent, selected.lead.quoteConsent);
+    const quoteDraft = await borrower(converted.inboxLoan.applications[0].token, { type: "read" });
+    assert.deepEqual(quoteDraft.draft.propertyLocation, { unit: "", city: "", state: "OH", zip: "48304" });
     return { quoteToken, profile, wording, nextWording, loanId, loanName: payload.name };
   });
 

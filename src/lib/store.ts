@@ -655,7 +655,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, purpose TEXT NOT NULL,
       officer TEXT NOT NULL, officerEmail TEXT, createdAt TEXT NOT NULL, dueAt TEXT NOT NULL,
       resolvedAt TEXT, loanId TEXT UNIQUE REFERENCES loans(id) ON DELETE SET NULL, zip TEXT NOT NULL DEFAULT '',
-      realtorSharedSince TEXT, UNIQUE (realtorId, requestId)
+      realtorSharedSince TEXT, propertyState TEXT NOT NULL DEFAULT '', UNIQUE (realtorId, requestId)
     );
     CREATE INDEX IF NOT EXISTS referral_leads_by_realtor ON referral_leads(realtorId, createdAt);
     CREATE TABLE IF NOT EXISTS pilot_scenario (
@@ -1023,6 +1023,9 @@ export function initializeStore(db: Store, seedDemo = true) {
         WHERE audit.subject = referral_leads.id AND audit.createdAt = referral_leads.resolvedAt
           AND referral_leads.loanId IS NULL AND audit.action IN ('Dismissed imported lead', 'Dismissed referral', 'Dismissed quote request');
         CREATE INDEX leads_by_archive_time ON referral_leads(resolvedAt DESC, id DESC) WHERE archiveToken IS NOT NULL;`);
+    }
+    if (!db.prepare("PRAGMA table_info(referral_leads)").all().some(({ name }) => name === "propertyState")) {
+      db.exec("ALTER TABLE referral_leads ADD COLUMN propertyState TEXT NOT NULL DEFAULT ''");
     }
     if (!db.prepare("PRAGMA table_info(referral_leads)").all().some((column) => column.name === "realtorSharedSince")) {
       db.exec("ALTER TABLE referral_leads ADD COLUMN realtorSharedSince TEXT");
@@ -1940,7 +1943,7 @@ function inboxLeadRows(db: Store, leadIds?: string | string[]) {
   return rows<InboxLeadRow & { contactHours: string | null; intakeProfile: string | null; intakeRevision: number | null;
     intakeAnswers: string | null; routingReceipt: string | null; consentReceipt: string | null }>(db,
     `SELECT lead.id, lead.realtorId, contacts.name AS realtorName,
-      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.importedContactId,
+      lead.name, lead.email, lead.phone, lead.purpose, lead.officer, lead.officerEmail, lead.createdAt, lead.dueAt, lead.zip, lead.propertyState, lead.importedContactId,
       lead.heldAt, lead.holdReason, lead.revisitDate, ${leadChannelBlocksSql} AS outreachChannelBlocks,
       ${leadBorrowerHoursSql} AS contactHours,
       coalesce(lead.importSource, CASE WHEN lead.realtorId IS NULL THEN 'Website quote request' ELSE 'Realtor referral' END) AS source,
