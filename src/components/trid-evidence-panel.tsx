@@ -33,9 +33,10 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
   const [action, setAction] = useState<keyof typeof actions>("scope");
   const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [readError, setReadError] = useState("");
   const [message, setMessage] = useState<{ text: string; error?: true }>();
   const [formRevision, setFormRevision] = useState(0);
-  const feedback = useRef<HTMLParagraphElement>(null);
+  const feedback = useRef<HTMLDivElement>(null);
   const retry = useRef<{ event: string; id: string; revision: number } | null>(null);
 
   useEffect(() => {
@@ -46,9 +47,11 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
       if ("error" in response) throw new Error(response.error);
       if (response.kind !== "trid") throw new Error("TRID evidence could not be loaded.");
       if ("error" in response.result) throw new Error(response.result.error);
-      setData(response.result);
+      const next = response.result;
+      setData(current => current && current.revision > next.revision ? current : next);
+      setReadError("");
     }).catch(error => {
-      if (active) setMessage({ text: error instanceof Error ? error.message : "Refresh to load TRID evidence.", error: true });
+      if (active) setReadError(error instanceof Error && !(error instanceof TypeError) ? error.message : "Could not load the evidence. Refresh to try again.");
     });
     return () => { active = false; };
   }, [open, refresh, loanId, brokerageId]);
@@ -101,7 +104,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
       retry.current = null;
       setMessage({ text: "Evidence recorded." });
     } catch (error) {
-      setMessage({ text: error instanceof Error ? error.message : "Save could not be confirmed. Retry the same evidence.", error: true });
+      setMessage({ text: error instanceof Error && !(error instanceof TypeError) ? error.message : "Save could not be confirmed. Retry the same evidence.", error: true });
     } finally {
       setBusy(false);
     }
@@ -109,37 +112,44 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
 
   const timing = data?.timing;
   const withdrawn = new Set(data?.entries.flatMap(({ event }) => event.type === "void" ? [event.sequence] : []));
-  return <details className="details-section" onToggle={event => setOpen(event.currentTarget.open)}>
+  const receiptDates = new Map(data?.entries.flatMap(({ sequence, event }) =>
+    event.type === "element" && !withdrawn.has(sequence) ? [[event.element, event.on] as const] : []));
+  return <details className="details-section trid-evidence" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>TRID application and delivery evidence</summary>
-    {open && <div className="record-form">
-      <p className="muted">Michigan pilot timing review for a covered consumer closed-end mortgage with one required disclosure recipient and no timing exception. Record source references without SSNs or other borrower values.</p>
-      {message && <p ref={feedback} tabIndex={-1} role={message.error ? "alert" : "status"}>{message.text}</p>}
-      <div><Button size="sm" variant="outline" disabled={busy} onClick={() => { setMessage(undefined); setRefresh(value => value + 1); }}>Refresh evidence</Button></div>
-      {!timing && !message && <p role="status">Loading TRID evidence…</p>}
+    {open && <div className="record-form compliance-pilot-form">
+      <p className="muted">Internal Michigan pilot. Timing checks use staff-entered evidence for a covered consumer mortgage with one required disclosure recipient and no timing exception.</p>
+      <div><Button size="sm" variant="outline" disabled={busy} onClick={() => { setReadError(""); setMessage(undefined); setRefresh(value => value + 1); }}>Refresh evidence</Button></div>
+      {readError && <p role="alert" className="application-message banner-error">{readError}</p>}
+      {!timing && !readError && <p role="status">Loading TRID evidence…</p>}
       {data && timing && <>
-        <dl>
-          <dt>Six elements received</dt><dd>{timing.applicationOn ?? "Waiting for receipt dates"}</dd>
-          <dt>Initial Loan Estimate send</dt><dd>{timing.leStatus}{timing.leDue && ` · Due ${timing.leDue}`}</dd>
-          <dt>Loan Estimate waiting period</dt><dd>{timing.leWait}{timing.leEarliest && ` · Earliest ${timing.leEarliest}`}</dd>
-          <dt>Initial Closing Disclosure receipt</dt><dd>{timing.cdReceiptBasis}{timing.cdReceipt && ` · ${timing.cdReceipt}`}</dd>
-          <dt>Closing Disclosure waiting period</dt><dd>{timing.cdWait}{timing.cdEarliest && ` · Earliest ${timing.cdEarliest}`}</dd>
-          <dt>Planned consummation</dt><dd>{timing.closingOn ?? "Missing date"}</dd>
+        <h3>Application and disclosure timing</h3>
+        <dl className="trid-timing">
+          <div><dt>Application receipt date</dt><dd>{timing.applicationOn ?? `${receiptDates.size} of 6 elements recorded`}</dd></div>
+          <div><dt>Planned consummation</dt><dd>{timing.closingOn ?? "Missing date"}</dd></div>
+          <div><dt>Initial Loan Estimate send</dt><dd>{timing.leStatus}{timing.leDue && ` · Due ${timing.leDue}`}</dd></div>
+          <div><dt>Loan Estimate waiting period</dt><dd>{timing.leWait}{timing.leEarliest && ` · Earliest ${timing.leEarliest}`}</dd></div>
+          <div><dt>Initial Closing Disclosure receipt</dt><dd>{timing.cdReceiptBasis}{timing.cdReceipt && ` · ${timing.cdReceipt}`}</dd></div>
+          <div><dt>Closing Disclosure waiting period</dt><dd>{timing.cdWait}{timing.cdEarliest && ` · Earliest ${timing.cdEarliest}`}</dd></div>
         </dl>
-        <ul aria-label="Application receipt evidence">
-          {Object.entries(tridElements).map(([key, label]) => {
-            const receipt = data.entries.filter(entry => !withdrawn.has(entry.sequence))
-              .map(entry => entry.event).filter(event => event.type === "element").find(event => event.element === key);
-            return <li key={key}>{label} · {receipt?.on ?? "Receipt date missing"}</li>;
-          })}
-        </ul>
-        {!readOnly && <>
+        <details className="details-section">
+          <summary>Application receipts ({receiptDates.size} of 6)</summary>
+          <dl className="trid-timing" aria-label="Application receipt evidence">
+            {Object.entries(tridElements).map(([key, label]) => <div key={key}><dt>{label}</dt>
+              <dd>{receiptDates.get(key as keyof typeof tridElements) ?? "Receipt date missing"}</dd></div>)}
+          </dl>
+        </details>
+        {readOnly ? <p className="muted">Evidence is read-only for this view.</p> : <section className="record-form" aria-label="Record evidence">
+          <h3>Record evidence</h3>
+          <p className="muted">Use source references. Leave out SSNs and other borrower values.</p>
           <label className="field">Evidence to record<select disabled={busy} value={action} onChange={e => setAction(e.target.value as keyof typeof actions)}>
             {Object.entries(actions).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select></label>
+          {message && <div ref={feedback} tabIndex={-1} className={message.error ? "application-message banner-error" : "application-message"}
+            role={message.error ? "alert" : "status"}>{message.text}</div>}
           <form key={`${action}:${formRevision}`} onSubmit={record} className="record-form">
             <fieldset disabled={busy} className="record-form">
               {action === "scope" && <>
-                <label><input type="checkbox" name="coveredScenario" required /> This file matches the pilot scenario above.</label>
+                <label className="compliance-choice"><input type="checkbox" name="coveredScenario" required /> This file matches the pilot scenario above.</label>
                 <label className="field">Creditor<input name="creditor" required maxLength={180} defaultValue={timing.scope?.creditor} /></label>
                 <div className="form-grid">
                   <label className="field">Responsible Loan Estimate sender<select name="leSender" defaultValue={timing.scope?.leSender}><option>Creditor</option><option>Broker</option></select></label>
@@ -149,7 +159,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                 </div>
                 <fieldset className="record-form"><legend>Sender’s office open for substantially all business functions</legend>
                   <div className="loan-application-actions">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) =>
-                    <label key={day}><input name="openWeekdays" value={index} type="checkbox" defaultChecked={timing.scope?.openWeekdays.includes(index)} /> {day}</label>)}</div>
+                    <label className="compliance-choice" key={day}><input name="openWeekdays" value={index} type="checkbox" defaultChecked={timing.scope?.openWeekdays.includes(index)} /> {day}</label>)}</div>
                 </fieldset>
                 <label className="field">Closure exceptions (YYYY-MM-DD, one per line)<textarea name="closures" defaultValue={timing.scope?.closures.join("\n")} /></label>
                 <label className="field">Extra open dates (YYYY-MM-DD, one per line)<textarea name="extraOpen" defaultValue={timing.scope?.extraOpen.join("\n")} /></label>
@@ -174,8 +184,8 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
               <div><Button type="submit" size="sm">{busy ? "Recording…" : actions[action]}</Button></div>
             </fieldset>
           </form>
-        </>}
-        <details><summary>Evidence history ({data.entries.length})</summary>
+        </section>}
+        <details className="details-section"><summary>Evidence history ({data.entries.length})</summary>
           {data.entries.length === 0 && <p>No evidence recorded.</p>}
           <ol className="document-list">{data.entries.map(entry => <li key={entry.sequence} className="document-item">
             <div><strong>{entry.sequence}. {describe(entry.event)}</strong><p>{entry.event.reference} · {entry.actor} · {entry.at}</p>

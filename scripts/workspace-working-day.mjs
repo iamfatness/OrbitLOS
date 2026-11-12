@@ -1669,6 +1669,14 @@ try {
       assert.equal(sent.result.timing.cdEarliest, null);
       const received = await recordTrid(officer, 8, { type: "received", document: "Initial CD", version: "fixture-cd", on: "2026-07-09", reference: "Fictional receipt record" });
       assert.equal(received.result.timing.cdEarliest, "2026-07-13");
+      assert.equal((await readTrid(processor)).result.revision, received.result.revision);
+      const corrected = await recordTrid(owner, 9, { ...send, document: "Corrected CD", version: "fixture-cd-correction",
+        method: "Mail", on: "2026-07-10" });
+      assert.match(corrected.result.timing.cdWait, /Review corrected CD/);
+      assert.equal(corrected.result.timing.cdEarliest, null);
+      const withdrawn = await recordTrid(owner, 10, { type: "void", sequence: 10, reference: "Fictional correction withdrawn" });
+      assert.equal(withdrawn.result.timing.cdEarliest, "2026-07-13");
+      assert.equal(withdrawn.result.entries.length, 11);
     }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;

@@ -702,6 +702,17 @@ button:disabled { cursor: default; }
   margin: 0;
   accent-color: var(--accent);
 }
+.trid-evidence summary { cursor: pointer; font-weight: 650; }
+.trid-evidence > summary { padding-block: 5px 10px; }
+.trid-evidence .details-section > summary { padding-bottom: 9px; }
+.trid-timing {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 10px 16px;
+}
+.trid-timing > div { border-top: 1px solid var(--line); padding-top: 8px; }
+.trid-timing dt { color: var(--muted); }
+.trid-timing dd { font-weight: 600; overflow-wrap: anywhere; }
 @media (max-width: 560px) {
   .compliance-pilot-form .form-grid { grid-template-columns: minmax(0, 1fr); }
   .compliance-pilot-form :is(select, input:not([type="checkbox"], [type="radio"]), button) { min-height: 44px; }
