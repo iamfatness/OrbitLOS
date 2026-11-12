@@ -48,7 +48,7 @@ const scope = { entityId: z.uuid(), month: programMonth };
 export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("entities") }),
   z.strictObject({ operation: z.literal("createEntity"), ...change, name: title, nmls: z.string().regex(/^\d{0,15}$/), scopeNote: note }),
-  z.strictObject({ operation: z.literal("licenseRenewals"), after: licenseRenewalCursor.optional() }),
+  z.strictObject({ operation: z.literal("licenseRenewals"), scope: z.enum(["mine", "brokerage"]).optional(), after: licenseRenewalCursor.optional() }),
   z.strictObject({ operation: z.literal("licenseHistory"), entityId: z.uuid(), licenseId: z.uuid() }),
   z.strictObject({ operation: z.literal("licenses"), entityId: z.uuid() }),
   z.strictObject({ operation: z.literal("saveLicense"), ...change, entityId: z.uuid(), id: z.uuid(), revision: z.number().int().nonnegative(), ...licenseFields.shape, holder: licenseHolder.optional(),

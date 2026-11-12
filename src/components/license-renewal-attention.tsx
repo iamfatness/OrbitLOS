@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, CalendarClock } from "lucide-react";
 import { accessComplianceCases } from "@/app/actions";
 import type { LicenseRenewalCursor, LicenseRenewalQueue, LicenseRenewalTarget } from "@/lib/compliance-program-model";
-import { observeTabReturn } from "@/lib/tab-return";
+import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { Button } from "./ui/button";
 
 export type LicenseRenewalVisit = { target: LicenseRenewalTarget; after?: LicenseRenewalCursor };
 
 const actionId = ({ entityId, licenseId }: LicenseRenewalTarget) => `renewal-${entityId}-${licenseId}`;
 
-export function LicenseRenewalAttention({ brokerageId, busy, open, returning }: {
-  brokerageId: string; busy: boolean; open: (visit: LicenseRenewalVisit) => void; returning?: LicenseRenewalVisit;
+export function LicenseRenewalAttention({ brokerageId, busy, open, returning, mine = false }: {
+  brokerageId: string; busy: boolean; open: (visit: LicenseRenewalVisit) => void; returning?: LicenseRenewalVisit; mine?: boolean;
 }) {
   const [after, setAfter] = useState(returning?.after);
   const [data, setData] = useState<LicenseRenewalQueue>();
@@ -20,6 +20,8 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning }: 
   const [error, setError] = useState(false);
   const [generation, setGeneration] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
+  const headingId = useId();
+  const Heading = mine ? "h3" : "h2";
   const restoreFocus = useRef(!!returning);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning }: 
       if (reading) return;
       reading = true;
       try {
-        const result = await accessComplianceCases({ type: "program", input: { operation: "licenseRenewals", after } }, brokerageId);
+        const result = await accessComplianceCases({ type: "program", input: { operation: "licenseRenewals", scope: mine ? "mine" : "brokerage", after } }, brokerageId);
         if (!active || !isCurrent()) return;
         if (!("kind" in result) || result.kind !== "licenseRenewals") throw new Error();
         setData(result);
@@ -43,10 +45,11 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning }: 
     }
     void read(() => true);
     const stop = observeTabReturn(document, window, (isCurrent) => void read(isCurrent));
+    const stopChecks = mine ? observeVisibleChecks(document, window, read, 60_000) : undefined;
     const untilTomorrow = Date.parse(new Date().toISOString().slice(0, 10)) + 86400000 - Date.now();
     const timer = setTimeout(() => setGeneration(value => value + 1), Math.max(1000, untilTomorrow + 50));
-    return () => { active = false; stop(); clearTimeout(timer); };
-  }, [after, brokerageId, generation]);
+    return () => { active = false; stop(); stopChecks?.(); clearTimeout(timer); };
+  }, [after, brokerageId, generation, mine]);
 
   useEffect(() => {
     if (loading || !restoreFocus.current) return;
@@ -63,9 +66,9 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning }: 
     setAfter(cursor);
   }
 
-  return <section className="integration record-form" aria-labelledby="license-renewal-heading">
+  return <section className={mine ? "document-item record-form" : "integration record-form"} aria-labelledby={headingId}>
     <div className="section-heading">
-      <h2 id="license-renewal-heading" tabIndex={-1} ref={heading}><CalendarClock size={19} aria-hidden="true" /> License renewals</h2>
+      <Heading id={headingId} tabIndex={-1} ref={heading}>{!mine && <CalendarClock size={19} aria-hidden="true" />}{mine ? "My license renewals" : "License renewals"}</Heading>
       <Button type="button" size="sm" variant="outline" disabled={loading || busy} onClick={() => {
         setLoading(true); setError(false); setGeneration(value => value + 1);
       }}>Refresh renewals</Button>
@@ -78,14 +81,14 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning }: 
         <div className="document-item-head"><strong>{item.jurisdiction} · {item.licenseType}</strong><span className="pill">{item.renewal}</span></div>
         <p className="muted">{item.entityName} · {item.holderLabel}</p>
         <p className="muted">{item.licenseNumber} · Expiration {item.expiresOn}</p>
-        <p className="muted">Renewal owner · {item.renewalOwner?.name ?? "Unassigned"}
-          {item.renewalOwner && !item.renewalOwner.available && " · Owner needs review"}</p>
+        {!mine && <p className="muted">Renewal owner · {item.renewalOwner?.name ?? "Unassigned"}
+          {item.renewalOwner && !item.renewalOwner.available && " · Owner needs review"}</p>}
         <Button id={actionId(item)} type="button" size="sm" variant="outline" disabled={busy}
           aria-label={`Review ${item.jurisdiction} license ${item.licenseNumber} for ${item.entityName}`}
           onClick={() => open({ target: item, after })}>Review license<ArrowRight aria-hidden="true" /></Button>
       </li>)}</ul>
       {!data.items.length && <p className="empty-inline">No renewals remain on this page.</p>}
-    </> : <p className="empty-inline" role="status">No licenses need renewal review.</p>)}
+    </> : <p className="empty-inline" role="status">{mine ? "No license renewals assigned to you need review." : "No licenses need renewal review."}</p>)}
     {(after || data?.next) && <div className="loan-application-actions">
       {after && <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => changePage()}>First renewal page</Button>}
       {data?.next && <Button size="sm" variant="outline" disabled={loading || busy} onClick={() => changePage(data.next ?? undefined)}>Next renewal page</Button>}

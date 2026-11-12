@@ -16,13 +16,13 @@ import { Button } from "./ui/button";
 
 const todayViews = ["My Tasks", "Stalled loans", "My production", "Past-client opportunities"] as const;
 
-export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients, complianceWork, refreshCounts }: {
+export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients, complianceWork, renewalWork, refreshCounts }: {
   brokerageId: string; version: object; busy: boolean; openWork: (item: OfficerQueueItem) => void; openTasks: () => void;
   save: (input: unknown) => Promise<void>;
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
   refreshCounts: () => void;
   openReply: (id: string) => void; openFunding: (id: string) => void; openOpportunity: (item: RetentionOpportunity) => void;
-  openPastClients: () => void; openStalled: (id: string) => void; refreshStalled: () => void; complianceWork?: ReactNode;
+  openPastClients: () => void; openStalled: (id: string) => void; refreshStalled: () => void; complianceWork?: ReactNode; renewalWork?: ReactNode;
 }) {
   const [view, setView] = useState<(typeof todayViews)[number]>("My Tasks");
   const [query, setQuery] = useState<OfficerQueueQuery>({ horizon: 1 });
@@ -69,6 +69,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
     <IncomingLoanWorkQueue brokerageId={brokerageId} view="today" paused={busy || reviewingLoan} version={version} open={openIncomingLoanWork}
       onLeadDocumentChange={() => setDeadlineRefresh((count) => count + 1)} onPreapprovalChange={refreshCounts} />
     {complianceWork}
+    {renewalWork}
     {replyResult && "error" in replyResult && <p role="alert">{replyResult.error}</p>}
     {replies && <ConversationReplies page={replies} today={today} after={query.replyAfter} open={openReply}
       onPage={(replyAfter) => setQuery((last) => ({ ...last, replyAfter }))} />}

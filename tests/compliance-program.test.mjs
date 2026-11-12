@@ -10,6 +10,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 const { initializeStore } = await import("../src/lib/store.ts");
+const { readActionCounts } = await import("../src/lib/workspace-action-counts.ts");
 const { initializeComplianceProgram } = await import("../src/lib/compliance-program.ts");
 const { updateBranch } = await import("../src/lib/branches.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
@@ -275,4 +276,32 @@ test("renewal owner changes are versioned, safely replayed and visible in exact 
   assert.ok(f.run(historyRequest, f.lo).error);
   assert.ok(f.run({ ...historyRequest, entityId: crypto.randomUUID() }).error);
   assert.equal(f.run({ ...revise, revision: 3, requestId: crypto.randomUUID(), renewalOwner: null }).licenses[0].renewalOwner, null);
+});
+
+test("Today counts and lists only renewals assigned to the current admin access revision", t => {
+  const f = fixture(t);
+  const entity = f.entity();
+  const request = { operation: "saveLicense", entityId: entity.id, id: crypto.randomUUID(), requestId: crypto.randomUUID(), revision: 0,
+    jurisdiction: "MI", licenseType: "Fictional company authority", licenseNumber: "TODAY-1", status: "Active",
+    effectiveOn: null, expiresOn: "2026-12-05", evidence: "", renewalOwner: { email: f.owner.email, accessRevision: 1 } };
+  const mine = { operation: "licenseRenewals", scope: "mine" };
+  const count = actor => readActionCounts(f.db, f.staff(actor), f.tenant, new Date(now)).today;
+  const beforeOwner = count(f.owner);
+  const beforeBackup = count(f.backup);
+  assert.equal(f.run(request).licenses[0].renewalOwner.email, f.owner.email);
+  assert.equal(f.run(mine).total, 1);
+  assert.equal(f.run(mine, f.backup).total, 0);
+  assert.equal(count(f.owner), beforeOwner + 1);
+  assert.equal(count(f.backup), beforeBackup);
+  assert.ok(f.run(mine, f.lo).error);
+  const updatedOwner = { ...f.owner, accessRevision: 3 };
+  const roster = [updatedOwner, f.backup, f.lo];
+  const stale = complianceCaseWork(f.db, { type: "program", input: mine }, f.staff(updatedOwner), f.tenant, roster, now);
+  assert.equal(stale.total, 0);
+  assert.equal(count(updatedOwner), beforeOwner);
+  assert.ok(f.run({ ...request, revision: 1, requestId: crypto.randomUUID(), renewalOwner: { email: f.backup.email, accessRevision: 1 } }).licenses);
+  assert.equal(f.run(mine).total, 0);
+  assert.equal(f.run(mine, f.backup).items[0].licenseId, request.id);
+  assert.equal(count(f.owner), beforeOwner);
+  assert.equal(count(f.backup), beforeBackup + 1);
 });

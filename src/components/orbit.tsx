@@ -66,7 +66,7 @@ import { MigrationWorkspace } from "./migration-workspace";
 import { BrokerageTeam, type TeamPanel } from "./brokerage-team";
 import { StaffFirstDay } from "./staff-first-day";
 import type { FirstDayStepId } from "@/lib/staff-first-day-model";
-import type { LicenseRenewalVisit } from "./license-renewal-attention";
+import { LicenseRenewalAttention, type LicenseRenewalVisit } from "./license-renewal-attention";
 import { BrokerageOverview, brokerageReports, type BrokerageQueue, type BrokerageReport } from "./brokerage-overview";
 import { CommunicationQueue } from "./loan-communications";
 import { ConversationQueue } from "./conversation-queue";
@@ -204,8 +204,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const [searchContact, setSearchContact] = useState<SearchContact>();
   const [contactToolsOpen, setContactToolsOpen] = useState(false);
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
-  const [renewalVisit, setRenewalVisit] = useState<LicenseRenewalVisit>();
-  const [renewalReturn, setRenewalReturn] = useState<LicenseRenewalVisit>();
+  const [renewalVisit, setRenewalVisit] = useState<LicenseRenewalVisit & { origin: "Brokerage" | "Today" }>();
+  const [renewalReturn, setRenewalReturn] = useState<LicenseRenewalVisit & { origin: "Brokerage" | "Today" }>();
   const [reportScheduleTarget, setReportScheduleTarget] = useState<{ reportId?: string }>();
   const [reportScheduleReturn, setReportScheduleReturn] = useState<{ reportId?: string }>();
   const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff && staff.brokerage.role !== "Admin" ? "Custom reports" : "Owner scorecard");
@@ -727,14 +727,14 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     openBrokerageView("Reports");
   }
 
-  function openLicenseRenewal(visit: LicenseRenewalVisit) {
+  function openLicenseRenewal(visit: LicenseRenewalVisit, origin: "Brokerage" | "Today" = "Brokerage") {
     openBrokerageView("Compliance");
-    setRenewalVisit(visit);
+    setRenewalVisit({ ...visit, origin });
   }
 
   function returnToLicenseRenewals() {
     const visit = renewalVisit;
-    openBrokerageView("Brokerage");
+    openBrokerageView(visit?.origin ?? "Brokerage");
     setRenewalReturn(visit);
   }
 
@@ -1581,11 +1581,14 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             openQueue={(queue) => openBrokerageView(brokerageQueueSections[queue], queue !== "exceptions")} openReport={openBrokerageReport}
             openTeam={(panel) => { setTeamPanel(panel); openBrokerageView("Team"); }}
             openCompliance={complianceEnabled ? () => openBrokerageView("Compliance") : undefined}
-            openRenewal={complianceEnabled ? openLicenseRenewal : undefined} renewalReturn={renewalReturn} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
+            openRenewal={complianceEnabled ? openLicenseRenewal : undefined} renewalReturn={renewalReturn?.origin === "Brokerage" ? renewalReturn : undefined} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
           {(section === "Today" || conversationOrigin === "Today") && canOpenToday && <Activity mode={section === "Today" ? "visible" : "hidden"}><OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             complianceWork={pilotCompliance && staff && <ComplianceDailyWork brokerageId={staff.brokerage.id}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
+            renewalWork={staff && admin && complianceEnabled && <LicenseRenewalAttention key={staff.brokerage.id} brokerageId={staff.brokerage.id}
+              busy={!!modal || busy} mine open={visit => openLicenseRenewal(visit, "Today")}
+              returning={renewalReturn?.origin === "Today" ? renewalReturn : undefined} />}
             reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
             refreshCounts={refreshCounts}
             version={queueVersion} busy={busy} openWork={openTodayWork} save={save} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
@@ -1608,7 +1611,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           {section === "Reviews" && canOpenCalendar && <LoanReviewQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
             version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
           {section === "Compliance" && admin && staff && complianceEnabled && <ComplianceWorkspace key={staff.brokerage.id} licenseTarget={renewalVisit?.target}
-            returnToRenewals={renewalVisit ? returnToLicenseRenewals : undefined}
+            returnToRenewals={renewalVisit ? returnToLicenseRenewals : undefined} onLicenseSaved={refreshCounts}
             brokerageId={staff.brokerage.id} pilot={staff.brokerage.pilot === true} paused={!!modal || busy}
             openHistoryRecord={openMigrationDestination}
             openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}

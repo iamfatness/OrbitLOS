@@ -39,10 +39,10 @@ function inventoryStatus(data: Overview) {
   return `${scanned} of ${data.fileTotal} files inventoried${state === "Scanning" ? " · Scan in progress" : ""}${asOf ? ` · ${dateTime(asOf)} ET` : ""}`;
 }
 
-export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals }: {
+export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals, onLicenseSaved }: {
   brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
   openHistoryRecord: (destination: MigrationDestination) => void;
-  licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void;
+  licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void; onLicenseSaved?: () => void;
 }) {
   const [view, setView] = useState<View>(pilot && !licenseTarget ? "Overview" : "Licensing");
   const [attention, setAttention] = useState<ComplianceAttention>();
@@ -95,7 +95,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
         aria-current={view === option ? "page" : undefined} onClick={() => show(option)}>{option}</Button>)}
     </nav>
     <section ref={panel} tabIndex={-1} aria-label={`Compliance ${view.toLowerCase()}`}>
-      {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused} initialTarget={licenseTarget} />}
+      {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused} initialTarget={licenseTarget} onLicenseSaved={onLicenseSaved} />}
       {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} />}
       {view === "Monthly review" && <ComplianceProgram key={brokerageId} brokerageId={brokerageId} paused={paused} />}
       {view === "Obligations" && <ComplianceObligations key={brokerageId} brokerageId={brokerageId} paused={paused} />}

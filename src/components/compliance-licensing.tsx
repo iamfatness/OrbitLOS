@@ -46,7 +46,9 @@ function RenewalHistory({ brokerageId, entityId, licenseId }: { brokerageId: str
   </details>;
 }
 
-export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget }) {
+export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLicenseSaved }: {
+  brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget; onLicenseSaved?: () => void;
+}) {
   const [entities, setEntities] = useState<readonly ProgramEntity[]>();
   const [entityId, setEntityId] = useState(initialTarget?.entityId ?? "");
   const target = useRef(initialTarget);
@@ -160,6 +162,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { br
         if (filter && filter !== input.jurisdiction) setFilter(input.jurisdiction);
         if (renewalOnly && !result.licenses.find(item => item.id === input.id)?.renewal) setRenewalOnly(false);
         setFeedback({ message: "License saved." });
+        onLicenseSaved?.();
       } else {
         setFeedback({ message: "Could not confirm the save. Refresh the register.", error: true });
         return;

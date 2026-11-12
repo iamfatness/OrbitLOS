@@ -1,3 +1,4 @@
+import { countMyLicenseRenewals } from "./compliance-program";
 import { readIncomingLoanWorkPage } from "./incoming-loan-work";
 import { countFileExceptions } from "./file-exceptions";
 import { countDeliveryExceptions } from "./automation-exceptions";
@@ -39,7 +40,8 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
   } while (after);
   const fileExceptions = countFileExceptions(db, staff, brokerageId, now, countLimit);
   const deliveryExceptions = countDeliveryExceptions(db, staff, brokerageId, now.toISOString(), countLimit);
-  return { today: Math.min(actions.size, countLimit), leads: countLeadAttention(db, staff, countLimit),
+  const renewals = actions.size >= countLimit ? 0 : countMyLicenseRenewals(db, staff, now.toISOString(), countLimit - actions.size);
+  return { today: Math.min(actions.size + renewals, countLimit), leads: countLeadAttention(db, staff, countLimit),
     ...(fileExceptions === undefined || deliveryExceptions === undefined ? {} :
       { exceptions: Math.min(fileExceptions + deliveryExceptions, countLimit), ...(deliveryExceptions ? { deliveryExceptions } : {}) }), ...(processing ? { processing: processing.items.length } : {}) };
 }

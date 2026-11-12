@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readBranches } from "./branches";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
-import type { VersionedBrokerageMember } from "./brokerage-model";
+import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
 import { licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseHistory, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
@@ -63,17 +63,30 @@ function renewalWindow(now: string) {
   return { today, renewalThrough: new Date(Date.parse(today) + licenseRenewalLookahead * 86400000).toISOString().slice(0, 10) };
 }
 
-function licenseRenewals(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, after?: LicenseRenewalCursor): LicenseRenewalQueue {
+function licenseRenewalFilter(tenant: string, now: string, owner?: LicenseRenewalOwner) {
   const { today, renewalThrough } = renewalWindow(now);
   const where = `l.brokerageId=? AND l.expiresOn IS NOT NULL AND l.status IN ('Active','Expired')
-    AND l.expiresOn<=? AND (l.status='Active' OR l.expiresOn<?)`;
-  const total = Number(db.prepare(`SELECT count(*) AS total FROM compliance_program_licenses l WHERE ${where}`)
-    .get(tenant, renewalThrough, today)?.total);
+    AND l.expiresOn<=? AND (l.status='Active' OR l.expiresOn<?)${owner ?
+      " AND json_extract(l.renewalOwner,'$.email')=? AND json_extract(l.renewalOwner,'$.accessRevision')=?" : ""}`;
+  return { where, args: [tenant, renewalThrough, today, ...(owner ? [owner.email, owner.accessRevision] : [])], today };
+}
+
+export function countMyLicenseRenewals(db: Store, staff: WorkspaceStaff, now: string, limit: number) {
+  if (staff.brokerage.role !== "Admin" || !workspaceFeatures(staff.brokerage).compliance) return 0;
+  const { where, args } = licenseRenewalFilter(staff.brokerage.id, now, { email: staff.email, accessRevision: staff.brokerage.accessRevision ?? 0 });
+  return Number(db.prepare(`SELECT count(*) AS total FROM (SELECT 1 FROM compliance_program_licenses l WHERE ${where} LIMIT ?)`)
+    .get(...args, limit)?.total);
+}
+
+function licenseRenewals(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, after?: LicenseRenewalCursor,
+  owner?: LicenseRenewalOwner): LicenseRenewalQueue {
+  const { where, args, today } = licenseRenewalFilter(tenant, now, owner);
+  const total = Number(db.prepare(`SELECT count(*) AS total FROM compliance_program_licenses l WHERE ${where}`).get(...args)?.total);
   const limit = 8;
   const rows = db.prepare(`SELECT l.id,l.entityId,l.jurisdiction,l.licenseType,l.licenseNumber,l.expiresOn,l.holder,l.renewalOwner,e.name
     FROM compliance_program_licenses l JOIN compliance_program_entities e ON e.brokerageId=l.brokerageId AND e.id=l.entityId
     WHERE ${where}${after ? " AND (l.expiresOn,l.entityId,l.id) > (?,?,?)" : ""}
-    ORDER BY l.expiresOn,l.entityId,l.id LIMIT ?`).all(tenant, renewalThrough, today,
+    ORDER BY l.expiresOn,l.entityId,l.id LIMIT ?`).all(...args,
       ...(after ? [after.expiresOn, after.entityId, after.licenseId] : []), limit + 1);
   const items = rows.slice(0, limit).map(row => {
     const holder = licenseHolderRecord(row.holder);
@@ -119,7 +132,10 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (data.operation === "entities") return entities(db, tenant);
   const owners = new Map(roster.filter(member => member.status === "Active" && member.role === "Admin").map(member => [member.email,
     { email: member.email, accessRevision: member.accessRevision ?? 0, name: member.name }]));
-  if (data.operation === "licenseRenewals") return licenseRenewals(db, tenant, now, owners, data.after);
+  if (data.operation === "licenseRenewals") {
+    const owner = data.scope === "mine" ? { email: staff.email, accessRevision: staff.brokerage.accessRevision ?? 0 } : undefined;
+    return licenseRenewals(db, tenant, now, owners, data.after, owner);
+  }
   const replay = "requestId" in data ? db.prepare("SELECT * FROM compliance_program_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId) : undefined;
   if (replay && (replay.actor !== staff.email || replay.request !== JSON.stringify(data))) return changed;
   function event(entityId: string, period: string, id: string, action: string, note: string, details?: object) {
