@@ -428,3 +428,53 @@ test("assignment license check includes the intake branch and current officer me
   f.db.prepare("UPDATE referral_leads SET resolvedAt=? WHERE id=?").run(now,leadId);
   assert.ok(f.run(request).error);
 });
+
+
+test("Compliance home keeps branch renewals, company review work, and tenant access distinct", t => {
+  const f = fixture(t);
+  const home = (branchId, actor = f.owner, roster = f.roster) => f.run({ operation: "ownerHome", branchId }, actor, roster);
+  const blank = home();
+  assert.equal(blank.kind, "ownerHome");
+  assert.equal(blank.entityCount, 0);
+  assert.deepEqual(blank.branches, []);
+  assert.ok(home(undefined, f.lo).error);
+
+  const entity = f.entity();
+  const north = crypto.randomUUID(), south = crypto.randomUUID();
+  for (const [id, name] of [[north, "North Office"], [south, "South Office"]]) {
+    assert.ok(updateBranch(f.db, { type: "saveBranch", id, revision: 0, name, staffEmails: [], ownerEmail: null },
+      f.staff(), f.tenant, f.roster).message);
+  }
+  function license(licenseNumber, expiresOn, holder) {
+    const id = crypto.randomUUID();
+    const result = f.run({ operation: "saveLicense", entityId: entity.id, id, requestId: crypto.randomUUID(), revision: 0,
+      jurisdiction: "MI", licenseType: "Fictional license", licenseNumber, status: "Active", effectiveOn: null, expiresOn, evidence: "",
+      holder, renewalOwner: { email: f.owner.email, accessRevision: f.owner.accessRevision } });
+    assert.ok(result.licenses?.some(item => item.id === id), result.error);
+    return id;
+  }
+  const northLicense = license("NORTH-01", "2026-11-18", { kind: "Branch", id: north });
+  license("COMPANY-01", "2026-11-13", { kind: "Company" });
+  const review = f.run(f.schedule(entity.id, { month: "2026-10", internalTarget: "2026-10-31" })).items[0];
+  f.run(f.schedule(entity.id, { title: "Outside the attention window", internalTarget: "2027-01-01" }));
+  const scoped = home(north);
+  assert.equal(scoped.companyLicenseCount, 1);
+  assert.deepEqual(scoped.branches.map(branch => [branch.name, branch.licenseCount]), [["North Office", 1], ["South Office", 0]]);
+  assert.equal(scoped.branchId, north);
+  assert.deepEqual(scoped.renewals.items.map(item => [item.licenseId, item.branchId, item.renewalOwner.name]), [[northLicense, north, f.owner.name]]);
+  assert.deepEqual(scoped.reviews.items.map(item => [item.id, item.month, item.ownerName]), [[review.id, "2026-10", f.owner.name]]);
+  assert.equal(home(south).renewals.total, 0);
+  assert.deepEqual(home(south).reviews, scoped.reviews);
+  assert.equal(home(crypto.randomUUID()).renewals.total, 2);
+  const renewedAccess = f.roster.map(member => member.email === f.owner.email ? { ...member, accessRevision: 2 } : member);
+  assert.equal(home(north, renewedAccess[0], renewedAccess).renewals.items[0].renewalOwner.available, false);
+  assert.equal(home(north, renewedAccess[0], renewedAccess).reviews.items[0].ownerName, null);
+  const staff = f.staff(f.owner, crypto.randomUUID());
+  const foreign = complianceCaseWork(f.db, { type: "program", input: { operation: "ownerHome" } }, staff, staff.brokerage.id, f.roster, now);
+  assert.equal(foreign.entityCount, 0);
+  assert.equal(foreign.renewals.total, 0);
+  assert.equal(foreign.reviews.total, 0);
+  const operational = f.staff();
+  operational.brokerage = { ...operational.brokerage, pilot: false, features: { compliance: true, uwm: false, revision: 1 } };
+  assert.equal(complianceCaseWork(f.db, { type: "program", input: { operation: "ownerHome" } }, operational, f.tenant, f.roster, now).fileFindings, undefined);
+});

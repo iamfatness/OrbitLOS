@@ -102,3 +102,12 @@ Inspected the final populated Michigan editor, historical record and Kansas revi
 ## Brokerage owner Compliance workflow review
 
 Reviewed the live Align Lending operational entry and the isolated fictional owner and assigned staff workflow on app `a5f383b`. The [owner workflow review](compliance/owner-workflow-ux-review.md) records the walkthrough, prioritized issues and first-time owner acceptance tests. No interface changes were made in the review.
+
+
+## Branch-aware Compliance home
+
+Verified for the local candidate on `codex/state-rollout` on November 12. A fictional operational admin started with no records, created a company and two branches, recorded company and branch licenses, and saved Michigan business facts for reviewer follow-up. The branch selector prefills the holder when adding a branch license. North Office showed the exact assigned renewal and South Office excluded it. Returning from the license restored the North Office filter and focus to the renewal row. The owner opened Mortgage Call Report prep from Compliance tools. The fictional pilot owner opened the selected monthly review and sample loan finding and returned by keyboard. The operational records did not appear in the pilot, and the LO and processor had no admin Compliance entry. An interrupted branch read produced an error with a retry that restored the list and focus.
+
+Opened and inspected the final home and selected-record screenshots at desktop, portrait and phone widths in `.orbit/compliance-owner-home-{fresh,branch,pilot,license,review}-*.png`. Browser checks ran at 1440 × 900, 900 × 1200 and 390 × 844. A 320 px check verified no horizontal overflow and a 44 px renewal action. The first setup and renewal actions were within the 390 px first viewport. A shared Pipeline navigation check verified that hover preserved the selected background. Impeccable's operational layout and UI UX Pro Max's progressive disclosure guidance informed the hierarchy. Reused the accepted Orbit list, exact-record and disclosure patterns informed by 21st.dev. Source scan, 619 tests, lint, typecheck, production build and isolated mock rehearsal passed.
+
+Production acceptance and a first-use session with an unfamiliar owner are pending. Monthly reviews and sample findings are brokerage-wide. The Mortgage Call Report shortcut opens preparation, with exact period handoff and filing receipt retrieval still to be connected.

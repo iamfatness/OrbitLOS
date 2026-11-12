@@ -33,10 +33,10 @@ function ScopeFacts({ facts, labels = scopeLabels }: {
     <div key={name}><dt>{label}</dt><dd>{facts[name] || "Not recorded"}</dd></div>)}</dl>;
 }
 
-export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
-  brokerageId: string; jurisdiction: string; paused: boolean;
+export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initiallyOpen }: {
+  brokerageId: string; jurisdiction: string; paused: boolean; initiallyOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!initiallyOpen);
   const [entities, setEntities] = useState<readonly Entity[]>();
   const [entityId, setEntity] = useState("");
   const [version, setVersion] = useState<number>();
@@ -128,7 +128,7 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
     } finally { setBusy(false); }
   }
 
-  return <details className="document-form compliance-state-scope" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details className="document-form compliance-state-scope" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Brokerage scope for counsel review</summary>
     {open && <div className="record-form state-scope-body">
       <div className="loan-application-actions licensing-controls state-scope-controls">

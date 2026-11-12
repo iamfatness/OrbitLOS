@@ -134,6 +134,19 @@ const attentionFilter: Record<ComplianceAttention, string> = {
   ownership: "needsOwner = 1",
 };
 
+function ownerFileFindings(db: Store, staff: WorkspaceStaff, roster: readonly Member[]) {
+  const scope = fileFindings(roster, staff.brokerage.id);
+  const rows = db.prepare(`${scope.sql} SELECT id,loanId,borrower,title,status,ownerEmail,needsOwner,count(*) OVER () AS total
+    FROM findings ORDER BY needsOwner DESC,openedAt,id LIMIT 8`).all(...scope.args);
+  return {
+    total: Number(rows[0]?.total ?? 0),
+    items: rows.map(row => ({
+      id: String(row.id), loanId: String(row.loanId), borrower: String(row.borrower), title: String(row.title), status: String(row.status),
+      ownerName: Number(row.needsOwner) ? null : currentMember(roster, String(row.ownerEmail))?.name ?? null,
+    })),
+  };
+}
+
 function overview(db: Store, staff: WorkspaceStaff, roster: readonly Member[], now: string) {
   if (staff.brokerage.role !== "Admin") return unavailable;
   const scope = fileFindings(roster, staff.brokerage.id);
@@ -349,7 +362,12 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     if (data.type === "stateRefinanceBenefit") return stateRefinanceBenefitWork(db, data.input, staff, now);
     if (data.type === "obligations") return { kind: "obligations" as const, result: complianceObligationsWork(db, data.input, staff, roster, now) as unknown };
     if (data.type === "learning") return { kind: "learning" as const, result: complianceLearningWork(db, data.input, staff, roster, now) as unknown };
-    if (data.type === "program") return complianceProgramWork(db, data.input, staff, roster, now);
+    if (data.type === "program") {
+      const result = complianceProgramWork(db, data.input, staff, roster, now);
+      return "kind" in result && result.kind === "ownerHome" ? {
+        ...result, fileFindings: staff.brokerage.pilot ? ownerFileFindings(db, staff, roster) : undefined,
+      } : result;
+    }
     if (data.type === "research") return complianceResearchWork(db, data.input, staff, roster, now);
     if (data.type === "inventory" || data.type === "advanceInventory") {
       if (staff.brokerage.role !== "Admin") return unavailable;

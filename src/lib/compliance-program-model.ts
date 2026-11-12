@@ -81,6 +81,7 @@ const change = { requestId: z.uuid() };
 const scope = { entityId: z.uuid(), month: programMonth };
 export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("entities") }),
+  z.strictObject({ operation: z.literal("ownerHome"), branchId: z.uuid().optional() }),
   z.strictObject({ operation: z.literal("createEntity"), ...change, name: title, nmls: z.string().regex(/^\d{0,15}$/), scopeNote: note }),
   z.strictObject({ operation: z.literal("licenseRenewals"), scope: z.enum(["mine", "brokerage"]).optional(), after: licenseRenewalCursor.optional() }),
   z.strictObject({ operation: z.literal("licenseHistory"), entityId: z.uuid(), licenseId: z.uuid() }),
@@ -106,3 +107,16 @@ export type ProgramMonth = { kind: "programMonth"; entity: ProgramEntity; month:
   reviews: { id: string; actor: string; at: string; note: string; current: boolean; snapshot: string }[];
   history: { id: string; actor: string; at: string; action: string; note: string }[]; moreHistory: boolean;
   coverage: "Regulatory applicability not evaluated" };
+
+export type ComplianceOwnerHomeData = {
+  kind: "ownerHome"; branchId?: string; asOf: string; through: string;
+  branches: { id: string; name: string; licenseCount: number; active: boolean }[];
+  entityCount: number; companyLicenseCount: number; savedStateCount: number;
+  renewals: { total: number; items: (LicenseRenewalItem & { branchId: string | null })[] };
+  reviews: { total: number; items: {
+    id: string; entityId: string; entityName: string; month: string; title: string; internalTarget: string;
+    status: ProgramItem["status"]; ownerName: string | null;
+  }[] };
+};
+
+export type ProgramReviewTarget = { entityId: string; month: string; itemId: string };

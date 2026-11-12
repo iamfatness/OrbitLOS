@@ -5,7 +5,7 @@ import { storedQuoteRouting } from "./quote-intake-model";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
+import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth, type ComplianceOwnerHomeData } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -82,8 +82,10 @@ export function countMyLicenseRenewals(db: Store, staff: WorkspaceStaff, now: st
 }
 
 function licenseRenewals(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, after?: LicenseRenewalCursor,
-  owner?: LicenseRenewalOwner): LicenseRenewalQueue {
-  const { where, args, today } = licenseRenewalFilter(tenant, now, owner);
+  owner?: LicenseRenewalOwner, branchId?: string) {
+  const { where: filter, args, today } = licenseRenewalFilter(tenant, now, owner);
+  const where = branchId ? `${filter} AND json_extract(NULLIF(l.holder,''),'$.holder.kind')='Branch' AND json_extract(NULLIF(l.holder,''),'$.holder.id')=?` : filter;
+  if (branchId) args.push(branchId);
   const total = Number(db.prepare(`SELECT count(*) AS total FROM compliance_program_licenses l WHERE ${where}`).get(...args)?.total);
   const limit = 8;
   const rows = db.prepare(`SELECT l.id,l.entityId,l.jurisdiction,l.licenseType,l.licenseNumber,l.expiresOn,l.holder,l.renewalOwner,e.name
@@ -97,11 +99,12 @@ function licenseRenewals(db: Store, tenant: string, now: string, owners: Readonl
     return { licenseId: String(row.id), entityId: String(row.entityId), entityName: String(row.name), jurisdiction: String(row.jurisdiction),
       licenseType: String(row.licenseType), licenseNumber: String(row.licenseNumber), expiresOn,
       holderLabel: holder.holder.kind === "Company" ? "Company" : `${holder.holder.kind} · ${holder.label}`,
+      branchId: holder.holder.kind === "Branch" ? holder.holder.id : null,
       renewalOwner: renewalOwnerRecord(row.renewalOwner, owners),
       renewal: expiresOn < today ? "Past expiration" as const : "Expires soon" as const };
   });
   const last = items.at(-1);
-  return { kind: "licenseRenewals", total, items, ...(owner ? {} : { coverage: licenseCoverage(db, tenant, today) }),
+  return { kind: "licenseRenewals" as const, total, items, ...(owner || branchId ? {} : { coverage: licenseCoverage(db, tenant, today) }),
     next: rows.length > limit && last ?
     { expiresOn: last.expiresOn, entityId: last.entityId, licenseId: last.licenseId } : null };
 }
@@ -119,6 +122,40 @@ function licenseCoverage(db: Store, tenant: string, asOf: string): LicenseCovera
   }
   const entityCount = Number(db.prepare("SELECT count(*) AS total FROM compliance_program_entities WHERE brokerageId=?").get(tenant)?.total);
   return { currentCompanyStates: [...states].sort(), entityCount, entitiesWithoutCurrentCompanyRecords: entityCount - entityIds.size };
+}
+
+function ownerHome(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, requestedBranch?: string): ComplianceOwnerHomeData {
+  const { today, renewalThrough } = renewalWindow(now);
+  const licenseCounts = new Map(db.prepare(`SELECT COALESCE(json_extract(NULLIF(holder,''),'$.holder.kind'),'Company') AS kind,
+    json_extract(NULLIF(holder,''),'$.holder.id') AS holderId, count(*) AS total
+    FROM compliance_program_licenses WHERE brokerageId=? GROUP BY kind,holderId`).all(tenant)
+    .map(row => [`${row.kind}:${row.holderId ?? ""}`, Number(row.total)]));
+  const branches = readBranches(db).map(({ id, name, active }) => ({
+    id, name, active, licenseCount: licenseCounts.get(`Branch:${id}`) ?? 0,
+  }));
+  const branchId = branches.some(branch => branch.id === requestedBranch) ? requestedBranch : undefined;
+  const renewals = licenseRenewals(db, tenant, now, owners, undefined, undefined, branchId);
+  const reviewFilter = `FROM compliance_program_items i JOIN compliance_program_entities e
+    ON e.brokerageId=i.brokerageId AND e.id=i.entityId
+    WHERE i.brokerageId=? AND i.status<>'Completed' AND i.internalTarget<=?`;
+  const items = db.prepare(`SELECT i.id,i.entityId,e.name AS entityName,i.month,i.title,i.internalTarget,i.status,i.ownerEmail,i.ownerRevision
+    ${reviewFilter} ORDER BY i.internalTarget,i.id LIMIT 8`).all(tenant, renewalThrough).map(row => {
+      const owner = owners.get(String(row.ownerEmail));
+      return {
+        id: String(row.id), entityId: String(row.entityId), entityName: String(row.entityName), month: String(row.month),
+        title: String(row.title), internalTarget: String(row.internalTarget), status: row.status as ProgramItem["status"],
+        ownerName: owner && owner.accessRevision === row.ownerRevision ? owner.name : null,
+      };
+    });
+  const entityCount = Number(db.prepare("SELECT count(*) AS total FROM compliance_program_entities WHERE brokerageId=?").get(tenant)?.total);
+  const savedStateCount = Number(db.prepare(`SELECT count(DISTINCT jurisdiction) AS total
+    FROM compliance_state_scope_versions WHERE brokerageId=?`).get(tenant)?.total);
+  return {
+    kind: "ownerHome", branchId, asOf: today, through: renewalThrough, branches,
+    entityCount, companyLicenseCount: licenseCounts.get("Company:") ?? 0, savedStateCount,
+    renewals: { total: renewals.total, items: renewals.items },
+    reviews: { total: Number(db.prepare(`SELECT count(*) AS total ${reviewFilter}`).get(tenant, renewalThrough)?.total), items },
+  };
 }
 
 function entities(db: Store, tenant: string) {
@@ -208,6 +245,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (data.operation === "licenseStateCheck") return checkLicenseState(db, tenant, data, roster, now.slice(0, 10));
   const owners = new Map(roster.filter(member => member.status === "Active" && member.role === "Admin").map(member => [member.email,
     { email: member.email, accessRevision: member.accessRevision ?? 0, name: member.name }]));
+  if (data.operation === "ownerHome") return ownerHome(db, tenant, now, owners, data.branchId);
   if (data.operation === "licenseRenewals") {
     const owner = data.scope === "mine" ? { email: staff.email, accessRevision: staff.brokerage.accessRevision ?? 0 } : undefined;
     return licenseRenewals(db, tenant, now, owners, data.after, owner);

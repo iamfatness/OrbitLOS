@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
-import { programCategories, programStatuses, type ProgramEntity, type ProgramMonth, type ProgramRequest } from "@/lib/compliance-program-model";
+import { programCategories, programStatuses, type ProgramEntity, type ProgramMonth, type ProgramRequest, type ProgramReviewTarget } from "@/lib/compliance-program-model";
 import { Button } from "./ui/button";
 
 const value = (form: FormData, name: string) => String(form.get(name) ?? "");
-export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string; paused: boolean }) {
+export function ComplianceProgram({ brokerageId, paused, target }: { brokerageId: string; paused: boolean; target?: ProgramReviewTarget }) {
   const [entities, setEntities] = useState<ProgramEntity[]>([]);
-  const [entityId, setEntity] = useState("");
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [entityId, setEntity] = useState(target?.entityId ?? "");
+  const [month, setMonth] = useState(() => target?.month ?? new Date().toISOString().slice(0, 7));
   const [data, setData] = useState<ProgramMonth>();
   const [version, refresh] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -18,6 +18,7 @@ export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string
   const [notice, setNotice] = useState("");
   const [screen, setScreen] = useState<"list" | "entity" | "schedule" | "review" | "item">("list");
   const [itemId, setItem] = useState("");
+  const pendingTarget = useRef(target);
   const [status, setStatus] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
@@ -32,11 +33,29 @@ export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string
       if (!current) return;
       if ("error" in result) setError(result.error);
       else if (result.kind === "programEntities") setEntities(result.entities);
-      else if (result.kind === "programMonth") setData(result);
+      else if (result.kind === "programMonth") {
+        setData(result);
+        const opening = pendingTarget.current;
+        if (opening?.entityId === result.entity.id && opening.month === result.month) {
+          pendingTarget.current = undefined;
+          if (result.items.some(item => item.id === opening.itemId)) {
+            setItem(opening.itemId);
+            setScreen("item");
+          } else setError("This review item is no longer available. Check the current monthly work.");
+        }
+      }
     }).catch(() => { if (current) setError("Could not load the program. Refresh to try again."); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
   }, [brokerageId, entityId, month, paused, version]);
+  useEffect(() => {
+    if (paused || !target) return;
+    let current = true;
+    void accessComplianceCases({ type: "program", input: { operation: "entities" } }, brokerageId).then(result => {
+      if (current && "kind" in result && result.kind === "programEntities") setEntities(result.entities);
+    }, () => { /* The selected review can still be opened. */ });
+    return () => { current = false; };
+  }, [brokerageId, paused, target]);
   useEffect(() => { heading.current?.focus(); }, [screen, itemId]);
   useEffect(() => { if (error || notice) feedback.current?.focus(); }, [error, notice]);
   function reload() { setLoading(true); setError(""); setNotice(""); setData(undefined); refresh(v => v + 1); }
@@ -61,6 +80,7 @@ export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string
   }
   const current = data?.entity.id === entityId && data.month === month ? data : undefined;
   const selected = current?.items.find(i => i.id === itemId);
+  const entityOptions = current && !entities.some(entity => entity.id === current.entity.id) ? [current.entity, ...entities] : entities;
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     if (screen === "entity") void save({ operation: "createEntity", name: value(form, "name"), nmls: value(form, "nmls"), scopeNote: value(form, "scopeNote") });
@@ -72,15 +92,16 @@ export function ComplianceProgram({ brokerageId, paused }: { brokerageId: string
   }
   const formTitle = screen === "entity" ? "Add entity profile" : screen === "schedule" ? "Schedule review work" : screen === "review" ? "Record monthly review" : selected?.title ?? "Monthly review";
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
-  return <section className="record-form compliance-pilot-form" aria-label="Compliance program">
+  return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Compliance program">
     <h2 ref={heading} tabIndex={-1}>{screen === "list" ? "Monthly review" : formTitle}</h2>
+    {screen === "item" && current && <p className="muted">{current.entity.name} · Review period {current.month}</p>}
     <p className="muted">Internal planning and evidence review. Regulatory applicability and legal deadlines still require review before launch.</p>
     {(error || notice) && <div ref={feedback} tabIndex={-1} className={error ? "application-message banner-error" : "application-message"} role={error ? "alert" : "status"}>{error || notice}</div>}
     {screen === "list" ? <>
       <div className="form-grid">
-        <label className="field">Legal entity<select value={entityId} disabled={busy} onChange={e => { setEntity(e.target.value); setData(undefined); setLoading(true); setError(""); }}>
-          <option value="">Select an entity</option>{entities.map(entity => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
-        <label className="field">Review month<input type="month" required min="2000-01" max="2099-12" value={month} onChange={e => { if (/^20\d{2}-(0[1-9]|1[0-2])$/.test(e.target.value)) { setMonth(e.target.value); setData(undefined); setLoading(true); setError(""); } }} /></label>
+        <label className="field">Legal entity<select value={entityId} disabled={busy} onChange={e => { pendingTarget.current = undefined; setEntity(e.target.value); setData(undefined); setLoading(true); setError(""); }}>
+          <option value="">Select an entity</option>{entityOptions.map(entity => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label>
+        <label className="field">Review month<input type="month" required min="2000-01" max="2099-12" value={month} onChange={e => { if (/^20\d{2}-(0[1-9]|1[0-2])$/.test(e.target.value)) { pendingTarget.current = undefined; setMonth(e.target.value); setData(undefined); setLoading(true); setError(""); } }} /></label>
       </div>
       <div className="loan-application-actions">
         <Button variant="outline" onClick={() => navigate("entity")}>Add entity</Button>
