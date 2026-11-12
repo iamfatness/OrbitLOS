@@ -97,6 +97,7 @@ import { announceBorrowerChange, borrowerChecklistTokens, borrowerDisclosureToke
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
 import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
+import { isPreapprovalWork, samplePreapprovalTarget } from "@/lib/preapproval-policy-model";
 import { leadDocumentsUnavailable, type LeadDocumentLocation } from "@/lib/lead-document-model";
 import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
@@ -848,8 +849,9 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       if (expected?.kind === "incoming-loan-work") {
         const { item, view } = expected;
         const loan = result.loans[0];
+        const letter = isPreapprovalWork(item.kind) ? result.preapprovalWork : undefined;
         const assigned = result.loanProcessing[0];
-        const inQueue = view === "today" ? !staff || loan.officerEmail === staff.email :
+        const inQueue = view === "today" ? !!letter || !staff || loan.officerEmail === staff.email :
           !!assigned?.processorEmail && incomingLoanWorkProcessingStatuses.some((status) => status === assigned.status) &&
           (!processor || assigned.processorEmail === staff?.email);
         const application = result.applications[0];
@@ -863,6 +865,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           item.kind === "underwriting" ? view === "today" && result.mockCreditAusRuns.some((run) =>
             run.id === item.id && (run.applicationRevision ?? 0) === item.revision && run.result.status === unconfirmedMockOrder) :
           item.kind === "realtor-financing" ? view === "today" && result.realtorFinancingReadyId === item.id :
+          isPreapprovalWork(item.kind) ? view === "today" && letter?.kind === item.kind &&
+            letter.revision === item.revision && letter.receivedAt === item.receivedAt :
           assigned?.loanId === item.id && assigned.revision === item.revision && !!assigned.processorEmail &&
           (view === "today" ? assigned.status === "Returned to LO" : assigned.status === "Ready for processing" && readyToAccept);
         if (!inQueue || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
@@ -1120,7 +1124,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         eventId: item.returnEventId, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` :
       item.kind === "question" ? staffQuestionTarget(item.id) : item.kind === "underwriting" ? creditAusAttemptTarget(item.id) :
-      item.kind === "realtor-financing" ? realtorFinancingTarget : "processing-handoff";
+      item.kind === "realtor-financing" ? realtorFinancingTarget : isPreapprovalWork(item.kind) ? samplePreapprovalTarget : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }
 
@@ -1291,13 +1295,15 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     const currentOrder = modal?.kind === "details" && modal.target?.startsWith(creditAusAttemptTargetPrefix) ?
       loanWork?.mockCreditAusRuns.find((run) => creditAusAttemptTarget(run.id) === modal.target) : undefined;
     const resolvedOrder = currentOrder && currentOrder.result.status !== unconfirmedMockOrder;
-    const financingReturn = section === "Today" && modal?.kind === "details" && modal.target === realtorFinancingTarget;
+    const incomingReturn = section === "Today" && modal?.kind === "details" &&
+      (modal.target === realtorFinancingTarget || modal.target === samplePreapprovalTarget);
+    if (incomingReturn && modal?.kind === "details" && modal.target === samplePreapprovalTarget) refreshCounts();
     const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
     exceptionTrigger.current = null;
     recordTrigger.current = null;
-    if (trigger || original || pipelineLoan || financingReturn) requestAnimationFrame(() => {
+    if (trigger || original || pipelineLoan || incomingReturn) requestAnimationFrame(() => {
       const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
-      const target = financingReturn ? document.getElementById("incoming-today-heading") ?? sectionHeading.current : trigger && section === "Exceptions" ?
+      const target = incomingReturn ? document.getElementById("incoming-today-heading") ?? sectionHeading.current : trigger && section === "Exceptions" ?
         (trigger.isConnected && !currentOrder?.conflict?.reviewedAt ? trigger : document.getElementById("owner-exception-filter")) :
         (original?.isConnected && !resolvedOrder ? original : replacement || sectionHeading.current);
       target?.focus({ preventScroll: true });
@@ -1562,6 +1568,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             complianceWork={staff?.brokerage.pilot && <ComplianceDailyWork brokerageId={staff.brokerage.id}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
+            refreshCounts={refreshCounts}
             version={queueVersion} busy={busy} openWork={openTodayWork} save={save} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
             openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}
             openStalled={(loanId) => void openQueueLoan({ kind: "details", loanId }, { kind: "stalled" })}

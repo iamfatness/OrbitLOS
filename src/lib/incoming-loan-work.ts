@@ -5,6 +5,8 @@ import { unconfirmedMockOrder } from "./credit-aus-model";
 import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnLender, manualReturnPhase, manualReturnTitle, manualReturnWorkId,
   pendingManualReturn } from "./manual-lender-work";
 import { readPlaybook } from "./playbooks";
+import { preapprovalWorkSource } from "./preapproval-work";
+import { isPreapprovalWork, preapprovalWorkLabels } from "./preapproval-policy-model";
 import { currentRealtorFinancingSql, readyRealtorFinancingId, realtorFinancingDates, realtorFinancingReadyCandidateSql,
   realtorFinancingSource } from "./realtor-financing";
 import type { WorkspaceStaff } from "./staff-store";
@@ -64,6 +66,7 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const mockUnderwriting = !processing && fictionalUwmWorkspace(staff);
   const realtorFinancing = !processing && staff.brokerage.pilot;
   const checkedAt = now.toISOString();
+  const letters = !processing ? preapprovalWorkSource(db, staff, now, requireApproval) : undefined;
   const rows = db.prepare(`WITH incoming AS (
     SELECT 'document' AS kind, request.id, loan.id AS loanId, contact.name,
       coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision,
@@ -107,13 +110,16 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     ${processing ? "JOIN loan_processing processing ON processing.loanId = loan.id" : ""}
     WHERE ${activeProcessingLoan} AND ${scope} AND question.status = 'Answered' AND question.answeredAt IS NOT NULL
       AND ${Number(isDemoStaff(staff) || staff.brokerage.pilot === true)} = 1
-  ), page AS (
-    SELECT * FROM (SELECT * FROM incoming UNION ALL SELECT * FROM borrower_answers${realtorFinancing ? " UNION ALL SELECT * FROM financing" : ""})
+  )${letters ? `, letters AS (${letters.sql})` : ""}, page AS (
+    SELECT * FROM (SELECT * FROM incoming UNION ALL SELECT * FROM borrower_answers${realtorFinancing ? " UNION ALL SELECT * FROM financing" : ""}
+      ${letters ? `UNION ALL SELECT kind, loanId, loanId, name, receivedAt, revision,
+        '', assignee, 0, note, NULL, NULL, NULL, NULL FROM letters` : ""})
     ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
     .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(mockUnderwriting ? [...ownerArgs, unconfirmedMockOrder] : []),
       ...(leadDocuments ? [staff.email] : []), ...(realtorFinancing ? [staff.email, ...realtorFinancingDates(checkedAt)] : []), ...documentArgs,
+      ...(letters?.args ?? []),
       ...(after ? [after.receivedAt, after.kind, after.id] : []), limit + 1) as unknown as
       (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline" | "returnEventId" | "returnFollowUp"> & {
         loanId: string; linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
@@ -124,7 +130,7 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const items = valid.map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnSubmissionId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
     const work = { ...item, linkedCondition: Boolean(linkedCondition) };
     if (kind === "lead-document") return { ...work, kind, leadId: loanId };
-    return { ...work, kind, loanId, ...(returnStatus ? { returnStatus } : {}),
+    return { ...work, ...(isPreapprovalWork(kind) ? { title: preapprovalWorkLabels[kind].title } : {}), kind, loanId, ...(returnStatus ? { returnStatus } : {}),
       ...(returnDueAt ? { returnDeadline: { dueAt: returnDueAt, overdue: returnDueAt < checkedAt } } : {}),
       ...(returnEventId ? { returnEventId, returnSubmissionId } : {}), ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}) };
   });

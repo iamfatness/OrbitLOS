@@ -6,20 +6,23 @@ import type { IncomingLoanWorkItem, IncomingLoanWorkPage, IncomingLoanWorkQuery 
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
 import { dateTime } from "@/lib/utils";
 import { manualReturnSteps } from "@/lib/lender-export-model";
+import { isPreapprovalWork, preapprovalWorkLabels } from "@/lib/preapproval-policy-model";
 import { Button } from "./ui/button";
 import { LenderReturnFollowUp, lenderReturnFollowUpLabel } from "./lender-return-follow-up";
 
 type ReviewResult = IncomingLoanWorkPage | { error: string };
 
-export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open, onLeadDocumentChange }: {
+export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open, onLeadDocumentChange, onPreapprovalChange }: {
   brokerageId: string; view: IncomingLoanWorkQuery["view"]; paused: boolean; version: object; open: (item: IncomingLoanWorkItem) => void;
   onLeadDocumentChange?: () => void;
+  onPreapprovalChange?: () => void;
 }) {
   const [after, setAfter] = useState<IncomingLoanWorkQuery["after"]>();
   const [attempt, setAttempt] = useState(0);
   const [data, setData] = useState<{ brokerageId: string; view: IncomingLoanWorkQuery["view"]; after: IncomingLoanWorkQuery["after"]; result: ReviewResult }>();
-  const leadDocuments = useRef<{ brokerageId: string; ids: string } | undefined>(undefined);
+  const observed = useRef<{ brokerageId: string; documents: string; letters: string } | undefined>(undefined);
   const notifyLeadDocumentChange = useEffectEvent(() => onLeadDocumentChange?.());
+  const notifyPreapprovalChange = useEffectEvent(() => onPreapprovalChange?.());
   useEffect(() => {
     if (paused) return;
     let active = true;
@@ -31,10 +34,15 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
         const result = await readIncomingLoanWork({ view, after }, brokerageId);
         if (!active || !isCurrent()) return;
         if (view === "today" && !after && !("error" in result)) {
-          const ids = result.items.filter(({ kind }) => kind === "lead-document").map(({ id }) => id).sort().join(",");
-          const previous = leadDocuments.current;
-          leadDocuments.current = { brokerageId, ids };
-          if (previous?.brokerageId === brokerageId && previous.ids !== ids) notifyLeadDocumentChange();
+          const documents = result.items.filter(({ kind }) => kind === "lead-document").map(({ id }) => id).sort().join(",");
+          const letters = result.items.filter(({ kind }) => isPreapprovalWork(kind))
+            .map(({ kind, id, revision }) => `${kind}:${id}:${revision}`).sort().join(",");
+          const previous = observed.current;
+          observed.current = { brokerageId, documents, letters };
+          if (previous?.brokerageId === brokerageId) {
+            if (previous.documents !== documents) notifyLeadDocumentChange();
+            if (previous.letters !== letters) notifyPreapprovalChange();
+          }
         }
         setData({ brokerageId, view, after, result });
       } catch {
@@ -58,14 +66,16 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
     {result && "error" in result && <div className="loan-application-actions"><p role="alert">{result.error}</p>
       <Button size="sm" variant="outline" disabled={paused} onClick={() => setAttempt((current) => current + 1)}>Retry</Button></div>}
     {page && (page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
-      const action = item.returnStatus ? manualReturnSteps[item.returnStatus].action :
+      const letter = isPreapprovalWork(item.kind) ? preapprovalWorkLabels[item.kind] : undefined;
+      const action = letter?.action ?? (item.returnStatus ? manualReturnSteps[item.returnStatus].action :
         item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" :
         item.kind === "lead-document" ? "Review lead document" : item.kind === "question" ? "Review borrower answer" :
-          item.kind === "underwriting" ? "Open order" : item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff";
+          item.kind === "underwriting" ? "Open order" : item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff");
       return <li className={item.returnEventId ? "loan-task lender-return-task" :
-        item.kind === "realtor-financing" ? "loan-task realtor-financing-task" : "loan-task"} key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
+        item.kind === "realtor-financing" ? "loan-task realtor-financing-task" : letter ? "loan-task preapproval-task" : "loan-task"}
+        key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
-        <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " :
+        <span>{letter ? `Letter v${item.revision} · ${letter.time}` : item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " :
           item.kind === "underwriting" ? "Ordered " : item.kind === "realtor-financing" ? "Permissions complete " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
         {item.returnDeadline && <span className={item.returnDeadline.overdue ? "open-chip" : "muted"}>
           {item.returnDeadline.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET

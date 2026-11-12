@@ -1,8 +1,7 @@
-import { approvedSecondReview } from "./application-review-checkpoint";
 import { readPlaybook } from "./playbooks";
 import { defaultPreapprovalPolicy, preapprovalPolicyConfig, type PreapprovalPendingLetter, type PreapprovalPolicy,
   type PreapprovalPolicyRequest, type PreapprovalPolicyResult, type PreapprovalReviewReceipt } from "./preapproval-policy-model";
-import { activePreapprovalLoan } from "./preapproval-sharing";
+import { currentPreapprovalLetterSql } from "./preapproval-sharing";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -75,11 +74,7 @@ export function workOnPreapprovalPolicy(db: Store, data: SettingsRequest, staff:
     JOIN loans loan ON loan.id = letter.loanId JOIN contacts contact ON contact.id = loan.contactId
     JOIN applications app ON app.loanId = loan.id
     LEFT JOIN past_client_profiles past ON past.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
-    WHERE ${activePreapprovalLoan} AND loan.purpose = 'Purchase' AND letter.expiresOn >= ?
-      AND letter.version = (SELECT max(version) FROM sample_preapproval_letters WHERE loanId = loan.id)
-      AND app.revision = letter.applicationRevision AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL
-      AND coalesce(app.correctionNote, '') = '' AND json_extract(app.draft, '$.confirmedDemo') = 1
-      ${readPlaybook(db).requireSecondReview ? `AND ${approvedSecondReview}` : ""}
+    WHERE ${currentPreapprovalLetterSql(readPlaybook(db).requireSecondReview)}
       AND NOT EXISTS (SELECT 1 FROM sample_preapproval_reviews review WHERE review.loanId = loan.id AND review.version = letter.version
         AND (review.policyRevision = ? OR review.decision = 'Changes requested'))
       AND (instr(lower(contact.name), lower(?)) > 0 OR instr(lower(letter.issuer), lower(?)) > 0)

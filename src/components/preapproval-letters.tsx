@@ -199,7 +199,7 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
               </Button>}
             </div>
             {page.sharing!.canPublish && target.recipient && publishing === target.audience &&
-              <form className="record-form" onSubmit={(event) => publish(event, target, version)}>
+              <form className="record-form preapproval-share-form" onSubmit={(event) => publish(event, target, version)}>
                 <label className="demo-confirm"><input type="checkbox" name="permission" required disabled={busy} />
                   <span>I have permission to share this fictional letter with {target.recipient.name}.</span></label>
                 <div className="loan-application-actions">

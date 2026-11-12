@@ -16,10 +16,11 @@ import { Button } from "./ui/button";
 
 const todayViews = ["My Tasks", "Stalled loans", "My production", "Past-client opportunities"] as const;
 
-export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients, complianceWork }: {
+export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients, complianceWork, refreshCounts }: {
   brokerageId: string; version: object; busy: boolean; openWork: (item: OfficerQueueItem) => void; openTasks: () => void;
   save: (input: unknown) => Promise<void>;
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
+  refreshCounts: () => void;
   openReply: (id: string) => void; openFunding: (id: string) => void; openOpportunity: (item: RetentionOpportunity) => void;
   openPastClients: () => void; openStalled: (id: string) => void; refreshStalled: () => void; complianceWork?: ReactNode;
 }) {
@@ -66,7 +67,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
     <div className="section-heading"><h2>My Tasks today</h2>{page && <span className="pill">Checked {dateTime(page.checkedAt)} ET</span>}</div>
     <p className="muted">Open replies, first contacts, callbacks, lead and loan deadlines, and files returned by processing or a lender.</p>
     <IncomingLoanWorkQueue brokerageId={brokerageId} view="today" paused={busy || reviewingLoan} version={version} open={openIncomingLoanWork}
-      onLeadDocumentChange={() => setDeadlineRefresh((count) => count + 1)} />
+      onLeadDocumentChange={() => setDeadlineRefresh((count) => count + 1)} onPreapprovalChange={refreshCounts} />
     {complianceWork}
     {replyResult && "error" in replyResult && <p role="alert">{replyResult.error}</p>}
     {replies && <ConversationReplies page={replies} today={today} after={query.replyAfter} open={openReply}

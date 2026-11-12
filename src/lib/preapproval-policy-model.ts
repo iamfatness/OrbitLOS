@@ -26,3 +26,13 @@ export type PreapprovalPendingLetter = { loanId: string; borrower: string; issue
 export type PreapprovalPolicyResult = { policy: PreapprovalPolicy; pending: PreapprovalPendingLetter[];
   after: Pick<PreapprovalPendingLetter, "loanId" | "issuedAt"> | null };
 export const samplePreapprovalTarget = "sample-preapproval-letters";
+export const preapprovalWorkKinds = ["preapproval-review", "preapproval-revision", "preapproval-share"] as const;
+export const preapprovalWorkLabels = {
+  "preapproval-review": { title: "Sample letter awaiting approval", action: "Review letter", time: "Issued " },
+  "preapproval-revision": { title: "Sample letter changes requested", action: "Revise letter", time: "Returned " },
+  "preapproval-share": { title: "Sample letter ready to share", action: "Open sharing", time: "Ready " },
+} as const;
+export type PreapprovalWorkKind = typeof preapprovalWorkKinds[number];
+export function isPreapprovalWork(kind: string): kind is PreapprovalWorkKind {
+  return preapprovalWorkKinds.some((value) => value === kind);
+}

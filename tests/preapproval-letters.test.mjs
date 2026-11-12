@@ -16,6 +16,9 @@ const { blankApplication, sampleApplication } = await import("../src/lib/applica
 const { workOnPreapprovalLetters } = await import("../src/lib/preapproval-letters.ts");
 const { preapprovalLetterPdf } = await import("../src/lib/preapproval-letter-pdf.ts");
 const { readSharedPreapprovalLetters, sharedPreapprovalDownload } = await import("../src/lib/preapproval-sharing.ts");
+const { readIncomingLoanWorkPage } = await import("../src/lib/incoming-loan-work.ts");
+const { readActionCounts } = await import("../src/lib/workspace-action-counts.ts");
+const { currentPreapprovalWork } = await import("../src/lib/preapproval-work.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -72,6 +75,55 @@ test("sample preapproval preserves version bytes, reviews, and Eastern expiry ac
   assert.equal(db.prepare("SELECT count(*) AS total FROM activity WHERE text LIKE 'Issued fictional preapproval%'").get().total, 2);
   assert.equal(db.prepare("SELECT count(*) AS total FROM workspace_access_history WHERE action LIKE 'Issued sample preapproval%'").get().total, 2);
   assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
+test("daily sample letter work follows the exact version, current owner, decision and first share", (t) => {
+  const { db, staff, loanId, issue, work } = fixture(t);
+  const now = new Date("2026-11-10T04:59:59.999Z");
+  const id = staff.brokerage.id;
+  const admin = { ...staff, name: "Sample Admin", email: "admin@example.test", brokerage: { ...staff.brokerage, role: "Admin" } };
+  const nextOfficer = { ...staff, name: "Second Officer", email: "second@example.test" };
+  const processor = { ...staff, brokerage: { ...staff.brokerage, role: "Processor" } };
+  const queue = (actor, view = "today", clock = now) =>
+    readIncomingLoanWorkPage(db, { view }, actor, id, undefined, clock).items.filter(({ kind }) => kind.startsWith("preapproval-"));
+  const actions = (actor) => readActionCounts(db, actor, id, now).today;
+  const base = actions(staff);
+  assert.equal(work(issue).issuedVersion, 1);
+  assert.equal(queue(staff)[0].kind, "preapproval-share");
+  assert.equal(actions(staff), base + 1);
+  assert.equal(queue(nextOfficer).length, 0);
+  assert.equal(queue(processor, "processing").length, 0);
+  assert.ok(readIncomingLoanWorkPage(db, { view: "today" }, staff, crypto.randomUUID()).error);
+  const config = { maxAmountCents: null, maxExpiryDays: 60, requireApproval: true };
+  assert.equal(work({ type: "policySave", revision: 0, config }, admin).policy.revision, 1);
+  assert.equal(queue(staff).length, 0);
+  assert.equal(queue(admin)[0].kind, "preapproval-review");
+  assert.equal(queue({ ...admin, email: staff.email }).length, 0);
+  const review = { type: "reviewLetter", loanId, version: 1, revision: 1, decision: "Changes requested", note: "Use the revised amount." };
+  assert.ok(work(review, admin).page);
+  assert.equal(queue(admin).length, 0);
+  assert.equal(queue(staff)[0].note, review.note);
+  assert.equal(queue(staff)[0].kind, "preapproval-revision");
+  assert.equal(currentPreapprovalWork(db, staff, loanId, now).revision, 1);
+  db.prepare("UPDATE loans SET officerEmail = ? WHERE id = ?").run(nextOfficer.email, loanId);
+  assert.equal(queue(staff).length, 0);
+  assert.equal(queue(nextOfficer)[0].kind, "preapproval-revision");
+  const replacement = { ...issue, previousVersion: 1, requestId: crypto.randomUUID(), amountCents: issue.amountCents - 100 };
+  const preview = work({ ...replacement, type: "preview" }, nextOfficer).preview;
+  assert.equal(work({ ...replacement, previewStamp: preview.stamp }, nextOfficer).issuedVersion, 2);
+  assert.equal(queue(nextOfficer).length, 0);
+  assert.equal(queue(admin)[0].revision, 2);
+  assert.ok(work({ ...review, version: 2, decision: "Approved" }, admin).page);
+  assert.equal(currentPreapprovalWork(db, admin, loanId, now), undefined);
+  assert.equal(queue(nextOfficer)[0].kind, "preapproval-share");
+  assert.equal(queue(nextOfficer, "today", new Date("2026-11-11T05:00:00Z")).length, 0);
+  const state = work({ type: "read", loanId }, nextOfficer).page.sharing;
+  const grant = { type: "publish", loanId, version: 2, audience: "Borrower", grantId: crypto.randomUUID(),
+    previousGrantId: null, recipientStamp: state.audiences[0].recipient.stamp, confirmed: true };
+  assert.ok(work(grant, nextOfficer).page);
+  assert.equal(queue(nextOfficer).length, 0);
+  assert.ok(work({ ...grant, type: "withdraw" }, nextOfficer).page);
+  assert.equal(queue(nextOfficer).length, 0);
 });
 
 test("brokerage templates retain versions and issuance confirms the exact preview", (t) => {

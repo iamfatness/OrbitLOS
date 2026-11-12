@@ -11,6 +11,12 @@ import { accessEvent } from "./workspace-access";
 
 export const activePreapprovalLoan = `loan.disposition = 'Active' AND loan.stage NOT IN ('Funded', 'Closed')
   AND past.closingDate IS NULL AND closing.fundingDate IS NULL`;
+export function currentPreapprovalLetterSql(requireSecondReview: boolean) {
+  return `letter.expiresOn >= ? AND letter.version = (SELECT max(version) FROM sample_preapproval_letters WHERE loanId = loan.id)
+    AND ${activePreapprovalLoan} AND loan.purpose = 'Purchase' AND app.revision = letter.applicationRevision
+    AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND coalesce(app.correctionNote, '') = ''
+    AND json_extract(app.draft, '$.confirmedDemo') = 1${requireSecondReview ? ` AND ${approvedSecondReview}` : ""}`;
+}
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 
 function recipient(db: Store, loanId: string, audience: PreapprovalAudience, now: string) {
@@ -83,10 +89,7 @@ function sharedLettersSql(db: Store, audience: PreapprovalAudience, columns: str
     LEFT JOIN past_client_profiles past ON past.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
     ${portal}
     WHERE ${restriction} AND share.audience = ? AND share.portalHash = ? AND share.revokedAt IS NULL AND ${tokenScope}
-      AND letter.expiresOn >= ? AND letter.version = (SELECT max(version) FROM sample_preapproval_letters WHERE loanId = loan.id)
-      AND ${activePreapprovalLoan} AND loan.purpose = 'Purchase' AND app.revision = letter.applicationRevision
-      AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND coalesce(app.correctionNote, '') = ''
-      AND json_extract(app.draft, '$.confirmedDemo') = 1${readPlaybook(db).requireSecondReview ? ` AND ${approvedSecondReview}` : ""}`;
+      AND ${currentPreapprovalLetterSql(readPlaybook(db).requireSecondReview)}`;
 }
 
 export function readSharedPreapprovalLetters(db: Store, loanIds: string[], audience: PreapprovalAudience, token: string, now: string) {

@@ -10,6 +10,7 @@ import { returningClientOption } from "./past-client-queue";
 import type { ReturningClientOption } from "./past-client-queue-model";
 import type { WorkspaceStaff } from "./staff-store";
 import { readyRealtorFinancingId } from "./realtor-financing";
+import { currentPreapprovalWork } from "./preapproval-work";
 import { loanWorkRecords, readBrokerageTemplates, type Store } from "./store";
 import { loanAccess, scopeJointLinks } from "./workspace-access";
 import { searchTaskTarget } from "./workspace-search-model";
@@ -94,7 +95,8 @@ export function readEditableLoan(db: Store, input: unknown, staff: WorkspaceStaf
   const work = editableLoanRecords(db, loanId, staff, loanHandoffVersion(db, loanId), Boolean(stalled));
   const realtorFinancingReadyId = staff.brokerage.pilot && staff.brokerage.role !== "Processor"
     ? readyRealtorFinancingId(db, loanId, new Date(now).toISOString()) : null;
-  return { ...work, ...(realtorFinancingReadyId ? { realtorFinancingReadyId } : {}) };
+  const preapprovalWork = currentPreapprovalWork(db, staff, loanId, new Date(now));
+  return { ...work, ...(realtorFinancingReadyId ? { realtorFinancingReadyId } : {}), ...(preapprovalWork ? { preapprovalWork } : {}) };
 }
 
 function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, handoffVersion: string, stalled = false) {

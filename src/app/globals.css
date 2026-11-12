@@ -357,12 +357,12 @@ button:disabled { cursor: default; }
 .loan-task-copy span { font-size: 12px; }
 .sequence-task { flex-wrap: wrap; }
 .sequence-task > .document-form { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; }
-.loan-task.lender-return-task, .loan-task.realtor-financing-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-.lender-return-task > button, .realtor-financing-task > button { justify-self: start; }
+.loan-task.lender-return-task, .loan-task.realtor-financing-task, .loan-task.preapproval-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.lender-return-task > button, .realtor-financing-task > button, .preapproval-task > button { justify-self: start; }
 .lender-return-follow-up { grid-column: 1 / -1; display: grid; gap: 7px; }
 .lender-return-follow-up form { max-width: 32rem; }
 @media (max-width: 600px) {
-  .loan-task.lender-return-task, .loan-task.realtor-financing-task { grid-template-columns: minmax(0, 1fr); }
+  .loan-task.lender-return-task, .loan-task.realtor-financing-task, .loan-task.preapproval-task { grid-template-columns: minmax(0, 1fr); }
 }
 .coverage-window { flex-wrap: wrap; align-items: center; }
 .coverage-window .loan-task-copy { flex-basis: 180px; }
@@ -493,8 +493,8 @@ button:disabled { cursor: default; }
 .preapproval-issue .form-grid { align-items: start; }
 .preapproval-policy-editor .form-grid { max-width: 48rem; }
 .preapproval-policy-editor .field { max-width: none; }
-.preapproval-issue .demo-confirm { min-height: 44px; align-items: center; }
-.preapproval-issue .demo-confirm input { flex: none; margin-top: 0; }
+.preapproval-issue .demo-confirm, .preapproval-share-form .demo-confirm { min-height: 44px; align-items: center; }
+.preapproval-issue .demo-confirm input, .preapproval-share-form .demo-confirm input { flex: none; margin-top: 0; }
 @media (max-width: 600px) {
   .preapproval-issue .form-grid { grid-template-columns: minmax(0, 1fr); }
 }

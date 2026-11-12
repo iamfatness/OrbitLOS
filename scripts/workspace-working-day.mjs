@@ -5973,12 +5973,67 @@ try {
     return { loanId, borrowerName, version: issued.issuedVersion, note: approval.note };
   });
 
+  const preapprovalQueueFixture = await stage("Today routes independent letter approvals, LO revisions, and first publication", async () => {
+    const { loanId, borrowerName } = preapprovalPolicyFixture;
+    const { token } = checklistAnswersFixture;
+    const path = `/api/preapproval-letters?brokerage=${brokerage}`;
+    const read = () => post(path, { type: "read", loanId }, officer);
+    const item = async (actor, view = "today") => (await incoming(actor, view)).items
+      .find((entry) => entry.loanId === loanId && entry.kind.startsWith("preapproval-"));
+    const review = (version, decision, note) => post(path, { type: "reviewLetter", loanId, version, revision: 1, decision, note }, owner);
+    async function issue() {
+      const { page } = await read();
+      const terms = { loanId, previousVersion: page.latestVersion, applicationRevision: page.issue.applicationRevision,
+        amountCents: page.issue.amountCents - page.latestVersion * 100, expiresOn: page.issue.suggestedExpiry, scope: "Property search" };
+      const { preview } = await post(path, { ...terms, type: "preview" }, officer);
+      return (await post(path, { ...terms, type: "issue", previewStamp: preview.stamp, confirmed: true, requestId: randomUUID() }, officer)).issuedVersion;
+    }
+    assert.equal(await item(officer), undefined);
+    const ownerBefore = (await sidebar(owner)).today;
+    const loBefore = (await sidebar(officer)).today;
+    const first = await issue();
+    const pending = await item(owner);
+    assert.equal(pending.kind, "preapproval-review");
+    assert.equal(pending.revision, first);
+    assert.equal((await sidebar(owner)).today, ownerBefore + 1);
+    assert.equal(await item(officer), undefined);
+    assert.equal(await item(processor, "processing"), undefined);
+    assert.equal(await item(competingOfficer), undefined);
+    assert.deepEqual((await file(owner, loanId)).preapprovalWork, { kind: pending.kind, revision: pending.revision, receivedAt: pending.receivedAt });
+    assert.equal((await file(officer, loanId)).preapprovalWork, undefined);
+    const reason = "Use the revised sample amount before sharing.";
+    await review(first, "Changes requested", reason);
+    assert.equal(await item(owner), undefined);
+    const returned = await item(officer);
+    assert.equal(returned.kind, "preapproval-revision");
+    assert.equal(returned.note, reason);
+    assert.equal((await sidebar(officer)).today, loBefore + 1);
+    assert.equal((await file(owner, loanId)).preapprovalWork, undefined);
+    const replacement = await issue();
+    assert.equal(await item(officer), undefined);
+    assert.equal((await item(owner)).revision, replacement);
+    await review(replacement, "Approved", "Approved the exact replacement.");
+    assert.equal(await item(owner), undefined);
+    const ready = await item(officer);
+    assert.equal(ready.kind, "preapproval-share");
+    assert.equal(ready.revision, replacement);
+    const { sharing } = (await read()).page;
+    const grantId = randomUUID();
+    await post(path, { type: "publish", loanId, version: replacement, audience: "Borrower", grantId,
+      previousGrantId: null, recipientStamp: sharing.audiences[0].recipient.stamp, confirmed: true }, officer);
+    assert.equal(await item(officer), undefined);
+    assert.equal((await sidebar(officer)).today, loBefore);
+    assert.equal((await borrower(token, { type: "status" })).loanStatus.preapproval.grantId, grantId);
+    const version = process.argv.includes("--preview") ? await issue() : replacement;
+    return { loanId, borrowerName, version, ownerBefore, loBefore };
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture,preapprovalTemplateFixture,preapprovalPolicyFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture,preapprovalTemplateFixture,preapprovalPolicyFixture,preapprovalQueueFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

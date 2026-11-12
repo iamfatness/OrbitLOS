@@ -1,11 +1,12 @@
 import { z } from "zod";
 import type { ManualReturnFollowUp, ManualReturnStatus } from "./lender-export-model";
+import { preapprovalWorkKinds } from "./preapproval-policy-model";
 
 export const incomingLoanWorkUnavailable = "Incoming loan work is unavailable in this workspace.";
 export const incomingLoanWorkProcessingStatuses = ["Assigned", "Ready for processing", "In processing", "Returned to LO"] as const;
 
 const cursor = z.object({ receivedAt: z.iso.datetime(), kind: z.enum(["application", "document", "handoff", "lender-return", "lead-document", "question", "underwriting",
-  "realtor-financing"]), id: z.string().min(1).max(160) });
+  "realtor-financing", ...preapprovalWorkKinds]), id: z.string().min(1).max(160) });
 export const incomingLoanWorkQuery = z.object({ view: z.enum(["today", "processing"]), after: cursor.optional() });
 export type IncomingLoanWorkQuery = z.infer<typeof incomingLoanWorkQuery>;
 type IncomingCursor = z.infer<typeof cursor>;
