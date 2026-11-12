@@ -6,12 +6,16 @@ import type { Store } from "./store";
 
 type Row = Omit<AutomationDestination, "eventTypes"> & { sequence: number; eventTypes: string };
 
+const destinationWithPolicy = `SELECT d.*, json_extract(h.snapshot, '$.retryDelayMinutes') AS retryDelayMinutes
+  FROM automation_destinations d LEFT JOIN automation_destination_history h ON h.destinationId = d.id AND h.revision = d.revision`;
+
 function project(row: Row): AutomationDestination {
-  return { id: row.id, name: row.name, state: row.state, revision: row.revision, eventTypes: JSON.parse(row.eventTypes) as AutomationEventType[] };
+  return { id: row.id, name: row.name, state: row.state, revision: row.revision, eventTypes: JSON.parse(row.eventTypes) as AutomationEventType[],
+    ...(row.retryDelayMinutes ? { retryDelayMinutes: row.retryDelayMinutes } : {}) };
 }
 
 function rowById(db: Store, id: string) {
-  return db.prepare("SELECT * FROM automation_destinations WHERE id = ?").get(id) as unknown as Row | undefined;
+  return db.prepare(`${destinationWithPolicy} WHERE d.id = ?`).get(id) as unknown as Row | undefined;
 }
 
 export function automationDestination(db: Store, id: string) {
@@ -28,8 +32,8 @@ export function automationDestinationWork(db: Store, staff: WorkspaceStaff, inpu
   if (query.type === "destinations") {
     const { before } = query;
     const limit = 20;
-    const rows = db.prepare(`SELECT * FROM automation_destinations ${before ? "WHERE sequence < ?" : ""}
-      ORDER BY sequence DESC LIMIT ?`).all(...(before ? [before] : []), limit + 1) as unknown as Row[];
+    const rows = db.prepare(`${destinationWithPolicy} ${before ? "WHERE d.sequence < ?" : ""}
+      ORDER BY d.sequence DESC LIMIT ?`).all(...(before ? [before] : []), limit + 1) as unknown as Row[];
     return { kind: "destinations", destinations: rows.slice(0, limit).map(project), next: rows.length > limit ? rows[limit - 1].sequence : null };
   }
 
@@ -43,7 +47,8 @@ export function automationDestinationWork(db: Store, staff: WorkspaceStaff, inpu
     const expectedRevision = create ? 0 : query.revision;
     const operationId = create ? query.id : query.operationId;
     const configuration = query.type !== "setDestinationState";
-    const request = configuration ? { name: query.name, eventTypes: [...query.eventTypes].sort() } : { state: query.state };
+    const request = configuration ? { name: query.name, eventTypes: [...query.eventTypes].sort(),
+      ...(query.retryDelayMinutes === undefined ? {} : { retryDelayMinutes: query.retryDelayMinutes }) } : { state: query.state };
     const fingerprint = createHash("sha256").update(JSON.stringify([query.type, query.id, expectedRevision, request])).digest("hex");
     const previous = db.prepare("SELECT actorEmail, fingerprint FROM automation_destination_history WHERE operationId = ?").get(operationId);
     if (previous) {
@@ -74,6 +79,8 @@ export function automationDestinationWork(db: Store, staff: WorkspaceStaff, inpu
     }
     const saved = automationDestination(db, query.id);
     if (!saved) throw new Error("The automation destination was not saved.");
+    const retryDelay = configuration ? query.retryDelayMinutes ?? current?.retryDelayMinutes : current?.retryDelayMinutes;
+    if (retryDelay) saved.retryDelayMinutes = retryDelay;
     db.prepare(`INSERT INTO automation_destination_history (destinationId, revision, operationId, actorEmail, snapshot, fingerprint, at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(saved.id, saved.revision, operationId, staff.email, JSON.stringify(saved), fingerprint, at);
     return { kind: "destination", destination: saved };

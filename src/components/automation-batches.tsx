@@ -139,7 +139,7 @@ function BatchPanel({ brokerageId, destination, fictional, onRun, openEvent }: P
             {preview.status === "Queued" ? "Run simulated batch" : "Retry failed batch"}
           </Button>
         </div>
-      </> : <p className="muted">No {preview.status.toLowerCase()} events are waiting.</p>}
+      </> : <p className="muted">{preview.status === "Queued" ? "No queued events are waiting." : "No failed deliveries are ready to retry."}</p>}
     </section>}
     {receipt && <section className="document-item record-form" aria-labelledby="automation-batch-receipt">
       <h4 ref={heading} id="automation-batch-receipt" tabIndex={-1}>Batch receipt</h4>

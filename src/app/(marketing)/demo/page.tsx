@@ -102,6 +102,7 @@ export default function DemoPage() {
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Save the two runs for the same fictional case as you finish them. Compare staff time and handoffs, and record any external steps or blockers.</li>
           <li>Approve partner permissions and test a read-only feed of fictional CRM events.</li>
+          <li>Rehearse delivery retries and review archived attempts without losing their history.</li>
           <li>Subscribe simulated destinations to new leads, submitted 1003s, and funding events. Preview a batch, review its receipt, and retry failed simulations in Integrations.</li>
           <li>Follow the first-day checklist for an owner, loan officer, or processor. Open each step in the workspace and pick up where you left off.</li>
           <li>File a fictional pilot support request and follow its owner and status in Team.</li>

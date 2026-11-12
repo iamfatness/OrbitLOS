@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { automationBatchLimit, automationBatchQuery, type AutomationBatchHistory, type AutomationBatchItem,
   type AutomationBatchPreview, type AutomationBatchReceipt, type AutomationBatchStatus } from "./automation-batch-model";
 import { automationDestination } from "./automation-destinations";
+import { automationDeliveryJoins, automationRetryAt } from "./automation-delivery-policy";
 import type { AutomationDestination } from "./automation-event-model";
 import { writeDestinationAttempt } from "./automation-events";
 import { demoBrokerageId } from "./brokerage-model";
@@ -15,10 +16,12 @@ const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(va
 const stale = "The queue changed. Preview the current batch before running it.";
 const readOnly = "Resume this destination before running a batch.";
 
-function preview(db: Store, destination: AutomationDestination, status: AutomationBatchStatus) {
+function preview(db: Store, destination: AutomationDestination, status: AutomationBatchStatus, now: string) {
   const pending = db.prepare(`SELECT e.id AS eventId, d.eventType, e.occurredAt, d.subscriptionRevision, d.attemptCount, d.eventSequence
     FROM automation_destination_events d JOIN automation_events e ON e.sequence = d.eventSequence
-    WHERE d.destinationId = ? AND d.status = ? ORDER BY d.eventSequence LIMIT ?`).all(destination.id, status, automationBatchLimit + 1) as unknown as Row[];
+    ${automationDeliveryJoins} WHERE d.destinationId = ? AND d.status = ?
+      ${status === "Failed" ? `AND d.attemptCount = 1 AND (${automationRetryAt} IS NULL OR ${automationRetryAt} <= ?)` : ""}
+    ORDER BY d.eventSequence LIMIT ?`).all(destination.id, status, ...(status === "Failed" ? [now] : []), automationBatchLimit + 1) as unknown as Row[];
   const rows = pending.slice(0, automationBatchLimit);
   const items = rows.map(({ eventId, eventType, occurredAt, subscriptionRevision, attemptCount }) =>
     ({ eventId, eventType, occurredAt, subscriptionRevision, attemptCount }));
@@ -49,7 +52,7 @@ export function automationBatchWork(db: Store, staff: WorkspaceStaff, input: unk
   }
   if (query.type === "preview") {
     if (destination.state !== "Active") return { error: readOnly };
-    const { items, more, fingerprint } = preview(db, destination, query.status);
+    const { items, more, fingerprint } = preview(db, destination, query.status, now);
     return { kind: "preview", status: query.status, items, more, fingerprint };
   }
 
@@ -61,7 +64,7 @@ export function automationBatchWork(db: Store, staff: WorkspaceStaff, input: unk
         ? JSON.parse(prior.receipt) as AutomationBatchReceipt : { error: "This batch identifier is already in use." };
     }
     if (destination.state !== "Active") return { error: readOnly };
-    const checked = preview(db, destination, query.status);
+    const checked = preview(db, destination, query.status, now);
     if (checked.fingerprint !== query.fingerprint || !checked.rows.length) return { error: stale };
     if (query.failEventId && (query.status !== "Queued" || !checked.items.some(item => item.eventId === query.failEventId) ||
         (!staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId))) {

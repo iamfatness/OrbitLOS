@@ -2377,7 +2377,7 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           const destinationId = url.searchParams.get("destinationId") ?? undefined;
           const parsed = automationEventQuery.safeParse(id === null ? {
             type: "list", status: url.searchParams.get("status") ?? undefined, eventType: url.searchParams.get("eventType") ?? undefined,
-            before: cursor === null ? undefined : Number(cursor), destinationId,
+            before: cursor === null ? undefined : Number(cursor), destinationId, history: url.searchParams.get("history") ?? undefined,
           } : { type: "detail", id, destinationId });
           if (!parsed.success) return Response.json({ error: "Choose a valid event or queue filter." }, { status: 400, headers });
           const result = await workspace.automationEvents(staff, parsed.data);

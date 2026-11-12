@@ -1,4 +1,5 @@
 import { automationDestination } from "./automation-destinations";
+import { automationClosedAt, automationDeliveryJoins, automationHistoryCutoff, automationRetryAt } from "./automation-delivery-policy";
 import { demoBrokerageId } from "./brokerage-model";
 import { automationEventQuery, type AutomationAttempt, type AutomationDestination, type AutomationEvent, type AutomationEventDetail, type AutomationEventPage,
   type AutomationEventType, type AutomationOrigin, type AutomationPayload, type AutomationStatus } from "./automation-event-model";
@@ -7,7 +8,7 @@ import type { Store } from "./store";
 
 type Source = { eventType: AutomationEventType; kind: "lead" | "loan"; id: string; revision: number; origin: AutomationOrigin };
 type Row = { sequence: number; id: string; schemaVersion: 1; eventType: AutomationEventType; resourceKind: Source["kind"]; resourceId: string;
-  revision: number; origin: AutomationOrigin; occurredAt: string; status: AutomationStatus; attemptCount: number; subscriptionRevision?: number };
+  revision: number; origin: AutomationOrigin; occurredAt: string; status: AutomationStatus; attemptCount: number; subscriptionRevision?: number; retryAt?: string | null; closedAt?: string | null };
 type DeliveryResult = AutomationEventPage | AutomationEventDetail | { error: string };
 
 export function queueAutomationEvent(db: Store, source: Source, at: string) {
@@ -30,15 +31,16 @@ export function writeDestinationAttempt(db: Store, destinationId: string, eventS
   return { number, operationId, outcome, at, actor: staff.name };
 }
 
-function event(row: Row): AutomationEvent {
+function event(row: Row, cutoff: string): AutomationEvent {
   const payload: AutomationPayload = {
     schemaVersion: row.schemaVersion, eventId: row.id, eventType: row.eventType, occurredAt: row.occurredAt,
     source: row.origin, resource: { kind: row.resourceKind, id: row.resourceId, revision: row.revision },
   };
-  return { payload, status: row.status, attemptCount: row.attemptCount, subscriptionRevision: row.subscriptionRevision };
+  return { payload, status: row.status, attemptCount: row.attemptCount, subscriptionRevision: row.subscriptionRevision,
+    ...(row.retryAt ? { retryAt: row.retryAt } : {}), ...(row.closedAt && row.closedAt <= cutoff ? { archived: true } : {}) };
 }
 
-function detail(db: Store, row: Row, destination?: AutomationDestination): AutomationEventDetail {
+function detail(db: Store, row: Row, cutoff: string, destination?: AutomationDestination): AutomationEventDetail {
   const attempts = (destination ? db.prepare(`SELECT attempt AS number, operationId, outcome, at, actor
     FROM automation_destination_attempts WHERE destinationId = ? AND eventSequence = ? ORDER BY attempt DESC`).all(destination.id, row.sequence)
     : db.prepare(`SELECT attempt AS number, operationId, outcome, at, actor
@@ -46,7 +48,7 @@ function detail(db: Store, row: Row, destination?: AutomationDestination): Autom
   const route = destination && row.subscriptionRevision !== undefined && db.prepare("SELECT snapshot FROM automation_destination_history WHERE destinationId = ? AND revision = ?")
     .get(destination.id, row.subscriptionRevision)?.snapshot;
   const subscription = typeof route === "string" ? JSON.parse(route) as AutomationDestination : undefined;
-  return { kind: "event", event: event(row), attempts, destination, subscription };
+  return { kind: "event", event: event(row, cutoff), attempts, destination, subscription };
 }
 
 export function automationEventWork(db: Store, staff: WorkspaceStaff, input: unknown, now = new Date().toISOString()): DeliveryResult {
@@ -58,24 +60,29 @@ export function automationEventWork(db: Store, staff: WorkspaceStaff, input: unk
   if (query.destinationId && !destination) return { error: "This destination is unavailable in this brokerage." };
 
   const scope = destination ? [destination.id] : [];
+  const cutoff = automationHistoryCutoff(now);
   const from = destination ? `SELECT e.sequence, e.id, e.schemaVersion, e.eventType, e.resourceKind, e.resourceId, e.revision, e.origin, e.occurredAt,
-    d.status, d.attemptCount, d.subscriptionRevision FROM automation_destination_events d
-    JOIN automation_events e ON e.sequence = d.eventSequence WHERE d.destinationId = ?` : "SELECT e.* FROM automation_events e WHERE 1 = 1";
+    d.status, d.attemptCount, d.subscriptionRevision, ${automationRetryAt} AS retryAt, ${automationClosedAt} AS closedAt
+    FROM automation_destination_events d JOIN automation_events e ON e.sequence = d.eventSequence
+    ${automationDeliveryJoins} WHERE d.destinationId = ?` : "SELECT e.* FROM automation_events e WHERE 1 = 1";
   if (query.type === "list") {
-    const { status, eventType, before } = query;
+    const { status, eventType, before, history } = query;
+    if (history && !destination) return { error: "Choose a destination before reviewing its delivery history." };
+    const historyFilter = history === "archived" ? `AND ${automationClosedAt} <= ?` :
+      history === "current" ? `AND (${automationClosedAt} IS NULL OR ${automationClosedAt} > ?)` : "";
     const limit = 20;
     const filterAlias = destination ? "d" : "e";
     const cursor = destination ? "d.eventSequence" : "e.sequence";
     const rows = db.prepare(`${from} ${status ? `AND ${filterAlias}.status = ?` : ""} ${eventType ? `AND ${filterAlias}.eventType = ?` : ""}
-      ${before ? `AND ${cursor} < ?` : ""} ORDER BY ${cursor} DESC LIMIT ?`)
-      .all(...scope, ...(status ? [status] : []), ...(eventType ? [eventType] : []), ...(before ? [before] : []), limit + 1) as unknown as Row[];
-    return { kind: "events", events: rows.slice(0, limit).map(event), next: rows.length > limit ? rows[limit - 1].sequence : null, destination };
+      ${historyFilter} ${before ? `AND ${cursor} < ?` : ""} ORDER BY ${cursor} DESC LIMIT ?`)
+      .all(...scope, ...(status ? [status] : []), ...(eventType ? [eventType] : []), ...(history ? [cutoff] : []), ...(before ? [before] : []), limit + 1) as unknown as Row[];
+    return { kind: "events", events: rows.slice(0, limit).map(row => event(row, cutoff)), next: rows.length > limit ? rows[limit - 1].sequence : null, destination };
   }
 
   const read = () => db.prepare(`${from} AND e.id = ?`).get(...scope, query.id) as unknown as Row | undefined;
   if (query.type === "detail") {
     const row = read();
-    return row ? detail(db, row, destination) : { error: "This event is unavailable in this delivery queue." };
+    return row ? detail(db, row, cutoff, destination) : { error: "This event is unavailable in this delivery queue." };
   }
 
   return db.transaction(() => {
@@ -88,15 +95,18 @@ export function automationEventWork(db: Store, staff: WorkspaceStaff, input: unk
     if (existing) {
       const sameEvent = destination ? existing.eventSequence === row.sequence && existing.destinationId === destination.id : existing.eventId === row.id;
       return sameEvent && existing.attempt === query.attempt + 1 && existing.outcome === outcome && existing.actorEmail === staff.email
-        ? detail(db, row, destination) : { error: "This delivery attempt identifier is already in use." };
+        ? detail(db, row, cutoff, destination) : { error: "This delivery attempt identifier is already in use." };
     }
     if (destination?.state === "Disconnected") return { error: "This destination is disconnected. Its delivery history is read-only." };
     if (destination?.state === "Paused") return { error: "Resume this destination before simulating a delivery." };
     if (destination?.revision !== query.destinationRevision) return { error: "This destination changed. Refresh the event before trying again." };
     if (row.attemptCount !== query.attempt) return { error: "This event changed. Refresh it before trying again." };
     if (row.status === "Simulated") return { error: "This event already has a successful simulation." };
-    if (query.simulateFailure && (row.status !== "Queued" || (!staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId))) {
-      return { error: "Failure rehearsal is available for queued events in fictional workspaces." };
+    if (row.attemptCount === 2) return { error: "This delivery has used its retry. Review the recorded attempts." };
+    if (row.retryAt && row.retryAt > now) return { error: "This retry is scheduled for later. Refresh the event after the scheduled time." };
+    const maySimulateFailure = row.status === "Queued" || (destination && row.status === "Failed" && row.attemptCount === 1);
+    if (query.simulateFailure && (!maySimulateFailure || (!staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId))) {
+      return { error: "Failure rehearsal is available for queued events and eligible destination retries in fictional workspaces." };
     }
     const attempt = row.attemptCount + 1;
     if (destination) {
@@ -106,6 +116,8 @@ export function automationEventWork(db: Store, staff: WorkspaceStaff, input: unk
         VALUES (?, ?, ?, ?, ?, ?, ?)`).run(row.id, attempt, query.operationId, outcome, staff.email, staff.name, now);
       db.prepare("UPDATE automation_events SET status = ?, attemptCount = ? WHERE id = ?").run(outcome, attempt, row.id);
     }
-    return detail(db, { ...row, status: outcome, attemptCount: attempt }, destination);
+    const saved = read();
+    if (!saved) throw new Error("The simulated attempt was not saved.");
+    return detail(db, saved, cutoff, destination);
   });
 }

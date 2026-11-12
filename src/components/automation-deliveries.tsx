@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Radio } from "lucide-react";
-import { automationEventLabels, automationStatuses, type AutomationDestination, type AutomationEvent, type AutomationEventDetail, type AutomationEventPage,
+import { automationEventLabels, automationHistoryDays, automationStatuses, type AutomationDestination, type AutomationEvent, type AutomationEventDetail, type AutomationEventPage,
   type AutomationEventType, type AutomationPayload, type AutomationStatus } from "@/lib/automation-event-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -63,6 +63,7 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=automation-events` +
     (selectedDestination ? `&destinationId=${encodeURIComponent(selectedDestination.id)}` : "");
   const [status, setStatus] = useState<AutomationStatus | "">("");
+  const [history, setHistory] = useState<"current" | "archived">("current");
   const [eventType, setEventType] = useState<AutomationEventType | "">("");
   const [page, setPage] = useState<AutomationEventPage>();
   const [read, setRead] = useState({ generation: 0, before: null as number | null });
@@ -77,6 +78,7 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
   useEffect(() => {
     const controller = new AbortController();
     const filters = new URLSearchParams();
+    if (selectedDestination) filters.set("history", history);
     if (status) filters.set("status", status);
     if (eventType) filters.set("eventType", eventType);
     if (read.before) filters.set("before", String(read.before));
@@ -86,7 +88,7 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
     }).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [endpoint, eventType, status, read]);
+  }, [endpoint, eventType, status, history, read, selectedDestination]);
 
   function refresh(before: number | null = null) {
     setError("");
@@ -117,7 +119,7 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
         if (selected === id) document.getElementById("automation-event-heading")?.focus();
         else setSelected(id);
       }} />}
-    <div className="automation-delivery-filters">
+    <div className={destination ? "automation-delivery-filters with-history" : "automation-delivery-filters"}>
       <label className="field">Event type<select value={eventType} onChange={event => {
         setPage(undefined);
         setEventType(event.target.value as AutomationEventType | "");
@@ -134,18 +136,28 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
         <option value="">All statuses</option>
         {automationStatuses.map(value => <option key={value}>{value}</option>)}
       </select></label>
+      {destination && <label className="field">Delivery history<select value={history} onChange={event => {
+        setPage(undefined);
+        setHistory(event.target.value === "archived" ? "archived" : "current");
+        refresh();
+      }}>
+        <option value="current">Current deliveries</option>
+        <option value="archived">Archived deliveries</option>
+      </select></label>}
       <Button type="button" size="sm" variant="outline" disabled={loading} onClick={() => refresh()}>Refresh queue</Button>
     </div>
     {error && <p className="application-message banner-error" role="alert">{error}</p>}
     {loading && <p className="muted" role="status">Loading automation events…</p>}
     {!loading && !error && page?.events.length === 0 && <p className="muted">
-      {status || eventType ? "No events match these filters." : destination ? "New events that match this subscription will appear here." :
+      {status || eventType ? "No events match these filters." : history === "archived" ?
+        `Closed deliveries appear here after ${automationHistoryDays} days.` : destination ? "New events that match this subscription will appear here." :
         "New leads, submitted 1003s, and recorded funding will appear here."}
     </p>}
     {!!page?.events.length && <ul className="document-list" aria-label="Automation events">
-      {page.events.map(({ payload, status }) => <li className="document-item" key={payload.eventId}>
-        <div className="document-item-head"><strong>{automationEventLabels[payload.eventType]}</strong><span className="pill">{status}</span></div>
+      {page.events.map(({ payload, status, attemptCount, retryAt }) => <li className="document-item" key={payload.eventId}>
+        <div className="document-item-head"><strong>{automationEventLabels[payload.eventType]}</strong><span className="pill">{status === "Failed" && attemptCount === 2 ? "Retry exhausted" : status}</span></div>
         <p className="muted">{payload.source} · {dateTime(payload.occurredAt)}</p>
+        {retryAt && <p className="muted">Retry available from {dateTime(retryAt)}</p>}
         <div className="loan-application-actions"><Button type="button" size="sm" variant="outline" aria-expanded={selected === payload.eventId}
           onClick={event => {
             openedBy.current = event.currentTarget;
@@ -164,6 +176,13 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
   endpoint: string; id: string; fictional: boolean; openRecord: QueueProps["openRecord"]; onSaved: () => void; onClose: () => void;
 }) {
   const [detail, setDetail] = useState<AutomationEventDetail>();
+  const [clock, setClock] = useState(Date.now);
+  const retryAt = detail?.event.retryAt;
+  useEffect(() => {
+    if (!retryAt) return;
+    const timer = setTimeout(() => setClock(Date.now()), Math.max(0, Date.parse(retryAt) - Date.now() + 10));
+    return () => clearTimeout(timer);
+  }, [retryAt]);
   const [loading, setLoading] = useState(true);
   const [loadVersion, setLoadVersion] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -203,7 +222,9 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
       if (result.kind !== "event") throw new Error("Refresh the event to check the saved attempt.");
       pending.current = null;
       setDetail(result);
-      setNotice(result.event.status === "Failed" ? "Simulated failure recorded. You can retry this event." : "Simulation succeeded.");
+      setNotice(result.event.status !== "Failed" ? "Simulation succeeded." : result.event.attemptCount === 2 ?
+        "The retry failed. Review both attempts below." : result.event.retryAt ? "Simulated failure recorded. Retry scheduled." :
+        "Simulated failure recorded. You can retry this event.");
       onSaved();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Refresh the event to check the saved attempt."); }
     finally { setSaving(false); }
@@ -211,10 +232,12 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
 
   const item = detail?.event;
   const available = !detail?.destination || detail.destination.state === "Active";
+  const exhausted = item?.status === "Failed" && item.attemptCount === 2;
+  const waiting = retryAt !== undefined && Date.parse(retryAt) > clock;
   return <section className="document-item record-form" aria-labelledby="automation-event-heading">
     <div className="document-item-head">
       <h3 id="automation-event-heading" ref={heading} tabIndex={-1}>{item ? automationEventLabels[item.payload.eventType] : "Event details"}</h3>
-      {item && <span className="pill">{item.status}</span>}
+      {item && <span className="pill">{exhausted ? "Retry exhausted" : item.status}</span>}
     </div>
     {loading && <p className="muted" role="status">Loading event…</p>}
     {error && <p ref={alert} tabIndex={-1} role="alert" className="application-message banner-error">{error}</p>}
@@ -222,6 +245,9 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
     {item && <>
       <p className="muted">{item.payload.source} · {dateTime(item.payload.occurredAt)}</p>
       {detail.subscription && <p className="muted">Subscription version {detail.subscription.revision} · {detail.subscription.name}</p>}
+      {item.archived && <p className="muted">Archived delivery. Attempts and receipts remain available.</p>}
+      {waiting && retryAt && <p className="muted">Retry available from {dateTime(retryAt)}.</p>}
+      {exhausted && <p className="muted">This delivery has used its retry.</p>}
       {detail.destination?.state === "Paused" && <p className="muted">Resume the destination before trying a simulation.</p>}
       {detail.destination?.state === "Disconnected" && <p className="muted">This destination is disconnected.</p>}
       <details className="automation-payload">
@@ -237,11 +263,13 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
       </div>}
     </>}
     <div className="loan-application-actions">
-      {available && item && item.status !== "Simulated" && <Button type="button" size="sm" disabled={saving || loading} onClick={() => void attempt(item, false)}>
+      {available && item && item.status !== "Simulated" && !exhausted && <Button type="button" size="sm" disabled={saving || loading || waiting} onClick={() => void attempt(item, false)}>
         {saving ? "Recording…" : item.status === "Failed" ? "Retry simulation" : "Simulate delivery"}
       </Button>}
-      {available && fictional && item?.status === "Queued" && <Button type="button" size="sm" variant="outline" disabled={saving || loading}
-        onClick={() => void attempt(item, true)}>Simulate failure</Button>}
+      {available && fictional && item && (item.status === "Queued" || (detail?.destination && item.status === "Failed" && !exhausted)) &&
+        <Button type="button" size="sm" variant="outline" disabled={saving || loading || waiting} onClick={() => void attempt(item, true)}>
+          {item.status === "Failed" ? "Simulate retry failure" : "Simulate failure"}
+        </Button>}
       {item && <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => openRecord(item.payload.resource)}>
         {item.payload.resource.kind === "lead" ? "Open lead" : "Open loan"}
       </Button>}

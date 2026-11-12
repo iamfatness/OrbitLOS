@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { automationEventLabels, type AutomationDestination, type AutomationDestinationPage, type AutomationEventType } from "@/lib/automation-event-model";
+import { automationEventLabels, automationRetryDelays, type AutomationDestination, type AutomationRetryDelay, type AutomationDestinationPage, type AutomationEventType } from "@/lib/automation-event-model";
 import { Button } from "./ui/button";
 
 async function destinationRequest(endpoint: string, action?: object) {
@@ -87,6 +87,7 @@ function DestinationEditor({ endpoint, initial, onSaved, onClose }: {
   const [destination, setDestination] = useState(initial);
   const [name, setName] = useState(initial?.name ?? "");
   const [eventTypes, setEventTypes] = useState<AutomationEventType[]>(initial?.eventTypes ?? []);
+  const [retryDelay, setRetryDelay] = useState<AutomationRetryDelay>(initial?.retryDelayMinutes ?? 0);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -119,6 +120,7 @@ function DestinationEditor({ endpoint, initial, onSaved, onClose }: {
       if (!("type" in action && action.type === "setDestinationState")) {
         setName(saved.name);
         setEventTypes(saved.eventTypes);
+        setRetryDelay(saved.retryDelayMinutes ?? 0);
       }
       setConfirming(false);
       setNotice(saved.state === "Disconnected" ? "Destination disconnected. Delivery history is still available." :
@@ -149,7 +151,7 @@ function DestinationEditor({ endpoint, initial, onSaved, onClose }: {
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!eventTypes.length) { setNotice(""); setError("Choose at least one event type."); return; }
-    void change({ type: destination ? "editDestination" : "createDestination", name: name.trim(), eventTypes });
+    void change({ type: destination ? "editDestination" : "createDestination", name: name.trim(), eventTypes, retryDelayMinutes: retryDelay });
   }
 
   return <section className="document-item record-form" aria-labelledby="automation-destination-editor">
@@ -177,7 +179,13 @@ function DestinationEditor({ endpoint, initial, onSaved, onClose }: {
             </label>;
           })}
         </fieldset>
-        <p className="muted">Subscription changes apply to events recorded after you save.</p>
+        <label className="field automation-destination-name">Retry delay<select value={retryDelay} disabled={saving}
+          onChange={event => setRetryDelay(Number(event.target.value) as AutomationRetryDelay)}>
+          {automationRetryDelays.map(minutes => <option key={minutes} value={minutes}>
+            {minutes ? `After ${minutes} minutes` : "Immediately"}
+          </option>)}
+        </select></label>
+        <p className="muted">New events use these settings. After a failure, each delivery has one retry.</p>
         <div className="loan-application-actions">
           <Button type="submit" size="sm" disabled={saving || confirming}>{saving ? "Saving…" : destination ? "Save settings" : "Create destination"}</Button>
         </div>

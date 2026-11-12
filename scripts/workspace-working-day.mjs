@@ -118,6 +118,10 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     }catch(error){return error.message;}
     return "Unexpectedly allowed";
   }
+  deliveryAttemptFixtureDate(destinationId, eventId, at) {
+    this.ctx.storage.sql.exec("UPDATE automation_destination_attempts SET at=? WHERE destinationId=? AND eventSequence=" +
+      "(SELECT sequence FROM automation_events WHERE id=?)", at, destinationId, eventId);
+  }
   dispositionFixtureDates(loanId,fundingDate,dispositionDate) {
     const sql=this.ctx.storage.sql;
     if(fundingDate) {
@@ -5299,6 +5303,57 @@ try {
 
     if (process.argv.includes("--preview")) {
       await post(endpoint, { ...registration, id: randomUUID(), name: "Fictional long partner name for CRM reporting acceptance" }, owner);
+    }
+  });
+
+  await stage("Simulated delivery retries respect the captured delay and archive closed history", async () => {
+    const settings = `/api/brokerages?brokerage=${brokerage}&view=automation-destinations`;
+    const destinationId = randomUUID();
+    const name = "Fictional CRM delivery recovery and long history";
+    const eventTypes = ["lead.created"];
+    await post(settings, { type: "createDestination", id: destinationId, name, eventTypes, retryDelayMinutes: 5 }, owner);
+    const events = `/api/brokerages?brokerage=${brokerage}&view=automation-events&destinationId=${destinationId}`;
+    const batches = `/api/brokerages?brokerage=${brokerage}&view=automation-batches&destinationId=${destinationId}`;
+    const attempt = (id, count, fail, destinationRevision = 1) => ({
+      type: "attempt", id, operationId: randomUUID(), attempt: count, simulateFailure: fail, destinationId, destinationRevision,
+    });
+    const makeEvent = async borrower => {
+      const created = await write(owner, { type: "loan", borrower, contactId: "", partnerId: null, officer: owner.name,
+        address: "", amount: 240000, purpose: "Purchase", stage: "Lead" });
+      assert.ok(!created.error, created.error);
+      const result = await browse(owner, events);
+      assert.equal(result.status, 200);
+      return JSON.parse(result.text()).events[0].payload.eventId;
+    };
+    const pending = await makeEvent("Fictional scheduled delivery");
+    const failed = await post(events, attempt(pending, 0, true), owner);
+    assert.equal(Date.parse(failed.event.retryAt) - Date.parse(failed.attempts[0].at), 300_000);
+    const preview = async () => JSON.parse((await browse(owner, batches + "&status=Failed")).text());
+    assert.equal((await postResponse(events, attempt(pending, 1, false), owner)).status, 409);
+    assert.deepEqual((await preview()).items, []);
+    const ageAttempt = (eventId, milliseconds) => workspaces.getByName(brokerage)
+      .deliveryAttemptFixtureDate(destinationId, eventId, new Date(Date.now() - milliseconds).toISOString());
+    await ageAttempt(pending, 360_000);
+    assert.deepEqual((await preview()).items.map(item => item.eventId), [pending]);
+    const retry = await post(events, attempt(pending, 1, true), owner);
+    assert.equal(retry.event.attemptCount, 2);
+    assert.deepEqual((await preview()).items, []);
+    assert.equal((await postResponse(events, attempt(pending, 2, false), owner)).status, 409);
+    await ageAttempt(pending, 31 * 86_400_000);
+    const archive = JSON.parse((await browse(owner, events + "&history=archived")).text());
+    assert.equal(archive.events[0].payload.eventId, pending);
+    assert.equal(archive.events[0].archived, true);
+    const current = JSON.parse((await browse(owner, events + "&history=current")).text());
+    assert.deepEqual(current.events, []);
+    const old = JSON.parse((await browse(owner, events + "&id=" + pending)).text());
+    assert.equal(old.attempts.length, 2);
+    assert.equal((await browse(officer, events + "&history=archived")).status, 403);
+    if (process.argv.includes("--preview")) {
+      const ready = await makeEvent("Fictional ready retry");
+      await post(events, attempt(ready, 0, true), owner);
+      await ageAttempt(ready, 360_000);
+      const future = await makeEvent("Fictional waiting retry");
+      await post(events, attempt(future, 0, true), owner);
     }
   });
 
