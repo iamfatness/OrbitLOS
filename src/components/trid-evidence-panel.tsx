@@ -6,6 +6,7 @@ import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import { correctedCdReasons, isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
 import { Button } from "./ui/button";
 import { MichiganChargeEvidence, MichiganChargeFields, MichiganChargeReviews } from "./michigan-charge-review";
+import { MichiganBookletEvidence, MichiganBookletFields, MichiganBookletResult } from "./michigan-booklet-review";
 import { parseTridDollars, readFeeSnapshotLines, TridClosingReviews, TridClosingSourceField, TridEstimateRevisionFields, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
 
 type Result = Extract<ComplianceCaseResult, { kind: "trid" }>["result"];
@@ -20,6 +21,7 @@ const actions = {
   feeCure: "Record refund and cure evidence",
   correctedCdReview: "Record corrected disclosure review",
   miChargeReview: "Record Michigan charge review",
+  miBookletReview: "Record Michigan booklet review",
 } as const;
 const dates = (value: string) => value.split(/[\s,]+/).filter(Boolean);
 const recordedWhen = (event: { on: string; localTime?: string }) => event.localTime ? `${event.on} ${event.localTime}` : event.on;
@@ -40,6 +42,7 @@ function describe(event: TridEvent) {
     case "feeCure": return `Refund evidence dated ${event.on} · Closing snapshot ${event.closingSequence}`;
     case "correctedCdReview": return `${event.reason} · Corrected disclosure entry ${event.sendSequence}`;
     case "miChargeReview": return `Michigan charge · ${event.name} · ${event.key}`;
+    case "miBookletReview": return `Michigan application booklet · ${recordedWhen(event)}`;
   }
 }
 
@@ -112,6 +115,11 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           termsReference: get("termsReference").trim() || undefined, originalExpiry: get("originalExpiry") || undefined,
           extension: get("extension") || undefined, extendedExpiry: get("extendedExpiry") || undefined,
           extensionReference: get("extensionReference").trim() || undefined };
+        break;
+      case "miBookletReview":
+        input = { type: action, reference, on, localTime, applicability: get("bookletScope"), channel: get("applicationChannel"),
+          delivery: form.has("bookletDocumented") ? { on: get("bookletOn"), localTime: get("bookletTime") || undefined,
+            method: get("bookletMethod"), provider: get("bookletProvider"), edition: get("bookletEdition"), reference: get("bookletReference") } : undefined };
         break;
       case "closing": input = { type: action, reference, on }; break;
       case "feeSnapshot": input = { type: action, reference, evidenceSequence: Number(get("evidenceSequence")),
@@ -211,6 +219,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
         </details>
         <TridFeeComparison active={active} />
         <MichiganChargeReviews active={active} reviews={data.michiganCharges} />
+        <MichiganBookletResult active={active} review={data.michiganBooklet} />
         <TridEstimateRevisionReviews active={active} reviews={data.estimateRevisions} />
         <TridClosingReviews cures={data.feeCures} corrections={data.correctedCds} actualOn={actual?.event.type === "consummated" ? actual.event.on : undefined} />
         {readOnly ? <p className="muted">Evidence is read-only for this view.</p> : <section className="record-form" aria-label="Record evidence">
@@ -226,6 +235,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
             <fieldset disabled={busy} className="record-form">
               {action === "feeSnapshot" && <TridFeeSnapshotFields active={active} />}
               {action === "miChargeReview" && <MichiganChargeFields />}
+              {action === "miBookletReview" && <MichiganBookletFields />}
               {action === "feeCure" && <>
                 <label className="field">Actual consummation<select name="consummationSequence" required>
                   <option value="">Choose recorded consummation</option>
@@ -304,7 +314,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
               {action === "void" ? <label className="field">Entry to withdraw<select name="sequence" required><option value="">Choose an entry</option>
                 {data.entries.filter(entry => entry.event.type !== "void" && !withdrawn.has(entry.sequence)).map(entry =>
                   <option value={entry.sequence} key={entry.sequence}>{entry.sequence}. {describe(entry.event)}</option>)}
-              </select></label> : action !== "scope" && action !== "feeSnapshot" && action !== "correctedCdReview" && action !== "miChargeReview" && <label className="field">{action === "closing" ? "Planned consummation date"
+              </select></label> : action !== "scope" && action !== "feeSnapshot" && action !== "correctedCdReview" && action !== "miChargeReview" && action !== "miBookletReview" && <label className="field">{action === "closing" ? "Planned consummation date"
                 : action === "sent" ? "Send date" : action === "intent" ? "Intent date" : action === "fee" ? "Activity date"
                 : action === "estimateRevision" ? "Date sufficient information was received" : action === "consummated" ? "Actual consummation date"
                 : action === "feeCure" ? "Refund date" : "Receipt date"}<input name="on" type="date" required /></label>}
@@ -312,7 +322,8 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                 <label className="field">Local time (optional)<input name="localTime" type="time" />
                   <span className="muted">Enter the time in the recorded review time zone when it helps establish same-day order.</span>
                 </label>}
-              <label className="field">{action === "scope" ? "Scope and office calendar evidence reference" : action === "void" ? "Correction reason or evidence reference" : "Evidence reference"}<input name="reference" required maxLength={180} /></label>
+              <label className="field">{action === "scope" ? "Scope and office calendar evidence reference" : action === "void" ? "Correction reason or evidence reference" :
+                action === "miBookletReview" ? "Application evidence reference" : "Evidence reference"}<input name="reference" required maxLength={180} /></label>
               <div><Button type="submit" size="sm">{busy ? "Recording…" : actions[action]}</Button></div>
             </fieldset>
           </form>
@@ -320,8 +331,10 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
         <details className="details-section"><summary>Evidence history ({data.entries.length})</summary>
           {data.entries.length === 0 && <p>No evidence recorded.</p>}
           <ol className="document-list">{data.entries.map(entry => <li key={entry.sequence} className="document-item">
-            <div><strong>{entry.sequence}. {describe(entry.event)}</strong><p>{entry.event.reference} · {entry.actor} · {entry.at}</p>
+            <div className="min-w-0 break-words"><strong>{entry.sequence}. {describe(entry.event)}</strong>
+              <p>{entry.event.type !== "miBookletReview" && `${entry.event.reference} · `}{entry.actor} · {entry.at}</p>
               {entry.event.type === "miChargeReview" && <MichiganChargeEvidence event={entry.event} />}
+              {entry.event.type === "miBookletReview" && <MichiganBookletEvidence event={entry.event} />}
               {withdrawn.has(entry.sequence) && <p>Withdrawn by a later entry</p>}</div>
           </li>)}</ol>
         </details>

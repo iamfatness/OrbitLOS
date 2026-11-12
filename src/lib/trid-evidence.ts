@@ -6,6 +6,7 @@ import { isLoanEstimateReceipt, type TridEntry, type TridEvent, type TridRequest
 import { estimateRevisionBasis, reviewDisclosureFees, reviewEstimateRevisions } from "./trid-fee-evidence";
 import { feeCureBasis, reviewCorrectedCds, reviewFeeCures } from "./trid-closing-review";
 import { reviewMichiganCharges } from "./michigan-charge-review";
+import { reviewMichiganBooklet } from "./michigan-booklet-review";
 
 export function initializeTridEvidence(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_trid_evidence (
@@ -51,6 +52,14 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
     return;
   }
   if (!scope) return "Record the covered scenario and office calendar first.";
+  if (event.type === "miBookletReview") {
+    if (active.some(entry => entry.event.type === "miBookletReview"))
+      return "Withdraw the earlier booklet review before recording a correction.";
+    const today = tridLocalDate(now, scope.zone);
+    if (event.on > today || (event.delivery && event.delivery.on > today))
+      return "Application and booklet delivery evidence cannot be dated in the future.";
+    return;
+  }
   if (event.type === "miChargeReview") {
     if (active.some(entry => entry.event.type === "miChargeReview" && entry.event.key === event.key))
       return "Withdraw the earlier review for this charge before recording a correction.";
@@ -154,6 +163,7 @@ export function tridEvidenceWork(db: Store, input: TridRequest, staff: Workspace
       feeCures: reviewFeeCures(active),
       correctedCds: reviewCorrectedCds(active),
       michiganCharges: reviewMichiganCharges(active),
+      michiganBooklet: reviewMichiganBooklet(active),
     };
   };
   if (input.operation === "read") return current();

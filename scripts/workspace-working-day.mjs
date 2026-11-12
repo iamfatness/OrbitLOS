@@ -1899,6 +1899,21 @@ try {
       const guaranteeResult = (await recordTrid(officer, 32, guarantee)).result;
       assert.match(guaranteeResult.michiganCharges[0].issues.join(" "), /written extension agreed to by all parties/);
       assert.equal(guaranteeResult.timing.initialCdEarliest, closingTiming.timing.initialCdEarliest);
+      const booklet = { type: "miBookletReview", applicability: "Covered application for review", channel: "Website",
+        on: "2026-07-01", localTime: "09:00", reference: "Fictional Michigan application intake" };
+      assert.ok((await recordTrid(processor, 33, booklet)).result.error);
+      assert.match((await recordTrid(owner, 33, { ...booklet, on: "2099-01-01" })).result.error, /future/);
+      const bookletResult = (await recordTrid(owner, 33, booklet)).result;
+      assert.equal(bookletResult.michiganBooklet.chronology, "Delivery not documented");
+      assert.equal(bookletResult.timing.applicationOn, "2026-07-02");
+      assert.match((await recordTrid(officer, 34, booklet)).result.error, /earlier booklet review/);
+      const removedBooklet = (await recordTrid(owner, 34, { type: "void", sequence: 34, reference: "Fictional booklet proof located" })).result;
+      assert.equal(removedBooklet.michiganBooklet, null);
+      const documentedBooklet = { ...booklet, delivery: { on: "2026-07-01", localTime: "09:00",
+        method: "Electronic", provider: "Broker", edition: "Fictional toolkit", reference: "Fictional delivery log" } };
+      assert.match((await recordTrid(owner, 35, { ...documentedBooklet, delivery: { ...documentedBooklet.delivery, on: "2099-01-01" } })).result.error, /future/);
+      assert.equal((await recordTrid(officer, 35, documentedBooklet)).result.michiganBooklet.chronology, "Same recorded minute");
+      assert.equal((await readTrid(processor)).result.michiganBooklet.sequence, 36);
     }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;

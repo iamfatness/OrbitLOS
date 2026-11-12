@@ -13,6 +13,23 @@ const { tridElements } = await import("../src/lib/trid-model.ts");
 const { preciseBusinessDay, tridTiming } = await import("../src/lib/trid-timing.ts");
 const { reviewEstimateRevisions } = await import("../src/lib/trid-fee-evidence.ts");
 const { michiganChargeReview, reviewMichiganCharges } = await import("../src/lib/michigan-charge-review.ts");
+const { michiganBookletReview, reviewMichiganBooklet } = await import("../src/lib/michigan-booklet-review.ts");
+
+test("Michigan booklet review compares its own application event and preserves unknown timing", () => {
+  const application = { type: "miBookletReview", applicability: "Covered application for review", channel: "Website",
+    on: "2026-07-10", localTime: "09:00", reference: "Fictional Michigan application" };
+  const delivery = { on: application.on, localTime: "09:01", method: "Electronic", provider: "Broker",
+    edition: "Fictional booklet edition", reference: "Fictional delivery record" };
+  const review = event => reviewMichiganBooklet([{ sequence: 1, event: michiganBookletReview.parse(event) }]);
+  assert.equal(reviewMichiganBooklet([]), null);
+  assert.equal(review(application).chronology, "Delivery not documented");
+  assert.equal(review({ ...application, delivery: { ...delivery, localTime: undefined } }).chronology, "Same date, order unresolved");
+  assert.equal(review({ ...application, delivery: { ...delivery, localTime: "09:00" } }).chronology, "Same recorded minute");
+  assert.equal(review({ ...application, delivery: { ...delivery, on: "2026-07-09" } }).chronology, "Recorded before application");
+  assert.equal(review({ ...application, delivery }).chronology, "Recorded after application");
+  assert.match(review({ ...application, delivery }).issues.join(" "), /application channel with counsel/);
+  assert.equal(michiganBookletReview.safeParse({ ...application, delivery: { ...delivery, edition: "" } }).success, false);
+});
 
 test("Michigan charge evidence distinguishes unknown amounts, expense gaps and written extensions", () => {
   const base = { type: "miChargeReview", key: " Guarantee ", name: "Fictional guarantee", category: "Rate guarantee",

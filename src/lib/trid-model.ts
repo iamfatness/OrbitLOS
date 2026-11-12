@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { disclosureFeeSnapshot } from "./trid-fee-comparison";
 import { michiganChargeReview } from "./michigan-charge-review";
+import { michiganBookletReview } from "./michigan-booklet-review";
 
 export const tridElements = {
   name: "Applicant name", income: "Income", creditReportId: "SSN for obtaining a credit report",
@@ -34,6 +35,7 @@ export const tridEvent = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("fee"), intentSequence: sequence.optional(), on: date, localTime, reference,
     category: z.enum(["Credit report", "Other"]), activity: z.enum(["Fee imposed", "Payment method required"]), name: reference }),
   michiganChargeReview,
+  michiganBookletReview,
   disclosureFeeSnapshot.safeExtend({ type: z.literal("feeSnapshot") }),
   z.strictObject({ type: z.literal("estimateRevision"), originalSequence: sequence, revisedSequence: sequence,
     on: date, reason: z.enum(estimateRevisionReasons), reference,

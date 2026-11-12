@@ -169,6 +169,24 @@
   },
   {
     "jurisdiction": "MI",
+    "area": "LOAN",
+    "id": "BOOKLET",
+    "title": "Michigan application booklet",
+    "authority": "MCL 445.1636",
+    "sourceUrl": "https://legislature.mi.gov/Laws/MCL?objectName=mcl-445-1636",
+    "summary": "Michigan's Consumer Mortgage Protection Act addresses providing the special information booklet when a covered borrower applies. DIFS guidance discusses refinance applications, broker-provided evidence and channel-specific timing.",
+    "evidence": "Covered transaction and responsible parties, state application event and channel, booklet version, provider, delivery time and supporting evidence.",
+    "counsel": "Confirm coverage, the application trigger, which booklet and channel-specific timing apply, and what broker delivery evidence the lender must retain.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Michigan DIFS Consumer Mortgage Protection Act FAQ",
+        "url": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/consumer-mort-protection-act"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MI",
     "area": "OUTREACH",
     "id": "ADVERTISING",
     "title": "First mortgage advertising and advertised terms",
