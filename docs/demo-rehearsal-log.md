@@ -1343,3 +1343,7 @@ Worker `aea92362-7e68-420f-b83d-4a8467aa81e0` serves app `087b3b7ca2b9`. The 52-
 ### Simulated automation batches
 
 Worker `70a1d8b7-4efa-4fe6-a807-5c4f47d8e7d6` serves app `6b42bb36ca08`. The 53-stage fictional working day verified scoped oldest-first batches, stale and paused rejection, exact receipt replay, an independent failed-only retry, and history after disconnect. The browser recovered a lost acknowledgement, opened the exact event and returned to the receipt, then reopened the original mixed outcome after a successful retry. Live verification exercised the public Demo and signed-out endpoint boundary. Authenticated batch writes ran in the fictional rehearsal.
+
+### Sandbox partner permissions
+
+Worker `547161c9-c8ff-4d27-aef2-0c702e165c21` serves app `554d63f8d894` at 100%. The fictional admin approved an expiring grant, recovered a lost acknowledgement without creating a duplicate, verified allowed and denied decisions, and revoked the grant with history retained. The 54-stage working day also checked approval revision changes, cross-workspace denial, and LO denial. The public Demo and signed-out boundaries passed in staging and live. Live asset verification matched 2,876 files on each of two passes with 24 unchanged bindings. The existing signed-in Chrome session showed OrbitLOS Production before and after promotion. Authenticated grant writes ran in the isolated rehearsal.

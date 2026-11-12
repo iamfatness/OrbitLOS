@@ -609,3 +609,7 @@ Reused the accepted Orbit Integrations disclosure, list/detail rows and inline f
 ### Simulated automation batches
 
 Reused Orbit’s existing disclosures, receipt rows and keyboard return as the accepted 21st.dev patterns. Impeccable Polish informed keeping preview, receipt, and history in the selected destination. UI UX Pro Max error-recovery guidance informed the stale preview message and the saved receipt focus. Inspected 1440, 900 and 390 px layouts.
+
+### Partner permissions
+
+Impeccable and UI UX Pro Max informed focus, explicit approval and revocation, and recovery after an interrupted save. The 21st.dev pattern reference reused the accepted Orbit Integrations disclosure, checkbox group and list-to-detail layout. The selected grant shows scope, approval, expiry, test result and retained history together. The revoked state keeps the last decision readable on phone widths.
