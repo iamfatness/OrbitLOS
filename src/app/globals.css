@@ -899,6 +899,12 @@ button:disabled { cursor: default; }
 .team-access-heading { flex-wrap: wrap; }
 .team-access-panel .document-item-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .staff-invite-feedback p { overflow-wrap: anywhere; }
+.pilot-seat-capacity { display: grid; gap: 10px; padding-block-end: 14px; border-block-end: 1px solid var(--line); }
+.pilot-seat-capacity h3 { font-weight: 650; }
+.pilot-seat-counts { display: flex; flex-wrap: wrap; gap: 10px 24px; }
+.pilot-seat-counts dt { color: var(--muted); font-size: 0.8125rem; }
+.pilot-seat-counts dd { margin: 2px 0 0; font-weight: 650; }
+.pilot-seat-capacity .brokerage-form > p { flex-basis: 100%; }
 .pilot-support-requests h3 { font-weight: 650; }
 .pilot-support-requests .form-grid { max-width: 48rem; }
 .pilot-support-requests .form-grid .field { max-width: none; }

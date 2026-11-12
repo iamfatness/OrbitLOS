@@ -39,10 +39,21 @@ export interface AccessEvent {
   createdAt: string;
 }
 
+export type PilotSeatCapacity = {
+  limit: number | null;
+  revision: number;
+  active: number;
+  reserved: number;
+  remaining: number | null;
+};
+
+export const pilotSeatFull = "All pilot seats are reserved. Cancel a pending invitation, finish offboarding, or raise the pilot limit.";
+
 export interface BrokerageSettings {
   brokerages: Brokerage[];
   members: VersionedBrokerageMember[];
   history: AccessEvent[];
+  seatCapacity?: PilotSeatCapacity;
   pilotScenario?: PilotScenario;
   pilotFeedback?: PilotFeedback[];
   pilotMetrics?: { label: string; count: number; minutes: number | null }[];

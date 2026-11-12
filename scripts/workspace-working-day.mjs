@@ -5504,6 +5504,62 @@ try {
     }
   });
 
+  await stage("Pilot staff seat limits reserve invitations and release canceled or revoked access", async () => {
+    const endpoint = `/api/brokerages?brokerage=${brokerage}`;
+    const get = async () => (await readTeam(owner)).json();
+    const update = (limit, revision) => ({ type: "setPilotSeatLimit", limit, revision, operationId: randomUUID() });
+    const initial = (await get()).seatCapacity;
+    assert.equal(initial.limit, null);
+    assert.equal(initial.remaining, null);
+    assert.equal((await (await readTeam(officer)).json()).seatCapacity, undefined);
+    assert.equal((await (await readTeam(owner, {}, lenderBrokerage)).json()).seatCapacity, undefined);
+    const occupied = initial.active + initial.reserved;
+    const set = update(occupied + 1, initial.revision);
+    assert.equal((await postResponse(endpoint, set, officer)).status, 403);
+    assert.equal((await postResponse("/api/brokerages", set, owner)).status, 403);
+    assert.equal((await postResponse(`/api/brokerages?brokerage=${lenderBrokerage}`, set, owner)).status, 403);
+    assert.equal((await postResponse(endpoint, update(occupied - 1, initial.revision), owner)).status, 409);
+    await team(owner, set);
+    await team(owner, set);
+    assert.equal((await postResponse(endpoint, update(null, initial.revision), owner)).status, 409);
+    const invite = email => ({ type: "invite", email, role: "LO", operationId: randomUUID() });
+    const attempts = ["seat-race-a@example.test", "seat-race-b@example.test"].map(invite);
+    const results = await Promise.all(attempts.map(input => postResponse(endpoint, input, owner)));
+    assert.deepEqual(results.map(result => result.status).sort(), [200, 409]);
+    const winner = attempts[results.findIndex(result => result.status === 200)];
+    const loser = attempts.find(item => item !== winner);
+    await team(owner, winner);
+    const full = await get();
+    assert.deepEqual(full.seatCapacity, { limit: occupied + 1, revision: initial.revision + 1,
+      active: initial.active, reserved: initial.reserved + 1, remaining: 0 });
+    const cancellation = { type: "cancelInvitation", email: winner.email,
+      expectedAccessRevision: full.members.find(member => member.email === winner.email).accessRevision };
+    await team(owner, cancellation);
+    await team(owner, cancellation);
+    assert.equal((await postResponse(endpoint, winner, owner)).status, 409);
+    assert.equal((await get()).seatCapacity.remaining, 1);
+
+    await team(owner, loser);
+    const beforeAccept = await get();
+    const expectedAccessRevision = beforeAccept.members.find(member => member.email === loser.email).accessRevision;
+    await signIn({ email: loser.email, name: "Fictional seat acceptance", role: "LO", token: randomBytes(32).toString("base64url") });
+    const accepted = await get();
+    assert.equal(accepted.seatCapacity.active, initial.active + 1);
+    assert.equal(accepted.seatCapacity.reserved, initial.reserved);
+    assert.equal(accepted.seatCapacity.remaining, 0);
+    assert.equal((await postResponse(endpoint, { type: "cancelInvitation", email: loser.email, expectedAccessRevision }, owner)).status, 409);
+    await team(owner, { type: "revoke", email: loser.email,
+      expectedAccessRevision: accepted.members.find(member => member.email === loser.email).accessRevision });
+    const freed = await get();
+    assert.equal(freed.seatCapacity.remaining, 1);
+    assert.equal(freed.history.filter(item => item.action === "Set pilot seat limit").length, 1);
+    assert.equal(freed.history.filter(item => item.action === "Canceled invitation" && item.subject === winner.email).length, 1);
+    if (!process.argv.includes("--preview")) {
+      await team(owner, update(null, freed.seatCapacity.revision));
+      assert.equal((await get()).seatCapacity.remaining, null);
+    }
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

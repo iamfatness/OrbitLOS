@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { brokerageRoles, demoBrokerageId, type AccessEvent, type Brokerage, type BrokerageMember, type VersionedBrokerageMember } from "./brokerage-model";
+import { brokerageRoles, demoBrokerageId, pilotSeatFull, type AccessEvent, type Brokerage, type BrokerageMember, type PilotSeatCapacity, type VersionedBrokerageMember } from "./brokerage-model";
 import type { DepartureMember, DepartureRoster } from "./offboarding-model";
 import { readStaffSession, type StaffEmailProof, type StaffIdentity } from "./staff-store";
 import type { Store } from "./store";
@@ -14,6 +14,14 @@ export function initializeBrokerages(db: Store) {
       bootstrap INTEGER NOT NULL DEFAULT 0, accessRevision INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (brokerageId, email)
     );
     CREATE INDEX IF NOT EXISTS brokerage_members_by_email ON brokerage_members(email, status);
+    CREATE TABLE IF NOT EXISTS pilot_staff_seat_limits (
+      brokerageId TEXT PRIMARY KEY REFERENCES brokerages(id), seatLimit INTEGER CHECK (seatLimit IS NULL OR seatLimit > 0),
+      revision INTEGER NOT NULL, operationId TEXT NOT NULL, actorEmail TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pilot_staff_invitation_receipts (
+      operationId TEXT PRIMARY KEY, brokerageId TEXT NOT NULL REFERENCES brokerages(id),
+      email TEXT NOT NULL, role TEXT NOT NULL, accessRevision INTEGER NOT NULL, actorEmail TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS staff_email_codes (
       email TEXT PRIMARY KEY, brokerageId TEXT NOT NULL, accessRevision INTEGER NOT NULL,
       browserHash TEXT NOT NULL, codeHash TEXT NOT NULL, expiresAt INTEGER NOT NULL,
@@ -179,6 +187,15 @@ export function selectedActiveMembers(db: Store, id: string, emails: string[], b
       accessRevision: Number(row.accessRevision) }));
 }
 
+export function pilotSeatCapacity(db: Store, id: string, members: BrokerageMember[]): PilotSeatCapacity {
+  const policy = db.prepare("SELECT seatLimit, revision FROM pilot_staff_seat_limits WHERE brokerageId = ?").get(id);
+  const active = members.filter(member => member.status === "Active").length;
+  const reserved = members.filter(member => member.status === "Invited").length;
+  const limit = typeof policy?.seatLimit === "number" ? policy.seatLimit : null;
+  return { limit, revision: Number(policy?.revision ?? 0), active, reserved,
+    remaining: limit === null ? null : Math.max(0, limit - active - reserved) };
+}
+
 export function brokerageHistory(db: Store, id: string): AccessEvent[] {
   return db.prepare("SELECT id,actor,action,subject,createdAt FROM brokerage_access_history WHERE brokerageId = ? ORDER BY createdAt DESC LIMIT 100")
     .all(id).map((row) => ({ ...row }) as unknown as AccessEvent);
@@ -208,7 +225,10 @@ export const staffEmail = z.string().trim().toLowerCase().pipe(z.email().max(254
 const email = staffEmail;
 export const brokerageAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("create"), name: z.string().trim().min(2).max(80), id: z.uuid(), pilot: z.boolean().default(false) }),
-  z.object({ type: z.literal("invite"), email, role: z.enum(brokerageRoles) }),
+  z.object({ type: z.literal("invite"), email, role: z.enum(brokerageRoles), operationId: z.uuid().optional() }),
+  z.object({ type: z.literal("cancelInvitation"), email, expectedAccessRevision: z.number().int().nonnegative() }),
+  z.object({ type: z.literal("setPilotSeatLimit"), limit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
+    revision: z.number().int().nonnegative(), operationId: z.uuid() }),
   z.object({ type: z.literal("role"), email, role: z.enum(brokerageRoles) }),
   z.object({ type: z.literal("revoke"), email, expectedAccessRevision: z.number().int().nonnegative().optional() }),
   z.object({ type: z.literal("assign"), email, loanId: z.string().min(1).max(100), previousEmail: email.nullable(),
@@ -222,8 +242,8 @@ export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, boo
   if (!parsed.success) return { error: "Check the brokerage settings and try again." };
   const data = parsed.data;
   return db.transaction(() => {
-    const role = activeBrokerages(db, staff.email, bootstrapEmails).find((brokerage) => brokerage.id === id)?.role;
-    if (role !== "Admin") return { error: "Only a brokerage admin can manage access and loan assignments." };
+    const access = activeBrokerages(db, staff.email, bootstrapEmails).find((brokerage) => brokerage.id === id);
+    if (access?.role !== "Admin") return { error: "Only a brokerage admin can manage access and loan assignments." };
     const now = new Date().toISOString();
     if (data.type === "create") {
       const existing = db.prepare("SELECT name, pilot FROM brokerages WHERE id = ?").get(data.id);
@@ -239,6 +259,26 @@ export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, boo
       return { created: data.id };
     }
     const members = brokerageMembers(db, id, bootstrapEmails);
+    if (data.type === "setPilotSeatLimit") {
+      if (!access.pilot) return { error: "Pilot seat limits are available in fictional pilot workspaces." };
+      const existing = db.prepare("SELECT seatLimit, revision, operationId, actorEmail FROM pilot_staff_seat_limits WHERE brokerageId = ?").get(id);
+      const capacity = pilotSeatCapacity(db, id, members);
+      const message = data.limit === null ? "Pilot seat limit removed." : "Pilot seat limit saved.";
+      if (existing?.operationId === data.operationId && existing.actorEmail === staff.email && existing.seatLimit === data.limit &&
+          existing.revision === data.revision + 1) return { message };
+      if (existing?.operationId === data.operationId || capacity.revision !== data.revision) {
+        return { error: "The pilot seat limit changed. Refresh staff access before saving.", status: 409 };
+      }
+      if (data.limit !== null && data.limit < capacity.active + capacity.reserved) {
+        return { error: `Set the limit to at least ${capacity.active + capacity.reserved} seats for active staff and pending invitations.`, status: 409 };
+      }
+      if (capacity.limit === data.limit) return { message };
+      db.prepare(`INSERT INTO pilot_staff_seat_limits (brokerageId, seatLimit, revision, operationId, actorEmail) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(brokerageId) DO UPDATE SET seatLimit=excluded.seatLimit, revision=excluded.revision,
+          operationId=excluded.operationId, actorEmail=excluded.actorEmail`).run(id, data.limit, data.revision + 1, data.operationId, staff.email);
+      history(db, id, staff.email, data.limit === null ? "Removed pilot seat limit" : "Set pilot seat limit", data.limit === null ? "No limit" : String(data.limit), now);
+      return { message };
+    }
     const member = members.find((entry) => entry.email === data.email);
     if (data.type === "assign") {
       if (member?.status !== "Active" || member.role === "Processor") return { error: "Select an active loan officer or admin in this brokerage." };
@@ -253,11 +293,35 @@ export function changeBrokerage(db: Store, id: string, staff: StaffIdentity, boo
         requireUnassigned: data.requireUnassigned, requestId: data.requestId } };
     }
     if (data.type === "invite") {
+      const message = "Invitation saved. Share the Orbit sign-in link with this staff member.";
+      const operationId = access.pilot ? data.operationId : undefined;
+      if (operationId) {
+        const prior = db.prepare("SELECT * FROM pilot_staff_invitation_receipts WHERE operationId = ?").get(operationId);
+        if (prior) {
+          return prior.brokerageId === id && prior.email === data.email && prior.role === data.role && prior.actorEmail === staff.email &&
+            member?.status === "Invited" && member.accessRevision === prior.accessRevision
+            ? { message } : { error: "This invitation changed. Refresh staff access before starting a new invitation.", status: 409 };
+        }
+      }
       if (member && member.status !== "Revoked") return { error: "This staff member already has an invitation or access." };
-      db.prepare(`INSERT INTO brokerage_members (brokerageId,email,name,role,status) VALUES (?, ?, ?, ?, 'Invited')
-        ON CONFLICT (brokerageId,email) DO UPDATE SET role = excluded.role, status = 'Invited', bootstrap = 0, accessRevision = accessRevision + 1`).run(id, data.email, data.email, data.role);
+      if (access.pilot && pilotSeatCapacity(db, id, members).remaining === 0) return { error: pilotSeatFull, status: 409 };
+      const saved = db.prepare(`INSERT INTO brokerage_members (brokerageId,email,name,role,status) VALUES (?, ?, ?, ?, 'Invited')
+        ON CONFLICT (brokerageId,email) DO UPDATE SET role = excluded.role, status = 'Invited', bootstrap = 0, accessRevision = accessRevision + 1
+        RETURNING accessRevision`).get(id, data.email, data.email, data.role);
+      if (!saved) throw new Error("The invitation could not be saved.");
+      if (operationId) db.prepare(`INSERT INTO pilot_staff_invitation_receipts (operationId, brokerageId, email, role, accessRevision, actorEmail)
+        VALUES (?, ?, ?, ?, ?, ?)`).run(operationId, id, data.email, data.role, saved.accessRevision, staff.email);
       history(db, id, staff.email, `Invited as ${data.role}`, data.email, now);
-      return { message: "Invitation saved. Share the Orbit sign-in link with this staff member." };
+      return { message };
+    }
+    if (data.type === "cancelInvitation") {
+      if (member?.status === "Revoked" && member.accessRevision === data.expectedAccessRevision + 1) return { message: "Invitation canceled." };
+      if (member?.status !== "Invited" || member.accessRevision !== data.expectedAccessRevision) {
+        return { error: "This invitation changed. Refresh staff access before canceling it.", status: 409 };
+      }
+      db.prepare("UPDATE brokerage_members SET status = 'Revoked', accessRevision = accessRevision + 1 WHERE brokerageId = ? AND email = ?").run(id, data.email);
+      history(db, id, staff.email, "Canceled invitation", data.email, now);
+      return { message: "Invitation canceled." };
     }
     if (data.type === "revoke" && data.expectedAccessRevision !== undefined) {
       const current = db.prepare("SELECT status, accessRevision FROM brokerage_members WHERE brokerageId = ? AND email = ?").get(id, data.email);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
+import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, pilotSeatFull, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -29,6 +29,10 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const [busy, setBusy] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [invitation, setInvitation] = useState<{ email: string; role: string }>();
+  const [seatDraft, setSeatDraft] = useState<string | null>(null);
+  const seatEditor = useRef<HTMLButtonElement>(null);
+  const seatAttempt = useRef<{ key: string; id: string } | null>(null);
+  const [inviteAttempt, setInviteAttempt] = useState<{ key: string; id: string } | null>(null);
   const [invitationCopy, setInvitationCopy] = useState<{ email: string; url: string; copied: boolean }>();
   const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [offboardingEmail, setOffboardingEmail] = useState<string | null>(null);
@@ -53,6 +57,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const explorationOwners = settings?.members.filter(member => member.role !== "Processor" &&
     (member.status === "Active" || member.status === "Invited")) ?? [];
   const scenario = settings?.pilotScenario;
+  const seats = settings?.seatCapacity;
   const otherWorkspaces = settings?.brokerages.filter(item => item.id !== staff.brokerage.id) ?? [];
   const sampleWorkspaces = otherWorkspaces.filter(item => item.pilot || item.id === demoBrokerageId);
   const operationalWorkspaces = otherWorkspaces.filter(item => !item.pilot && item.id !== demoBrokerageId);
@@ -92,9 +97,18 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     setError("");
     setMessage("");
     try {
-      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
+      const capacityAction = action.type === "setPilotSeatLimit" || action.type === "cancelInvitation" ||
+        (action.type === "invite" && Boolean(action.operationId));
+      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) })
+        .catch(() => { throw new Error("Orbit could not confirm the change. Try again or refresh staff access."); });
       const result = await response.json() as { error?: string; created?: string; message?: string };
-      if (!response.ok) throw new Error(result.error ?? "Orbit could not save this change.");
+      if (!response.ok) {
+        if (capacityAction && response.status === 409) {
+          if (action.type === "invite") setInviteAttempt(null);
+          await reloadTeam().catch(() => undefined);
+        }
+        throw new Error(result.error ?? "Orbit could not save this change.");
+      }
       if (result.created) { window.location.assign(brokerageUrl(result.created)); return; }
       if (action.type === "invite" && typeof action.email === "string" && typeof action.role === "string") {
         setInvitation({ email: action.email.trim().toLowerCase(), role: action.role });
@@ -113,6 +127,43 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       reset?.();
     } catch (failure) { (onError ?? setError)(failure instanceof Error ? failure.message : "Orbit could not save this change."); }
     finally { setBusy(false); }
+  }
+
+  function saveSeatLimit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy || !seats || seatDraft === null) return;
+    const limit = seatDraft.trim() === "" ? null : Number(seatDraft);
+    if (limit !== null && (!Number.isSafeInteger(limit) || limit < 1)) {
+      setError("Enter a positive whole number or leave the seat limit blank.");
+      return;
+    }
+    const key = JSON.stringify([seats.revision, limit]);
+    if (seatAttempt.current?.key !== key) seatAttempt.current = { key, id: crypto.randomUUID() };
+    void change({ type: "setPilotSeatLimit", limit, revision: seats.revision, operationId: seatAttempt.current.id }, () => {
+      seatAttempt.current = null;
+      setSeatDraft(null);
+    });
+  }
+
+  function saveInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    const form = event.currentTarget;
+    const fields = new FormData(form);
+    const email = String(fields.get("email")).trim().toLowerCase();
+    const role = fields.get("role");
+    const key = JSON.stringify([staff.brokerage.id, email, role]);
+    const retry = inviteAttempt?.key === key ? inviteAttempt : null;
+    if (seats?.remaining === 0 && !retry) {
+      setError(pilotSeatFull);
+      return;
+    }
+    const attempt = seats ? retry ?? { key, id: crypto.randomUUID() } : null;
+    setInviteAttempt(attempt);
+    void change({ type: "invite", email, role, operationId: attempt?.id }, () => {
+      setInviteAttempt(null);
+      form.reset();
+    });
   }
 
   function create(event: FormEvent<HTMLFormElement>) {
@@ -304,16 +355,37 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       <section className="pipeline relationship-panel team-access-panel" aria-label="Staff access">
         <div className="section-heading team-access-heading"><h2>Staff access</h2>
           <Button size="sm" className="min-h-11" variant="outline" aria-disabled={busy} onClick={() => { if (!busy) void refreshAccess(); }}>Refresh staff access</Button></div>
+        {seats && <section className="pilot-seat-capacity" aria-labelledby="pilot-seat-heading">
+          <div className="section-heading team-access-heading">
+            <h3 id="pilot-seat-heading">Pilot seats</h3>
+            {seatDraft === null && <Button ref={seatEditor} size="sm" className="min-h-11" variant="outline" disabled={busy}
+              onClick={() => setSeatDraft(seats.limit?.toString() ?? "")}>Edit seat limit</Button>}
+          </div>
+          <dl className="pilot-seat-counts">
+            <div><dt>Active staff</dt><dd>{seats.active}</dd></div>
+            <div><dt>Pending invites</dt><dd>{seats.reserved}</dd></div>
+            <div><dt>Seats left</dt><dd>{seats.remaining ?? "No limit"}</dd></div>
+          </dl>
+          {seatDraft === null ? <p className="muted">{seats.limit === null ? "Pending invitations reserve a seat." :
+            `${seats.limit} total seats. Pending invitations reserve a seat.`}</p> :
+            <form className="brokerage-form" onSubmit={saveSeatLimit}>
+              <label className="field">Total seat limit<input type="number" min={1} step={1} value={seatDraft} autoFocus
+                aria-describedby="pilot-seat-limit-help" onChange={event => setSeatDraft(event.target.value)} /></label>
+              <Button type="submit" size="sm" className="min-h-11" disabled={busy}>Save seat limit</Button>
+              <Button size="sm" className="min-h-11" variant="ghost" disabled={busy} onClick={() => {
+                setSeatDraft(null);
+                requestAnimationFrame(() => seatEditor.current?.focus());
+              }}>Cancel</Button>
+              <p id="pilot-seat-limit-help" className="muted">Leave blank for no limit. Active staff and pending invitations each use one seat.</p>
+            </form>}
+          {seats.remaining === 0 && <p className="muted" role="status" id="pilot-seats-full">{pilotSeatFull}</p>}
+        </section>}
         <p className="muted">Invite staff using their existing email address. Share the sign-in link after saving.</p>
-        <form className="brokerage-form staff-invite-form" onSubmit={(event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const data = new FormData(form);
-          void change({ type: "invite", email: data.get("email"), role: data.get("role") }, () => form.reset());
-        }}>
+        <form className="brokerage-form staff-invite-form" onSubmit={saveInvitation}>
           <label className="field staff-invite-address">Email address<input name="email" type="email" autoComplete="off" required maxLength={254} /></label>
           <label className="field">Invite role<select name="role" defaultValue="LO" aria-describedby="invite-role-help">{brokerageRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
-          <Button type="submit" size="sm" className="min-h-10" disabled={busy}>Save invitation</Button>
+          <Button type="submit" size="sm" className="min-h-10" aria-describedby={seats?.remaining === 0 ? "pilot-seats-full" : undefined}
+            disabled={busy || (seats?.remaining === 0 && !inviteAttempt)}>Save invitation</Button>
         </form>
         <p id="invite-role-help" className="muted">LOs start in Today. Processors start in Processing with their assigned files. Admins start in the brokerage overview and can manage staff access.</p>
         {invitation && !settings.members.some((member) => member.email === invitation.email && member.status !== "Invited") &&
@@ -332,7 +404,9 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
             <label className="field">Staff role<select name="role" defaultValue={member.role}>{brokerageRoles.map((role) => <option key={role}>{role}</option>)}</select></label>
             <Button type="submit" size="sm" variant="outline" disabled={busy}>Save role</Button>
             {member.status === "Invited" && <Button size="sm" variant="ghost" disabled={busy} onClick={() => {
-              if (window.confirm(`Cancel the invitation for ${member.email}?`)) void change({ type: "revoke", email: member.email });
+              if (window.confirm(`Cancel the invitation for ${member.email}?`)) void change({
+                type: "cancelInvitation", email: member.email, expectedAccessRevision: member.accessRevision ?? 0,
+              });
             }}>Cancel invitation</Button>}
           </form>}
           {member.status !== "Invited" && offboardingEmail !== member.email && <Button size="sm" variant="outline" disabled={busy}

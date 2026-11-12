@@ -61,7 +61,7 @@ import { loanContactPickerUnavailable } from "./lib/loan-contact-picker-model";
 import { googleSettings, handleStaffAuth, rememberedStaffWorkspace, runtimeSetting, staffLoginUrl, staffSessionHash, staffWorkspaceCookie, workspaceAccessDenied, type StaffEmailAuth } from "./lib/staff-auth";
 import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type WorkspaceStaff } from "./lib/staff-store";
 import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
-import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, consumeStaffEmailCode, departureRoster, history as recordBrokerageHistory, initializeBrokerages, readStaffAccess, rememberWorkspace, reserveStaffEmailCode, selectedActiveMembers } from "./lib/brokerages";
+import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, consumeStaffEmailCode, departureRoster, history as recordBrokerageHistory, initializeBrokerages, pilotSeatCapacity, readStaffAccess, rememberWorkspace, reserveStaffEmailCode, selectedActiveMembers } from "./lib/brokerages";
 import { readPilotSupport, readPilotSupportWork, readSupportRecovery } from "./lib/pilot-support";
 import { supportChanged, supportUnavailable, supportWorkChanged, supportWorkGroup, supportWorkOffset, supportWorkPaused,
   type SupportRecoveryState, type SupportWorkGroup } from "./lib/pilot-support-model";
@@ -1524,7 +1524,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   }
   team(staff: WorkspaceStaff, emails: string[]) {
     const members = this.teamMembers(staff, emails);
-    return members ? { members, history: brokerageHistory(this.#store, staff.brokerage.id) } : { members: [], history: [] };
+    const id = staff.brokerage.id;
+    return members ? { members, history: brokerageHistory(this.#store, id),
+      ...(staff.brokerage.pilot && this.brokerageDetails(id)?.pilot ? { seatCapacity: pilotSeatCapacity(this.#store, id, members) } : {}),
+    } : { members: [], history: [] };
   }
   complianceRoster(staff: WorkspaceStaff, emails: string[]): VersionedBrokerageMember[] | null {
     if (this.#id !== demoBrokerageId) return null;
@@ -2507,7 +2510,7 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         }
         const [team, localHistory, pilot] = await Promise.all([directory.team(staff, bootstrapEmails), workspace.audit(staff), workspace.pilotReview(staff)]);
         const history = [...team.history, ...localHistory].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 100);
-        return Response.json({ brokerages, members: team.members, history, ...pilot }, { headers });
+        return Response.json({ ...team, brokerages, history, ...pilot }, { headers });
       }
       if (request.method === "POST") return borrowerJson<{ message?: string; created?: string } | DeparturePage>(request, async (input) => {
         if (input && typeof input === "object" && "type" in input && (input.type === "saveBranch" || input.type === "setBranchActive")) {
@@ -2593,8 +2596,13 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           const result = await workspace.loadExploration(staff, parsed.data, team.members);
           return "error" in result ? { status: 409, error: result.error } : { value: result };
         }
+        if (input && typeof input === "object" && "type" in input &&
+            (input.type === "setPilotSeatLimit" || input.type === "cancelInvitation") &&
+            url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return { status: 403, error: "Open Staff access in the brokerage you want to manage." };
+        }
         const result = await directory.manage(staff, bootstrapEmails, input);
-        if (result.error) return { status: 403, error: result.error };
+        if (result.error) return { status: result.status ?? 403, error: result.error };
         if (result.assignment) {
           const assigned = await workspace.reassign(staff, result.assignment);
           return assigned.error ? { status: 409, error: assigned.error } : { value: { message: assigned.message } };
