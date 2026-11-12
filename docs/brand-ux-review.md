@@ -644,3 +644,9 @@ The built fictional owner exercised the populated roster, a selected limit, an i
 Impeccable Polish informed placement inside the selected request and shared alignment with the existing triage controls. UI UX Pro Max form and confirmation guidance informed labeled reviewer and duration selectors, retained input after an interruption and explicit confirmation for revocation. The approved 21st.dev-informed Partner permissions disclosure, receipt and list-detail patterns supply the existing component reference. Reviewers open a focused summary from Team → Shared with me and return to the grant by keyboard.
 
 The built owner and processor checked a selected request and populated access history, failed acknowledgments, approval replay, recorded views, canceled and confirmed revocation, and an open reviewer tab losing access on refocus. The final editor, active, revoked and reviewer captures at 1440, 900 and 390 px are `.orbit/pilot-support-access-{owner-form,owner-active,owner-revoked,reviewer}-*.png`.
+
+### Borrower-approved sample realtor financing summaries
+
+Impeccable Polish informed placement below loan pricing and the shared terms grid. UI UX Pro Max error recovery and confirmation guidance informed the exact named-recipient preview, explicit allow and decline decisions, and focused response receipts. The existing 21st.dev-informed disclosure and role-specific detail patterns supply the component reference.
+
+The built LO opened the selected purchase file from Pipeline, recovered a lost request acknowledgment, and saw separate decisions on the same preview. Each borrower used their own link. The realtor saw a sample program, term, amount and expiration after publication and lost the summary after the co-borrower withdrew. The final 1440, 900 and 390 px captures are `.orbit/realtor-financing-summary-{staff-pending,staff-published,borrower-permission,co-borrower-permission,realtor-published}-*.png`.
