@@ -16,7 +16,7 @@ const { initializeStore } = await import("../src/lib/store.ts");
 const { staffAuthStore } = await import("../src/lib/staff-store.ts");
 const { handleStaffAuth, staffLoginUrl, staffSessionHash, workspaceAccessDenied } = await import("../src/lib/staff-auth.ts");
 const { brokerageUrl, defaultWorkspace, demoBrokerageId } = await import("../src/lib/brokerage-model.ts");
-const { initializeBrokerages, readStaffAccess } = await import("../src/lib/brokerages.ts");
+const { bootstrapDemoMembers, changeBrokerage, consumeStaffEmailCode, initializeBrokerages, readStaffAccess, reserveStaffEmailCode } = await import("../src/lib/brokerages.ts");
 
 test("staff sign-in preserves only an allowed guide through an older workspace and a cancelled attempt", async (t) => {
   const sqlite = new DatabaseSync(":memory:");
@@ -109,4 +109,106 @@ test("workspace entry prefers accessible operational work and explicit demo link
   assert.equal(defaultWorkspace([demo,testSpace]),demo);
   assert.equal(defaultWorkspace([]),undefined);
   assert.equal(brokerageUrl(demoBrokerageId),"/workspace?brokerage=orbit-demo");
+});
+
+test("email sign-in activates the invited role and preserves Google-only bootstrap access", async (t) => {
+  const sqlite = new DatabaseSync(":memory:");
+  t.after(() => sqlite.close());
+  const db = { exec: (sql) => sqlite.exec(sql), prepare: (sql) => sqlite.prepare(sql), transaction: (fn) => fn() };
+  initializeStore(db, false);
+  initializeBrokerages(db);
+  const store = staffAuthStore(db);
+  const admin = { email: "owner@example.test", name: "Fictional owner" };
+  const email = "new-processor@outlook.com";
+  const bootstrap = [admin.email, email];
+  const settings = { clientId: "test-client", clientSecret: "test-secret", allowedEmails: new Set(bootstrap) };
+  const brokerageId = crypto.randomUUID();
+  const otherId = crypto.randomUUID();
+  const savedId = crypto.randomUUID();
+  db.prepare("INSERT INTO brokerages (id, name) VALUES (?, 'Fictional brokerage')").run(brokerageId);
+  db.prepare("INSERT INTO brokerages (id, name) VALUES (?, 'Other brokerage'), (?, 'Saved brokerage')").run(otherId, savedId);
+  db.prepare("INSERT INTO brokerage_members (brokerageId, email, name, role, status) VALUES (?, ?, ?, 'Admin', 'Active')")
+    .run(brokerageId, admin.email, admin.name);
+  assert.ok(changeBrokerage(db, brokerageId, admin, bootstrap, { type: "invite", email, role: "Processor" }).message);
+  db.prepare("INSERT INTO brokerage_members (brokerageId, email, name, role, status) VALUES (?, ?, ?, 'Admin', 'Invited'), (?, ?, ?, 'LO', 'Active')")
+    .run(otherId, email, email, savedId, email, email);
+  db.prepare("INSERT INTO staff_workspace_preferences (email, brokerageId) VALUES (?, ?)").run(email, savedId);
+
+  const outbox = [];
+  const emailAuth = {
+    reserve: async (proof) => reserveStaffEmailCode(db, proof), consume: async (proof) => consumeStaffEmailCode(db, proof),
+    allowRequest: async () => true, send: (to, code) => outbox.push({ to, code }),
+  };
+  const origin = "https://orbitlos.test";
+  const request = (path, body, cookie = "", from = origin, query = `?brokerage=${brokerageId}&guide=campaign`) => {
+    const url = new URL(`${path}${query}`, origin);
+    const options = body ? { method: "POST", headers: { Origin: from, Cookie: cookie }, body: new URLSearchParams(body) } : {};
+    return handleStaffAuth(new Request(url, options), url, settings, store, async () => [], emailAuth);
+  };
+  const send = (address, cookie, from) => request("/auth/email/request", { email: address }, cookie, from);
+  const verify = (address, code, cookie) => request("/auth/email/verify", { email: address, code }, cookie);
+  const login = await request("/login");
+  assert.match(await login.text(), /Continue with Google[\s\S]*Sign in with an email code/);
+  assert.equal((await send(email, "", "https://elsewhere.test")).status, 403);
+  assert.match(await (await send("uninvited@example.test")).text(), /uninvited@example.test<\/strong>If this address has Orbit access/);
+  assert.equal(outbox.length, 0);
+
+  const issued = await send(email.toUpperCase());
+  const browser = issued.headers.get("set-cookie").split(";", 1)[0];
+  const [{ to, code }] = outbox;
+  assert.equal(to, email);
+  assert.match(code, /^\d{6}$/);
+  await send(email, browser);
+  assert.equal(outbox.length, 1);
+  assert.equal((await verify(email, code, "")).status, 400);
+  assert.equal((await verify(email, code === "123456" ? "654321" : "123456", browser)).status, 400);
+  const signedIn = await verify(email, code, browser);
+  assert.equal(signedIn.status, 303);
+  assert.equal(signedIn.headers.get("location"), `/workspace?brokerage=${brokerageId}&guide=campaign`);
+  const session = signedIn.headers.getSetCookie().find((entry) => entry.startsWith("__Host-orbit-email-session=")).split(";", 1)[0];
+  const tokenHash = await staffSessionHash(new Request(origin, { headers: { Cookie: session } }), settings);
+  const access = readStaffAccess(db, tokenHash, Date.now(), bootstrap);
+  assert.deepEqual(access.brokerages.map(({ id, role }) => [id, role]), [[brokerageId, "Processor"], [savedId, "LO"]]);
+  assert.equal(db.prepare("SELECT status FROM brokerage_members WHERE brokerageId = ? AND email = ?").get(otherId, email).status, "Invited");
+  const wrongCookie = session.replace("__Host-orbit-email-session", "__Host-orbit-session");
+  const legacyHash = await staffSessionHash(new Request(origin, { headers: { Cookie: wrongCookie } }), settings);
+  assert.equal(readStaffAccess(db, legacyHash, Date.now(), bootstrap), null);
+  assert.equal((await verify(email, code, browser)).status, 400);
+  assert.equal(db.prepare("SELECT count(*) AS count FROM brokerage_access_history WHERE action = 'Accepted invitation'").get().count, 1);
+
+  db.prepare("UPDATE staff_email_codes SET nextSendAt = 0 WHERE email = ?").run(email);
+  const generic = await request("/auth/email/request", { email }, "", origin, "");
+  const genericBrowser = generic.headers.get("set-cookie").split(";", 1)[0];
+  const genericResult = await request("/auth/email/verify", { email, code: outbox.at(-1).code }, genericBrowser, origin, "");
+  assert.equal(genericResult.headers.get("location"), "/workspace");
+  assert.equal(defaultWorkspace(access.brokerages, access.preferredWorkspace)?.id, savedId);
+});
+
+test("email codes expire, stop after five guesses, and become invalid when an invite is cancelled and recreated", (t) => {
+  const sqlite = new DatabaseSync(":memory:");
+  t.after(() => sqlite.close());
+  const db = { exec: (sql) => sqlite.exec(sql), prepare: (sql) => sqlite.prepare(sql), transaction: (fn) => fn() };
+  initializeBrokerages(db);
+  const email = "invited@example.test";
+  const brokerageId = "orbit-demo";
+  const admin = { email: "owner@example.test", name: "Fictional owner" };
+  const bootstrap = [admin.email];
+  bootstrapDemoMembers(db, bootstrap);
+  const change = (type) => changeBrokerage(db, brokerageId, admin, bootstrap, { type, email, ...(type === "invite" ? { role: "LO" } : {}) });
+  assert.ok(change("invite").message);
+  const proof = { email, brokerageId, browserHash: "browser", codeHash: "correct", now: 10_000 };
+  assert.equal(reserveStaffEmailCode(db, proof), true);
+  for (let attempt = 0; attempt < 5; attempt++) assert.equal(consumeStaffEmailCode(db, { ...proof, codeHash: "wrong" }), null);
+  assert.equal(consumeStaffEmailCode(db, proof), null);
+
+  proof.now += 60_000;
+  assert.equal(reserveStaffEmailCode(db, proof), true);
+  assert.equal(consumeStaffEmailCode(db, { ...proof, now: proof.now + 600_000 }), null);
+
+  proof.now += 600_000;
+  assert.equal(reserveStaffEmailCode(db, proof), true);
+  assert.ok(change("revoke").message);
+  assert.ok(change("invite").message);
+  assert.equal(consumeStaffEmailCode(db, proof), null);
+  assert.equal(db.prepare("SELECT status FROM brokerage_members WHERE email = ?").get(email).status, "Invited");
 });

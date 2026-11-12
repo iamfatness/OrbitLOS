@@ -21,7 +21,7 @@ function inspect(db: Store) {
   // Hash bounded pages of the reviewed state. Never return session or OAuth
   // values through the operator interface or its receipts.
   const fingerprint = createHash("sha256");
-  const read = (table: "staff_sessions" | "staff_google_attempts", order: "tokenHash" | "state") => {
+  const read = (table: "staff_sessions" | "staff_google_attempts" | "staff_email_codes", order: "tokenHash" | "state" | "email") => {
     fingerprint.update(table);
     const first = db.prepare(`SELECT * FROM ${table} ORDER BY ${order} LIMIT 100`);
     const next = db.prepare(`SELECT * FROM ${table} WHERE ${order} > ? ORDER BY ${order} LIMIT 100`);
@@ -36,7 +36,7 @@ function inspect(db: Store) {
     }
   };
   const sessions = read("staff_sessions", "tokenHash");
-  const attempts = read("staff_google_attempts", "state");
+  const attempts = read("staff_google_attempts", "state") + read("staff_email_codes", "email");
   return { sessions, attempts, fingerprint: fingerprint.digest("hex") };
 }
 
@@ -52,7 +52,7 @@ export function commitDirectorySignInReset(db: Store, intent: SignInResetIntent)
     }
     const { fingerprint, ...result } = inspect(db);
     if (fingerprint !== intent.fingerprint) return null;
-    db.exec("DELETE FROM staff_sessions; DELETE FROM staff_google_attempts;");
+    db.exec("DELETE FROM staff_sessions; DELETE FROM staff_google_attempts; DELETE FROM staff_email_codes;");
     db.exec("CREATE TABLE IF NOT EXISTS directory_sign_in_reset_receipts (id TEXT PRIMARY KEY, intent TEXT NOT NULL, result TEXT NOT NULL)");
     db.prepare("INSERT INTO directory_sign_in_reset_receipts VALUES (?,?,?)").run(intent.id, JSON.stringify(intent), JSON.stringify(result));
     return result;

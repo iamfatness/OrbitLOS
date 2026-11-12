@@ -3,6 +3,7 @@
 interface __BaseEnv_Env {
 	DOCUMENTS: R2Bucket;
 	DEMO_EMAIL: SendEmail;
+	STAFF_EMAIL: SendEmail;
 	DEMO_RATE_LIMIT: RateLimit;
 	ASSETS: Fetcher;
 	ORBIT_DOCUMENT_UPLOADS: "mock";

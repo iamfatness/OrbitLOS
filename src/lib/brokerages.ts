@@ -1,7 +1,8 @@
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { brokerageRoles, demoBrokerageId, type AccessEvent, type Brokerage, type BrokerageMember, type VersionedBrokerageMember } from "./brokerage-model";
 import type { DepartureMember, DepartureRoster } from "./offboarding-model";
-import { readStaffSession, type StaffIdentity } from "./staff-store";
+import { readStaffSession, type StaffEmailProof, type StaffIdentity } from "./staff-store";
 import type { Store } from "./store";
 import { manualReturnAssignment } from "./lender-export-model";
 
@@ -13,6 +14,12 @@ export function initializeBrokerages(db: Store) {
       bootstrap INTEGER NOT NULL DEFAULT 0, accessRevision INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (brokerageId, email)
     );
     CREATE INDEX IF NOT EXISTS brokerage_members_by_email ON brokerage_members(email, status);
+    CREATE TABLE IF NOT EXISTS staff_email_codes (
+      email TEXT PRIMARY KEY, brokerageId TEXT NOT NULL, accessRevision INTEGER NOT NULL,
+      browserHash TEXT NOT NULL, codeHash TEXT NOT NULL, expiresAt INTEGER NOT NULL,
+      nextSendAt INTEGER NOT NULL, attempts INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS staff_email_codes_expiry ON staff_email_codes(expiresAt);
     CREATE TABLE IF NOT EXISTS staff_workspace_preferences (
       email TEXT PRIMARY KEY, brokerageId TEXT NOT NULL
     );
@@ -74,11 +81,12 @@ export function activeBrokerages(db: Store, email: string, bootstrapEmails: stri
 
 export function readStaffAccess(db: Store, tokenHash: string, now: number, bootstrapEmails: string[]) {
   return db.transaction(() => {
-    const identity = readStaffSession(db, tokenHash, now);
-    if (!identity) return null;
+    const session = readStaffSession(db, tokenHash, now);
+    if (!session) return null;
+    const { identity, method } = session;
     bootstrapDemoMembers(db, bootstrapEmails);
     const preference = db.prepare("SELECT brokerageId FROM staff_workspace_preferences WHERE email = ?").get(identity.email);
-    return { identity, brokerages: activeBrokerages(db, identity.email, bootstrapEmails),
+    return { identity, brokerages: activeBrokerages(db, identity.email, method === "google" ? bootstrapEmails : []),
       preferredWorkspace: typeof preference?.brokerageId === "string" ? preference.brokerageId : null };
   });
 }
@@ -86,12 +94,54 @@ export function readStaffAccess(db: Store, tokenHash: string, now: number, boots
 export function rememberWorkspace(db: Store, tokenHash: string, now: number, bootstrapEmails: string[],
   brokerageId: string, replace: boolean) {
   return db.transaction(() => {
-    const identity = readStaffSession(db, tokenHash, now);
-    if (!identity || !activeBrokerages(db, identity.email, bootstrapEmails).some(({ id }) => id === brokerageId)) return false;
+    const session = readStaffSession(db, tokenHash, now);
+    if (!session || !activeBrokerages(db, session.identity.email, session.method === "google" ? bootstrapEmails : []).some(({ id }) => id === brokerageId)) return false;
+    const { identity } = session;
     db.prepare(`INSERT INTO staff_workspace_preferences (email, brokerageId) VALUES (?, ?)
       ON CONFLICT(email) DO UPDATE SET brokerageId = excluded.brokerageId WHERE ?`)
       .run(identity.email, brokerageId, Number(replace));
     return true;
+  });
+}
+
+export function reserveStaffEmailCode(db: Store, { email, brokerageId, browserHash, codeHash, now }: StaffEmailProof) {
+  return db.transaction(() => {
+    db.prepare("DELETE FROM staff_email_codes WHERE expiresAt <= ?").run(now);
+    const membership = db.prepare(`SELECT brokerageId, accessRevision FROM brokerage_members
+      WHERE email = ? AND bootstrap = 0 AND status IN ('Invited', 'Active') AND (? IS NULL OR brokerageId = ?)
+      ORDER BY status <> 'Active', brokerageId LIMIT 1`).get(email, brokerageId, brokerageId);
+    if (!membership) return false;
+    const result = db.prepare(`INSERT INTO staff_email_codes VALUES (?, ?, ?, ?, ?, ?, ?, 5)
+      ON CONFLICT(email) DO UPDATE SET brokerageId = excluded.brokerageId, accessRevision = excluded.accessRevision,
+        browserHash = excluded.browserHash, codeHash = excluded.codeHash, expiresAt = excluded.expiresAt,
+        nextSendAt = excluded.nextSendAt, attempts = excluded.attempts WHERE staff_email_codes.nextSendAt <= ? RETURNING email`)
+      .get(email, membership.brokerageId, membership.accessRevision, browserHash, codeHash, now + 10 * 60_000, now + 60_000, now);
+    return !!result;
+  });
+}
+
+export function consumeStaffEmailCode(db: Store, { email, brokerageId, browserHash, codeHash, now }: StaffEmailProof) {
+  return db.transaction(() => {
+    const challenge = db.prepare(`SELECT brokerageId, accessRevision, codeHash FROM staff_email_codes
+      WHERE email = ? AND browserHash = ? AND expiresAt > ? AND attempts > 0 AND (? IS NULL OR brokerageId = ?)`)
+      .get(email, browserHash, now, brokerageId, brokerageId);
+    if (!challenge) return null;
+    const expected = Buffer.from(String(challenge.codeHash));
+    const actual = Buffer.from(codeHash);
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+      db.prepare("UPDATE staff_email_codes SET attempts = attempts - 1 WHERE email = ?").run(email);
+      return null;
+    }
+    db.prepare("UPDATE staff_email_codes SET attempts = 0, codeHash = '' WHERE email = ?").run(email);
+    const id = String(challenge.brokerageId);
+    const member = db.prepare(`SELECT name, status FROM brokerage_members WHERE brokerageId = ? AND email = ? AND bootstrap = 0
+      AND status IN ('Invited', 'Active') AND accessRevision = ?`).get(id, email, challenge.accessRevision);
+    if (!member) return null;
+    if (member.status === "Invited") {
+      db.prepare("UPDATE brokerage_members SET status = 'Active', accessRevision = accessRevision + 1 WHERE brokerageId = ? AND email = ?").run(id, email);
+      history(db, id, email, "Accepted invitation", email, new Date(now).toISOString());
+    }
+    return { brokerageId: id, identity: { email, name: String(member.name) } };
   });
 }
 
@@ -154,7 +204,8 @@ export function departureRoster(db: Store, staff: StaffIdentity, id: string, boo
   return { member: current, replacement: destination?.status === "Active" ? destination : null, canRevoke: current.status === "Active" && anotherAdmin };
 }
 
-const email = z.string().trim().toLowerCase().pipe(z.email().max(254));
+export const staffEmail = z.string().trim().toLowerCase().pipe(z.email().max(254));
+const email = staffEmail;
 export const brokerageAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("create"), name: z.string().trim().min(2).max(80), id: z.uuid(), pilot: z.boolean().default(false) }),
   z.object({ type: z.literal("invite"), email, role: z.enum(brokerageRoles) }),

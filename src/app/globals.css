@@ -843,7 +843,11 @@ button:disabled { cursor: default; }
 .brokerage-link-list { display: grid; gap: 2px; }
 .brokerage-link-list button { width: 100%; justify-content: space-between; min-height: 40px; }
 .team-access-heading { flex-wrap: wrap; }
-.team-access-panel .document-item-head strong { overflow-wrap: anywhere; }
+.team-access-panel .document-item-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.staff-invite-feedback p { overflow-wrap: anywhere; }
+@media (max-width: 520px) {
+  .staff-invite-form .staff-invite-address { flex-basis: 100%; max-width: none; }
+}
 @container (max-width: 570px) {
   .brokerage-queue-grid, .brokerage-overview-links { grid-template-columns: minmax(0, 1fr); }
   .brokerage-queue-card { grid-row: auto; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 6px 12px; align-items: center; }

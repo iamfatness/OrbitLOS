@@ -8,6 +8,14 @@ export interface StaffIdentity {
 
 export type WorkspaceStaff = StaffIdentity & { brokerage: Brokerage };
 
+export interface StaffEmailProof {
+  email: string;
+  brokerageId: string | null;
+  browserHash: string;
+  codeHash: string;
+  now: number;
+}
+
 export interface GoogleAttempt {
   state: string;
   browserHash: string;
@@ -21,14 +29,14 @@ export interface GoogleAttempt {
 export interface StaffAuthStore {
   startGoogle(attempt: GoogleAttempt, now: number): Promise<void>;
   consumeGoogle(state: string, browserHash: string, now: number): Promise<Pick<GoogleAttempt, "nonce" | "verifier" | "brokerageId" | "guide"> | null>;
-  createStaffSession(tokenHash: string, identity: StaffIdentity, expiresAt: number, now: number): Promise<void>;
+  createStaffSession(tokenHash: string, identity: StaffIdentity, expiresAt: number, now: number, method?: "google" | "email"): Promise<void>;
   getStaffSession(tokenHash: string, now: number): Promise<StaffIdentity | null>;
   removeStaffSession(tokenHash: string): Promise<void>;
 }
 
-export function readStaffSession(db: Store, tokenHash: string, now: number): StaffIdentity | null {
-  const match = db.prepare("SELECT email, name FROM staff_sessions WHERE tokenHash = ? AND expiresAt > ?").get(tokenHash, now);
-  return match ? { email: String(match.email), name: String(match.name) } : null;
+export function readStaffSession(db: Store, tokenHash: string, now: number) {
+  const match = db.prepare("SELECT email, name, method FROM staff_sessions WHERE tokenHash = ? AND expiresAt > ?").get(tokenHash, now);
+  return match ? { identity: { email: String(match.email), name: String(match.name) }, method: match.method } : null;
 }
 
 export function staffAuthStore(db: Store): StaffAuthStore {
@@ -50,15 +58,15 @@ export function staffAuthStore(db: Store): StaffAuthStore {
           brokerageId: typeof match.brokerageId === "string" ? match.brokerageId : null, guide: workspaceGuide(match.guide) };
       });
     },
-    async createStaffSession(tokenHash, identity, expiresAt, now) {
+    async createStaffSession(tokenHash, identity, expiresAt, now, method = "google") {
       db.transaction(() => {
         db.prepare("DELETE FROM staff_sessions WHERE expiresAt <= ?").run(now);
-        db.prepare("INSERT INTO staff_sessions (tokenHash, email, name, expiresAt) VALUES (?, ?, ?, ?)")
-          .run(tokenHash, identity.email, identity.name, expiresAt);
+        db.prepare("INSERT INTO staff_sessions (tokenHash, email, name, expiresAt, method) VALUES (?, ?, ?, ?, ?)")
+          .run(tokenHash, identity.email, identity.name, expiresAt, method);
       });
     },
     async getStaffSession(tokenHash, now) {
-      return readStaffSession(db, tokenHash, now);
+      return readStaffSession(db, tokenHash, now)?.identity ?? null;
     },
     async removeStaffSession(tokenHash) {
       db.prepare("DELETE FROM staff_sessions WHERE tokenHash = ?").run(tokenHash);
