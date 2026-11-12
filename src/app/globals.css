@@ -561,6 +561,8 @@ button:disabled { cursor: default; }
 .application-address-suggestions, .application-address-notice { grid-column: 1 / -1; color: var(--muted); }
 .application-address-suggestions { display: grid; gap: 3px; }
 .application-address-suggestions button, .application-zip-retry { text-align: left; color: #503b91; text-decoration: underline; text-underline-offset: 2px; }
+.application-zip-retry { align-self: end; min-height: 40px; }
+@media (max-width: 859px) { .application-zip-retry { min-height: 44px; } }
 .application-address-notice, .application-attribution { font-size: 12px; }
 .application-attribution { padding: 0 22px 13px; color: var(--muted); }
 .application-attribution a { text-decoration: underline; text-underline-offset: 2px; }
