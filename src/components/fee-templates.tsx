@@ -59,7 +59,7 @@ export function FeeProviderEstimatePicker({ brokerageId, loanId, runId, offerId,
   const [estimate, setEstimate] = useState<FeeProviderEstimate | null>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const attempt = useRef<EstimateAttempt>(null);
+  const [attempt, setAttempt] = useState<EstimateAttempt | null>(null);
   const summary = useRef<HTMLElement>(null);
   const preview = estimate?.requestId !== appliedId ? estimate : null;
 
@@ -70,7 +70,7 @@ export function FeeProviderEstimatePicker({ brokerageId, loanId, runId, offerId,
     try {
       const result = await requestFees<FeeProviderResponse>(brokerageId, { ...input, loanId, runId, offerId });
       setEstimate(result.estimate);
-      attempt.current = null;
+      setAttempt(null);
     } catch {
       setError(input.type === "recentFeeEstimate" ? "Could not check for an earlier estimate. You can request an estimate."
         : "Could not confirm the estimate request. Retry to check the same request.");
@@ -79,9 +79,9 @@ export function FeeProviderEstimatePicker({ brokerageId, loanId, runId, offerId,
     }
   }
   function request(retryOf?: string) {
-    const intent = attempt.current ?? { requestId: crypto.randomUUID(), scenario: retryOf ? "Temporary error" : scenario,
+    const intent = attempt ?? { requestId: crypto.randomUUID(), scenario: retryOf ? "Temporary error" : scenario,
       ...(retryOf ? { retryOf } : {}) };
-    attempt.current = intent;
+    setAttempt(intent);
     void lookup({ type: "requestFeeEstimate", ...intent });
   }
 
@@ -92,14 +92,14 @@ export function FeeProviderEstimatePicker({ brokerageId, loanId, runId, offerId,
     <div className="document-item record-form">
       <div className="loan-application-actions">
         <label className="field">Demo response<select value={scenario} disabled={busy || disabled} onChange={(event) => {
-          attempt.current = null;
+          setAttempt(null);
           setError("");
           setScenario(event.target.value as SampleResponse);
         }}>
           {sampleResponses.map((response) => <option key={response}>{response}</option>)}
         </select></label>
         <Button type="button" size="sm" variant="outline" disabled={busy || disabled} onClick={() => request()}>
-          {busy ? "Checking estimate…" : error && attempt.current ? "Retry estimate request" : "Request sample estimate"}
+          {busy ? "Checking estimate…" : error && attempt ? "Retry estimate request" : "Request sample estimate"}
         </Button>
       </div>
       {error && <p role="alert">{error}</p>}
@@ -113,14 +113,14 @@ export function FeeProviderEstimatePicker({ brokerageId, loanId, runId, offerId,
             return amount === null ? [] : [<li key={key}>{feeLabels[key]} · {feeCurrency.format(amount / 100)}</li>];
           })}</ul>
           <p className="muted">Loading replaces fee amounts and payer details. You can edit them before saving.</p>
-          <div><Button type="button" size="sm" disabled={busy || disabled || !!attempt.current} onClick={() => {
+          <div><Button type="button" size="sm" disabled={busy || disabled || !!attempt} onClick={() => {
             onLoad(feeProviderOrigin(preview, easternDate(new Date(preview.receivedAt))));
             summary.current?.focus();
             summary.current?.closest("details")?.removeAttribute("open");
           }}>Load estimate into worksheet</Button></div>
         </> : <>
           <p>{preview.message} Choose a brokerage template below to continue.</p>
-          {preview.status === "Failed" && <div><Button type="button" size="sm" variant="outline" disabled={busy || disabled || !!attempt.current}
+          {preview.status === "Failed" && <div><Button type="button" size="sm" variant="outline" disabled={busy || disabled || !!attempt}
             onClick={() => request(preview.requestId)}>Retry failed estimate</Button></div>}
         </>}
       </div>}
