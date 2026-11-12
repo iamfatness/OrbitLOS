@@ -1186,6 +1186,298 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "PA",
+    "area": "LOAN",
+    "id": "DISCLOSURE",
+    "title": "Application disclosures and discontinued Pennsylvania form",
+    "authority": "10 Pa. Code §46.2(b)–(f); DoBS January 16, 2014 letter",
+    "sourceUrl": "https://www.pacodeandbulletin.gov/secure/pacode/data/010/chapter46/s46.2.html",
+    "summary": "The department discontinued the separate Pennsylvania one-page mortgage disclosure and identified federal disclosures as its replacement. The codified rule still describes a department-prescribed form and related procedures.",
+    "evidence": "Application date, applicable federal forms, version and delivery evidence, broker and lender roles, and historical form evidence when relevant.",
+    "counsel": "Resolve the interaction between the rule text and agency letter for this product and transaction date, including lender election and acknowledgment treatment.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DoBS letter discontinuing the state form",
+        "url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dobs/documents/secretary-letters/mortgage/one%20page%20mortgage%20disclosure%20discontinued%20011614.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "PA",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "Mortgage advertising accuracy",
+    "authority": "10 Pa. Code §46.2(a)",
+    "sourceUrl": "https://www.pacodeandbulletin.gov/secure/pacode/data/010/chapter46/s46.2.html",
+    "summary": "The rule prohibits false or misleading mortgage loan advertising.",
+    "evidence": "Published creative and dates, substantiation for claims, terms and rates, and approval evidence.",
+    "counsel": "Confirm which entities and channels the provision covers and what other state and federal disclosures apply.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "PA",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Examination access and borrower file requests",
+    "authority": "7 Pa.C.S. §6138(a)(1); 10 Pa. Code §46.2(l)",
+    "sourceUrl": "https://www.legis.state.pa.us/WU01/LI/LI/CT/HTM/07/00.061.038.000..HTM",
+    "summary": "The department has examination access. The administrative rule also addresses borrower requests for records the borrower paid for or signed, subject to legal restrictions.",
+    "evidence": "Examination request, scoped file inventory, retrieval log, borrower request and response, and any documented restriction.",
+    "counsel": "Confirm records and retention rules for the license, delivery scope and exceptions for borrower requests.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Mortgage lending regulations",
+        "url": "https://www.pacodeandbulletin.gov/secure/pacode/data/010/chapter46/s46.2.html"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "LOAN",
+    "id": "SPECIAL-FEE",
+    "title": "Mortgage broker pre-application and fee disclosures",
+    "authority": "3 NYCRR §38.3; DFS special fee disclosure guidance",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2020/03/ilmb091215.pdf",
+    "summary": "DFS guidance identifies a separate broker disclosure for covered fees and discusses timing in relation to applications and fees. Review it alongside the applicable pre-application requirements.",
+    "evidence": "Application channel, fee type and recipient, operative form, dated delivery evidence and any consent or fee event.",
+    "counsel": "Confirm the current form and trigger for the fee, the channel-specific procedure, and overlap with federal disclosure and fee timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "OUTREACH",
+    "id": "BROKER-ROLE",
+    "title": "Broker role in advertising",
+    "authority": "3 NYCRR §38.2(d)",
+    "sourceUrl": "https://www.dfs.ny.gov/industry_guidance/enforcement_discipline/ea20210407_freedom_one_funding_inc",
+    "summary": "DFS enforces the distinction between arranging loans through third parties and implying that a broker makes or funds loans itself.",
+    "evidence": "Published ad or website, dated broker-role disclosure, legal and approved names, and approval evidence.",
+    "counsel": "Confirm current wording, channel coverage and any separate name, domain and identifier requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Broker transaction and examination records",
+    "authority": "3 NYCRR §410.7; DFS Mortgage Broker Guidebook",
+    "sourceUrl": "https://www.dfs.ny.gov/system/files/documents/2021/04/mortgage_broker_guidebook.pdf",
+    "summary": "The DFS broker guide describes state books and records and a three-year minimum, alongside potentially longer federal retention for certain records.",
+    "evidence": "Application register, sample loan files and disclosures, status and retention dates, and retrieval evidence.",
+    "counsel": "Confirm the current Part 410 text, retention start for each record, electronic storage and any longer applicable requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Broker services agreement and fee disclosures",
+    "authority": "N.J.A.C. 3:21; DOBI application disclosure form",
+    "sourceUrl": "https://www.nj.gov/dobi/division_banking/ocf/NJ_Application_Disclosure_Form_20170927.pdf",
+    "summary": "The DOBI form distinguishes the broker's separate services agreement from the application disclosure and describes fee categories by role.",
+    "evidence": "Borrower and lender roles, signed services agreement, fee ledger, current form version and delivery evidence.",
+    "counsel": "Confirm current broker agreement wording and timing, the lender's separate form responsibility, fee allocation and the applicable form revision.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DOBI recodification to 3:21",
+        "url": "https://www.nj.gov/dobi/proposed/re220118njac3_21.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "Residential mortgage advertising",
+    "authority": "N.J.A.C. 3:21, subch. 8",
+    "sourceUrl": "https://www.nj.gov/dobi/proposed/re220118njac3_21.pdf",
+    "summary": "DOBI recodified the residential mortgage advertising requirements in Subchapter 8 of Chapter 21.",
+    "evidence": "Published creative, channel, company and trade names, originator and license identifiers where applicable, and substantiation.",
+    "counsel": "Confirm the current subchapter text and any changes since recodification, and specify which identifiers and disclosures apply to each channel.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Licensed brokerage records and examination production",
+    "authority": "N.J.A.C. 3:21, subch. 6",
+    "sourceUrl": "https://www.nj.gov/dobi/proposed/re220118njac3_21.pdf",
+    "summary": "The recodified subchapter covers books and records, examinations and annual reports, including production of records stored electronically.",
+    "evidence": "Broker file inventory, electronic storage and access references, examination request and sample production evidence.",
+    "counsel": "Confirm current record-level retention, approved storage, production format and deadlines for the license.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Separate written mortgage broker agreement",
+    "authority": "5 Del. Admin. C. 2104 §§1–2",
+    "sourceUrl": "https://archive.regulations.delaware.gov/AdminCode/title5/2100/2104.shtml",
+    "summary": "The regulation specifies a separate signed agreement and its contents, disclosure of terms before nonrefundable fees other than a credit report fee, an applicant copy at signing and a lender copy.",
+    "evidence": "Agreement version and terms, signatures, fee classification and collection evidence, and dated applicant and lender copy evidence.",
+    "counsel": "Confirm current rule text, product and party scope, the fee exception and acceptable timing and evidence for each copy.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "OUTREACH",
+    "id": "AD-ARCHIVE",
+    "title": "Mortgage brokerage advertising archive",
+    "authority": "5 Del. Admin. C. 2102; 5 Del. Admin. C. 101",
+    "sourceUrl": "https://archive.regulations.delaware.gov/AdminCode/title5/2100/2102.shtml",
+    "summary": "Delaware's broker recordkeeping and retention regulations identify advertising as a category for examination evidence.",
+    "evidence": "Published ads by channel, publication dates, associated approvals and an examination retrieval sample.",
+    "counsel": "Confirm the applicable version, archive period and start date, and additional rules on content and identifiers.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Retention schedule",
+        "url": "https://archive.regulations.delaware.gov/AdminCode/title5/100/101.shtml"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Brokered and unsuccessful application files",
+    "authority": "5 Del. Admin. C. 2102; 5 Del. Admin. C. 101",
+    "sourceUrl": "https://archive.regulations.delaware.gov/AdminCode/title5/2100/2102.shtml",
+    "summary": "The rules address broker transaction records, including unsuccessful applications, and the applicable retention schedule.",
+    "evidence": "Application and disposition, agreement, fee and supporting documents, retention classification and retrieval evidence.",
+    "counsel": "Confirm the record categories for each disposition, retention start events and any longer federal period.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Retention schedule",
+        "url": "https://archive.regulations.delaware.gov/AdminCode/title5/100/101.shtml"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "LOAN",
+    "id": "DISCLOSURE",
+    "title": "Delivery and receipt of Maryland mortgage disclosures",
+    "authority": "COMAR 09.03.06.03",
+    "sourceUrl": "https://regs.maryland.gov/us/md/exec/comar/09.03.06.03",
+    "summary": "The rule describes delivery and receipt for certain Maryland disclosures and agreements tied to a completed application. It refers to the underlying Commercial Law provisions for applicability.",
+    "evidence": "Product and statutory basis, completed application date, dated delivery and receipt evidence, and the specific form or agreement.",
+    "counsel": "Confirm which underlying statute applies, the deadline and delivery method, and the interaction with federal requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising identity and social profile exception",
+    "authority": "COMAR 09.03.06.06",
+    "sourceUrl": "https://regs.maryland.gov/us/md/exec/comar/09.03.06.06",
+    "summary": "The rule addresses misleading claims, approved names and addresses, and the licensee NMLS identifier, including a prominent profile-display exception for social statements.",
+    "evidence": "Published creative and profile capture, licensee and trade names, company identifier, and any approval or exception evidence.",
+    "counsel": "Confirm exact profile and trade-name conditions, employee advertising and additional individual originator requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mortgage Call Report and renewal evidence",
+    "authority": "Md. Code, Fin. Inst. §11-513.1",
+    "sourceUrl": "https://mgaleg.maryland.gov/2026RS/Statute_Web/gfi/11-513.1.pdf",
+    "summary": "The statute requires a quarterly NMLS call report in the form and on the date NMLS specifies. It also addresses exempt mortgage lenders filing for their licensed originators. Applicable components depend on the activity and current instructions.",
+    "evidence": "Maryland license, prescribed form and period, state activity, applicable financial condition evidence, and NMLS receipt.",
+    "counsel": "Confirm current entity instructions, components, no-activity handling, and any separate financial statement or state supplement.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "NMLS MCR policy",
+        "url": "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/policyGuide/reference/policyGuide/maps/topics/nmlsPG_MCR_subsection-1.html"
+      },
+      {
+        "label": "Historical Maryland renewal guidance on MCR use",
+        "url": "https://labor.maryland.gov/finance/advisories/advisory-licenserenewalfirstalert.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "LOAN",
+    "id": "COMPENSATION",
+    "title": "Written borrower-paid broker compensation",
+    "authority": "Va. Code §6.2-1616(B)",
+    "sourceUrl": "https://law.lis.virginia.gov/vacode/title6.2/chapter16/section6.2-1616/",
+    "summary": "Virginia requires a signed written agreement for borrower-paid broker compensation and limits receipt before a written lender commitment, subject to documented cost exceptions. The section also addresses certain dual compensation arrangements.",
+    "evidence": "Signed agreement, lender commitment, charge and receipt dates, cost documentation, and any dual-role disclosure.",
+    "counsel": "Confirm covered compensation, permitted costs and exceptions, dual-role disclosure timing and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "Advertising identity and mortgage claims",
+    "authority": "10VAC5-160-60",
+    "sourceUrl": "https://law.lis.virginia.gov/admincode/title10/agency5/chapter160/section60/",
+    "summary": "The rule requires conspicuous license information and covers preapproval, current noteholder references, and refinance payment claims.",
+    "evidence": "Published ad, license details, disclosures and prominence evidence, and claim and data-source substantiation.",
+    "counsel": "Confirm the required content for each channel, the source notice for mortgage information, and applicable federal disclosure rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "RECORDS",
+    "id": "COMPENSATION",
+    "title": "Broker compensation and settlement records",
+    "authority": "Va. Code §§6.2-1609(A), (C), 6.2-1611",
+    "sourceUrl": "https://law.lis.virginia.gov/vacode/title6.2/chapter16/section6.2-1609/",
+    "summary": "A licensed broker retains specified compensation and settlement records for at least three years after the mortgage is made and maintains required books separately from other businesses.",
+    "evidence": "Loan date, original compensation contract, settlement statement, fee account, records separation and exam retrieval.",
+    "counsel": "Confirm additional required records and rules for unclosed files, electronic records and overlapping longer retention.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "LOAN",
+    "id": "FEES",
+    "title": "Broker charges and fee evidence",
+    "authority": "W. Va. Code §31-17-12",
+    "sourceUrl": "https://code.wvlegislature.gov/31-17-12/",
+    "summary": "The statute governs fees and charges in covered transactions. Review the proposed charge, the party imposing it and any required disclosure or support.",
+    "evidence": "Itemized fee, recipient, documented services and third-party invoice, and the relevant written disclosure.",
+    "counsel": "Confirm each permitted charge and calculation, the responsible party, fee disclosure timing and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "OUTREACH",
+    "id": "AD-ARCHIVE",
+    "title": "Advertising archive and team names",
+    "authority": "106 CSR 5 §8, effective May 1, 2026",
+    "sourceUrl": "https://apps.sos.wv.gov/adlaw/csr/readfile.aspx?DocId=58849&Format=PDF",
+    "summary": "The rule addresses retaining three years of ads, including web and social use. It also sets registration and prominence conditions for team names in advertising.",
+    "evidence": "Published creative or permitted equivalent, publication dates, trade-name and NMLS evidence, and prominence and retrieval samples.",
+    "counsel": "Confirm which rule version applies to historical ads and whether the specific medium and team name meet the rule.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Closed and unclosed broker file retention",
+    "authority": "106 CSR 5 §§2.3, 6–7, effective May 1, 2026",
+    "sourceUrl": "https://apps.sos.wv.gov/adlaw/csr/readfile.aspx?DocId=58849&Format=PDF",
+    "summary": "The rule uses 36 months from closing for a closed brokered loan. For an unclosed file it uses the latest applicable application, credit document, required disclosure or consumer termination request.",
+    "evidence": "Disposition, close date or dated unclosed-file events, broker file inventory, records location and sample retrieval.",
+    "counsel": "Confirm historical transition, which events count, regulator access and longer applicable retention.",
+    "checkedOn": "2026-11-12"
+  },
+  {
     "jurisdiction": "CT",
     "area": "LICENSING",
     "id": "COMPANY",
