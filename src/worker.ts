@@ -65,7 +65,7 @@ import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHi
 import { readPilotSupport, readPilotSupportWork, readSupportRecovery } from "./lib/pilot-support";
 import { supportChanged, supportUnavailable, supportWorkChanged, supportWorkGroup, supportWorkOffset, supportWorkPaused,
   type SupportRecoveryState, type SupportWorkGroup } from "./lib/pilot-support-model";
-import { assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
+import { accessEvent, assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
 import { placesHttp, reserveAddressLookup } from "./lib/places";
 import { realtorHttp, realtorReferrals } from "./lib/realtor-portal";
 import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDocumentUpload, finishDocumentUpload,
@@ -675,7 +675,66 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       const receipt = this.#store.prepare("SELECT * FROM uwm_webhook_receipts WHERE id = ?").get(receiptId);
       return receipt ?? null;
     }
-    return readUwmWebhookReceipts(this.#store, before);
+    const config = runtimeSetting(this.env, "UWM_WEBHOOK_CONFIG");
+    return readUwmWebhookReceipts(this.#store, before).map((row) => {
+      const env = z.enum(["int", "stage", "production"]).safeParse(row.environment);
+      return { ...row, canMatch: row.status !== "Matched" && !!row.loanNumber && ["conditions", "ulad"].includes(String(row.kind)) &&
+        env.success && uwmWebhookConnection(config, env.data)?.brokerageId === this.#id };
+    });
+  }
+
+  uwmReceiptMatchRoute(staff: WorkspaceStaff, event: UwmWebhookRouteKey) {
+    if (this.#id !== demoBrokerageId || !["conditions", "ulad"].includes(event.kind) ||
+      uwmWebhookConnection(runtimeSetting(this.env, "UWM_WEBHOOK_CONFIG"), event.environment)?.brokerageId !== staff.brokerage.id) return null;
+    const route = findUwmWebhookRoute(this.#store, event);
+    if (!route) return null;
+    const admins = activeBrokerages(this.#store, staff.email, [...(googleSettings(this.env)?.allowedEmails ?? [])])
+      .filter(({ pilot, role }) => !pilot && role === "Admin").map(({ id }) => id);
+    return admins.includes(staff.brokerage.id) && admins.includes(route.brokerageId) ? route : null;
+  }
+
+  async storeMatchedUwmReceipt(staff: WorkspaceStaff, event: UwmWebhookEvent, expectedOperation: string) {
+    const parsed = parseUwmWebhook(event.environment, event.kind, event.body);
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const route = await directory.uwmReceiptMatchRoute(staff, uwmWebhookRouteKey(parsed));
+    if (route?.brokerageId !== this.#id || route.operationId !== expectedOperation ||
+      !uwmLoanRouteVerified(this.#store, route, parsed)) return null;
+    return saveUwmWebhook(this.#store, parsed).receiptId;
+  }
+
+  async matchUwmReceipt(staff: WorkspaceStaff, receiptId: number) {
+    const unavailable = { error: "Matching requires a verified lender loan and admin access to its workspace." };
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return unavailable;
+    const row = this.#store.prepare("SELECT environment,kind,body FROM uwm_webhook_receipts WHERE id=? AND kind IN ('conditions','ulad')").get(receiptId);
+    const environment = z.enum(["int", "stage", "production"]).safeParse(row?.environment);
+    if (!row || !environment.success) return unavailable;
+    const event = parseUwmWebhook(environment.data, row.kind === "ulad" ? "ulad" : "conditions", String(row.body));
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const route = await directory.uwmReceiptMatchRoute(staff, uwmWebhookRouteKey(event));
+    if (!route) return unavailable;
+    const target = this.env.WORKSPACE.getByName(route.brokerageId);
+    if (!await target.verifyUwmLoanRoute(route, uwmWebhookRouteKey(event))) return unavailable;
+    const reserved = this.#store.transaction(() => {
+      this.#store.prepare("INSERT OR IGNORE INTO uwm_receipt_matches (receiptId,destination,operationId) VALUES (?,?,?)")
+        .run(receiptId, route.brokerageId, route.operationId);
+      return this.#store.prepare("SELECT destination,operationId,destinationReceiptId FROM uwm_receipt_matches WHERE receiptId=?").get(receiptId)!;
+    });
+    if (reserved.destination !== route.brokerageId || reserved.operationId !== route.operationId) {
+      return { error: "The verified route changed after matching began. Review the original receipt." };
+    }
+    if (reserved.destinationReceiptId === null) {
+      const matched = await target.storeMatchedUwmReceipt(staff, event, route.operationId);
+      if (matched === null) return unavailable;
+      this.#store.transaction(() => {
+        const previous = this.#store.prepare("SELECT destinationReceiptId FROM uwm_receipt_matches WHERE receiptId=?").get(receiptId);
+        if (previous?.destinationReceiptId !== null) return;
+        const now = new Date().toISOString();
+        this.#store.prepare("UPDATE uwm_receipt_matches SET destinationReceiptId=?,completedAt=? WHERE receiptId=?")
+          .run(matched, now, receiptId);
+        accessEvent(this.#store, staff, "Matched UWM receipt", `Receipt ${receiptId} → receipt ${matched}`, now);
+      });
+    }
+    return { status: "Matched" as const };
   }
 
 
@@ -2089,12 +2148,26 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
     if (url.pathname === "/api/uwm-webhook-receipts") {
       const headers = { "Cache-Control": "private, no-store" };
       if (!staff || staff.brokerage.role !== "Admin") return Response.json({ error: "Admin access required" }, { status: 403, headers });
-      if (request.method !== "GET") return new Response(null, { status: 405, headers: { ...headers, Allow: "GET" } });
+      const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
+      if (request.method === "POST" && url.searchParams.get("brokerage") === staff.brokerage.id) {
+        const identity = staff;
+        return borrowerJson(request, async (input) => {
+          const parsed = z.strictObject({ receiptId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).safeParse(input);
+          if (!parsed.success) return Response.json({ error: "Select an existing UWM receipt." }, { status: 400, headers });
+          try {
+            const result = await workspace.matchUwmReceipt(identity, parsed.data.receiptId);
+            return Response.json(result, { status: "error" in result ? 409 : 200, headers });
+          } catch {
+            return Response.json({ error: "Orbit couldn’t confirm the match. Try this receipt again." }, { status: 503, headers });
+          }
+        }, 1024);
+      }
+      if (request.method !== "GET") return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
       const before = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER).safeParse(url.searchParams.get("before") ?? Number.MAX_SAFE_INTEGER);
       const receiptId = url.searchParams.has("receipt") ? z.coerce.number().int().positive().safeParse(url.searchParams.get("receipt")) : null;
       if (!before.success || (receiptId && !receiptId.success)) return Response.json({ error: "Invalid receipt cursor" }, { status: 400, headers });
       try {
-        const receipts = await env.WORKSPACE.getByName(staff.brokerage.id).uwmWebhookReceipts(staff, before.data, receiptId?.data);
+        const receipts = await workspace.uwmWebhookReceipts(staff, before.data, receiptId?.data);
         return Response.json({ receipts }, { headers });
       } catch { return Response.json({ error: "Receipts unavailable" }, { status: 503, headers }); }
     }

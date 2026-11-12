@@ -76,7 +76,11 @@ export function initializeUwmWebhooks(db: Store) {
     UNIQUE(environment, kind, eventKey, digest)
   );
   CREATE INDEX IF NOT EXISTS uwm_webhook_transaction ON uwm_webhook_receipts(environment, transactionId);
-  CREATE INDEX IF NOT EXISTS uwm_webhook_event ON uwm_webhook_receipts(environment, kind, eventKey);`);
+  CREATE INDEX IF NOT EXISTS uwm_webhook_event ON uwm_webhook_receipts(environment, kind, eventKey);
+  CREATE TABLE IF NOT EXISTS uwm_receipt_matches (
+    receiptId INTEGER PRIMARY KEY REFERENCES uwm_webhook_receipts(id),
+    destination TEXT NOT NULL, operationId TEXT NOT NULL, destinationReceiptId INTEGER, completedAt TEXT
+  );`);
   if (!db.prepare("PRAGMA table_info(uwm_webhook_receipts)").all().some(({ name }) => name === "heldImport")) {
     db.exec("ALTER TABLE uwm_webhook_receipts ADD COLUMN heldImport INTEGER NOT NULL DEFAULT 0");
   }
@@ -100,8 +104,11 @@ export function saveUwmWebhook(db: Store, event: UwmWebhookEvent, now = new Date
   });
 }
 export function readUwmWebhookReceipts(db: Store, before: number) {
-  return db.prepare(`SELECT id, environment, kind, transactionId, loanNumber, receivedAt,
-    'Awaiting reconciliation' AS status FROM uwm_webhook_receipts WHERE id < ? ORDER BY id DESC LIMIT 50`).all(before);
+  return db.prepare(`SELECT receipt.id, receipt.environment, receipt.kind, receipt.transactionId, receipt.loanNumber, receipt.receivedAt,
+    CASE WHEN matches.destinationReceiptId IS NOT NULL THEN 'Matched'
+         WHEN receipt.heldImport = 1 THEN 'Held for review' ELSE 'Awaiting reconciliation' END AS status
+    FROM uwm_webhook_receipts receipt LEFT JOIN uwm_receipt_matches matches ON matches.receiptId = receipt.id
+    WHERE receipt.id < ? ORDER BY receipt.id DESC LIMIT 50`).all(before);
 }
 export const uwmWebhookMaxBytes = 1024 * 1024;
 const reply = (status: number, body: object) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });

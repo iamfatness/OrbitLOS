@@ -147,6 +147,15 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     }
     return super.completeUwmImportReceipt(...args);
   }
+  loseNextMatchedReceipt() { this.loseMatchedReceipt = true; }
+  async storeMatchedUwmReceipt(...args) {
+    const receipt = await super.storeMatchedUwmReceipt(...args);
+    if (this.loseMatchedReceipt) {
+      this.loseMatchedReceipt = false;
+      throw new Error("Fictional lost match response");
+    }
+    return receipt;
+  }
   retentionFixtureFile(requestId,objectId) {
     this.ctx.storage.sql.exec("INSERT INTO document_files (requestId,objectId,attemptedAt) VALUES (?,?,0) ON CONFLICT(requestId) DO UPDATE SET objectId=excluded.objectId",requestId,objectId);
   }
@@ -4330,6 +4339,7 @@ try {
     assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
     assert.equal((await conditions("pending")).status, 200);
     assert.equal((await receipts(lenderInbox))[0].loanNumber, number);
+    assert.equal((await exportLoan(number)).status, 200);
     const receipt = await send("production", webhookToken);
     assert.equal(receipt.status, 200);
     const saved = (await receipt.json()).receipt;
@@ -4348,9 +4358,29 @@ try {
     assert.equal((await exportLoan(otherNumber)).status, 200);
     assert.equal((await exportLoan(number)).status, 200);
     assert.deepEqual((await receipts(lenderInbox)).map((row) => [row.kind, row.loanNumber]),
-      [["ulad", otherNumber], ["conditions", otherNumber], ["conditions", number], ["conditions", otherNumber]]);
+      [["ulad", otherNumber], ["conditions", otherNumber], ["ulad", number], ["conditions", number], ["conditions", otherNumber]]);
     assert.deepEqual((await receipts(lenderBrokerage)).filter((row) => row.kind !== "import").map((row) => [row.kind, row.loanNumber]),
       [["ulad", number], ["conditions", number]]);
+    const inboxAdmin = actor("Fictional Inbox Admin", "inbox-admin@example.test", "Admin");
+    await post(`/api/brokerages?brokerage=${lenderInbox}`, { type: "invite", email: inboxAdmin.email, role: "Admin" }, owner);
+    await signIn(inboxAdmin);
+    const inboxRows = await receipts(lenderInbox);
+    const pending = inboxRows.find((row) => row.kind === "conditions" && row.loanNumber === number);
+    const unknown = inboxRows.find((row) => row.loanNumber === otherNumber);
+    const matchPath = `/api/uwm-webhook-receipts?brokerage=${lenderInbox}`;
+    assert.equal(pending.canMatch, true);
+    assert.equal((await postResponse(matchPath, { receiptId: pending.id }, inboxAdmin)).status, 409);
+    assert.equal((await postResponse(matchPath, { receiptId: unknown.id }, owner)).status, 409);
+    assert.equal((await postResponse(matchPath, { receiptId: pending.id, destination: lenderBrokerage }, owner)).status, 400);
+    await fixture.loseNextMatchedReceipt();
+    assert.equal((await postResponse(matchPath, { receiptId: pending.id }, owner)).status, 503);
+    assert.equal((await receipts(lenderInbox)).find((row) => row.id === pending.id).status, "Awaiting reconciliation");
+    const results = await Promise.all([post(matchPath, { receiptId: pending.id }, owner), post(matchPath, { receiptId: pending.id }, owner)]);
+    assert.deepEqual(results, [{ status: "Matched" }, { status: "Matched" }]);
+    const matched = (await receipts(lenderInbox)).find((row) => row.id === pending.id);
+    assert.equal(matched.status, "Matched");
+    assert.equal(matched.canMatch, false);
+    assert.equal((await receipts(lenderBrokerage)).filter((row) => row.kind === "conditions").length, 2);
   });
 
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
@@ -4358,7 +4388,7 @@ try {
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }
