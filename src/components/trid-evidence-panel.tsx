@@ -129,6 +129,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
   const estimateReceipts = active.filter(({ event }) => isLoanEstimateReceipt(event));
   const intents = active.filter(({ event }) => event.type === "intent");
   const selectedLink = entriesByNumber.get(Number(linkedSequence));
+  const linkWithdrawn = Boolean(linkedSequence && !selectedLink);
   const selectedReceipt = selectedLink?.type === "intent" ? entriesByNumber.get(selectedLink.receiptSequence) : selectedLink;
   const linkedEstimate = selectedReceipt && isLoanEstimateReceipt(selectedReceipt)
     ? `${selectedReceipt.document} · ${selectedReceipt.version} · Received ${recordedWhen(selectedReceipt)}`
@@ -210,6 +211,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
               {action === "intent" && <>
                 <label className="field">Loan Estimate receipt<select name="receiptSequence" required value={linkedSequence} onChange={e => setLinkedSequence(e.target.value)}>
                   <option value="">Choose a receipt</option>
+                  {linkWithdrawn && <option value={linkedSequence}>#{linkedSequence} · Receipt withdrawn</option>}
                   {estimateReceipts.map(({ sequence, event }) => isLoanEstimateReceipt(event) &&
                     <option key={sequence} value={sequence}>#{sequence} · {event.document} · {event.on}</option>)}
                 </select></label>
@@ -224,6 +226,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                 </div>
                 <label className="field">Linked intent to proceed<select name="intentSequence" value={linkedSequence} onChange={e => setLinkedSequence(e.target.value)}>
                   <option value="">Leave unlinked for review</option>
+                  {linkWithdrawn && <option value={linkedSequence}>#{linkedSequence} · Intent withdrawn</option>}
                   {intents.map(({ sequence, event }) => event.type === "intent" &&
                     <option key={sequence} value={sequence}>#{sequence} · {recordedWhen(event)}</option>)}
                 </select></label>
