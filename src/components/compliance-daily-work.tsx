@@ -6,6 +6,7 @@ import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import { observeTabReturn } from "@/lib/tab-return";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { ComplianceLearning } from "./compliance-learning";
 
 type Daily = Extract<ComplianceCaseResult, { kind: "daily" }>;
 type Cursor = NonNullable<Daily["next"]>;
@@ -14,6 +15,7 @@ export function ComplianceDailyWork({ brokerageId, view = "mine", paused, versio
   brokerageId: string; view?: "mine" | "review"; paused: boolean; version: object; open: (loanId: string, caseId: string) => void;
 }) {
   const [query, setQuery] = useState<{ after?: Cursor }>({});
+  const [learning,setLearning]=useState(false);
   const [loaded, setLoaded] = useState<{ brokerageId: string; view: string; query: typeof query; result: Daily | { error: string } }>();
   useEffect(() => {
     if (paused) return;
@@ -39,6 +41,8 @@ export function ComplianceDailyWork({ brokerageId, view = "mine", paused, versio
   const label = view === "review" ? "Compliance reviews" : "Compliance follow-ups";
   const action = view === "review" ? "Open for review" : "Open compliance finding";
   return <section className="document-item record-form compliance-work" aria-label={label}>
+    <Button variant="outline" disabled={paused} aria-expanded={learning} onClick={()=>setLearning(v=>!v)}>{learning?"Close training and policies":"My training & policies"}</Button>
+    {learning&&<ComplianceLearning key={brokerageId} brokerageId={brokerageId} paused={paused}/>}
     <div className="section-heading"><h3>{label}</h3>{page && <span className="pill">
       {page.counts.cases} {page.counts.cases === 1 ? "finding" : "findings"} · {page.counts.files} {page.counts.files === 1 ? "file" : "files"}
     </span>}</div>

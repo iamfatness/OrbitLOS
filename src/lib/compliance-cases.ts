@@ -1,3 +1,9 @@
+import { programRequest } from "./compliance-program-model";
+import { obligationRequest } from "./compliance-obligations-model";
+import { complianceObligationsWork } from "./compliance-obligations";
+import { learningRequest } from "./compliance-learning-model";
+import { complianceLearningWork } from "./compliance-learning";
+import { complianceProgramWork } from "./compliance-program";
 import { z } from "zod";
 import { researchRequest } from "./compliance-research-model";
 import { complianceResearchWork } from "./compliance-research";
@@ -22,6 +28,9 @@ const decisionFields = {
 const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.string().max(800), snapshot: z.number().int().nonnegative() });
 const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("obligations"), input: obligationRequest }),
+  z.strictObject({ type: z.literal("learning"), input: learningRequest }),
+  z.strictObject({ type: z.literal("program"), input: programRequest }),
   z.strictObject({ type: z.literal("research"), input: researchRequest }),
   z.strictObject({ type: z.literal("list"), loanId: id.optional(), kind: z.enum(kinds).optional(), status: z.enum(statuses).optional(),
     attention: z.enum(complianceAttention).optional(), after: cursor.optional() }),
@@ -315,6 +324,9 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   if (!parsed.success) return unavailable;
   const data = parsed.data;
   return db.transaction(() => {
+    if (data.type === "obligations") return { kind: "obligations" as const, result: complianceObligationsWork(db, data.input, staff, roster, now) as unknown };
+    if (data.type === "learning") return { kind: "learning" as const, result: complianceLearningWork(db, data.input, staff, roster, now) as unknown };
+    if (data.type === "program") return complianceProgramWork(db, data.input, staff, roster, now);
     if (data.type === "research") return complianceResearchWork(db, data.input, staff, roster, now);
     if (data.type === "inventory" || data.type === "advanceInventory") {
       if (staff.brokerage.role !== "Admin") return unavailable;

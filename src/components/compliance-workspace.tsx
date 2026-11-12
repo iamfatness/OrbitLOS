@@ -11,12 +11,15 @@ import { ComplianceInventory } from "./compliance-inventory";
 import { ComplianceLeadBackfill } from "./compliance-lead-backfill";
 import { ComplianceQueue } from "./compliance-queue";
 import { LoanRetention } from "./loan-retention";
+import { ComplianceProgram } from "./compliance-program";
+import { ComplianceObligations } from "./compliance-obligations";
+import { ComplianceLearning } from "./compliance-learning";
 import { ComplianceResearch } from "./compliance-research";
 import { Button } from "./ui/button";
 
 type Overview = Extract<ComplianceCaseResult, { kind: "overview" }>;
-type View = "Overview" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
-const views: View[] = ["Overview", "Work queue", "Coverage & gaps", "Research & gaps", "Loan retention"];
+type View = "Training & policies" | "Obligations" | "Monthly review" | "Overview" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
+const views: View[] = ["Overview", "Monthly review", "Obligations", "Training & policies", "Work queue", "Coverage & gaps", "Research & gaps", "Loan retention"];
 const attentionActions: Record<ComplianceAttention, string> = {
   review: "View findings awaiting review",
   evidence: "View findings awaiting evidence",
@@ -88,6 +91,9 @@ export function ComplianceWorkspace({ brokerageId, paused, openLoan, openHistory
     </nav>
     <section ref={panel} tabIndex={-1} aria-label={`Compliance ${view.toLowerCase()}`}>
       {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} />}
+      {view === "Monthly review" && <ComplianceProgram key={brokerageId} brokerageId={brokerageId} paused={paused} />}
+      {view === "Obligations" && <ComplianceObligations key={brokerageId} brokerageId={brokerageId} paused={paused} />}
+      {view === "Training & policies" && <ComplianceLearning key={brokerageId} brokerageId={brokerageId} paused={paused} admin />}
       {view === "Research & gaps" && <ComplianceResearch key={brokerageId} brokerageId={brokerageId} paused={paused} />}
       {view === "Overview" && <div className="integration manager-panel record-form">
         <div className="section-heading">
