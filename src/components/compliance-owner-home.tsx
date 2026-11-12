@@ -82,8 +82,8 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
       action: "Manage branches", ready: activeBranches.length > 0, enabled: true },
     { id: "licenses", name: "License records", status: !home.companyLicenseCount ? "No company licenses on file." :
       missingBranchRecords ? `${missingBranchRecords} ${missingBranchRecords === 1 ? "active branch has" : "active branches have"} no license record on file.` : `${home.companyLicenseCount} company license ${home.companyLicenseCount === 1 ? "record" : "records"} on file.`,
-      action: "Open license register", ready: home.companyLicenseCount > 0 && !missingBranchRecords, enabled: home.entityCount > 0 },
-    { id: "states", name: "States and activities", status: home.savedStateCount ? `${home.savedStateCount} ${home.savedStateCount === 1 ? "state has" : "states have"} saved business facts.` : "Record where and how your company operates for review.",
+      action: "Open license register", ready: home.companyLicenseCount > 0, enabled: home.entityCount > 0 },
+    { id: "states", name: "States and activities", status: home.savedStateCount ? `${home.savedStateCount} ${home.savedStateCount === 1 ? "state has" : "states have"} saved business facts for review.` : "Record where and how your company operates for review.",
       action: "Review states and activities", ready: home.savedStateCount > 0, enabled: home.entityCount > 0 },
   ] : [];
   const next = steps.find(step => !step.ready && step.enabled);
@@ -101,18 +101,21 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
           {step.enabled && <Button id={`compliance-setup-${step.id}`} size="sm" variant="outline" onClick={() => onSetup(step.id, !home.entityCount)}>{step.action}</Button>}
         </li>)}
       </ul>
-      <p className="muted">These are recorded business facts. Confirm applicable requirements with your reviewer.</p>
+      <p className="muted">Use these records to review which licenses and obligations apply with your compliance reviewer.</p>
     </details>
   </div>;
 
   return <div className="integration manager-panel compliance-home">
-    {branches.length > 0 && <label className="field compliance-home-branch">Branch<select value={branchId} disabled={paused}
+    {branches.length > 0 && <label className="field compliance-home-branch">Branch<select value={branchId} disabled={paused} aria-describedby="compliance-branch-scope"
       onChange={event => onBranch(event.target.value)}>
       <option value="">All branches</option>
       {branchId && !branches.some(item => item.id === branchId) && <option value={branchId}>Unavailable branch</option>}
       {branches.map(item => <option key={item.id} value={item.id}>{item.name}{item.active ? "" : " (Archived)"}</option>)}
     </select></label>}
-    {branch && <p className="compliance-home-context"><strong>{branch.name}{branch.active ? "" : " · Archived"}</strong><span className="muted">License renewals are filtered to this branch. Review work stays visible for the whole brokerage.</span></p>}
+    {branches.length > 0 && <p className="compliance-home-context">
+      {branch && <strong>{branch.name}{branch.active ? "" : " · Archived"}</strong>}
+      <span id="compliance-branch-scope" className="muted">Branch filters license renewals. Internal reviews cover the whole brokerage.</span>
+    </p>}
     {home && branchId && !branch && <p role="status">The selected branch is unavailable. Showing all branches.</p>}
     {!result && <p role="status">{paused ? "Compliance work is unavailable while the workspace is paused." : "Loading Compliance work…"}</p>}
     {result && "error" in result && <div className="compliance-home-next">
@@ -124,12 +127,8 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
     </div>}
     {showSetupFirst && setup}
     {home && <section className="compliance-home-attention" aria-labelledby="compliance-attention-heading">
-      <div className="section-heading">
-        <h2 id="compliance-attention-heading" ref={heading} tabIndex={-1}>Needs attention</h2>
-        {openFilingArchive && <Button id="compliance-filing-history" size="sm" variant="outline" onClick={openFilingArchive}>Filing history</Button>}
-      </div>
-      {openPolicyFollowUp && <div><Button id="compliance-policy-follow-up" size="sm" variant="outline" onClick={openPolicyFollowUp}>Policy acknowledgments</Button></div>}
-      {!hasWork && <p className="muted">No recorded renewals or review work due through {displayDate(home.through)}{home.fileFindings ? ", and no sample file findings" : ""}.</p>}
+      <h2 id="compliance-attention-heading" ref={heading} tabIndex={-1}>Needs attention</h2>
+      {!hasWork && <p className="muted">{showSetupFirst && !home.entityCount ? "Renewals and internal reviews appear here as you add records." : `No recorded renewals or review work due through ${displayDate(home.through)}${home.fileFindings ? ", and no sample file findings" : ""}.`}</p>}
       {renewalTotal > 0 && <section aria-label="License renewals">
         <h3>License renewals</h3>
         <ul className="compliance-home-list">{home.renewals.items.map(item => {
@@ -161,5 +160,12 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
       </section>}
     </section>}
     {!showSetupFirst && setup}
+    {home && (openFilingArchive || openPolicyFollowUp) && <section className="compliance-home-shortcuts" aria-labelledby="compliance-records-heading">
+      <h2 id="compliance-records-heading">Follow-up and records</h2>
+      <div className="loan-application-actions">
+        {openPolicyFollowUp && <Button id="compliance-policy-follow-up" size="sm" variant="outline" onClick={openPolicyFollowUp}>Policy acknowledgments</Button>}
+        {openFilingArchive && <Button id="compliance-filing-history" size="sm" variant="outline" onClick={openFilingArchive}>Filing history</Button>}
+      </div>
+    </section>}
   </div>;
 }

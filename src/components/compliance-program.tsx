@@ -100,6 +100,22 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
   return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Compliance program">
     <h2 ref={heading} tabIndex={-1}>{screen === "list" ? "Monthly review" : formTitle}</h2>
     {screen === "item" && current && <p className="muted">{current.entity.name} · Review month {current.month}</p>}
+    {screen === "item" && selected?.stateReview && <section className="record-form" aria-label="Saved state review basis">
+      <h3>{selected.stateReview.entityName} · {selected.stateReview.jurisdiction} state record v{selected.stateReview.revision}</h3>
+      <p><strong>Question</strong> · {selected.instructions}</p>
+      <p><a className="name-link break-words" href={selected.stateReview.source.sourceUrl} target="_blank" rel="noreferrer">
+        {selected.stateReview.source.title}</a></p>
+      <details className="details-section">
+        <summary className="min-h-11 content-center">Saved business facts and evidence references</summary>
+        <dl className="state-scope-facts">
+          {([
+            ["Activity", "activity"], ["Lien scope", "lienScope"], ["Products", "products"], ["Responsibilities", "responsibility"],
+            ["Reporting basis", "reportingBasis"], ["Company evidence", "companyEvidence"], ["Branch evidence", "officeEvidence"],
+            ["Originator evidence", "originatorEvidence"], ["Counsel packet reference", "counselPacketReference"],
+          ] as const).map(([label, key]) => <div key={key}><dt>{label}</dt><dd>{selected.stateReview?.facts[key] || "Not recorded"}</dd></div>)}
+        </dl>
+      </details>
+    </section>}
     {screen === "item" && selected?.obligation && current && <div className="record-form">
       <div><strong>Recorded period {selected.obligation.period} · Obligation version {selected.obligation.version}</strong>
         <p>{selected.obligation.status}</p>
@@ -152,14 +168,15 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         </> : <>
           {screen === "schedule" ? <><label className="field">Review title<input name="title" required minLength={3} maxLength={160} /></label>
             <label className="field">Category<select name="category">{programCategories.map(c => <option key={c}>{c}</option>)}</select></label>
-            <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <><p>{selected?.instructions}</p>
+            <label className="field">Work to review<textarea name="instructions" required minLength={5} maxLength={1500} /></label></> : <>{!selected?.stateReview && <p>{selected?.instructions}</p>}
             <label className="field">Work status<select name="status" defaultValue={selected?.status}>{programStatuses.map(s => <option key={s}>{s}</option>)}</select></label></>}
           <div className="form-grid"><label className="field">Accountable admin<select name="ownerEmail" required defaultValue={selected?.ownerAvailable ? selected.ownerEmail : ""}>
             <option value="">Select an active admin</option>{current?.owners.map(o => <option key={o.email} value={o.email}>{o.name}</option>)}</select></label>
             <label className="field">Internal target (UTC)<input name="internalTarget" type="date" required defaultValue={selected?.internalTarget ?? `${month}-28`} /></label></div>
           {screen === "item" && <><label className="field">Evidence reference<textarea name="evidence" maxLength={1500} defaultValue={selected?.evidence} /></label>
             <p className="muted">Reference reviewed records; keep borrower data and privileged material out of these notes. Completion requires Awaiting review and an evidence reference.</p>
-            <label className="field">Reason or progress note<textarea name="note" required minLength={5} maxLength={1500} /></label></>}
+            <label className="field">{selected?.stateReview ? "Decision or next action" : "Reason or progress note"}
+              <textarea name="note" required minLength={5} maxLength={1500} /></label></>}
         </>}
         <div className="loan-application-actions"><Button type="submit">{busy ? "Saving…" : "Save review work"}</Button><Button type="button" variant="outline" onClick={() => { navigate("list"); reload(); }}>Back to monthly review</Button></div>
       </fieldset>

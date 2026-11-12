@@ -40,6 +40,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
   const [localLicense, setLocalLicense] = useState<LicenseRenewalTarget>();
   const [review, setReview] = useState<ProgramReviewTarget>();
   const [obligationVisit, setObligationVisit] = useState<{ itemId: string; returning: boolean }>();
+  const [scopeVisit, setScopeVisit] = useState<string>();
   const [report, setReport] = useState<{ basis: ObligationReviewBasis; entity: string; period: ReportingPeriod }>();
   const reportOpen = !!report;
   const reportHeading = useRef<HTMLHeadingElement>(null);
@@ -66,7 +67,10 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
 
   function show(next: View, origin?: string) {
     if (next === view) return;
-    if (next === "Home") setObligationVisit(undefined);
+    if (next === "Home") {
+      setObligationVisit(undefined);
+      setScopeVisit(undefined);
+    }
     focusPanel.current = next !== "Home" || !returningTo;
     if (next !== "Home") setReturningTo(origin);
     setView(next);
@@ -116,6 +120,10 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       {view === "Filing history" && <ComplianceFilingArchive brokerageId={brokerageId} paused={paused} />}
       {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} openEvidence={openEvidence} />}
       {view === "Monthly review" && <>
+        {scopeVisit && <Button size="sm" variant="outline" className="mb-3 min-h-11" onClick={() => {
+          setView("Research & gaps");
+          requestAnimationFrame(() => document.getElementById(scopeVisit)?.focus());
+        }}>Back to state review questions</Button>}
         {obligationVisit && <Button size="sm" variant="outline" className="mb-3" onClick={() => {
           setObligationVisit({ ...obligationVisit, returning: true });
           setView("Obligations");
@@ -133,7 +141,15 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
           }} />
       </div>}
       {view === "Training & policies" && <ComplianceLearning key={brokerageId} brokerageId={brokerageId} paused={paused} admin />}
-      {view === "Research & gaps" && <ComplianceResearch key={brokerageId} brokerageId={brokerageId} paused={paused} startWithState={setup === "states"} />}
+      {(view === "Research & gaps" || scopeVisit) && <div hidden={view !== "Research & gaps"}>
+        <ComplianceResearch key={brokerageId} brokerageId={brokerageId} paused={paused} startWithState={setup === "states"}
+          active={view === "Research & gaps"} openReview={(target, origin) => {
+            setScopeVisit(origin);
+            setReview(target);
+            focusPanel.current = true;
+            setView("Monthly review");
+          }} />
+      </div>}
       {view === "Work queue" && <ComplianceQueue brokerageId={brokerageId} admin paused={paused} openLoan={openLoan} />}
       {view === "Coverage & gaps" && <div className="integration manager-panel record-form">
         <h2>Coverage &amp; gaps</h2>

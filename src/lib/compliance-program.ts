@@ -174,6 +174,20 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
       ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
     WHERE w.brokerageId=? AND w.entityId=? AND w.month=?`).all(staff.brokerage.id, entity.id, period);
   const byItem = new Map(items.map(item => [item.id, item]));
+  const stateReviews = db.prepare(`SELECT r.workId,r.jurisdiction,r.scopeRevision,r.source,s.facts,s.entitySnapshot
+    FROM compliance_scope_reviews r
+    JOIN compliance_program_items i ON i.brokerageId=r.brokerageId AND i.id=r.workId
+    JOIN compliance_state_scope_versions s ON s.brokerageId=r.brokerageId AND s.entityId=r.entityId
+      AND s.jurisdiction=r.jurisdiction AND s.revision=r.scopeRevision
+    WHERE i.brokerageId=? AND i.entityId=? AND i.month=?`).all(staff.brokerage.id, entity.id, period);
+  for (const row of stateReviews) {
+    const item = byItem.get(String(row.workId));
+    if (item) item.stateReview = {
+      jurisdiction: String(row.jurisdiction), revision: Number(row.scopeRevision),
+      entityName: JSON.parse(String(row.entitySnapshot)).name,
+      facts: JSON.parse(String(row.facts)), source: JSON.parse(String(row.source)),
+    };
+  }
   for (const row of bases) {
     const item = byItem.get(String(row.workId));
     if (!item) continue;
@@ -189,7 +203,9 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   }
   const counts = { total: items.length, open: items.filter(i => i.status !== "Completed").length,
     overdue: items.filter(i => i.overdue).length, unavailableOwners: items.filter(i => !i.ownerAvailable).length };
-  const fingerprint = hash([entity, period, rows, owners.map(m => [m.email, m.accessRevision ?? 0]).sort(), now.slice(0, 10)]);
+  const basisVersions = items.flatMap(item => item.stateReview ? [[item.id, item.stateReview.revision]] : []);
+  const fingerprint = hash([entity, period, rows, owners.map(m => [m.email, m.accessRevision ?? 0]).sort(), now.slice(0, 10),
+    ...(basisVersions.length ? [basisVersions] : [])]);
   const reviews = db.prepare("SELECT id,actor,at,note,snapshot,fingerprint FROM compliance_program_reviews WHERE brokerageId=? AND entityId=? AND month=? ORDER BY at DESC,rowid DESC LIMIT 20")
     .all(staff.brokerage.id, entity.id, period).map(row => ({ id: String(row.id), actor: String(row.actor), at: String(row.at), note: String(row.note),
       snapshot: String(row.snapshot), current: row.fingerprint === fingerprint }));

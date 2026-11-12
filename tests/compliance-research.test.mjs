@@ -332,6 +332,53 @@ test("state requirement evidence is versioned by entity, state, source and exact
   assert.equal(work("stateReadiness", query).historical, true);
   assert.equal(work("stateReadiness", query).history.length, 2);
 });
+
+test("state question appears in admin review, retains its source version, and retries without duplication", t => {
+  const f = fixture(t);
+  const work = (type, input, actor = f.owner, roster = f.roster, tenant = f.tenant) =>
+    complianceCaseWork(f.db, { type, input }, f.staff(actor, tenant), tenant, roster, now);
+  const entityId = work("program", { operation: "createEntity", requestId: crypto.randomUUID(), name: "Fictional State Broker",
+    nmls: "", scopeNote: "Fictional state review entity" }).entities[0].id;
+  const facts = { activity: "Brokerage", lienScope: "First lien", companyEvidence: "Fictional evidence 1", officeEvidence: "",
+    originatorEvidence: "", products: "First mortgage purchase", responsibility: "", reportingBasis: "", counselPacketReference: "" };
+  const basis = { entityId, jurisdiction: "MI", scopeRevision: 1 };
+  const read = { operation: "read", ...basis };
+  const scope = { operation: "save", entityId, jurisdiction: "MI", expectedRevision: 0, facts };
+  assert.ok(work("scopeReview", read).error);
+  assert.equal(work("stateScope", { ...scope, requestId: crypto.randomUUID() }).revision, 1);
+  const assign = { operation: "assign", ...basis, requestId: crypto.randomUUID(), reviewerEmail: f.backup.email,
+    reviewerRevision: 1, internalTarget: "2026-11-19", sourceKey: "REQ-MI-LOAN-FEES", question: "Do these fees apply to this entity?" };
+  assert.ok(work("scopeReview", { ...assign, sourceKey: "REQ-OH-LOAN-FEES" }).error);
+  assert.ok(work("scopeReview", { ...assign, reviewerEmail: f.lo.email }).error);
+  assert.ok(work("scopeReview", { ...assign, reviewerRevision: 0 }).error);
+  assert.ok(work("scopeReview", assign, f.lo).error);
+  const assigned = work("scopeReview", assign);
+  assert.equal(assigned.kind, "scopeReviewAssigned");
+  assert.deepEqual(work("scopeReview", assign), assigned);
+  assert.ok(work("scopeReview", { ...assign, question: "A changed question" }).error);
+  assert.ok(work("scopeReview", assign, f.backup).error);
+  assert.ok(work("scopeReview", read, f.owner, f.roster, crypto.randomUUID()).error);
+  const { month, itemId } = assigned.target;
+  assert.ok(work("program", { operation: "ownerHome" }, f.backup).reviews.items.some(item => item.id === itemId && item.ownerName === f.backup.name));
+  const monthly = { operation: "month", entityId, month };
+  assert.deepEqual(work("program", monthly, f.backup).items[0].stateReview.facts, facts);
+  assert.equal(work("stateScope", { ...scope, expectedRevision: 1, facts: { ...facts, products: "Changed" }, requestId: crypto.randomUUID() }).revision, 2);
+  assert.deepEqual(work("scopeReview", assign), assigned);
+  assert.equal(work("scopeReview", read).canAssign, false);
+  assert.ok(work("scopeReview", { ...assign, requestId: crypto.randomUUID() }).error);
+  assert.deepEqual(work("scopeReview", { ...read, scopeRevision: 2 }).items, []);
+  assert.deepEqual(work("program", monthly, f.backup).items[0].stateReview.facts, facts);
+  const edit = { operation: "update", entityId, month, id: itemId, status: "Awaiting review", ownerEmail: f.backup.email,
+    internalTarget: "2026-11-19", note: "Counsel reference collected. Confirm the license scope next.", evidence: "Fictional decision reference" };
+  assert.equal(work("program", { ...edit, expectedRevision: 1, requestId: crypto.randomUUID() }, f.backup).items[0].status, "Awaiting review");
+  assert.equal(work("program", { ...edit, status: "Completed", expectedRevision: 2, requestId: crypto.randomUUID() }, f.backup).items[0].status, "Completed");
+  const archived = work("scopeReview", read);
+  assert.equal(archived.items.length, 1);
+  assert.equal(archived.items[0].latestNote, edit.note);
+  assert.equal(archived.items[0].evidence, edit.evidence);
+  assert.equal(archived.items[0].status, "Completed");
+  assert.equal(work("scopeReview", read, f.owner, [f.owner, { ...f.backup, accessRevision: 2 }]).items[0].reviewer, null);
+});
 test("opening research is idempotent, canonical, and preserves research-only status", (t) => {
   const f = fixture(t);
   assert.equal(f.list().counts.total, 0);

@@ -16,6 +16,8 @@ import { complianceLearningWork } from "./compliance-learning";
 import { complianceProgramWork } from "./compliance-program";
 import { stateScopeRequest } from "./compliance-state-scope-model";
 import { complianceStateScopeWork } from "./compliance-state-scope";
+import { scopeReviewRequest } from "./compliance-scope-review-model";
+import { complianceScopeReviewWork } from "./compliance-scope-review";
 import { stateReadinessRequest } from "./compliance-state-readiness-model";
 import { complianceStateReadinessWork } from "./compliance-state-readiness";
 import { z } from "zod";
@@ -44,6 +46,7 @@ const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.st
 const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("stateScope"), input: stateScopeRequest }),
+  z.strictObject({ type: z.literal("scopeReview"), input: scopeReviewRequest }),
   z.strictObject({ type: z.literal("stateReadiness"), input: stateReadinessRequest }),
   z.strictObject({ type: z.literal("trid"), input: tridRequest }),
   z.strictObject({ type: z.literal("stateBrokerAgreement"), input: brokerAgreementRequest }),
@@ -360,9 +363,10 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   const data = parsed.data;
   if (!staff.brokerage.pilot && data.type !== "learning" && (staff.brokerage.role !== "Admin" ||
       (data.type !== "research" && data.type !== "program" && data.type !== "stateScope" && data.type !== "stateReadiness" &&
-        data.type !== "obligations"))) return unavailable;
+        data.type !== "obligations" && data.type !== "scopeReview"))) return unavailable;
   return db.transaction(() => {
     if (data.type === "stateScope") return complianceStateScopeWork(db, data.input, staff, roster, now);
+    if (data.type === "scopeReview") return complianceScopeReviewWork(db, data.input, staff, roster, now);
     if (data.type === "stateReadiness") return complianceStateReadinessWork(db, data.input, staff, roster, now);
     if (data.type === "trid") return { kind: "trid" as const, result: tridEvidenceWork(db, data.input, staff, now) };
     if (data.type === "stateBrokerAgreement") return stateBrokerAgreementWork(db, data.input, staff, now);

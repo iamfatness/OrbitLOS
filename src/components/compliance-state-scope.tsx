@@ -8,6 +8,8 @@ import { LicenseRecordStatus } from "./license-record-status";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 import { ComplianceStateReadiness } from "./compliance-state-readiness";
+import { ComplianceScopeReviews } from "./compliance-scope-reviews";
+import type { ProgramReviewTarget } from "@/lib/compliance-program-model";
 
 type Scope = Extract<ComplianceCaseResult, { kind: "stateScope" }>;
 type Entity = Extract<ComplianceCaseResult, { kind: "programEntities" }>["entities"][number];
@@ -33,8 +35,9 @@ function ScopeFacts({ facts, labels = scopeLabels }: {
     <div key={name}><dt>{label}</dt><dd>{facts[name] || "Not recorded"}</dd></div>)}</dl>;
 }
 
-export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initiallyOpen }: {
-  brokerageId: string; jurisdiction: string; paused: boolean; initiallyOpen?: boolean;
+export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initiallyOpen, active, openReview }: {
+  brokerageId: string; jurisdiction: string; paused: boolean; initiallyOpen?: boolean; active: boolean;
+  openReview: (target: ProgramReviewTarget, origin: string) => void;
 }) {
   const [open, setOpen] = useState(!!initiallyOpen);
   const [entities, setEntities] = useState<readonly Entity[]>();
@@ -162,6 +165,8 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused, initia
             legalApproval: current.legalApproval,
           }, null, 2), `orbit-${jurisdiction}-scope-v${current.revision}.json`, "application/json");
         }}>Download scope version</Button></div>}
+        {current.revision > 0 && <ComplianceScopeReviews key={`${entityId}:${current.revision}:reviews`} brokerageId={brokerageId}
+          entityId={entityId} jurisdiction={jurisdiction} scopeRevision={current.revision} active={active} paused={paused} openReview={openReview} />}
         {current.revision > 0 && <ComplianceStateReadiness key={`${entityId}:${current.revision}`}
           brokerageId={brokerageId} entityId={entityId} jurisdiction={jurisdiction} scopeRevision={current.revision} paused={paused} />}
         {version === undefined ? <>
