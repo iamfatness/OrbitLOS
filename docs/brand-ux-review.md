@@ -674,3 +674,9 @@ The built browser exercised owner publication, the selected LO's review, disable
 Impeccable Polish guided placing brokerage questions at the start of Review and giving longer owner prompts a full-width, multiline editor. UI UX Pro Max required-label and focusable-error guidance informed the question labels and the return action from the error summary. Orbit reused its 21st.dev-informed labeled fields, disclosures and selected-record evidence.
 
 The fictional browser exercised a populated owner editor, publishing a new question after issuing the joint link, conditional disclosure and clearing, a missing required answer, draft save and resume, separate applicant submissions, and the selected staff loan. Inspected the desktop and phone captures in `.orbit/application-questions-{owner,primary,joint,receipt}-*.png`. The 900 px layouts were also exercised.
+
+### Document checklist rules from reviewed answers
+
+Impeccable Polish informed the aligned question and required-answer controls and the stacked phone editor. UI UX Pro Max label and recovery guidance informed explicit request checkboxes and the reload path. Orbit reused its 21st.dev-informed checklist rows, version labels and native selection controls. The full selected question wraps below the dropdown at narrow widths.
+
+The fictional browser exercised an owner's published rule, both applicant previews, keyboard selection and reload, the created request's exact evidence, and both private checklists. Inspected desktop and phone captures in `.orbit/checklist-answers-{owner-rule,primary-preview,co-preview,staff-request}-*.png`. The 900 px layouts were also exercised.
