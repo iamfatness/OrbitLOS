@@ -1291,3 +1291,7 @@ The isolated browser rehearsal verified simulated delivery, exact invited email,
 ### Shared processor workspace visits
 
 Worker `7fd37cca-2941-482f-a334-d243d97d95b5` serves application `3e0a68053ecb`. A fictional Processor opened one assigned file in each of two brokerages, with the unassigned file absent from Processing. A scoped visit and refresh preserved the original default, and the explicit default action changed it. The built rehearsal also verified cross-brokerage file denial and owner-only financial access. Staged and live verification checked the public Demo and signed-out entry. The contract fee agreement and commercial partner rehearsal remain separate.
+
+### Original disclosure fee comparison pilot
+
+Worker `3ba79b71-c220-4dbe-9f23-c0efa5c131a5` serves app `5ba15236711f`. Fictional owner and LO entered original and closing snapshots, recorded an unobtained service, and reviewed individual and aggregate changes. The assigned processor reviewed the same exact versions. A withdrawn closing source invalidated the selected comparison, and an incomplete replacement with conflicting classification kept the result open. The public Demo and signed-out routes passed staged and live. No provider actions or production loan changes occurred.

@@ -557,3 +557,7 @@ App `4684a5e1c7f7`. The sign-in choice and verification form reuse Orbit's accep
 ### Shared processor visits across brokerages
 
 Application `3e0a68053ecb`. The old operational list link changed the saved sign-in default during a visit. The Team list now follows the existing scoped sample-workspace pattern, and the explicit default control sets the account preference. Impeccable Clarify informed the one-sentence explanation, and UI UX Pro Max informed native keyboard links and visible focus. The loaded Processor view at desktop, portrait and phone widths retained its original typography and shared controls. See [UI review coverage](ui-review-coverage.md).
+
+### Original disclosure fee comparison
+
+Application `5ba15236711f`. Impeccable Operate informed the distinction between selecting a version and inspecting the evidence. UI UX Pro Max form guidance informed focus on the new charge and retained input after a failed save. Reused Orbit's native disclosure, form, and evidence-list patterns. Compact phone choices keep the full disclosure reference visible beneath the field. See [UI review coverage](ui-review-coverage.md) for the populated and selected screenshots.
