@@ -4946,6 +4946,80 @@ try {
     assert.notEqual((await browse(alternateRole, endpoint())).status, 200);
   });
 
+  await stage("CRM events preserve source revisions and retry a simulated failure exactly once", async () => {
+    const endpoint = (id = brokerage) => `/api/brokerages?brokerage=${id}&view=automation-events`;
+    const read = async (suffix = "", staff = owner, id = brokerage) => {
+      const response = await browse(staff, endpoint(id) + suffix);
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get("cache-control"), /private, no-store/);
+      return JSON.parse(response.text());
+    };
+    assert.equal((await browse(officer, endpoint())).status, 403);
+    assert.equal((await browse(processor, endpoint())).status, 403);
+    assert.equal((await browse(owner, "/api/brokerages?view=automation-events")).status, 403);
+    assert.equal((await browse(owner, endpoint() + "&status=Sent")).status, 400);
+    assert.equal((await browse(owner, endpoint() + "&before=0")).status, 400);
+
+    const created = await write(owner, { type: "loan", borrower: "Fictional event timeline", borrowerEmail: "event-timeline@example.test",
+      contactId: "", partnerId: null, officer: owner.name, address: "", amount: 225000, purpose: "Purchase", stage: "Lead" });
+    const fundingLoan = created.loanWork.loanId;
+    const priorDay = new Date(Date.parse(today + "T12:00:00Z") - 86_400_000).toISOString().slice(0, 10);
+    await loanAction(owner, fundingLoan, "recordClosing", { revision: 0, closingDate: priorDay });
+    await loanAction(owner, fundingLoan, "recordFunding", { revision: 0, fundingDate: priorDay });
+    await loanAction(owner, fundingLoan, "recordFunding", { revision: 0, fundingDate: priorDay });
+    await loanAction(owner, fundingLoan, "recordFunding", { revision: 1, fundingDate: today });
+    await loanAction(owner, fundingLoan, "reverseFunding", { revision: 2, fundingDate: today, reason: "Fictional reversal for the delivery queue." });
+
+    const seen = new Set(), all = [];
+    let before = null;
+    do {
+      const page = await read(before ? "&before=" + before : "");
+      assert.equal(page.kind, "events");
+      assert.ok(page.events.length <= 20);
+      for (const item of page.events) {
+        assert.ok(!seen.has(item.payload.eventId));
+        seen.add(item.payload.eventId);
+        all.push(item);
+      }
+      before = page.next;
+    } while (before !== null);
+    assert.ok(all.length > 20);
+    const timeline = all.filter(({ payload }) => payload.resource.id === fundingLoan);
+    assert.deepEqual(timeline.map(({ payload }) => [payload.eventType, payload.resource.revision]), [
+      ["loan.funding_reversed", 3], ["loan.funding_updated", 2], ["loan.funded", 1], ["lead.created", 1],
+    ]);
+    assert.ok(all.some(({ payload }) => payload.eventType === "application.submitted" && payload.resource.id === loanId));
+    assert.ok(all.some(({ payload }) => payload.eventType === "loan.funded" && payload.resource.id === loanId));
+    assert.ok(all.some(({ payload }) => payload.eventType === "lead.created" && payload.resource.id === leadId && payload.source === "Campaign CSV"));
+    for (const source of ["Realtor referral", "Website quote request", "Direct entry"]) {
+      assert.ok(all.some(({ payload }) => payload.eventType === "lead.created" && payload.source === source));
+    }
+    assert.ok(all.every(({ status }) => status === "Queued"));
+    const initial = timeline[3];
+    const id = initial.payload.eventId;
+    const exact = "&id=" + id;
+    assert.deepEqual(Object.keys(initial.payload), ["schemaVersion", "eventId", "eventType", "occurredAt", "source", "resource"]);
+    assert.deepEqual(Object.keys(initial.payload.resource), ["kind", "id", "revision"]);
+    assert.equal((await browse(owner, endpoint(lenderBrokerage) + exact)).status, 404);
+    const failure = { type: "attempt", id, operationId: randomUUID(), attempt: 0, simulateFailure: true };
+    assert.equal((await postResponse(endpoint(), failure, officer)).status, 403);
+    const failed = await Promise.all([post(endpoint(), failure, owner), post(endpoint(), failure, owner)]);
+    assert.deepEqual(failed[0], failed[1]);
+    assert.equal(failed[0].event.status, "Failed");
+    assert.equal(failed[0].attempts.length, 1);
+    assert.deepEqual(failed[0].event.payload, initial.payload);
+    assert.deepEqual((await read("&status=Failed&eventType=lead.created")).events.map(({ payload }) => payload.eventId), [id]);
+    assert.equal((await postResponse(endpoint(), { ...failure, operationId: randomUUID(), simulateFailure: false }, owner)).status, 409);
+    const retry = { ...failure, operationId: randomUUID(), attempt: 1, simulateFailure: false };
+    await post(endpoint(), retry, owner);
+    await post(endpoint(), retry, owner);
+    const received = await read(exact);
+    assert.deepEqual(received.event.payload, initial.payload);
+    assert.deepEqual(received.attempts.map(({ outcome }) => outcome), ["Simulated", "Failed"]);
+    assert.equal((await postResponse(endpoint(), { ...retry, operationId: randomUUID(), attempt: 2 }, owner)).status, 409);
+    assert.deepEqual((await read("&status=Failed")).events, []);
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

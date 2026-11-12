@@ -1,3 +1,4 @@
+import { queueAutomationEvent } from "./automation-events";
 import {readRecoveryState,recordRecoveryProof} from "./recovery-edits";
 import type {RecoveryEdit} from "./recovery-edit-model";
 import { z } from "zod";
@@ -1095,6 +1096,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             if (entersFunded) db.prepare("UPDATE loans SET stage = 'Funded', stageSince = ? WHERE id = ?").run(now, data.loanId);
             addApplicationActivity(db, data.loanId, `Funding recorded · ${data.fundingDate}`, now);
             accessEvent(db, staff, "Recorded loan funding", data.loanId, now);
+            queueAutomationEvent(db, { eventType: previous?.fundingDate ? "loan.funding_updated" : "loan.funded", kind: "loan",
+              id: data.loanId, revision: revision + 1, origin: "Funding record" }, now);
           }
           createFundingDrafts(db, data.loanId, now, revision + Number(dateChanged));
           const followUp = startFundingPlaybook(db, { loanId: data.loanId, fundingDate: data.fundingDate, fundingRevision: revision + Number(dateChanged),
@@ -1207,6 +1210,8 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           supersedeFundingDrafts(db, data.loanId, now);
           addApplicationActivity(db, data.loanId, `Funding reversed · ${data.fundingDate} · ${data.reason}`, now);
           accessEvent(db, staff, "Reversed loan funding", data.loanId, now);
+          queueAutomationEvent(db, { eventType: "loan.funding_reversed", kind: "loan", id: data.loanId,
+            revision: data.revision + 1, origin: "Funding record" }, now);
           message = `Funding reversed. The file is at ${stage}.`;
           break;
         }
@@ -2175,6 +2180,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           } else {
             insertLoan(db, { ...data, id: loanId, officer, officerEmail, contactId, stageSince });
             recordLoanAudit(db, loanId, staff, "Created loan", now, null);
+            queueAutomationEvent(db, { eventType: "lead.created", kind: "loan", id: loanId, revision: 1, origin: "Direct entry" }, now);
           }
           if (current?.stage !== data.stage && (current || data.stage !== "Lead")) {
             createMilestoneDrafts(db, loanId, data.stage, now);

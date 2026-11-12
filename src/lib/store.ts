@@ -635,6 +635,20 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS pilot_sample_contacts (
       contactId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS automation_events (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, schemaVersion INTEGER NOT NULL, eventType TEXT NOT NULL,
+      resourceKind TEXT NOT NULL, resourceId TEXT NOT NULL, revision INTEGER NOT NULL, origin TEXT NOT NULL, occurredAt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Queued' CHECK (status IN ('Queued', 'Failed', 'Simulated')),
+      attemptCount INTEGER NOT NULL DEFAULT 0 CHECK (attemptCount BETWEEN 0 AND 2), UNIQUE (eventType, resourceKind, resourceId, revision)
+    );
+    CREATE INDEX IF NOT EXISTS automation_events_status ON automation_events(status, sequence DESC);
+    CREATE INDEX IF NOT EXISTS automation_events_type ON automation_events(eventType, sequence DESC);
+    CREATE TABLE IF NOT EXISTS automation_event_attempts (
+      eventId TEXT NOT NULL REFERENCES automation_events(id) ON DELETE CASCADE,
+      attempt INTEGER NOT NULL CHECK (attempt BETWEEN 1 AND 2), operationId TEXT NOT NULL UNIQUE,
+      outcome TEXT NOT NULL CHECK (outcome IN ('Failed', 'Simulated')), actorEmail TEXT NOT NULL, actor TEXT NOT NULL, at TEXT NOT NULL,
+      PRIMARY KEY (eventId, attempt)
+    );
     CREATE TABLE IF NOT EXISTS staff_first_day (
       email TEXT NOT NULL, role TEXT NOT NULL, step TEXT NOT NULL, completedAt TEXT,
       revision INTEGER NOT NULL, PRIMARY KEY (email, role, step)

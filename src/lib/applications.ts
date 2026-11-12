@@ -1,3 +1,4 @@
+import { queueAutomationEvent } from "./automation-events";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { applicationDraft, applicationIssues, applicationSteps, blankApplication, manualHandoffOutcomes, requestedLoanAmount, splitLegacyAddress, type AddressLocation, type ApplicationDraft, type BorrowerResult, type StaffApplication } from "./application-model";
@@ -324,6 +325,8 @@ function finishApplication(db: Store, row: ApplicationRow, draft: ApplicationDra
   const auditBefore = loanAuditSnapshot(db, row.loanId);
   const next = saveBorrowerDraft(db, row, draft, step, now, true);
   saveApplicationVersion(db, next);
+  queueAutomationEvent(db, { eventType: "application.submitted", kind: "loan", id: row.loanId,
+    revision: next.revision, origin: "Borrower portal" }, now);
   const { unit, city, state, zip } = draft.propertyLocation;
   const propertyPending = draft.purpose === "Purchase" && draft.urla.property.fields.propertyPending === "Yes";
   const locality = `${city}, ${state.toUpperCase()} ${zip}`;

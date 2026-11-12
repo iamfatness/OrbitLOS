@@ -1,3 +1,4 @@
+import { queueAutomationEvent } from "./automation-events";
 import { z } from "zod";
 import type { Store } from "./store";
 import type { RealtorReferralCursor, RealtorReferrals } from "./model";
@@ -69,6 +70,7 @@ export function realtorReferrals(db: Store, input: unknown, now = new Date().toI
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, data.requestId, portal.realtorId, data.name,
         data.email, data.phone, data.purpose, useLinkOwner ? portal.officer : routed?.owner?.name.slice(0, 160) ?? "",
         ownerEmail, now, firstContactDue(now, routing), ownerEmail === null ? now : null);
+      queueAutomationEvent(db, { eventType: "lead.created", kind: "lead", id, revision: 1, origin: "Realtor referral" }, now);
       startLeadFollowUp(db, id, now, data);
       if (pilot) accessEvent(db, { name: "Realtor", email: "Realtor" }, "Pilot referral received", id, now);
     }

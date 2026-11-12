@@ -481,6 +481,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
 
 test("joint borrower links isolate drafts and finalize only after both portions arrive", async (t) => {
   const f = fixture(t);
+  const events = () => f.db.prepare("SELECT id, revision FROM automation_events WHERE resourceId = ? AND eventType = 'application.submitted'").all(f.loanId);
   const old = f.primary().application;
   assert.ok((await f.enable(f.outsider)).error);
   assert.ok((await f.enable(f.processor)).error);
@@ -510,23 +511,27 @@ test("joint borrower links isolate drafts and finalize only after both portions 
   assert.equal(f.primary({ type: "status" }).statusView.kind, "joint-waiting");
   assert.equal(f.primary(submitPrimary).application.loanStatus, null);
   assert.equal(f.count("application_versions"), 0);
+  assert.deepEqual(events(), []);
   assert.equal(f.count("tasks", "AND id LIKE 'application-follow-up:%'"), 0);
   assert.ok((await f.run("reviewApplication", { revision: pending.revision })).error);
   assert.equal(f.co().value.complete, false);
   assert.doesNotMatch(JSON.stringify(f.co()), /primary-private|Private fictional primary employer/);
 
   const submitCo = f.coWrite(coDraft, partial.value.revision);
-  f.db.exec("CREATE TRIGGER interrupt_joint BEFORE INSERT ON application_versions BEGIN SELECT RAISE(ABORT, 'joint fixture interruption'); END");
+  f.db.exec("CREATE TRIGGER interrupt_joint AFTER INSERT ON automation_events BEGIN SELECT RAISE(ABORT, 'joint fixture interruption'); END");
   assert.throws(() => f.co(submitCo), /joint fixture interruption/);
   assert.equal(f.co().value.submittedAt, null);
   assert.equal(f.count("application_versions"), 0);
+  assert.deepEqual(events(), []);
   f.db.exec("DROP TRIGGER interrupt_joint");
   assert.equal(f.co(submitCo).value.complete, true);
   assert.equal(f.co(submitCo).value.complete, true);
   assert.equal(f.count("application_versions"), 1);
+  assert.equal(events().length, 1);
   assert.equal(f.count("tasks", "AND id LIKE 'application-follow-up:%'"), 1);
   const primaryStatus = f.primary(submitPrimary).application;
   assert.ok(primaryStatus.loanStatus);
+  assert.equal(events()[0].revision, primaryStatus.revision);
   assert.equal(primaryStatus.draft.urla.additional.length, 0);
   assert.doesNotMatch(JSON.stringify(primaryStatus), /Private fictional co-borrower employer|joint-borrower@example.test|Injected primary answer/);
   const [combined] = staffApplications(f.db, f.loanId);

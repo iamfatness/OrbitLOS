@@ -1,3 +1,4 @@
+import { queueAutomationEvent } from "./automation-events";
 import { createHash } from "node:crypto";
 import { currentChannelTarget, effectiveChannelBlocks, linkedChannelLeadIds, setContactChannelBlocks, storedChannelBlocks, type ChannelTarget } from "./borrower-channels";
 import { reconcileBorrowerSequences } from "./borrower-sequences";
@@ -361,6 +362,7 @@ export function migratePipeline(db: Store, input: MigrationInput, staff: Workspa
           if ("error" in linked) throw new Error(linked.error);
           if (linked.added && sequence && (sequence.kind !== "New Lead" || !row.firstContactAt)) enrollCampaignSequence(db, id, sequence, now);
           if (!rehearsalOwners.has(key)) campaignLeads.push(id);
+          queueAutomationEvent(db, { eventType: "lead.created", kind: "lead", id, revision: 1, origin: "Campaign CSV" }, now);
         }
       } else if (row.type === "Task" && row.parentType === "Contact") {
         const owner = resolvedOwners.get(key)!;

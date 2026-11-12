@@ -1,6 +1,7 @@
 "use client";
 import { UwmAccount } from "./uwm-account";
 import { UwmReceipts } from "./uwm-receipts";
+import { AutomationDeliveries } from "./automation-deliveries";
 import { UwmConnection, type UwmConnectionStatus } from "./uwm-connection";
 
 import { Activity, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
@@ -1874,7 +1875,13 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               ? "Sample lender changes applied. Review Charlotte Kim’s alerts under Tasks. My Tasks shows alerts for your assigned loans."
               : "After the first sync, simulate three lender changes on Charlotte Kim’s loan. Assign her loan to yourself to see the alerts in My Tasks."}</p>}
             </div></div>
-            {staff?.brokerage.role === "Admin" && <UwmReceipts key={`receipts:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />}
+            {staff?.brokerage.role === "Admin" && <>
+              <UwmReceipts key={`receipts:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
+              <AutomationDeliveries key={staff.brokerage.id} brokerageId={staff.brokerage.id}
+                fictional={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId}
+                openRecord={resource => resource.kind === "lead" ? openLeadWork(resource.id) :
+                  void openQueueLoan({ kind: "details", loanId: resource.id })} />
+            </>}
           </section>}
           </>}
         </div>

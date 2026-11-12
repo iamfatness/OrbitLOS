@@ -1,3 +1,4 @@
+import { queueAutomationEvent } from "./automation-events";
 import { demoBrokerageId } from "./brokerage-model";
 import { branchById, readBranches } from "./branches";
 import { readCampaignRouting, distributeCampaignLeads } from "./campaign-routing";
@@ -207,6 +208,7 @@ export function receiveQuoteLead(db: Store, input: unknown, snapshot?: ReturnTyp
       VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Website quote request')`)
       .run(id, data.requestId, data.name, data.email, data.phone, data.purpose, owner?.name.slice(0, 160) ?? "", owner?.email ?? null, now,
         firstContactDue(now, current), zip);
+    queueAutomationEvent(db, { eventType: "lead.created", kind: "lead", id, revision: 1, origin: "Website quote request" }, now);
     startLeadFollowUp(db, id, now, data);
     let enrolled: string | null = null;
     let routeReceipt = direct.receipt;

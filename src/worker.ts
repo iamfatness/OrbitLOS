@@ -98,6 +98,8 @@ import { quoteConfiguredOwners, quoteIntakeRouting, quoteRoutingForForm, receive
 import { branchesUnavailable } from "./lib/branch-model";
 import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
 import { readStaffFirstDay, setFirstDayStep, updateStaffFirstDay } from "./lib/staff-first-day";
+import { automationEventWork } from "./lib/automation-events";
+import { automationEventQuery } from "./lib/automation-event-model";
 import { documentTemplateWork } from "./lib/document-templates";
 import { feeTemplateWork } from "./lib/fee-templates";
 import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
@@ -1632,6 +1634,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
     return confirmLenderPackagePdf(this.#store, input, objectId);
   }
+  automationEvents(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." };
+    return automationEventWork(this.#store, staff, input);
+  }
+
   staffFirstDay(staff: WorkspaceStaff, update?: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return update === undefined ? readStaffFirstDay(this.#store, staff) : updateStaffFirstDay(this.#store, staff, update);
@@ -2243,6 +2250,29 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       const view = url.searchParams.get("view");
+      if (view === "automation-events") {
+        if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: "Open automation deliveries as an admin in this brokerage." }, { status: 403, headers });
+        }
+        if (request.method === "GET") {
+          const id = url.searchParams.get("id");
+          const cursor = url.searchParams.get("before");
+          const parsed = automationEventQuery.safeParse(id === null ? {
+            type: "list", status: url.searchParams.get("status") ?? undefined, eventType: url.searchParams.get("eventType") ?? undefined,
+            before: cursor === null ? undefined : Number(cursor),
+          } : { type: "detail", id });
+          if (!parsed.success) return Response.json({ error: "Choose a valid event or queue filter." }, { status: 400, headers });
+          const result = await workspace.automationEvents(staff, parsed.data);
+          return Response.json(result, { status: "error" in result ? 404 : 200, headers });
+        }
+        if (request.method === "POST") return borrowerJson(request, async input => {
+          const parsed = automationEventQuery.safeParse(input);
+          if (!parsed.success || parsed.data.type !== "attempt") return { status: 400, error: "Choose a valid simulation attempt." };
+          const result = await workspace.automationEvents(staff, parsed.data);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }, 1024);
+        return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      }
       if (view === "staff-first-day") {
         if (url.searchParams.get("brokerage") !== staff.brokerage.id) {
           return Response.json({ error: "Open the checklist from your brokerage." }, { status: 403, headers });
