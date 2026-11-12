@@ -56,7 +56,7 @@ export function UwmReceipts({ brokerageId }: { brokerageId: string }) {
           {notice?.id === row.id && <p className={`uwm-feedback${notice.error ? " is-error" : ""}`} role={notice.error ? "alert" : "status"}>{notice.text}</p>}
         </li>)}
       </ul>}
-      <div className="uwm-account-actions"><Button variant="outline" size="sm" disabled={loading || matching !== null} onClick={() => { setLoading(true); setError(""); setNotice(null); setBefore(null); setRevision(value => value + 1); }}><RefreshCw size={14} aria-hidden="true" />Refresh activity</Button>
+      <div className="uwm-account-actions"><Button variant="outline" size="sm" aria-disabled={loading || matching !== null} onClick={() => { if (loading || matching !== null) return; setLoading(true); setError(""); setNotice(null); setBefore(null); setRevision(value => value + 1); }}><RefreshCw size={14} aria-hidden="true" />Refresh activity</Button>
         {rows.length === 50 && <Button variant="outline" size="sm" disabled={loading || matching !== null} onClick={() => { setLoading(true); setError(""); setNotice(null); setBefore(rows[rows.length - 1].id); }}>Older receipts</Button>}</div>
     </div>
   </details>;

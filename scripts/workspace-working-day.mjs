@@ -4372,7 +4372,7 @@ try {
     assert.equal((await postResponse(matchPath, { receiptId: pending.id }, inboxAdmin)).status, 409);
     assert.equal((await postResponse(matchPath, { receiptId: unknown.id }, owner)).status, 409);
     assert.equal((await postResponse(matchPath, { receiptId: pending.id, destination: lenderBrokerage }, owner)).status, 400);
-    await fixture.loseNextMatchedReceipt();
+    await workspaces.getByName(lenderBrokerage).loseNextMatchedReceipt();
     assert.equal((await postResponse(matchPath, { receiptId: pending.id }, owner)).status, 503);
     assert.equal((await receipts(lenderInbox)).find((row) => row.id === pending.id).status, "Awaiting reconciliation");
     const results = await Promise.all([post(matchPath, { receiptId: pending.id }, owner), post(matchPath, { receiptId: pending.id }, owner)]);
