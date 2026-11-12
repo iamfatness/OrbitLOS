@@ -24,7 +24,7 @@ The reporting starting points in `state-reporting-review-sources.json` preserve 
 | --- | --- | --- |
 | 1 | MI | Specific reviews cover first and secondary authority, originators, reporting, records, first-mortgage fees and advertising. Fictional TRID and reporting capabilities can support parts of the review. |
 | 2 | OH, IN, IL, WI | Specific reviews in all five areas, including reports of condition, state agreement forms, advertising and examination files. Period instructions and operational rehearsals remain open. |
-| 3 | MN, IA, MO, NE, SD, ND, KS | Company authority and reporting review items are available for all seven states. Entity applicability, exceptions and operational controls remain open. |
+| 3 | MN, IA, MO, NE, SD, ND, KS | Specific reviews in all five areas for all seven states, including distinct Iowa reporting bases, state borrower disclosures and records. Entity applicability, exceptions and operational rehearsals remain open. |
 | 4 | PA, NY, NJ, DE, MD, VA, WV | Company authority for all seven states, plus selected reporting requirements and Maryland examination evidence. |
 | 5 | CT, RI, MA, VT, NH, ME | Company authority for all six states, plus NMLS, state reporting and financial statement review items. |
 | 6 | KY, TN, NC, SC, GA, FL, AL, MS, AR, LA | Company authority for all ten states, selected state and NMLS filings, Mississippi borrower file evidence, and Louisiana broker agreements. |
@@ -50,9 +50,23 @@ Save a separate fictional entity scope for each state and attach the applicable 
 
 [Ohio recordkeeping rule](https://codes.ohio.gov/ohio-administrative-code/rule-1301:8-7-06) · [Indiana Securities Division](https://securities.sos.in.gov/loan-brokers/) · [Illinois Part 1050](https://www.ilga.gov/agencies/JCAR/EntirePart?titlepart=03801050) · [Wisconsin DFI forms](https://dfi.wi.gov/Pages/FinancialServices/MortgageBanking/Forms.aspx)
 
-### Later batches
+### Batch 3 internal rehearsals and counsel review
 
 Batch 3 includes Iowa's October 2026 reporting rule transition, Missouri's separate annual report and regulator discretion on substitution, Nebraska's current FV7 calendar, the North Dakota company and individual jurisdiction triggers, and Kansas supplemental processing and underwriting fields. Counsel needs to confirm reporting periods, receipt evidence, no-activity treatment and entity exceptions for each scope. [Iowa Administrative Code](https://www.legis.iowa.gov/docs/iac/agency/10-28-2026.187.pdf) · [North Dakota Century Code](https://ndlegis.gov/cencode/t13c12.pdf) · [Kansas OSBC forms](https://www.osbckansas.gov/consumer-mortgage-lending/applications-forms/)
+
+| State | Internal rehearsal | Counsel review before regulatory use |
+| --- | --- | --- |
+| Minnesota | Compare existing and proposed refinance terms and costs. Review an unsigned benefit assessment and retrieve an incomplete file, an ad and a communication record. | Confirm applicable refinance scenarios, signature timing, and retention and consent scope for the communication channels. |
+| Iowa | Rehearse separate MCR, banker fiscal-year audit, and origination-data evidence. Show an unavailable broker data field. Use evidence references for the state application-log trigger and retrieve an unclosed file. | Confirm which license requires the audit, the electronic format and interval, the rule's printed cross-reference and the application-log trigger. |
+| Missouri | Compare disclosed and recorded fees on a fictional transaction, and rehearse an annual report and a possible substitution as separate evidence. | Confirm what constitutes delivery and acceptance, fee treatment, whether the regulator accepts substitution for the period, and retention scope. |
+| Nebraska | Rehearse a refinance with documented benefit and one with no identified benefit. Check the form and borrower delivery, then retrieve a withdrawn and funded file. | Confirm form and timing, applicable product exceptions, and retention triggers and longer overlapping duties. |
+| South Dakota | Review a valuation request and conditional payment evidence. Retrieve example files for the role stated in a fictional examination request. | Confirm valuation exceptions, record categories and duration and the scope of the current examination request. |
+| North Dakota | Reconcile a fictional advance expense deposit with the invoice and refund or credit. Use the ledger's last entry for a separate retrieval rehearsal. | Confirm the licensed activity, fee and rate-lock exceptions, federal timing overlap and records scope for unclosed files. |
+| Kansas | Verify the July 2026 written notice contents. Compare delivery with the contract and the compensation or promise event. Rehearse separate brokered closed and unclosed records and verify the supplement's processing and underwriting fields. | Confirm the operative notice for the transaction date, historical acknowledgment treatment, scope of any servicing trigger and current supplement instructions. |
+
+[Kansas OSBC notice rule](https://www.osbckansas.gov/legal/cml_lawbook_2026.pdf#page=104)
+
+### Later batches
 
 Batch 4 distinguishes the New York broker Volume of Operations Report, New Jersey's annual state return and Delaware's Volume and Assets reports from NMLS reporting. Confirm the exact reporting year, license status and filing route. Maryland recurring reporting and West Virginia state annual and statistical instructions still need confirmation. [New York DFS](https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies) · [NJDOBI annual reports](https://www.nj.gov/dobi/bankdedfund/welcome.htm) · [Delaware OSBC](https://banking.delaware.gov/faqs/licensing-help/) · [West Virginia Code §31-17-11](https://code.wvlegislature.gov/31-17-11/)
 
