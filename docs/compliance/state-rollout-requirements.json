@@ -2873,7 +2873,13 @@
     "summary": "Nevada requires a previous-month activity report by the 15th of the following month, including a statement for months with no loans arranged or made. The commissioner can waive the submission in specified circumstances.",
     "evidence": "Company license, applicable month, loans arranged and made or documented no activity, waiver if granted and filing receipt.",
     "counsel": "Confirm the current form, delivery and field definitions and evidence for any waiver.",
-    "checkedOn": "2026-11-12"
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD monthly reporting guidance",
+        "url": "https://www.mld.nv.gov/faqs/mortgage-companies/"
+      }
+    ]
   },
   {
     "jurisdiction": "NV",
@@ -2898,6 +2904,334 @@
     "evidence": "Fiscal year, statement and approval evidence, applicable audit or certification and receipt.",
     "counsel": "Confirm the required statement and trust-account audit basis, exceptions and extension process.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LOAN",
+    "id": "APPLICANT-NOTICE",
+    "title": "Texas mortgage company notice to applicants",
+    "authority": "7 TAC §56.200(b)",
+    "sourceUrl": "https://www.sml.texas.gov/download/mortgage-company-required-disclosure-form/",
+    "summary": "SML provides the mortgage company form for the application-stage notice concerning oversight. The company rule and banker rule have separate forms.",
+    "evidence": "Initial application receipt, company authority and sponsorship, dated notice, applicable signature and proof of delivery.",
+    "counsel": "Confirm the operative form and receipt trigger, all recipients, signature and acceptable delivery evidence.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Texas Register rule publication",
+        "url": "https://www.sos.state.tx.us/texreg/pdf/backview/0906/0906is.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "LOAN",
+    "id": "DUAL-ROLE",
+    "title": "Advance written disclosure and consent for dual roles",
+    "authority": "Tex. Fin. Code §157.024(a)(10); SML FAQ",
+    "sourceUrl": "https://www.sml.texas.gov/mortgage-origination/faqs/",
+    "summary": "SML addresses an originator acting as a real estate sales agent in the same transaction. It identifies advance written disclosure and the client's written consent.",
+    "evidence": "Role and compensation facts, disclosure and consent versions and dates, and first services in each role.",
+    "counsel": "Confirm covered roles and timing, applicable federal rules and lender or investor restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising names, NMLS identifiers and website notice",
+    "authority": "7 TAC §§56.200(c), 56.203",
+    "sourceUrl": "https://www.sml.texas.gov/mortgage-origination/faqs/",
+    "summary": "SML identifies the company name, NMLS ID and website address where applicable, additional details for a sponsored originator's ad, and the website complaint notice.",
+    "evidence": "Published material, company and individual identifiers, website and notice capture, approval and exception evidence.",
+    "counsel": "Confirm publication and channel requirements, exceptions for promotional items or social sites and all disclosure content.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "TX",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Mortgage transaction log and complete broker files",
+    "authority": "7 TAC §56.204; SML Mortgage Compliance Guide",
+    "sourceUrl": "https://www.sml.texas.gov/wp-content/uploads/2026/02/mortgage-compliance-guide-v12.pdf",
+    "summary": "SML identifies a current transaction log, applicable disclosures and their delivery evidence, advertising, compensation agreements, vendor contracts and complete loan files.",
+    "evidence": "Transaction log and file by disposition, disclosures and transmission evidence, compensation and advertising records, and exam retrieval.",
+    "counsel": "Confirm record categories, dates and longer retention, acceptable storage, and the separate processing and underwriting log when applicable.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "SML processing and underwriting log announcement",
+        "url": "https://www.sml.texas.gov/news/announcement-new-required-loan-processing-and-underwriting-log/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "OK",
+    "area": "LOAN",
+    "id": "BROKER-FEES",
+    "title": "Broker compensation and advance expense exceptions",
+    "authority": "59 O.S. §2095.15(D)",
+    "sourceUrl": "https://oksenate.gov/sites/default/files/2022-05/os59.pdf",
+    "summary": "The statute generally ties compensation to the agreed loan or modification being obtained. It addresses advance third-party costs and reasonable, consistently applied administrative fees with advance disclosure.",
+    "evidence": "Agreed terms and loan outcome, fee type and payee, disclosed schedule, invoice and collection and disposition evidence.",
+    "counsel": "Confirm the operative text, exceptions, treatment of the administrative fee and federal timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OK",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "Mortgage identifiers and advertised term availability",
+    "authority": "59 O.S. §§2095.4, 2095.18(5), (9)",
+    "sourceUrl": "https://oksenate.gov/sites/default/files/2022-05/os59.pdf",
+    "summary": "Oklahoma addresses originator identifiers in covered advertising and application materials, and prohibits advertising unavailable terms and deceptive mortgage claims.",
+    "evidence": "Published ad and channel, identifier, evidence of terms available at publication and approval.",
+    "counsel": "Confirm current text, company and originator identifiers by medium and applicable channel exceptions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OK",
+    "area": "RECORDS",
+    "id": "TRUST-LEDGER",
+    "title": "Third-party fee trust and examination records",
+    "authority": "59 O.S. §§2095.16, 2095.17",
+    "sourceUrl": "https://oksenate.gov/sites/default/files/2022-05/os59.pdf",
+    "summary": "Oklahoma requires a trust account for qualifying third-party funds and current, accessible records for at least three years after the effective period to which the records relate.",
+    "evidence": "Receipts, trust deposit and disbursement dates, reconciled ledger and bank evidence, records location and exam production.",
+    "counsel": "Confirm who holds the funds, what starts retention and the time and method for examiner access.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NM",
+    "area": "LOAN",
+    "id": "DEPOSIT-AGREEMENT",
+    "title": "Written deposit disposition and trust funds",
+    "authority": "12.19.8.8(D) NMAC",
+    "sourceUrl": "https://www.srca.nm.gov/parts/title12/12.019.0008.html",
+    "summary": "An application deposit required by the licensee calls for a written agreement on its disposition whether or not the loan is consummated. The rule addresses trust handling for covered funds.",
+    "evidence": "Written agreement, receipt and trust ledger, disbursement or refund and file disposition.",
+    "counsel": "Confirm covered funds, refund and reconciliation rules, and current federal limits on advance collection.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NM",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Originator identifier on solicitations and ads",
+    "authority": "12.19.8.8(B) NMAC",
+    "sourceUrl": "https://www.srca.nm.gov/parts/title12/12.019.0008.html",
+    "summary": "The rule requires the originator unique identifier on residential applications, solicitations and advertisements, including business cards and websites.",
+    "evidence": "Published samples and application forms, originator ID and sponsorship, placement and approvals.",
+    "counsel": "Confirm applicable company and individual identifiers and additional rules by medium.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NM",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Loan file, compensation and funded journal records",
+    "authority": "12.19.8.8(C) NMAC",
+    "sourceUrl": "https://www.srca.nm.gov/parts/title12/12.019.0008.html",
+    "summary": "The rule lists records for examination, including disclosures, fee and compensation evidence, account journals and the funded loan journal. It covers electronic records.",
+    "evidence": "File inventory and disposition, dated disclosures, compensation and funded journal references, and retrieval sample.",
+    "counsel": "Confirm current equivalents for older named forms, file categories for unclosed loans, retention and exam format.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "LOAN",
+    "id": "BORROWER-BENEFIT",
+    "title": "Borrower benefit and historical disclosure form",
+    "authority": "C.R.S. §12-10-710; repeal of 4 CCR 725-3 Rules 5.7 and 5.8",
+    "sourceUrl": "https://dre.colorado.gov/sites/dre/files/documents/2025%20Colorado%20Real%20Estate%20Manual-Chapter%2008.pdf",
+    "summary": "The statute addresses reasonable inquiry and borrower benefit. The Board repealed the prescribed form rules effective September 30, 2025 and approved related cleanup effective March 17, 2026.",
+    "evidence": "Transaction date, terms, costs, borrower circumstances and inquiry, benefit rationale, and historical form where applicable.",
+    "counsel": "Confirm applicable statutory duties and product scope, date-specific forms and the evidence supporting current decisions.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Board advisory on form repeal",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/3edb44a"
+      },
+      {
+        "label": "Board 2026 rule update",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/40760c2"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Mortgage advertising identity and available terms",
+    "authority": "4 CCR 725-3 Rules 5.1–5.2",
+    "sourceUrl": "https://www.sos.state.co.us/CCR/GenerateRulePdf.do?fileName=4+CCR+725-3&ruleVersionId=9222",
+    "summary": "The Board's advertising rules address actually available products and material limitations, conspicuous responsible-party and company information, exceptions and an advertising archive.",
+    "evidence": "Dated published creative, terms availability, material limits, responsible-party identity and retention sample.",
+    "counsel": "Confirm the operative version, channel exceptions and required identifiers and retention.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Board 2026 rule update",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/40760c2"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "CO",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Loan origination records for Board investigations",
+    "authority": "4 CCR 725-3 ch. 5",
+    "sourceUrl": "https://www.sos.state.co.us/CCR/GenerateRulePdf.do?fileName=4+CCR+725-3&ruleVersionId=9222",
+    "summary": "The Board's investigation procedure addresses responsive records such as applications, disclosures and supporting transaction documentation, and provides for a timely written request for extension.",
+    "evidence": "Board notice, due date and extension evidence, loan file and disclosure records, and scoped production receipt.",
+    "counsel": "Confirm operative rule, records and retention by role and file disposition, and production instructions.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Board 2026 rule update",
+        "url": "https://content.govdelivery.com/accounts/CODORA/bulletins/40760c2"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "AZ",
+    "area": "LOAN",
+    "id": "FEE-AGREEMENT",
+    "title": "Written agreement for covered loan funds or documents",
+    "authority": "A.R.S. §6-906(C)",
+    "sourceUrl": "https://www.azleg.gov/ars/6/00906.htm",
+    "summary": "For covered applications of $200,000 or less, the statute limits acceptance of funds or documents and requires a signed agreement with disposition, term and estimated cost information. It also addresses specified fees and segregation.",
+    "evidence": "Loan amount, signed agreement and estimated costs, items received, fee purpose, ledger and return or disposition evidence.",
+    "counsel": "Confirm current threshold, scope and timing for each item and any federal collection restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AZ",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Licensed name and number on advertising and solicitation",
+    "authority": "A.R.S. §6-903(P)",
+    "sourceUrl": "https://www.azleg.gov/ars/6/00903.htm",
+    "summary": "Arizona addresses use of the licensed or filed name and license number in mortgage advertising and solicitation. It describes certain channel and promotional-item exclusions.",
+    "evidence": "Published item and channel, approved name and license number, market and advertised rate or term.",
+    "counsel": "Confirm channel and content exceptions and any separate originator identifier duty.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "AZ",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Closed loan retention and response to regulator demand",
+    "authority": "A.R.S. §6-906(A)–(B)",
+    "sourceUrl": "https://www.azleg.gov/ars/6/00906.htm",
+    "summary": "The statute requires original or legible records of mortgage transactions for at least five years after closing and production in Arizona within three business days after demand.",
+    "evidence": "Closing and demand dates, records location and contents, production dates and receipt.",
+    "counsel": "Confirm unclosed-file retention, offsite requirements and longer applicable obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "LOAN",
+    "id": "FEE-REFUND",
+    "title": "Signed statement of fee and deposit refund conditions",
+    "authority": "Utah Code §61-2c-301(2)(b)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2c/C61-2c-S301_2025050720250507.pdf",
+    "summary": "Utah limits charges and requires a written statement signed by the applicant describing whether the fee or deposit is refundable and the conditions for refund.",
+    "evidence": "Dated signed statement, fee or deposit and timing, refund basis and disposition.",
+    "counsel": "Confirm covered charges, cancellation and fee exceptions, form and federal collection limits.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "LOAN",
+    "id": "VALUATION-COPY",
+    "title": "First-lien valuation delivery and waiver evidence",
+    "authority": "Utah Code §61-2c-301(2)(n), (6)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2c/C61-2c-S301_2025050720250507.pdf",
+    "summary": "Utah specifies delivery timing for each appraisal or written valuation in covered first-lien dwelling transactions, with limited waivers and a separate delivery rule when a waived transaction does not complete.",
+    "evidence": "Valuation versions, completion and delivery dates, proposed settlement, waiver and known noncompletion date.",
+    "counsel": "Confirm responsible party, applicable business-day definition and federal overlap, waiver limits and triggers.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "OUTREACH",
+    "id": "AD-CLAIMS",
+    "title": "False and misleading mortgage advertising",
+    "authority": "Utah Code §61-2c-301(2)(l), (t)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2c/C61-2c-S301_2025050720250507.pdf",
+    "summary": "Utah prohibits false or misleading mortgage advertising and addresses representations by persons exempt under the specified provision.",
+    "evidence": "Published creative and channel, claims support, responsible party and authority, and approval.",
+    "counsel": "Confirm company and originator identity and applicable advertising rules by channel.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "UT",
+    "area": "RECORDS",
+    "id": "FILE-RETENTION",
+    "title": "Safeguarded mortgage files and latest-event retention",
+    "authority": "Utah Code §61-2c-302(1)–(3)",
+    "sourceUrl": "https://le.utah.gov/xcode/Title61/Chapter2C/C61-2c_1800010118000101.pdf",
+    "summary": "Utah requires four years of retention from the latest applicable final entry, servicing event, or closing for a nonserviced loan. Required records must be made available for inspection.",
+    "evidence": "File records, dated final entry and closing or servicing events, evidence of custody and inspection retrieval.",
+    "counsel": "Confirm trigger treatment for unclosed files, applicable record classes and longer obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NV",
+    "area": "LOAN",
+    "id": "FEE-DISCLOSURE",
+    "title": "Itemized mortgage company fee disclosure",
+    "authority": "NRS 645B.305",
+    "sourceUrl": "https://www.leg.state.nv.us/nrs/nrs-645B.html#NRS645BSec305",
+    "summary": "Nevada requires a disclosure for covered real-property-secured loans listing fees earned by the company in specific dollar amounts, the responsible party and probable impact.",
+    "evidence": "Itemized company fees and payors, impact explanation, disclosure version and delivery, and closing reconciliation.",
+    "counsel": "Confirm covered fees and parties, MLD Form 201 applicability, timing and federal overlap.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD forms and instructions",
+        "url": "https://www.mld.nv.gov/industry-info/mortgage-companies-and-mortgage-loan-originators-nrs-645b/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NV",
+    "area": "OUTREACH",
+    "id": "AD-APPROVAL",
+    "title": "Advertising identity and submission for newer licensees",
+    "authority": "NRS 645B.189; NAC 645B.240 as amended by R070-23",
+    "sourceUrl": "https://www.leg.state.nv.us/Register/2023Register/R070-23AP.pdf",
+    "summary": "The adopted regulation addresses name, contact and license or identifier information and joint ads. MLD also directs companies licensed for less than 12 months to submit advertising for review.",
+    "evidence": "Dated creative and channels, identifiers and names, license dates, submission and approval and any cost allocation.",
+    "counsel": "Confirm scope and timing of submission or approval, medium exceptions, and whether other lender names require consent.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD advertising instructions",
+        "url": "https://www.mld.nv.gov/industry-info/mortgage-companies-and-mortgage-loan-originators-nrs-645b/"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NV",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Completed and unclosed transaction records",
+    "authority": "NAC 645B.075, 645B.077; NRS 645B.080",
+    "sourceUrl": "https://www.leg.state.nv.us/nac/NAC-645B.html",
+    "summary": "Nevada distinguishes completed records kept for at least four years after the last related activity from denied or withdrawn applications kept for at least one year or as required under federal law.",
+    "evidence": "Disposition, last related activity, file inventory, office and electronic access, and exam retrieval.",
+    "counsel": "Confirm trigger and retention by record category, longer federal requirements and remote records access.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nevada MLD records FAQ",
+        "url": "https://www.mld.nv.gov/faqs/mortgage-companies/"
+      }
+    ]
   },
   {
     "jurisdiction": "CA",
