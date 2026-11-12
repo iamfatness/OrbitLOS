@@ -1303,3 +1303,7 @@ Worker `9bc9df67-c3d6-47e7-b5ca-d39f730c126e` serves app `3e6679d0d8f5`. Fiction
 ### Michigan refund and corrected Closing Disclosure evidence
 
 Worker `49c96af9-270a-4478-b13b-d6dcf701db48` serves app `f24e0c333654`. A fictional owner recorded and reviewed a corrected disclosure and the LO recorded the linked refund after a stale-save retry. The assigned processor reviewed the original and restarted dates, missing receipt and separately recorded refund and disclosure dates. Withdrawing the closing snapshot preserved refund timing and removed the amount comparison. Withdrawing the corrected send reopened its check. The processor reopened the file after reload. Public Demo and signed-out routes passed staged and live. The signed-in desktop reloaded into the same brokerage. No provider actions or production loan changes occurred.
+
+### FV7 saved quarter evidence workpaper
+
+Worker `02fd8b07-1849-4469-a5ee-3585f768f1a0` serves app `9a71b4eb0f20`. A fictional owner selected the earlier of two closed quarter versions, downloaded an exact-evidence template, corrected invalid JSON, and verified a checksum error on the other version. The matching version produced direct and third-party results, a state filter, loan facts drilldown with return focus, and a versioned workpaper download. A modified prior balance remained open for review. Hosted public Demo and signed-out routes passed. No provider actions or filing occurred.

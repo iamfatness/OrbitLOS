@@ -569,3 +569,7 @@ The charge picker follows Orbit’s existing disclosure form and version history
 ### Michigan closing evidence
 
 Impeccable Polish informed the hierarchy between dates, outcome and exact source records. UI UX Pro Max feedback guidance informed retaining the selected records through stale-save recovery. The existing disclosure, native field and evidence-row patterns provided the component reference. Short choices keep the exact version readable below the selected control on phone. Inspected populated refund, corrected timing and unavailable source states on desktop, portrait and phone. See [UI review coverage](ui-review-coverage.md).
+
+### FV7 evidence workpaper
+
+Reused Orbit’s accepted quarter review, upload, record and download patterns. Impeccable Polish informed separating the saved version, evidence input and result. UI UX Pro Max recovery guidance informed the focused error and retry. The first phone capture showed crowded columns and zero-dollar amounts formatted as a dash. The final phone layout stacks intake channels and displays $0 for reviewed zeroes. Reviewed the populated result, selected loan and feedback at desktop, portrait and phone widths.
