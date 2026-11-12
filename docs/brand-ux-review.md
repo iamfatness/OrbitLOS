@@ -601,3 +601,7 @@ Impeccable Onboard and the approved Orbit design system informed optional entry 
 ### CRM automation deliveries
 
 Reused the existing Integrations disclosure and Orbit list/detail and feedback patterns as the established 21st.dev references. Impeccable Polish informed placing the simulated event history beside lender activity, matching control baselines and keeping the payload collapsed until needed. UI UX Pro Max guidance on filter empty states and submit feedback informed status, retry and focus return. Inspected desktop, portrait and phone layouts for queued, failed and recovered events.
+
+### Simulated automation destinations
+
+Reused the accepted Orbit Integrations disclosure, list/detail rows and inline feedback as the established 21st.dev component patterns. Impeccable Polish informed keeping workspace history and destination controls in the existing panel. UI UX Pro Max confirmation guidance informed the inline disconnect confirmation, cancel focus and saved outcome. Inspected the form, long destination name, paused event and disconnected attempt history at desktop, portrait and phone widths.
