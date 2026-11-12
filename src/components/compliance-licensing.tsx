@@ -44,8 +44,8 @@ function RenewalHistory({ brokerageId, entityId, licenseId }: { brokerageId: str
   </details>;
 }
 
-export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupEntity, setupBranch, reviewScope, onLicenseSaved }: {
-  brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget; setupEntity?: boolean; setupBranch?: string; reviewScope?: LicenseRegisterScope; onLicenseSaved?: () => void;
+export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupEntity, reviewScope, onLicenseSaved }: {
+  brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget; setupEntity?: boolean; reviewScope?: LicenseRegisterScope; onLicenseSaved?: () => void;
 }) {
   const [entities, setEntities] = useState<readonly ProgramEntity[]>();
   const [entityId, setEntityId] = useState(reviewScope?.entityId ?? initialTarget?.entityId ?? "");
@@ -122,7 +122,6 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
   const holderChoices = current?.holderChoices.filter(choice => choice.holder.kind === holderKind) ?? [];
   const previousHolder = selected?.holder.kind === holderKind ? selected.holder : undefined;
   const previousKey = previousHolder ? JSON.stringify(previousHolder) : "";
-  const setupHolder = !selected && holderChoices.find(choice => choice.holder.id === setupBranch);
   const unavailableHolder = !!previousKey && !holderChoices.some(choice => JSON.stringify(choice.holder) === previousKey);
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -181,8 +180,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
   function choose(next: ProgramLicense | "new" | "entity") {
     setFeedback(undefined);
     setEditing(next);
-    setHolderKind(typeof next === "object" ? next.holder.kind : next === "new" && current?.holderChoices.some(choice =>
-      choice.holder.kind === "Branch" && choice.holder.id === setupBranch) ? "Branch" : "Company");
+    setHolderKind(typeof next === "object" ? next.holder.kind : "Company");
   }
 
   return <div className={reviewScope ? "record-form" : "integration manager-panel record-form compliance-research-panel"}>
@@ -220,7 +218,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, setupE
                 {licenseHolderKinds.map(kind => <option key={kind}>{kind}</option>)}
               </select></label>
               {holderKind !== "Company" && <label className="field">{holderKind}
-                <select key={holderKind} name="holder" defaultValue={previousKey || (setupHolder ? JSON.stringify(setupHolder.holder) : "")} required>
+                <select key={holderKind} name="holder" defaultValue={previousKey} required>
                   <option value="">Choose a {holderKind.toLowerCase()}</option>
                   {unavailableHolder && <option value={previousKey}>{selected?.holderLabel} · Assignment needs review</option>}
                   {holderChoices.map(choice => {

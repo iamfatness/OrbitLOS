@@ -28,6 +28,7 @@ import { usePipeline } from "./use-pipeline";
 import { LoanWorkQueue } from "./loan-work-queue";
 import { PagedTaskQueue } from "./paged-task-queue";
 import type { WorkspaceStaff } from "@/lib/staff-store";
+import { programRequest } from "@/lib/compliance-program-model";
 import { pastClientLoan, rateFollowUpContext } from "@/lib/client-retention";
 import { workspaceFeatures, demoBrokerageId, staffSignInRequired } from "@/lib/brokerage-model";
 import { CallReportWorkbench } from "./call-report";
@@ -206,7 +207,15 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
   const [renewalVisit, setRenewalVisit] = useState<LicenseRenewalVisit & { origin: "Brokerage" | "Today" }>();
   const [renewalReturn, setRenewalReturn] = useState<LicenseRenewalVisit & { origin: "Brokerage" | "Today" }>();
-  const [complianceBranch, setComplianceBranch] = useState<{ brokerageId: string; id: string }>();
+  const renewalBranchKey = staff?.brokerage.role === "Admin" && complianceEnabled
+    ? `orbit:compliance-renewal-branch:${JSON.stringify([staff.brokerage.id, staff.email])}` : "";
+  const [complianceBranch, setComplianceBranch] = useState(() => {
+    try {
+      const branchId = renewalBranchKey ? localStorage.getItem(renewalBranchKey) : null;
+      if (branchId && programRequest.safeParse({ operation: "ownerHome", branchId }).success) return { key: renewalBranchKey, id: branchId };
+    } catch { /* The current workspace can still keep the filter in memory. */ }
+    return { key: renewalBranchKey, id: "" };
+  });
   const [complianceBranchVisit, setComplianceBranchVisit] = useState<"team" | "return">();
   const [registerVisit, setRegisterVisit] = useState<"register" | "return">();
   const [reportScheduleTarget, setReportScheduleTarget] = useState<{ reportId?: string }>();
@@ -1651,8 +1660,14 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             returnToBrokerageLicenses={registerVisit === "register" ? () => { navigate("Brokerage", false); setRegisterVisit("return"); } : undefined}
             openLicensing={firstDayDestination === "licensing" || registerVisit === "register"}
             brokerageId={staff.brokerage.id} pilot={staff.brokerage.pilot === true} paused={!!modal || busy}
-            branchId={complianceBranch?.brokerageId === staff.brokerage.id ? complianceBranch.id : ""}
-            onBranch={id => setComplianceBranch({ brokerageId: staff.brokerage.id, id })}
+            branchId={complianceBranch.key === renewalBranchKey ? complianceBranch.id : ""}
+            onBranch={id => {
+              setComplianceBranch({ key: renewalBranchKey, id });
+              try {
+                if (id) localStorage.setItem(renewalBranchKey, id);
+                else localStorage.removeItem(renewalBranchKey);
+              } catch { /* Keep the filter usable for this workspace visit. */ }
+            }}
             openBranches={() => { setTeamPanel("Branches"); openBrokerageView("Team"); setComplianceBranchVisit("team"); }}
             returningFromBranches={complianceBranchVisit === "return"} openCallReport={() => { setReportTab("Call report"); openBrokerageView("Reports"); }}
             renderReport={(period, setPeriod) => <CallReportWorkbench state={state} brokerageId={staff.brokerage.id}

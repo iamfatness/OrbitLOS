@@ -885,8 +885,8 @@ button:disabled { cursor: default; }
 .compliance-home { display: grid; gap: 16px; }
 .compliance-home-branch { max-width: 420px; }
 .compliance-home-branch select { width: 100%; min-width: 0; min-height: 44px; }
-.compliance-home-context, .compliance-home-setup, .compliance-home-attention { display: grid; gap: 8px; }
-.compliance-home-context, .compliance-home-row > div { min-width: 0; overflow-wrap: anywhere; }
+.compliance-home-setup, .compliance-home-attention { display: grid; gap: 8px; }
+.compliance-home-row > div { min-width: 0; overflow-wrap: anywhere; }
 .compliance-home-attention > section { padding-block: 8px; }
 .compliance-home-attention h3, .compliance-home-tools h3 { font-size: 14px; font-weight: 600; }
 .compliance-home-list { margin: 0; padding: 0; list-style: none; }
