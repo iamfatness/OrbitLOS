@@ -89,3 +89,30 @@ test("fee review requires receipt, intent and fee order on linked records", () =
   assert.match(review({ ...receipt, on: repeated, localTime: "01:00" },
     { ...intent, on: repeated, localTime: "01:30" }, { ...fee, on: repeated }).at(-1).status, /same-day event order/);
 });
+
+test("fee cure tracks independent refund and corrected disclosure dates and keeps gaps visible", async () => {
+  const { reviewFeeCures } = await import("../src/lib/trid-closing-review.ts");
+  const send = (document, on) => ({ type: "sent", document, version: document, on });
+  const snapshot = (evidenceSequence, borrowerCents) => ({
+    type: "feeSnapshot", evidenceSequence, complete: true, reference: "Fictional fee evidence",
+    lines: [{ key: "appraisal", label: "Fictional appraisal", bucket: "Individual", borrowerCents }],
+  });
+  const entries = [
+    send("Initial LE", "2026-06-22"), send("Initial CD", "2026-06-26"),
+    snapshot(1, 10000), snapshot(2, 11250), { type: "consummated", on: "2026-06-30" },
+    send("Corrected CD", "2026-08-28"),
+    { type: "feeCure", on: "2026-08-29", refundCents: 1250,
+      consummationSequence: 5, estimateSequence: 3, closingSequence: 4, correctedSendSequence: 6 },
+  ].map((event, index) => ({ sequence: index + 1, event }));
+  const [review] = reviewFeeCures(entries);
+  assert.equal(review.dueOn, "2026-08-29");
+  assert.equal(review.potential, 1250);
+  assert.equal(review.refundStatus, "Recorded within 60 days");
+  assert.equal(review.correctionStatus, "Recorded within 60 days");
+  const [withdrawnCorrection] = reviewFeeCures(entries.filter(entry => entry.sequence !== 6));
+  assert.equal(withdrawnCorrection.correctionStatus, "Needs linked corrected disclosure evidence");
+  assert.equal(withdrawnCorrection.refundStatus, review.refundStatus);
+  const [withdrawnSnapshot] = reviewFeeCures(entries.filter(entry => entry.sequence !== 4));
+  assert.equal(withdrawnSnapshot.potential, null);
+  assert.equal(withdrawnSnapshot.refundStatus, "Needs active source evidence");
+});

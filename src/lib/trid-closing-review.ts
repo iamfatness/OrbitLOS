@@ -13,7 +13,7 @@ export function feeCureBasis(active: TridEntry[], event: FeeCure) {
   const closing = review.snapshots.find(item => item.sequence === event.closingSequence);
   if (!review.comparison || !closing || closing.sentOn > consummation.on) return null;
   const send = active.find(entry => entry.sequence === event.correctedSendSequence)?.event;
-  const corrected = send?.type === "sent" && send.document === "Corrected CD" && send.on >= consummation.on && send.on >= event.on
+  const corrected = send?.type === "sent" && send.document === "Corrected CD" && send.on >= consummation.on
     ? send : null;
   return { consummation, corrected, comparison: review.comparison };
 }
