@@ -61,7 +61,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F15 | Broker financial visibility and a separate planned non-del channel | Specify investor price, margin policy and registry evidence with a non-del broker. |
 | F16 | Reviewed 1003 revisions, closing checklist and dates, version-specific disclosure confirmation, downloadable sample closing packets, and internal file preflight. Brokerage policies can require current 1003 review, cleared lender conditions, or a completed checklist separately for closing and funding. The manager queue opens the exact evidence and overrides stay in the loan audit. | Validate actual document generation, approval, and applicable UCD contracts. |
 | F17 | Funding, restricted compensation entries, owner-only sample settlement reconciliation, and an exception queue that opens the exact funding cycle | Validate external evidence contracts and workflow with a non-delegated pilot. |
-| F18 | Brokerage membership and assigned processor scope | Rehearse one contract processor across two brokerages with isolated files and fees. |
+| F18 | A fictional contract processor worked assigned files in two brokerages without changing the sign-in default on a visit. The rehearsal verified cross-brokerage file denial and owner-only financial access. | Validate processor fee agreements and operational acceptance with two design-partner brokerages. |
 | F19 | Workspace admin, invitations, roles and offboarding | Define seat entitlements and scoped support access, then rehearse role onboarding. |
 
 ## Shared implementation contract

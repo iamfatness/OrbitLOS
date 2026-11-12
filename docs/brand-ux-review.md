@@ -553,3 +553,7 @@ App `059280d5fa49`. Impeccable Operate and UI UX Pro Max error-summary guidance 
 ### Invited staff email-code sign-in
 
 App `4684a5e1c7f7`. The sign-in choice and verification form reuse Orbit's accepted fields, buttons, and focus treatment. Impeccable Clarify informed the invitation and recovery copy. UI UX Pro Max authentication guidance informed allowing paste and one-time-code autofill alongside Google sign-in. The approved Inter typography was retained. The independent browser pass inspected the selected invitation, sign-in choice, and code recovery at desktop, portrait, and phone widths. See [UI review coverage](ui-review-coverage.md).
+
+### Shared processor visits across brokerages
+
+Application `3e0a68053ecb`. The old operational list link changed the saved sign-in default during a visit. The Team list now follows the existing scoped sample-workspace pattern, and the explicit default control sets the account preference. Impeccable Clarify informed the one-sentence explanation, and UI UX Pro Max informed native keyboard links and visible focus. The loaded Processor view at desktop, portrait and phone widths retained its original typography and shared controls. See [UI review coverage](ui-review-coverage.md).
