@@ -13,13 +13,14 @@ import { ComplianceQueue } from "./compliance-queue";
 import { LoanRetention } from "./loan-retention";
 import { ComplianceProgram } from "./compliance-program";
 import { ComplianceObligations } from "./compliance-obligations";
+import { ComplianceLicensing } from "./compliance-licensing";
 import { ComplianceLearning } from "./compliance-learning";
 import { ComplianceResearch } from "./compliance-research";
 import { Button } from "./ui/button";
 
 type Overview = Extract<ComplianceCaseResult, { kind: "overview" }>;
-type View = "Training & policies" | "Obligations" | "Monthly review" | "Overview" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
-const views: View[] = ["Overview", "Monthly review", "Obligations", "Training & policies", "Work queue", "Coverage & gaps", "Research & gaps", "Loan retention"];
+type View = "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Overview" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
+const views: View[] = ["Overview", "Licensing", "Monthly review", "Obligations", "Training & policies", "Work queue", "Coverage & gaps", "Research & gaps", "Loan retention"];
 const attentionActions: Record<ComplianceAttention, string> = {
   review: "View findings awaiting review",
   evidence: "View findings awaiting evidence",
@@ -41,7 +42,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
   brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
   openHistoryRecord: (destination: MigrationDestination) => void;
 }) {
-  const [view, setView] = useState<View>(pilot ? "Overview" : "Research & gaps");
+  const [view, setView] = useState<View>(pilot ? "Overview" : "Licensing");
   const [attention, setAttention] = useState<ComplianceAttention>();
   const [overview, setOverview] = useState<Overview | { error: string }>();
   const [revision, refresh] = useState(0);
@@ -84,13 +85,14 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     <div className="document-item compliance-coverage">
       <strong>Coverage not evaluated</strong>
       <p>{pilot ? "Fictional pilot for internal planning and evidence review. Regulatory coverage remains undetermined." :
-        "Use the research register and monthly review for internal planning. File-level evidence workflows are available in fictional pilots."}</p>
+        "Record licenses and use the research register and monthly review for internal planning. File-level evidence workflows are available in fictional pilots."}</p>
     </div>
     <nav className="loan-application-actions" aria-label="Compliance views">
-      {views.filter((option) => pilot || option === "Research & gaps" || option === "Monthly review").map((option) => <Button key={option} size="sm" variant={view === option ? "default" : "outline"}
+      {views.filter((option) => pilot || option === "Licensing" || option === "Research & gaps" || option === "Monthly review").map((option) => <Button key={option} size="sm" variant={view === option ? "default" : "outline"}
         aria-current={view === option ? "page" : undefined} onClick={() => show(option)}>{option}</Button>)}
     </nav>
     <section ref={panel} tabIndex={-1} aria-label={`Compliance ${view.toLowerCase()}`}>
+      {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused} />}
       {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} />}
       {view === "Monthly review" && <ComplianceProgram key={brokerageId} brokerageId={brokerageId} paused={paused} />}
       {view === "Obligations" && <ComplianceObligations key={brokerageId} brokerageId={brokerageId} paused={paused} />}

@@ -143,3 +143,27 @@ test("restore protects obligation versions and learning evidence",async()=>{
    assert.ok(restoreBlockers(before,{...before,tables:[{name,digest:"new",rows:2}]}).some(x=>x.includes("Compliance program records changed")));
  }
 });
+
+test("license register uses recorded state scope, exact retries, and current operational admin access", t => {
+  const f = fixture(t);
+  const entity = f.entity();
+  const request = { operation: "saveLicense", entityId: entity.id, id: crypto.randomUUID(), requestId: crypto.randomUUID(),
+    revision: 0, jurisdiction: "MI", licenseType: "Fictional broker license", licenseNumber: "TEST-01", status: "Active",
+    effectiveOn: "2026-01-01", expiresOn: "2026-12-31", evidence: "Fictional license review" };
+  const admin = f.staff();
+  const operational = { ...admin, brokerage: { ...admin.brokerage, pilot: false, features: { compliance: true, uwm: false, revision: 1 } } };
+  const work = (input, actor = operational) => complianceCaseWork(f.db, { type: "program", input }, actor, f.tenant, f.roster, now);
+  assert.equal(work(request).licenses[0].revision, 1);
+  assert.equal(work(request).licenses.length, 1);
+  assert.match(work({ ...request, evidence: "Different retry" }).error, /changed/);
+  assert.match(work({ ...request, id: crypto.randomUUID(), requestId: crypto.randomUUID(), licenseNumber: "test-01" }).error, /already recorded/);
+  assert.match(work({ ...request, requestId: crypto.randomUUID(), revision: 1, expiresOn: "2025-12-31" }).error, /expiration date/);
+  const edit = { ...request, requestId: crypto.randomUUID(), revision: 1, expiresOn: "2027-12-31" };
+  assert.equal(work(edit).licenses[0].expiresOn, "2027-12-31");
+  assert.match(work({ ...edit, requestId: crypto.randomUUID() }).error, /changed/);
+  assert.equal(f.sqlite.prepare("SELECT count(*) AS total FROM compliance_program_events WHERE action LIKE '%license%'").get().total, 2);
+  const list = { operation: "licenses", entityId: entity.id };
+  assert.ok(work(list, { ...operational, brokerage: { ...operational.brokerage, features: { compliance: false, uwm: false, revision: 2 } } }).error);
+  assert.ok(work(list, f.staff(f.lo)).error);
+  assert.ok(work({ ...list, entityId: crypto.randomUUID() }).error);
+});

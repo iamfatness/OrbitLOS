@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+export const licenseJurisdictions = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" ");
+export const licenseStatuses = ["Active", "Pending", "Expired", "Inactive", "Surrendered"] as const;
+export const licenseFields = z.object({
+  jurisdiction: z.string().refine(state => licenseJurisdictions.includes(state)),
+  licenseType: z.string().trim().min(2).max(120),
+  licenseNumber: z.string().trim().min(1).max(80),
+  status: z.enum(licenseStatuses),
+  effectiveOn: z.iso.date().nullable(),
+  expiresOn: z.iso.date().nullable(),
+  evidence: z.string().trim().max(500),
+});
+export type LicenseFields = z.infer<typeof licenseFields>;
+export type ProgramLicense = LicenseFields & { id: string; revision: number; updatedAt: string };
 export const programCategories = ["Reporting preparation", "Training review", "Policy review", "Quality control", "License review", "Management review"] as const;
 export const programStatuses = ["Planned", "In progress", "Awaiting evidence", "Awaiting review", "Completed"] as const;
 export const programMonth = z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])$/);
@@ -10,6 +23,8 @@ const scope = { entityId: z.uuid(), month: programMonth };
 export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("entities") }),
   z.strictObject({ operation: z.literal("createEntity"), ...change, name: title, nmls: z.string().regex(/^\d{0,15}$/), scopeNote: note }),
+  z.strictObject({ operation: z.literal("licenses"), entityId: z.uuid() }),
+  z.strictObject({ operation: z.literal("saveLicense"), ...change, entityId: z.uuid(), id: z.uuid(), revision: z.number().int().nonnegative(), ...licenseFields.shape }),
   z.strictObject({ operation: z.literal("month"), ...scope }),
   z.strictObject({ operation: z.literal("schedule"), ...scope, ...change, title, category: z.enum(programCategories), ownerEmail: z.email(),
     internalTarget: z.iso.date(), instructions: note }),

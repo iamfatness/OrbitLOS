@@ -1216,3 +1216,11 @@ button:disabled { cursor: default; }
 .workspace-row-select input { width: 16px; height: 16px; }
 .workspace-list-item { flex-wrap: wrap; }
 .workspace-list-item span { flex-shrink: 1; }
+
+
+.licensing-controls { align-items: flex-end; }
+.licensing-controls .field { min-width: 0; max-width: 100%; }
+.licensing-controls select { text-overflow: ellipsis; }
+.licensing-entity { overflow-wrap: anywhere; }
+.licensing-entity p { margin: 4px 0 0; }
+.state-rollout-requirement + .state-rollout-requirement { border-top: 1px solid var(--line); padding-top: 12px; }

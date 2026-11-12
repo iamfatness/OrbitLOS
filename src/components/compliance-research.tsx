@@ -166,7 +166,7 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
   }
   function renderCases(source: ResearchSource, cases: RolloutCases) {
     return researchKinds.map(kind => {
-    const item = cases.find(entry => entry.kind === kind);
+      const item = cases.find(entry => entry.kind === kind);
       return <div className="loan-task compliance-row" key={kind}>
         <div className="loan-task-copy"><strong>{kind}</strong>
           <span>{item ? `${item.status} · ${item.ownerName ?? "Owner unavailable"}` : "Untracked"}</span>

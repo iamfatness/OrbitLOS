@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import type { VersionedBrokerageMember } from "./brokerage-model";
-import { programRequest, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
+import { licenseFields, programRequest, type ProgramLicense, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -11,6 +11,13 @@ export function initializeComplianceProgram(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_program_entities (
     brokerageId TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, nmls TEXT NOT NULL, scopeNote TEXT NOT NULL, createdAt TEXT NOT NULL,
     PRIMARY KEY(brokerageId,id));
+  CREATE TABLE IF NOT EXISTS compliance_program_licenses (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, id TEXT NOT NULL, jurisdiction TEXT NOT NULL,
+    licenseType TEXT NOT NULL, licenseNumber TEXT NOT NULL, status TEXT NOT NULL, effectiveOn TEXT, expiresOn TEXT,
+    evidence TEXT NOT NULL, revision INTEGER NOT NULL, updatedAt TEXT NOT NULL,
+    PRIMARY KEY(brokerageId,entityId,id), FOREIGN KEY(brokerageId,entityId) REFERENCES compliance_program_entities(brokerageId,id));
+  CREATE UNIQUE INDEX IF NOT EXISTS compliance_program_license_number ON compliance_program_licenses(
+    brokerageId,entityId,jurisdiction,licenseType COLLATE NOCASE,licenseNumber COLLATE NOCASE);
   CREATE TABLE IF NOT EXISTS compliance_program_items (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, month TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL,
     category TEXT NOT NULL, status TEXT NOT NULL, ownerEmail TEXT NOT NULL, ownerRevision INTEGER NOT NULL,
@@ -66,7 +73,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (data.operation === "createEntity") {
     if (!replay) {
       if (Number(db.prepare("SELECT count(*) n FROM compliance_program_entities WHERE brokerageId=?").get(tenant)!.n) >= 50)
-        return { error: "This pilot supports up to 50 entity profiles." };
+        return { error: "This workspace supports up to 50 entity profiles." };
       const id = crypto.randomUUID();
       db.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,?,?,?)").run(tenant, id, data.name, data.nmls, data.scopeNote, now);
       event(id, "", id, "Created entity profile", data.scopeNote);
@@ -76,6 +83,32 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   const row = db.prepare("SELECT id,name,nmls,scopeNote,createdAt FROM compliance_program_entities WHERE brokerageId=? AND id=?").get(tenant, data.entityId);
   if (!row) return unavailable;
   const entity = { ...row } as ProgramEntity;
+  if (data.operation === "licenses" || data.operation === "saveLicense") {
+    const list = () => ({ kind: "programLicenses" as const, entity, licenses: db.prepare(`SELECT id,jurisdiction,licenseType,licenseNumber,status,
+      effectiveOn,expiresOn,evidence,revision,updatedAt FROM compliance_program_licenses
+      WHERE brokerageId=? AND entityId=? ORDER BY jurisdiction,licenseType,licenseNumber`).all(tenant, entity.id).map(row => ({ ...row } as ProgramLicense)) });
+    if (data.operation === "licenses" || replay) return list();
+    const current = db.prepare("SELECT revision FROM compliance_program_licenses WHERE brokerageId=? AND entityId=? AND id=?")
+      .get(tenant, entity.id, data.id);
+    if ((current?.revision ?? 0) !== data.revision) return { error: "This license changed. Refresh before saving your edit." };
+    if (data.effectiveOn && data.expiresOn && data.expiresOn < data.effectiveOn) return { error: "Enter an expiration date on or after the effective date." };
+    const duplicate = db.prepare(`SELECT 1 FROM compliance_program_licenses WHERE brokerageId=? AND entityId=? AND jurisdiction=?
+      AND licenseType=? COLLATE NOCASE AND licenseNumber=? COLLATE NOCASE AND id<>?`)
+      .get(tenant, entity.id, data.jurisdiction, data.licenseType, data.licenseNumber, data.id);
+    if (duplicate) return { error: "This license is already recorded for the entity and state." };
+    if (!current && Number(db.prepare("SELECT count(*) AS n FROM compliance_program_licenses WHERE brokerageId=? AND entityId=?").get(tenant, entity.id)!.n) >= 500) {
+      return { error: "This entity has reached 500 license records." };
+    }
+    const fields = licenseFields.parse(data);
+    db.prepare(`INSERT INTO compliance_program_licenses VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(brokerageId,entityId,id) DO UPDATE SET jurisdiction=excluded.jurisdiction,licenseType=excluded.licenseType,
+      licenseNumber=excluded.licenseNumber,status=excluded.status,effectiveOn=excluded.effectiveOn,expiresOn=excluded.expiresOn,
+      evidence=excluded.evidence,revision=excluded.revision,updatedAt=excluded.updatedAt`)
+      .run(tenant, entity.id, data.id, fields.jurisdiction, fields.licenseType, fields.licenseNumber, fields.status,
+        fields.effectiveOn, fields.expiresOn, fields.evidence, data.revision + 1, now);
+    event(entity.id, "", data.id, current ? "Updated license record" : "Recorded license", fields.evidence);
+    return list();
+  }
   const read = () => month(db, staff, entity, data.month, roster, now);
   if (data.operation === "month" || replay) return read();
   if (data.operation === "reviewMonth") {
