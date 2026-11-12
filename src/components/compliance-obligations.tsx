@@ -15,7 +15,7 @@ const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.
 const plannedReview = z.object({ entityId: z.uuid(), month: z.string(), itemId: z.uuid() });
 const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
   period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(), ownerEmail: z.string(), from: z.string(), through: z.string(),
-  stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
+  filingStatus: z.string().optional(), stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(), review: plannedReview.optional(),
 })) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
@@ -89,7 +89,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
      if(parsed.success)setHistory(parsed.data);else setError("Could not load period history. Return and reopen the obligation to retry.");
    }).catch(()=>{if(current)setError("Could not load period history. Return and reopen to retry.");});
    return()=>{current=false;};
- },[brokerageId,entityId,selected,paused,historyOffset,revision]);
+ },[brokerageId,entityId,selected,paused,historyOffset,revision,returnToItem]);
  function back(){setSelected(undefined);setHistory(undefined);setPlanned(undefined);setError("");setHistoryOffset(0);setLoading(Boolean(entityId));refresh(v=>v+1);}
  function edit(record:Row|null){
    setSources(undefined);
@@ -220,6 +220,7 @@ export function ComplianceObligations({brokerageId,paused,openReview,returnToIte
              {period.stateBasis && <p>Scope version {period.stateBasis.revision} · {period.stateBasis.jurisdiction} ·{" "}
                <a className="underline" href={period.stateBasis.sourceUrl} target="_blank" rel="noreferrer">{period.stateBasis.title}</a>
              </p>}
+             {period.filingStatus && <p>External filing · {period.filingStatus}</p>}
              {period.stateBasisChanged && <p>Reporting basis needed review when recorded.</p>}</div>
            {period.review ?
              <Button size="sm" variant="outline" id={`obligation-review-${period.review.itemId}`} aria-label={`Open review item for ${period.period}`} disabled={busy}

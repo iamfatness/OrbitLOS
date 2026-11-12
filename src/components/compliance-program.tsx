@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { programCategories, programStatuses, type ProgramEntity, type ProgramMonth, type ProgramRequest, type ProgramReviewTarget } from "@/lib/compliance-program-model";
 import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
+import { ComplianceFilingReceipts } from "./compliance-filing-receipts";
 import { Button } from "./ui/button";
 
 const value = (form: FormData, name: string) => String(form.get(name) ?? "");
@@ -109,6 +110,8 @@ export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
         onClick={() => { if (selected.obligation) openReport(selected.obligation, current.entity.name); }}>
         Open Q{selected.obligation.report.quarter} {selected.obligation.report.year} report preparation
       </Button></div>}
+      {selected.obligation.report && <ComplianceFilingReceipts key={selected.id} brokerageId={brokerageId}
+        entityId={current.entity.id} entityName={current.entity.name} basis={selected.obligation} />}
     </div>}
     <p className="muted">Internal planning and evidence review. Regulatory applicability and legal deadlines still require review before launch.</p>
     {(error || notice) && <div ref={feedback} tabIndex={-1} className={error ? "application-message banner-error" : "application-message"} role={error ? "alert" : "status"}>{error || notice}</div>}

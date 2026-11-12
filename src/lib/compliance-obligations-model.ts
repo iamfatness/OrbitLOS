@@ -31,7 +31,26 @@ export const obligationStateSource = obligationStateReference.extend({
   title: z.string(), authority: z.string(), sourceUrl: z.url(),
 });
 export type ObligationStateSource = z.infer<typeof obligationStateSource>;
+const filingPeriod = z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/);
+const filingScope = { ...scope, id: z.uuid(), period: filingPeriod };
+export const filingReceiptStatuses = ["Submitted", "Accepted", "Returned"] as const;
+export const filingReceiptFields = z.strictObject({
+  status: z.enum(filingReceiptStatuses),
+  confirmation: z.string().trim().min(3).max(120),
+  confirmedOn: z.iso.date(),
+  documentReference: z.string().trim().max(350),
+  note: z.string().trim().max(500),
+});
+export const filingReceiptEntry = filingReceiptFields.extend({
+  version: z.int().positive(), recordedBy: z.string(), recordedAt: z.string(),
+});
+export const filingReceiptHistory = z.object({
+  kind: z.literal("filingReceipts"), items: z.array(filingReceiptEntry), today: z.iso.date(),
+});
 export const obligationRequest = z.discriminatedUnion("operation", [
+  z.strictObject({ operation: z.literal("filingReceipts"), ...filingScope }),
+  z.strictObject({ operation: z.literal("recordFilingReceipt"), ...filingScope, ...change,
+    expectedVersion: z.int().nonnegative(), ...filingReceiptFields.shape }),
   z.strictObject({ operation: z.literal("planWork"), ...scope, ...change, id: z.uuid(), period: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) }),
   z.strictObject({ operation: z.literal("occurrences"), ...scope, id: z.uuid(), offset: z.number().int().min(0).max(10000).default(0) }),
   z.strictObject({ operation: z.literal("list"), ...scope, offset: z.number().int().min(0).max(10000).default(0) }),

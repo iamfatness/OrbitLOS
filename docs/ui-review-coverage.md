@@ -120,3 +120,12 @@ Verified for the local candidate on `codex/state-rollout` on November 12. A fict
 Opened and inspected the final period, selected review and reporting screenshots in `.orbit/compliance-reporting-handoff-{period,review,report}-*.png`. Browser checks ran at 1440 × 900, 900 × 1200 and 390 × 844. Primary action targets were at least 44 px on phone. The existing Orbit record editor, disclosure and exact-record patterns from the 21st.dev reference work fit this handoff. Applied Impeccable's operational hierarchy and UI UX Pro Max's save confirmation guidance. Source scan, 620 tests, lint, typecheck, production build and the isolated mock rehearsal passed.
 
 The recurring-work handoff is available in the fictional pilot candidate. The evidence exercise used an internal review export and a saved reference. A distinct external filing receipt, first-use owner session and production verification remain pending.
+
+
+## External filing confirmation history
+
+Verified for the local fictional pilot candidate on November 12. The owner opened the exact Q3 reporting review, recorded a submission confirmation, then recorded the later acceptance. A save response was interrupted after the write and an unchanged retry returned the existing entry. A second tab received a conflict, refreshed the history without losing its draft, and restored focus to the entry action after cancel. The owner downloaded the original submission entry with its version, entity, recorded period and reported status, returned to the period list, and reopened the accepted record. The internal review stayed Planned. The database tests verified exact period and role boundaries, append-only history, audit rollback, and restore protection.
+
+Opened and inspected the final empty, populated form and saved history captures in `.orbit/compliance-filing-{empty,form,history}-*.png` at desktop, portrait and phone widths. Browser checks ran at 1440 × 900, 900 × 1200 and 390 × 844 and verified 44 px phone actions. The receipt location wraps across lines on a phone. Reused Orbit's record form and disclosure patterns from the 21st.dev reference work, with Impeccable operational refinement and UI UX Pro Max save and recovery guidance. Source scan, 621 tests, lint, typecheck, production build and isolated rehearsal passed.
+
+The record stores manually entered confirmation details and a reference to the original receipt. External verification, original file storage, a first-use owner session and live verification remain pending.

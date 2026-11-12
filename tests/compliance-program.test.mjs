@@ -137,9 +137,9 @@ test("integrated learning and obligations retain authentication and atomic audit
  assert.equal(call("learning",{operation:"list"}).result.items.length,0);
 });
 
-test("restore protects obligation versions and learning evidence",async()=>{
+test("restore protects obligation versions, filing records and learning evidence",async()=>{
  const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
- for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_program_licenses","compliance_state_scope_versions",
+ for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_program_licenses","compliance_state_scope_versions",
    "compliance_state_readiness_versions","compliance_learning_versions","compliance_learning_assignments","compliance_learning_events"]){
    const before={schema:"same",tables:[{name,digest:"old",rows:1}],impact:{},files:{items:[]}};
    assert.equal(restoreBlockers(before,before).length,0);

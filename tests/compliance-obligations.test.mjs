@@ -219,3 +219,41 @@ test("recorded quarterly work opens its exact monthly item and retains the origi
   assert.deepEqual(item.obligation.report, { year: "2026", quarter: 3 });
   assert.equal(f.run({ ...request, requestId: crypto.randomUUID() }).workId, target.itemId);
 });
+
+
+test("external filing confirms one exact recorded quarter and preserves receipt history across retries", t => {
+  const f = fixture(t);
+  const draft = { ...f.draft, cadence: "Quarterly", preparation: "Mortgage Call Report" };
+  const period = "2026-07";
+  assert.equal(f.run(f.save({ draft })).revision, 1);
+  assert.equal(f.run(f.generate({ period })).kind, "obligationOccurrence");
+  const read = { operation: "filingReceipts", entityId: f.entityId, id: f.id, period };
+  assert.deepEqual(f.run(read).items, []);
+  assert.ok(f.run({ ...read, period: "2026-04" }).error);
+  assert.ok(f.run({ ...read, entityId: crypto.randomUUID() }).error);
+  assert.ok(f.run(read, f.staff, []).error);
+  const officer = { ...f.actor, role: "LO" };
+  assert.ok(f.run(read, { ...f.staff, brokerage: { ...f.staff.brokerage, role: "LO" } }, [officer]).error);
+
+  const record = { ...read, operation: "recordFilingReceipt", requestId: crypto.randomUUID(), expectedVersion: 0,
+    status: "Submitted", confirmation: "EXAMPLE-RECEIPT-1", confirmedOn: "2026-10-28",
+    documentReference: "Fictional reporting folder / submission receipt", note: "" };
+  assert.ok(f.run({ ...record, confirmedOn: "2026-11-12" }).error);
+  assert.equal(f.run(record).items[0].version, 1);
+  assert.equal(f.run(record).items.length, 1);
+  assert.ok(f.run({ ...record, confirmation: "Different confirmation" }).error);
+  assert.match(f.run({ ...record, requestId: crypto.randomUUID() }).error, /changed/);
+
+  const accepted = { ...record, expectedVersion: 1, requestId: crypto.randomUUID(), status: "Accepted",
+    confirmation: "EXAMPLE-RECEIPT-2", confirmedOn: "2026-11-01", note: "Recorded the later acceptance." };
+  assert.ok(f.run({ ...accepted, note: "" }).error);
+  f.sql.exec("CREATE TRIGGER fail_filing_audit BEFORE INSERT ON compliance_obligation_events BEGIN SELECT RAISE(ABORT,'audit failed'); END");
+  assert.throws(() => f.run(accepted), /audit failed/);
+  assert.equal(f.run(read).items.length, 1);
+  f.sql.exec("DROP TRIGGER fail_filing_audit");
+  assert.deepEqual(f.run(accepted).items.map(item => [item.version, item.status, item.confirmation]),
+    [[2, "Accepted", "EXAMPLE-RECEIPT-2"], [1, "Submitted", "EXAMPLE-RECEIPT-1"]]);
+  assert.equal(f.run(record).items[0].version, 2);
+  assert.equal(f.run({ operation: "occurrences", entityId: f.entityId, id: f.id }).items[0].filingStatus, "Accepted");
+  assert.equal(f.sql.prepare("SELECT count(*) AS count FROM compliance_program_items").get().count, 0);
+});

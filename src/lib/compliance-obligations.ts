@@ -1,9 +1,10 @@
+import { easternDate } from "./client-retention";
 import type { Store } from "./store";
 import { complianceProgramWork } from "./compliance-program";
 import { stateScopeLicenseSnapshot } from "./compliance-state-scope";
 import type { WorkspaceStaff } from "./staff-store";
 import type { VersionedBrokerageMember } from "./brokerage-model";
-import { obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
+import { filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 
@@ -32,6 +33,12 @@ export function initializeComplianceObligations(db: Store) {
     brokerageId TEXT NOT NULL,entityId TEXT NOT NULL,obligationId TEXT NOT NULL,period TEXT NOT NULL,
     workId TEXT NOT NULL,month TEXT NOT NULL,createdAt TEXT NOT NULL,
     PRIMARY KEY(brokerageId,entityId,obligationId,period));
+  CREATE TABLE IF NOT EXISTS compliance_filing_receipts (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
+    evidence TEXT NOT NULL, recordedBy TEXT NOT NULL, recordedAt TEXT NOT NULL,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period,version),
+    FOREIGN KEY(brokerageId,entityId,obligationId,period)
+      REFERENCES compliance_obligation_occurrences(brokerageId,entityId,obligationId,period));
   CREATE INDEX IF NOT EXISTS compliance_obligation_month_work ON compliance_obligation_work(brokerageId,entityId,month);`);
 }
 
@@ -51,6 +58,37 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const entity = db.prepare("SELECT id,name,nmls,scopeNote FROM compliance_program_entities WHERE brokerageId=? AND id=?")
     .get(tenant, data.entityId);
   if (!entity) return unavailable;
+  if (data.operation === "filingReceipts" || data.operation === "recordFilingReceipt") {
+    const keys = [tenant, data.entityId, data.id, data.period] as const;
+    const period = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...keys);
+    if (!period || (JSON.parse(String(period.snapshot)) as { draft: ObligationDraft }).draft.preparation !== "Mortgage Call Report") return unavailable;
+    const today = easternDate(new Date(now));
+    const read = () => ({
+      kind: "filingReceipts" as const, today,
+      items: db.prepare(`SELECT version,evidence,recordedBy,recordedAt FROM compliance_filing_receipts
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? ORDER BY version DESC`).all(...keys)
+        .map(({ evidence, ...entry }) => ({ ...filingReceiptFields.parse(JSON.parse(String(evidence))), ...entry })),
+    });
+    if (data.operation === "filingReceipts") return read();
+    const request = JSON.stringify(data);
+    const replay = db.prepare("SELECT actor,request FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?")
+      .get(tenant, data.requestId);
+    if (replay) return replay.actor === staff.email && replay.request === request ? read() : changed;
+    const { status, confirmation, confirmedOn, documentReference, note } = data;
+    if (confirmedOn > today) return { error: "Enter the date on the confirmation. It must be today or earlier." };
+    const latest = Number(db.prepare(`SELECT max(version) AS version FROM compliance_filing_receipts
+      WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...keys)?.version ?? 0);
+    if (latest !== data.expectedVersion) return { error: "The filing record changed. Refresh its history before saving your entry." };
+    if (latest && note.length < 5) return { error: "Describe why you are adding a new filing receipt version." };
+    if (latest >= 50) return { error: "This period has reached its 50-entry filing history limit." };
+    const evidence = JSON.stringify({ status, confirmation, confirmedOn, documentReference, note });
+    const version = latest + 1;
+    db.prepare("INSERT INTO compliance_filing_receipts VALUES (?,?,?,?,?,?,?,?)").run(...keys, version, evidence, staff.email, now);
+    db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
+      .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify({ kind: "filingReceiptRecorded", version }));
+    return read();
+  }
   const stateSources = () => {
     const versions = db.prepare(`SELECT s.jurisdiction,s.revision,s.entitySnapshot,s.sourceSnapshots,s.licenseSnapshots FROM compliance_state_scope_versions s
       WHERE s.brokerageId=? AND s.entityId=? AND s.revision=(
@@ -80,7 +118,10 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const matchesStateBasis = (current: StateBasis, saved: StateBasis) => current.sourceKey === saved.sourceKey &&
     current.revision === saved.revision && current.jurisdiction === saved.jurisdiction && current.snapshot === saved.snapshot;
   if (data.operation === "occurrences") {
-    const rows = db.prepare(`SELECT o.obligationId,o.period,o.version,o.status,o.internalTarget,o.snapshot,o.createdBy,o.createdAt,w.workId,w.month
+    const rows = db.prepare(`SELECT o.obligationId,o.period,o.version,o.status,o.internalTarget,o.snapshot,o.createdBy,o.createdAt,w.workId,w.month,
+      (SELECT json_extract(r.evidence,'$.status') FROM compliance_filing_receipts r
+        WHERE r.brokerageId=o.brokerageId AND r.entityId=o.entityId AND r.obligationId=o.obligationId AND r.period=o.period
+        ORDER BY r.version DESC LIMIT 1) AS filingStatus
       FROM compliance_obligation_occurrences o LEFT JOIN compliance_obligation_work w
         ON w.brokerageId=o.brokerageId AND w.entityId=o.entityId AND w.obligationId=o.obligationId AND w.period=o.period
       WHERE o.brokerageId=? AND o.entityId=? AND o.obligationId=? ORDER BY o.period DESC LIMIT 51 OFFSET ?`)
@@ -89,7 +130,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
       const { stateBasis, stateBasisChanged, draft, period } = JSON.parse(String(row.snapshot)) as {
         stateBasis?: StateBasis; stateBasisChanged?: boolean; draft: ObligationDraft; period: { from: string; through: string };
       };
-      return { ...row, ownerEmail: draft.ownerEmail, from: period.from, through: period.through, review: typeof workId === "string" && typeof month === "string" ? { entityId: data.entityId, month, itemId: workId } : undefined,
+      return { ...row, ownerEmail: draft.ownerEmail, from: period.from, through: period.through,
+        filingStatus: row.filingStatus ?? (draft.preparation ? "No confirmation recorded" : undefined), review: typeof workId === "string" && typeof month === "string" ? { entityId: data.entityId, month, itemId: workId } : undefined,
         ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis), stateBasisChanged } : {}) };
     }), more: rows.length > 50, notice: obligationPlanningNotice };
   }
