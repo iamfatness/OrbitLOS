@@ -7,8 +7,7 @@ registerHooks({ resolve(specifier, context, next) { try { return next(specifier,
   return next(`${specifier}.ts`, context);
 } } });
 const { initializeComplianceObligations, complianceObligationsWork } = await import("../src/lib/compliance-obligations.ts");
-const { initializeComplianceProgram } = await import("../src/lib/compliance-program.ts");
-const { initializeStateScope } = await import("../src/lib/compliance-state-scope.ts");
+const { initializeStore } = await import("../src/lib/store.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 const { obligationPeriod, obligationRequest } = await import("../src/lib/compliance-obligations-model.ts");
 function fixture(t) {
@@ -16,9 +15,8 @@ function fixture(t) {
   const db = { exec: s => sql.exec(s), prepare: s => sql.prepare(s), transaction(work) {
     sql.exec("BEGIN"); try { const result = work(); sql.exec("COMMIT"); return result; } catch(e) { sql.exec("ROLLBACK"); throw e; }
   } };
-  sql.exec("PRAGMA foreign_keys=ON");initializeComplianceProgram(db);
-  initializeComplianceObligations(db);
-  initializeStateScope(db);
+  sql.exec("PRAGMA foreign_keys=ON");
+  initializeStore(db, false);
   const entityId=crypto.randomUUID(),tenant=crypto.randomUUID(),id=crypto.randomUUID();
   sql.prepare("INSERT INTO compliance_program_entities VALUES (?,?,?,?,?,?)").run(tenant,entityId,"Fictional Michigan","","Review pending","2026-11-11");
   const actor={email:"admin@example.test",role:"Admin",status:"Active",accessRevision:1};
@@ -60,6 +58,11 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
     expectedRevision,requestId:crypto.randomUUID(),facts:{activity:"Brokerage",lienScope:"First lien",companyEvidence:"Fictional license",
       officeEvidence:"",originatorEvidence:"",products:"",responsibility:"",reportingBasis:"",counselPacketReference:""}}},
     f.staff,f.staff.brokerage.id,[f.actor],now);
+  const license = { operation: "saveLicense", id: crypto.randomUUID(), requestId: crypto.randomUUID(), entityId: f.entityId,
+    revision: 0, jurisdiction, licenseType: "Fictional broker authority", licenseNumber: "FICTIONAL-001",
+    status: "Active", effectiveOn: null, expiresOn: null, evidence: "Fictional register evidence" };
+  const saveLicense = input => complianceCaseWork(f.db, { type: "program", input }, f.staff, f.staff.brokerage.id, [f.actor], now);
+  assert.equal(saveLicense(license).kind, "programLicenses");
   assert.equal(saveScope(0).revision,1);
   const sources=f.run(stateSources).items;
   const source=sources.find(item=>item.sourceKey==="REQ-MI-REPORTING-RMLA");
@@ -79,6 +82,12 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   const snapshot=JSON.parse(occurrence.snapshot);
   assert.equal(snapshot.stateBasis.revision,1);
   assert.equal(JSON.parse(snapshot.stateBasis.snapshot).key,source.sourceKey);
+  assert.equal(saveLicense({ ...license, revision: 1, requestId: crypto.randomUUID(), status: "Expired" }).kind, "programLicenses");
+  assert.deepEqual(f.run(stateSources).items, []);
+  assert.equal(f.run(list).items[0].stateBasisChanged, true);
+  const licenseGap = f.run(f.generate({ period: "2024-04" })).occurrence;
+  assert.equal(licenseGap.status, "Applicability review gap");
+  assert.equal(JSON.parse(licenseGap.snapshot).stateBasisChanged, true);
   assert.equal(saveScope(1).revision,2);
   assert.equal(f.run(list).items[0].stateBasisChanged,true);
   assert.equal(f.run(save).revision,1);
@@ -93,6 +102,14 @@ test("linked reporting work retains the saved Michigan scope and flags a later v
   assert.equal(f.run(f.save({expectedRevision:1,stateReference:{...reference,revision:2}})).revision,2);
   assert.equal(f.run(list).items[0].stateBasisChanged,false);
   assert.equal(f.run(list).items[0].stateBasis.revision,2);
+  const scopeRow = f.sql.prepare("SELECT sourceSnapshots FROM compliance_state_scope_versions WHERE revision=2").get();
+  const outdatedSources = JSON.parse(scopeRow.sourceSnapshots).filter(saved => JSON.parse(saved).key !== source.sourceKey);
+  f.sql.prepare("UPDATE compliance_state_scope_versions SET sourceSnapshots=? WHERE revision=2").run(JSON.stringify(outdatedSources));
+  assert.equal(f.run(stateSources).items.some(item => item.sourceKey === source.sourceKey), false);
+  assert.equal(f.run(list).items[0].stateBasisChanged, true);
+  const history = f.run({ operation: "occurrences", entityId: f.entityId, id: f.id });
+  assert.equal(history.items.find(item => item.period === "2024-02").stateBasis.revision, 1);
+  assert.equal(history.items.find(item => item.period === "2024-04").stateBasisChanged, true);
 });
 
 test("planning a period creates one owned monthly item and retains its original basis",t=>{

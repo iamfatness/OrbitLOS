@@ -24,6 +24,7 @@ export default function DemoPage() {
           <li>In a fictional compliance pilot, record internal reviews and obligations, and assign staff training or policies for acknowledgment.</li>
           <li>Record state licenses for companies, branches and loan officers, then follow assigned renewals in Today and review their history on the license. Open a matching license from lead assignment and return to the lead.</li>
           <li>Compare recorded licenses by state and save a version of the brokerage scope and supporting evidence for internal review. Search research items for all 50 states.</li>
+          <li>In a fictional pilot, link state reporting obligations to a saved scope and flag new periods for review when the reporting basis changes.</li>
           <li>Track compliance research, case ownership and evidence across all 50 states in a fictional pilot.</li>
           <li>On a fictional Michigan loan, review application and disclosure receipt dates, borrower intent to proceed, and fee timing.</li>
           <li>Compare itemized charges on the original Loan Estimate and Closing Disclosure, and see which differences need review.</li>

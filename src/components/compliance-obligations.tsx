@@ -10,7 +10,10 @@ const row = z.object({ id:z.string(),revision:z.number(),draft:obligationDraft,o
   stateBasis:obligationStateSource.optional(),stateBasisChanged:z.boolean().optional() });
 const registry = z.object({kind:z.literal("obligationRegistry"),items:z.array(row),more:z.boolean()});
 const stateSources = z.object({kind:z.literal("obligationStateSources"),items:z.array(obligationStateSource)});
-const periods = z.object({kind:z.literal("obligationOccurrences"),more:z.boolean(),items:z.array(z.object({period:z.string(),version:z.number(),status:z.string(),internalTarget:z.string(),createdBy:z.string(),createdAt:z.string()}))});
+const periods = z.object({ kind: z.literal("obligationOccurrences"), more: z.boolean(), items: z.array(z.object({
+  period: z.string(), version: z.number(), status: z.string(), internalTarget: z.string(), createdBy: z.string(), createdAt: z.string(),
+  stateBasis: obligationStateSource.optional(), stateBasisChanged: z.boolean().optional(),
+})) });
 type Row=z.infer<typeof row>;
 const text=(form:FormData,name:string)=>String(form.get(name)??"");
 
@@ -136,14 +139,14 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
  if(paused)return <p>Obligations are unavailable while the workspace is paused.</p>;
  return <section className="record-form compliance-pilot-form" aria-label="Obligations">
    <h2 ref={heading} tabIndex={-1}>{selected===undefined?"Obligations":selected?selected.draft.title:"Add obligation"}</h2>
-   <p className="muted">Internal planning. Applicability and statutory deadlines require legal review; generated periods do not prove filing or compliance.</p>
+   <p className="muted">Internal planning. Applicability and statutory deadlines require legal review.</p>
    {(error||notice)&&<div ref={feedback} tabIndex={-1} className={error?"application-message banner-error":"application-message"} role={error?"alert":"status"}>{error||notice}</div>}
    {selected===undefined?<>
      <div className="form-grid"><label className="field">Legal entity<select value={entityId} disabled={loadingEntities} onChange={e=>{setEntity(e.target.value);setItems([]);setOffset(0);setMore(false);setError("");setNotice("");setLoading(Boolean(e.target.value));}}><option value="">Select an entity</option>{entities.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>
        {selectedEntity&&<span className="muted break-words md:hidden" aria-hidden="true">{selectedEntity.name}</span>}</label>
      <label className="field">Applicability on this page<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All decisions</option>{["Needs review","Required","Not applicable"].map(s=><option key={s}>{s}</option>)}</select></label></div>
      <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();edit(null);}}>Add obligation</Button><Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
-     {!entityId&&<p>Create entity profiles in Monthly review, then select one here.</p>}
+     {!entityId&&<p>Add a legal entity in Compliance → Licensing to start planning obligations.</p>}
      {loading||loadingEntities?<p role="status">Loading obligations…</p>:entityId&&!error&&<>
        <ul className="document-list">{items.filter(i=>!filter||i.draft.applicability===filter).map(i=><li className="document-item" key={i.id}><div><strong>{i.draft.title}</strong><p>{i.draft.applicability} · {i.draft.cadence} · Version {i.revision}</p><p>{i.ownerAvailable?i.draft.ownerEmail:"Owner unavailable — reassignment needed"}</p>{i.stateBasisChanged&&<p>State reporting source needs review</p>}</div><Button variant="outline" onClick={()=>edit(i)}>Review obligation</Button></li>)}</ul>
        {!items.some(i=>!filter||i.draft.applicability===filter)&&<p>No obligations match this page and filter.</p>}
@@ -158,12 +161,16 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
            {sources?.map(source=><option key={source.sourceKey} value={source.sourceKey}>{source.jurisdiction} · {source.title}</option>)}
          </select>
        </label>
-       {sourceError?<p role="status">{sourceError}</p>:
-         !sources?<p role="status">Loading state reporting sources…</p>:
-         !sources.length&&<p className="muted">Save a current brokerage scope under State rollout to link a state reporting source.</p>}
+       {sourceError ? <p role="status">{sourceError}</p> :
+         !sources ? <p role="status">Loading state reporting sources…</p> :
+         !sources.length && !selected?.stateBasisChanged && <p className="muted">
+           No current state reporting sources. Review the entity’s scope in State rollout or enter the authority manually.
+         </p>}
        {(sourceError||error.startsWith("The state reporting source changed."))&&<div><Button type="button" variant="outline" onClick={reloadStateSources}>Reload sources</Button></div>}
        {linkedSource&&<p className="muted">{linkedSource.jurisdiction} · {linkedSource.title} · Scope version {linkedSource.revision}</p>}
-       {selected?.stateBasisChanged&&!chosenSource&&<p role="status">The saved scope or source changed. Select a current source to update this obligation.</p>}
+       {selected?.stateBasisChanged && !chosenSource && sources && <p role="status">The saved reporting basis needs review.{" "}
+         {sources.length ? "Select a current source." : "Review the entity’s scope under Research & gaps → State rollout."}
+       </p>}
        {linkedSource?<p><a className="underline" href={linkedSource.sourceUrl} target="_blank" rel="noreferrer">{linkedSource.authority}</a></p>:<>
          <label className="field">Authority source (HTTPS)<input name="sourceUrl" type="url" required maxLength={2000}
            value={manualAuthority.sourceUrl} onChange={e=>setManualAuthority({...manualAuthority,sourceUrl:e.target.value})}/></label>
@@ -184,7 +191,11 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
        {!history ? (error ? null : <p role="status">Loading history…</p>) : <>
          <ul className="document-list">{history.items.map(period => <li className="document-item" key={period.period}>
            <div><strong>{period.period} · Version {period.version}</strong><p>{period.status}</p>
-             <p>Internal target: {period.internalTarget} · Recorded by {period.createdBy}</p></div>
+             <p>Internal target · {period.internalTarget} · Recorded by {period.createdBy}</p>
+             {period.stateBasis && <p>Scope version {period.stateBasis.revision} · {period.stateBasis.jurisdiction} ·{" "}
+               <a className="underline" href={period.stateBasis.sourceUrl} target="_blank" rel="noreferrer">{period.stateBasis.title}</a>
+             </p>}
+             {period.stateBasisChanged && <p>Reporting basis needed review when recorded.</p>}</div>
            <Button variant="outline" disabled={busy} onClick={() => void mutate({operation:"planWork",entityId,id:selected.id,period:period.period},false)}>Plan review work</Button>
          </li>)}</ul>
          {!history.items.length && <p>No periods recorded.</p>}

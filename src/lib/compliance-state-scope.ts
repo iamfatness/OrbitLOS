@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { stateRequirementSources, stateRolloutSources, sourceSnapshot } from "./compliance-research-model";
 import type { StateScopeFacts, StateScopeRequest } from "./compliance-state-scope-model";
 import { complianceProgramWork } from "./compliance-program";
-import { countLicenseRecords, licenseHolderKinds } from "./compliance-program-model";
+import { countLicenseRecords, licenseHolderKinds, type ProgramLicense } from "./compliance-program-model";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -18,6 +18,13 @@ export function initializeStateScope(db: Store) {
   if (!db.prepare("PRAGMA table_info(compliance_state_scope_versions)").all().some(column => column.name === "licenseSnapshots")) {
     db.exec("ALTER TABLE compliance_state_scope_versions ADD COLUMN licenseSnapshots TEXT");
   }
+}
+
+export function stateScopeLicenseSnapshot(licenses: readonly ProgramLicense[]) {
+  return JSON.stringify(licenses.map(({ id, revision, licenseType, licenseNumber, status, effectiveOn, expiresOn,
+    evidence, holder, holderLabel, holderAvailable }) => ({
+    id, revision, licenseType, licenseNumber, status, effectiveOn, expiresOn, evidence, holder, holderLabel, holderAvailable,
+  })));
 }
 
 const unavailable = { error: "Choose a legal entity and one of the 50 rollout states." };
@@ -39,10 +46,7 @@ export function complianceStateScopeWork(db: Store, input: StateScopeRequest, st
   const register = complianceProgramWork(db, { operation: "licenses", entityId }, staff, roster, now);
   if ("error" in register || register.kind !== "programLicenses") return unavailable;
   const licenses = register.licenses.filter(record => record.jurisdiction === jurisdiction);
-  const licenseSnapshots = JSON.stringify(licenses.map(({ id, revision, licenseType, licenseNumber, status, effectiveOn, expiresOn,
-    evidence, holder, holderLabel, holderAvailable }) => ({
-    id, revision, licenseType, licenseNumber, status, effectiveOn, expiresOn, evidence, holder, holderLabel, holderAvailable,
-  })));
+  const licenseSnapshots = stateScopeLicenseSnapshot(licenses);
   const licenseSummary = licenseHolderKinds.map(holder => ({
     holder, counts: countLicenseRecords(licenses.filter(record => record.holder.kind === holder), register.asOf),
   }));

@@ -1,5 +1,6 @@
 import type { Store } from "./store";
 import { complianceProgramWork } from "./compliance-program";
+import { stateScopeLicenseSnapshot } from "./compliance-state-scope";
 import type { WorkspaceStaff } from "./staff-store";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import { obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
@@ -50,13 +51,19 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     .get(tenant, data.entityId);
   if (!entity) return unavailable;
   const stateSources = () => {
-    const versions = db.prepare(`SELECT s.jurisdiction,s.revision,s.entitySnapshot,s.sourceSnapshots FROM compliance_state_scope_versions s
+    const versions = db.prepare(`SELECT s.jurisdiction,s.revision,s.entitySnapshot,s.sourceSnapshots,s.licenseSnapshots FROM compliance_state_scope_versions s
       WHERE s.brokerageId=? AND s.entityId=? AND s.revision=(
         SELECT max(n.revision) FROM compliance_state_scope_versions n
         WHERE n.brokerageId=s.brokerageId AND n.entityId=s.entityId AND n.jurisdiction=s.jurisdiction)
       ORDER BY s.jurisdiction`).all(tenant, data.entityId);
+    if (!versions.length) return [];
+    const register = complianceProgramWork(db, { operation: "licenses", entityId: data.entityId }, staff, roster, now);
+    if ("error" in register || register.kind !== "programLicenses") return [];
+    const entitySnapshot = JSON.stringify(entity);
+    const licensesByState = Map.groupBy(register.licenses, license => license.jurisdiction);
     return versions.flatMap(version => {
-      if (version.entitySnapshot !== JSON.stringify(entity)) return [];
+      if (version.entitySnapshot !== entitySnapshot ||
+        version.licenseSnapshots !== stateScopeLicenseSnapshot(licensesByState.get(String(version.jurisdiction)) ?? [])) return [];
       const savedSources = new Set(JSON.parse(String(version.sourceSnapshots)) as string[]);
       return reportingRequirements.flatMap(({ source }) => {
         if (source.jurisdiction !== version.jurisdiction) return [];
@@ -75,7 +82,10 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const rows = db.prepare(`SELECT obligationId,period,version,status,internalTarget,snapshot,createdBy,createdAt
       FROM compliance_obligation_occurrences WHERE brokerageId=? AND entityId=? AND obligationId=? ORDER BY period DESC LIMIT 51 OFFSET ?`)
       .all(tenant, data.entityId, data.id, data.offset);
-    return { kind: "obligationOccurrences", items: rows.slice(0,50), more: rows.length > 50, notice: obligationPlanningNotice };
+    return { kind: "obligationOccurrences", items: rows.slice(0, 50).map(row => {
+      const { stateBasis, stateBasisChanged } = JSON.parse(String(row.snapshot)) as { stateBasis?: StateBasis; stateBasisChanged?: boolean };
+      return { ...row, ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis), stateBasisChanged } : {}) };
+    }), more: rows.length > 50, notice: obligationPlanningNotice };
   }
   if (data.operation === "list") {
     const rows = db.prepare(`SELECT v.* FROM compliance_obligation_versions v WHERE brokerageId=? AND entityId=?
