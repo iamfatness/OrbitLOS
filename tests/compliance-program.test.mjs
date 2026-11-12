@@ -203,7 +203,7 @@ test("upgrading a pre-existing license register preserves company records", t =>
   const f = fixture(t);
   const entity = f.entity();
   const id = crypto.randomUUID();
-  f.sqlite.exec("ALTER TABLE compliance_program_licenses DROP COLUMN holder");
+  f.sqlite.exec("ALTER TABLE compliance_program_licenses DROP COLUMN holder; ALTER TABLE compliance_program_licenses DROP COLUMN renewalOwner; ALTER TABLE compliance_program_events DROP COLUMN details");
   f.sqlite.prepare("INSERT INTO compliance_program_licenses VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
     .run(f.tenant, entity.id, id, "MI", "Fictional company license", "ORIGINAL-1", "Active", null, null, "Saved prior evidence", 2, now);
   initializeComplianceProgram(f.db);
@@ -244,4 +244,35 @@ test("renewal queue is tenant-scoped, paged in date order and clears renewed lic
   const other = f.staff(f.owner, crypto.randomUUID());
   const otherQueue = complianceCaseWork(f.db, { type: "program", input: query }, other, other.brokerage.id, f.roster, now);
   assert.equal(otherQueue.total, 0);
+});
+
+test("renewal owner changes are versioned, safely replayed and visible in exact history", t => {
+  const f = fixture(t);
+  const entity = f.entity();
+  const id = crypto.randomUUID();
+  const initial = { operation: "saveLicense", entityId: entity.id, id, requestId: crypto.randomUUID(), revision: 0,
+    jurisdiction: "MI", licenseType: "Fictional license", licenseNumber: "RN-01", status: "Active", effectiveOn: null,
+    expiresOn: "2026-11-29", evidence: "" };
+  assert.equal(f.run(initial).licenses[0].renewalOwner, null);
+  const assign = { ...initial, revision: 1, requestId: crypto.randomUUID(), renewalOwner: { email: f.backup.email, accessRevision: 1 },
+    renewalNote: "Confirm the renewal receipt with the office", evidence: "Fictional receipt" };
+  assert.equal(f.run(assign).licenses[0].renewalOwner.name, f.backup.name);
+  assert.equal(f.run(assign).licenses[0].revision, 2);
+  assert.equal(f.run({ operation: "licenseRenewals" }).items[0].renewalOwner.available, true);
+  const changedRoster = f.roster.map(member => member.email === f.backup.email ? { ...member, accessRevision: 3 } : member);
+  assert.equal(f.run({ operation: "licenseRenewals" }, f.owner, changedRoster).items[0].renewalOwner.available, false);
+  const revise = { ...assign, revision: 2, requestId: crypto.randomUUID() };
+  assert.match(f.run(revise, f.owner, changedRoster).error, /current admin/);
+  assert.match(f.run({ ...revise, renewalOwner: { email: f.lo.email, accessRevision: 1 } }).error, /current admin/);
+  assert.equal(f.run({ ...revise, renewalOwner: undefined }, f.owner, changedRoster).licenses[0].renewalOwner.available, false);
+  const historyRequest = { operation: "licenseHistory", entityId: entity.id, licenseId: id };
+  const history = f.run(historyRequest);
+  assert.equal(history.entries.length, 3);
+  assert.equal(history.entries[0].renewalOwner, f.backup.name);
+  assert.equal(history.entries[1].note, assign.renewalNote);
+  assert.equal(history.entries[1].evidence, assign.evidence);
+  assert.equal(history.entries[1].actor, f.owner.email);
+  assert.ok(f.run(historyRequest, f.lo).error);
+  assert.ok(f.run({ ...historyRequest, entityId: crypto.randomUUID() }).error);
+  assert.equal(f.run({ ...revise, revision: 3, requestId: crypto.randomUUID(), renewalOwner: null }).licenses[0].renewalOwner, null);
 });

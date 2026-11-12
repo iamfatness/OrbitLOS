@@ -78,6 +78,8 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning }: 
         <div className="document-item-head"><strong>{item.jurisdiction} · {item.licenseType}</strong><span className="pill">{item.renewal}</span></div>
         <p className="muted">{item.entityName} · {item.holderLabel}</p>
         <p className="muted">{item.licenseNumber} · Expiration {item.expiresOn}</p>
+        <p className="muted">Renewal owner · {item.renewalOwner?.name ?? "Unassigned"}
+          {item.renewalOwner && !item.renewalOwner.available && " · Owner needs review"}</p>
         <Button id={actionId(item)} type="button" size="sm" variant="outline" disabled={busy}
           aria-label={`Review ${item.jurisdiction} license ${item.licenseNumber} for ${item.entityName}`}
           onClick={() => open({ target: item, after })}>Review license<ArrowRight aria-hidden="true" /></Button>

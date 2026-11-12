@@ -2,13 +2,49 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
-import { licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseStatuses,
-  type LicenseHolder, type LicenseRenewalTarget, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
+import { licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseRenewalOwner, licenseStatuses,
+  type LicenseHistory, type LicenseHolder, type LicenseRenewalOwner, type LicenseRenewalTarget, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
 import { researchSources } from "@/lib/compliance-research-model";
+import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
 const stateNames = new Map(researchSources.map(source => [source.jurisdiction, source.title]));
 const stateName = (code: string) => code === "DC" ? "District of Columbia" : stateNames.get(code) ?? code;
+
+const ownerKey = ({ email, accessRevision }: LicenseRenewalOwner) => JSON.stringify({ email, accessRevision });
+
+function RenewalHistory({ brokerageId, entityId, licenseId }: { brokerageId: string; entityId: string; licenseId: string }) {
+  const [open, setOpen] = useState(false);
+  const [result, setResult] = useState<LicenseHistory | { error: string }>();
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void accessComplianceCases({ type: "program", input: { operation: "licenseHistory", entityId, licenseId } }, brokerageId).then(value => {
+      if (!active) return;
+      if ("error" in value || value.kind === "licenseHistory") setResult(value);
+    }, () => { if (active) setResult({ error: "Could not load the license history." }); });
+    return () => { active = false; };
+  }, [brokerageId, entityId, licenseId, open, retry]);
+  return <details className="document-form" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>Renewal history</summary>
+    {!result && <p role="status" className="muted">Loading renewal history…</p>}
+    {result && ("error" in result ? <div>
+      <p role="alert">{result.error}</p><Button size="sm" variant="outline" onClick={() => { setResult(undefined); setRetry(value => value + 1); }}>Retry history</Button>
+    </div> : result.entries.length ? <>
+      <ul className="loan-task-list">{result.entries.map(entry => <li key={entry.id} className="loan-task compliance-row">
+        <div className="loan-task-copy">
+          <strong>{entry.action}</strong><span>{entry.actor} · {dateTime(entry.at)} ET</span>
+          <span>{entry.status}{entry.expiresOn ? ` · Expiration ${entry.expiresOn}` : ""}</span>
+          {entry.renewalOwner !== undefined && <span>Renewal owner · {entry.renewalOwner ?? "Unassigned"}</span>}
+          {entry.note && <span>{entry.note}</span>}
+          {entry.evidence && <span>Evidence · {entry.evidence}</span>}
+        </div>
+      </li>)}</ul>
+      {result.more && <p className="muted">Showing the 25 most recent changes.</p>}
+    </> : <p className="muted">No recorded changes are available for this license.</p>)}
+  </details>;
+}
 
 export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget }) {
   const [entities, setEntities] = useState<readonly ProgramEntity[]>();
@@ -102,8 +138,12 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { br
       if (!parsed.success) { setFeedback({ message: "Check the state, license type, number and dates.", error: true }); return; }
       const holder = licenseHolder.safeParse(holderKind === "Company" ? { kind: "Company" } : JSON.parse(field("holder") || "null"));
       if (!holder.success) { setFeedback({ message: "Choose a holder for this license.", error: true }); return; }
+      const chosenOwner = field("renewalOwner");
+      const owner = chosenOwner && chosenOwner !== "keep" ? licenseRenewalOwner.safeParse(JSON.parse(chosenOwner)) : undefined;
+      if (owner && !owner.success) { setFeedback({ message: "Choose a current renewal owner.", error: true }); return; }
       input = { operation: "saveLicense", requestId, entityId, id: selected?.id ?? requestId, revision: selected?.revision ?? 0,
-        ...parsed.data, holder: holder.data };
+        ...parsed.data, holder: holder.data, renewalOwner: chosenOwner === "keep" ? undefined : owner?.data ?? null,
+        renewalNote: field("renewalNote") || undefined };
     }
     setBusy(true);
     setFeedback(undefined);
@@ -195,7 +235,17 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { br
             </div>
             {holderKind !== "Company" && !holderChoices.length && <p className="muted">{holderKind === "Branch" ?
               "Add an active branch in Team → Branches to assign its license." : "Add or activate an LO in Team → Staff access to assign their license."}</p>}
-            <label className="field">Evidence reference (optional)<input name="evidence" maxLength={500} defaultValue={selected?.evidence} /></label>
+            <div className="form-grid">
+              <label className="field">Renewal owner<select name="renewalOwner"
+                defaultValue={selected?.renewalOwner ? selected.renewalOwner.available ? ownerKey(selected.renewalOwner) : "keep" : ""}>
+                <option value="">Unassigned</option>
+                {selected?.renewalOwner && !selected.renewalOwner.available &&
+                  <option value="keep">{selected.renewalOwner.name} · Owner needs review</option>}
+                {current?.renewalOwners.map(owner => <option key={owner.email} value={ownerKey(owner)}>{owner.name}</option>)}
+              </select></label>
+              <label className="field">Evidence reference (optional)<input name="evidence" maxLength={500} defaultValue={selected?.evidence} /></label>
+            </div>
+            <label className="field">Renewal note (optional)<textarea name="renewalNote" maxLength={500} rows={2} /></label>
           </>}
           <div className="loan-application-actions">
             <Button type="submit" size="sm">{busy ? "Saving…" : editing === "entity" ? "Save entity" : "Save license"}</Button>
@@ -206,6 +256,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { br
           </div>
         </fieldset>
       </form>
+      {selected && <RenewalHistory key={selected.id} brokerageId={brokerageId} entityId={entityId} licenseId={selected.id} />}
     </section> : entityId && licenses ? <>
       <div className="loan-application-actions licensing-controls">
         <label className="field">Filter by state<select value={filter} onChange={event => setFilter(event.target.value)}>
@@ -224,6 +275,8 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { br
           <span>{item.holder.kind === "Company" ? "Company" : `${item.holder.kind} · ${item.holderLabel}`}
             {!item.holderAvailable && " · Assignment needs review"}</span>
           {item.renewal && <span className="pill">{item.renewal}</span>}
+          {(item.renewal || item.renewalOwner) && <span>Renewal owner · {item.renewalOwner?.name ?? "Unassigned"}
+            {item.renewalOwner && !item.renewalOwner.available && " · Owner needs review"}</span>}
           <span>{item.effectiveOn && `Effective ${item.effectiveOn} · `}{item.expiresOn ? `Expires ${item.expiresOn}` : "Expiration not recorded"}</span>
           {item.evidence && <span>Evidence · {item.evidence}</span>}
         </div>

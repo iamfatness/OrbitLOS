@@ -3,7 +3,7 @@ import { readBranches } from "./branches";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import type { VersionedBrokerageMember } from "./brokerage-model";
-import { licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalQueue, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
+import { licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseHistory, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -15,7 +15,7 @@ export function initializeComplianceProgram(db: Store) {
   CREATE TABLE IF NOT EXISTS compliance_program_licenses (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, id TEXT NOT NULL, jurisdiction TEXT NOT NULL,
     licenseType TEXT NOT NULL, licenseNumber TEXT NOT NULL, status TEXT NOT NULL, effectiveOn TEXT, expiresOn TEXT,
-    evidence TEXT NOT NULL, revision INTEGER NOT NULL, updatedAt TEXT NOT NULL, holder TEXT,
+    evidence TEXT NOT NULL, revision INTEGER NOT NULL, updatedAt TEXT NOT NULL, holder TEXT, renewalOwner TEXT,
     PRIMARY KEY(brokerageId,entityId,id), FOREIGN KEY(brokerageId,entityId) REFERENCES compliance_program_entities(brokerageId,id));
   CREATE UNIQUE INDEX IF NOT EXISTS compliance_program_license_number ON compliance_program_licenses(
     brokerageId,entityId,jurisdiction,licenseType COLLATE NOCASE,licenseNumber COLLATE NOCASE);
@@ -29,16 +29,29 @@ export function initializeComplianceProgram(db: Store) {
   CREATE INDEX IF NOT EXISTS compliance_program_period ON compliance_program_items(brokerageId,entityId,month,internalTarget,id);
   CREATE TABLE IF NOT EXISTS compliance_program_events (
     brokerageId TEXT NOT NULL, requestId TEXT NOT NULL, entityId TEXT NOT NULL, month TEXT NOT NULL, id TEXT NOT NULL,
-    actor TEXT NOT NULL, at TEXT NOT NULL, action TEXT NOT NULL, note TEXT NOT NULL, request TEXT NOT NULL,
+    actor TEXT NOT NULL, at TEXT NOT NULL, action TEXT NOT NULL, note TEXT NOT NULL, request TEXT NOT NULL, details TEXT,
     PRIMARY KEY(brokerageId,requestId));
+  CREATE INDEX IF NOT EXISTS compliance_program_license_history ON compliance_program_events(brokerageId,entityId,id,at)
+    WHERE month='' AND action IN ('Recorded license','Updated license record');
   CREATE INDEX IF NOT EXISTS compliance_program_history ON compliance_program_events(brokerageId,entityId,month,at);
   CREATE TABLE IF NOT EXISTS compliance_program_reviews (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, month TEXT NOT NULL, id TEXT NOT NULL, fingerprint TEXT NOT NULL,
     actor TEXT NOT NULL, at TEXT NOT NULL, note TEXT NOT NULL, snapshot TEXT NOT NULL,
     PRIMARY KEY(brokerageId,id), FOREIGN KEY(brokerageId,entityId) REFERENCES compliance_program_entities(brokerageId,id));`);
-  if (!db.prepare("PRAGMA table_info(compliance_program_licenses)").all().some(column => column.name === "holder")) {
-    db.exec("ALTER TABLE compliance_program_licenses ADD COLUMN holder TEXT");
+  const licenseColumns = db.prepare("PRAGMA table_info(compliance_program_licenses)").all();
+  if (!licenseColumns.some(column => column.name === "holder")) db.exec("ALTER TABLE compliance_program_licenses ADD COLUMN holder TEXT");
+  if (!licenseColumns.some(column => column.name === "renewalOwner")) db.exec("ALTER TABLE compliance_program_licenses ADD COLUMN renewalOwner TEXT");
+  if (!db.prepare("PRAGMA table_info(compliance_program_events)").all().some(column => column.name === "details")) {
+    db.exec("ALTER TABLE compliance_program_events ADD COLUMN details TEXT");
   }
+}
+type OwnerChoice = LicenseRenewalOwner & { name: string };
+function renewalOwnerRecord(raw: unknown, owners: ReadonlyMap<string, OwnerChoice>): LicenseRenewalAssignment | null {
+  if (typeof raw !== "string") return null;
+  const saved = JSON.parse(raw) as OwnerChoice;
+  const current = owners.get(saved.email);
+  const available = current?.accessRevision === saved.accessRevision;
+  return { ...saved, name: available ? current!.name : saved.name, available };
 }
 function licenseHolderRecord(raw: unknown): { holder: LicenseHolder; label: string } {
   if (!raw) return { holder: { kind: "Company" }, label: "Company" };
@@ -50,14 +63,14 @@ function renewalWindow(now: string) {
   return { today, renewalThrough: new Date(Date.parse(today) + licenseRenewalLookahead * 86400000).toISOString().slice(0, 10) };
 }
 
-function licenseRenewals(db: Store, tenant: string, now: string, after?: LicenseRenewalCursor): LicenseRenewalQueue {
+function licenseRenewals(db: Store, tenant: string, now: string, owners: ReadonlyMap<string, OwnerChoice>, after?: LicenseRenewalCursor): LicenseRenewalQueue {
   const { today, renewalThrough } = renewalWindow(now);
   const where = `l.brokerageId=? AND l.expiresOn IS NOT NULL AND l.status IN ('Active','Expired')
     AND l.expiresOn<=? AND (l.status='Active' OR l.expiresOn<?)`;
   const total = Number(db.prepare(`SELECT count(*) AS total FROM compliance_program_licenses l WHERE ${where}`)
     .get(tenant, renewalThrough, today)?.total);
   const limit = 8;
-  const rows = db.prepare(`SELECT l.id,l.entityId,l.jurisdiction,l.licenseType,l.licenseNumber,l.expiresOn,l.holder,e.name
+  const rows = db.prepare(`SELECT l.id,l.entityId,l.jurisdiction,l.licenseType,l.licenseNumber,l.expiresOn,l.holder,l.renewalOwner,e.name
     FROM compliance_program_licenses l JOIN compliance_program_entities e ON e.brokerageId=l.brokerageId AND e.id=l.entityId
     WHERE ${where}${after ? " AND (l.expiresOn,l.entityId,l.id) > (?,?,?)" : ""}
     ORDER BY l.expiresOn,l.entityId,l.id LIMIT ?`).all(tenant, renewalThrough, today,
@@ -68,6 +81,7 @@ function licenseRenewals(db: Store, tenant: string, now: string, after?: License
     return { licenseId: String(row.id), entityId: String(row.entityId), entityName: String(row.name), jurisdiction: String(row.jurisdiction),
       licenseType: String(row.licenseType), licenseNumber: String(row.licenseNumber), expiresOn,
       holderLabel: holder.holder.kind === "Company" ? "Company" : `${holder.holder.kind} · ${holder.label}`,
+      renewalOwner: renewalOwnerRecord(row.renewalOwner, owners),
       renewal: expiresOn < today ? "Past expiration" as const : "Expires soon" as const };
   });
   const last = items.at(-1);
@@ -103,13 +117,16 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (!parsed.success) return unavailable;
   const data = parsed.data, tenant = staff.brokerage.id;
   if (data.operation === "entities") return entities(db, tenant);
-  if (data.operation === "licenseRenewals") return licenseRenewals(db, tenant, now, data.after);
+  const owners = new Map(roster.filter(member => member.status === "Active" && member.role === "Admin").map(member => [member.email,
+    { email: member.email, accessRevision: member.accessRevision ?? 0, name: member.name }]));
+  if (data.operation === "licenseRenewals") return licenseRenewals(db, tenant, now, owners, data.after);
   const replay = "requestId" in data ? db.prepare("SELECT * FROM compliance_program_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId) : undefined;
   if (replay && (replay.actor !== staff.email || replay.request !== JSON.stringify(data))) return changed;
-  function event(entityId: string, period: string, id: string, action: string, note: string) {
+  function event(entityId: string, period: string, id: string, action: string, note: string, details?: object) {
     if (!("requestId" in data)) throw new Error("A change requires a request ID");
-    db.prepare("INSERT INTO compliance_program_events VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(tenant, data.requestId, entityId, period, id, staff.email, now, action, note, JSON.stringify(data));
+    db.prepare(`INSERT INTO compliance_program_events
+      (brokerageId,requestId,entityId,month,id,actor,at,action,note,request,details) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(tenant, data.requestId, entityId, period, id, staff.email, now, action, note, JSON.stringify(data), details ? JSON.stringify(details) : null);
   }
   if (data.operation === "createEntity") {
     if (!replay) {
@@ -124,6 +141,19 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   const row = db.prepare("SELECT id,name,nmls,scopeNote,createdAt FROM compliance_program_entities WHERE brokerageId=? AND id=?").get(tenant, data.entityId);
   if (!row) return unavailable;
   const entity = { ...row } as ProgramEntity;
+  if (data.operation === "licenseHistory") {
+    if (!db.prepare("SELECT 1 FROM compliance_program_licenses WHERE brokerageId=? AND entityId=? AND id=?").get(tenant, entity.id, data.licenseId)) return unavailable;
+    const rows = db.prepare(`SELECT requestId,actor,at,action,request,details FROM compliance_program_events
+      WHERE brokerageId=? AND entityId=? AND id=? AND month='' AND action IN ('Recorded license','Updated license record')
+      ORDER BY at DESC,rowid DESC LIMIT 26`).all(tenant, entity.id, data.licenseId);
+    const history: LicenseHistory = { kind: "licenseHistory", entries: rows.slice(0, 25).map(row => {
+      const request = JSON.parse(String(row.request)) as Extract<ProgramRequest, { operation: "saveLicense" }>;
+      const details = typeof row.details === "string" ? JSON.parse(row.details) as { renewalOwner: string | null } : undefined;
+      return { id: String(row.requestId), actor: String(row.actor), at: String(row.at), action: String(row.action), note: request.renewalNote ?? "",
+        evidence: request.evidence, expiresOn: request.expiresOn, status: request.status, renewalOwner: details?.renewalOwner };
+    }), more: rows.length > 25 };
+    return history;
+  }
   if (data.operation === "licenses" || data.operation === "saveLicense") {
     const holderChoices: LicenseHolderChoice[] = [
       ...readBranches(db).filter(branch => branch.active).map(branch => ({
@@ -136,20 +166,20 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
     ];
     const choices = new Map(holderChoices.map(choice => [JSON.stringify(choice.holder), choice.label]));
     const { today, renewalThrough } = renewalWindow(now);
-    const list = (): ProgramLicenses => ({ kind: "programLicenses", entity, holderChoices, licenses: db.prepare(`SELECT id,jurisdiction,
-      licenseType,licenseNumber,status,effectiveOn,expiresOn,evidence,revision,updatedAt,holder FROM compliance_program_licenses
+    const list = (): ProgramLicenses => ({ kind: "programLicenses", entity, holderChoices, renewalOwners: [...owners.values()], licenses: db.prepare(`SELECT id,jurisdiction,
+      licenseType,licenseNumber,status,effectiveOn,expiresOn,evidence,revision,updatedAt,holder,renewalOwner FROM compliance_program_licenses
       WHERE brokerageId=? AND entityId=? ORDER BY jurisdiction,licenseType,licenseNumber`).all(tenant, entity.id).map(row => {
-      const { holder: rawHolder, ...record } = row;
+      const { holder: rawHolder, renewalOwner: rawOwner, ...record } = row;
       const saved = licenseHolderRecord(rawHolder);
       const label = choices.get(JSON.stringify(saved.holder));
       const holderAvailable = saved.holder.kind === "Company" || label !== undefined;
       const expiresOn = typeof record.expiresOn === "string" ? record.expiresOn : null;
       const renewal = expiresOn && (record.status === "Active" || record.status === "Expired") ?
         expiresOn < today ? "Past expiration" : record.status === "Active" && expiresOn <= renewalThrough ? "Expires soon" : null : null;
-      return { ...record, holder: saved.holder, holderLabel: label ?? saved.label, holderAvailable, renewal } as ProgramLicense;
+      return { ...record, holder: saved.holder, holderLabel: label ?? saved.label, holderAvailable, renewalOwner: renewalOwnerRecord(rawOwner, owners), renewal } as ProgramLicense;
     }) });
     if (data.operation === "licenses" || replay) return list();
-    const current = db.prepare("SELECT revision,holder FROM compliance_program_licenses WHERE brokerageId=? AND entityId=? AND id=?")
+    const current = db.prepare("SELECT revision,holder,renewalOwner FROM compliance_program_licenses WHERE brokerageId=? AND entityId=? AND id=?")
       .get(tenant, entity.id, data.id);
     if ((current?.revision ?? 0) !== data.revision) return { error: "This license changed. Refresh before saving your edit." };
     if (data.effectiveOn && data.expiresOn && data.expiresOn < data.effectiveOn) return { error: "Enter an expiration date on or after the effective date." };
@@ -167,16 +197,24 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
     if (!holderLabel && (!current || holderKey !== JSON.stringify(previous.holder))) {
       return { error: "The selected branch or loan officer is no longer available. Refresh the register and choose a current holder." };
     }
+    const savedOwner = renewalOwnerRecord(current?.renewalOwner, owners);
+    const requestedOwner = data.renewalOwner;
+    const currentOwner = requestedOwner && owners.get(requestedOwner.email);
+    if (requestedOwner && currentOwner?.accessRevision !== requestedOwner.accessRevision) {
+      return { error: "The selected renewal owner no longer has current admin access. Refresh the register and choose an active admin." };
+    }
+    const nextOwner = requestedOwner === undefined ? savedOwner : currentOwner || null;
     const fields = licenseFields.parse(data);
     db.prepare(`INSERT INTO compliance_program_licenses
-      (brokerageId,entityId,id,jurisdiction,licenseType,licenseNumber,status,effectiveOn,expiresOn,evidence,revision,updatedAt,holder)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      (brokerageId,entityId,id,jurisdiction,licenseType,licenseNumber,status,effectiveOn,expiresOn,evidence,revision,updatedAt,holder,renewalOwner)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(brokerageId,entityId,id) DO UPDATE SET jurisdiction=excluded.jurisdiction,licenseType=excluded.licenseType,
       licenseNumber=excluded.licenseNumber,status=excluded.status,effectiveOn=excluded.effectiveOn,expiresOn=excluded.expiresOn,
-      evidence=excluded.evidence,revision=excluded.revision,updatedAt=excluded.updatedAt,holder=excluded.holder`)
+      evidence=excluded.evidence,revision=excluded.revision,updatedAt=excluded.updatedAt,holder=excluded.holder,renewalOwner=excluded.renewalOwner`)
       .run(tenant, entity.id, data.id, fields.jurisdiction, fields.licenseType, fields.licenseNumber, fields.status,
-        fields.effectiveOn, fields.expiresOn, fields.evidence, data.revision + 1, now, JSON.stringify({ holder: next, label: holderLabel ?? previous.label }));
-    event(entity.id, "", data.id, current ? "Updated license record" : "Recorded license", fields.evidence);
+        fields.effectiveOn, fields.expiresOn, fields.evidence, data.revision + 1, now, JSON.stringify({ holder: next, label: holderLabel ?? previous.label }), nextOwner ? JSON.stringify(nextOwner) : null);
+    event(entity.id, "", data.id, current ? "Updated license record" : "Recorded license", data.renewalNote ?? fields.evidence,
+      { renewalOwner: nextOwner?.name ?? null });
     return list();
   }
   const read = () => month(db, staff, entity, data.month, roster, now);

@@ -24,14 +24,20 @@ export const licenseRenewalLookahead = 30;
 const licenseRenewalCursor = z.strictObject({ expiresOn: z.iso.date(), entityId: z.uuid(), licenseId: z.uuid() });
 export type LicenseRenewalCursor = z.infer<typeof licenseRenewalCursor>;
 export type LicenseRenewalTarget = Pick<LicenseRenewalCursor, "entityId" | "licenseId">;
+export const licenseRenewalOwner = z.strictObject({ email: z.email().toLowerCase().max(254), accessRevision: z.int().nonnegative() });
+export type LicenseRenewalOwner = z.infer<typeof licenseRenewalOwner>;
+export type LicenseRenewalAssignment = LicenseRenewalOwner & { name: string; available: boolean };
 export type LicenseRenewalItem = LicenseRenewalCursor & {
   entityName: string; jurisdiction: string; licenseType: string; licenseNumber: string;
-  holderLabel: string; renewal: "Past expiration" | "Expires soon";
+  holderLabel: string; renewalOwner: LicenseRenewalAssignment | null; renewal: "Past expiration" | "Expires soon";
 };
 export type LicenseRenewalQueue = { kind: "licenseRenewals"; total: number; items: LicenseRenewalItem[]; next: LicenseRenewalCursor | null };
 export type ProgramLicense = LicenseFields & { id: string; revision: number; updatedAt: string; holder: LicenseHolder;
-  holderLabel: string; holderAvailable: boolean; renewal: "Past expiration" | "Expires soon" | null };
-export type ProgramLicenses = { kind: "programLicenses"; entity: ProgramEntity; licenses: ProgramLicense[]; holderChoices: LicenseHolderChoice[] };
+  holderLabel: string; holderAvailable: boolean; renewalOwner: LicenseRenewalAssignment | null; renewal: "Past expiration" | "Expires soon" | null };
+export type ProgramLicenses = { kind: "programLicenses"; entity: ProgramEntity; licenses: ProgramLicense[];
+  holderChoices: LicenseHolderChoice[]; renewalOwners: (LicenseRenewalOwner & { name: string })[] };
+export type LicenseHistory = { kind: "licenseHistory"; entries: { id: string; actor: string; at: string; action: string;
+  note: string; evidence: string; expiresOn: string | null; status: string; renewalOwner: string | null | undefined }[]; more: boolean };
 export const programCategories = ["Reporting preparation", "Training review", "Policy review", "Quality control", "License review", "Management review"] as const;
 export const programStatuses = ["Planned", "In progress", "Awaiting evidence", "Awaiting review", "Completed"] as const;
 export const programMonth = z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])$/);
@@ -43,8 +49,10 @@ export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("entities") }),
   z.strictObject({ operation: z.literal("createEntity"), ...change, name: title, nmls: z.string().regex(/^\d{0,15}$/), scopeNote: note }),
   z.strictObject({ operation: z.literal("licenseRenewals"), after: licenseRenewalCursor.optional() }),
+  z.strictObject({ operation: z.literal("licenseHistory"), entityId: z.uuid(), licenseId: z.uuid() }),
   z.strictObject({ operation: z.literal("licenses"), entityId: z.uuid() }),
-  z.strictObject({ operation: z.literal("saveLicense"), ...change, entityId: z.uuid(), id: z.uuid(), revision: z.number().int().nonnegative(), ...licenseFields.shape, holder: licenseHolder.optional() }),
+  z.strictObject({ operation: z.literal("saveLicense"), ...change, entityId: z.uuid(), id: z.uuid(), revision: z.number().int().nonnegative(), ...licenseFields.shape, holder: licenseHolder.optional(),
+    renewalOwner: licenseRenewalOwner.nullable().optional(), renewalNote: z.string().trim().max(500).optional() }),
   z.strictObject({ operation: z.literal("month"), ...scope }),
   z.strictObject({ operation: z.literal("schedule"), ...scope, ...change, title, category: z.enum(programCategories), ownerEmail: z.email(),
     internalTarget: z.iso.date(), instructions: note }),
