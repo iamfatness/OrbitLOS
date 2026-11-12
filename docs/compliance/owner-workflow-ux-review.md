@@ -74,3 +74,12 @@ Use a fictional brokerage with two branches, an upcoming renewal, a saved state 
 The owner-session prompts are a release usability check. The scripted walkthrough uses fictional records and cannot establish that a first-time owner can complete the same tasks unaided. Counsel review remains a separate production release gate.
 
 **Superseded loan findings.** The local pilot shows the original package and its status with an **Open current evidence** action. It reloads the loan and puts the latest sample disclosure package first. **Back to finding** returns to the original case and its evidence action. The general loan action is omitted from these two focused views. The original package receipt and case history remain available.
+
+## What an owner should be able to explain
+
+- **Setup.** “I recorded the company, offices, states and licenses we have on file. I know who will review which requirements apply.” A branch with no license record and a state with saved business facts awaiting review should each prompt a different conversation.
+- **Daily work.** “I can see the license that expires next, who owns the follow-up and what date matters. Our internal review dates are brokerage planning dates.” The branch selector applies to renewals. The internal review queue covers the brokerage.
+- **Reporting.** “We prepared the report and recorded the confirmation we received from the filing system. I can find the original receipt using its saved location.” Filing history identifies the latest status staff recorded and retrieves older confirmations by their exact number. The **Download Orbit record** action exports the staff entry. A missing original receipt location is visible on the entry.
+- **Review and evidence.** “I can send a question from the saved state record and find the reviewer's response. I can follow up on a policy acknowledgment and open the version behind it.” Loan evidence still lives under its own pilot workflow. Observe whether a first-time owner can find it using the prompts above.
+
+The next release check is an unaided session with an owner who has limited compliance experience. Start with the two-office fixture and the prompts above. Capture where they hesitate and have them explain the setup, internal date and filing evidence in their own words. Counsel review of applicability is a separate release check.

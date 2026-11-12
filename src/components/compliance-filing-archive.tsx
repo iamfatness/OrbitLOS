@@ -82,6 +82,7 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
   return <div className="record-form">
     <section className="integration manager-panel record-form" aria-label="Filing history search" hidden={!!selected}>
       <h2 ref={listHeading} tabIndex={-1}>Filing history</h2>
+      <p className="muted">Find confirmation details your team recorded after filing outside Orbit.</p>
       <form className="record-form" onSubmit={apply} noValidate>
         <div className="form-grid compliance-filing-filters">
           <label className="field">Company<select value={draft.entityId} onChange={event => setDraft({ ...draft, entityId: event.target.value })}>
@@ -110,11 +111,11 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
         }}>Retry filing history</Button></div>
       </div>}
       {archive && !archive.items.length && <p role="status">{filtered ? "No filings match these filters. Try another year or confirmation number." : "No external filing confirmations have been recorded."}</p>}
-      {!!archive?.items.length && <ul className="compliance-home-list" aria-label="Filed periods">
+      {!!archive?.items.length && <ul className="compliance-home-list" aria-label="Recorded filing confirmations">
         {archive.items.map(record => <li key={recordKey(record)} className="compliance-home-row">
           <div><strong>{record.entityName} · Q{record.basis.report.quarter} {record.basis.report.year}</strong>
             <p>{record.title}</p>
-            <p className="muted">Latest entry {record.status} · {dateLabel(record.confirmedOn)} · {record.confirmation}</p>
+            <p className="muted">Latest recorded status {record.status} · {dateLabel(record.confirmedOn)} · {record.confirmation}</p>
             {record.matchedVersion !== record.version && <p>Search matched an earlier confirmation (version {record.matchedVersion}).</p>}
           </div>
           <Button id={`filing-archive-${recordKey(record)}`} size="sm" variant="outline"

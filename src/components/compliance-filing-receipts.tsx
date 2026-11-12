@@ -106,17 +106,17 @@ export function ComplianceFilingReceipts({ brokerageId, entityId, entityName, ba
 
   const entryDetails = (entry: Entry) => <>
     <p className="break-words"><strong>{entry.status}</strong> · {entry.confirmation} · {dateLabel(entry.confirmedOn)}</p>
-    {entry.documentReference && <p className="break-words">Receipt location · {entry.documentReference}</p>}
+    <p className="break-words">{entry.documentReference ? `Original receipt location · ${entry.documentReference}` : "Original receipt location is missing."}</p>
     {entry.note && <p className="break-words">{entry.note}</p>}
     <p className="muted break-words">Version {entry.version} · Recorded by {entry.recordedBy} · {dateTime(entry.recordedAt)} ET</p>
-    <div><Button size="sm" variant="outline" aria-label={`Download filing record version ${entry.version}`}
-      onClick={() => exportEntry(entry)}>Download record</Button></div>
+    <div><Button size="sm" variant="outline" aria-label={`Download Orbit filing record version ${entry.version}`}
+      onClick={() => exportEntry(entry)}>Download Orbit record</Button></div>
   </>;
 
   return <section className="record-form document-item" aria-label="External filing">
     <h3>External filing</h3>
-    <p className="muted">{readOnly ? "Filing details recorded by brokerage staff." :
-      "Record the confirmation you received outside Orbit. Orbit stores the details you enter and the location of the original receipt."}</p>
+    <p className="muted">{readOnly ? "Orbit keeps the confirmation details your team entered. Use the receipt location to find the original confirmation." :
+      "After filing outside Orbit, enter the confirmation details and where your team can find the original receipt."}</p>
     {feedback && <p ref={focusFeedback} tabIndex={-1} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
     {loading && <p role="status">Loading filing history…</p>}
     {history && !latest && <p>No filing confirmation recorded for this period.</p>}

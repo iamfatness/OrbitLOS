@@ -101,7 +101,7 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
           {step.enabled && <Button id={`compliance-setup-${step.id}`} size="sm" variant="outline" onClick={() => onSetup(step.id, !home.entityCount)}>{step.action}</Button>}
         </li>)}
       </ul>
-      <p className="muted">Use these records to review which licenses and obligations apply with your compliance reviewer.</p>
+      <p className="muted">These steps record your brokerage details. Ask your compliance reviewer to confirm which licenses and obligations apply.</p>
     </details>
   </div>;
 
@@ -128,7 +128,7 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
     {showSetupFirst && setup}
     {home && <section className="compliance-home-attention" aria-labelledby="compliance-attention-heading">
       <h2 id="compliance-attention-heading" ref={heading} tabIndex={-1}>Needs attention</h2>
-      {!hasWork && <p className="muted">{showSetupFirst && !home.entityCount ? "Renewals and internal reviews appear here as you add records." : `No recorded renewals or review work due through ${displayDate(home.through)}${home.fileFindings ? ", and no sample file findings" : ""}.`}</p>}
+      {!hasWork && <p className="muted">{showSetupFirst && !home.entityCount ? "Renewals and internal reviews appear here as you add records." : `No recorded renewals or internal reviews due through ${displayDate(home.through)}${home.fileFindings ? ", and no sample file findings" : ""}.`}</p>}
       {renewalTotal > 0 && <section aria-label="License renewals">
         <h3>License renewals</h3>
         <ul className="compliance-home-list">{home.renewals.items.map(item => {
