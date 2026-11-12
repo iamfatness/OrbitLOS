@@ -4,6 +4,15 @@ import type { QuarterReviewPage, QuarterReviewSummary } from "./call-report-quar
 import type { buildFv7QuarterWorkpaper } from "./mcr-fv7-quarter-evidence";
 
 export const fv7EvidenceFileLimit = 1_000_000;
+export type Fv7Workpaper = ReturnType<typeof buildFv7QuarterWorkpaper>;
+export type Fv7SavedWorkpaper = {
+  sequence: number;
+  version: number;
+  entityReference: string;
+  reconciled: boolean;
+  recordedAt: string;
+  recordedBy: string;
+};
 
 export const reportingReadinessUnavailable = "Reporting readiness is available to brokerage admins.";
 export const callReportFactsTarget = "loan-call-report";
@@ -21,6 +30,10 @@ export const reportingReadinessInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("fv7Template"), year, quarter, version }),
   z.object({ type: z.literal("fv7Preview"), year, quarter, version,
     evidence: z.string().min(1).max(fv7EvidenceFileLimit) }),
+  z.object({ type: z.literal("fv7Save"), year, quarter, version,
+    evidence: z.string().min(1).max(fv7EvidenceFileLimit), checked: z.string().regex(/^[a-f0-9]{64}$/) }),
+  z.object({ type: z.literal("fv7History"), year, quarter, before: version.optional() }),
+  z.object({ type: z.literal("fv7Read"), year, quarter, sequence: version }),
 ]);
 export type ReportingReadinessInput = z.infer<typeof reportingReadinessInput>;
 export type ReportingPeriod = { year: string; quarter: number };
@@ -35,4 +48,7 @@ export type ReportingReadiness = { kind: "list"; indexing: boolean; blockers: nu
   { kind: "quarterReviewSaved"; review: QuarterReviewSummary } |
   { kind: "quarterReviewDownload"; version: number; csv: string } |
   { kind: "fv7Template"; version: number; json: string } |
-  { kind: "fv7Preview"; workpaper: ReturnType<typeof buildFv7QuarterWorkpaper> } | { error: string };
+  { kind: "fv7Preview"; workpaper: Fv7Workpaper; checked: string } |
+  { kind: "fv7Saved"; saved: Fv7SavedWorkpaper } |
+  { kind: "fv7History"; items: Fv7SavedWorkpaper[]; next: number | null } |
+  { kind: "fv7Read"; saved: Fv7SavedWorkpaper; workpaper: Fv7Workpaper; evidence: string } | { error: string };

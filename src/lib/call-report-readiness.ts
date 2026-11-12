@@ -6,6 +6,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
 import { initializeQuarterReviews, quarterReviewWork } from "./call-report-quarter";
+import { fv7WorkpaperWork, initializeFv7Workpapers } from "./mcr-fv7-workpaper-store";
 
 const pageSize = 20;
 const indexBatch = 160;
@@ -13,6 +14,7 @@ const exportLimit = 1000;
 
 export function initializeCallReportReadiness(db: Store) {
   initializeQuarterReviews(db);
+  initializeFv7Workpapers(db);
   db.exec(`CREATE TABLE IF NOT EXISTS call_report_readiness (
     loanId TEXT PRIMARY KEY REFERENCES loans(id) ON DELETE CASCADE, received TEXT NOT NULL, outcomeOn TEXT NOT NULL,
     sortOn TEXT NOT NULL, firstApplication TEXT NOT NULL, fundingDate TEXT NOT NULL, revision INTEGER NOT NULL, issues TEXT NOT NULL, issueCount INTEGER NOT NULL
@@ -97,8 +99,11 @@ export function reportingReadinessWork(db: Store, input: unknown, staff: Workspa
   const range = quarterRange(data.year, data.quarter);
   const { from, through } = range;
   const dates = [from, through, from, through, from, through, through, from];
-  const snapshotOnly = data.type === "downloadQuarterReview" || data.type === "fv7Template" || data.type === "fv7Preview";
-  const indexing = !snapshotOnly && refreshCallReportReadiness(db);
+  if (data.type === "fv7Template" || data.type === "fv7Preview" || data.type === "fv7Save" ||
+    data.type === "fv7History" || data.type === "fv7Read") {
+    return fv7WorkpaperWork(db, data, staff, now.toISOString());
+  }
+  const indexing = data.type !== "downloadQuarterReview" && refreshCallReportReadiness(db);
   const checked = () => checkedQuarterRows(db, range, dates, indexing);
   if (data.type !== "list" && data.type !== "export") {
     return quarterReviewWork(db, data, staff, range, today, now.toISOString(), checked);

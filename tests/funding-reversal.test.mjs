@@ -604,7 +604,37 @@ test("FV7 evidence links a downloaded closed-quarter review to source and adjust
     { loanId, revision: 1, state: "MI", source: null, intakeReference: "", opening: { amount: null, reference: "" }, ending: { amount: null, reference: "" } });
   assert.match(work({ ...preview, evidence: downloaded.json }).error, /entityReference/);
   assert.match(work({ ...preview, evidence: JSON.stringify({ ...evidence, snapshotSha256: "a".repeat(64) }) }).error, /reviewed checksum/);
-  assert.deepEqual(work(preview), { kind: "fv7Preview", workpaper: result });
+  const checked = work(preview);
+  assert.equal(checked.kind, "fv7Preview");
+  assert.deepEqual(checked.workpaper, result);
+  assert.deepEqual(work({ type: "fv7History" }), { kind: "fv7History", items: [], next: null });
+  const save = { ...preview, type: "fv7Save", checked: checked.checked };
+  assert.match(work({ ...save, evidence: save.evidence + " " }).error, /differs from the checked result/);
+  assert.match(work(save, officer).error, /brokerage admins/);
+  const receipt = work(save);
+  assert.equal(receipt.kind, "fv7Saved");
+  assert.equal(receipt.saved.sequence, 1);
+  assert.equal(receipt.saved.version, version);
+  assert.deepEqual(work(save), receipt);
+  assert.deepEqual(work({ type: "fv7Read", sequence: 1 }), {
+    kind: "fv7Read", saved: receipt.saved, workpaper: result, evidence: preview.evidence,
+  });
+  assert.match(work({ type: "fv7Read", sequence: 1, quarter: 2 }).error, /unavailable for the selected quarter/);
+  assert.match(work({ type: "fv7Read", sequence: 1 }, officer).error, /brokerage admins/);
+  const later = { ...evidence, priorEnding: { ...evidence.priorEnding, reference: "Updated evidence with a prior-balance discrepancy",
+    states: [{ ...evidence.priorEnding.states[0], direct: { count: 1, amount: 299000 } }] } };
+  for (let index = 0; index < 11; index++) {
+    const source = JSON.stringify({ ...later, adjustmentLedgerReference: `Fictional review ${index}` });
+    const checked = work({ ...preview, evidence: source });
+    assert.equal(checked.workpaper.reconciled, false);
+    assert.equal(work({ ...save, evidence: source, checked: checked.checked }).saved.sequence, index + 2);
+  }
+  const history = work({ type: "fv7History" });
+  assert.equal(history.items.length, 10);
+  assert.equal(history.items[0].reconciled, false);
+  assert.deepEqual(work({ type: "fv7History", before: history.next }).items.map(item => item.sequence), [2, 1]);
+  db.prepare("UPDATE mcr_fv7_workpapers SET evidence = ? WHERE sequence = 1").run("{}");
+  assert.match(work({ type: "fv7Read", sequence: 1 }).error, /integrity check/);
   const [{ direct, thirdParty }] = result.states;
   assert.deepEqual(direct.calculated.AC090, { count: 2, amount: 420000 });
   assert.deepEqual(direct.lines.AC063, { count: 1, amount: 130000 });

@@ -771,6 +771,16 @@ try {
       assert.equal(checked.kind, "fv7Preview", checked.error);
       assert.deepEqual(checked.workpaper.states[0].direct.calculated.AC090, { count: 1, amount: 350000 });
       assert.ok(checked.workpaper.pipelineReconciled);
+      const save = { ...preview, type: "fv7Save", evidence: JSON.stringify(evidence), checked: checked.checked };
+      const saved = await report(save);
+      assert.equal(saved.kind, "fv7Saved", saved.error);
+      assert.deepEqual(await report(save), saved);
+      assert.equal((await report({ type: "fv7History", ...prior })).items.length, 1);
+      const readSaved = { type: "fv7Read", ...prior, sequence: saved.saved.sequence };
+      assert.deepEqual(await report(readSaved), {
+        kind: "fv7Read", saved: saved.saved, workpaper: checked.workpaper, evidence: save.evidence,
+      });
+      assert.ok((await action(owner, "accessReportingReadiness", readSaved, undefined, reportingBrokerage, brokerage)).error);
     }
     const original = await download(1);
     assert.equal(original.kind, "quarterReviewDownload", original.error);
@@ -788,6 +798,10 @@ try {
     if (prior.year === 2026) {
       const replaced = await read(prior);
       assert.equal((await report(request(replaced, "Fictional jurisdiction and amount correction."))).review.version, 2);
+      const historical = await report({ type: "fv7Read", ...prior, sequence: 1 });
+      assert.equal(historical.saved.version, 1);
+      assert.equal(historical.workpaper.evidence.files[0].state, "MI");
+      assert.equal(historical.workpaper.states[0].direct.calculated.AC090.amount, 350000);
     }
     return { brokerage: reportingBrokerage, period: prior, loanId };
   });
