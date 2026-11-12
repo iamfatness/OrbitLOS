@@ -9,9 +9,9 @@ import { Button } from "./ui/button";
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 function FeeVersion({ terms }: { terms: ProcessorFeeTerms }) {
+  const status = terms.endedReason && terms.status === "Pending" ? terms.endedReason : [terms.status, terms.endedReason].filter(Boolean).join(" · ");
   return <>
-    <p><strong>{usd.format(terms.amountCents / 100)}</strong> · v{terms.version} · {terms.status}
-      {terms.endedReason && ` · ${terms.endedReason}`}</p>
+    <p><strong>{usd.format(terms.amountCents / 100)}</strong> · v{terms.version} · {status}</p>
     <p className="break-words">{terms.processorName} · Reference {terms.reference}</p>
     <p className="muted">Recorded by {terms.offeredBy} · {dateTime(terms.offeredAt)} ET
       {terms.decidedAt && ` · Decision ${dateTime(terms.decidedAt)} ET`}</p>

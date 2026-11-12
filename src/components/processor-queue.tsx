@@ -286,7 +286,7 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
       </div>}
     </section>}
     {feePage && <section className="record-form" aria-label="Pending processing fee offers">
-      <h3>{feePage.count} {feePage.count === 1 ? "offer" : "offers"} waiting for a response</h3>
+      {feePage.count > 0 && <h3>{feePage.count} {feePage.count === 1 ? "offer" : "offers"} waiting for a response</h3>}
       {feePage.rows.length ? <ul className="loan-task-list">{feePage.rows.map(row => <li className="document-item" key={row.loanId}>
         <div className="document-item-head"><strong>{row.name}</strong><span className="pill">Version {row.version}</span></div>
         <p>{usd.format(row.amountCents / 100)}
