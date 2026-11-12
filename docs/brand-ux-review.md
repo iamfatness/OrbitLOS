@@ -589,3 +589,7 @@ Reused Orbit’s native disclosure, evidence history and draft recovery patterns
 ### Pending processing fee offers
 
 Reused Orbit’s queue filters, record rows and exact loan focus pattern. Impeccable Polish informed one action per offer and concise replaced and empty states. UI UX Pro Max keyboard guidance informed focus on the exact fee disclosure and return to the filter when a row cleared. Populated, selected, replaced and empty states were inspected on desktop, portrait and phone.
+
+### Pilot support requests
+
+The Team panel extends the existing pilot feedback workflow. It reuses Orbit’s labeled forms, list rows, exact record view, and focus conventions in place of a new 21st.dev component pattern. Impeccable Polish informed using the desktop width to align assignment controls and shared and private notes, with one column at phone width. UI UX Pro Max’s form feedback and error-recovery guidance informed the draft-preserving conflict flow and keyboard return to the row or filter. Inspected populated and selected screens at desktop, portrait and phone widths.

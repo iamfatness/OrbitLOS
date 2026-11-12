@@ -1323,3 +1323,7 @@ Worker `a4e25303-280f-4cf2-bcb7-44f35de041a9` serves app `c2db7db04b7a`. An admi
 ### Pending processing fee offers
 
 Worker `f009e619-1a3f-4b8c-8aa7-dc6d7a2bec43` serves app `c2af847ea325`. The fictional processor opened v2 from the first brokerage’s queue while the owner recorded v3. Refreshing the loan kept v2 readable and removed decision actions. Closing the loan refreshed the queue. The processor then opened v3, accepted it and returned to an empty queue with focus on the filter. The second brokerage still had its own v1, which the processor declined. Public Demo and signed-out checks passed. The rehearsal created no payments or provider activity.
+
+### Pilot support requests
+
+Worker `e603d00f-bac4-47eb-9901-ebefa64b50fd` serves app `b47d64580708`. In the isolated built Worker, a fictional LO submitted a phone-width request, retried a lost acknowledgment and opened the same receipt. The owner updated its status, shared a response, and kept a private retest note. A stale edit preserved the draft for review. After reload the LO saw the status and response, and the separate processor saw only their own request. The built rehearsal covered 49 stages, including permission, workspace and retry checks. Live verification covered the public Demo, signed-out access boundaries, and the existing account’s saved OrbitLOS Production entry. No live support requests or provider actions were made.

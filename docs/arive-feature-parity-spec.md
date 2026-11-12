@@ -62,7 +62,7 @@ The [implementation register](capability-register.md) and [hosted rehearsal log]
 | F16 | Reviewed 1003 revisions, closing checklist and dates, version-specific disclosure confirmation, downloadable sample closing packets, and internal file preflight. Brokerage policies can require current 1003 review, cleared lender conditions, or a completed checklist separately for closing and funding. The manager queue opens the exact evidence and overrides stay in the loan audit. | Validate actual document generation, approval, and applicable UCD contracts. |
 | F17 | Funding, restricted compensation entries, owner-only sample settlement reconciliation, and an exception queue that opens the exact funding cycle | Validate external evidence contracts and workflow with a non-delegated pilot. |
 | F18 | A fictional contract processor worked assigned files in two brokerages without changing the sign-in default on a visit. The rehearsal verified cross-brokerage file denial and owner-only financial access. | Fictional fee offers and decisions now passed with two brokerage contexts. Verify commercial acceptance with design partners. |
-| F19 | Workspace admin, invitations, roles and offboarding | Define seat entitlements and scoped support access, then rehearse role onboarding. |
+| F19 | Workspace admin, invitations, roles, offboarding, and pilot support requests with named ownership and requester status | Provide an in-app first-day path for each role. Define seat entitlements and scoped support access. |
 
 ## Shared implementation contract
 
@@ -198,7 +198,7 @@ Status: versioned fee terms and processor responses shipped after fictional two-
 
 ### F19 — Administration and service operations
 
-Status: staff administration exists; commercial entitlements and service operations need specification/validation. Model seat type, assignment, reassignment, role capabilities and subscription state separately from loan ownership. No billing provider or Orbit price is selected here. Provide contextual help, support request intake, named support ownership, onboarding material and scheduled training/community channels. Acceptance: seat transfer revokes prior privileges while preserving audit history, support access is approved/scoped/audited, requests route to an owner, and users can finish a role-specific onboarding rehearsal. Do not promise live chat hours or response SLAs without staffing. Increments 3–4; commercial readiness in 5.
+Status: pilot staff can file and track their own support requests in Team on Worker `e603d00f-bac4-47eb-9901-ebefa64b50fd`. The brokerage admin can filter the queue, assign active staff, publish requester updates, and keep retest notes private. The rehearsal verified idempotent intake, stale-update recovery, and cross-role and cross-workspace boundaries. Commercial entitlements and external support access need specification and validation. Model seat type, assignment, reassignment, role capabilities and subscription state separately from loan ownership. No billing provider or Orbit price is selected here. Provide contextual help, support request intake, named support ownership, onboarding material and scheduled training/community channels. Acceptance: seat transfer revokes prior privileges while preserving audit history, support access is approved/scoped/audited, requests route to an owner, and users can finish a role-specific onboarding rehearsal. Do not promise live chat hours or response SLAs without staffing. Increments 3–4; commercial readiness in 5.
 
 ## Delivery packages and dependencies
 
