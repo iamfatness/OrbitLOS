@@ -1682,6 +1682,288 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "CT",
+    "area": "LOAN",
+    "id": "FEE-DISCLOSURE",
+    "title": "Fee disclosure and signed borrower acknowledgment",
+    "authority": "Conn. Gen. Stat. §§36a-493(a)(6), 36a-494(a)(1)(B)",
+    "sourceUrl": "https://prdext2.cga.ct.gov/current/pub/chap_668.htm",
+    "summary": "Transaction records must include a signed borrower acknowledgment of disclosure of the full fee, commission or consideration paid for origination and settlement services.",
+    "evidence": "Dated signed acknowledgment, fee disclosure, settlement and fee ledger, and transaction roles.",
+    "counsel": "Confirm form, timing, signer, amounts and whether settlement disclosures and acknowledgment satisfy the requirement.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CT",
+    "area": "LOAN",
+    "id": "REFI-BENEFIT",
+    "title": "Tangible net benefit for nonprime refinancing",
+    "authority": "Conn. Gen. Stat. §36a-760g(b)",
+    "sourceUrl": "https://www.cga.ct.gov/CURRENT/PUB/chap_669.htm#sec_36a-760g",
+    "summary": "A broker may offer a covered nonprime refinance only when it provides or is expected to provide a tangible net benefit.",
+    "evidence": "Nonprime classification, existing and proposed terms and costs, borrower circumstances and dated benefit assessment.",
+    "counsel": "Confirm the current nonprime definition, evidence standard, offer event and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CT",
+    "area": "OUTREACH",
+    "id": "BROKER-ROLE",
+    "title": "Broker-only advertising statement and offer claims",
+    "authority": "Conn. Gen. Stat. §36a-497(a)",
+    "sourceUrl": "https://prdext2.cga.ct.gov/current/pub/chap_668.htm",
+    "summary": "Connecticut prescribes a conspicuous statement for covered broker-only ads and restricts simulated checks, certain comparisons, qualification claims and government-like mailings.",
+    "evidence": "Published creative and envelope, broker-role statement, channel, claim support and identifiers.",
+    "counsel": "Confirm exact wording, separate identifier rules and required qualification or comparison disclosures by medium.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "CT",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Residential transaction file and examination response",
+    "authority": "Conn. Gen. Stat. §36a-493(a), (c)",
+    "sourceUrl": "https://prdext2.cga.ct.gov/current/pub/chap_668.htm",
+    "summary": "The statute specifies transaction records and a five-business-day response to the commissioner, subject to extension. A two-year minimum generally applies to nonserviced transaction records, with longer obligations in some cases.",
+    "evidence": "Initial and final application, disclosures, evaluation material, role, closing records, request and production dates and extension.",
+    "counsel": "Confirm retention scope by role, unclosed files, delivery method and longer periods.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "RI",
+    "area": "LOAN",
+    "id": "PRE-CLOSE-ESCROW",
+    "title": "Preclosing fee escrow and documented offsets",
+    "authority": "R.I. Gen. Laws §19-14.1-8",
+    "sourceUrl": "https://webserver.rilegislature.gov/Statutes/TITLE19/19-14.1/19-14.1-8.htm",
+    "summary": "Covered preclosing fees paid to a lender or broker go into a qualifying escrow account. The statute governs offsets, records and segregation.",
+    "evidence": "Fee type and receipt, escrow ledger and bank records, dated offsets, invoices, reconciliation and disposition.",
+    "counsel": "Confirm covered receipts, timing and refund duties, federal collection restrictions and the permitted offset basis.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "RI",
+    "area": "OUTREACH",
+    "id": "LICENSE-STATUS",
+    "title": "Rhode Island license designation in advertisements",
+    "authority": "230-RICR-40-10-2 §2.5(J)",
+    "sourceUrl": "https://rules.sos.ri.gov/regulations/part/230-40-10-2",
+    "summary": "Licensees use words substantially similar to the applicable Rhode Island license designation in advertisements disseminated primarily in the state.",
+    "evidence": "Published creative, distribution targeting and dates, designation and identifiers, and approval.",
+    "counsel": "Confirm campaigns primarily disseminated in Rhode Island and applicable company and originator identifiers.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "RI",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Broker contact history, application log and records",
+    "authority": "230-RICR-40-10-2 §2.9",
+    "sourceUrl": "https://rules.sos.ri.gov/regulations/part/230-40-10-2",
+    "summary": "The rule covers activity from initial contact through final disposition and requires a loan log. For loan brokers it specifies a three-year minimum from application for listed records.",
+    "evidence": "Initial contact, application, Regulation B completeness date, disposition, log, source records and exam retrieval.",
+    "counsel": "Confirm treatment of contacts without applications, longer federal periods and production instructions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "LOAN",
+    "id": "RATE-LOCK",
+    "title": "Broker rate-lock representations and fee transmittal",
+    "authority": "209 CMR 42.11A and 42.12A(3)",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "A broker may convey a qualifying lender commitment and transmit a fee payable to that lender under stated conditions. The rule distinguishes requests from commitments and prohibits broker issuance and misleading lock representations.",
+    "evidence": "Request and script, lender commitment, consumer delivery, payee, dated fee and transmittal evidence.",
+    "counsel": "Confirm commitment version and legal effect, exact request wording, fee and federal timing.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "LOAN",
+    "id": "LICENSE-DISC",
+    "title": "Written license identifier disclosure",
+    "authority": "209 CMR 42.14",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "The October 2025 final text requires written disclosure of the licensee NMLS identifier when a fee is paid or a mortgage application is provided or presented for signature. The earlier published regulation includes a broker agreement form.",
+    "evidence": "Application and fee timeline, dated written identifier disclosure and historical agreement where applicable.",
+    "counsel": "Confirm the governing version, treatment of overlapping events and any independently applicable agreement obligation.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Final amendments effective notice",
+        "url": "https://www.mass.gov/doc/fourth-quarter-2025-enforcement-bulletin/download"
+      },
+      {
+        "label": "Earlier rate-lock and agreement text",
+        "url": "https://www.mass.gov/regulations/209-CMR-42-rate-lock-regulations"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "OUTREACH",
+    "id": "BROKER-ROLE",
+    "title": "License identification and advertised rates or terms",
+    "authority": "209 CMR 42.09(4), 42.12A(4), (12)–(13), 42.14",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "The rule requires license identification and a broker-role statement when specified rates or terms appear, restricts funding and rate guarantee claims, and prescribes a three-year ad archive.",
+    "evidence": "Published creative or script, publication date, trigger terms, license identification, role statement and archive.",
+    "counsel": "Confirm statement, advertising triggers, employee and originator identification and reused creative handling.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MA",
+    "area": "RECORDS",
+    "id": "BROKER-FILES",
+    "title": "Closed and unclosed mortgage broker records",
+    "authority": "209 CMR 42.09(1)(b)–(c); 209 CMR 48.00",
+    "sourceUrl": "https://www.mass.gov/doc/209-cmr-4200-the-licensing-of-mortgage-lenders-and-mortgage-brokers-2/download",
+    "summary": "The final rule lists records for brokered loans and a three-year minimum from when the loan is made. For unclosed applications it measures from the later of application and the licensee's credit decision.",
+    "evidence": "Application and credit decision dates, disposition, disclosures, electronic correspondence and retrieval.",
+    "counsel": "Confirm how brokers record lender decisions, files without a decision and longer periods or storage conditions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VT",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Approved mortgage broker agreement and timing",
+    "authority": "8 V.S.A. §2219; Banking Regulation B-2014-02",
+    "sourceUrl": "https://legislature.vermont.gov/statutes/section/08/073/02219",
+    "summary": "The statute specifies a commissioner-approved agreement signed by broker and borrower, tied to signed application or collecting fees or charges. It provides a limited exception for certain independent processors and underwriters.",
+    "evidence": "Approved form, signed application, agreement signatures and fee events, disclosures and exception evidence.",
+    "counsel": "Confirm approved version, which event controls, and whether the independent contractor exception applies.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DFR mortgage broker regulation",
+        "url": "https://dfr.vermont.gov/reg-bul-ord/mortgage-brokers"
+      },
+      {
+        "label": "DFR model agreement",
+        "url": "https://dfr.vermont.gov/sites/finreg/files/doc_library/dfr-banking-broker-agreement-model-form.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "VT",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Broker and originator identifiers on forms and advertising",
+    "authority": "8 V.S.A. §2244",
+    "sourceUrl": "https://legislature.vermont.gov/statutes/section/08/073/02244",
+    "summary": "Vermont requires clear display of applicable originator and company NMLS identifiers on covered applications, solicitations and ads, including business cards and websites.",
+    "evidence": "Published materials, application and solicitation samples, identifiers, channel and approval.",
+    "counsel": "Confirm identifiers by role and placement and guidance for social and other channels.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VT",
+    "area": "RECORDS",
+    "id": "FINAL-ENTRY",
+    "title": "Secure records and final-entry retention",
+    "authority": "8 V.S.A. §2119",
+    "sourceUrl": "https://legislature.vermont.gov/statutes/section/08/072/02119",
+    "summary": "The statute requires secure preservation for at least seven years after the final entry on a recorded loan, access for the commissioner and lawful disposal.",
+    "evidence": "Final entry and status, inventory, custody, examination retrieval and disposal evidence.",
+    "counsel": "Confirm final-entry treatment for unclosed files, record categories and longer holds.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NH",
+    "area": "LOAN",
+    "id": "ADVANCE-FEES",
+    "title": "Written explanation of preclosing fees",
+    "authority": "N.H. RSA 397-A:16(I)",
+    "sourceUrl": "https://gc.nh.gov/rsa/html/XXXV/397-A/397-A-16.htm",
+    "summary": "A broker collecting a fee before closing must give the borrower a written explanation of its purpose and disposition. The section addresses application processing and third-party costs.",
+    "evidence": "Fee ledger and invoice, dated explanation and delivery, collection and disposition.",
+    "counsel": "Confirm explanation timing, permitted fee types and refunds, and federal fee restrictions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NH",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Mortgage advertising claims and originator identifiers",
+    "authority": "N.H. RSA 397-A:14-a",
+    "sourceUrl": "https://gc.nh.gov/rsa/html/XXXV/397-A/397-A-14-a.htm",
+    "summary": "The statute restricts misleading rate, term and condition claims and requires the relevant originator NMLS identifier on covered applications, solicitations and ads.",
+    "evidence": "Published material, claims support, application sample, originator identifier and approval.",
+    "counsel": "Confirm role and channel requirements, when a company ID is also required and prequalification statements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NH",
+    "area": "RECORDS",
+    "id": "FINAL-ACTIVITY",
+    "title": "Loan and application records from the final transaction",
+    "authority": "N.H. RSA 397-A:11(I)",
+    "sourceUrl": "https://gc.nh.gov/rsa/html/XXXV/397-A/397-A-11.htm",
+    "summary": "Transaction records must be readily accessible for examination for at least three years after the licensee's final transaction on a loan or application file.",
+    "evidence": "Closed and unclosed files, dated final transaction, storage and examination retrieval.",
+    "counsel": "Confirm what counts as the final transaction for each disposition, required records and overlapping retention.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Written, dated and signed broker agreement",
+    "authority": "9-A M.R.S. §10-302",
+    "sourceUrl": "https://legis.maine.gov/statutes/9-A/title9-Asec10-302.html",
+    "summary": "Maine specifies a written agreement dated and signed by the consumer, with service, payment and refund terms and a prescribed notice.",
+    "evidence": "Version, signatures, services and payment terms, notice and copy evidence.",
+    "counsel": "Confirm roles, transaction scope, prescribed wording, consumer copy evidence and exemptions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "LOAN",
+    "id": "EARLY-DISCLOSURE",
+    "title": "Written consumer protections before agreement or payment",
+    "authority": "9-A M.R.S. §10-303",
+    "sourceUrl": "https://legis.maine.gov/statutes/9-A/title9-Asec10-303.html",
+    "summary": "The broker gives the written consumer-protections disclosure before either agreement or consumer payment, whichever occurs first.",
+    "evidence": "Disclosure version and contents, delivery, agreement and first payment or documented absence.",
+    "counsel": "Confirm triggering events, bond and escrow content, third-party fees and federal overlap.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "OUTREACH",
+    "id": "PRINT-AD",
+    "title": "Print license number and advertising accuracy",
+    "authority": "9-A M.R.S. §10-304",
+    "sourceUrl": "https://legis.maine.gov/statutes/9-A/title9-Asec10-304.html",
+    "summary": "Maine prohibits false or misleading broker service terms and requires the broker license number in print advertising in the state.",
+    "evidence": "Published print material and dates, license number, substantiation and approval.",
+    "counsel": "Confirm print classification and separate rules for electronic or originator advertising.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "ME",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Examination production and out-of-state records access",
+    "authority": "9-A M.R.S. §§6-106, 13-115",
+    "sourceUrl": "https://web.legis.maine.gov/statutes/9-A/title9-Asec6-106.html",
+    "summary": "The administrator may examine and request records and choose how out-of-state records are made accessible. The Bureau uses the State Examination System for NMLS-licensed entities.",
+    "evidence": "Examination notice, loan and client file inventory, records location and secure production and acknowledgment.",
+    "counsel": "Confirm applicable sections, exact file categories, retention and request deadlines.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Mortgage examination statute",
+        "url": "https://web.legis.maine.gov/statutes/9-A/title9-Asec13-115.html"
+      },
+      {
+        "label": "Bureau examination FAQ",
+        "url": "https://www.maine.gov/pfr/consumercredit/industry/examinations/faq.html"
+      }
+    ]
+  },
+  {
     "jurisdiction": "KY",
     "area": "LICENSING",
     "id": "COMPANY",
