@@ -1,5 +1,6 @@
 import { readIncomingLoanWorkPage } from "./incoming-loan-work";
 import { countFileExceptions } from "./file-exceptions";
+import { countDeliveryExceptions } from "./automation-exceptions";
 import { countLeadAttention } from "./lead-inbox-query";
 import { readOfficerQueue } from "./officer-queue";
 import type { OfficerQueueQuery } from "./officer-queue-model";
@@ -36,7 +37,9 @@ export function readActionCounts(db: Store, staff: WorkspaceStaff | null, broker
     for (const { id } of page.replies.items) actions.add(`conversation:${id}`);
     after = page.next ?? undefined;
   } while (after);
-  const exceptions = countFileExceptions(db, staff, brokerageId, now, countLimit);
+  const fileExceptions = countFileExceptions(db, staff, brokerageId, now, countLimit);
+  const deliveryExceptions = countDeliveryExceptions(db, staff, brokerageId, now.toISOString(), countLimit);
   return { today: Math.min(actions.size, countLimit), leads: countLeadAttention(db, staff, countLimit),
-    ...(exceptions === undefined ? {} : { exceptions }), ...(processing ? { processing: processing.items.length } : {}) };
+    ...(fileExceptions === undefined || deliveryExceptions === undefined ? {} :
+      { exceptions: Math.min(fileExceptions + deliveryExceptions, countLimit), ...(deliveryExceptions ? { deliveryExceptions } : {}) }), ...(processing ? { processing: processing.items.length } : {}) };
 }

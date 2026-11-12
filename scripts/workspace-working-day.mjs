@@ -5362,6 +5362,59 @@ try {
     }
   });
 
+  await stage("Owner delivery exceptions match sidebar counts and resolve the exact simulated attempts", async () => {
+    const base = `/api/brokerages?brokerage=${brokerage}`;
+    const settings = base + "&view=automation-destinations";
+    const exceptions = base + "&view=automation-exceptions";
+    const destinationId = randomUUID();
+    const events = base + "&view=automation-events&destinationId=" + destinationId;
+    const name = "Fictional CRM reporting destination with extended name";
+    const initial = (await sidebar(owner)).deliveryExceptions ?? 0;
+    await post(settings, { type: "createDestination", id: destinationId, name, eventTypes: ["lead.created"] }, owner);
+    const read = async (path, staff = owner) => {
+      const result = await browse(staff, path);
+      assert.equal(result.status, 200);
+      return JSON.parse(result.text());
+    };
+    const attempt = (id, count, fail) => post(events, { type: "attempt", id, operationId: randomUUID(), attempt: count,
+      simulateFailure: fail, destinationId, destinationRevision: 1 }, owner);
+    const makeFailure = async (borrower, exhausted = false) => {
+      const created = await write(owner, { type: "loan", borrower, contactId: "", partnerId: null, officer: owner.name,
+        address: "", amount: 240000, purpose: "Purchase", stage: "Lead" });
+      assert.ok(!created.error, created.error);
+      const id = (await read(events)).events[0].payload.eventId;
+      await attempt(id, 0, true);
+      if (exhausted) await attempt(id, 1, true);
+      return id;
+    };
+    const ready = await makeFailure("Fictional reporting retry");
+    const exhausted = await makeFailure("Fictional reporting exhausted", true);
+    const items = (await read(exceptions)).items.filter(row => row.destinationId === destinationId);
+    assert.deepEqual(items.map(row => [row.eventId, row.status]), [[exhausted, "Retry exhausted"], [ready, "Retry ready"]]);
+    const counts = await sidebar(owner);
+    assert.equal(counts.deliveryExceptions, initial + 2);
+    assert.ok(counts.exceptions >= counts.deliveryExceptions);
+    assert.equal((await sidebar(officer)).deliveryExceptions, undefined);
+    assert.equal((await browse(officer, exceptions)).status, 403);
+    assert.equal((await browse(processor, exceptions)).status, 403);
+    assert.ok(!(await read(exceptions.replace(brokerage, lenderBrokerage))).items.some(row => row.destinationId === destinationId));
+    const ack = { type: "acknowledge", id: exhausted, destinationId };
+    assert.equal((await postResponse(events, { ...ack, id: ready }, owner)).status, 409);
+    assert.equal((await postResponse(events, ack, officer)).status, 403);
+    const reviewed = await post(events, ack, owner);
+    assert.deepEqual((await post(events, ack, owner)).review, reviewed.review);
+    assert.equal((await read(events + "&id=" + exhausted)).attempts.length, 2);
+    assert.equal((await sidebar(owner)).deliveryExceptions, initial + 1);
+    await attempt(ready, 1, false);
+    assert.equal((await sidebar(owner)).deliveryExceptions ?? 0, initial);
+    assert.ok(!(await read(exceptions)).items.some(row => row.destinationId === destinationId));
+
+    if (process.argv.includes("--preview")) {
+      await makeFailure("Fictional browser ready retry");
+      await makeFailure("Fictional browser exhausted delivery", true);
+    }
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

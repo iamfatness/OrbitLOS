@@ -10,7 +10,8 @@ import { AutomationDestinations } from "./automation-destinations";
 import { AutomationBatches } from "./automation-batches";
 
 async function deliveryRequest(endpoint: string, options?: RequestInit): Promise<AutomationEventPage | AutomationEventDetail> {
-  const response = await fetch(endpoint, { cache: "no-store", ...options });
+  const response = await fetch(endpoint, { cache: "no-store", ...options })
+    .catch(() => { throw new Error("Could not confirm the request. Try again or refresh the event."); });
   const result = await response.json().catch(() => null) as AutomationEventPage | AutomationEventDetail | { error: string } | null;
   if (!response.ok || !result || !("kind" in result)) {
     throw new Error(result && "error" in result ? result.error : "Could not confirm the request. Refresh and try again.");
@@ -18,7 +19,7 @@ async function deliveryRequest(endpoint: string, options?: RequestInit): Promise
   return result;
 }
 
-type QueueProps = { brokerageId: string; fictional: boolean; openRecord: (resource: AutomationPayload["resource"]) => void };
+type QueueProps = { brokerageId: string; fictional: boolean; openRecord: (resource: AutomationPayload["resource"]) => void; onChanged?: () => void };
 
 export function AutomationDeliveries(props: QueueProps) {
   const [opened, setOpened] = useState(false);
@@ -53,11 +54,11 @@ function AutomationViews(props: QueueProps) {
     </div>}
     {destination || view === "workspace" ? <AutomationQueue {...props} key={destination?.id ?? "workspace"} selectedDestination={destination}
       onBack={() => { returning.current = true; setDestination(undefined); }} /> :
-      <AutomationDestinations brokerageId={props.brokerageId} openDeliveries={setDestination} />}
+      <AutomationDestinations brokerageId={props.brokerageId} openDeliveries={setDestination} onChanged={props.onChanged} />}
   </div>;
 }
 
-function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestination, onBack }: QueueProps & {
+function AutomationQueue({ brokerageId, fictional, openRecord, onChanged, selectedDestination, onBack }: QueueProps & {
   selectedDestination?: AutomationDestination; onBack: () => void;
 }) {
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=automation-events` +
@@ -108,13 +109,13 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
       {destination.state === "Disconnected" && <p className="muted">This destination’s delivery history is read-only.</p>}
     </> : <p className="muted">Review the event payload and rehearse a delivery. Simulations stay in Orbit.</p>}
     {selected && <DeliveryDetails key={selected} endpoint={endpoint} id={selected} fictional={fictional}
-      openRecord={openRecord} onSaved={() => refresh()} onClose={() => {
+      openRecord={openRecord} onSaved={() => { refresh(); onChanged?.(); }} onClose={() => {
         setSelected(undefined);
         if (openedBy.current?.isConnected) openedBy.current.focus();
         else statusFilter.current?.focus();
       }} />}
     {destination && <AutomationBatches brokerageId={brokerageId} destination={destination} fictional={fictional}
-      onRun={() => refresh()} openEvent={(id, button) => {
+      onRun={() => { refresh(); onChanged?.(); }} openEvent={(id, button) => {
         openedBy.current = button;
         if (selected === id) document.getElementById("automation-event-heading")?.focus();
         else setSelected(id);
@@ -172,8 +173,8 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
   </div>;
 }
 
-function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose }: {
-  endpoint: string; id: string; fictional: boolean; openRecord: QueueProps["openRecord"]; onSaved: () => void; onClose: () => void;
+export function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose, returnLabel = "Back to events" }: {
+  endpoint: string; id: string; fictional: boolean; openRecord: QueueProps["openRecord"]; onSaved: (result: AutomationEventDetail) => void; onClose: () => void; returnLabel?: string;
 }) {
   const [detail, setDetail] = useState<AutomationEventDetail>();
   const [clock, setClock] = useState(Date.now);
@@ -205,29 +206,33 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
   useEffect(() => { if (error) alert.current?.focus(); }, [error]);
   useEffect(() => { if (notice) receipt.current?.focus(); }, [notice]);
 
-  async function attempt(item: AutomationEvent, simulateFailure: boolean) {
+  async function submit(action: object, acknowledgment = false) {
     if (saving || loading) return;
-    const destination = detail?.destination;
-    const key = JSON.stringify([item.attemptCount, simulateFailure, destination?.revision]);
-    if (pending.current?.key !== key) pending.current = { key, id: crypto.randomUUID() };
     setSaving(true);
     setError("");
     setNotice("");
     try {
       const result = await deliveryRequest(endpoint, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "attempt", id, operationId: pending.current.id, attempt: item.attemptCount, simulateFailure,
-          ...(destination ? { destinationId: destination.id, destinationRevision: destination.revision } : {}) }),
+        body: JSON.stringify({ ...action, id }),
       });
       if (result.kind !== "event") throw new Error("Refresh the event to check the saved attempt.");
       pending.current = null;
       setDetail(result);
-      setNotice(result.event.status !== "Failed" ? "Simulation succeeded." : result.event.attemptCount === 2 ?
+      setNotice(acknowledgment ? "Delivery acknowledged." : result.event.status !== "Failed" ? "Simulation succeeded." : result.event.attemptCount === 2 ?
         "The retry failed. Review both attempts below." : result.event.retryAt ? "Simulated failure recorded. Retry scheduled." :
         "Simulated failure recorded. You can retry this event.");
-      onSaved();
+      onSaved(result);
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Refresh the event to check the saved attempt."); }
     finally { setSaving(false); }
+  }
+
+  function attempt(item: AutomationEvent, simulateFailure: boolean) {
+    const destination = detail?.destination;
+    const key = JSON.stringify([item.attemptCount, simulateFailure, destination?.revision]);
+    if (pending.current?.key !== key) pending.current = { key, id: crypto.randomUUID() };
+    void submit({ type: "attempt", operationId: pending.current.id, attempt: item.attemptCount, simulateFailure,
+      ...(destination ? { destinationId: destination.id, destinationRevision: destination.revision } : {}) });
   }
 
   const item = detail?.event;
@@ -247,7 +252,8 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
       {detail.subscription && <p className="muted">Subscription version {detail.subscription.revision} · {detail.subscription.name}</p>}
       {item.archived && <p className="muted">Archived delivery. Attempts and receipts remain available.</p>}
       {waiting && retryAt && <p className="muted">Retry available from {dateTime(retryAt)}.</p>}
-      {exhausted && <p className="muted">This delivery has used its retry.</p>}
+      {exhausted && <p className="muted">{detail.review ?
+        `Acknowledged by ${detail.review.actor} · ${dateTime(detail.review.at)}` : "This delivery has used its retry."}</p>}
       {detail.destination?.state === "Paused" && <p className="muted">Resume the destination before trying a simulation.</p>}
       {detail.destination?.state === "Disconnected" && <p className="muted">This destination is disconnected.</p>}
       <details className="automation-payload">
@@ -270,6 +276,9 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
         <Button type="button" size="sm" variant="outline" disabled={saving || loading || waiting} onClick={() => void attempt(item, true)}>
           {item.status === "Failed" ? "Simulate retry failure" : "Simulate failure"}
         </Button>}
+      {exhausted && item && !item.archived && detail?.destination && detail.destination.state !== "Disconnected" && !detail.review &&
+        <Button type="button" size="sm" disabled={saving || loading}
+          onClick={() => void submit({ type: "acknowledge", destinationId: detail.destination?.id }, true)}>Acknowledge delivery</Button>}
       {item && <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => openRecord(item.payload.resource)}>
         {item.payload.resource.kind === "lead" ? "Open lead" : "Open loan"}
       </Button>}
@@ -279,7 +288,7 @@ function DeliveryDetails({ endpoint, id, fictional, openRecord, onSaved, onClose
         setLoading(true);
         setLoadVersion(value => value + 1);
       }}>Refresh event</Button>
-      <Button type="button" size="sm" variant="outline" disabled={saving} onClick={onClose}>Back to events</Button>
+      <Button type="button" size="sm" variant="outline" disabled={saving} onClick={onClose}>{returnLabel}</Button>
     </div>
   </section>;
 }

@@ -15,8 +15,8 @@ async function destinationRequest(endpoint: string, action?: object) {
   return result;
 }
 
-export function AutomationDestinations({ brokerageId, openDeliveries }: {
-  brokerageId: string; openDeliveries: (destination: AutomationDestination) => void;
+export function AutomationDestinations({ brokerageId, openDeliveries, onChanged }: {
+  brokerageId: string; openDeliveries: (destination: AutomationDestination) => void; onChanged?: () => void;
 }) {
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=automation-destinations`;
   const [page, setPage] = useState<AutomationDestinationPage>();
@@ -54,7 +54,7 @@ export function AutomationDestinations({ brokerageId, openDeliveries }: {
     </div>
     <p className="muted">Choose which new events each destination receives. All deliveries are simulated in Orbit.</p>
     {selected && <DestinationEditor key={editVisit} endpoint={endpoint}
-      initial={selected === "new" ? undefined : selected} onSaved={value => { setSelected(value); refresh(); }}
+      initial={selected === "new" ? undefined : selected} onSaved={value => { setSelected(value); refresh(); onChanged?.(); }}
       onClose={() => {
         setSelected(undefined);
         if (openedBy.current?.isConnected) openedBy.current.focus();

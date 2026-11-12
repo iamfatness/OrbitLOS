@@ -14,6 +14,7 @@ const { initializeStore } = await import("../src/lib/store.ts");
 const { automationDestinationWork } = await import("../src/lib/automation-destinations.ts");
 const { automationEventWork, queueAutomationEvent } = await import("../src/lib/automation-events.ts");
 const { automationBatchWork } = await import("../src/lib/automation-batches.ts");
+const { countDeliveryExceptions, readDeliveryExceptions } = await import("../src/lib/automation-exceptions.ts");
 
 function fixture(t) {
   const sqlite = new DatabaseSync(":memory:");
@@ -47,7 +48,7 @@ function fixture(t) {
   const attempt = (id, count, fail, at = first, destinationRevision = 1, operationId = crypto.randomUUID()) => read(
     { type: "attempt", id, attempt: count, operationId, simulateFailure: fail, destinationRevision }, at);
   const batch = (action, at = first) => automationBatchWork(db, admin, { status: "Failed", destinationId, ...action }, at);
-  return { destinationId, first, eventTypes, name, addDestination, addEvent, change, read, attempt, batch };
+  return { db, admin, destinationId, first, eventTypes, name, addDestination, addEvent, change, read, attempt, batch };
 }
 
 test("captured retry delay applies to individual and batch attempts at the exact due time", t => {
@@ -98,4 +99,55 @@ test("archived terminal deliveries remain readable with their attempts and pendi
   assert.equal(detail.event.archived, true);
   assert.deepEqual(detail.attempts.map(a => a.number), [2, 1]);
   assert.equal(f.read({ type: "list" }, cutoff).events.length, 3);
+});
+
+test("delivery exception counts share eligibility with the queue and exhausted reviews are idempotent", t => {
+  const f = fixture(t);
+  f.addDestination(5);
+  const id = f.addEvent();
+  const scheduled = f.attempt(id, 0, true);
+  const list = (view, now = f.first) => readDeliveryExceptions(f.db, { view }, f.admin, f.admin.brokerage.id, now);
+  const count = now => countDeliveryExceptions(f.db, f.admin, f.admin.brokerage.id, now, 100);
+  assert.equal(count(f.first), 0);
+  assert.equal(list("waiting").items[0].status, "Retry scheduled");
+  const due = scheduled.event.retryAt;
+  assert.equal(count(due), 1);
+  assert.equal(list("attention", due).items[0].status, "Retry ready");
+  assert.match(f.read({ type: "acknowledge", id }, due).error, /exhausted/);
+  f.change({ type: "setDestinationState", state: "Paused" }, 1);
+  assert.equal(count(due), 0);
+  assert.equal(list("waiting", due).items[0].status, "Destination paused");
+  f.change({ type: "setDestinationState", state: "Active" }, 2);
+  f.attempt(id, 1, true, due, 3);
+  assert.equal(list("attention", due).items[0].status, "Retry exhausted");
+  const acknowledged = f.read({ type: "acknowledge", id }, due);
+  assert.equal(acknowledged.review.actor, f.admin.name);
+  assert.equal(acknowledged.attempts.length, 2);
+  assert.deepEqual(f.read({ type: "acknowledge", id }, "2026-10-02T12:00:00.123Z").review, acknowledged.review);
+  assert.equal(count(due), 0);
+  assert.deepEqual(list("attention", due).items, []);
+  assert.match(readDeliveryExceptions(f.db, { view: "attention" }, f.admin, crypto.randomUUID(), due).error, /unavailable/);
+});
+
+test("delivery exceptions paginate distinct destination copies of the same source event", t => {
+  const f = fixture(t);
+  f.addDestination();
+  const other = crypto.randomUUID();
+  automationDestinationWork(f.db, f.admin, { type: "createDestination", id: other, name: "Other fictional destination",
+    eventTypes: f.eventTypes }, f.first);
+  for (let index = 0; index < 8; index++) {
+    const id = f.addEvent();
+    f.attempt(id, 0, true);
+    automationEventWork(f.db, f.admin, { type: "attempt", id, operationId: crypto.randomUUID(), attempt: 0,
+      simulateFailure: true, destinationId: other, destinationRevision: 1 }, f.first);
+  }
+  const list = after => readDeliveryExceptions(f.db, { view: "attention", after }, f.admin, f.admin.brokerage.id, f.first);
+  const first = list();
+  const second = list(first.next);
+  assert.equal(first.items.length, 15);
+  assert.equal(second.items.length, 1);
+  assert.equal(second.next, null);
+  assert.equal(first.items.at(-1).eventId, second.items[0].eventId);
+  assert.notEqual(first.items.at(-1).destinationId, second.items[0].destinationId);
+  assert.equal(countDeliveryExceptions(f.db, f.admin, f.admin.brokerage.id, f.first, 10), 10);
 });

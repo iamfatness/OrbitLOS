@@ -48,7 +48,9 @@ function detail(db: Store, row: Row, cutoff: string, destination?: AutomationDes
   const route = destination && row.subscriptionRevision !== undefined && db.prepare("SELECT snapshot FROM automation_destination_history WHERE destinationId = ? AND revision = ?")
     .get(destination.id, row.subscriptionRevision)?.snapshot;
   const subscription = typeof route === "string" ? JSON.parse(route) as AutomationDestination : undefined;
-  return { kind: "event", event: event(row, cutoff), attempts, destination, subscription };
+  const review = destination ? db.prepare("SELECT actor, at FROM automation_delivery_reviews WHERE destinationId = ? AND eventSequence = ?")
+    .get(destination.id, row.sequence) as AutomationEventDetail["review"] : undefined;
+  return { kind: "event", event: event(row, cutoff), attempts, destination, subscription, ...(review ? { review: { actor: review.actor, at: review.at } } : {}) };
 }
 
 export function automationEventWork(db: Store, staff: WorkspaceStaff, input: unknown, now = new Date().toISOString()): DeliveryResult {
@@ -88,6 +90,16 @@ export function automationEventWork(db: Store, staff: WorkspaceStaff, input: unk
   return db.transaction(() => {
     const row = read();
     if (!row) return { error: "This event is unavailable in this delivery queue." };
+    if (query.type === "acknowledge") {
+      const selected = detail(db, row, cutoff, destination);
+      if (selected.review) return selected;
+      if (!destination || destination.state === "Disconnected" || row.status !== "Failed" || row.attemptCount !== 2 || selected.event.archived) {
+        return { error: "Only a current delivery that has exhausted its retry can be acknowledged." };
+      }
+      db.prepare("INSERT INTO automation_delivery_reviews VALUES (?, ?, ?, ?, ?)")
+        .run(destination.id, row.sequence, staff.email, staff.name, now);
+      return { ...selected, review: { actor: staff.name, at: now } };
+    }
     const existing = destination ? db.prepare(`SELECT eventSequence, destinationId, attempt, outcome, actorEmail
       FROM automation_destination_attempts WHERE operationId = ?`).get(query.operationId)
       : db.prepare("SELECT eventId, attempt, outcome, actorEmail FROM automation_event_attempts WHERE operationId = ?").get(query.operationId);

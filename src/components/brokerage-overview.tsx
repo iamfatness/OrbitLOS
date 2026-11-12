@@ -5,7 +5,7 @@ import type { ActionCounts } from "./use-action-counts";
 import { Button } from "./ui/button";
 
 const queues = [
-  { key: "exceptions", label: "Open file exceptions", action: "Open exceptions", icon: ShieldCheck },
+  { key: "exceptions", label: "File and delivery exceptions", action: "Open exceptions", icon: ShieldCheck },
   { key: "leads", label: "Leads needing first contact", action: "Open lead inbox", icon: Inbox },
   { key: "processing", label: "Incoming processing work", action: "Open processing work", icon: ListChecks },
 ] as const;

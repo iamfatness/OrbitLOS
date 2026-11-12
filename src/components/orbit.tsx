@@ -2,6 +2,7 @@
 import { UwmAccount } from "./uwm-account";
 import { UwmReceipts } from "./uwm-receipts";
 import { AutomationDeliveries } from "./automation-deliveries";
+import { DeliveryExceptions } from "./automation-exceptions";
 import { PartnerPermissions } from "./partner-permissions";
 import { UwmConnection, type UwmConnectionStatus } from "./uwm-connection";
 
@@ -1330,7 +1331,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                   label === "Exceptions" ? actionCounts?.exceptions : label === "Processing" ? actionCounts?.processing : undefined;
                 const count = attention ? (attention > 99 ? "99+" : String(attention)) : null;
                 const reason = label === "Today" ? (attention === 1 ? "action due or ready" : "actions due or ready") :
-                  label === "Exceptions" ? (attention === 1 ? "open file exception" : "open file exceptions") :
+                  label === "Exceptions" ? (attention === 1 ? "open exception" : "open exceptions") :
                     label === "Processing" ? (attention === 1 ? "incoming item" : "incoming items") :
                     (attention === 1 ? "lead needs first contact" : "leads need first contact");
                 return <button key={label} className={section === label ? "nav-item selected" : "nav-item"} aria-current={section === label ? "page" : undefined}
@@ -1792,8 +1793,14 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             save={(input, after, announce) => save(input, after, announce, "migration")} brokerageId={staff.brokerage.id} version={state}
             openRecord={openMigrationDestination}
             openLinkedLoan={(loanId, target) => void openQueueLoan({ kind: "details", loanId, target })} />}
-          {section === "Exceptions" && canReport && <FileExceptions brokerageId={staff.brokerage.id} version={queueVersion} busy={busy}
-            standalone open={openFileException} assign={(loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn })} />}
+          {section === "Exceptions" && canReport && <>
+            <DeliveryExceptions key={staff.brokerage.id} brokerageId={staff.brokerage.id} attentionCount={actionCounts?.deliveryExceptions}
+              fictional={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId} onChanged={refreshCounts}
+              openRecord={resource => resource.kind === "lead" ? openLeadWork(resource.id) :
+                void openQueueLoan({ kind: "details", loanId: resource.id })} />
+            <FileExceptions brokerageId={staff.brokerage.id} version={queueVersion} busy={busy}
+              standalone open={openFileException} assign={(loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn })} />
+          </>}
           {section === "Playbooks" && admin && <LoanStageEditSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           {section === "Playbooks" && admin && <ManageClosingGates brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}
           {section === "Playbooks" && admin && (!staff || staff.brokerage.pilot || staff.brokerage.id === demoBrokerageId) &&
@@ -1878,7 +1885,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             </div></div>
             {staff?.brokerage.role === "Admin" && <>
               <UwmReceipts key={`receipts:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
-              <AutomationDeliveries key={staff.brokerage.id} brokerageId={staff.brokerage.id}
+              <AutomationDeliveries key={staff.brokerage.id} brokerageId={staff.brokerage.id} onChanged={refreshCounts}
                 fictional={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId}
                 openRecord={resource => resource.kind === "lead" ? openLeadWork(resource.id) :
                   void openQueueLoan({ kind: "details", loanId: resource.id })} />

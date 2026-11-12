@@ -99,6 +99,8 @@ import { branchesUnavailable } from "./lib/branch-model";
 import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
 import { readStaffFirstDay, setFirstDayStep, updateStaffFirstDay } from "./lib/staff-first-day";
 import { automationEventWork } from "./lib/automation-events";
+import { readDeliveryExceptions } from "./lib/automation-exceptions";
+import { deliveryExceptionQuery } from "./lib/automation-exception-model";
 import { automationBatchWork } from "./lib/automation-batches";
 import { partnerAccessWork, sandboxEventAuthority, serveSandboxEvents, type SandboxEventResult } from "./lib/partner-access";
 import { sandboxEventsHttp } from "./lib/sandbox-events-http";
@@ -1681,6 +1683,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     return automationDestinationWork(this.#store, staff, input);
   }
 
+  automationExceptions(staff: WorkspaceStaff, input: unknown) {
+    return readDeliveryExceptions(this.#store, input, staff, this.#id);
+  }
+
   automationEvents(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return automationEventWork(this.#store, staff, input);
@@ -2347,6 +2353,19 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         }, 1024);
         return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
       }
+      if (view === "automation-exceptions") {
+        if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: "Open delivery exceptions as an admin in this brokerage." }, { status: 403, headers });
+        }
+        if (request.method !== "GET") return new Response(null, { status: 405, headers: { ...headers, Allow: "GET" } });
+        const sequence = url.searchParams.get("sequence");
+        const destinationId = url.searchParams.get("destinationId");
+        const query = deliveryExceptionQuery.safeParse({ view: url.searchParams.get("queue") ?? "attention",
+          after: sequence === null && destinationId === null ? undefined : { sequence: Number(sequence), destinationId } });
+        if (!query.success) return Response.json({ error: "Choose a valid delivery exception view." }, { status: 400, headers });
+        const result = await workspace.automationExceptions(staff, query.data);
+        return Response.json(result, { status: "error" in result ? 403 : 200, headers });
+      }
       if (view === "automation-events" || view === "automation-destinations") {
         if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
           return Response.json({ error: "Open automation deliveries as an admin in this brokerage." }, { status: 403, headers });
@@ -2385,7 +2404,9 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         }
         if (request.method === "POST") return borrowerJson(request, async input => {
           const parsed = automationEventQuery.safeParse(input);
-          if (!parsed.success || parsed.data.type !== "attempt") return { status: 400, error: "Choose a valid simulation attempt." };
+          if (!parsed.success || (parsed.data.type !== "attempt" && parsed.data.type !== "acknowledge")) {
+            return { status: 400, error: "Choose a valid simulation or review action." };
+          }
           const result = await workspace.automationEvents(staff, parsed.data);
           return "error" in result ? { status: 409, error: result.error } : { value: result };
         }, 1024);
