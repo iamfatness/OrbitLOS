@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { callReportCsv, callReportCsvCell, type CallReportRow, type quarterRange } from "./call-report-model";
-import { priorQuarter, quarterName, type CarryoverDifference, type CarryoverEntry, type CarryoverTotals, type Quarter,
+import { priorQuarter, quarterName, quarterReviewColumns as columns, type CarryoverDifference, type CarryoverEntry, type CarryoverTotals, type Quarter,
   type QuarterReviewPage, type QuarterReviewSummary } from "./call-report-quarter-model";
 import type { ReportingReadiness, ReportingReadinessInput } from "./call-report-readiness-model";
 import type { WorkspaceStaff } from "./staff-store";
@@ -81,13 +81,6 @@ function captureReview(db: Store, period: Quarter, closed: boolean, range: Range
 }
 
 type Capture = ReturnType<typeof captureReview>;
-const columns = {
-  type: "Record type", period: "Reporting quarter", version: "Review version", at: "Recorded at UTC", reviewer: "Recorded by", status: "Quarter status",
-  basis: "Prior-quarter basis", note: "Internal review note", loan: "Loan ID", state: "State", priorState: "Prior state", originator: "Originator NMLS ID",
-  revision: "Facts revision", groups: "Review groups", received: "Received date", amount: "Received amount", outcome: "Outcome", outcomeOn: "Outcome date",
-  outcomeAmount: "Outcome amount", exclusion: "Exclusion reason", priorCount: "Prior ending count", openingCount: "Current opening count",
-  priorAmount: "Prior ending amount", openingAmount: "Current opening amount", delta: "Opening amount difference", differences: "Carryover differences",
-};
 type CsvRow = Partial<Record<keyof typeof columns, string | number | null>>;
 function reviewCsv(period: Quarter, review: QuarterReviewSummary, capture: Capture, rows: CallReportRow[], note: string) {
   const recorded = { period: quarterName(period), version: review.version };

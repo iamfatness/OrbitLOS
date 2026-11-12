@@ -9,14 +9,18 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 const { reconcileFv7Pipeline } = await import("../src/lib/mcr-fv7-pipeline.ts");
+const { buildFv7QuarterWorkpaper } = await import("../src/lib/mcr-fv7-quarter-evidence.ts");
 
-const [file, ...extra] = process.argv.slice(2);
+const [file, evidenceFile, ...extra] = process.argv.slice(2);
 if (!file || extra.length) {
-  console.error("Usage: node scripts/mcr-fv7-pipeline-workpaper.mjs <workpaper.json>");
+  console.error("Usage: node scripts/mcr-fv7-pipeline-workpaper.mjs <workpaper.json> OR <quarter-review.csv> <evidence.json>");
   process.exitCode = 2;
 } else {
   try {
-    const result = reconcileFv7Pipeline(JSON.parse(await readFile(file, "utf8")));
+    const input = await readFile(file, "utf8");
+    const result = evidenceFile
+      ? buildFv7QuarterWorkpaper(input, JSON.parse(await readFile(evidenceFile, "utf8")))
+      : reconcileFv7Pipeline(JSON.parse(input));
     console.log(JSON.stringify(result, null, 2));
     if (!result.reconciled) process.exitCode = 1;
   } catch (error) {

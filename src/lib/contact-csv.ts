@@ -35,8 +35,8 @@ export function contactDuplicate(row: ContactImportRow, contacts: ContactCsvFiel
   return contacts.some((contact) => Object.values(contactCsvKeys(contact)).some((key) => keys.includes(key)));
 }
 
-export function readCsv(input: string) {
-  if (input.length > 200_000) throw new Error("Choose a smaller CSV file.");
+export function readCsv(input: string, maximumLength = 200_000) {
+  if (input.length > maximumLength) throw new Error("Choose a smaller CSV file.");
   const rows: string[][] = [];
   let fields: string[] = [];
   let value = "";

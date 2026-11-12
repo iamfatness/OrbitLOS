@@ -1,4 +1,11 @@
 export type Quarter = { year: number; quarter: number };
+export const quarterReviewColumns = {
+  type: "Record type", period: "Reporting quarter", version: "Review version", at: "Recorded at UTC", reviewer: "Recorded by", status: "Quarter status",
+  basis: "Prior-quarter basis", note: "Internal review note", loan: "Loan ID", state: "State", priorState: "Prior state", originator: "Originator NMLS ID",
+  revision: "Facts revision", groups: "Review groups", received: "Received date", amount: "Received amount", outcome: "Outcome", outcomeOn: "Outcome date",
+  outcomeAmount: "Outcome amount", exclusion: "Exclusion reason", priorCount: "Prior ending count", openingCount: "Current opening count",
+  priorAmount: "Prior ending amount", openingAmount: "Current opening amount", delta: "Opening amount difference", differences: "Carryover differences",
+} as const;
 export type CarryoverEntry = { loanId: string; state: string; amount: number };
 export type CarryoverTotals = { count: number; amount: number };
 export type CarryoverDifference = {

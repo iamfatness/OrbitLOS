@@ -35,7 +35,11 @@ This crosswalk is for source design. All numeric inputs are supplied to the loca
 | AC080 | Ending group in the internal review | Exact ending balance and in-process amounts by entity, state and intake source. Initial amounts may differ. |
 | AC090 | Workpaper calculation | Reconciled AC070 and AC080 and tested portal rules. |
 
-The first source integration should add the reviewed intake source, reporting entity and dated amount/adjustment evidence to the existing reporting facts and quarter reviews. Keep prior accepted opening totals distinct from the existing versioned internal baseline. Verify AC070 against closed-loan and MLO totals before treating the pipeline as complete. Remaining groups include closed-loan classifications and fees, MLO detail, company-level activity, SSSF and the applicable FC package. The first Michigan pilot also needs an approved entity and license scope. [Michigan DIFS mortgage licensing](https://www.michigan.gov/difs/industry/licensing-cf/mortgage)
+The local source bridge accepts Orbit's saved quarter review CSV together with a separate reviewed evidence file for one entity. It checks the closed quarter, version and CSV checksum. It requires the immediately preceding quarter's ending balances and their reference separately from the older Orbit workpaper. Each included loan must have intake evidence for the same state and facts revision. Opening and ending amounts require their own evidence. Outcome references accompany the outcome amounts and dates in the CSV. Loan IDs, line assignments, and source references remain available for review.
+
+Dated amount changes must connect the starting and final amounts on each loan. The bridge derives AC065 from that chain. The first AC063 cases are a previously received application added after the opening balance and an in-process application removed before the ending balance. They require dated evidence and commentary. The same loan cannot have multiple scope adjustments in one quarter in this bridge. A reference records what the reviewer used. It does not establish that the document or filing receipt is genuine or legally sufficient.
+
+Next is recording the entity, reviewed intake sources and adjustment evidence in the pilot's reporting workflow. Verify AC070 against closed-loan and MLO totals before treating the pipeline as complete. Remaining groups include closed-loan classifications and fees, MLO detail, company-level activity, SSSF and the applicable FC package. The first Michigan pilot also needs an approved entity and license scope. [Michigan DIFS mortgage licensing](https://www.michigan.gov/difs/industry/licensing-cf/mortgage)
 
 ## Reproduce locally
 
@@ -44,7 +48,11 @@ Download the schema ZIP and sample pack from the XML guide into one directory. T
 ```powershell
 ./scripts/validate-mcr-fv7-sources.ps1 -SourceDirectory ./sources -FieldInventory ./fv7-field-inventory.csv
 node scripts/mcr-fv7-pipeline-workpaper.mjs tests/fixtures/mcr-fv7-pipeline.json
+node scripts/mcr-fv7-pipeline-workpaper.mjs ./quarter-review.csv ./evidence.json
 node --test tests/mcr-fv7-pipeline.test.mjs
+node --test --test-name-pattern "FV7 evidence" tests/funding-reversal.test.mjs
 ```
 
 The fictional Michigan Q2 workpaper covers all five outcomes, signed adjustments and carryover. Tests exercise netting across channels, mismatched prior totals, zero activity, missing inputs, missing commentary and unsupported input. The CLI returns 0 when the pipeline arithmetic reconciles, 1 when evidence or totals differ, and 2 for invalid input. These statuses describe the local workpaper only.
+
+For the two-file command, see the `evidence` object in the `FV7 evidence` test for the exact shape and a fictional Michigan Q3 example. The test creates and downloads an actual saved review through Orbit's reporting service. It verifies that an LO cannot download it. It then exercises two intake channels, a prior-balance difference, both adjustment directions, a same-day amount sequence, stale facts, a disconnected amount chain, changed bytes and a provisional snapshot.

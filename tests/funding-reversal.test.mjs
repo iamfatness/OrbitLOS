@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { registerHooks } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
@@ -19,6 +20,7 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { quarterlyCallReport, emptyCallReportFacts, quarterRange } = await import("../src/lib/call-report-model.ts");
 const { callReportFiles } = await import("../src/lib/call-report.ts");
 const { reportingReadinessWork } = await import("../src/lib/call-report-readiness.ts");
+const { buildFv7QuarterWorkpaper } = await import("../src/lib/mcr-fv7-quarter-evidence.ts");
 const { easternDate, easternDayStart } = await import("../src/lib/client-retention.ts");
 const { borrowerCommandResult } = await import("../src/lib/applications.ts");
 const { contactFollowUpExceptions, fundingTaskId } = await import("../src/lib/playbook-model.ts");
@@ -537,6 +539,79 @@ test("quarter review uses a pinned prior ending, shows loan differences, and dow
   await saveFacts("unchanged", 1, { ...base, state: "NY", originator: "", receivedAmount: 110000 });
   assert.match(read(4).unavailable, /reporting exceptions/);
   assert.deepEqual(download(1), first);
+});
+
+test("FV7 evidence links a downloaded closed-quarter review to source and adjustment ledgers", async (t) => {
+  const { db, admin, officer, loanId, contactId, stageSince } = fundingFixture(t);
+  const now = new Date("2026-10-05T15:00:00Z");
+  const work = (input, actor = admin) => reportingReadinessWork(db, { year: 2026, quarter: 3, ...input }, actor, admin.brokerage.id, now);
+  const earlier = { ...emptyCallReportFacts, eligibility: "Include", state: "MI", originator: "123456",
+    receivedDate: "2026-06-20", receivedAmount: 300000 };
+  for (const [id, facts] of [[loanId, earlier], ["late-add", { ...earlier, receivedAmount: 130000 }],
+    ["scope-removal", { ...earlier, receivedAmount: 200000 }],
+    ["denied", { ...earlier, receivedDate: "2026-07-02", receivedAmount: 180000, outcome: "Denied", outcomeDate: "2026-08-25", outcomeAmount: 180000 }]]) {
+    if (id !== loanId) insertLoan(db, { id, contactId, partnerId: null, officer: officer.name, officerEmail: officer.email, address: "",
+      amount: facts.receivedAmount, purpose: "Purchase", stage: "Underwriting", stageSince });
+    const result = await executeCommand(db, { type: "saveCallReport", loanId: id, revision: 0, facts }, admin);
+    assert.ok(result.state, result.error);
+  }
+  const page = work({ type: "quarterReview" });
+  assert.equal(page.closed, true);
+  const saved = work({ type: "saveQuarterReview", previousVersion: null, evidenceKey: page.comparison.key,
+    requestId: crypto.randomUUID(), note: "Fictional closed quarter with independently supplied prior balance." });
+  const version = saved.review.version;
+  assert.match(work({ type: "downloadQuarterReview", version }, officer).error, /brokerage admins/);
+  const { csv } = work({ type: "downloadQuarterReview", version });
+  const checksum = (contents) => createHash("sha256").update(contents).digest("hex");
+  const file = (loanId, source, details) => ({ loanId, revision: 1, state: "MI", source, intakeReference: `intake-${loanId}`, ...details });
+  const amount = (value, reference) => ({ amount: value, reference });
+  const evidence = {
+    entityReference: "fictional-mi-broker", snapshotSha256: checksum(csv), year: 2026, quarter: 3, version,
+    priorEnding: { period: "2026 Q2", reference: "fixture-prior-receipt", states: [
+      { state: "MI", direct: { count: 1, amount: 300000 }, thirdParty: { count: 1, amount: 200000 } },
+    ] },
+    adjustmentLedgerReference: "fixture-adjustment-ledger", amountChangeLedgerReference: "fixture-amount-ledger",
+    files: [
+      file(loanId, "direct", { opening: amount(300000, "prior-ledger"), ending: amount(290000, "closing-ledger") }),
+      file("late-add", "direct", { opening: amount(130000, "addition"), ending: amount(130000, "closing-ledger") }),
+      file("scope-removal", "thirdParty", { opening: amount(200000, "prior-ledger"), ending: amount(210000, "removal") }),
+      file("denied", "thirdParty", { outcomeReference: "fixture-decision" }),
+    ],
+    amountChanges: [
+      { loanId, date: "2026-08-02", sequence: 1, before: 300000, after: 295000, reference: "fixture-first-change" },
+      { loanId, date: "2026-08-02", sequence: 2, before: 295000, after: 290000, reference: "fixture-reduction" },
+      { loanId: "scope-removal", date: "2026-08-03", sequence: 1, before: 200000, after: 210000, reference: "fixture-increase" },
+    ],
+    adjustments: [
+      { loanId: "late-add", kind: "add", date: "2026-07-20", reference: "fixture-add", commentary: "Reviewed late addition." },
+      { loanId: "scope-removal", kind: "remove", date: "2026-08-05", reference: "fixture-remove", commentary: "Reviewed scope removal." },
+    ],
+  };
+  const result = buildFv7QuarterWorkpaper(csv, evidence);
+  assert.equal(result.reconciled, true);
+  const [{ direct, thirdParty }] = result.states;
+  assert.deepEqual(direct.calculated.AC090, { count: 2, amount: 420000 });
+  assert.deepEqual(direct.lines.AC063, { count: 1, amount: 130000 });
+  assert.equal(direct.lines.AC065, -10000);
+  assert.deepEqual(thirdParty.calculated.AC090, { count: 0, amount: 0 });
+  assert.deepEqual(thirdParty.lines.AC063, { count: -1, amount: -210000 });
+  assert.equal(thirdParty.lines.AC065, 10000);
+  assert.deepEqual(result.evidence.files.find((entry) => entry.loanId === "scope-removal").lines, ["AC010", "AC063"]);
+  assert.throws(() => buildFv7QuarterWorkpaper(csv + "\r\n", evidence), /reviewed checksum/);
+  const provisional = csv.replace("Quarter ended", "Quarter in progress");
+  assert.throws(() => buildFv7QuarterWorkpaper(provisional, { ...evidence, snapshotSha256: checksum(provisional) }), /saved, ended quarter/);
+  const stale = structuredClone(evidence);
+  stale.files[0].revision = 2;
+  assert.throws(() => buildFv7QuarterWorkpaper(csv, stale), /exact state and facts revision/);
+  const missing = structuredClone(evidence);
+  missing.amountChanges.shift();
+  assert.throws(() => buildFv7QuarterWorkpaper(csv, missing), /disconnected/);
+  const misplaced = structuredClone(evidence);
+  misplaced.adjustments[0].loanId = "denied";
+  assert.throws(() => buildFv7QuarterWorkpaper(csv, misplaced), /cannot use AC063/);
+  const mismatch = structuredClone(evidence);
+  mismatch.priorEnding.states[0].direct.amount = 299000;
+  assert.equal(buildFv7QuarterWorkpaper(csv, mismatch).reconciled, false);
 });
 
 test("an empty or provisional quarter is explicit and a closed snapshot can supersede it across years", (t) => {
