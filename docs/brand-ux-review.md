@@ -692,3 +692,9 @@ The fictional browser opened a populated owner template and its original version
 Impeccable Polish informed the aligned limit fields and the separation of issuance from the subsequent sharing decision. UI UX Pro Max feedback, label, and mobile input guidance informed the policy editor, stale preview recovery and required return reason. Orbit reused the established 21st.dev-informed disclosure, document rows, and loan drawer focus pattern.
 
 The fictional browser tested the editor and focused cancel return, a stale preview during a concurrent policy save, a populated and filtered owner queue, direct loan navigation and focus, returning a letter, and approving the replacement. It verified that the LO had to publish separately after approval. Inspected final desktop and phone editor, preview, pending, queue, return and receipt captures in `.orbit/preapproval-policy-*.png`. The 900 × 1200 layouts were also exercised.
+
+### Sample preapproval work in Today
+
+Impeccable Polish guided reuse of the existing incoming work row and the loan drawer. UI UX Pro Max keyboard and contextual count guidance informed direct entry, return focus and refreshing the existing sidebar count. Orbit reused the accepted 21st.dev-informed financing-summary queue pattern and widened the borrower sharing confirmation touch target after the initial phone check.
+
+The final browser opened a pending letter as the independent admin, recovered an outdated row after a second-tab decision, revised the returned letter as the assigned LO, approved the replacement, and published to the borrower. Checked the Today count on both accounts, role boundaries, the period control and keyboard return to Incoming loan work. Inspected the final desktop and phone rows and selected review and sharing screens in `.orbit/preapproval-queues-*.png`. The 900 × 1200 layouts were also exercised.
