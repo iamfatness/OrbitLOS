@@ -668,3 +668,9 @@ The built fictional browser exercised the populated owner editor and draft previ
 Impeccable Polish guided placing the correction directly below the selected submitted answer and keeping the saved evidence in the loan's existing disclosure pattern. UI UX Pro Max input-label and error-recovery guidance informed the labeled field and reason, plus the reopen path after a permissions change. The existing 21st.dev-informed intake form and receipt supply the component patterns. Phone widths keep the checkbox and label together with 44 px tap height.
 
 The built browser exercised owner publication, the selected LO's review, disabled corrections, a revoked permission in another open session, required reason focus, conversion, and opening the receipt again from Pipeline. Final captures at 1440, 900, and 390 px are `.orbit/intake-overrides-{owner,officer,receipt}-*.png`. The desktop and phone captures were opened and inspected.
+
+### Brokerage questions before 1003 submission
+
+Impeccable Polish guided placing brokerage questions at the start of Review and giving longer owner prompts a full-width, multiline editor. UI UX Pro Max required-label and focusable-error guidance informed the question labels and the return action from the error summary. Orbit reused its 21st.dev-informed labeled fields, disclosures and selected-record evidence.
+
+The fictional browser exercised a populated owner editor, publishing a new question after issuing the joint link, conditional disclosure and clearing, a missing required answer, draft save and resume, separate applicant submissions, and the selected staff loan. Inspected the desktop and phone captures in `.orbit/application-questions-{owner,primary,joint,receipt}-*.png`. The 900 px layouts were also exercised.
