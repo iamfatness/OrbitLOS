@@ -650,3 +650,9 @@ The built owner and processor checked a selected request and populated access hi
 Impeccable Polish informed placement below loan pricing and the shared terms grid. UI UX Pro Max error recovery and confirmation guidance informed the exact named-recipient preview, explicit allow and decline decisions, and focused response receipts. The existing 21st.dev-informed disclosure and role-specific detail patterns supply the component reference.
 
 The built LO opened the selected purchase file from Pipeline, recovered a lost request acknowledgment, and saw separate decisions on the same preview. Each borrower used their own link. The realtor saw a sample program, term, amount and expiration after publication and lost the summary after the co-borrower withdrew. The final 1440, 900 and 390 px captures are `.orbit/realtor-financing-summary-{staff-pending,staff-published,borrower-permission,co-borrower-permission,realtor-published}-*.png`.
+
+### Realtor permission and publication actions
+
+Impeccable Polish informed the existing next-action card and Today row placement. UI UX Pro Max keyboard guidance informed direct focus on the borrower decision and loan disclosure, plus return focus to the incoming heading after publication. Orbit reused its accepted 21st.dev-informed action cards and responsive lender-return row pattern. At phone width the new row puts the button below the complete borrower and action labels.
+
+The built browser exercised each borrower’s action, an interrupted response, immediate item removal, persistence after reload, the assigned LO’s populated Today item, exact loan focus, publication and return, and subsequent realtor revocation. The final 1440, 900 and 390 px captures are `.orbit/realtor-financing-actions-{borrower-next,co-borrower-next,today-ready,loan-ready,today-return}-*.png`.
