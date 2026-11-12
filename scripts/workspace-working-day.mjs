@@ -757,7 +757,7 @@ try {
       assert.equal(evidence.files[0].loanId, loanId);
       const preview = { type: "fv7Preview", ...prior, version: 1, evidence: template.json };
       assert.match((await report(preview)).error, /entityReference/);
-      assert.ok((await action(officer, "accessReportingReadiness", preview, undefined, reportingBrokerage, reportingBrokerage)).error);
+      await assert.rejects(action(officer, "accessReportingReadiness", preview, undefined, reportingBrokerage, reportingBrokerage), /403 !== 200/);
       assert.ok((await action(owner, "accessReportingReadiness", preview, undefined, reportingBrokerage, brokerage)).error);
       Object.assign(evidence, { entityReference: "Fictional Michigan broker", adjustmentLedgerReference: "No fictional adjustments",
         amountChangeLedgerReference: "No fictional amount changes" });
