@@ -17,6 +17,10 @@ export const estimateRevisionReasons = [
   "Changed settlement charges", "Changed eligibility", "Borrower-requested change",
   "Rate lock", "Estimate expired", "Delayed construction settlement",
 ] as const;
+export const correctedCdReasons = [
+  "APR became inaccurate", "Loan product changed", "Prepayment penalty added",
+  "Other pre-consummation correction", "Post-consummation correction",
+] as const;
 export const tridEvent = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("scope"), coveredScenario: z.literal(true), creditor: reference, leSender: z.enum(["Broker", "Creditor"]), reference,
     zone: z.enum(["America/Detroit", "America/Menominee"]), openWeekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
@@ -34,6 +38,11 @@ export const tridEvent = z.discriminatedUnion("type", [
     chargeKeys: z.array(z.string().trim().min(1).max(80)).min(1, "Select at least one affected charge.").max(150)
       .refine(keys => new Set(keys).size === keys.length, "Use each charge key once."),
     reviewReference: reference.optional() }),
+  z.strictObject({ type: z.literal("consummated"), on: date, reference }),
+  z.strictObject({ type: z.literal("feeCure"), on: date, reference, consummationSequence: sequence,
+    estimateSequence: sequence, closingSequence: sequence, correctedSendSequence: sequence.optional(),
+    refundCents: z.number().int().positive().max(10_000_000_000) }),
+  z.strictObject({ type: z.literal("correctedCdReview"), sendSequence: sequence, reason: z.enum(correctedCdReasons), reference }),
   z.strictObject({ type: z.literal("closing"), on: date, reference }),
   z.strictObject({ type: z.literal("void"), sequence, reference }),
 ]);

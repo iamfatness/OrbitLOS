@@ -1765,6 +1765,32 @@ try {
       assert.match((await readTrid(processor)).result.estimateRevisions[0].status, /on or after the initial Closing Disclosure/);
       assert.equal((await recordTrid(owner, 21, { type: "void", sequence: 20, reference: "Fictional revised amounts corrected" })).result.revision, 22);
       assert.match((await readTrid(processor)).result.estimateRevisions[0].status, /Needs active original and revised estimate evidence/);
+      assert.equal((await recordTrid(owner, 22, snapshot(8, 12500))).result.revision, 23);
+      const actual = { type: "consummated", on: "2026-07-13", reference: "Fictional consummation evidence" };
+      assert.ok((await recordTrid(processor, 23, actual)).result.error);
+      assert.equal((await recordTrid(owner, 23, actual)).result.revision, 24);
+      const correction = { ...send, document: "Corrected CD", version: "fixture-cd-cure", on: "2026-07-15", method: "Mail" };
+      assert.equal((await recordTrid(owner, 24, correction)).result.revision, 25);
+      const cure = { type: "feeCure", on: "2026-07-14", refundCents: 2500, consummationSequence: 24,
+        estimateSequence: 16, closingSequence: 23, correctedSendSequence: 25, reference: "Fictional refund evidence" };
+      assert.match((await recordTrid(owner, 25, { ...cure, correctedSendSequence: 8 })).result.error, /active corrected disclosure/);
+      assert.equal((await recordTrid(owner, 25, cure)).result.revision, 26);
+      const cureCheck = (await readTrid(processor)).result.feeCures[0];
+      assert.equal(cureCheck.dueOn, "2026-09-11");
+      assert.equal(cureCheck.potential, 2500);
+      assert.equal(cureCheck.correctionStatus, "Recorded within 60 days");
+      const restart = { ...correction, version: "fixture-cd-restart", on: "2026-07-10" };
+      assert.equal((await recordTrid(owner, 26, restart)).result.revision, 27);
+      assert.equal((await recordTrid(owner, 27, { type: "received", document: "Corrected CD", version: restart.version,
+        on: "2026-07-11", reference: "Fictional corrected CD receipt" })).result.revision, 28);
+      const cdReview = { type: "correctedCdReview", sendSequence: 27, reason: "Loan product changed", reference: "Fictional reviewer evidence" };
+      assert.equal((await recordTrid(owner, 28, cdReview)).result.revision, 29);
+      const closingTiming = (await readTrid(processor)).result;
+      assert.equal(closingTiming.timing.initialCdEarliest, "2026-07-13");
+      assert.equal(closingTiming.correctedCds.find(item => item.sequence === 27).earliest, "2026-07-15");
+      assert.match(closingTiming.correctedCds.find(item => item.sequence === 27).status, /falls short/);
+      assert.equal((await recordTrid(owner, 29, { type: "void", sequence: 25, reference: "Fictional send withdrawn" })).result.revision, 30);
+      assert.match((await readTrid(processor)).result.feeCures[0].correctionStatus, /Needs linked/);
     }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;

@@ -4,6 +4,7 @@ import { loanAccess } from "./workspace-access";
 import { activeTridEntries, tridLocalDate, tridTiming } from "./trid-timing";
 import { isLoanEstimateReceipt, type TridEntry, type TridEvent, type TridRequest } from "./trid-model";
 import { estimateRevisionBasis, reviewDisclosureFees, reviewEstimateRevisions } from "./trid-fee-evidence";
+import { feeCureBasis, reviewCorrectedCds, reviewFeeCures } from "./trid-closing-review";
 
 export function initializeTridEvidence(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_trid_evidence (
@@ -67,7 +68,26 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
     }
     return;
   }
+  if (event.type === "correctedCdReview") {
+    if (!active.some(entry => entry.sequence === event.sendSequence && entry.event.type === "sent" && entry.event.document === "Corrected CD")) {
+      return "Choose an active corrected Closing Disclosure send.";
+    }
+    if (active.some(entry => entry.event.type === "correctedCdReview" && entry.event.sendSequence === event.sendSequence)) {
+      return "Withdraw the earlier review before recording a replacement.";
+    }
+    return;
+  }
   if (event.type !== "closing" && event.on > tridLocalDate(now, scope.zone)) return "Receipt and delivery evidence cannot be dated in the future.";
+  if (event.type === "consummated" && active.some(entry => entry.event.type === "consummated")) {
+    return "Withdraw the earlier consummation entry before recording a correction.";
+  }
+  if (event.type === "feeCure") {
+    const basis = feeCureBasis(active, event);
+    if (!basis) return "Choose active consummation, original estimate and closing disclosure evidence.";
+    if (event.on < basis.consummation.on) return "The refund date cannot precede actual consummation in this review.";
+    if (event.correctedSendSequence && !basis.corrected) return "Choose an active corrected disclosure sent on or after consummation.";
+    if (active.some(entry => entry.event.type === "feeCure")) return "Withdraw the earlier cure record before recording a replacement.";
+  }
   if (event.type === "estimateRevision") {
     if (!estimateRevisionBasis(active, event)) return "Choose active original and revised Loan Estimates with the affected charge keys.";
     if (active.some(entry => entry.event.type === "estimateRevision" && entry.event.revisedSequence === event.revisedSequence)) {
@@ -117,13 +137,18 @@ export function tridEvidenceWork(db: Store, input: TridRequest, staff: Workspace
   const entries: TridEntry[] = records.map(row => ({
     sequence: Number(row.sequence), at: String(row.at), actor: String(row.actor), event: JSON.parse(String(row.event)) as TridEvent,
   }));
-  const current = () => ({
-    revision: entries.at(-1)?.sequence ?? 0,
-    entries,
-    timing: tridTiming(entries, now),
-    feeReview: reviewDisclosureFees(activeTridEntries(entries), input.operation === "read" ? input.feeBasis : undefined),
-    estimateRevisions: reviewEstimateRevisions(activeTridEntries(entries)),
-  });
+  const current = () => {
+    const active = activeTridEntries(entries);
+    return {
+      revision: entries.at(-1)?.sequence ?? 0,
+      entries,
+      timing: tridTiming(entries, now),
+      feeReview: reviewDisclosureFees(active, input.operation === "read" ? input.feeBasis : undefined),
+      estimateRevisions: reviewEstimateRevisions(active),
+      feeCures: reviewFeeCures(active),
+      correctedCds: reviewCorrectedCds(active),
+    };
+  };
   if (input.operation === "read") return current();
   if (access === "processor") return { error: "Only the assigned loan officer or an admin can record TRID evidence." };
   if (db.prepare("SELECT disposition FROM loans WHERE id=?").get(loanId)?.disposition !== "Active") {

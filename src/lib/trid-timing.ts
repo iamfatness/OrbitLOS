@@ -119,6 +119,7 @@ export function tridTiming(entries: TridEntry[], now: string) {
     ? (closingOn >= earliest ? "Scheduled date meets interval" : "Scheduled date falls short") : "Needs delivery or closing evidence";
   return { scope, applicationOn, leDue, leStatus, leEarliest, closingOn, leWait: wait(leEarliest), feeEvidence: feeEvidence(active),
     cdReceipt, cdReceiptBasis: actualReceipt ? "Recorded receipt" : presumedReceipt ? "Presumed mail receipt" : "Missing receipt",
+    initialCdEarliest: scope ? cdEarliest : null,
     cdEarliest: correctedCd || !scope ? null : cdEarliest,
     cdWait: correctedCd ? "Review corrected CD and whether the waiting period restarts" : !scope ? "Needs scope evidence" : wait(cdEarliest) };
 }

@@ -4,10 +4,55 @@ import { useEffect, useRef, useState } from "react";
 import { feeReviewBuckets } from "@/lib/trid-fee-comparison";
 import { estimateRevisionBasis, reviewDisclosureFees, type reviewEstimateRevisions } from "@/lib/trid-fee-evidence";
 import { estimateRevisionReasons, type TridEntry } from "@/lib/trid-model";
+import type { reviewCorrectedCds, reviewFeeCures } from "@/lib/trid-closing-review";
 import { Button } from "./ui/button";
 
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (cents: number | null) => cents === null ? "Missing" : dollars.format(cents / 100);
+
+export function parseTridDollars(value: string) {
+  const amount = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value);
+  return amount ? Number(amount[1]) * 100 + Number((amount[2] ?? "").padEnd(2, "0")) : NaN;
+}
+
+export function TridClosingReviews({ cures, corrections, actualOn }: {
+  cures: ReturnType<typeof reviewFeeCures>;
+  corrections: ReturnType<typeof reviewCorrectedCds>;
+  actualOn?: string;
+}) {
+  return <>
+    <details className="details-section">
+      <summary>Consummation and fee cure evidence</summary>
+      <div className="record-form">
+        <p>Actual consummation {actualOn ?? "missing"}</p>
+        {!cures.length && <p>No fee cure evidence recorded.</p>}
+        {cures.map(item => <dl className="trid-timing" key={item.sequence}>
+          <div><dt>Refund and date</dt><dd>{money(item.refundCents)} · {item.refundOn}</dd></div>
+          <div><dt>Potential excess from original estimate</dt><dd>{money(item.potential)} · {item.amountStatus}</dd></div>
+          <div><dt>60-day date</dt><dd>{item.dueOn ?? "Missing source evidence"}</dd></div>
+          <div><dt>Refund timing</dt><dd>{item.refundStatus}</dd></div>
+          <div><dt>Corrected disclosure timing</dt><dd>{item.correctionStatus}</dd></div>
+        </dl>)}
+      </div>
+    </details>
+    <details className="details-section">
+      <summary>Corrected Closing Disclosure timing ({corrections.length})</summary>
+      <div className="record-form">
+        {!corrections.length && <p>No corrected Closing Disclosures recorded.</p>}
+        {corrections.map(item => <article className="record-form" key={item.sequence}>
+          <strong>{item.version}</strong>
+          <p>{item.status}</p>
+          <dl className="trid-timing">
+            <div><dt>Reviewed reason</dt><dd>{item.reason ?? "Missing"}{item.reference && ` · ${item.reference}`}</dd></div>
+            <div><dt>Receipt</dt><dd>{item.receiptBasis}{item.receiptOn && ` · ${item.receiptOn}`}</dd></div>
+            <div><dt>Restarted interval</dt><dd>{item.earliest ?? "Unresolved or not required"}</dd></div>
+            <div><dt>{actualOn ? "Actual consummation" : "Planned consummation"}</dt><dd>{item.closingOn ?? "Missing"}</dd></div>
+          </dl>
+        </article>)}
+      </div>
+    </details>
+  </>;
+}
 
 export function TridEstimateRevisionReviews({ active, reviews }: {
   active: TridEntry[];
@@ -150,9 +195,7 @@ export function readFeeSnapshotLines(form: FormData) {
   const amounts = form.getAll("feeLineAmount");
   const buckets = form.getAll("feeLineBucket");
   return form.getAll("feeLineKey").map((key, index) => {
-    const amount = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(amounts[index]));
-    const borrowerCents = amount ? Number(amount[1]) * 100 + Number((amount[2] ?? "").padEnd(2, "0")) : NaN;
-    return { key, label: labels[index], bucket: buckets[index], borrowerCents,
+    return { key, label: labels[index], bucket: buckets[index], borrowerCents: parseTridDollars(String(amounts[index])),
       ...(form.has(`feeNotObtained_${index}`) ? { notObtained: true } : {}) };
   });
 }

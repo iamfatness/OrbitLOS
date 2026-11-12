@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
-import { isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
+import { correctedCdReasons, isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
 import { Button } from "./ui/button";
-import { readFeeSnapshotLines, TridEstimateRevisionFields, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
+import { parseTridDollars, readFeeSnapshotLines, TridClosingReviews, TridEstimateRevisionFields, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
 
 type Result = Extract<ComplianceCaseResult, { kind: "trid" }>["result"];
 type Evidence = Exclude<Result, { error: string }>;
@@ -15,6 +15,9 @@ const actions = {
   closing: "Record planned consummation", void: "Withdraw incorrect evidence",
   feeSnapshot: "Record disclosure fee snapshot",
   estimateRevision: "Record revised estimate review",
+  consummated: "Record actual consummation",
+  feeCure: "Record refund and cure evidence",
+  correctedCdReview: "Record corrected disclosure review",
 } as const;
 const dates = (value: string) => value.split(/[\s,]+/).filter(Boolean);
 const recordedWhen = (event: { on: string; localTime?: string }) => event.localTime ? `${event.on} ${event.localTime}` : event.on;
@@ -31,6 +34,9 @@ function describe(event: TridEvent) {
     case "void": return `Withdrew entry ${event.sequence}`;
     case "feeSnapshot": return `Fee snapshot for disclosure entry ${event.evidenceSequence}`;
     case "estimateRevision": return `${event.reason} · Revised estimate snapshot ${event.revisedSequence}`;
+    case "consummated": return `Actual consummation ${event.on}`;
+    case "feeCure": return `Refund evidence dated ${event.on} · Closing snapshot ${event.closingSequence}`;
+    case "correctedCdReview": return `${event.reason} · Corrected disclosure entry ${event.sendSequence}`;
   }
 }
 
@@ -100,6 +106,12 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
         originalSequence: Number(get("originalSequence")), revisedSequence: Number(get("revisedSequence")),
         chargeKeys: form.getAll("chargeKeys").map(String),
         reviewReference: get("reviewReference").trim() || undefined }; break;
+      case "consummated": input = { type: action, reference, on }; break;
+      case "feeCure": input = { type: action, reference, on, refundCents: parseTridDollars(get("refundAmount")),
+        consummationSequence: Number(get("consummationSequence")), estimateSequence: Number(get("estimateSequence")),
+        closingSequence: Number(get("closingSequence")), correctedSendSequence: get("correctedSendSequence") ? Number(get("correctedSendSequence")) : undefined }; break;
+      case "correctedCdReview": input = { type: action, reference, sendSequence: Number(get("correctedSendSequence")),
+        reason: get("correctedReason") }; break;
       case "void": input = { type: action, reference, sequence: Number(get("sequence")) }; break;
     }
     const parsed = tridEvent.safeParse(input);
@@ -135,6 +147,9 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
   const timing = data?.timing;
   const withdrawn = new Set(data?.entries.flatMap(({ event }) => event.type === "void" ? [event.sequence] : []));
   const active = data?.entries.filter(({ event, sequence }) => event.type !== "void" && !withdrawn.has(sequence)) ?? [];
+  const actual = active.find(entry => entry.event.type === "consummated");
+  const correctedSends = active.flatMap(entry => entry.event.type === "sent" && entry.event.document === "Corrected CD"
+    ? [{ sequence: entry.sequence, version: entry.event.version, on: entry.event.on }] : []);
   const entriesByNumber = new Map(active.map(({ sequence, event }) => [sequence, event]));
   const receiptDates = new Map(active.flatMap(({ event }) => event.type === "element" ? [[event.element, event.on] as const] : []));
   const estimateReceipts = active.filter(({ event }) => isLoanEstimateReceipt(event));
@@ -160,7 +175,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           <div><dt>Initial Loan Estimate send</dt><dd>{timing.leStatus}{timing.leDue && ` · Due ${timing.leDue}`}</dd></div>
           <div><dt>Loan Estimate waiting period</dt><dd>{timing.leWait}{timing.leEarliest && ` · Earliest ${timing.leEarliest}`}</dd></div>
           <div><dt>Initial Closing Disclosure receipt</dt><dd>{timing.cdReceiptBasis}{timing.cdReceipt && ` · ${timing.cdReceipt}`}</dd></div>
-          <div><dt>Closing Disclosure waiting period</dt><dd>{timing.cdWait}{timing.cdEarliest && ` · Earliest ${timing.cdEarliest}`}</dd></div>
+          <div><dt>Closing Disclosure waiting period</dt><dd>{timing.cdWait}{timing.initialCdEarliest && ` · Initial earliest ${timing.initialCdEarliest}`}</dd></div>
         </dl>
         <details className="details-section">
           <summary>Application receipts ({receiptDates.size} of 6)</summary>
@@ -182,6 +197,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
         </details>
         <TridFeeComparison active={active} />
         <TridEstimateRevisionReviews active={active} reviews={data.estimateRevisions} />
+        <TridClosingReviews cures={data.feeCures} corrections={data.correctedCds} actualOn={actual?.event.type === "consummated" ? actual.event.on : undefined} />
         {readOnly ? <p className="muted">Evidence is read-only for this view.</p> : <section className="record-form" aria-label="Record evidence">
           <h3>Record evidence</h3>
           <p className="muted">Use source references. Leave out SSNs and other borrower values.</p>
@@ -194,6 +210,31 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
           <form key={`${action}:${formRevision}`} onSubmit={record} className="record-form">
             <fieldset disabled={busy} className="record-form">
               {action === "feeSnapshot" && <TridFeeSnapshotFields active={active} />}
+              {action === "feeCure" && <>
+                <label className="field">Actual consummation<select name="consummationSequence" required>
+                  <option value="">Choose recorded consummation</option>
+                  {actual?.event.type === "consummated" && <option value={actual.sequence}>{actual.event.on}</option>}
+                </select></label>
+                <div className="form-grid">
+                  {(["estimateSequence", "closingSequence"] as const).map(name =>
+                    <label className="field" key={name}>{name === "estimateSequence" ? "Original estimate snapshot" : "Closing disclosure snapshot"}<select name={name} required>
+                      <option value="">Choose a snapshot</option>
+                      {data.feeReview.snapshots.filter(item => name === "estimateSequence" ? item.document === "Initial LE" : item.document.endsWith("CD")).map(item =>
+                        <option value={item.sequence} key={item.sequence}>{item.version} · {item.sentOn}</option>)}
+                    </select></label>)}
+                </div>
+                <label className="field">Documented refund amount (USD)<input name="refundAmount" inputMode="decimal" required pattern="[0-9]+([.][0-9]{1,2})?" /></label>
+              </>}
+              {(action === "feeCure" || action === "correctedCdReview") && <label className="field">
+                Corrected disclosure send{action === "feeCure" && " (if available)"}
+                <select name="correctedSendSequence" required={action === "correctedCdReview"}>
+                  <option value="">Choose a recorded send</option>
+                  {correctedSends.map(item => <option value={item.sequence} key={item.sequence}>{item.version} · {item.on}</option>)}
+                </select></label>}
+              {action === "correctedCdReview" && <label className="field">Reviewed correction reason<select name="correctedReason" required>
+                <option value="">Choose a reason</option>
+                {correctedCdReasons.map(reason => <option key={reason}>{reason}</option>)}
+              </select></label>}
               {action === "estimateRevision" && <TridEstimateRevisionFields active={active} snapshots={data.feeReview.snapshots} />}
               {action === "scope" && <>
                 <label className="compliance-choice"><input type="checkbox" name="coveredScenario" required /> This file matches the pilot scenario above.</label>
@@ -251,9 +292,10 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
               {action === "void" ? <label className="field">Entry to withdraw<select name="sequence" required><option value="">Choose an entry</option>
                 {data.entries.filter(entry => entry.event.type !== "void" && !withdrawn.has(entry.sequence)).map(entry =>
                   <option value={entry.sequence} key={entry.sequence}>{entry.sequence}. {describe(entry.event)}</option>)}
-              </select></label> : action !== "scope" && action !== "feeSnapshot" && <label className="field">{action === "closing" ? "Planned consummation date"
+              </select></label> : action !== "scope" && action !== "feeSnapshot" && action !== "correctedCdReview" && <label className="field">{action === "closing" ? "Planned consummation date"
                 : action === "sent" ? "Send date" : action === "intent" ? "Intent date" : action === "fee" ? "Activity date"
-                : action === "estimateRevision" ? "Date sufficient information was received" : "Receipt date"}<input name="on" type="date" required /></label>}
+                : action === "estimateRevision" ? "Date sufficient information was received" : action === "consummated" ? "Actual consummation date"
+                : action === "feeCure" ? "Refund date" : "Receipt date"}<input name="on" type="date" required /></label>}
               {(action === "received" || action === "intent" || action === "fee") &&
                 <label className="field">Local time (optional)<input name="localTime" type="time" />
                   <span className="muted">Enter the time in the recorded review time zone when it helps establish same-day order.</span>

@@ -19,3 +19,5 @@ Scope: internal compliance pilot, 2026-11-11. Built source `00498e79efca`; produ
 The owner and staff mutations ran in an isolated fictional workspace. Live verification exercised public routes and signed-out boundaries. Tests cover tenant and role checks. Course revision authoring, filing and real regulatory coverage remain outside this release.
 
 The review used the approved Orbit design system and brand references, Impeccable, and UI UX Pro Max. It reused the accepted Orbit form, list/detail, action and feedback patterns for the 21st.dev component reference requirement.
+
+Michigan loan → Disclosures → Consummation and fee cure evidence / Corrected Closing Disclosure timing. Status Not reviewed. Inspect populated desktop, portrait and phone states for actual consummation, independent refund and disclosure checks, original versus restarted interval, missing receipt, withdrawn source, stale save and role access. Check keyboard focus after save and refresh. Reuses the established Orbit native form and record patterns with the same Impeccable and UI UX Pro Max guidance. Source detector ran without regex findings.
