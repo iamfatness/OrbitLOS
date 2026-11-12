@@ -156,6 +156,13 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     }
     return super.completeUwmImportReceipt(...args);
   }
+  removeMatchedReceiptFixture(id) {
+    const result = this.ctx.storage.sql.exec("DELETE FROM uwm_webhook_receipts WHERE id=? AND kind='conditions'", id);
+    if (result.rowsWritten !== 1) throw new Error("Expected one fictional matched condition to remove");
+  }
+  matchedReceiptIdFixture(id) {
+    return this.ctx.storage.sql.exec("SELECT destinationReceiptId FROM uwm_receipt_matches WHERE receiptId=?",id).one().destinationReceiptId;
+  }
   loseNextMatchedReceipt() { this.loseMatchedReceipt = true; }
   async storeMatchedUwmReceipt(...args) {
     const receipt = await super.storeMatchedUwmReceipt(...args);
@@ -4454,6 +4461,21 @@ try {
     assert.equal(matched.status, "Matched");
     assert.equal(matched.canMatch, false);
     assert.equal((await receipts(lenderBrokerage)).filter((row) => row.kind === "conditions").length, 2);
+    assert.equal(matched.canCheck, true);
+    const source = workspaces.getByName(lenderInbox), destination = workspaces.getByName(lenderBrokerage);
+    const originalCopy = await source.matchedReceiptIdFixture(pending.id);
+    await destination.removeMatchedReceiptFixture(originalCopy);
+    assert.equal((await receipts(lenderInbox)).find((row) => row.id === pending.id).status, "Matched");
+    assert.equal((await receipts(lenderBrokerage)).filter((row) => row.kind === "conditions").length, 1);
+    assert.equal((await postResponse(matchPath, { receiptId: pending.id }, inboxAdmin)).status, 409);
+    await destination.loseNextMatchedReceipt();
+    assert.equal((await postResponse(matchPath, { receiptId: pending.id }, owner)).status, 503);
+    const resumed = await Promise.all([post(matchPath, { receiptId: pending.id }, owner), post(matchPath, { receiptId: pending.id }, owner)]);
+    assert.deepEqual(resumed, [{ status: "Matched" }, { status: "Matched" }]);
+    const restoredCopy = await source.matchedReceiptIdFixture(pending.id);
+    assert.notEqual(restoredCopy, originalCopy);
+    assert.equal((await receipts(lenderBrokerage)).filter((row) => row.kind === "conditions").length, 2);
+    if (process.argv.includes("--preview")) await destination.removeMatchedReceiptFixture(restoredCopy);
   });
 
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,

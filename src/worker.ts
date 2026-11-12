@@ -677,9 +677,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     }
     const config = runtimeSetting(this.env, "UWM_WEBHOOK_CONFIG");
     return readUwmWebhookReceipts(this.#store, before).map((row) => {
-      const env = z.enum(["int", "stage", "production"]).safeParse(row.environment);
-      return { ...row, canMatch: row.status !== "Matched" && !!row.loanNumber && ["conditions", "ulad"].includes(String(row.kind)) &&
-        env.success && uwmWebhookConnection(config, env.data)?.brokerageId === this.#id };
+      const environment = z.enum(["int", "stage", "production"]).safeParse(row.environment);
+      const eligible = Boolean(row.loanNumber) && ["conditions", "ulad"].includes(String(row.kind)) &&
+        environment.success && uwmWebhookConnection(config, environment.data)?.brokerageId === this.#id;
+      return { ...row, canMatch: eligible && row.status !== "Matched", canCheck: eligible && row.status === "Matched" };
     });
   }
 
@@ -717,23 +718,25 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const reserved = this.#store.transaction(() => {
       this.#store.prepare("INSERT OR IGNORE INTO uwm_receipt_matches (receiptId,destination,operationId) VALUES (?,?,?)")
         .run(receiptId, route.brokerageId, route.operationId);
-      return this.#store.prepare("SELECT destination,operationId,destinationReceiptId FROM uwm_receipt_matches WHERE receiptId=?").get(receiptId)!;
+      return this.#store.prepare("SELECT destination,operationId FROM uwm_receipt_matches WHERE receiptId=?").get(receiptId)!;
     });
     if (reserved.destination !== route.brokerageId || reserved.operationId !== route.operationId) {
       return { error: "The verified route changed after matching began. Review the original receipt." };
     }
-    if (reserved.destinationReceiptId === null) {
-      const matched = await target.storeMatchedUwmReceipt(staff, event, route.operationId);
-      if (matched === null) return unavailable;
-      this.#store.transaction(() => {
-        const previous = this.#store.prepare("SELECT destinationReceiptId FROM uwm_receipt_matches WHERE receiptId=?").get(receiptId);
-        if (previous?.destinationReceiptId !== null) return;
-        const now = new Date().toISOString();
-        this.#store.prepare("UPDATE uwm_receipt_matches SET destinationReceiptId=?,completedAt=? WHERE receiptId=?")
-          .run(matched, now, receiptId);
-        accessEvent(this.#store, staff, "Matched UWM receipt", `Receipt ${receiptId} → receipt ${matched}`, now);
-      });
-    }
+    // The inbox marker and loan copy live in different databases. A restore
+    // can remove the loan copy while the inbox still has the match marker.
+    const matched = await target.storeMatchedUwmReceipt(staff, event, route.operationId);
+    if (matched === null) return unavailable;
+    this.#store.transaction(() => {
+      const previous = this.#store.prepare("SELECT destinationReceiptId FROM uwm_receipt_matches WHERE receiptId=?").get(receiptId);
+      if (!previous) throw new Error("The match reservation could not be confirmed.");
+      if (previous.destinationReceiptId === matched) return;
+      const now = new Date().toISOString();
+      this.#store.prepare(`UPDATE uwm_receipt_matches SET destinationReceiptId=?, completedAt=COALESCE(completedAt,?) WHERE receiptId=?`)
+        .run(matched, now, receiptId);
+      accessEvent(this.#store, staff, previous.destinationReceiptId === null ? "Matched UWM receipt" : "Reconciled UWM receipt copy",
+        `Receipt ${receiptId} → receipt ${matched}`, now);
+    });
     return { status: "Matched" as const };
   }
 
