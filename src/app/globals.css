@@ -867,6 +867,11 @@ button:disabled { cursor: default; }
 .loan-retention button { min-height: 44px; }
 .loan-retention .retention-search { align-items: end; }
 .loan-retention .retention-search .field { flex: 1 1 12rem; min-width: 0; }
+.compliance-filing-filters { grid-template-columns: minmax(0, 2fr) minmax(110px, 1fr) minmax(0, 2fr); align-items: start; }
+.compliance-filing-filters select { min-width: 0; }
+@media (max-width: 650px) {
+  .compliance-filing-filters { grid-template-columns: minmax(0, 1fr); }
+}
 .compliance-home { display: grid; gap: 16px; }
 .compliance-home-branch { max-width: 420px; }
 .compliance-home-branch select { width: 100%; min-width: 0; min-height: 44px; }

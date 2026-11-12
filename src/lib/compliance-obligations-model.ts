@@ -47,7 +47,23 @@ export const filingReceiptEntry = filingReceiptFields.extend({
 export const filingReceiptHistory = z.object({
   kind: z.literal("filingReceipts"), items: z.array(filingReceiptEntry), today: z.iso.date(),
 });
+export const filingArchiveFilters = z.strictObject({
+  entityId: z.union([z.uuid(), z.literal("")]), year: z.string().regex(/^(20\d{2})?$/),
+  confirmation: z.string().trim().max(120),
+});
+export const filingArchiveRow = z.object({
+  entityId: z.uuid(), entityName: z.string(), obligationId: z.uuid(), title: z.string(), period: filingPeriod,
+  version: z.int().positive(), status: z.enum(filingReceiptStatuses),
+  confirmation: z.string(), confirmedOn: z.iso.date(), matchedVersion: z.int().positive(),
+  basis: z.object({ obligationId: z.uuid(), period: filingPeriod, version: z.int().positive(),
+    status: z.string(), sourceUrl: z.url(), authority: z.string(), report: z.object({ year: z.string(), quarter: z.int().min(1).max(4) }) }),
+});
+export const filingArchivePage = z.object({
+  kind: z.literal("filingArchive"), items: z.array(filingArchiveRow), more: z.boolean(),
+  entities: z.array(z.object({ id: z.uuid(), name: z.string() })),
+});
 export const obligationRequest = z.discriminatedUnion("operation", [
+  z.strictObject({ operation: z.literal("filingArchive"), filters: filingArchiveFilters, offset: z.int().min(0).max(10000).default(0) }),
   z.strictObject({ operation: z.literal("filingReceipts"), ...filingScope }),
   z.strictObject({ operation: z.literal("recordFilingReceipt"), ...filingScope, ...change,
     expectedVersion: z.int().nonnegative(), ...filingReceiptFields.shape }),

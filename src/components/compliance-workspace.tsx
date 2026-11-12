@@ -5,6 +5,7 @@ import type { LicenseRenewalTarget, ProgramReviewTarget } from "@/lib/compliance
 import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
 import type { ReportingPeriod } from "@/lib/call-report-readiness-model";
 import type { MigrationDestination } from "@/lib/migration-record-model";
+import { ComplianceFilingArchive } from "./compliance-filing-archive";
 import { ComplianceInventory } from "./compliance-inventory";
 import { ComplianceLeadBackfill } from "./compliance-lead-backfill";
 import { ComplianceQueue } from "./compliance-queue";
@@ -17,7 +18,7 @@ import { ComplianceResearch } from "./compliance-research";
 import { Button } from "./ui/button";
 import { ComplianceOwnerHome, type ComplianceSetupAction } from "./compliance-owner-home";
 
-type View = "Home" | "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
+type View = "Home" | "Filing history" | "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
 const areas: { label: string; links: { view: View; label: string; pilot?: boolean }[] }[] = [
   { label: "Licenses & branches", links: [{ view: "Licensing", label: "License register" }] },
   { label: "Calendar & filings", links: [{ view: "Monthly review", label: "Monthly review" }, { view: "Obligations", label: "Recurring work", pilot: true }] },
@@ -104,10 +105,12 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     <section ref={panel} tabIndex={-1} hidden={!!report} aria-label={`Compliance ${view.toLowerCase()}`}>
       {view === "Home" && <ComplianceOwnerHome brokerageId={brokerageId} paused={paused} branchId={branchId} onBranch={onBranch} returningTo={returningTo}
         onSetup={openSetup} openArea={showArea} openFinding={openLoan}
+        openFilingArchive={pilot ? () => showArea("Filing history", "compliance-filing-history") : undefined}
         openLicense={target => { setSetup(undefined); setLocalLicense(target); show("Licensing", `compliance-renewal-${target.licenseId}`); }}
         openReview={target => { setReview(target); show("Monthly review", `compliance-review-${target.itemId}`); }} />}
       {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused}
         initialTarget={localLicense ?? licenseTarget} setupEntity={setup === "company"} setupBranch={setup === "licenses" ? branchId : undefined} onLicenseSaved={onLicenseSaved} />}
+      {view === "Filing history" && <ComplianceFilingArchive brokerageId={brokerageId} paused={paused} />}
       {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} />}
       {view === "Monthly review" && <>
         {obligationVisit && <Button size="sm" variant="outline" className="mb-3" onClick={() => {

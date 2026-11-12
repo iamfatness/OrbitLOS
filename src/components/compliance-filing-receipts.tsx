@@ -21,8 +21,8 @@ function receiptHistory(result: Awaited<ReturnType<typeof accessComplianceCases>
   return parsed.data;
 }
 
-export function ComplianceFilingReceipts({ brokerageId, entityId, entityName, basis }: {
-  brokerageId: string; entityId: string; entityName: string; basis: ObligationReviewBasis;
+export function ComplianceFilingReceipts({ brokerageId, entityId, entityName, basis, readOnly, initialVersion }: {
+  brokerageId: string; entityId: string; entityName: string; basis: ObligationReviewBasis; readOnly?: boolean; initialVersion?: number;
 }) {
   const [history, setHistory] = useState<History>();
   const [revision, refresh] = useState(0);
@@ -39,6 +39,8 @@ export function ComplianceFilingReceipts({ brokerageId, entityId, entityName, ba
   const mounted = useRef(false);
   const { obligationId: id, period, report } = basis;
   const latest = history?.items[0];
+  const featured = history?.items.find(entry => entry.version === initialVersion) ?? latest;
+  const otherEntries = history?.items.filter(entry => entry.version !== featured?.version) ?? [];
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
@@ -113,14 +115,16 @@ export function ComplianceFilingReceipts({ brokerageId, entityId, entityName, ba
 
   return <section className="record-form document-item" aria-label="External filing">
     <h3>External filing</h3>
-    <p className="muted">Record the confirmation you received outside Orbit. Orbit stores the details you enter and the location of the original receipt.</p>
+    <p className="muted">{readOnly ? "Filing details recorded by brokerage staff." :
+      "Record the confirmation you received outside Orbit. Orbit stores the details you enter and the location of the original receipt."}</p>
     {feedback && <p ref={focusFeedback} tabIndex={-1} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
     {loading && <p role="status">Loading filing history…</p>}
     {history && !latest && <p>No filing confirmation recorded for this period.</p>}
-    {latest && entryDetails(latest)}
-    {history && history.items.length > 1 && <details className="document-form">
-      <summary>Earlier filing entries ({history.items.length - 1})</summary>
-      <ul className="document-list">{history.items.slice(1).map(entry => <li className="record-form" key={entry.version}>{entryDetails(entry)}</li>)}</ul>
+    {featured && latest && featured.version !== latest.version && <p>Matching earlier entry · Latest status {latest.status}</p>}
+    {featured && entryDetails(featured)}
+    {otherEntries.length > 0 && <details className="document-form">
+      <summary>{featured?.version === latest?.version ? "Earlier filing entries" : "Other filing entries"} ({otherEntries.length})</summary>
+      <ul className="document-list">{otherEntries.map(entry => <li className="record-form" key={entry.version}>{entryDetails(entry)}</li>)}</ul>
     </details>}
     {refreshNeeded && <div><Button size="sm" variant="outline" disabled={loading || saving} onClick={loadAgain}>Refresh filing history</Button></div>}
     {editing ? <form className="record-form" onSubmit={save}>
@@ -140,7 +144,7 @@ export function ComplianceFilingReceipts({ brokerageId, entityId, entityName, ba
           <Button size="sm" variant="outline" onClick={() => { setEditing(false); setFeedback(undefined); requestAnimationFrame(() => addButton.current?.focus()); }}>Cancel</Button>
         </div>
       </fieldset>
-    </form> : history && !refreshNeeded && <div>
+    </form> : !readOnly && history && !refreshNeeded && <div>
       <Button ref={addButton} size="sm" variant="outline" onClick={() => { setFeedback(undefined); setEditing(true); }}>
         {latest ? "Record another confirmation" : "Record filing confirmation"}
       </Button>

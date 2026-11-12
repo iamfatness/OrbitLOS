@@ -255,5 +255,18 @@ test("external filing confirms one exact recorded quarter and preserves receipt 
     [[2, "Accepted", "EXAMPLE-RECEIPT-2"], [1, "Submitted", "EXAMPLE-RECEIPT-1"]]);
   assert.equal(f.run(record).items[0].version, 2);
   assert.equal(f.run({ operation: "occurrences", entityId: f.entityId, id: f.id }).items[0].filingStatus, "Accepted");
+  const archive = (filters = {}, staff = f.staff, roster = [f.actor]) =>
+    f.run({ operation: "filingArchive", filters: { year: "", entityId: "", confirmation: "", ...filters } }, staff, roster);
+  const original = archive({ confirmation: "example-receipt-1", year: "2026", entityId: f.entityId });
+  assert.deepEqual(original.items.map(row => [row.matchedVersion, row.version, row.status, row.period]), [[1, 2, "Accepted", period]]);
+  assert.equal(original.items[0].basis.report.quarter, 3);
+  assert.equal(archive().items[0].matchedVersion, 2);
+  assert.deepEqual(f.run({ operation: "filingArchive", filters: { year: "", entityId: "", confirmation: "" }, offset: 25 }).items, []);
+  assert.deepEqual(archive({ year: "2025" }).items, []);
+  assert.deepEqual(archive({ confirmation: "%" }).items, []);
+  assert.deepEqual(archive({ entityId: crypto.randomUUID() }).items, []);
+  const other = { ...f.staff, brokerage: { ...f.staff.brokerage, id: crypto.randomUUID() } };
+  assert.deepEqual(archive({}, other), { kind: "filingArchive", entities: [], items: [], more: false });
+  assert.ok(archive({}, { ...f.staff, brokerage: { ...f.staff.brokerage, role: "LO" } }, [officer]).error);
   assert.equal(f.sql.prepare("SELECT count(*) AS count FROM compliance_program_items").get().count, 0);
 });

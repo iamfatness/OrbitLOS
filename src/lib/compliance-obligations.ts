@@ -4,7 +4,7 @@ import { complianceProgramWork } from "./compliance-program";
 import { stateScopeLicenseSnapshot } from "./compliance-state-scope";
 import type { WorkspaceStaff } from "./staff-store";
 import type { VersionedBrokerageMember } from "./brokerage-model";
-import { filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
+import { filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
 
@@ -55,6 +55,36 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const parsed = obligationRequest.safeParse(input);
   if (!parsed.success) return unavailable;
   const data = parsed.data;
+  if (data.operation === "filingArchive") {
+    const { filters, offset } = data;
+    const match = "m.brokerageId=o.brokerageId AND m.entityId=o.entityId AND m.obligationId=o.obligationId AND m.period=o.period";
+    const matchingVersion = filters.confirmation ? `(SELECT max(m.version) FROM compliance_filing_receipts m
+      WHERE ${match} AND instr(lower(json_extract(m.evidence,'$.confirmation')),lower(?))>0)` : "r.version";
+    const rows = db.prepare(`SELECT o.entityId,e.name AS entityName,o.obligationId,o.period,o.version AS obligationVersion,o.status AS periodStatus,o.snapshot,
+      r.version,r.evidence,${matchingVersion} AS matchedVersion
+      FROM compliance_obligation_occurrences o
+      JOIN compliance_program_entities e ON e.brokerageId=o.brokerageId AND e.id=o.entityId
+      JOIN compliance_filing_receipts r ON r.brokerageId=o.brokerageId AND r.entityId=o.entityId AND r.obligationId=o.obligationId AND r.period=o.period
+        AND r.version=(SELECT max(m.version) FROM compliance_filing_receipts m WHERE ${match})
+      WHERE o.brokerageId=? AND o.period BETWEEN ? AND ? ${filters.entityId ? "AND o.entityId=?" : ""}
+        ${filters.confirmation ? "AND matchedVersion IS NOT NULL" : ""}
+      ORDER BY o.period DESC,e.name,o.entityId,o.obligationId LIMIT 26 OFFSET ?`).all(
+        ...(filters.confirmation ? [filters.confirmation] : []), tenant,
+        `${filters.year || "2000"}-01`, `${filters.year || "2099"}-12`,
+        ...(filters.entityId ? [filters.entityId] : []), offset);
+    const entities = db.prepare("SELECT id,name FROM compliance_program_entities WHERE brokerageId=? ORDER BY name,id LIMIT 50").all(tenant);
+    return { kind: "filingArchive", entities, more: rows.length > 25, items: rows.slice(0, 25).map(row => {
+      const { draft } = JSON.parse(String(row.snapshot)) as { draft: ObligationDraft };
+      const [year, month] = String(row.period).split("-");
+      return filingArchiveRow.parse({
+        ...filingReceiptFields.parse(JSON.parse(String(row.evidence))),
+        entityId: row.entityId, entityName: row.entityName, obligationId: row.obligationId, period: row.period,
+        title: draft.title, version: row.version, matchedVersion: row.matchedVersion,
+        basis: { obligationId: row.obligationId, period: row.period, version: row.obligationVersion, status: row.periodStatus,
+          sourceUrl: draft.sourceUrl, authority: draft.authority, report: { year, quarter: Math.ceil(Number(month) / 3) } },
+      });
+    }) };
+  }
   const entity = db.prepare("SELECT id,name,nmls,scopeNote FROM compliance_program_entities WHERE brokerageId=? AND id=?")
     .get(tenant, data.entityId);
   if (!entity) return unavailable;
