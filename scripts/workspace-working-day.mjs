@@ -860,6 +860,7 @@ try {
   const checkpointPolicy = { secondReview, requireSecondReview: true };
   const campaignCallbackAt = new Date(now + 86_400_000).toISOString();
   const callbackPerformance = (staff = owner) => action(staff, "readCampaignCallbackPerformance", { campaignId });
+  const campaignImportLeadIds = new Set();
   const leadId = await stage("Owner imports and routes CRM work", async () => {
     const ownerBefore = await sidebar(owner), officerBefore = await sidebar(officer);
     assert.equal(officerBefore.exceptions, undefined);
@@ -897,7 +898,8 @@ try {
       rows: [1, 2, 3].map((n) => ({ type: "Lead", externalId: `extra-${n}`, parentId: "",
         name: `Fictional campaign overflow ${n}`, email: `overflow-${n}@example.test`, phone: `248-555-015${n}`,
         ownerEmail: "", purpose: "Purchase", source: "Imported CRM", zip: "48067", createdAt: dueAt, dueAt })) };
-    await importRows(extra);
+    const campaignImport = await importRows(extra);
+    for (const row of campaignImport.rows) campaignImportLeadIds.add(row.targetId);
     const replay = await write(owner, extra);
     assert.ok(replay.migration.rows.every(({ status }) => status === "Previously imported"));
     const current = await workspace(owner);
@@ -4990,7 +4992,11 @@ try {
     ]);
     assert.ok(all.some(({ payload }) => payload.eventType === "application.submitted" && payload.resource.id === loanId));
     assert.ok(all.some(({ payload }) => payload.eventType === "loan.funded" && payload.resource.id === loanId));
-    assert.ok(all.some(({ payload }) => payload.eventType === "lead.created" && payload.resource.id === leadId && payload.source === "Campaign CSV"));
+    assert.equal(campaignImportLeadIds.size, 3);
+    const importedEvents = all.filter(({ payload }) => payload.eventType === "lead.created" && campaignImportLeadIds.has(payload.resource.id));
+    assert.equal(importedEvents.length, 3);
+    assert.ok(importedEvents.every(({ payload }) => payload.source === "Campaign CSV"));
+    assert.ok(!all.some(({ payload }) => payload.eventType === "lead.created" && payload.resource.id === leadId));
     for (const source of ["Realtor referral", "Website quote request", "Direct entry"]) {
       assert.ok(all.some(({ payload }) => payload.eventType === "lead.created" && payload.source === source));
     }
