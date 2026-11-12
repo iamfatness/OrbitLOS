@@ -577,3 +577,7 @@ Reused Orbit’s accepted quarter review, upload, record and download patterns. 
 ### Saved FV7 workpapers
 
 Reused Orbit’s native disclosure, result, history list and download patterns. Impeccable Polish informed keeping the saved quarter version and workpaper number next to the result. UI UX Pro Max keyboard guidance informed visible focus after opening a saved record. The populated list, selected reconciled workpaper and separate workpaper with differences were inspected at desktop, portrait and phone widths.
+
+### Guided FV7 evidence entry
+
+Reused Orbit’s native disclosures and labeled numeric, selection and evidence fields. Impeccable Polish informed keeping one state or loan in view at a time. UI UX Pro Max form guidance informed focus on the first incomplete group and explicit save feedback. The populated state, selected loan, amount changes and saved workpaper were inspected on desktop, portrait and phone.

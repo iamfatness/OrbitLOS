@@ -1311,3 +1311,7 @@ Worker `02fd8b07-1849-4469-a5ee-3585f768f1a0` serves app `9a71b4eb0f20`. A ficti
 ### Saved FV7 workpaper history
 
 Worker `1f6fb9e7-dd3d-43ed-af10-ac7a6a496f1c` serves app `52d4a57a0333`. The browser dropped a fictional owner’s successful save response and retried to the same receipt. A second evidence file saved a separate result with a difference. After reload the owner reopened the earlier review v1 workpaper while review v2 was current, recovered the exact uploaded evidence bytes and saw the original totals. Tests covered access, pagination and corrupted evidence. Public Demo and signed-out routes passed. No filing or provider action occurred.
+
+### Guided FV7 evidence entry
+
+Worker `9cdbc694-af00-4c97-bb3d-f6c8f93a4b7f` serves app `9b6f744d1bcd`. A fictional owner selected review v1, entered reviewed prior balances for Michigan and Ohio, preserved inputs when switching state and visiting loan facts, corrected a missing dated change, and saved and reopened the reconciled result. A separate scope removal produced the correct signed adjustment while preserving the earlier workpaper. The public Demo and sign-in passed staged and live. No filing or provider action occurred.
