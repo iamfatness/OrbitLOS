@@ -76,11 +76,14 @@ export function complianceLearningWork(db: Store, input: unknown, staff: Workspa
         title: r.title, kind: r.kind, state: state(r as unknown as Version), createdAt: r.createdAt })),
         next: rows.length > 25 ? Number(rows[24].sequence) : null, disclaimer: learningDisclaimer };
     }
-    const rows = db.prepare(`SELECT a.rowid AS sequence,a.* FROM compliance_learning_assignments a
+    const rows = db.prepare(`SELECT a.rowid AS sequence,a.id,a.versionId,a.dueAt,v.title,v.kind
+      FROM compliance_learning_assignments a
+      JOIN compliance_learning_versions v ON v.brokerageId=a.brokerageId AND v.id=a.versionId
       WHERE a.brokerageId=? AND a.employeeEmail=? AND a.accessRevision=? AND a.rowid>?
       AND NOT EXISTS(SELECT 1 FROM compliance_learning_events e WHERE e.brokerageId=a.brokerageId AND e.assignmentId=a.id AND e.operation='revokeAssignment')
       ORDER BY a.rowid LIMIT 26`).all(tenant, staff.email, actor.accessRevision ?? 0, data.after ?? 0);
-    return { kind: "learningAssignments", items: rows.slice(0, 25).map(r => ({ id: r.id, versionId: r.versionId, dueAt: r.dueAt })),
+    return { kind: "learningAssignments", items: rows.slice(0, 25).map(r => ({ id: r.id, versionId: r.versionId,
+      title: r.title, kind: r.kind, dueAt: r.dueAt })),
       next: rows.length > 25 ? Number(rows[24].sequence) : null, disclaimer: learningDisclaimer };
   }
   if (data.operation === "readVersion") {

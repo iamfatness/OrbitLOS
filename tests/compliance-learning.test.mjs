@@ -45,8 +45,11 @@ function fixture(t) {
 
 test("admins can read their own assignments without exposing employee work",t=>{
  const f=fixture(t),v=f.draft();f.publish(v.versionId);
- const mine=f.assign(v.versionId,f.admin);f.assign(v.versionId,f.employee);
+ const mine=f.assign(v.versionId,f.admin), employeeAssignment=f.assign(v.versionId,f.employee);
  assert.deepEqual(f.work({operation:"myAssignments"}).items.map(i=>i.id),[mine]);
+ assert.deepEqual(f.work({operation:"myAssignments"},f.employee).items,[{
+   id:employeeAssignment, versionId:v.versionId, title:"Brokerage original content", kind:"Policy", dueAt:at,
+ }]);
  assert.equal(f.work({operation:"list"}).kind,"learningLibrary");
  assert.equal(f.work({operation:"myAssignments"},f.other).items.length,0);
  f.mutate("acknowledge",{assignmentId:mine,versionId:v.versionId,acknowledged:true});
