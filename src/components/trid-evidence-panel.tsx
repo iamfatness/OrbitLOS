@@ -5,7 +5,7 @@ import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import { correctedCdReasons, isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
 import { Button } from "./ui/button";
-import { parseTridDollars, readFeeSnapshotLines, TridClosingReviews, TridEstimateRevisionFields, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
+import { parseTridDollars, readFeeSnapshotLines, TridClosingReviews, TridClosingSourceField, TridEstimateRevisionFields, TridEstimateRevisionReviews, TridFeeComparison, TridFeeSnapshotFields } from "./trid-fee-comparison";
 
 type Result = Extract<ComplianceCaseResult, { kind: "trid" }>["result"];
 type Evidence = Exclude<Result, { error: string }>;
@@ -217,20 +217,16 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                 </select></label>
                 <div className="form-grid">
                   {(["estimateSequence", "closingSequence"] as const).map(name =>
-                    <label className="field" key={name}>{name === "estimateSequence" ? "Original estimate snapshot" : "Closing disclosure snapshot"}<select name={name} required>
-                      <option value="">Choose a snapshot</option>
-                      {data.feeReview.snapshots.filter(item => name === "estimateSequence" ? item.document === "Initial LE" : item.document.endsWith("CD")).map(item =>
-                        <option value={item.sequence} key={item.sequence}>{item.version} · {item.sentOn}</option>)}
-                    </select></label>)}
+                    <TridClosingSourceField key={name} name={name}
+                      label={name === "estimateSequence" ? "Original estimate snapshot" : "Closing disclosure snapshot"}
+                      choices={data.feeReview.snapshots.filter(item => name === "estimateSequence" ? item.document === "Initial LE" : item.document.endsWith("CD"))
+                        .map(item => ({ sequence: item.sequence, version: item.version, on: item.sentOn }))} />)}
                 </div>
                 <label className="field">Documented refund amount (USD)<input name="refundAmount" inputMode="decimal" required pattern="[0-9]+([.][0-9]{1,2})?" /></label>
               </>}
-              {(action === "feeCure" || action === "correctedCdReview") && <label className="field">
-                Corrected disclosure send{action === "feeCure" && " (if available)"}
-                <select name="correctedSendSequence" required={action === "correctedCdReview"}>
-                  <option value="">Choose a recorded send</option>
-                  {correctedSends.map(item => <option value={item.sequence} key={item.sequence}>{item.version} · {item.on}</option>)}
-                </select></label>}
+              {(action === "feeCure" || action === "correctedCdReview") && <TridClosingSourceField
+                name="correctedSendSequence" label={action === "feeCure" ? "Corrected disclosure send (if available)" : "Corrected disclosure send"}
+                choices={correctedSends} optional={action === "feeCure"} />}
               {action === "correctedCdReview" && <label className="field">Reviewed correction reason<select name="correctedReason" required>
                 <option value="">Choose a reason</option>
                 {correctedCdReasons.map(reason => <option key={reason}>{reason}</option>)}

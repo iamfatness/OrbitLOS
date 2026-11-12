@@ -114,5 +114,9 @@ test("fee cure tracks independent refund and corrected disclosure dates and keep
   assert.equal(withdrawnCorrection.refundStatus, review.refundStatus);
   const [withdrawnSnapshot] = reviewFeeCures(entries.filter(entry => entry.sequence !== 4));
   assert.equal(withdrawnSnapshot.potential, null);
-  assert.equal(withdrawnSnapshot.refundStatus, "Needs active source evidence");
+  assert.equal(withdrawnSnapshot.refundStatus, review.refundStatus);
+  assert.equal(withdrawnSnapshot.correctionStatus, review.correctionStatus);
+  const [withdrawnConsummation] = reviewFeeCures(entries.filter(entry => entry.sequence !== 5));
+  assert.equal(withdrawnConsummation.dueOn, null);
+  assert.equal(withdrawnConsummation.refundStatus, "Needs active consummation evidence");
 });

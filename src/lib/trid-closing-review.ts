@@ -10,12 +10,13 @@ export function feeCureBasis(active: TridEntry[], event: FeeCure) {
   const consummation = active.find(entry => entry.sequence === event.consummationSequence)?.event;
   if (consummation?.type !== "consummated") return null;
   const review = reviewDisclosureFees(active, event);
-  const closing = review.snapshots.find(item => item.sequence === event.closingSequence);
-  if (!review.comparison || !closing || closing.sentOn > consummation.on) return null;
+  const original = review.snapshots.find(item => item.sequence === event.estimateSequence && item.document === "Initial LE");
+  const closing = review.snapshots.find(item => item.sequence === event.closingSequence && item.document.endsWith("CD"));
+  const comparison = closing && closing.sentOn <= consummation.on ? review.comparison : null;
   const send = active.find(entry => entry.sequence === event.correctedSendSequence)?.event;
   const corrected = send?.type === "sent" && send.document === "Corrected CD" && send.on >= consummation.on
     ? send : null;
-  return { consummation, corrected, comparison: review.comparison };
+  return { consummation, corrected, original, closing, comparison };
 }
 
 export function reviewFeeCures(active: TridEntry[]) {
@@ -23,10 +24,14 @@ export function reviewFeeCures(active: TridEntry[]) {
     if (event.type !== "feeCure") return [];
     const basis = feeCureBasis(active, event);
     const dueOn = basis ? shiftReportDate(basis.consummation.on, 60) : null;
-    const potential = basis?.comparison.potentialExcessCents ?? null;
+    const potential = basis?.comparison?.potentialExcessCents ?? null;
     return [{
-      sequence, dueOn, potential, refundCents: event.refundCents, refundOn: event.on,
-      refundStatus: !dueOn ? "Needs active source evidence" : event.on > dueOn ? "Recorded after deadline" : "Recorded within 60 days",
+      sequence, dueOn, potential, refundCents: event.refundCents, refundOn: event.on, reference: event.reference,
+      estimateSequence: event.estimateSequence, estimateVersion: basis?.original?.version ?? null,
+      closingSequence: event.closingSequence, closingVersion: basis?.closing?.version ?? null,
+      correctedSequence: event.correctedSendSequence, correctedVersion: basis?.corrected?.version ?? null,
+      correctedOn: basis?.corrected?.on ?? null,
+      refundStatus: !dueOn ? "Needs active consummation evidence" : event.on > dueOn ? "Recorded after deadline" : "Recorded within 60 days",
       amountStatus: potential === null ? "Needs complete fee comparison" : event.refundCents < potential
         ? "Below the potential excess" : "Meets or exceeds the potential excess",
       correctionStatus: !basis?.corrected || !dueOn ? "Needs linked corrected disclosure evidence"
@@ -68,7 +73,7 @@ export function reviewCorrectedCds(active: TridEntry[]) {
         : closingOn < earliest ? "Consummation falls short of restarted interval" : "Consummation date meets restarted interval";
     }
     return [{
-      sequence, version: sent.version, reason: review?.reason ?? null, reference: review?.reference ?? null,
+      sequence, version: sent.version, sentOn: sent.on, reason: review?.reason ?? null, reference: review?.reference ?? null,
       receiptOn: received.on, receiptBasis: received.basis, earliest, closingOn: closingOn ?? null, status,
     }];
   });

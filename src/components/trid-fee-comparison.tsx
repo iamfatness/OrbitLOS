@@ -15,6 +15,24 @@ export function parseTridDollars(value: string) {
   return amount ? Number(amount[1]) * 100 + Number((amount[2] ?? "").padEnd(2, "0")) : NaN;
 }
 
+export function TridClosingSourceField({ name, label, choices, optional }: {
+  name: string;
+  label: string;
+  choices: { sequence: number; version: string; on: string }[];
+  optional?: boolean;
+}) {
+  const [selected, setSelected] = useState("");
+  const source = choices.find(item => String(item.sequence) === selected);
+  return <div className="record-form min-w-0">
+    <label className="field">{label}<select name={name} required={!optional} value={selected} onChange={e => setSelected(e.target.value)}>
+      <option value="">{choices.length ? "Choose a record" : "No active records"}</option>
+      {selected && !source && <option value={selected}>Selected record unavailable</option>}
+      {choices.map(item => <option value={item.sequence} key={item.sequence}>#{item.sequence} · {item.on}</option>)}
+    </select></label>
+    {source && <p className="muted break-words">Version {source.version}</p>}
+  </div>;
+}
+
 export function TridClosingReviews({ cures, corrections, actualOn }: {
   cures: ReturnType<typeof reviewFeeCures>;
   corrections: ReturnType<typeof reviewCorrectedCds>;
@@ -26,13 +44,20 @@ export function TridClosingReviews({ cures, corrections, actualOn }: {
       <div className="record-form">
         <p>Actual consummation {actualOn ?? "missing"}</p>
         {!cures.length && <p>No fee cure evidence recorded.</p>}
-        {cures.map(item => <dl className="trid-timing" key={item.sequence}>
-          <div><dt>Refund and date</dt><dd>{money(item.refundCents)} · {item.refundOn}</dd></div>
-          <div><dt>Potential excess from original estimate</dt><dd>{money(item.potential)} · {item.amountStatus}</dd></div>
-          <div><dt>60-day date</dt><dd>{item.dueOn ?? "Missing source evidence"}</dd></div>
-          <div><dt>Refund timing</dt><dd>{item.refundStatus}</dd></div>
-          <div><dt>Corrected disclosure timing</dt><dd>{item.correctionStatus}</dd></div>
-        </dl>)}
+        {cures.map(item => <article className="record-form" key={item.sequence}>
+          <p className="break-words"><strong>{money(item.refundCents)} refund</strong> · {item.refundOn} · {item.reference}</p>
+          <dl className="trid-timing">
+            <div><dt>Refund timing</dt><dd>{item.refundStatus}</dd></div>
+            <div><dt>Corrected disclosure send</dt><dd>{item.correctedOn && `${item.correctedOn} · `}{item.correctionStatus}</dd></div>
+            <div><dt>60-day date</dt><dd>{item.dueOn ?? "Missing consummation evidence"}</dd></div>
+            <div><dt>Potential excess from original estimate</dt><dd>{money(item.potential)} · {item.amountStatus}</dd></div>
+          </dl>
+          <p className="muted break-words">
+            Original snapshot #{item.estimateSequence} · {item.estimateVersion ?? "Unavailable"}<br />
+            Closing snapshot #{item.closingSequence} · {item.closingVersion ?? "Unavailable"}
+            {item.correctedSequence && <><br />Corrected disclosure #{item.correctedSequence} · {item.correctedVersion ?? "Unavailable"}</>}
+          </p>
+        </article>)}
       </div>
     </details>
     <details className="details-section">
@@ -40,12 +65,12 @@ export function TridClosingReviews({ cures, corrections, actualOn }: {
       <div className="record-form">
         {!corrections.length && <p>No corrected Closing Disclosures recorded.</p>}
         {corrections.map(item => <article className="record-form" key={item.sequence}>
-          <strong>{item.version}</strong>
+          <p className="break-words"><strong>{item.version}</strong> · Sent {item.sentOn} · Record #{item.sequence}</p>
           <p>{item.status}</p>
           <dl className="trid-timing">
             <div><dt>Reviewed reason</dt><dd>{item.reason ?? "Missing"}{item.reference && ` · ${item.reference}`}</dd></div>
             <div><dt>Receipt</dt><dd>{item.receiptBasis}{item.receiptOn && ` · ${item.receiptOn}`}</dd></div>
-            <div><dt>Restarted interval</dt><dd>{item.earliest ?? "Unresolved or not required"}</dd></div>
+            <div><dt>Earliest date after restart</dt><dd>{item.earliest ?? "No date established"}</dd></div>
             <div><dt>{actualOn ? "Actual consummation" : "Planned consummation"}</dt><dd>{item.closingOn ?? "Missing"}</dd></div>
           </dl>
         </article>)}

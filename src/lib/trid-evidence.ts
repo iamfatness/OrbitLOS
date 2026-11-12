@@ -83,7 +83,7 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
   }
   if (event.type === "feeCure") {
     const basis = feeCureBasis(active, event);
-    if (!basis) return "Choose active consummation, original estimate and closing disclosure evidence.";
+    if (!basis?.comparison) return "Choose active consummation, original estimate and closing disclosure evidence.";
     if (event.on < basis.consummation.on) return "The refund date cannot precede actual consummation in this review.";
     if (event.correctedSendSequence && !basis.corrected) return "Choose an active corrected disclosure sent on or after consummation.";
     if (active.some(entry => entry.event.type === "feeCure")) return "Withdraw the earlier cure record before recording a replacement.";
