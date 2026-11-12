@@ -6,6 +6,7 @@ import { demoRecords } from "./seed";
 import { staffApplications } from "./applications";
 import { initializeSettlementSummaries } from "./settlement-reconciliation";
 import { disclosureDeclinePrefix, disclosureDeclineTaskTitle } from "./disclosure-model";
+import { backfillRevisedDisclosureTasks } from "./disclosures";
 import { closeReviewedApplicationFollowUps, createApplicationFollowUps } from "./tasks";
 import type { MockUwmRate, PricingRun, PublishedQuote, SharedQuoteEvent } from "./pricing-model";
 import { approvedIncomeSql } from "./income-review-freshness";
@@ -1813,6 +1814,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     initializeCallReportReadiness(db);
     initializeComplianceCases(db);
+    if (db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('revisedDisclosureTasks', '1') RETURNING key").get()) {
+      backfillRevisedDisclosureTasks(db);
+    }
     migrateCampaignOptOuts(db);
     if (!seedDemo || db.prepare("SELECT 1 FROM settings WHERE key = 'seeded'").get()) return;
     const demo = demoRecords();

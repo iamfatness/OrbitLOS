@@ -464,6 +464,10 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(loadPacket(1).pdf, firstPdf);
   assert.ok(!JSON.stringify(primaryPackage()).includes(checklist.title));
   await apply("prepareDisclosurePackage", prepare(2, 2));
+  const issueWork = queue().filter(({ id }) => id.startsWith("disclosure-revised-issue:"));
+  assert.equal(issueWork.length, 1);
+  assert.equal(issueWork[0].target, disclosureTarget);
+  assert.match((await f.run("completeTask", { id: issueWork[0].id, completed: true })).error, /workbench/);
   assert.equal(closing()[0].current, false);
   assert.equal(closing()[0].signers[0].receipt, signature.receipt);
   assert.ok((await f.run("confirmClosingDisclosure", confirmedVersion, f.processor)).error);
@@ -472,6 +476,7 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(work().packages[1].changeReview.note, revisionNote);
   assert.equal(primaryPackage().state, "Awaiting revision");
   await apply("issueDisclosurePackage", version());
+  assert.ok(!queue().some(({ id }) => id.startsWith("disclosure-revised-issue:")));
   const coToken = jointApplication(f.db, f.loanId).token;
   await apply("revokeJointLink", { token: coToken });
   assert.equal(f.co({ ...response, version: 3 }, coToken).status, 404);
@@ -514,7 +519,16 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(declines().length, 0);
   await apply("issueDisclosurePackage", version());
   for (const signer of ["Borrower", "Co-borrower"]) await apply("respondToDisclosurePackage", { ...version(), signer, response: "Signed" });
+  const confirmationTask = queue().find(({ id }) => id.startsWith("disclosure-closing-review:"));
+  assert.equal(confirmationTask.target, "closing-disclosure-review");
+  f.db.prepare("DELETE FROM tasks WHERE id=?").run(confirmationTask.id);
+  f.db.prepare("DELETE FROM settings WHERE key='revisedDisclosureTasks'").run();
+  initializeStore(f.db, false);
+  initializeStore(f.db, false);
+  assert.equal(queue().filter(({ id }) => id === confirmationTask.id).length, 1);
+  assert.match((await f.run("completeTask", { id: confirmationTask.id, completed: true })).error, /workbench/);
   await apply("confirmClosingDisclosure", version(), f.processor);
+  assert.ok(!queue().some(({ id }) => id === confirmationTask.id));
   assert.deepEqual(closing().map(({ version, current }) => [version, current]), [[5, true], [2, false]]);
   const confirmedLatest = version();
   const renamed = { ...changedFees, allocations: { settlement: { ...settlement, payee: "Replacement Title Co" } } };
@@ -526,6 +540,23 @@ test("sample disclosure packages pin reviewed joint signers and fees and route o
   assert.equal(closing()[0].current, false);
   assert.match((await f.run("confirmClosingDisclosure", confirmedLatest, f.processor)).error, /current issued/);
   assert.equal(queue().filter(({ id }) => id.startsWith("disclosure-review:")).length, 1);
+  assert.equal(work().revisionReason, "Fees changed");
+  assert.equal(loan().closingPacketWork.canPrepare, false);
+  const packetTwo = loadPacket(2);
+  await apply("prepareDisclosurePackage", { ...prepare(5, 3), revisionNote: "Updated title payee verified.",
+    reviewedPackageRevision: current().revision });
+  await apply("issueDisclosurePackage", version());
+  for (const signer of ["Borrower", "Co-borrower"]) await apply("respondToDisclosurePackage", { ...version(), signer, response: "Signed" });
+  await apply("confirmClosingDisclosure", version(), f.processor);
+  await apply("prepareClosingPacket", { previousVersion: 2, disclosureVersion: version().version, disclosureRevision: version().revision }, f.processor);
+  assert.deepEqual(loadPacket(2), packetTwo);
+  assert.equal(loadPacket(3).snapshot.disclosure.feeAllocations[0].payee, "Replacement Title Co");
+  assert.equal(loan().closingPacketWork.packets[0].current, true);
+  await apply("selectOffer", { runId: run.id, offerId: run.offers[1].id });
+  assert.equal(work().revisionReason, "Selected quote changed");
+  assert.equal(loan().closingPacketWork.canPrepare, false);
+  assert.equal(loan().closingPacketWork.packets[0].current, false);
+  assert.equal(loadPacket(3).snapshot.disclosure.version, 6);
 });
 
 test("joint borrower links isolate drafts and finalize only after both portions arrive", async (t) => {
