@@ -18,7 +18,7 @@ import type { WorkspaceMutationSuccess } from "@/lib/commands";
 import { leadWorkUnavailable } from "@/lib/lead-work-model";
 import { QuoteIntakeEditor } from "./quote-intake-settings";
 import { quoteRequestPath, quoteRoutingLabel } from "@/lib/quote-intake-model";
-import { quotePrefillLabels, type QuotePrefillField, type QuotePrefillSelection } from "@/lib/quote-intake-questions";
+import { quoteOccupancyChoices, quotePrefillFields, quotePrefillLabels, type QuotePrefillField, type QuotePrefillSelection } from "@/lib/quote-intake-questions";
 import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { LeadDocumentChecklist } from "./lead-document-checklist";
 import { BorrowerChannelPreferences } from "./borrower-channel-preferences";
@@ -111,7 +111,13 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
 }) {
   const [match, setMatch] = useState("");
   const [prefill, setPrefill] = useState<QuotePrefillField[]>([]);
+  const [corrections, setCorrections] = useState<Partial<Record<QuotePrefillField, string>>>({});
+  const [reason, setReason] = useState("");
   const intake = lead.intake;
+  const policy = lead.quoteOverridePolicy;
+  const values = Object.fromEntries(quotePrefillFields.flatMap((field) =>
+    prefill.includes(field) && corrections[field]?.trim() ? [[field, corrections[field]]] : []));
+  const hasCorrections = Object.keys(values).length > 0;
   const isAdmin = !staff || staff.brokerage.role === "Admin";
   const canWork = isAdmin || lead.officerEmail === staff?.email;
   const followUp = lead.followUp;
@@ -121,6 +127,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
   const flagged = !lead.importedContactId && (lead.matches.length > 0 || lead.restrictedMatch);
   const chosen = lead.matches.find((item) => item.id === match);
   const canCreate = !flagged || (match === "new" && !lead.restrictedMatch);
+  const canConvert = !busy && !lead.heldAt && Boolean(lead.importedContactId || chosen || canCreate);
   const step = leadSequenceSteps[followUp.nextStep];
   const sequence = (action: (typeof leadSequenceActions)[number]) => void save({
     type: "leadSequence", leadId: lead.id, revision: followUp.revision, action,
@@ -247,22 +254,41 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
           </select>
         </label>}
         {(chosen || lead.importedContactId) && <p className="muted">The loan keeps the linked contact’s history. The 1003 uses this lead’s email and phone when provided and fills blanks from the saved contact.</p>}
-        {intake && <fieldset id={`intake-review-${lead.id}`} className="record-form document-item" disabled={busy || !!lead.heldAt}>
-          <legend>Review intake answers</legend>
-          <p className="muted">{intake.profile} profile · Version {intake.revision}. Select which answers to copy to the borrower’s draft. They can edit the fields before submitting.</p>
-          {intake.answers.map(({ id, prompt, value, prefill: field }) => <div key={id}>
-            <p><strong>{prompt}</strong></p>
-            <p>{value}</p>
-            {field && <label className="demo-confirm"><input type="checkbox" checked={prefill.includes(field)}
-              onChange={(event) => setPrefill(event.target.checked ? [...prefill, field] : prefill.filter((item) => item !== field))} />
-              <span>Prefill {quotePrefillLabels[field].toLowerCase()}</span></label>}
-          </div>)}
-        </fieldset>}
-        <div className="loan-application-actions">
-          <Button size="sm" disabled={busy || !!lead.heldAt || (!lead.importedContactId && !chosen && !canCreate)}
-            onClick={() => convert(lead.id, chosen?.id ?? null, flagged && canCreate, close,
-              intake && prefill.length ? { revision: intake.revision, fields: prefill } : undefined)}>Create loan and prefill 1003</Button>
-        </div>
+        <form className="record-form intake-conversion" onSubmit={(event) => {
+          event.preventDefault();
+          if (!canConvert) return;
+          convert(lead.id, chosen?.id ?? null, flagged && canCreate, close, intake && prefill.length ? {
+            revision: intake.revision, fields: prefill,
+            ...(hasCorrections && policy ? { correction: { policyRevision: policy.revision, values, reason } } : {}),
+          } : undefined);
+        }}>
+          {intake && <fieldset id={`intake-review-${lead.id}`} className="record-form document-item intake-correction" disabled={busy || !!lead.heldAt}>
+            <legend>Review intake answers</legend>
+            <p className="muted">{intake.profile} profile · Version {intake.revision}. Select which answers to copy to the borrower’s draft. They can edit the fields before submitting.</p>
+            {intake.answers.map(({ id, prompt, value, prefill: field }) => <div key={id}>
+              <p><strong>{prompt}</strong></p>
+              <p className="quote-consent-copy">{value}</p>
+              {field && <label className="demo-confirm"><input type="checkbox" checked={prefill.includes(field)}
+                onChange={(event) => setPrefill(event.target.checked ? [...prefill, field] : prefill.filter((item) => item !== field))} />
+                <span>Prefill {quotePrefillLabels[field].toLowerCase()}</span></label>}
+              {field && prefill.includes(field) && policy?.fields.includes(field) && <label className="field">
+                Correct {quotePrefillLabels[field].toLowerCase()} (optional)
+                {field === "occupancy" ? <select value={corrections[field] ?? ""}
+                  onChange={(event) => setCorrections({ ...corrections, [field]: event.target.value })}>
+                  <option value="">Use submitted answer</option>
+                  {quoteOccupancyChoices.filter((choice) => choice !== value).map((choice) => <option key={choice}>{choice}</option>)}
+                </select> : <input inputMode="decimal" maxLength={14} placeholder="Use submitted amount"
+                  value={corrections[field] ?? ""} onChange={(event) => setCorrections({ ...corrections, [field]: event.target.value })} />}
+              </label>}
+            </div>)}
+            {hasCorrections && <label className="field">Reason for correction
+              <textarea rows={2} minLength={4} maxLength={240} required value={reason} onChange={(event) => setReason(event.target.value)} />
+            </label>}
+          </fieldset>}
+          <div className="loan-application-actions">
+            <Button type="submit" size="sm" disabled={!canConvert}>Create loan and prefill 1003</Button>
+          </div>
+        </form>
         <details className="document-form">
           <summary>Archive lead</summary>
           <p className="muted">You can restore this lead from the Lead Inbox. {lead.campaignId && "Archiving closes open campaign callbacks and keeps them in history."}</p>
@@ -446,7 +472,7 @@ export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId,
       {readingDetails && !selected && <p className="muted" role="status">Opening lead details…</p>}
       {!readingDetails && currentDetails?.error && <p role="alert">{currentDetails.error}</p>}
       {rows.length > 0 ? <ul className="document-list">{rows.map((lead) => selected?.id === lead.id ?
-        <LeadCard key={lead.id} lead={selected} staff={staff} members={members ?? []} now={now} busy={busy || readingDetails}
+        <LeadCard key={`${lead.id}:${selected.quoteOverridePolicy?.revision ?? "none"}`} lead={selected} staff={staff} members={members ?? []} now={now} busy={busy || readingDetails}
           focusTaskId={lead.id === focusLeadId ? focusTaskId : undefined} focusDocumentId={lead.id === focusLeadId ? focusDocumentId : undefined}
           save={save} convert={convert} openCampaign={openCampaign}
           openConversation={openConversation} close={() => selectLead()} /> :

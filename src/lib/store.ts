@@ -24,6 +24,7 @@ import type { CampaignNavigation, CampaignQueueSnapshot, CampaignWorkPatch } fro
 import type { WorkspaceStaff } from "./staff-store";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
 import { quoteIntakeEvidence, storedQuoteConsent, storedQuoteRouting } from "./quote-intake-model";
+import { quoteOverridePolicy } from "./quote-intake";
 import { readRealtorClaimPolicy } from "./realtor-claim-queue";
 import { processingActivityPrefix, type LoanProcessing } from "./processing-model";
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
@@ -1233,7 +1234,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS quote_intake_receipts (
       leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE, formRevision INTEGER NOT NULL,
       timing TEXT NOT NULL, answer TEXT NOT NULL, campaignId TEXT, profile TEXT NOT NULL DEFAULT 'General',
-      structuredAnswers TEXT NOT NULL DEFAULT '[]', routingReceipt TEXT, consentReceipt TEXT
+      structuredAnswers TEXT NOT NULL DEFAULT '[]', routingReceipt TEXT, consentReceipt TEXT, conversionOverrides TEXT
     );
     CREATE TABLE IF NOT EXISTS lead_follow_up (
         leadId TEXT PRIMARY KEY REFERENCES referral_leads(id) ON DELETE CASCADE,
@@ -1257,6 +1258,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!receiptColumns.has("routingReceipt")) db.exec("ALTER TABLE quote_intake_receipts ADD COLUMN routingReceipt TEXT");
     if (!receiptColumns.has("consentReceipt")) db.exec("ALTER TABLE quote_intake_receipts ADD COLUMN consentReceipt TEXT");
+    if (!receiptColumns.has("conversionOverrides")) db.exec("ALTER TABLE quote_intake_receipts ADD COLUMN conversionOverrides TEXT");
     db.exec("CREATE INDEX IF NOT EXISTS quote_intake_versions_by_profile ON quote_intake_versions(profile, revision DESC)");
     if (!db.prepare("PRAGMA table_info(lead_follow_up)").all().some((column) => column.name === "replyReceivedAt")) {
       db.exec(`ALTER TABLE lead_follow_up ADD COLUMN replyReceivedAt TEXT;
@@ -1917,7 +1919,8 @@ function inboxLeadRows(db: Store, leadIds?: string | string[]) {
       const intake = quoteIntakeEvidence(intakeProfile, intakeRevision, intakeAnswers);
       const initialRouting = storedQuoteRouting(routingReceipt);
       return { ...lead, ...(outreachHours ? { outreachHours } : {}), ...(intake ? { intake } : {}), ...(initialRouting ? { initialRouting } : {}),
-        ...(exact && intakeRevision !== null ? { quoteConsent: storedQuoteConsent(consentReceipt) } : {}) };
+        ...(exact && intakeRevision !== null ? { quoteConsent: storedQuoteConsent(consentReceipt) } : {}),
+        ...(exact && intake?.answers.some(({ prefill }) => prefill) ? { quoteOverridePolicy: quoteOverridePolicy(db, lead.purpose) } : {}) };
     });
 }
 

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { portalTokenPattern } from "./brokerage-model";
 import type { BranchChoice } from "./branch-model";
 import { leadContactFields } from "./lead-inbox-model";
-import { quoteAcceptedAnswers, quoteIntakeQuestions, quoteQuestionAnswers, type QuoteAcceptedAnswer } from "./quote-intake-questions";
+import { quoteAcceptedAnswers, quoteIntakeQuestions, quoteOverrideFields, quoteQuestionAnswers, type QuoteAcceptedAnswer } from "./quote-intake-questions";
 
 export const quoteContactOptions = ["Email or phone", "Email required", "Phone required"] as const;
 export const quoteFieldModes = ["Hidden", "Optional", "Required"] as const;
@@ -36,6 +36,7 @@ export type QuoteProfile = z.infer<typeof quoteProfile>;
 export const quoteIntakeConfig = z.object({
   title: z.string().trim().min(4).max(90), introduction: z.string().trim().max(240),
   consentText: quoteConsentText.optional(),
+  overrideFields: quoteOverrideFields.optional(),
   theme: z.enum(quoteThemes), contact: z.enum(quoteContactOptions),
   zip: z.enum(quoteFieldModes), timing: z.enum(quoteFieldModes),
   question: z.object({ prompt: z.string().trim().min(3).max(120), required: z.boolean() }).nullable(),
@@ -50,7 +51,7 @@ export const quoteIntakeConfig = z.object({
 export type QuoteIntakeConfig = z.infer<typeof quoteIntakeConfig>;
 export type QuoteFormVersion = { profile: QuoteProfile; revision: number; config: QuoteIntakeConfig };
 export type PublicQuoteForm = Omit<QuoteFormVersion, "config"> & {
-  config: Omit<QuoteIntakeConfig, "campaignId" | "ownerEmail" | "branches">;
+  config: Omit<QuoteIntakeConfig, "campaignId" | "ownerEmail" | "branches" | "overrideFields">;
   consentFingerprint: string;
 };
 export type QuoteIntakeSettings = QuoteFormVersion & {

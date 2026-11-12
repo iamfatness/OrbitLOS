@@ -22,6 +22,7 @@ import { staffBorrowerQuestions } from "./borrower-questions";
 import { canUseServiceOrders, loanServiceOrders } from "./service-orders";
 import { closingServiceEvidence } from "./closing-service-evidence";
 import { storedQuoteConsent } from "./quote-intake-model";
+import { quoteOverrideEvidence } from "./quote-intake-questions";
 import { loanWorkUnavailable } from "./loan-work-model";
 
 function loanHandoffVersion(db: Store, loanId: string) {
@@ -122,14 +123,18 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   const manualReturn = staff.brokerage.role !== "Processor" &&
     (application?.lastManualSubmissionId || application?.manualLenderRejected) && !application.manualHandoff?.submissionId ?
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
-  const websiteReceipt = staff.brokerage.role !== "Processor" && db.prepare(`SELECT receipt.consentReceipt
+  const websiteReceipt = staff.brokerage.role !== "Processor" && db.prepare(`SELECT receipt.consentReceipt, json_valid(receipt.conversionOverrides) AS hasOverrides,
+    receipt.conversionOverrides
     FROM referral_leads lead JOIN quote_intake_receipts receipt ON receipt.leadId = lead.id
     WHERE lead.loanId = ? AND lead.realtorId IS NULL
     ORDER BY lead.createdAt, lead.id LIMIT 1`).get(loanId);
+  const overrides = websiteReceipt && websiteReceipt.hasOverrides && typeof websiteReceipt.conversionOverrides === "string"
+    ? quoteOverrideEvidence.safeParse(JSON.parse(websiteReceipt.conversionOverrides)) : undefined;
   const disclosureWork = canUseSampleDisclosures(staff) ? readDisclosureWork(db, loanId) : undefined;
   return {
     ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
     ...(websiteReceipt ? { quoteConsent: storedQuoteConsent(websiteReceipt.consentReceipt) } : {}),
+    ...(overrides?.success ? { quoteOverrides: overrides.data } : {}),
     ...(disclosureWork ? { disclosureWork } : {}),
     borrowerQuestions: disclosureWork ? staffBorrowerQuestions(db, loanId) : [],
     ...(canUseServiceOrders(staff) ? { serviceOrders: loanServiceOrders(db, loanId), closingServiceEvidence: closingServiceEvidence(db, loanId) } : {}),

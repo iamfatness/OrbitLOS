@@ -7,15 +7,24 @@ export const quoteOccupancyChoices = ["Primary residence", "Second home", "Inves
 const yesOrNo = ["Yes", "No"] as const;
 const prefill = z.enum(["occupancy", "loanAmount", "estimatedValue"]);
 export type QuotePrefillField = z.infer<typeof prefill>;
+export const quotePrefillFields = prefill.options;
+export const quoteOverrideFields = z.array(prefill).max(3).refine((fields) => new Set(fields).size === fields.length);
+const overrideReason = z.string().trim().min(4).max(240);
 export const quotePrefillLabels = {
   occupancy: "Intended occupancy", loanAmount: "Requested loan amount", estimatedValue: "Estimated property value",
 } satisfies Record<QuotePrefillField, string>;
 export const quotePrefillSelection = z.object({
   revision: z.number().int().nonnegative(),
   fields: z.array(prefill).min(1).max(3).refine((fields) => new Set(fields).size === fields.length),
+  correction: z.strictObject({
+    policyRevision: z.number().int().nonnegative(),
+    reason: overrideReason,
+    values: z.partialRecord(prefill, z.string().trim().min(1).max(24)).refine((values) => Object.keys(values).length > 0),
+  }).optional(),
 });
 export type QuotePrefillSelection = z.infer<typeof quotePrefillSelection>;
 export type QuoteApplicationPrefill = Partial<Pick<ApplicationDraft, QuotePrefillField>>;
+export type QuoteOverridePolicy = { revision: number; fields: QuotePrefillField[] };
 
 const question = z.object({
   id: z.uuid(), prompt: z.string().trim().min(3).max(120), kind: z.enum(quoteQuestionTypes), required: z.boolean(),
@@ -106,3 +115,17 @@ export function reviewedQuotePrefill(answers: readonly QuoteAcceptedAnswer[], fi
   }
   return values;
 }
+
+export const quoteOverrideEvidence = z.strictObject({
+  profile: z.enum(["General", "Purchase", "Refinance"]),
+  formRevision: z.number().int().nonnegative(),
+  policyRevision: z.number().int().nonnegative(),
+  changedAt: z.iso.datetime(),
+  changedBy: z.string().min(1),
+  changedByEmail: z.email(),
+  reason: overrideReason,
+  changes: z.array(z.strictObject({
+    field: prefill, submitted: z.string().min(1).max(200), entered: z.string().min(1).max(24),
+  })).min(1).max(3),
+});
+export type QuoteOverrideEvidence = z.infer<typeof quoteOverrideEvidence>;

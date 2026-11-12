@@ -5721,12 +5721,63 @@ try {
     return { quoteToken, profile, wording, nextWording, loanId, loanName: payload.name };
   });
 
+  const intakeCorrectionFixture = await stage("Brokerage permissions govern 1003 corrections and preserve the submitted answer", async () => {
+    const path = `/api/quote-intake-settings?brokerage=${brokerage}`;
+    const profile = "Purchase";
+    const { quoteToken } = quoteConsentFixture;
+    const current = await post(path, { type: "read", profile }, owner);
+    const amount = { id: randomUUID(), kind: "Dollar amount", prompt: "How much would you like to borrow?",
+      required: true, when: null, prefill: "loanAmount" };
+    const occupancy = { id: randomUUID(), kind: "Occupancy", prompt: "How will you use this property?",
+      required: true, when: null, prefill: "occupancy" };
+    const config = { ...current.config, questions: [amount, occupancy], overrideFields: ["loanAmount"] };
+    const draft = { type: "publish", profile, revision: current.revision, config };
+    assert.equal((await postResponse(path, draft, officer)).status, 403);
+    const active = await post(path, draft, owner);
+    const publicPath = "/api/quote-requests";
+    const form = await post(publicPath, { type: "read", purpose: profile, token: quoteToken });
+    assert.equal("overrideFields" in form.config, false);
+    const submit = (suffix, name) => post(publicPath, {
+      type: "submit", token: quoteToken, purpose: profile, requestId: randomUUID(), formRevision: form.revision,
+      consentFingerprint: form.consentFingerprint, name, email: `working-day-correction-${suffix}@example.test`,
+      phone: "", zip: "48304", timing: "In 1 to 3 months", answer: "A fictional home.", consent: true,
+      answers: { [amount.id]: "260000.00", [occupancy.id]: "Primary residence" },
+    });
+    const borrowerName = "Fictional correction rehearsal";
+    assert.deepEqual(await submit("api", borrowerName), { received: true });
+    const lead = (await workspace(owner)).inboxLeads.find(({ name }) => name === borrowerName);
+    const selected = await action(officer, "readInboxWork", { type: "open", id: lead.id });
+    assert.deepEqual(selected.lead.quoteOverridePolicy, { revision: active.revision, fields: ["loanAmount"] });
+    assert.ok((await action(competingOfficer, "readInboxWork", { type: "open", id: lead.id })).error);
+    assert.ok((await action(processor, "readInboxWork", { type: "open", id: lead.id })).error);
+    const conversionPath = `/api/lead-conversion?brokerage=${brokerage}`;
+    const correction = { policyRevision: active.revision, values: { loanAmount: "275000" }, reason: "Fictional borrower confirmed the updated amount." };
+    const conversion = { type: "convertReferral", referralId: lead.id, contactId: null,
+      intakeReview: { revision: form.revision, fields: ["loanAmount", "occupancy"], correction } };
+    const denied = await postResponse(conversionPath, { ...conversion, intakeReview: { ...conversion.intakeReview,
+      correction: { ...correction, values: { occupancy: "Second home" } } } }, officer);
+    assert.match(denied.result.error, /has not enabled/);
+    const converted = await post(conversionPath, conversion, officer);
+    const loanId = converted.inboxLoan.loanId;
+    const evidence = (await file(officer, loanId)).quoteOverrides;
+    assert.deepEqual(evidence.changes, [{ field: "loanAmount", submitted: "260000.00", entered: "275000" }]);
+    assert.equal(evidence.changedByEmail, officer.email);
+    const application = await borrower(converted.inboxLoan.applications[0].token, { type: "read" });
+    assert.equal(application.draft.loanAmount, "275000");
+    assert.equal(application.draft.occupancy, "Primary residence");
+    assert.equal("quoteOverrides" in application, false);
+    assert.deepEqual((await post(conversionPath, conversion, officer)).inboxLoan.quoteOverrides, evidence);
+    const browserLead = "Fictional correction browser lead";
+    if (process.argv.includes("--preview")) await submit("browser", browserLead);
+    return { browserLead, loanId };
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

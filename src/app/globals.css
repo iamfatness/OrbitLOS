@@ -490,6 +490,12 @@ button:disabled { cursor: default; }
 .quote-intake .demo-confirm:has(.quote-consent-copy) { min-height: 44px; font-size: 16px; line-height: 1.5; }
 .quote-intake .demo-confirm:has(.quote-consent-copy) input { flex: none; margin-top: 5px; }
 .quote-consent-receipt > summary { min-height: 44px; align-content: center; }
+.intake-correction { min-inline-size: 0; }
+.document-form .intake-conversion { justify-items: stretch; }
+.intake-correction-options { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.intake-correction .field { font-size: 14px; }
+.intake-correction .demo-confirm { display: flex; min-height: 44px; align-items: center; font-size: 14px; }
+.intake-correction .demo-confirm input { flex: none; margin-top: 0; }
 .quote-intake .application-intro > p:last-child { overflow-wrap: anywhere; }
 .quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit { background: var(--quote-accent); }
 .quote-intake:is([data-theme="Navy"], [data-theme="Evergreen"]) .quote-intake-submit:hover { background: var(--quote-hover); }

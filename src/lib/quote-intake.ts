@@ -29,6 +29,11 @@ function currentQuoteForm(db: Store, purpose?: QuotePurpose): QuoteFormVersion {
   return selected.active ? selected : storedQuoteForm(db, "General");
 }
 
+export function quoteOverridePolicy(db: Store, purpose: QuotePurpose) {
+  const { revision, config } = currentQuoteForm(db, purpose);
+  return { revision, fields: config.overrideFields ?? [] };
+}
+
 function consentFingerprint(form: QuoteFormVersion) {
   return createHash("sha256").update(JSON.stringify([form.profile, form.revision, quoteConsentWording(form.config)])).digest("hex");
 }
@@ -101,9 +106,10 @@ export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceS
         }
       }
       const active = data.type === "publish";
-      const existingWording = (form.active ? form : storedQuoteForm(db, "General")).config.consentText;
+      const { consentText, overrideFields } = (form.active ? form : storedQuoteForm(db, "General")).config;
       const config = active ? { ...data.config,
-        ...(data.config.consentText === undefined && existingWording !== undefined ? { consentText: existingWording } : {}) } : form.config;
+        ...(data.config.consentText === undefined && consentText !== undefined ? { consentText } : {}),
+        ...(data.config.overrideFields === undefined && overrideFields !== undefined ? { overrideFields } : {}) } : form.config;
       if (active !== form.active || JSON.stringify(form.config) !== JSON.stringify(config)) {
         form = writeQuoteVersion(db, profile, config, active, staff, now);
       }

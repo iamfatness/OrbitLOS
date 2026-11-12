@@ -125,6 +125,53 @@ test("custom quote consent is tied to the displayed version and remains exact af
   assert.equal(olderEditor.config.consentText, second);
 });
 
+test("only current brokerage permissions can correct a mapped intake value, with a durable conversion receipt", async (t) => {
+  const { db, admin, officer, config, settings, receive, request, lead } = fixture(t);
+  const amount = { id: crypto.randomUUID(), kind: "Dollar amount", prompt: "How much would you like to borrow?",
+    required: true, when: null, prefill: "loanAmount" };
+  const base = { ...config, questions: [amount], ownerEmail: officer.email, campaignId: null };
+  const publish = (revision, overrideFields) => settings({ type: "publish", profile: "Purchase", revision,
+    config: { ...base, overrideFields } }, admin, admin.brokerage.id, officer);
+  assert.equal(publish(0, []).revision, 1);
+  const form = receive({ type: "read", purpose: "Purchase" }).value;
+  assert.equal("overrideFields" in form.config, false);
+  const data = request(1, { consentFingerprint: form.consentFingerprint, answers: { [amount.id]: "260000.00" } });
+  assert.deepEqual(receive(data).value, { received: true });
+  const id = lead(data).id;
+  const lo = { ...officer, brokerage: { ...admin.brokerage, role: "LO" } };
+  const correct = (policyRevision, values = { loanAmount: "275000" }, staff = lo, reason = "Borrower confirmed the updated amount.") =>
+    executeCommand(db, { type: "convertReferral", referralId: id, contactId: null,
+      intakeReview: { revision: 1, fields: ["loanAmount"], correction: { policyRevision, values, reason } } }, staff);
+  assert.deepEqual(leadWorkRecord(db, id).lead.quoteOverridePolicy, { revision: 1, fields: [] });
+  assert.match((await correct(1)).error, /has not enabled/);
+  assert.equal(publish(1, ["loanAmount"]).revision, 2);
+  assert.deepEqual(leadWorkRecord(db, id).lead.quoteOverridePolicy, { revision: 2, fields: ["loanAmount"] });
+  assert.match((await correct(1)).error, /permissions changed/);
+  assert.match((await correct(2, { loanAmount: "260000" })).error, /different, valid/);
+  assert.match((await correct(2, { loanAmount: "0" })).error, /different, valid/);
+  assert.match((await correct(2, { estimatedValue: "300000" })).error, /has not enabled/);
+  assert.ok((await correct(2, { loanAmount: "275000" }, { ...lo, email: "other@example.test" })).error);
+  assert.ok((await correct(2, { loanAmount: "275000" }, lo, " ")).error);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM loans").get().total, 0);
+  const result = await correct(2);
+  assert.ok(result.referralLoanId, result.error);
+  const loanId = result.referralLoanId;
+  assert.equal(JSON.parse(getApplication(db, loanId).draft).loanAmount, "275000");
+  const { readEditableLoan } = await import("../src/lib/editable-loan.ts");
+  const record = () => readEditableLoan(db, loanId, lo, lo.brokerage.id).quoteOverrides;
+  const original = record();
+  assert.deepEqual(original.changes, [{ field: "loanAmount", submitted: "260000.00", entered: "275000" }]);
+  assert.equal(original.changedByEmail, lo.email);
+  assert.equal(original.reason, "Borrower confirmed the updated amount.");
+  assert.equal(original.formRevision, 1);
+  assert.equal(original.policyRevision, 2);
+  assert.equal(JSON.parse(db.prepare("SELECT structuredAnswers FROM quote_intake_receipts WHERE leadId = ?").get(id).structuredAnswers)[0].value, "260000.00");
+  assert.equal(publish(2, []).revision, 3);
+  assert.equal((await correct(2, { loanAmount: "280000" })).referralLoanId, loanId);
+  assert.deepEqual(record(), original);
+  assert.equal(JSON.parse(getApplication(db, loanId).draft).loanAmount, "275000");
+});
+
 test("eligible quote requests respect campaign capacity and opted-out requests stay in the inbox", (t) => {
   const { db, now, admin, officer, fallback, campaignId, config, settings, receive, request, lead } = fixture(t);
   assert.equal(settings({ type: "publish", revision: 0, config }).revision, 1);

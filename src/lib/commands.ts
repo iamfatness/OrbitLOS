@@ -60,8 +60,9 @@ import { contactUnavailable, type ContactMutationResult } from "./contact-direct
 import { assignInboxLeadInput, convertReferralInput, leadContactInput, leadHoldInput, leadOptOutInput, leadSequenceInput, restoreLeadInput,
   saveLeadRoutingInput, type LeadInboxMutation } from "./lead-inbox-model";
 import { inboxLeadScope } from "./lead-inbox-query";
-import { quoteIntakeEvidence } from "./quote-intake-model";
-import { quotePrefillLabels, reviewedQuotePrefill, type QuoteApplicationPrefill } from "./quote-intake-questions";
+import { quoteIntakeEvidence, quotePurpose } from "./quote-intake-model";
+import { quoteOverridePolicy } from "./quote-intake";
+import { quotePrefillFields, quotePrefillLabels, reviewedQuotePrefill, type QuoteApplicationPrefill, type QuoteOverrideEvidence } from "./quote-intake-questions";
 import { claimSharedRealtorInput, saveRealtorClaimPolicyInput } from "./realtor-claim-model";
 import { saveRealtorClaimPolicy } from "./realtor-claim-queue";
 import { archiveLead, carryLeadHistory, changeLeadRouting, claimSharedRealtor, leadEvent, restoreArchivedLead, setImportedLeadTaskStatus,
@@ -1351,6 +1352,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           let reviewedFields: QuoteApplicationPrefill | undefined;
           let intakeAudit: string | undefined;
+          let overrideEvidence: QuoteOverrideEvidence | undefined;
           if (data.intakeReview) {
             const receipt = db.prepare("SELECT profile, formRevision, structuredAnswers FROM quote_intake_receipts WHERE leadId = ?").get(data.referralId);
             const evidence = quoteIntakeEvidence(receipt?.profile, receipt?.formRevision, receipt?.structuredAnswers);
@@ -1361,6 +1363,28 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
             if (!fields) throw new WorkspaceError("A selected intake answer cannot prefill the 1003. Reopen the lead and review it again.");
             reviewedFields = fields;
             intakeAudit = `Prefilled 1003 from ${evidence.profile} intake v${evidence.revision} · ${data.intakeReview.fields.map((field) => quotePrefillLabels[field]).join(", ")}`;
+            const correction = data.intakeReview.correction;
+            if (correction) {
+              const purpose = quotePurpose.safeParse(lead.purpose);
+              if (!staff || !purpose.success) throw new WorkspaceError("This intake correction is unavailable.");
+              const policy = quoteOverridePolicy(db, purpose.data);
+              if (policy.revision !== correction.policyRevision) throw new WorkspaceError("Intake permissions changed. Reopen the lead before converting.");
+              const changes: QuoteOverrideEvidence["changes"] = [];
+              for (const field of quotePrefillFields) {
+                const replacement = correction.values[field];
+                if (replacement === undefined) continue;
+                const answer = evidence.answers.find(({ prefill }) => prefill === field);
+                if (!answer || !data.intakeReview.fields.includes(field) || !policy.fields.includes(field)) {
+                  throw new WorkspaceError(`The brokerage has not enabled a correction for ${quotePrefillLabels[field].toLowerCase()} on this lead.`);
+                }
+                const entered = reviewedQuotePrefill([{ ...answer, value: replacement }], [field])?.[field];
+                if (!entered || entered === fields[field]) throw new WorkspaceError(`Enter a different, valid ${quotePrefillLabels[field].toLowerCase()}.`);
+                reviewedFields = { ...reviewedFields, [field]: entered };
+                changes.push({ field, submitted: answer.value, entered });
+              }
+              overrideEvidence = { profile: evidence.profile, formRevision: evidence.revision, policyRevision: policy.revision,
+                changedAt: now, changedBy: staff.name, changedByEmail: staff.email, reason: correction.reason, changes };
+            }
           }
           const email = String(lead.email);
           const phone = String(lead.phone);
@@ -1414,6 +1438,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           }
           db.prepare("UPDATE referral_leads SET resolvedAt = ?, loanId = ? WHERE id = ?").run(now, loanId, data.referralId);
           recordLoanAudit(db, loanId, staff, "Converted lead to loan", now, null);
+          if (overrideEvidence) {
+            db.prepare("UPDATE quote_intake_receipts SET conversionOverrides = ? WHERE leadId = ?").run(JSON.stringify(overrideEvidence), data.referralId);
+            addApplicationActivity(db, loanId, `Corrected website intake for the 1003 · ${overrideEvidence.changes.map(({ field }) => quotePrefillLabels[field]).join(", ")} · ${overrideEvidence.changedBy}`, now);
+          }
           if (intakeAudit) addApplicationActivity(db, loanId, `${intakeAudit} · ${staff?.name ?? "Demo workspace"}`, now);
           addApplicationActivity(db, loanId, `Converted ${source.toLowerCase()} to a loan with a prefilled 1003.`, now);
           accessEvent(db, staff, imported ? "Converted imported lead" : realtorId ? "Converted referral" : "Converted quote request", data.referralId, now);

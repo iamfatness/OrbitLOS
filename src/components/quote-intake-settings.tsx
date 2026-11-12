@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { quoteConsentLimit, quoteConsentWording, quoteContactOptions, quoteFieldModes, quoteIntakeConfig, quoteProfiles, quoteRequestPath, quoteThemes,
   type QuoteIntakeConfig, type QuoteIntakeSettings, type QuoteProfile, type QuoteRoutingPreview } from "@/lib/quote-intake-model";
 import type { BrokerageMember } from "@/lib/brokerage-model";
+import { quotePrefillFields, quotePrefillLabels } from "@/lib/quote-intake-questions";
 import { dateTime } from "@/lib/utils";
 import { QuoteIntakeFields, QuoteIntakeHeading } from "./quote-request";
 import { QuoteBranchRouting } from "./quote-branch-routing";
@@ -151,6 +152,18 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
             onChange={(event) => draft.question && change({ question: { ...draft.question, required: event.target.checked } })} />
             <span>Require an answer to the additional question.</span></label>
           <QuoteQuestionEditor questions={draft.questions} change={(questions) => change({ questions })} busy={busy} />
+          <fieldset className="record-form intake-correction" disabled={busy}>
+            <legend>Corrections when creating the 1003</legend>
+            <p className="muted">Allow staff to correct these fields before creating a draft. Orbit keeps the submitted answers and the reason for each correction.</p>
+            <div className="intake-correction-options">
+              {quotePrefillFields.map((field) => <label className="demo-confirm" key={field}>
+                <input type="checkbox" checked={draft.overrideFields?.includes(field) ?? false}
+                  onChange={(event) => change({ overrideFields: quotePrefillFields.filter((item) =>
+                    item === field ? event.target.checked : draft.overrideFields?.includes(item)) })} />
+                <span>{quotePrefillLabels[field]}</span>
+              </label>)}
+            </div>
+          </fieldset>
           <label className="field">Consent wording
             <textarea rows={4} required maxLength={quoteConsentLimit} value={quoteConsentWording(draft)}
               onChange={(event) => change({ consentText: event.target.value })} disabled={busy} />
