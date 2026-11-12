@@ -4,6 +4,8 @@ import { closingGateFileJoins, closingGateSources, closingGateTarget, currentClo
 import { easternDate } from "./client-retention";
 import { disclosureReviewPrefix, disclosureTarget } from "./disclosure-model";
 import { canUseSampleDisclosures } from "./disclosures";
+import { creditAusAttemptTarget, unconfirmedMockOrder } from "./credit-aus-model";
+import { fictionalUwmWorkspace } from "./uwm-live";
 import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
   type FileException, type FileExceptionPage, type FileExceptionQuery } from "./file-exception-model";
 import { loanReviewsTarget, reviewTarget } from "./loan-review-model";
@@ -114,6 +116,18 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
         AND package.reviewReason IS NOT NULL AND package.supersededAt IS NULL`, "task.dueAt", "loan.id", "task.id");
   }
 
+  if (fictionalUwmWorkspace(staff)) {
+    const detected = "json_extract(attempt.result, '$.conflict.detectedAt')";
+    add("Underwriting conflicts", `${loanColumns}, 'Mock ' || CASE attempt.service WHEN 'Credit' THEN 'credit' ELSE attempt.service END || ' reference conflict' AS title,
+      'Needs admin review' AS status, NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty,
+      loan.officer AS ownerName, loan.officerEmail AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision,
+      0 AS escalated, attempt.applicationRevision AS version, 0 AS changed, NULL AS requestStatus
+      FROM mock_credit_aus_runs attempt JOIN loans loan ON loan.id = attempt.loanId ${loanJoins}
+      WHERE json_extract(attempt.result, '$.status') = ? AND ${detected} IS NOT NULL
+        AND json_extract(attempt.result, '$.conflict.reviewedAt') IS NULL`,
+    detected, "loan.id", "attempt.id", [unconfirmedMockOrder]);
+  }
+
   add("Manual lender returns", `${loanColumns}, ${manualReturnTitle} AS title, ${manualReturnPhase(requireApproval)} AS status,
     NULL AS dueOn, returnEntry.createdAt AS reopenedAt, ${manualReturnLender} AS nextParty,
     loan.officer AS ownerName, loan.officerEmail AS ownerEmail, NULL AS reviewerRole, NULL AS reviewerAccessRevision,
@@ -214,17 +228,18 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const gate = kind === "Closing and funding holds" ? requestStatus as ClosingGateRule : undefined;
     const handoff = kind === "Unassigned handoffs";
     const disclosure = kind === "Disclosure reviews";
+    const underwriting = kind === "Underwriting conflicts";
     const dueAt = handoff || disclosure ? sortOn : undefined;
-    const target = handoff ? "processing-handoff" : disclosure ? disclosureTarget : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
+    const target = underwriting ? creditAusAttemptTarget(id) : handoff ? "processing-handoff" : disclosure ? disclosureTarget : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
-    const action = handoff ? "Reviewed 1003 is ready for a processor" : disclosure ? "Review the change and prepare an updated sample package" :
+    const action = underwriting ? "Review the unmatched response on the original order" : handoff ? "Reviewed 1003 is ready for a processor" : disclosure ? "Review the change and prepare an updated sample package" :
       gate ? closingGateLabels[gate] : manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
       internalReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign a second reviewer for the current 1003" :
         changed ? "Resubmit the review for the current 1003" : status === "Changes requested" ? "Respond to requested changes" :
         available ? "Record a review decision" : "Reassign the reviewer") :
         requestStatus === "Received" ? "Review received evidence" : requestStatus === "Accepted" ? "Check delivery and clearance" :
           requestStatus ? "Follow up on borrower evidence" : "Review the lender request and request evidence";
-    const evidence = version === null ? null : `${manual ? "Current 1003" : internalReview ? "Submitted 1003" : "Document"} revision ${version}`;
+    const evidence = version === null ? null : `${manual ? "Current 1003" : internalReview || underwriting ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
       ...(returnEventId ? { returnEventId, returnSubmissionId: requestStatus === "Rejected" ? null : id, returnDueAt: sortOn } : {}),

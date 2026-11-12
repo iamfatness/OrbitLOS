@@ -818,12 +818,15 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         const { item } = expected;
         const loan = result.loans[0];
         const application = result.applications[0];
-        const current = item.kind === "Unassigned handoffs" ?
+        const underwriting = item.kind === "Underwriting conflicts";
+        const current = underwriting ? result.mockCreditAusRuns.some((run) =>
+          run.id === item.id && run.result.status === unconfirmedMockOrder && run.conflict?.detectedAt === item.sortOn && !run.conflict.reviewedAt) :
+          item.kind === "Unassigned handoffs" ?
           application?.submittedAt && application.reviewedAt && !application.correctionNote && !result.loanProcessing[0]?.processorEmail :
           item.kind === "Disclosure reviews" ? result.tasks.some(({ id, completedAt }) => id === item.id && !completedAt) :
             result.submissions.some(({ id, conditions }) => id === item.parentId &&
               conditions.some((condition: Submission["conditions"][number]) => condition.id === item.id && !condition.satisfiedAt));
-        if (!canReport || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
+        if (!canReport || !current || (!underwriting && (loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed"))) {
           setReviewVersion((version) => version + 1);
           setError("This exception changed. Check the refreshed queue.");
           return;
@@ -1196,7 +1199,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
         item.kind === "Manual lender returns" ? { kind: "manual-return-work",
           submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId, eventId: item.returnEventId, personal: false } :
-          staff && (item.kind === "Unassigned handoffs" || item.kind === "Disclosure reviews" || item.kind === "Reopened conditions") ?
+          staff && (item.kind === "Unassigned handoffs" || item.kind === "Disclosure reviews" || item.kind === "Reopened conditions" ||
+            item.kind === "Underwriting conflicts") ?
             { kind: "file-exception", item } : undefined);
   }
 
@@ -1226,15 +1230,16 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     setModal(null);
     const trigger = exceptionTrigger.current;
     const original = recordTrigger.current;
-    const resolvedOrder = modal?.kind === "details" && modal.target?.startsWith(creditAusAttemptTargetPrefix) &&
-      loanWork?.mockCreditAusRuns.some((run) => creditAusAttemptTarget(run.id) === modal.target && run.result.status !== unconfirmedMockOrder);
+    const currentOrder = modal?.kind === "details" && modal.target?.startsWith(creditAusAttemptTargetPrefix) ?
+      loanWork?.mockCreditAusRuns.find((run) => creditAusAttemptTarget(run.id) === modal.target) : undefined;
+    const resolvedOrder = currentOrder && currentOrder.result.status !== unconfirmedMockOrder;
     const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
     exceptionTrigger.current = null;
     recordTrigger.current = null;
     if (trigger || original || pipelineLoan) requestAnimationFrame(() => {
       const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
       const target = trigger && section === "Exceptions" ?
-        (trigger.isConnected ? trigger : document.getElementById("owner-exception-filter")) :
+        (trigger.isConnected && !currentOrder?.conflict?.reviewedAt ? trigger : document.getElementById("owner-exception-filter")) :
         (original?.isConnected && !resolvedOrder ? original : replacement || sectionHeading.current);
       target?.focus({ preventScroll: true });
     });

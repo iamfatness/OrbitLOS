@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { applicationDraft } from "./application-model";
 import { addApplicationActivity } from "./applications";
-import { ausMethods, creditApplicantCount, creditAusServices, creditCoversApplication, mockAusScenarios, mockCreditScenarios, mockRunMatchesApplication, unconfirmedMockOrder, type MockCreditAuthorization, type MockCreditAusResult, type MockCreditAusRun } from "./credit-aus-model";
-import type { StaffIdentity } from "./staff-store";
+import { demoBrokerageId } from "./brokerage-model";
+import { ausMethods, creditApplicantCount, creditAusServices, creditCoversApplication, mockAusScenarios, mockCreditScenarios, mockRunMatchesApplication, unconfirmedMockOrder, type MockCreditAuthorization, type MockCreditAusResult, type MockCreditAusRun, type MockUnderwritingConflict } from "./credit-aus-model";
+import { classifyUnderwritingLookup, type UnderwritingLookup, type UnderwritingOrderIdentity } from "./underwriting-lookup";
+import type { StaffIdentity, WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 
 const loanId = z.string().min(1).max(100);
@@ -30,16 +32,22 @@ export const mockRetryInput = z.object({
 export const mockReconcileInput = z.object({
   loanId, type: z.literal("reconcileMockCreditAus"), attemptId: z.uuid(),
 });
+export const mockConflictReviewInput = z.object({
+  loanId, type: z.literal("reviewMockUnderwritingConflict"), attemptId: z.uuid(),
+  detectedAt: z.iso.datetime(), reference: z.string().min(1).max(100),
+});
 type SingleOrderInput = z.infer<typeof mockCreditInput | typeof mockAusInput | typeof mockRetryInput>;
 type PairedOrderInput = z.infer<typeof mockPairedAusInput>;
-type MockInput = SingleOrderInput | PairedOrderInput | z.infer<typeof mockReconcileInput>;
+type MockInput = SingleOrderInput | PairedOrderInput | z.infer<typeof mockReconcileInput | typeof mockConflictReviewInput>;
 
 type RunRow = Record<string, SqlValue>;
-type MockLookup = "rejected" | "inconclusive-first";
-type StoredResult = MockCreditAusResult & { borrowerCount?: number; reconciledAt?: string; lastCheckedAt?: string; mockLookup?: MockLookup };
+type MockLookup = "rejected" | "inconclusive-first" | "conflict-first";
+type StoredResult = MockCreditAusResult & {
+  borrowerCount?: number; reconciledAt?: string; lastCheckedAt?: string; mockLookup?: MockLookup; conflict?: MockUnderwritingConflict;
+};
 
 function readRun(row: RunRow): MockCreditAusRun {
-  const { borrowerCount, reconciledAt, lastCheckedAt, ...result } = JSON.parse(String(row.result)) as StoredResult;
+  const { borrowerCount, reconciledAt, lastCheckedAt, conflict, ...result } = JSON.parse(String(row.result)) as StoredResult;
   delete result.mockLookup;
   return {
     id: String(row.id), loanId: String(row.loanId), service: row.service as MockCreditAusRun["service"],
@@ -51,6 +59,7 @@ function readRun(row: RunRow): MockCreditAusRun {
     ...(borrowerCount !== undefined ? { borrowerCount } : {}),
     ...(reconciledAt !== undefined ? { reconciledAt } : {}),
     ...(lastCheckedAt !== undefined ? { lastCheckedAt } : {}),
+    ...(conflict ? { conflict } : {}),
   };
 }
 
@@ -81,6 +90,7 @@ function mockResult(service: MockCreditAusRun["service"], scenario: MockScenario
   if (scenario === "uncertain") return { status: unconfirmedMockOrder };
   if (scenario === "uncertain-rejected") return { status: unconfirmedMockOrder, mockLookup: "rejected" };
   if (scenario === "uncertain-unavailable") return { status: unconfirmedMockOrder, mockLookup: "inconclusive-first" };
+  if (scenario === "uncertain-conflict") return { status: unconfirmedMockOrder, mockLookup: "conflict-first" };
   if (scenario === "failure") return { status: "Failed", reason: `The mock ${service === "Credit" ? "credit provider" : service + " service"} confirmed that no order was placed. You can retry.` };
   if (service === "Credit") return { status: "Report ready", score: 742 };
   const review = scenario === "review";
@@ -151,30 +161,68 @@ function runPairedAus(db: Store, input: PairedOrderInput, staff: StaffIdentity |
   return { message: `Mock ${results.join(" · ")}. Review each service in Credit & AUS.` };
 }
 
-function reconcileOrder(db: Store, input: z.infer<typeof mockReconcileInput>, staff: StaffIdentity | null, now: string) {
+function simulateLookup(stored: StoredResult, identity: UnderwritingOrderIdentity, reference: string): UnderwritingLookup {
+  if (stored.mockLookup === "inconclusive-first" && !stored.lastCheckedAt) return { outcome: "inconclusive" };
+  if (stored.mockLookup === "conflict-first" && !stored.conflict) {
+    return { outcome: "accepted", identity, reference: `MOCK-UNMATCHED-${identity.orderId.toUpperCase()}` };
+  }
+  return { outcome: stored.mockLookup === "rejected" ? "rejected" : "accepted", identity, reference };
+}
+
+const conflictPending = "A brokerage admin must review the conflicting mock response before checking this order again.";
+
+function reconcileOrder(db: Store, input: z.infer<typeof mockReconcileInput | typeof mockConflictReviewInput>, staff: WorkspaceStaff | null, now: string) {
+  if (input.type === "reviewMockUnderwritingConflict" && staff && staff.brokerage.role !== "Admin") {
+    return { error: "Only a brokerage admin can review a conflicting mock response." };
+  }
   const row = db.prepare("SELECT * FROM mock_credit_aus_runs WHERE loanId = ? AND id = ?").get(input.loanId, input.attemptId);
   if (!row) return { error: "The original mock request is unavailable." };
   const stored = JSON.parse(String(row.result)) as StoredResult;
+  const write = (result: StoredResult) => db.prepare("UPDATE mock_credit_aus_runs SET result = ? WHERE id = ? AND loanId = ?")
+    .run(JSON.stringify(result), input.attemptId, input.loanId);
+  const audit = (text: string) => addApplicationActivity(db, input.loanId, `${text} · ${row.reference} · ${staff?.name ?? "Demo loan officer"}`, now);
+  if (input.type === "reviewMockUnderwritingConflict") {
+    const conflict = stored.conflict;
+    if (!conflict || conflict.reference !== input.reference || conflict.detectedAt !== input.detectedAt) {
+      return { error: "The conflicting response changed. Open the current exception to review it." };
+    }
+    if (conflict.reviewedAt) return { message: "This mismatched response is already dismissed." };
+    if (stored.status !== unconfirmedMockOrder) return { error: "This order no longer needs a conflict review." };
+    write({ ...stored, conflict: { ...conflict, reviewedAt: now, reviewedBy: staff?.name ?? "Demo admin" } });
+    audit("Dismissed mismatched mock underwriting response");
+    return { message: "Mismatched response dismissed. The original order still needs confirmation." };
+  }
   if (stored.reconciledAt) return { message: "The original mock result is already confirmed." };
   if (stored.status !== unconfirmedMockOrder) return { error: "Only a request awaiting confirmation can be checked." };
+  if (stored.conflict && !stored.conflict.reviewedAt) return { error: conflictPending };
   const service = row.service as MockCreditAusRun["service"];
-  const inconclusive = stored.mockLookup === "inconclusive-first" && !stored.lastCheckedAt;
-  const rejected = stored.mockLookup === "rejected";
-  const result = inconclusive ? { ...stored, lastCheckedAt: now } :
-    { ...mockResult(service, rejected ? "failure" : "eligible"), borrowerCount: stored.borrowerCount, reconciledAt: now };
-  db.prepare("UPDATE mock_credit_aus_runs SET result = ? WHERE id = ? AND loanId = ?")
-    .run(JSON.stringify(result), input.attemptId, input.loanId);
-  const action = inconclusive ? "Checked unconfirmed" : "Confirmed original";
-  addApplicationActivity(db, input.loanId, `${action} mock ${service} result · ${result.status} · ${row.reference} · ${staff?.name ?? "Demo loan officer"}`, now);
-  if (inconclusive) return { message: "The mock lookup was inconclusive. The original order is still pending." };
+  const identity = { brokerageId: staff?.brokerage.id ?? demoBrokerageId, loanId: input.loanId, orderId: input.attemptId,
+    service, applicationRevision: typeof row.applicationRevision === "number" ? row.applicationRevision : null,
+    borrowerCount: stored.borrowerCount ?? 1 };
+  const reference = String(row.reference);
+  const check = classifyUnderwritingLookup(identity, simulateLookup(stored, identity, reference), reference);
+  if (check.outcome === "conflict") {
+    write({ ...stored, conflict: { reference: check.reference, detectedAt: now } });
+    audit("Flagged mismatched mock underwriting response");
+    return { message: "Mock response did not match this order. Sent to brokerage admin review." };
+  }
+  if (check.outcome === "inconclusive") {
+    write({ ...stored, lastCheckedAt: now });
+    audit(`Checked unconfirmed mock ${service} result · ${unconfirmedMockOrder}`);
+    return { message: "The mock lookup was inconclusive. The original order is still pending." };
+  }
+  const rejected = check.outcome === "rejected";
+  const result = mockResult(service, rejected ? "failure" : "eligible");
+  write({ ...result, borrowerCount: stored.borrowerCount, reconciledAt: now, conflict: stored.conflict });
+  audit(`Confirmed original mock ${service} result · ${result.status}`);
   if (rejected) return { message: "Mock provider confirmed no order was placed. You can retry." };
   return { message: "Original mock result confirmed." };
 }
 
 // Called inside the workspace mutation so all orders and their activity entries commit together.
-export function runMockCreditAus(db: Store, input: MockInput, staff: StaffIdentity | null, now: string) {
+export function runMockCreditAus(db: Store, input: MockInput, staff: WorkspaceStaff | null, now: string) {
   if (!db.prepare("SELECT 1 FROM loans WHERE id = ?").get(input.loanId)) return { error: "This loan no longer exists." };
-  if (input.type === "reconcileMockCreditAus") return reconcileOrder(db, input, staff, now);
+  if (input.type === "reconcileMockCreditAus" || input.type === "reviewMockUnderwritingConflict") return reconcileOrder(db, input, staff, now);
   if (input.type === "runMockPairedAus") return runPairedAus(db, input, staff, now);
   const { loanId, attemptId, previousId } = input;
   const service = input.type === "runMockCredit" ? "Credit" : input.type === "runMockAus" ? input.method : input.service;

@@ -722,7 +722,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           onPrice={processor ? undefined : (source) => openPricing(true, source)} />}
       {fictionalUwm ? <CreditAusWorkbench loanId={loan.id} runs={state.mockCreditAusRuns.filter((run) => run.loanId === loan.id)}
         revision={submittedApplicationRevision(application)} borrowerCount={creditApplicantCount(application?.draft)}
-        busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)} /> :
+        busy={busy} readOnly={processor} save={save} openPricing={() => openPricing(true)}
+        canReviewConflict={!staff || staff.brokerage.role === "Admin"} /> :
         <section className="details-section" id="credit-aus" tabIndex={-1}><h3>Credit &amp; AUS</h3><p className="empty-inline">Use your credit and AUS providers while connections are pending.</p></section>}
       </>}
       {section === "Disclosures" && canOpenDisclosures &&

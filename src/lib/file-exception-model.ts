@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ManualReturnFollowUp } from "./lender-export-model";
 
 export const fileExceptionsUnavailable = "File exceptions are available to brokerage admins.";
-export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns", "Closing and funding holds", "Unassigned handoffs", "Disclosure reviews"] as const;
+export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns", "Closing and funding holds", "Unassigned handoffs", "Disclosure reviews", "Underwriting conflicts"] as const;
 export const overdueManualReturnFilter = "Overdue lender returns";
 export const unattendedManualReturnFilter = "Overdue lender returns without follow-up";
 export const fileExceptionFilters = ["All file exceptions", ...fileExceptionKinds, overdueManualReturnFilter, unattendedManualReturnFilter] as const;

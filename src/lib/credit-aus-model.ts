@@ -7,6 +7,7 @@ const missingResponseScenarios = [
   ["uncertain", "Missing response · Accepted"],
   ["uncertain-rejected", "Missing response · Rejected"],
   ["uncertain-unavailable", "Missing response · Inconclusive first"],
+  ["uncertain-conflict", "Missing response · Reference conflict"],
 ] as const;
 export const mockCreditScenarios = [
   ["ready", "Report ready"], ["failure", "Confirmed failure"], ...missingResponseScenarios,
@@ -25,6 +26,13 @@ export interface MockCreditAuthorization {
   recordedBy: string;
   recordedAt: string;
 }
+
+export type MockUnderwritingConflict = {
+  reference: string;
+  detectedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+};
 
 export type MockCreditAusResult =
   | { status: "Report ready"; score: number }
@@ -47,6 +55,7 @@ export interface MockCreditAusRun {
   borrowerCount?: number;
   reconciledAt?: string;
   lastCheckedAt?: string;
+  conflict?: MockUnderwritingConflict;
   result: MockCreditAusResult;
 }
 

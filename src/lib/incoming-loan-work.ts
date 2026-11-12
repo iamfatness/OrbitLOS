@@ -76,7 +76,9 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     ${handoffs}
     ${mockUnderwriting ? `UNION ALL
     SELECT 'underwriting', attempt.id, loan.id, contact.name, attempt.requestedAt, coalesce(attempt.applicationRevision, 0),
-      'Unconfirmed mock ' || CASE attempt.service WHEN 'Credit' THEN 'credit' ELSE attempt.service END || ' result',
+      CASE WHEN json_extract(attempt.result, '$.conflict.detectedAt') IS NOT NULL AND json_extract(attempt.result, '$.conflict.reviewedAt') IS NULL
+        THEN 'Admin review for mock ' || CASE attempt.service WHEN 'Credit' THEN 'credit' ELSE attempt.service END
+        ELSE 'Unconfirmed mock ' || CASE attempt.service WHEN 'Credit' THEN 'credit' ELSE attempt.service END || ' result' END,
       NULL, 0, NULL, NULL, NULL, NULL, NULL
     FROM loans loan CROSS JOIN mock_credit_aus_runs attempt ON attempt.loanId = loan.id ${contacts}
     WHERE ${activeProcessingLoan} AND ${owned} AND json_extract(attempt.result, '$.status') = ?` : ""}

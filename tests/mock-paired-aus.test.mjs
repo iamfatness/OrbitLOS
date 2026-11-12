@@ -11,6 +11,8 @@ const { executeCommand } = await import("../src/lib/commands.ts");
 const { mockCreditAusRuns, runMockCreditAus } = await import("../src/lib/mock-credit-aus.ts");
 const { readIncomingLoanWorkPage } = await import("../src/lib/incoming-loan-work.ts");
 const { readActionCounts } = await import("../src/lib/workspace-action-counts.ts");
+const { countFileExceptions, readFileExceptions, nameFileExceptions } = await import("../src/lib/file-exceptions.ts");
+const { classifyUnderwritingLookup } = await import("../src/lib/underwriting-lookup.ts");
 
 const loanId = "fictional-aus-loan";
 const at = "2026-11-09T17:00:00.000Z";
@@ -227,4 +229,58 @@ test("underwriting work follows loan ownership and clears only after a definitiv
   assert.match((await send(reconcileLpa, other)).message, /already confirmed/i);
   assert.match((await send({ type: "retryMockCreditAus", service: "LPA", attemptId: randomUUID(), previousId: lpa.id, applicationRevision: 3 }, other)).message, /ready/i);
   assert.equal(read()[0].retryOf, lpa.id);
+});
+
+test("sandbox lookup fixtures match the original scope and quarantine inconsistent evidence", () => {
+  const identity = { brokerageId: "fictional", loanId, orderId: randomUUID(), service: "DU", applicationRevision: 3, borrowerCount: 2 };
+  const reference = "FICT-ORDER-123";
+  const accepted = { outcome: "accepted", identity, reference };
+  assert.deepEqual(classifyUnderwritingLookup(identity, { outcome: "inconclusive" }), { outcome: "inconclusive" });
+  assert.deepEqual(classifyUnderwritingLookup(identity, accepted, reference), { outcome: "accepted" });
+  assert.deepEqual(classifyUnderwritingLookup(identity, { ...accepted, outcome: "rejected" }), { outcome: "rejected" });
+  for (const changed of [{ brokerageId: "other" }, { loanId: "other" }, { orderId: randomUUID() }, { service: "LPA" },
+    { applicationRevision: 4 }, { borrowerCount: 1 }]) {
+    assert.equal(classifyUnderwritingLookup(identity, { ...accepted, identity: { ...identity, ...changed } }).outcome, "conflict");
+  }
+  assert.equal(classifyUnderwritingLookup(identity, { ...accepted, reference: "FICT-OTHER" }, reference).outcome, "conflict");
+});
+
+test("only the brokerage admin dismisses conflicting evidence, leaving the original attempt pending", async (t) => {
+  const { db, send, read } = fixture(t);
+  const admin = { ...officer, name: "Fictional Admin", email: "admin@example.test", brokerage: { ...officer.brokerage, role: "Admin" } };
+  const processor = { ...officer, brokerage: { ...officer.brokerage, role: "Processor" } };
+  const order = { type: "runMockCredit", attemptId: randomUUID(), previousId: null, authorized: true, scenario: "uncertain-conflict", applicationRevision: 3 };
+  const check = { type: "reconcileMockCreditAus", attemptId: order.attemptId };
+  const exceptions = (staff = admin) => readFileExceptions(db, { filter: "Underwriting conflicts" }, staff, officer.brokerage.id);
+  const count = () => countFileExceptions(db, admin, officer.brokerage.id, new Date(), 100);
+  const baseline = count();
+  assert.ok((await send(order)).message);
+  assert.deepEqual(exceptions().rows, []);
+  assert.match((await send(check)).message, /admin review/i);
+  const [pending] = read();
+  assert.equal(pending.result.status, "Awaiting confirmation");
+  assert.notEqual(pending.conflict.reference, pending.reference);
+  assert.equal(count(), baseline + 1);
+  assert.equal(nameFileExceptions(exceptions(), []).items[0].target, `credit-aus-order-${order.attemptId}`);
+  assert.ok(exceptions(officer).error);
+  assert.ok(exceptions({ ...admin, brokerage: { ...admin.brokerage, id: "other" } }).error);
+  assert.match((await send(check)).error, /admin must review/i);
+  assert.match((await send({ ...order, attemptId: randomUUID(), previousId: pending.id })).error, /original/i);
+  const { reference, detectedAt } = pending.conflict;
+  const review = { type: "reviewMockUnderwritingConflict", attemptId: pending.id, reference, detectedAt };
+  assert.match((await send(review)).error, /admin/i);
+  assert.match((await send(review, processor)).error, /access/i);
+  assert.match((await send({ ...review, reference: "FICT-STALE" }, admin)).error, /changed/i);
+  assert.equal(count(), baseline + 1);
+  assert.match((await send(review, admin)).message, /still needs confirmation/i);
+  assert.match((await send(review, admin)).message, /already/i);
+  assert.equal(read()[0].conflict.reviewedBy, admin.name);
+  assert.equal(read()[0].result.status, "Awaiting confirmation");
+  assert.equal(count(), baseline);
+  assert.equal(readIncomingLoanWorkPage(db, { view: "today" }, officer, officer.brokerage.id).items[0].id, pending.id);
+  assert.match((await send(check)).message, /confirmed/i);
+  assert.equal(read().length, 1);
+  assert.equal(read()[0].reference, pending.reference);
+  assert.equal(read()[0].result.status, "Report ready");
+  assert.equal(read()[0].conflict.reference, reference);
 });
