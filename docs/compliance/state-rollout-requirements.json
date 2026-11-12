@@ -406,5 +406,227 @@
     "evidence": "Kansas activity, current MCR and supplemental form, processing and underwriting reconciliation and submission receipt.",
     "counsel": "Confirm which activities belong on the supplemental form, FV7 field treatment, no-activity handling and any separate surrender report.",
     "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "PA",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage broker authority",
+    "authority": "7 Pa.C.S. §6111",
+    "sourceUrl": "https://www.legis.state.pa.us/WU01/LI/LI/CT/HTM/07/00.061..HTM",
+    "summary": "Pennsylvania's Mortgage Licensing Act identifies separate broker, lender, correspondent and originator licensing categories for covered mortgage business.",
+    "evidence": "Exact company license class, activity, office basis and any exception evidence.",
+    "counsel": "Confirm whether planned first and secondary business, staffing and offices fall within the company's license or an exception.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "PA",
+    "area": "REPORTING",
+    "id": "PERIODIC",
+    "title": "Periodic first and secondary mortgage reporting",
+    "authority": "7 Pa.C.S. §6135(a)(3)",
+    "sourceUrl": "https://www.legis.state.pa.us/WU01/LI/LI/CT/HTM/07/00.061..HTM",
+    "summary": "Pennsylvania requires listed licensees including mortgage brokers to file periodic reports as the department determines, through the department or NMLS.",
+    "evidence": "License class, reporting period, first and secondary mortgage reconciliations, filing instructions and receipt.",
+    "counsel": "Confirm the current form, cadence, route and state additions, including any treatment for periods without activity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage broker registration",
+    "authority": "N.Y. Banking Law §590",
+    "sourceUrl": "https://www.nysenate.gov/legislation/laws/BNK/590",
+    "summary": "New York distinguishes registration for covered solicitation, processing, placement or negotiation of mortgage loans from mortgage banker licensing.",
+    "evidence": "Company registration, role and product evidence, activity dates, office scope and any exception basis.",
+    "counsel": "Confirm registration, any related individual or branch obligations and the application of definitions and exemptions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "VOOR",
+    "title": "Registered mortgage broker Volume of Operations Report",
+    "authority": "N.Y. Banking Law §597 and DFS broker instructions",
+    "sourceUrl": "https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies",
+    "summary": "DFS requires registered mortgage brokers to file a state Volume of Operations Report annually and publishes broker-specific instructions. The calendar-year 2025 instructions specified June 22, 2026.",
+    "evidence": "Applicable report-year instructions, New York volume reconciliation, submission evidence and any registration status changes.",
+    "counsel": "Confirm the next applicable report-year deadline and filing and zero-activity instructions, including for surrendered registrations.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "DFS 2025 registered broker instructions",
+        "url": "https://www.dfs.ny.gov/system/files/documents/2026/04/2025-Registered-Mortgage-Broker-VOOR-Instructions.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NY",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mortgage call reports for originating entities",
+    "authority": "N.Y. Banking Law §599-h",
+    "sourceUrl": "https://www.nysenate.gov/legislation/laws/BNK/599-H",
+    "summary": "The statute directs originating entities to submit NMLS reports of condition in the form and with the information NMLS requires.",
+    "evidence": "Originating entity classification, relevant report period, FV7 reconciliation and receipt.",
+    "counsel": "Confirm originating entity scope, current reporting schedules and whether any additional New York reporting applies.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Residential mortgage broker company and branch authority",
+    "authority": "NJDOBI Residential Mortgage Broker requirements",
+    "sourceUrl": "https://nj.gov/dobi/banklicensing/rmla/new_resmortbroker.html",
+    "summary": "NJDOBI publishes company and branch requirements for the residential mortgage broker license.",
+    "evidence": "Company and branch licenses, trade names, activity and office facts, and any exception evidence.",
+    "counsel": "Confirm covered activities, branch and remote arrangements and any overlap with other licenses.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "NJDOBI Residential Mortgage Broker Branch",
+        "url": "https://nj.gov/dobi/banklicensing/rmla/resmortbrokerbranch.html"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "NJ",
+    "area": "REPORTING",
+    "id": "ANNUAL",
+    "title": "New Jersey annual residential mortgage broker report",
+    "authority": "N.J.A.C. 3:23-4.1 and NJDOBI 2025 instructions",
+    "sourceUrl": "https://www.nj.gov/dobi/bankdedfund/welcome.htm",
+    "summary": "NJDOBI requires a state annual report for a calendar year in which the entity was licensed. For report year 2025 the instructions included licensees with no business and those that ceased business during the year.",
+    "evidence": "Report-year instructions, periods of active licensure, in-state activity or supported no-activity basis, and state portal receipt.",
+    "counsel": "Confirm the current report-year due date, surrender treatment and the separate NMLS and financial statement requirements.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "NJDOBI 2025 broker worksheet",
+        "url": "https://www.nj.gov/dobi/bankdedfund/annualreportworksheets/ResidentialMortgageBroker2025.pdf"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage loan broker authority",
+    "authority": "5 Del. C. ch. 21",
+    "sourceUrl": "https://delcode.delaware.gov/title5/c021/",
+    "summary": "Delaware has a mortgage loan broker license regime with activity thresholds and other statutory exceptions.",
+    "evidence": "Company license, role, covered loan count and time window, and supporting exception evidence if claimed.",
+    "counsel": "Confirm when brokerage activity is covered, how to count loans for the threshold and any branch or individual duties.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "REPORTING",
+    "id": "VOLUME",
+    "title": "Semiannual Report of Delaware Loan Volume",
+    "authority": "5 Del. Admin. C. 2105 and OSBC licensing guidance",
+    "sourceUrl": "https://banking.delaware.gov/faqs/licensing-help/",
+    "summary": "The Delaware Office of the State Bank Commissioner lists a twice-yearly Delaware Volume report for Mortgage Loan Broker licensees.",
+    "evidence": "Current form, period and due-date instructions, Delaware volume reconciliation and receipt.",
+    "counsel": "Confirm the current submission dates and route, zero activity and the relationship to NMLS filings.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "REPORTING",
+    "id": "ASSETS",
+    "title": "Annual Report of Delaware Assets",
+    "authority": "5 Del. Admin. C. 2106 and OSBC licensing guidance",
+    "sourceUrl": "https://banking.delaware.gov/faqs/licensing-help/",
+    "summary": "The Delaware Office of the State Bank Commissioner lists an annual Delaware Assets report no later than April 1 for Mortgage Loan Broker licensees.",
+    "evidence": "License, current state form, period, Delaware asset workpaper and receipt.",
+    "counsel": "Confirm the asset basis and filing treatment where the broker has no assets to report or ceased activity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "DE",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Mortgage loan broker NMLS reports of condition",
+    "authority": "5 Del. C. §2111(c)",
+    "sourceUrl": "https://delcode.delaware.gov/title5/c021/",
+    "summary": "Chapter 21 requires licensees to submit reports of condition in the form and with the information NMLS requires.",
+    "evidence": "Chapter 21 authority, current NMLS instructions, reconciled workpaper and filing receipt.",
+    "counsel": "Confirm FV7 sections, cadence and no-activity treatment independently of the Delaware Volume and Assets reports.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage lender license for brokerage",
+    "authority": "Md. Code, Fin. Inst. §11-504 and OFR licensing guidance",
+    "sourceUrl": "https://www.labor.maryland.gov/finance/industry/mortlend.shtml",
+    "summary": "Maryland's mortgage lender license regime includes mortgage brokerage, lending and servicing. The regulator publishes company and location requirements.",
+    "evidence": "Company license and locations, activity and role, individual authority and any exemption basis.",
+    "counsel": "Confirm which activities, locations and employees are covered and which separate regulatory duties apply.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MD",
+    "area": "RECORDS",
+    "id": "EXAM",
+    "title": "Mortgage license examination and evidence",
+    "authority": "Md. Code, Fin. Inst. §11-515 and OFR Mortgage Examination FAQs",
+    "sourceUrl": "https://www.labor.maryland.gov/finance/industry/mortexamfaqs.shtml",
+    "summary": "OFR describes examinations for actively licensed Maryland mortgage lenders including broker activity, even when there was no business volume, and describes use of the State Examination System.",
+    "evidence": "Initial license or prior exam date, document requests, evidence packet, access and response records.",
+    "counsel": "Confirm exam scope and record custody, especially for inactive operations, surrender, remote locations and any regulator-specific deadlines.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage broker licensure",
+    "authority": "Va. Code §6.2-1601",
+    "sourceUrl": "https://law.lis.virginia.gov/vacode/title6.2/chapter16/section6.2-1601/",
+    "summary": "Virginia requires covered mortgage lenders and brokers to obtain licensure, subject to statutory exemptions.",
+    "evidence": "Company license, covered business and offices, individual authority and exemption evidence where applicable.",
+    "counsel": "Confirm which activities and locations require approval and how the statute applies to the proposed entity.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "VA",
+    "area": "REPORTING",
+    "id": "MCR",
+    "title": "Quarterly mortgage call reports and financial information",
+    "authority": "10VAC5-160-90(B) and Va. Code §6.2-1610",
+    "sourceUrl": "https://law.lis.virginia.gov/admincode/title10/agency5/chapter160/section90/",
+    "summary": "Virginia requires licensees to file quarterly mortgage call reports through NMLS and provide other financial condition information as NMLS requires.",
+    "evidence": "Company license, covered activities, applicable NMLS schedule and sections, reconciled workpaper and receipt.",
+    "counsel": "Confirm current FV7 financial sections, any other requests and how to handle no-activity periods.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage broker licensure",
+    "authority": "W. Va. Code §31-17-2",
+    "sourceUrl": "https://code.wvlegislature.gov/31-17-2/",
+    "summary": "West Virginia requires covered lenders and brokers to obtain and maintain current authority. The statute also addresses foreign corporation registration.",
+    "evidence": "License type and current status, business registration, activity, office and individual authority, and exception evidence.",
+    "counsel": "Confirm mortgage brokerage scope, relevant entity registration and any exceptions or branch obligations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WV",
+    "area": "REPORTING",
+    "id": "NMLS",
+    "title": "NMLS report on West Virginia business and operations",
+    "authority": "W. Va. Code §31-17-11(b)",
+    "sourceUrl": "https://code.wvlegislature.gov/31-17-11/",
+    "summary": "The statute requires licensees to file through NMLS under oath or affirmation for the reporting period and date established by NMLS.",
+    "evidence": "Applicable license, prescribed period and form, West Virginia activity, certification and receipt.",
+    "counsel": "Confirm the relationship to any current state annual and statistical reports, exact form instructions and no-activity treatment.",
+    "checkedOn": "2026-11-12"
   }
 ]
