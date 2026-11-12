@@ -9,9 +9,12 @@ export const obligationDraft = z.strictObject({
   applicability: z.enum(["Required", "Not applicable", "Needs review"]).default("Needs review"), applicabilityReason: note,
   reviewerEvidence: z.string().trim().max(1500),
   effectiveFrom: z.iso.date(), effectiveThrough: z.union([z.iso.date(), z.literal("")]),
+  preparation: z.literal("Mortgage Call Report").optional(),
   cadence: z.enum(["Monthly", "Quarterly", "Annual"]), internalTargetDay: z.number().int().min(1).max(31),
   ownerEmail: z.email(),
 }).superRefine((value, ctx) => {
+  if (value.preparation && value.cadence !== "Quarterly")
+    ctx.addIssue({ code: "custom", path: ["preparation"], message: "Choose a quarterly cadence for Mortgage Call Report preparation." });
   if (value.effectiveThrough && value.effectiveThrough < value.effectiveFrom)
     ctx.addIssue({ code: "custom", path: ["effectiveThrough"], message: "End date precedes effective date." });
   if (value.applicability !== "Needs review" && value.reviewerEvidence.length < 5)
@@ -51,3 +54,8 @@ export function obligationPeriod(period: string, cadence: ObligationDraft["caden
   const date = (value: Date) => value.toISOString().slice(0, 10);
   return { from: `${period}-01`, through: date(end), internalTarget: date(new Date(Date.UTC(year, month - 2 + months, Math.min(targetDay, end.getUTCDate())))) };
 }
+
+export type ObligationReviewBasis = {
+  obligationId: string; period: string; version: number; status: string; sourceUrl: string; authority: string;
+  report?: { year: string; quarter: number }; stateBasis?: ObligationStateSource;
+};

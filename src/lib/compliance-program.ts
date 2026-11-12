@@ -1,3 +1,4 @@
+import type { ObligationDraft, ObligationReviewBasis } from "./compliance-obligations-model";
 import { createHash } from "node:crypto";
 import { readBranches } from "./branches";
 import { branchStaffCurrent } from "./branch-model";
@@ -168,6 +169,24 @@ function month(db: Store, staff: WorkspaceStaff, entity: ProgramEntity, period: 
   const owners = roster.filter(m => m.status === "Active" && m.role === "Admin");
   const items = rows.map(row => ({ ...row, ownerAvailable: owners.some(m => m.email === row.ownerEmail && (m.accessRevision ?? 0) === row.ownerRevision),
     overdue: row.status !== "Completed" && String(row.internalTarget) < now.slice(0, 10) } as ProgramItem));
+  const bases = db.prepare(`SELECT w.workId,o.obligationId,o.period,o.version,o.status,o.snapshot
+    FROM compliance_obligation_work w JOIN compliance_obligation_occurrences o
+      ON o.brokerageId=w.brokerageId AND o.entityId=w.entityId AND o.obligationId=w.obligationId AND o.period=w.period
+    WHERE w.brokerageId=? AND w.entityId=? AND w.month=?`).all(staff.brokerage.id, entity.id, period);
+  const byItem = new Map(items.map(item => [item.id, item]));
+  for (const row of bases) {
+    const item = byItem.get(String(row.workId));
+    if (!item) continue;
+    const { draft, stateBasis } = JSON.parse(String(row.snapshot)) as { draft: ObligationDraft; stateBasis?: ObligationReviewBasis["stateBasis"] };
+    const [year, month] = String(row.period).split("-");
+    item.obligation = {
+      obligationId: String(row.obligationId), period: String(row.period), version: Number(row.version), status: String(row.status),
+      sourceUrl: draft.sourceUrl, authority: draft.authority,
+      stateBasis: stateBasis && { jurisdiction: stateBasis.jurisdiction, revision: stateBasis.revision, sourceKey: stateBasis.sourceKey,
+        title: stateBasis.title, authority: stateBasis.authority, sourceUrl: stateBasis.sourceUrl },
+      report: draft.preparation === "Mortgage Call Report" ? { year, quarter: Math.ceil(Number(month) / 3) } : undefined,
+    };
+  }
   const counts = { total: items.length, open: items.filter(i => i.status !== "Completed").length,
     overdue: items.filter(i => i.overdue).length, unavailableOwners: items.filter(i => !i.ownerAvailable).length };
   const fingerprint = hash([entity, period, rows, owners.map(m => [m.email, m.accessRevision ?? 0]).sort(), now.slice(0, 10)]);

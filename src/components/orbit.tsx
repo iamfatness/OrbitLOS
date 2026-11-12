@@ -1648,6 +1648,10 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             onBranch={id => setComplianceBranch({ brokerageId: staff.brokerage.id, id })}
             openBranches={() => { setTeamPanel("Branches"); openBrokerageView("Team"); setComplianceBranchVisit("team"); }}
             returningFromBranches={complianceBranchVisit === "return"} openCallReport={() => { setReportTab("Call report"); openBrokerageView("Reports"); }}
+            renderReport={(period, setPeriod) => <CallReportWorkbench state={state} brokerageId={staff.brokerage.id}
+              period={period} setPeriod={setPeriod} showQuarterEvidence
+              openReadiness={() => { setReportingPeriod(period); setManagerExceptionView("reporting"); navigate("Playbooks", false); }}
+              openLoan={loanId => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget })} />}
             openHistoryRecord={openMigrationDestination}
             openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}

@@ -31,7 +31,8 @@ export function initializeComplianceObligations(db: Store) {
   CREATE TABLE IF NOT EXISTS compliance_obligation_work (
     brokerageId TEXT NOT NULL,entityId TEXT NOT NULL,obligationId TEXT NOT NULL,period TEXT NOT NULL,
     workId TEXT NOT NULL,month TEXT NOT NULL,createdAt TEXT NOT NULL,
-    PRIMARY KEY(brokerageId,entityId,obligationId,period));`);
+    PRIMARY KEY(brokerageId,entityId,obligationId,period));
+  CREATE INDEX IF NOT EXISTS compliance_obligation_month_work ON compliance_obligation_work(brokerageId,entityId,month);`);
 }
 
 /** Call ONLY inside the existing authenticated transaction, after current roster lookup.
@@ -79,12 +80,17 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const matchesStateBasis = (current: StateBasis, saved: StateBasis) => current.sourceKey === saved.sourceKey &&
     current.revision === saved.revision && current.jurisdiction === saved.jurisdiction && current.snapshot === saved.snapshot;
   if (data.operation === "occurrences") {
-    const rows = db.prepare(`SELECT obligationId,period,version,status,internalTarget,snapshot,createdBy,createdAt
-      FROM compliance_obligation_occurrences WHERE brokerageId=? AND entityId=? AND obligationId=? ORDER BY period DESC LIMIT 51 OFFSET ?`)
+    const rows = db.prepare(`SELECT o.obligationId,o.period,o.version,o.status,o.internalTarget,o.snapshot,o.createdBy,o.createdAt,w.workId,w.month
+      FROM compliance_obligation_occurrences o LEFT JOIN compliance_obligation_work w
+        ON w.brokerageId=o.brokerageId AND w.entityId=o.entityId AND w.obligationId=o.obligationId AND w.period=o.period
+      WHERE o.brokerageId=? AND o.entityId=? AND o.obligationId=? ORDER BY o.period DESC LIMIT 51 OFFSET ?`)
       .all(tenant, data.entityId, data.id, data.offset);
-    return { kind: "obligationOccurrences", items: rows.slice(0, 50).map(row => {
-      const { stateBasis, stateBasisChanged } = JSON.parse(String(row.snapshot)) as { stateBasis?: StateBasis; stateBasisChanged?: boolean };
-      return { ...row, ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis), stateBasisChanged } : {}) };
+    return { kind: "obligationOccurrences", items: rows.slice(0, 50).map(({ workId, month, ...row }) => {
+      const { stateBasis, stateBasisChanged, draft, period } = JSON.parse(String(row.snapshot)) as {
+        stateBasis?: StateBasis; stateBasisChanged?: boolean; draft: ObligationDraft; period: { from: string; through: string };
+      };
+      return { ...row, ownerEmail: draft.ownerEmail, from: period.from, through: period.through, review: typeof workId === "string" && typeof month === "string" ? { entityId: data.entityId, month, itemId: workId } : undefined,
+        ...(stateBasis ? { stateBasis: describeStateBasis(stateBasis), stateBasisChanged } : {}) };
     }), more: rows.length > 50, notice: obligationPlanningNotice };
   }
   if (data.operation === "list") {

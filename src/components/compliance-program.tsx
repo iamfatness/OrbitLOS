@@ -3,10 +3,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { programCategories, programStatuses, type ProgramEntity, type ProgramMonth, type ProgramRequest, type ProgramReviewTarget } from "@/lib/compliance-program-model";
+import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
 import { Button } from "./ui/button";
 
 const value = (form: FormData, name: string) => String(form.get(name) ?? "");
-export function ComplianceProgram({ brokerageId, paused, target }: { brokerageId: string; paused: boolean; target?: ProgramReviewTarget }) {
+export function ComplianceProgram({ brokerageId, paused, target, openReport }: {
+  brokerageId: string; paused: boolean; target?: ProgramReviewTarget;
+  openReport: (basis: ObligationReviewBasis, entity: string) => void;
+}) {
   const [entities, setEntities] = useState<ProgramEntity[]>([]);
   const [entityId, setEntity] = useState(target?.entityId ?? "");
   const [month, setMonth] = useState(() => target?.month ?? new Date().toISOString().slice(0, 7));
@@ -94,7 +98,18 @@ export function ComplianceProgram({ brokerageId, paused, target }: { brokerageId
   if (paused) return <p>Program work is unavailable while the workspace is paused.</p>;
   return <section className="integration manager-panel record-form compliance-pilot-form" aria-label="Compliance program">
     <h2 ref={heading} tabIndex={-1}>{screen === "list" ? "Monthly review" : formTitle}</h2>
-    {screen === "item" && current && <p className="muted">{current.entity.name} · Review period {current.month}</p>}
+    {screen === "item" && current && <p className="muted">{current.entity.name} · Review month {current.month}</p>}
+    {screen === "item" && selected?.obligation && current && <div className="record-form">
+      <div><strong>Recorded period {selected.obligation.period} · Obligation version {selected.obligation.version}</strong>
+        <p>{selected.obligation.status}</p>
+        {selected.obligation.stateBasis && <p>{selected.obligation.stateBasis.jurisdiction} · State scope version {selected.obligation.stateBasis.revision}</p>}
+        <a className="name-link break-words" href={selected.obligation.sourceUrl} target="_blank" rel="noreferrer">{selected.obligation.authority}</a>
+      </div>
+      {selected.obligation.report && <div><Button size="sm" variant="outline" id="compliance-open-report-prep"
+        onClick={() => { if (selected.obligation) openReport(selected.obligation, current.entity.name); }}>
+        Open Q{selected.obligation.report.quarter} {selected.obligation.report.year} report preparation
+      </Button></div>}
+    </div>}
     <p className="muted">Internal planning and evidence review. Regulatory applicability and legal deadlines still require review before launch.</p>
     {(error || notice) && <div ref={feedback} tabIndex={-1} className={error ? "application-message banner-error" : "application-message"} role={error ? "alert" : "status"}>{error || notice}</div>}
     {screen === "list" ? <>

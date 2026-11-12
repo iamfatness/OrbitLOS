@@ -194,3 +194,28 @@ test("bounded paged reads and reinitialization preserve version history",t=>{
   const first=f.run({operation:"list",entityId:f.entityId});assert.equal(first.items.length,50);assert.equal(first.more,true);
   assert.equal(f.run({operation:"list",entityId:f.entityId,offset:50}).items.length,2);
 });
+
+
+test("recorded quarterly work opens its exact monthly item and retains the original preparation basis", t => {
+  const f = fixture(t);
+  const reportDraft = { ...f.draft, cadence: "Quarterly", preparation: "Mortgage Call Report" };
+  assert.ok(f.run(f.save({ draft: { ...reportDraft, cadence: "Annual" } })).error);
+  assert.equal(f.run(f.save({ draft: reportDraft })).revision, 1);
+  const period = "2026-07";
+  assert.equal(f.run(f.generate({ period })).kind, "obligationOccurrence");
+  const request = { operation: "planWork", entityId: f.entityId, id: f.id, period, requestId: crypto.randomUUID() };
+  const planned = f.run(request);
+  assert.equal(planned.month, "2026-09");
+  assert.equal(f.run(f.save({ expectedRevision: 1, draft: { ...f.draft, sourceUrl: "https://example.test/revised" } })).revision, 2);
+  const history = f.run({ operation: "occurrences", entityId: f.entityId, id: f.id });
+  const target = history.items[0].review;
+  assert.deepEqual(target, { entityId: f.entityId, month: "2026-09", itemId: planned.workId });
+  const read = month => complianceCaseWork(f.db, { type: "program", input: { operation: "month", entityId: target.entityId, month } },
+    f.staff, f.staff.brokerage.id, [f.actor], "2026-11-11T12:00:00Z");
+  assert.deepEqual(read(period).items, []);
+  const item = read(target.month).items.find(item => item.id === target.itemId);
+  assert.equal(item.obligation.version, 1);
+  assert.equal(item.obligation.sourceUrl, f.draft.sourceUrl);
+  assert.deepEqual(item.obligation.report, { year: "2026", quarter: 3 });
+  assert.equal(f.run({ ...request, requestId: crypto.randomUUID() }).workId, target.itemId);
+});

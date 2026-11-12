@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { ObligationReviewBasis } from "./compliance-obligations-model";
 import { propertyStateCodes } from "./property-state";
 
 export const licenseJurisdictions = propertyStateCodes;
@@ -101,7 +102,7 @@ export type ProgramRequest = z.infer<typeof programRequest>;
 export type ProgramEntity = { id: string; name: string; nmls: string; scopeNote: string; createdAt: string };
 export type ProgramItem = { id: string; title: string; category: typeof programCategories[number]; status: typeof programStatuses[number];
   ownerEmail: string; ownerRevision: number; internalTarget: string; instructions: string; evidence: string; revision: number;
-  updatedAt: string; ownerAvailable: boolean; overdue: boolean };
+  updatedAt: string; ownerAvailable: boolean; overdue: boolean; obligation?: ObligationReviewBasis };
 export type ProgramMonth = { kind: "programMonth"; entity: ProgramEntity; month: string; items: ProgramItem[]; fingerprint: string;
   owners: { email: string; name: string }[]; counts: { total: number; open: number; overdue: number; unavailableOwners: number };
   reviews: { id: string; actor: string; at: string; note: string; current: boolean; snapshot: string }[];
