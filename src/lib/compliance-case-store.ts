@@ -8,12 +8,14 @@ import { initializeTridEvidence } from "./trid-evidence";
 import { initializeStateBrokerAgreement } from "./state-broker-agreement";
 import { initializeStateRefinanceBenefit } from "./state-refinance-benefit";
 import { initializeKansasNotice } from "./kansas-consumer-notice";
+import { initializeMichiganLoanPractices } from "./michigan-loan-practices";
 
 export function initializeComplianceCases(db: Store) {
   initializeTridEvidence(db);
   initializeStateBrokerAgreement(db);
   initializeStateRefinanceBenefit(db);
   initializeKansasNotice(db);
+  initializeMichiganLoanPractices(db);
   initializeComplianceProgram(db);
   initializeStateScope(db);
   initializeStateReadiness(db);

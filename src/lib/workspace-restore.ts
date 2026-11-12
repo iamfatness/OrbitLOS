@@ -37,7 +37,8 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
   const programTables=["compliance_program_entities","compliance_program_licenses","compliance_program_items","compliance_program_events","compliance_program_reviews","compliance_state_scope_versions","compliance_state_readiness_versions",
     "compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts",
     "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_trid_evidence",
-    "compliance_broker_agreement_versions","compliance_refinance_benefit_versions","compliance_kansas_notice_versions"];
+    "compliance_broker_agreement_versions","compliance_refinance_benefit_versions","compliance_kansas_notice_versions",
+    "compliance_michigan_loan_practices_versions"];
   if(programTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Compliance program records changed. Reconcile entity profiles, work and review evidence before restoring.");
   const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews"];

@@ -182,10 +182,10 @@ test("enabled operational workspaces support manual obligations and staff policy
   assert.ok(complianceCaseWork(f.db, { type: "learning", input: { operation: "myAssignments" } }, disabled, f.tenant, f.roster, now).error);
 });
 
-test("restore protects obligation versions, filing records and learning evidence",async()=>{
+test("restore protects obligation versions, filing records, learning and Michigan loan evidence",async()=>{
  const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
  for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_program_licenses","compliance_state_scope_versions",
-   "compliance_state_readiness_versions","compliance_learning_versions","compliance_learning_assignments","compliance_learning_events"]){
+   "compliance_state_readiness_versions","compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_michigan_loan_practices_versions"]){
    const before={schema:"same",tables:[{name,digest:"old",rows:1}],impact:{},files:{items:[]}};
    assert.equal(restoreBlockers(before,before).length,0);
    assert.ok(restoreBlockers(before,{...before,tables:[{name,digest:"new",rows:2}]}).some(x=>x.includes("Compliance program records changed")));

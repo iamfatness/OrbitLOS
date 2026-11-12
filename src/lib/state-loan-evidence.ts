@@ -2,7 +2,8 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { loanAccess } from "./workspace-access";
 
-type EvidenceTable = "compliance_broker_agreement_versions" | "compliance_refinance_benefit_versions" | "compliance_kansas_notice_versions";
+type EvidenceTable = "compliance_broker_agreement_versions" | "compliance_refinance_benefit_versions" |
+  "compliance_kansas_notice_versions" | "compliance_michigan_loan_practices_versions";
 type EvidenceFacts = { state: string };
 type EvidenceRequest<Facts extends EvidenceFacts> = { operation: "read"; loanId: string; state: Facts["state"] } |
   { operation: "save"; loanId: string; expectedRevision: number; requestId: string; facts: Facts; correction?: string };

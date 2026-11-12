@@ -15,6 +15,61 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 const { staffApplications } = await import("../src/lib/applications.ts");
 
+test("Michigan loan practices preserve independent findings, scope and term boundaries on the pilot loan", t => {
+  const { db, work, addLoan, officer, processor, unrelated } = fixture(t);
+  const loanId = addLoan({ state: " mi " });
+  const other = addLoan({ state: "OH" });
+  const record = (input, actor) => work({ type: "michiganLoanPractices", input }, actor);
+  const read = (id, actor) => record({ operation: "read", state: "MI", loanId: id }, actor);
+  const evidence = { reference: "Fictional evidence", result: "No concern recorded" };
+  const service = { key: "appraisal", reference: "Fictional vendor record", feeCharged: "Yes", provided: "No",
+    thirdPartyAmount: "Discrepancy" };
+  const term = { reference: "Fictional note", startsOn: "2026-11-01", maturesOn: "2027-11-01",
+    regularPaymentsAmortize: "No", bridgeForPrincipalDwelling: "Yes" };
+  const facts = { state: "MI", reviewedOn: "2026-11-06", zone: "America/Detroit", scope: "Unresolved",
+    scopeReference: "Fictional scope record", serviceInventory: "Listed charges reviewed",
+    serviceInventoryReference: "Fictional charge inventory", services: [service],
+    representations: evidence, applicationChanges: { ...evidence, result: "Concern recorded" },
+    appraisalPayment: { ...evidence, result: "Unresolved" }, appraisalInfluence: evidence,
+    premium: { reference: "Fictional credit life premium", financedSinglePremiumCreditCoverage: "Yes" }, term };
+  const request = { operation: "save", loanId, expectedRevision: 0, requestId: crypto.randomUUID(), facts };
+  assert.ok(read(other, officer).error);
+  assert.ok(read(loanId, unrelated).error);
+  assert.ok(record(request, processor).error);
+  assert.ok(record({ ...request, facts: { ...facts, reviewedOn: "2026-11-15" } }, officer).error);
+  assert.ok(record({ ...request, facts: { ...facts, services: [service, { ...service, key: "Appraisal" }] } }, officer).error);
+  assert.ok(record({ ...request, facts: { ...facts, term: { ...term, maturesOn: term.startsOn } } }, officer).error);
+  const saved = record(request, officer);
+  assert.equal(saved.revision, 1);
+  assert.equal(saved.review.scope, "Unresolved");
+  const outcomes = result => Object.fromEntries(result.review.reviews.map(row =>
+    [row.requirement, row.findings.map(finding => finding.status)]));
+  assert.deepEqual(outcomes(saved), {
+    "REQ-MI-LOAN-CMPA-SERVICE": ["Review concern", "Review concern"],
+    "REQ-MI-LOAN-CMPA-INTEGRITY": ["Review concern", "Evidence gap"],
+    "REQ-MI-LOAN-CMPA-APPRAISAL": ["Evidence gap"],
+    "REQ-MI-LOAN-CMPA-PREMIUM": ["Review concern"],
+    "REQ-MI-LOAN-CMPA-TERM": ["Review concern"],
+  });
+  assert.equal(record(request, officer).history.length, 1);
+  assert.ok(record({ ...request, requestId: crypto.randomUUID() }, officer).error);
+  assert.ok(record({ ...request, expectedRevision: 1, requestId: crypto.randomUUID() }, officer).error);
+  const correct = (expectedRevision, fields) => record({ ...request, expectedRevision, requestId: crypto.randomUUID(),
+    correction: "Fictional schedule correction", facts: { ...facts, term: { ...term, ...fields } } }, officer);
+  assert.deepEqual(outcomes(correct(1, { maturesOn: "2027-10-31" }))["REQ-MI-LOAN-CMPA-TERM"], []);
+  assert.deepEqual(outcomes(correct(2, { maturesOn: "2031-11-01" }))["REQ-MI-LOAN-CMPA-TERM"], []);
+  const leap = correct(3, { startsOn: "2024-02-29", maturesOn: "2025-02-28" });
+  assert.deepEqual(outcomes(leap)["REQ-MI-LOAN-CMPA-TERM"], ["Evidence gap"]);
+  const history = read(loanId, processor).history;
+  assert.equal(history[3].facts.term.maturesOn, "2027-11-01");
+  assert.equal(history[0].correction, "Fictional schedule correction");
+  const noProof = record({ ...request, expectedRevision: 4, requestId: crypto.randomUUID(), correction: "Fictional no-charge review",
+    facts: { ...facts, serviceInventory: "No charges identified", serviceInventoryReference: undefined, services: [] } }, officer);
+  assert.deepEqual(outcomes(noProof)["REQ-MI-LOAN-CMPA-SERVICE"], ["Evidence gap"]);
+  db.prepare("UPDATE loans SET disposition='Paused' WHERE id=?").run(loanId);
+  assert.match(correct(5, {}).error, /paused/);
+});
+
 test("Kansas notice keeps consumer-specific trigger reviews, rule dates and version history", (t) => {
   const { db, work, addLoan, officer, processor, unrelated, admin, staff, roster, brokerageId } = fixture(t);
   const loanId = addLoan({ state: " ks " });

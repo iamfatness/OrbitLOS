@@ -7,6 +7,8 @@ import { refinanceBenefitRequest } from "./state-refinance-benefit-model";
 import { stateRefinanceBenefitWork } from "./state-refinance-benefit";
 import { kansasNoticeRequest } from "./kansas-consumer-notice-model";
 import { kansasNoticeWork } from "./kansas-consumer-notice";
+import { michiganLoanPracticesRequest } from "./michigan-loan-practices-model";
+import { michiganLoanPracticesWork } from "./michigan-loan-practices";
 import { obligationRequest } from "./compliance-obligations-model";
 import { complianceObligationsWork } from "./compliance-obligations";
 import { learningRequest } from "./compliance-learning-model";
@@ -47,6 +49,7 @@ const request = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("stateBrokerAgreement"), input: brokerAgreementRequest }),
   z.strictObject({ type: z.literal("stateRefinanceBenefit"), input: refinanceBenefitRequest }),
   z.strictObject({ type: z.literal("kansasNotice"), input: kansasNoticeRequest }),
+  z.strictObject({ type: z.literal("michiganLoanPractices"), input: michiganLoanPracticesRequest }),
   z.strictObject({ type: z.literal("obligations"), input: obligationRequest }),
   z.strictObject({ type: z.literal("learning"), input: learningRequest }),
   z.strictObject({ type: z.literal("program"), input: programRequest }),
@@ -365,6 +368,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
     if (data.type === "stateBrokerAgreement") return stateBrokerAgreementWork(db, data.input, staff, now);
     if (data.type === "stateRefinanceBenefit") return stateRefinanceBenefitWork(db, data.input, staff, now);
     if (data.type === "kansasNotice") return kansasNoticeWork(db, data.input, staff, now);
+    if (data.type === "michiganLoanPractices") return michiganLoanPracticesWork(db, data.input, staff, now);
     if (data.type === "obligations") return { kind: "obligations" as const, result: complianceObligationsWork(db, data.input, staff, roster, now) as unknown };
     if (data.type === "learning") return { kind: "learning" as const, result: complianceLearningWork(db, data.input, staff, roster, now) as unknown };
     if (data.type === "program") {
