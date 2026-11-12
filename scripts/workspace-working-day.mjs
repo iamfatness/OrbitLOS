@@ -1693,7 +1693,7 @@ try {
     const currentFile = await file(officer, loanId);
     const app = currentFile.applications[0];
     {
-      const readTrid = staff => action(staff, "accessComplianceCases", { type: "trid", input: { operation: "read", loanId } }, undefined, brokerage);
+      const readTrid = (staff, feeBasis) => action(staff, "accessComplianceCases", { type: "trid", input: { operation: "read", loanId, feeBasis } }, undefined, brokerage);
       const recordTrid = (staff, expectedRevision, event, requestId = randomUUID()) => action(staff, "accessComplianceCases",
         { type: "trid", input: { operation: "record", loanId, expectedRevision, requestId, event } }, undefined, brokerage);
       const scope = { type: "scope", coveredScenario: true, creditor: "Fictional creditor", leSender: "Creditor", zone: "America/Detroit",
@@ -1737,6 +1737,23 @@ try {
       assert.ok((await recordTrid(processor, 14, fee)).result.error);
       assert.match((await recordTrid(owner, 14, fee)).result.timing.feeEvidence.at(-1).status, /before its prerequisite/);
       assert.match((await readTrid(processor)).result.timing.feeEvidence.at(-1).status, /before its prerequisite/);
+      const snapshot = (evidenceSequence, borrowerCents) => ({ type: "feeSnapshot", evidenceSequence, reference: "Fictional itemized disclosure",
+        complete: true, lines: [{ key: "appraisal", label: "Appraisal", borrowerCents, bucket: "Individual" }] });
+      assert.match((await recordTrid(officer, 15, snapshot(10, 10000))).result.error, /active disclosure send/);
+      assert.ok((await recordTrid(processor, 15, snapshot(12, 10000))).result.error);
+      const feeRequest = randomUUID();
+      assert.equal((await recordTrid(officer, 15, snapshot(12, 10000), feeRequest)).result.revision, 16);
+      assert.equal((await recordTrid(officer, 15, snapshot(12, 10000), feeRequest)).result.revision, 16);
+      assert.match((await recordTrid(officer, 16, snapshot(12, 11000))).result.error, /prior fee snapshot/);
+      assert.equal((await recordTrid(owner, 16, snapshot(8, 12500))).result.revision, 17);
+      const feeBasis = { estimateSequence: 16, closingSequence: 17 };
+      assert.equal((await readTrid(processor, feeBasis)).result.feeReview.comparison.potentialExcessCents, 2500);
+      assert.equal((await readTrid(owner, { estimateSequence: 17, closingSequence: 16 })).result.feeReview.unavailable, true);
+      assert.equal((await recordTrid(owner, 17, { type: "void", sequence: 17, reference: "Fictional amounts corrected" })).result.revision, 18);
+      const afterWithdrawal = (await readTrid(processor, feeBasis)).result;
+      assert.equal(afterWithdrawal.feeReview.unavailable, true);
+      assert.equal(afterWithdrawal.feeReview.comparison, null);
+      assert.ok(afterWithdrawal.entries.some(entry => entry.sequence === 17 && entry.event.type === "feeSnapshot"));
     }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;

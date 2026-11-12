@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { disclosureFeeSnapshot } from "./trid-fee-comparison";
 
 export const tridElements = {
   name: "Applicant name", income: "Income", creditReportId: "SSN for obtaining a credit report",
@@ -23,12 +24,14 @@ export const tridEvent = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("intent"), receiptSequence: sequence, on: date, localTime, reference }),
   z.strictObject({ type: z.literal("fee"), intentSequence: sequence.optional(), on: date, localTime, reference,
     category: z.enum(["Credit report", "Other"]), activity: z.enum(["Fee imposed", "Payment method required"]), name: reference }),
+  disclosureFeeSnapshot.safeExtend({ type: z.literal("feeSnapshot") }),
   z.strictObject({ type: z.literal("closing"), on: date, reference }),
   z.strictObject({ type: z.literal("void"), sequence, reference }),
 ]);
 const loanId = z.string().min(1).max(100);
 export const tridRequest = z.discriminatedUnion("operation", [
-  z.strictObject({ operation: z.literal("read"), loanId }),
+  z.strictObject({ operation: z.literal("read"), loanId,
+    feeBasis: z.strictObject({ estimateSequence: sequence, closingSequence: sequence }).optional() }),
   z.strictObject({ operation: z.literal("record"), loanId, requestId: z.uuid(),
     expectedRevision: z.number().int().nonnegative(), event: tridEvent }),
 ]);

@@ -10,6 +10,8 @@ The overnight batch starts from the published intent and fee timing release at `
 | Corrected CD timing | Document what changed and whether review indicates a restarted interval. Link the exact corrected disclosure receipt. Preserve the initial timeline and show unresolved reasons or missing receipts. |
 | Verification and handoff | Exercise role boundaries, stale changes, retry and withdrawal in the authenticated rehearsal. Inspect populated desktop and phone states under the UI quality gate. Send verified commits and scope to the release owner. |
 
-The first increment provides the validated cents comparison function and regression tests. It rejects duplicate charge keys and leaves the overall comparison unresolved for incomplete snapshots or conflicting classifications. The next increment connects snapshots to active disclosure evidence and exposes the comparison on a fictional Michigan loan. Selection of a revised estimate, credits and actual cure evidence require their own review steps.
+The first milestone is implemented locally. In **Disclosures → TRID application and delivery evidence**, choose **Record disclosure fee snapshot** for each exact disclosure send. Compare the selected original Loan Estimate and Closing Disclosure in **Disclosure fee comparison**. Match charges by a stable key and preserve incomplete or disputed classifications. Withdrawal keeps the old evidence and excludes it from active comparisons. The authenticated rehearsal exercises duplicate retry, unauthorized writes, invalid sources and withdrawal. Browser acceptance and promotion are pending.
+
+Next, link changed-circumstance evidence to the affected charges and exact revised estimate. Selection of a revised estimate, credits and actual cure evidence require their own review steps.
 
 Regulatory basis for review. [CFPB Regulation Z §1026.19](https://www.consumerfinance.gov/rules-policy/regulations/1026/19/).

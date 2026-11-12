@@ -17,3 +17,5 @@ Scope: internal compliance pilot, 2026-11-11. Built source `00498e79efca`; produ
 The owner and staff mutations ran in an isolated fictional workspace. Live verification exercised public routes and signed-out boundaries. Tests cover tenant and role checks. Course revision authoring, filing and real regulatory coverage remain outside this release.
 
 The review used the approved Orbit design system and brand references, Impeccable, and UI UX Pro Max. It reused the accepted Orbit form, list/detail, action and feedback patterns for the 21st.dev component reference requirement.
+
+Michigan loan → Disclosures → Disclosure fee comparison. Status Not reviewed. Verify snapshot entry and comparison with populated original and closing versions at desktop, portrait and phone widths. Exercise add/remove, exact version selection, mismatch and incomplete amounts, save failure and retry, withdrawn selection and role access. Reuses Orbit's approved TRID details and native form patterns. Impeccable craft-floor and the UI UX Pro Max error recovery guidance informed retained form input and feedback. New 21st.dev patterns were unnecessary.

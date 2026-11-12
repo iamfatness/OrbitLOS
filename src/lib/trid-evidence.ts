@@ -3,6 +3,7 @@ import type { Store } from "./store";
 import { loanAccess } from "./workspace-access";
 import { activeTridEntries, tridLocalDate, tridTiming } from "./trid-timing";
 import { isLoanEstimateReceipt, type TridEntry, type TridEvent, type TridRequest } from "./trid-model";
+import { reviewDisclosureFees } from "./trid-fee-evidence";
 
 export function initializeTridEvidence(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_trid_evidence (
@@ -48,6 +49,20 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
     return;
   }
   if (!scope) return "Record the covered scenario and office calendar first.";
+  if (event.type === "feeSnapshot") {
+    if (!active.some(entry => entry.sequence === event.evidenceSequence && entry.event.type === "sent")) {
+      return "Select an active disclosure send as the source for the amounts.";
+    }
+    const snapshots = active.map(entry => entry.event).filter(item => item.type === "feeSnapshot");
+    if (snapshots.some(item => item.evidenceSequence === event.evidenceSequence)) {
+      return "Withdraw the prior fee snapshot before recording a correction for this disclosure.";
+    }
+    if (snapshots.length >= 12) return "This file reached the active fee snapshot limit. Review its existing snapshots.";
+    if (entries.filter(entry => entry.event.type === "feeSnapshot").length >= 24) {
+      return "This file reached the fee snapshot history limit. Contact the compliance owner.";
+    }
+    return;
+  }
   if (event.type !== "closing" && event.on > tridLocalDate(now, scope.zone)) return "Receipt and delivery evidence cannot be dated in the future.";
   if (event.type === "element" && active.some(entry => entry.event.type === "element" && entry.event.element === event.element)) {
     return "Withdraw the original entry with a correction reference before recording a replacement.";
@@ -92,7 +107,12 @@ export function tridEvidenceWork(db: Store, input: TridRequest, staff: Workspace
   const entries: TridEntry[] = records.map(row => ({
     sequence: Number(row.sequence), at: String(row.at), actor: String(row.actor), event: JSON.parse(String(row.event)) as TridEvent,
   }));
-  const current = () => ({ revision: entries.at(-1)?.sequence ?? 0, entries, timing: tridTiming(entries, now) });
+  const current = () => ({
+    revision: entries.at(-1)?.sequence ?? 0,
+    entries,
+    timing: tridTiming(entries, now),
+    feeReview: reviewDisclosureFees(activeTridEntries(entries), input.operation === "read" ? input.feeBasis : undefined),
+  });
   if (input.operation === "read") return current();
   if (access === "processor") return { error: "Only the assigned loan officer or an admin can record TRID evidence." };
   if (db.prepare("SELECT disposition FROM loans WHERE id=?").get(loanId)?.disposition !== "Active") {
