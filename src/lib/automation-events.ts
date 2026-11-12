@@ -21,6 +21,15 @@ export function queueAutomationEvent(db: Store, source: Source, at: string) {
     .run(inserted.sequence, source.eventType, source.eventType);
 }
 
+export function writeDestinationAttempt(db: Store, destinationId: string, eventSequence: number, number: number, operationId: string,
+  outcome: AutomationAttempt["outcome"], staff: WorkspaceStaff, at: string): AutomationAttempt {
+  db.prepare(`INSERT INTO automation_destination_attempts (destinationId, eventSequence, attempt, operationId, outcome, actorEmail, actor, at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(destinationId, eventSequence, number, operationId, outcome, staff.email, staff.name, at);
+  db.prepare(`UPDATE automation_destination_events SET status = ?, attemptCount = ? WHERE destinationId = ? AND eventSequence = ?`)
+    .run(outcome, number, destinationId, eventSequence);
+  return { number, operationId, outcome, at, actor: staff.name };
+}
+
 function event(row: Row): AutomationEvent {
   const payload: AutomationPayload = {
     schemaVersion: row.schemaVersion, eventId: row.id, eventType: row.eventType, occurredAt: row.occurredAt,
@@ -91,10 +100,7 @@ export function automationEventWork(db: Store, staff: WorkspaceStaff, input: unk
     }
     const attempt = row.attemptCount + 1;
     if (destination) {
-      db.prepare(`INSERT INTO automation_destination_attempts (destinationId, eventSequence, attempt, operationId, outcome, actorEmail, actor, at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(destination.id, row.sequence, attempt, query.operationId, outcome, staff.email, staff.name, now);
-      db.prepare(`UPDATE automation_destination_events SET status = ?, attemptCount = ? WHERE destinationId = ? AND eventSequence = ?`)
-        .run(outcome, attempt, destination.id, row.sequence);
+      writeDestinationAttempt(db, destination.id, row.sequence, attempt, query.operationId, outcome, staff, now);
     } else {
       db.prepare(`INSERT INTO automation_event_attempts (eventId, attempt, operationId, outcome, actorEmail, actor, at)
         VALUES (?, ?, ?, ?, ?, ?, ?)`).run(row.id, attempt, query.operationId, outcome, staff.email, staff.name, now);

@@ -99,6 +99,8 @@ import { branchesUnavailable } from "./lib/branch-model";
 import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
 import { readStaffFirstDay, setFirstDayStep, updateStaffFirstDay } from "./lib/staff-first-day";
 import { automationEventWork } from "./lib/automation-events";
+import { automationBatchWork } from "./lib/automation-batches";
+import { automationBatchQuery } from "./lib/automation-batch-model";
 import { automationDestinationWork } from "./lib/automation-destinations";
 import { automationDestinationQuery, automationEventQuery } from "./lib/automation-event-model";
 import { documentTemplateWork } from "./lib/document-templates";
@@ -1635,6 +1637,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
     return confirmLenderPackagePdf(this.#store, input, objectId);
   }
+  automationBatches(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." };
+    return automationBatchWork(this.#store, staff, input);
+  }
+
   automationDestinations(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return automationDestinationWork(this.#store, staff, input);
@@ -2256,6 +2263,28 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       const view = url.searchParams.get("view");
+      if (view === "automation-batches") {
+        if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: "Open automation batches as an admin in this brokerage." }, { status: 403, headers });
+        }
+        if (request.method === "GET") {
+          const destinationId = url.searchParams.get("destinationId"), batchId = url.searchParams.get("batchId");
+          const status = url.searchParams.get("status"), before = url.searchParams.get("before");
+          const query = automationBatchQuery.safeParse(batchId !== null ? { type: "receipt", destinationId, batchId } :
+            status !== null ? { type: "preview", destinationId, status } :
+            { type: "history", destinationId, before: before === null ? undefined : Number(before) });
+          if (!query.success) return Response.json({ error: "Choose a valid batch view." }, { status: 400, headers });
+          const result = await workspace.automationBatches(staff, query.data);
+          return Response.json(result, { status: "error" in result ? (query.data.type === "preview" ? 409 : 404) : 200, headers });
+        }
+        if (request.method === "POST") return borrowerJson(request, async input => {
+          const query = automationBatchQuery.safeParse(input);
+          if (!query.success || query.data.type !== "run") return { status: 400, error: "Choose a valid batch to run." };
+          const result = await workspace.automationBatches(staff, query.data);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }, 1024);
+        return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      }
       if (view === "automation-events" || view === "automation-destinations") {
         if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
           return Response.json({ error: "Open automation deliveries as an admin in this brokerage." }, { status: 403, headers });

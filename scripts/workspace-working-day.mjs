@@ -5116,6 +5116,76 @@ try {
     }
   });
 
+  await stage("Destination batch receipts survive retries and recover only failed events", async () => {
+    const base = (id = brokerage) => `/api/brokerages?brokerage=${id}`;
+    const settings = base() + "&view=automation-destinations";
+    const destinationId = randomUUID();
+    await post(settings, { type: "createDestination", id: destinationId, name: "Fictional batch rehearsal", eventTypes: ["lead.created"] }, owner);
+    const endpoint = base() + "&view=automation-batches&destinationId=" + destinationId;
+    const events = base() + "&view=automation-events&destinationId=" + destinationId;
+    const read = async (path, staff = owner) => {
+      const response = await browse(staff, path);
+      assert.equal(response.status, 200);
+      return JSON.parse(response.text());
+    };
+    const create = name => write(owner, { type: "loan", borrower: name, contactId: "", partnerId: null, officer: owner.name,
+      address: "", amount: 240000, purpose: "Purchase", stage: "Lead" });
+    for (let index = 1; index <= 11; index++) await create("Fictional batch lead " + index);
+    assert.equal((await browse(officer, endpoint)).status, 403);
+    assert.equal((await browse(owner, base(lenderBrokerage) + "&view=automation-batches&destinationId=" + destinationId)).status, 404);
+    const original = await read(endpoint + "&status=Queued");
+    assert.equal(original.items.length, 10);
+    assert.equal(original.more, true);
+    const single = { type: "attempt", id: original.items[0].eventId, destinationId, destinationRevision: 1,
+      operationId: randomUUID(), attempt: 0, simulateFailure: false };
+    await post(events, single, owner);
+    const run = (preview, failEventId) => ({ type: "run", destinationId, status: preview.status, batchId: randomUUID(),
+      fingerprint: preview.fingerprint, ...(failEventId ? { failEventId } : {}) });
+    assert.equal((await postResponse(endpoint, run(original), owner)).status, 409);
+    assert.equal((await read(endpoint)).batches.length, 0);
+
+    const latest = await read(endpoint + "&status=Queued");
+    const failedId = latest.items[1].eventId;
+    const batch = run(latest, failedId);
+    assert.equal((await postResponse(endpoint, batch, processor)).status, 403);
+    assert.equal((await postResponse(endpoint, { ...batch, failEventId: randomUUID() }, owner)).status, 409);
+    const repeats = await Promise.all([post(endpoint, batch, owner), post(endpoint, batch, owner)]);
+    assert.deepEqual(repeats[0], repeats[1]);
+    const receipt = repeats[0];
+    assert.equal(receipt.items.length, 10);
+    assert.deepEqual(receipt.items.filter(item => item.attempt.outcome === "Failed").map(item => item.eventId), [failedId]);
+    assert.equal((await read(endpoint + "&batchId=" + batch.batchId)).items[1].attempt.number, 1);
+    assert.equal((await read(endpoint + "&status=Queued")).items.length, 0);
+
+    const failure = await read(endpoint + "&status=Failed");
+    assert.deepEqual(failure.items.map(({ eventId }) => eventId), [failedId]);
+    const update = (revision, state) => post(settings, { type: "setDestinationState", id: destinationId,
+      revision, state, operationId: randomUUID() }, owner);
+    await update(1, "Paused");
+    assert.equal((await postResponse(endpoint, run(failure), owner)).status, 409);
+    await update(2, "Active");
+    assert.equal((await postResponse(endpoint, run(failure), owner)).status, 409);
+    const next = run(await read(endpoint + "&status=Failed"));
+    const recovery = await post(endpoint, next, owner);
+    assert.equal(recovery.items[0].attempt.number, 2);
+    assert.equal(recovery.items[0].attempt.outcome, "Simulated");
+    const exact = await read(events + "&id=" + failedId);
+    assert.deepEqual(exact.attempts.map(({ outcome }) => outcome), ["Simulated", "Failed"]);
+    assert.equal((await read(endpoint + "&status=Failed")).items.length, 0);
+    await update(3, "Disconnected");
+    assert.deepEqual(await post(endpoint, batch, owner), receipt);
+    const history = await read(endpoint);
+    assert.deepEqual(history.batches.map(({ succeeded, failed }) => [succeeded, failed]), [[1, 0], [9, 1]]);
+    assert.deepEqual(await read(endpoint + "&batchId=" + batch.batchId), receipt);
+
+    if (process.argv.includes("--preview")) {
+      await post(settings, { type: "createDestination", id: randomUUID(), name: "Fictional browser batch", eventTypes: ["lead.created"] }, owner);
+      await create("Fictional batch browser alpha");
+      await create("Fictional batch browser beta");
+      await create("Fictional batch browser gamma");
+    }
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

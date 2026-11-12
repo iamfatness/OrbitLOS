@@ -675,6 +675,13 @@ export function initializeStore(db: Store, seedDemo = true) {
       PRIMARY KEY (destinationId, eventSequence, attempt),
       FOREIGN KEY (destinationId, eventSequence) REFERENCES automation_destination_events(destinationId, eventSequence)
     );
+    CREATE TABLE IF NOT EXISTS automation_batches (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, destinationId TEXT NOT NULL, destinationName TEXT NOT NULL,
+      destinationRevision INTEGER NOT NULL, actorEmail TEXT NOT NULL, actor TEXT NOT NULL, status TEXT NOT NULL,
+      at TEXT NOT NULL, request TEXT NOT NULL, receipt TEXT NOT NULL, succeeded INTEGER NOT NULL, failed INTEGER NOT NULL,
+      FOREIGN KEY (destinationId, destinationRevision) REFERENCES automation_destination_history(destinationId, revision)
+    );
+    CREATE INDEX IF NOT EXISTS automation_batches_destination ON automation_batches(destinationId, sequence DESC);
     CREATE TABLE IF NOT EXISTS staff_first_day (
       email TEXT NOT NULL, role TEXT NOT NULL, step TEXT NOT NULL, completedAt TEXT,
       revision INTEGER NOT NULL, PRIMARY KEY (email, role, step)

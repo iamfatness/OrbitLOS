@@ -7,6 +7,7 @@ import { automationEventLabels, automationStatuses, type AutomationDestination, 
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { AutomationDestinations } from "./automation-destinations";
+import { AutomationBatches } from "./automation-batches";
 
 async function deliveryRequest(endpoint: string, options?: RequestInit): Promise<AutomationEventPage | AutomationEventDetail> {
   const response = await fetch(endpoint, { cache: "no-store", ...options });
@@ -109,6 +110,12 @@ function AutomationQueue({ brokerageId, fictional, openRecord, selectedDestinati
         setSelected(undefined);
         if (openedBy.current?.isConnected) openedBy.current.focus();
         else statusFilter.current?.focus();
+      }} />}
+    {destination && <AutomationBatches brokerageId={brokerageId} destination={destination} fictional={fictional}
+      onRun={() => refresh()} openEvent={(id, button) => {
+        openedBy.current = button;
+        if (selected === id) document.getElementById("automation-event-heading")?.focus();
+        else setSelected(id);
       }} />}
     <div className="automation-delivery-filters">
       <label className="field">Event type<select value={eventType} onChange={event => {
