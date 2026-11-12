@@ -4296,6 +4296,10 @@ try {
       id, category: "Income", bucketKey: "income", conditionDescription: "Fictional condition", conditionSatisfactionDate: null,
       loanNumber, loanStatus: "Approved With Conditions",
     });
+    const exportLoan = (loanNumber) => runtime.dispatchFetch(`${origin}/api/webhooks/uwm/production/ulad`, {
+      method: "POST", headers: { "Content-Type": "application/xml", "X-API-Key": webhookToken },
+      body: `<MESSAGE xmlns="http://www.mismo.org/residential/2009/schemas" MISMOReferenceModelIdentifier="3.4.032420160128"><DEAL_SETS><DEAL_SET><DEALS><DEAL><LOANS><LOAN><LOAN_IDENTIFIERS><LOAN_IDENTIFIER><LoanIdentifier>${loanNumber}</LoanIdentifier><LoanIdentifierType>LenderLoan</LoanIdentifierType></LOAN_IDENTIFIER></LOAN_IDENTIFIERS></LOAN></LOANS></DEAL></DEALS></DEAL_SET></DEAL_SETS></MESSAGE>`,
+    });
     const receipts = async (id) => {
       const response = await runtime.dispatchFetch(`${origin}/api/uwm-webhook-receipts?brokerage=${id}`,
         { headers: { Cookie: `__Host-orbit-session=${owner.token}` } });
@@ -4316,10 +4320,13 @@ try {
     const earlyRetry = (await (await send("production", webhookToken, "01", otherNumber)).json()).receipt;
     assert.equal(earlyRetry.receiptId, earlyId);
     assert.equal(earlyRetry.duplicate, true);
+    assert.equal((await webhook("production", "import", webhookToken, { TransactionId: transactionId, LoanNumber: otherNumber,
+      LoanStatus: "Completed", LogDateTime: "2026-11-11T01:00:00Z", Message: "Reformatted fictional event" })).status, 200);
     assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
 
     await fixture.interruptNextImportCompletion();
     assert.equal((await send("production", webhookToken)).status, 503);
+    await fixture.restartMaintenanceFixture().catch(() => {});
     assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
     assert.equal((await conditions("pending")).status, 200);
     assert.equal((await receipts(lenderInbox))[0].loanNumber, number);
@@ -4338,9 +4345,12 @@ try {
     assert.equal((await send("production", webhookToken, "03", otherNumber)).status, 200);
     assert.equal((await conditions("conflicting", otherNumber)).status, 200);
     assert.equal((await conditions("verified")).status, 200);
+    assert.equal((await exportLoan(otherNumber)).status, 200);
+    assert.equal((await exportLoan(number)).status, 200);
     assert.deepEqual((await receipts(lenderInbox)).map((row) => [row.kind, row.loanNumber]),
-      [["conditions", otherNumber], ["conditions", number], ["conditions", otherNumber]]);
-    assert.deepEqual((await receipts(lenderBrokerage)).filter((row) => row.kind === "conditions").map((row) => row.loanNumber), [number]);
+      [["ulad", otherNumber], ["conditions", otherNumber], ["conditions", number], ["conditions", otherNumber]]);
+    assert.deepEqual((await receipts(lenderBrokerage)).filter((row) => row.kind !== "import").map((row) => [row.kind, row.loanNumber]),
+      [["ulad", number], ["conditions", number]]);
   });
 
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,

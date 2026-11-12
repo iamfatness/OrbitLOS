@@ -60,6 +60,12 @@ test("an early receipt stays held on an exact retry and the column upgrades exis
   const saved = saveUwmWebhook(db, early, "2026-11-10T12:00:00Z", true);
   assert.equal(saved.heldImport, true);
   assert.deepEqual(saveUwmWebhook(db, early), { ...saved, duplicate: true });
+  const formatted = parseUwmWebhook("stage", "import", JSON.stringify({ ...imported, TransactionId: "early", Message: "Reformatted" }, null, 2));
+  const reformatted = saveUwmWebhook(db, formatted);
+  assert.equal(reformatted.duplicate, false);
+  assert.equal(reformatted.heldImport, true);
+  const newOutcome = parseUwmWebhook("stage", "import", JSON.stringify({ ...imported, TransactionId: "early", LogDateTime: "2026-11-10T13:00:00Z" }));
+  assert.equal(saveUwmWebhook(db, newOutcome).heldImport, false);
 });
 test("condition updates sharing an ID and conflicting status events are not discarded", t => {
   const db = database(t);

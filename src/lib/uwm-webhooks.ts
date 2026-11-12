@@ -86,6 +86,13 @@ export function saveUwmWebhook(db: Store, event: UwmWebhookEvent, now = new Date
     const prior = db.prepare(`SELECT id, heldImport FROM uwm_webhook_receipts WHERE environment = ? AND kind = ? AND eventKey = ? AND digest = ?`)
       .get(event.environment, event.kind, event.eventKey, event.digest);
     if (prior) return { receiptId: Number(prior.id), duplicate: true, heldImport: Boolean(prior.heldImport) };
+    if (event.kind === "import" && !heldImport) {
+      const { LoanStatus, LogDateTime } = importSchema.parse(JSON.parse(event.body));
+      heldImport = Boolean(db.prepare(`SELECT 1 FROM uwm_webhook_receipts WHERE environment=? AND transactionId=? AND loanNumber IS ?
+        AND kind='import' AND heldImport=1 AND trim(json_extract(body,'$.LoanStatus')) IS ?
+        AND json_extract(body,'$.LogDateTime') IS ? LIMIT 1`)
+        .get(event.environment, event.transactionId, event.loanNumber, LoanStatus, LogDateTime));
+    }
     // Retain conflicting deliveries too; neither delivery silently overwrites the other.
     db.prepare(`INSERT INTO uwm_webhook_receipts(environment,kind,eventKey,digest,body,transactionId,loanNumber,receivedAt,heldImport)
       VALUES(?,?,?,?,?,?,?,?,?)`).run(event.environment, event.kind, event.eventKey, event.digest, event.body, event.transactionId, event.loanNumber, now, Number(heldImport));
