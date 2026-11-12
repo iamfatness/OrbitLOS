@@ -1890,11 +1890,16 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
               }
               return new Response(null, { status: 303, headers });
             }
-            if (staff && workspaceTarget && chooseWorkspace && url.searchParams.get("switch") === "1") {
-              const saved = await directory.rememberStaffWorkspace(tokenHash, Date.now(), bootstrapEmails, staff.brokerage.id, true);
-              if (!saved) return login();
+            const makeDefault = url.searchParams.get("default") === "1";
+            const switchFromTeam = url.searchParams.get("switch") === "1";
+            if (staff && workspaceTarget && chooseWorkspace && (makeDefault || switchFromTeam)) {
               const headers = new Headers({ Location: brokerageUrl(staff.brokerage.id), "Cache-Control": "no-store" });
-              headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
+              // Older open Team pages may still use switch=1 for a visit to a sample workspace.
+              if (makeDefault || (!staff.brokerage.pilot && staff.brokerage.id !== demoBrokerageId)) {
+                const saved = await directory.rememberStaffWorkspace(tokenHash, Date.now(), bootstrapEmails, staff.brokerage.id, true);
+                if (!saved) return login();
+                headers.set("Set-Cookie", await staffWorkspaceCookie(staff.email, staff.brokerage.id));
+              }
               return new Response(null, { status: 303, headers });
             }
           }

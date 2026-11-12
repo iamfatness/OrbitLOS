@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { demoBrokerageId, brokerageRoles, brokerageUrl, switchWorkspaceUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
+import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, switchWorkspaceUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -192,18 +192,17 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
         <Button asChild variant="outline" size="sm"><a href={`/workspace-maintenance?brokerage=${staff.brokerage.id}#pilot-support-report`}>Support report</a></Button>
       </div>}
       <p className="muted">Current workspace · {canUseSampleTools ? "Fictional data and practice workflows" : "Operational workspace"}</p>
-      <p className="muted">Switching here saves the workspace that opens when you sign in.</p>
       <div className="loan-application-actions">
-        <Button asChild variant="outline" size="sm"><a href={switchWorkspaceUrl(staff.brokerage.id)}>Make this my default</a></Button>
+        <Button asChild variant="outline" size="sm"><a href={defaultWorkspaceUrl(staff.brokerage.id)}>Make this my default</a></Button>
         <Button variant="outline" size="sm" onClick={()=>void copyWorkspace()}>Copy workspace link</Button>
       </div>
       {copyStatus && <p role="status">{copyStatus}</p>}
       {!!operationalWorkspaces.length && <div className="workspace-list"><h3>Operational workspaces</h3>{operationalWorkspaces.map(item =>
         <a className="workspace-list-item" key={item.id} href={switchWorkspaceUrl(item.id)}><strong>{item.name}</strong><span>{item.role}{item.maintenance ? " · Paused" : ""}</span></a>)}</div>}
       {!!sampleWorkspaces.length && <details className="workspace-samples"><summary>Demo &amp; test workspaces ({sampleWorkspaces.length})</summary>
-        <p className="muted">Saved rehearsals and fictional files. Kept separate from daily work.</p>
+        <p className="muted">Visit a sample workspace while keeping your sign-in default.</p>
         <label className="field">Find a demo or test workspace<input type="search" value={workspaceSearch} onChange={event=>setWorkspaceSearch(event.target.value)} placeholder="Search by name or reference"/></label>
-        <div className="workspace-list">{matchingSamples.map(item => <a className="workspace-list-item" key={item.id} href={switchWorkspaceUrl(item.id)}>
+        <div className="workspace-list">{matchingSamples.map(item => <a className="workspace-list-item" key={item.id} href={brokerageUrl(item.id)}>
           <strong>{item.name}</strong><span>{item.role} · {item.id === demoBrokerageId ? "Demo" : "Test"}{item.maintenance ? " · Paused" : ""} · {item.id.slice(0,8)}</span></a>)}</div>
         {!matchingSamples.length && <p role="status">No matching workspaces.</p>}
       </details>}

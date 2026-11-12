@@ -152,6 +152,10 @@ export function switchWorkspaceUrl(id: string) {
   return `${brokerageUrl(id)}&switch=1`;
 }
 
+export function defaultWorkspaceUrl(id: string) {
+  return `${brokerageUrl(id)}&default=1`;
+}
+
 export function portalToken(brokerageId = demoBrokerageId) {
   const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, "0")).join("");
   return brokerageId === demoBrokerageId ? token : `${brokerageId}.${token}`;
