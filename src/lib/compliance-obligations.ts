@@ -3,7 +3,7 @@ import type { Store } from "./store";
 import { complianceProgramWork } from "./compliance-program";
 import { stateScopeLicenseSnapshot } from "./compliance-state-scope";
 import type { WorkspaceStaff } from "./staff-store";
-import type { VersionedBrokerageMember } from "./brokerage-model";
+import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
 import { filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
   type ObligationStateSource } from "./compliance-obligations-model";
 import { sourceSnapshot, stateRequirementSources } from "./compliance-research-model";
@@ -51,7 +51,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const tenant = staff.brokerage.id;
   const active = (email: string) => roster.find(m => m.email === email && m.status === "Active" && m.role === "Admin");
   const actor = active(staff.email);
-  if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin" || !actor || (actor.accessRevision ?? 0) !== staff.brokerage.accessRevision) return unavailable;
+  if (!workspaceFeatures(staff.brokerage).compliance || staff.brokerage.role !== "Admin" || !actor ||
+      (actor.accessRevision ?? 0) !== (staff.brokerage.accessRevision ?? 0)) return unavailable;
   const parsed = obligationRequest.safeParse(input);
   if (!parsed.success) return unavailable;
   const data = parsed.data;
@@ -221,8 +222,8 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const owner = active(data.draft.ownerEmail);
     if (!owner) return { error: "Choose an active admin owner." };
     if (!latest && Number(db.prepare("SELECT count(DISTINCT id) n FROM compliance_obligation_versions WHERE brokerageId=? AND entityId=?").get(tenant, data.entityId)!.n) >= 200)
-      return { error: "This internal pilot supports 200 obligations per entity." };
-    if (data.expectedRevision >= 1000) return { error: "This obligation has reached the pilot version limit." };
+      return { error: "This workspace supports 200 obligations per entity." };
+    if (data.expectedRevision >= 1000) return { error: "This obligation has reached the version limit." };
     const existingBasis = latest ? (JSON.parse(String(latest.draft)) as StoredDraft).stateBasis : undefined;
     const reference = data.stateReference;
     const stateBasis = reference ? stateSources().find(source => source.jurisdiction === reference.jurisdiction &&

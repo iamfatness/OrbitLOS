@@ -1613,7 +1613,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             openRenewal={complianceEnabled ? openLicenseRenewal : undefined} renewalReturn={renewalReturn?.origin === "Brokerage" ? renewalReturn : undefined} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
           {(section === "Today" || conversationOrigin === "Today") && canOpenToday && <Activity mode={section === "Today" ? "visible" : "hidden"}><OfficerToday key={attentionVisit?.section === "Today" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId}
-            complianceWork={pilotCompliance && staff && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={complianceEnabled && staff && <ComplianceDailyWork brokerageId={staff.brokerage.id} showFindings={pilotCompliance}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             renewalWork={staff && admin && complianceEnabled && <LicenseRenewalAttention key={staff.brokerage.id} brokerageId={staff.brokerage.id}
               busy={!!modal || busy} mine open={visit => openLicenseRenewal(visit, "Today")}
@@ -1659,7 +1659,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}
             brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor} initialReadyOnly={firstDayDestination === "accept-handoff"}
-            complianceWork={pilotCompliance && staff && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={complianceEnabled && staff && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id} showFindings={pilotCompliance}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             mockServices={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
             reviewingLoan={!!modal || busy} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "processing")}
@@ -1668,7 +1668,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             onAssignment={canReport ? invalidateWorkspace : undefined}
             openAssignment={canReport ? (loanId) => show({ kind: "assignment", loanId }) : undefined} />}
           {section === "Tasks" && staff && pagedTasks && <PagedTaskQueue staff={staff} version={queueVersion} busy={busy}
-            complianceWork={pilotCompliance && <ComplianceDailyWork brokerageId={staff.brokerage.id}
+            complianceWork={complianceEnabled && <ComplianceDailyWork brokerageId={staff.brokerage.id} showFindings={pilotCompliance}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             focusContact={focusContactTask} openWork={openActiveTask} openHistory={(id, realtor) => void openContactRecord(id, false, realtor ? "partner" : "contact")}
             save={(input, after) => save(input, after, true, "tasks")} />}

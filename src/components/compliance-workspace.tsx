@@ -22,9 +22,9 @@ import { ComplianceOwnerHome, type ComplianceSetupAction } from "./compliance-ow
 type View = "Home" | "Filing history" | "Policy acknowledgments" | "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
 const areas: { label: string; links: { view: View; label: string; pilot?: boolean }[] }[] = [
   { label: "Licenses & branches", links: [{ view: "Licensing", label: "License register" }] },
-  { label: "Calendar & filings", links: [{ view: "Monthly review", label: "Monthly review" }, { view: "Obligations", label: "Recurring work", pilot: true }] },
+  { label: "Calendar & filings", links: [{ view: "Monthly review", label: "Monthly review" }, { view: "Obligations", label: "Recurring work" }] },
   { label: "File reviews", links: [{ view: "Work queue", label: "File findings", pilot: true }, { view: "Coverage & gaps", label: "File inventory", pilot: true }] },
-  { label: "Policies & evidence", links: [{ view: "Training & policies", label: "Training & policies", pilot: true }, { view: "Loan retention", label: "Loan evidence & retention", pilot: true }] },
+  { label: "Policies & evidence", links: [{ view: "Training & policies", label: "Training & policies" }, { view: "Loan retention", label: "Loan evidence & retention", pilot: true }] },
   { label: "Research", links: [{ view: "Research & gaps", label: "Research & sources" }] },
 ];
 
@@ -106,8 +106,8 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     <section ref={panel} tabIndex={-1} hidden={!!report} aria-label={`Compliance ${view.toLowerCase()}`}>
       {view === "Home" && <ComplianceOwnerHome brokerageId={brokerageId} paused={paused} branchId={branchId} onBranch={onBranch} returningTo={returningTo}
         onSetup={openSetup} openArea={showArea} openFinding={openLoan}
-        openFilingArchive={pilot ? () => showArea("Filing history", "compliance-filing-history") : undefined}
-        openPolicyFollowUp={pilot ? () => showArea("Policy acknowledgments", "compliance-policy-follow-up") : undefined}
+        openFilingArchive={() => showArea("Filing history", "compliance-filing-history")}
+        openPolicyFollowUp={() => showArea("Policy acknowledgments", "compliance-policy-follow-up")}
         openLicense={target => { setSetup(undefined); setLocalLicense(target); show("Licensing", `compliance-renewal-${target.licenseId}`); }}
         openReview={target => { setReview(target); show("Monthly review", `compliance-review-${target.itemId}`); }} />}
       {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused}
@@ -163,7 +163,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
           </div>;
         })}
       </nav>
-      {pilot && <p className="muted">File reviews and evidence use fictional records. Confirm applicable requirements with your reviewer.</p>}
+      <p className="muted">{pilot ? "File reviews and evidence use fictional records." : "Sample loan findings and retention tools are available in fictional pilots."}</p>
     </details>}
   </div>;
 }

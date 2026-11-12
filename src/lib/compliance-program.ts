@@ -383,7 +383,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (!owner) return { error: "Choose an active admin to own this work." };
   if (data.operation === "schedule") {
     if (Number(db.prepare("SELECT count(*) n FROM compliance_program_items WHERE brokerageId=? AND entityId=? AND month=?").get(tenant, entity.id, data.month)!.n) >= 200)
-      return { error: "This pilot supports 200 work items per entity and month. No items have been omitted." };
+      return { error: "This workspace supports 200 work items per entity and month. No items have been omitted." };
     const id = crypto.randomUUID();
     db.prepare("INSERT INTO compliance_program_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(tenant, entity.id, data.month, id, data.title,
       data.category, "Planned", owner.email, owner.accessRevision ?? 0, data.internalTarget, data.instructions, "", 1, now);

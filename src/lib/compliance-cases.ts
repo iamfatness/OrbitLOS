@@ -352,8 +352,9 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   const parsed = request.safeParse(input);
   if (!parsed.success) return unavailable;
   const data = parsed.data;
-  if (!staff.brokerage.pilot && (staff.brokerage.role !== "Admin" ||
-      (data.type !== "research" && data.type !== "program" && data.type !== "stateScope" && data.type !== "stateReadiness"))) return unavailable;
+  if (!staff.brokerage.pilot && data.type !== "learning" && (staff.brokerage.role !== "Admin" ||
+      (data.type !== "research" && data.type !== "program" && data.type !== "stateScope" && data.type !== "stateReadiness" &&
+        data.type !== "obligations"))) return unavailable;
   return db.transaction(() => {
     if (data.type === "stateScope") return complianceStateScopeWork(db, data.input, staff, roster, now);
     if (data.type === "stateReadiness") return complianceStateReadinessWork(db, data.input, staff, roster, now);

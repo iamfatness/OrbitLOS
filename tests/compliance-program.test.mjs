@@ -137,6 +137,51 @@ test("integrated learning and obligations retain authentication and atomic audit
  assert.equal(call("learning",{operation:"list"}).result.items.length,0);
 });
 
+test("enabled operational workspaces support manual obligations and staff policy acknowledgments", t => {
+  const f = fixture(t), entity = f.entity();
+  const operational = actor => {
+    const staff = f.staff(actor);
+    return { ...staff, brokerage: { ...staff.brokerage, pilot: false, features: { uwm: false, compliance: true, revision: 1 } } };
+  };
+  const call = (type, input, actor = f.owner) =>
+    complianceCaseWork(f.db, { type, input }, operational(actor), f.tenant, f.roster, now);
+  const save = (type, operation, fields, actor) => call(type, { operation, requestId: crypto.randomUUID(), ...fields }, actor);
+  const id = crypto.randomUUID(), draft = {
+    title: "Fictional quarterly owner review", sourceUrl: "https://example.test/report", authority: "Fictional reference",
+    basis: "Review the internal report", applicability: "Needs review", applicabilityReason: "Reviewer confirmation pending",
+    reviewerEvidence: "", effectiveFrom: "2025-01-01", effectiveThrough: "", cadence: "Quarterly", internalTargetDay: 28,
+    ownerEmail: f.owner.email, preparation: "Mortgage Call Report",
+  };
+  const scope = { entityId: entity.id, id, period: "2026-07" };
+  assert.equal(save("obligations", "save", { entityId: entity.id, id, draft, expectedRevision: 0 }).result.kind, "obligationSaved");
+  assert.equal(save("obligations", "generate", { ...scope, expectedRevision: 1 }).result.kind, "obligationOccurrence");
+  assert.equal(save("obligations", "planWork", scope).result.kind, "obligationWorkPlanned");
+  assert.equal(save("obligations", "recordFilingReceipt", { ...scope, expectedVersion: 0, status: "Submitted",
+    confirmation: "FICTIONAL-321", confirmedOn: "2026-10-09", documentReference: "", note: "" }).result.items[0].version, 1);
+  const filingArchive = { operation: "filingArchive", filters: { entityId: "", year: "2026", confirmation: "" }, offset: 0 };
+  assert.equal(call("obligations", filingArchive).result.items.length, 1);
+  assert.ok(call("obligations", filingArchive, f.lo).error);
+  assert.ok(call("daily", { view: "mine" }, f.lo).error);
+  assert.ok(call("list", {}).error);
+
+  const version = save("learning", "createVersion", { contentId: crypto.randomUUID(), previousVersionId: null, kind: "Policy",
+    title: "Fictional operational policy", body: "Fictional policy body", sourceReferences: "Fictional policy source", questions: [], passPercent: 100 }).result;
+  const { versionId } = version;
+  assert.equal(save("learning", "review", { versionId, note: "Fictional owner review",
+    lawyerReviewReference: "Fictional review evidence", rightsConfirmed: true, userReviewed: true }).result.state, "Owner reviewed");
+  assert.equal(save("learning", "publish", { versionId }).result.state, "Internally published");
+  const assignment = save("learning", "assign", { versionId, employeeEmail: f.lo.email, dueAt: "2026-12-01T23:59:59.000Z" }).result;
+  const followUp = { operation: "policyFollowUp", filter: "All outstanding", offset: 0 };
+  assert.equal(call("learning", followUp).result.total, 1);
+  assert.ok(call("learning", followUp, f.lo).result.error);
+  assert.deepEqual(call("learning", { operation: "myAssignments" }, f.lo).result.items.map(item => item.id), [assignment.assignmentId]);
+  assert.equal(save("learning", "acknowledge", { assignmentId: assignment.assignmentId, versionId, acknowledged: true }, f.lo).result.completed, true);
+  assert.equal(call("learning", followUp).result.total, 0);
+  const staff = operational(f.lo);
+  const disabled = { ...staff, brokerage: { ...staff.brokerage, features: { uwm: false, compliance: false, revision: 2 } } };
+  assert.ok(complianceCaseWork(f.db, { type: "learning", input: { operation: "myAssignments" } }, disabled, f.tenant, f.roster, now).error);
+});
+
 test("restore protects obligation versions, filing records and learning evidence",async()=>{
  const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
  for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_program_licenses","compliance_state_scope_versions",
