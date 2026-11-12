@@ -206,6 +206,8 @@ Status: planned/unverified expansion, explicitly retained in scope. Introduce an
 
 Status: closing coordination exists; regulated document generation/UCD delivery unverified. Track a change event, reason, effective date, impacted terms, required review and superseded package references. Build versioned closing packages with provider-generated documents and UCD validation/submission results where supported. Acceptance: revised terms invalidate stale package approvals, retries preserve submission identity, rejection details create assigned work, and signed documents match the reviewed version. Qualified review supplies applicability/timing rules; verify current schemas and provider contracts before implementation. Increments 2–4; separate live closing/non-del acceptance in 5.
 
+In the fictional workspace, selected quote or fee changes reopen the closing confirmation. The LO can open the replacement issuance and confirmation work from Today or Tasks. The owner can open the same work from Disclosure reviews in Exceptions. Mock signatures on the replacement create a task linked to its exact Closing review. A current confirmation is required for the next packet. Earlier confirmations and previously prepared PDFs remain downloadable with their original package and worksheet revisions.
+
 ### F17 — Funding and settlement reconciliation
 
 The fictional owner-only queue groups active funding cycles into differences, matches to confirm, missing evidence, and reviewed differences. A row opens the exact cycle and its source entries. Funding-date corrections can reopen a review. Reversals leave the earlier cycle in the archived ledger. [Hosted settlement exception rehearsal](demo-rehearsal-log.md#sample-settlement-exception-queue)
