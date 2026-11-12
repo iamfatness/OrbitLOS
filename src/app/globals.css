@@ -905,6 +905,7 @@ button:disabled { cursor: default; }
 .pilot-seat-counts dt { color: var(--muted); font-size: 0.8125rem; }
 .pilot-seat-counts dd { margin: 2px 0 0; font-weight: 650; }
 .pilot-seat-capacity .brokerage-form > p { flex-basis: 100%; }
+.pilot-seat-capacity input { min-height: 44px; }
 .pilot-support-requests h3 { font-weight: 650; }
 .pilot-support-requests .form-grid { max-width: 48rem; }
 .pilot-support-requests .form-grid .field { max-width: none; }
@@ -915,6 +916,7 @@ button:disabled { cursor: default; }
   .pilot-support-requests .form-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 520px) {
+  .pilot-seat-capacity .brokerage-form .field { flex-basis: 100%; max-width: none; }
   .staff-invite-form .staff-invite-address { flex-basis: 100%; max-width: none; }
 }
 @container (max-width: 570px) {
