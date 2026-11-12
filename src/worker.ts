@@ -100,6 +100,8 @@ import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
 import { readStaffFirstDay, setFirstDayStep, updateStaffFirstDay } from "./lib/staff-first-day";
 import { automationEventWork } from "./lib/automation-events";
 import { automationBatchWork } from "./lib/automation-batches";
+import { partnerAccessWork } from "./lib/partner-access";
+import { partnerAccessQuery } from "./lib/partner-access-model";
 import { automationBatchQuery } from "./lib/automation-batch-model";
 import { automationDestinationWork } from "./lib/automation-destinations";
 import { automationDestinationQuery, automationEventQuery } from "./lib/automation-event-model";
@@ -1637,6 +1639,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
     return confirmLenderPackagePdf(this.#store, input, objectId);
   }
+  async partnerAccess(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff) || staff.brokerage.role !== "Admin") return { error: "Workspace access denied." };
+    const directory = this.env.WORKSPACE.getByName(demoBrokerageId);
+    const members = await directory.teamMembers(staff, [...(googleSettings(this.env)?.allowedEmails ?? [])]);
+    return members ? partnerAccessWork(this.#store, staff, input, members) : { error: "Refresh your brokerage access before managing partner permissions." };
+  }
+
   automationBatches(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." };
     return automationBatchWork(this.#store, staff, input);
@@ -2263,6 +2272,28 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       const view = url.searchParams.get("view");
+      if (view === "partner-permissions") {
+        if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: "Open partner permissions as an admin in this brokerage." }, { status: 403, headers });
+        }
+        if (request.method === "GET") {
+          const id = url.searchParams.get("id"), cursor = url.searchParams.get("before");
+          const before = cursor === null ? undefined : Number(cursor);
+          const query = partnerAccessQuery.safeParse(id === null ? { type: "list", before } : { type: "detail", id, before });
+          if (!query.success) return Response.json({ error: "Choose a valid grant view." }, { status: 400, headers });
+          const result = await workspace.partnerAccess(staff, query.data);
+          return Response.json(result, { status: "error" in result ? 404 : 200, headers });
+        }
+        if (request.method === "POST") return borrowerJson(request, async input => {
+          const query = partnerAccessQuery.safeParse(input);
+          if (!query.success || query.data.type === "list" || query.data.type === "detail") {
+            return { status: 400, error: "Choose valid partner permission settings." };
+          }
+          const result = await workspace.partnerAccess(staff, query.data);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }, 2048);
+        return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      }
       if (view === "automation-batches") {
         if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
           return Response.json({ error: "Open automation batches as an admin in this brokerage." }, { status: 403, headers });

@@ -101,6 +101,7 @@ export default function DemoPage() {
           <li>Claim an imported lead from the shared queue and open the prefilled 1003 directly from the campaign. The card shows the new loan even in a filtered call queue. Scheduled callbacks follow the loan, and missed deadlines stay visible in reporting.</li>
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Save the two runs for the same fictional case as you finish them. Compare staff time and handoffs, and record any external steps or blockers.</li>
+          <li>Approve, test, and revoke sandbox read permissions for future partner connections.</li>
           <li>Subscribe simulated destinations to new leads, submitted 1003s, and funding events. Preview a batch, review its receipt, and retry failed simulations in Integrations.</li>
           <li>Follow the first-day checklist for an owner, loan officer, or processor. Open each step in the workspace and pick up where you left off.</li>
           <li>File a fictional pilot support request and follow its owner and status in Team.</li>

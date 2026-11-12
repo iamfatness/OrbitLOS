@@ -5186,6 +5186,60 @@ try {
     }
   });
 
+  await stage("Brokerage admin approval, permission decisions and revocation govern sandbox partner checks", async () => {
+    const endpoint = (id = brokerage) => `/api/brokerages?brokerage=${id}&view=partner-permissions`;
+    const read = async (id, staff = owner) => {
+      const response = await browse(staff, endpoint() + (id ? "&id=" + id : ""));
+      assert.equal(response.status, 200);
+      return JSON.parse(response.text());
+    };
+    const request = { type: "approve", id: randomUUID(), name: "Fictional event partner", scopes: ["events.read"],
+      expiresAt: new Date(now + 7 * 86_400_000).toISOString() };
+    assert.equal((await browse(officer, endpoint())).status, 403);
+    assert.equal((await postResponse(endpoint(), request, processor)).status, 403);
+    assert.equal((await postResponse(endpoint(), { ...request, scopes: ["loans.write"] }, owner)).status, 400);
+    assert.equal((await postResponse(endpoint(), { ...request, expiresAt: new Date(now - 60_000).toISOString() }, owner)).status, 409);
+    const [approved, replay] = await Promise.all([post(endpoint(), request, owner), post(endpoint(), request, owner)]);
+    assert.deepEqual(approved, replay);
+    assert.equal(approved.grant.state, "Active");
+    assert.equal((await read()).grants.length, 1);
+    assert.equal((await browse(owner, endpoint(lenderBrokerage) + "&id=" + request.id)).status, 404);
+    const check = { type: "check", id: request.id, clientId: approved.grant.clientId, scope: "events.read", operationId: randomUUID() };
+    const allowed = await post(endpoint(), check, owner);
+    assert.equal(allowed.check.decision, "Allowed");
+    assert.equal(allowed.sample.eventId, "sample-event-01");
+    assert.deepEqual(await post(endpoint(), check, owner), allowed);
+    const blockedScope = await post(endpoint(), { ...check, scope: "loans.read", operationId: randomUUID() }, owner);
+    assert.equal(blockedScope.check.decision, "Scope missing");
+    assert.equal(blockedScope.sample, undefined);
+    const wrong = await post(endpoint(), { ...check, clientId: randomUUID(), operationId: randomUUID() }, owner);
+    assert.equal(wrong.check.decision, "Client mismatch");
+    assert.equal(wrong.sample, undefined);
+    const revoke = { type: "revoke", id: request.id, revision: 1, operationId: randomUUID() };
+    await post(endpoint(), revoke, owner);
+    assert.equal((await post(endpoint(), revoke, owner)).grant.state, "Revoked");
+    assert.equal((await postResponse(endpoint(), check, owner)).status, 409);
+    const blocked = await post(endpoint(), { ...check, operationId: randomUUID() }, owner);
+    assert.equal(blocked.check.decision, "Revoked");
+    assert.equal(blocked.sample, undefined);
+    assert.equal((await read(request.id)).checks.length, 4);
+
+    const alternateAdmin = actor("Fictional Approving Admin", "sandbox-grant-admin@example.test", "Admin");
+    await team(owner, { type: "invite", email: alternateAdmin.email, role: "Admin" });
+    await signIn(alternateAdmin);
+    const other = { ...request, id: randomUUID(), name: "Fictional approval-bound partner" };
+    const second = await post(endpoint(), other, alternateAdmin);
+    await team(owner, { type: "role", email: alternateAdmin.email, role: "LO" });
+    assert.equal((await browse(alternateAdmin, endpoint())).status, 403);
+    const authority = await post(endpoint(), { ...check, id: other.id, clientId: second.grant.clientId, operationId: randomUUID() }, owner);
+    assert.equal(authority.check.decision, "Approval changed");
+    assert.equal(authority.sample, undefined);
+    assert.equal((await read(other.id)).grant.state, "Approval changed");
+    await team(owner, { type: "role", email: alternateAdmin.email, role: "Admin" });
+    assert.equal((await read(other.id)).grant.state, "Approval changed");
+    await team(owner, { type: "revoke", email: alternateAdmin.email });
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

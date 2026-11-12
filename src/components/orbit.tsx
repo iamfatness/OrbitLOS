@@ -2,6 +2,7 @@
 import { UwmAccount } from "./uwm-account";
 import { UwmReceipts } from "./uwm-receipts";
 import { AutomationDeliveries } from "./automation-deliveries";
+import { PartnerPermissions } from "./partner-permissions";
 import { UwmConnection, type UwmConnectionStatus } from "./uwm-connection";
 
 import { Activity, lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
@@ -1881,6 +1882,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
                 fictional={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId}
                 openRecord={resource => resource.kind === "lead" ? openLeadWork(resource.id) :
                   void openQueueLoan({ kind: "details", loanId: resource.id })} />
+              <PartnerPermissions key={`partner:${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
             </>}
           </section>}
           </>}

@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 registerHooks({resolve(specifier,context,next){try{return next(specifier,context);}catch(error){if(error.code!=='ERR_MODULE_NOT_FOUND'||!specifier.startsWith('./'))throw error;return next(`${specifier}.ts`,context);}}});
 const {initializeStore}=await import('../src/lib/store.ts');
+const {partnerAccessWork}=await import('../src/lib/partner-access.ts');
 const {loadExplorationExamples}=await import('../src/lib/pilot-exploration.ts');
 const {readOfficerQueue,readWorkspaceCalendar}=await import('../src/lib/officer-queue.ts');
 const {readLeadInbox}=await import('../src/lib/lead-inbox-query.ts');
@@ -173,4 +174,31 @@ test('pilot support preserves existing feedback, pages consistently and protects
  assert.equal(last.items.length,2);
  assert.equal(last.next,null);
  assert.equal(new Set([...first.items,...last.items].map(item=>item.id)).size,22);
+});
+
+
+test('sandbox grant expiration and approver revision invalidate a previously allowed check', t => {
+ const {db,admin}=fixture(t);
+ admin.brokerage.accessRevision=2;
+ const roster=[{email:admin.email,name:admin.name,role:'Admin',status:'Active',accessRevision:2}];
+ const at='2026-11-10T10:00:00.000Z';
+ const expiresAt='2026-11-11T10:00:00.000Z';
+ const id=crypto.randomUUID();
+ const approved=partnerAccessWork(db,admin,{type:'approve',id,name:'Fictional partner',scopes:['loans.read'],expiresAt},roster,at);
+ assert.equal(approved.grant.state,'Active');
+ const check={type:'check',id,clientId:approved.grant.clientId,scope:'loans.read',operationId:crypto.randomUUID()};
+ const allowed=partnerAccessWork(db,admin,check,roster,at);
+ assert.equal(allowed.check.decision,'Allowed');
+ assert.equal(allowed.sample.loanId,'sample-loan-01');
+ assert.match(partnerAccessWork(db,admin,check,roster,expiresAt).error,/decision changed/);
+ const expired=partnerAccessWork(db,admin,{...check,operationId:crypto.randomUUID()},roster,expiresAt);
+ assert.equal(expired.check.decision,'Expired');
+ assert.equal(expired.sample,undefined);
+ const current=[{...roster[0],accessRevision:3}];
+ assert.match(partnerAccessWork(db,admin,check,current,at).error,/Refresh/);
+ admin.brokerage.accessRevision=3;
+ const changed=partnerAccessWork(db,admin,{...check,operationId:crypto.randomUUID()},current,at);
+ assert.equal(changed.check.decision,'Approval changed');
+ assert.equal(changed.sample,undefined);
+ assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
 });

@@ -682,6 +682,18 @@ export function initializeStore(db: Store, seedDemo = true) {
       FOREIGN KEY (destinationId, destinationRevision) REFERENCES automation_destination_history(destinationId, revision)
     );
     CREATE INDEX IF NOT EXISTS automation_batches_destination ON automation_batches(destinationId, sequence DESC);
+    CREATE TABLE IF NOT EXISTS partner_sandbox_grants (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, clientId TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+      scopes TEXT NOT NULL, approvedEmail TEXT NOT NULL, approvedBy TEXT NOT NULL, approvedAccessRevision INTEGER NOT NULL,
+      approvedAt TEXT NOT NULL, expiresAt TEXT NOT NULL, approveFingerprint TEXT NOT NULL,
+      revokedBy TEXT, revokedEmail TEXT, revokedAt TEXT, revokeOperationId TEXT UNIQUE, revision INTEGER NOT NULL DEFAULT 1 CHECK (revision IN (1, 2))
+    );
+    CREATE TABLE IF NOT EXISTS partner_sandbox_checks (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, grantId TEXT NOT NULL REFERENCES partner_sandbox_grants(id),
+      clientId TEXT NOT NULL, grantRevision INTEGER NOT NULL, scope TEXT NOT NULL, decision TEXT NOT NULL, at TEXT NOT NULL,
+      actorEmail TEXT NOT NULL, actor TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS partner_sandbox_checks_grant ON partner_sandbox_checks(grantId, sequence DESC);
     CREATE TABLE IF NOT EXISTS staff_first_day (
       email TEXT NOT NULL, role TEXT NOT NULL, step TEXT NOT NULL, completedAt TEXT,
       revision INTEGER NOT NULL, PRIMARY KEY (email, role, step)
