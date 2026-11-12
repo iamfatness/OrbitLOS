@@ -397,6 +397,15 @@ button:disabled { cursor: default; }
 .relationship-panel { display: grid; gap: 10px; padding: 16px; }
 .relationship-panel h2 { font-size: 18px; font-weight: 750; }
 .relationship-panel .field { max-width: 360px; }
+.fee-template-editor .form-grid { max-width: 48rem; align-items: end; }
+.fee-template-editor .form-grid .field { max-width: none; }
+.fee-template-payment-options summary, .fee-worksheet-payment-options summary { min-height: 32px; align-content: center; }
+@media (max-width: 600px) {
+  .fee-template-editor .fee-template-metadata, .fee-template-editor .fee-template-payment, .fee-worksheet-payment-options .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fee-template-payment-options summary, .fee-worksheet-payment-options summary { min-height: 44px; }
+}
 .branch-panel :is(strong, small, p) { overflow-wrap: anywhere; }
 .branch-editor { border-block: 1px solid var(--line); padding-block: 12px; }
 .branch-member-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 4px 12px; }

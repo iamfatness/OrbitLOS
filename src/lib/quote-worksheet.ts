@@ -64,6 +64,7 @@ export interface FeeTemplateOrigin extends z.infer<typeof feeTemplateChoice> {
   effectiveOn: string;
   zip: string;
   fees: FeeInputs["fees"];
+  allocations?: FeeInputs["allocations"];
 }
 export interface FeeWorksheet {
   loanId: string;

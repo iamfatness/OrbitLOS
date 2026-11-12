@@ -24,8 +24,8 @@ export function feeOriginForQuote(db: Store, choice: Pick<FeeTemplateOrigin, "id
   const row = db.prepare(`SELECT id, revision, archived, config FROM brokerage_fee_templates
     WHERE id = ? AND revision = ? AND ${compatibleFees}`).get(choice.id, choice.revision, asOf, scenario.purpose, scenario.zip);
   if (!row) return;
-  const { id, revision, title, source, effectiveOn, zip, fees } = readTemplate(row);
-  return { id, revision, title, source, effectiveOn, zip, fees };
+  const { id, revision, title, source, effectiveOn, zip, fees, allocations } = readTemplate(row);
+  return { id, revision, title, source, effectiveOn, zip, fees, ...(allocations ? { allocations } : {}) };
 }
 
 function canActivate(db: Store, id: string, title: string) {
@@ -42,7 +42,10 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
     return { error: feeTemplatesUnavailable };
   }
   const parsed = feeTemplateRequest.safeParse(input);
-  if (!parsed.success) return { error: "Enter a title, source, effective date, and at least one valid fee. Use five digits for a ZIP restriction." };
+  if (!parsed.success) {
+    const paymentError = parsed.error.issues.find(({ path }) => path[0] === "config" && path[1] === "allocations");
+    return { error: paymentError?.message ?? "Enter a title, source, effective date, and at least one valid fee. Use five digits for a ZIP restriction." };
+  }
   const data = parsed.data;
   const asOf = easternDate(now);
   if (data.type === "forQuote") {

@@ -166,7 +166,9 @@ Staff can enter a dated fixed-rate manual offer for an existing sample UWM scena
 
 Brokerage admins publish sample fee templates with a source, effective date, loan purpose, and optional ZIP. Staff can override individual fees. Unknown amounts stay blank and quote totals identify which fees are missing. The worksheet and shared quote preserve the selected version and edited amounts. The borrower view shows estimates without the internal source record. The fictional cash-to-close fixture reconciles the lender credit, deposit, and seller credit. [Hosted fee template rehearsal](demo-rehearsal-log.md#hosted-brokerage-fee-templates)
 
-Remaining scope includes payer, payee, amount basis, broader geographic rules, and approved external estimates. Verify financed costs and provider coverage before live use.
+Fee templates can include payer amounts and payee names alongside flat fee estimates. Seller-paid defaults require a purchase template. LOs can adjust the defaults on the quote, and the saved worksheet records the template version and the amounts actually used. Borrowers see the agreed sample fee breakdown in a shared quote. Staff retain the internal source and original defaults.
+
+Remaining scope includes variable amount bases, broader geographic rules, and approved external estimates. Verify financed costs and provider coverage before live use.
 
 ### F12 — Reporting
 

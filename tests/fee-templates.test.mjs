@@ -8,7 +8,7 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { blankApplication } = await import("../src/lib/application-model.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { feeTemplateWork } = await import("../src/lib/fee-templates.ts");
-const { blankFees, borrowerFee, estimateFees, missingFees, sampleFeeLabel, saveAllocatedFeeWorksheetInput } = await import("../src/lib/quote-worksheet.ts");
+const { blankFees, borrowerFee, borrowerQuotePresentation, estimateFees, missingFees, sampleFeeLabel, saveAllocatedFeeWorksheetInput } = await import("../src/lib/quote-worksheet.ts");
 const { sharedQuoteExpiry } = await import("../src/lib/shared-quote-model.ts");
 const { compareQuoteCosts } = await import("../src/lib/quote-cost-comparison.ts");
 const { fixedLoanSchedule } = await import("../src/lib/loan-amortization.ts");
@@ -106,8 +106,12 @@ test("fee templates scope use and preserve the original fee and source snapshot"
   const first = (await send(share)).state.publishedQuotes[0].presentation;
   assert.deepEqual(first.primary.feeOrigin, saved.origin);
   assert.equal(first.primary.estimate.cashToClose, 914500);
-  const v2 = { ...publish, revision: 1, config: { ...config, source: "New fee schedule", fees: { ...fees, appraisal: 75000 } } };
+  const allocations = { appraisal: { payee: "Fictional Appraiser", seller: 20000, lender: 10000, other: 0 } };
+  const v2 = { ...publish, revision: 1, config: { ...config, source: "New fee schedule", fees: { ...fees, appraisal: 75000 }, allocations } };
+  assert.match(manage({ ...v2, config: { ...v2.config, purpose: "Any loan purpose" } }).error, /Choose Purchase/);
+  assert.match(manage({ ...v2, config: { ...v2.config, fees: { ...fees, appraisal: 20000 } } }).error, /contributions exceed/);
   assert.equal(manage(v2).templates.find(({ id }) => id === v1.id).revision, 2);
+  assert.deepEqual(manage(v2).templates.find(({ id }) => id === v1.id).allocations, allocations);
   assert.match(manage({ ...v2, config: { ...config, title: "Stale edit" } }).error, /changed/i);
 
   const edited = { ...worksheet, fees: { ...fees, appraisal: 67500 } };
@@ -123,9 +127,25 @@ test("fee templates scope use and preserve the original fee and source snapshot"
   assert.deepEqual(replacement.sharedQuoteHistory[0].presentation, first);
   assert.equal(replacement.publishedQuotes[0].presentation.primary.estimate.inputs.fees.appraisal, 67500);
   assert.equal(replacement.publishedQuotes[0].presentation.primary.feeOrigin.revision, 1);
+
+  const updatedWorksheet = { ...worksheet, fees: v2.config.fees,
+    allocations: { appraisal: { ...allocations.appraisal, seller: 15000 } } };
+  const updated = { ...save, worksheet: updatedWorksheet, feeRevision: 2, template: { id: v1.id, revision: 2 } };
+  assert.match((await send({ ...updated, worksheet: { ...worksheet, fees: v2.config.fees } })).error, /Refresh pricing/);
+  const savedV2 = (await send({ ...updated, type: "saveAllocatedFeeWorksheet" })).loanWork.feeWorksheets[0];
+  assert.deepEqual(savedV2.origin.allocations, allocations);
+  assert.deepEqual(savedV2.inputs.allocations, updatedWorksheet.allocations);
+  assert.equal(borrowerFee(savedV2.inputs, "appraisal"), 50000);
+  const sharedV2 = replacement.publishedQuotes[0];
+  const allocatedQuote = (await send({ ...share, type: "publishDatedQuote", feeRevision: 3, alternatives: [],
+    expiresOn: sharedQuoteExpiry().suggested, previousPublishedAt: sharedV2.publishedAt, reviewRevision: sharedV2.reviewRevision + 1,
+    reviewNote: "Confirmed the sample appraisal allocation." })).loanWork.publishedQuotes[0].presentation;
+  assert.deepEqual(allocatedQuote.primary.feeOrigin.allocations, allocations);
+  assert.deepEqual(borrowerQuotePresentation(allocatedQuote).primary.estimate.inputs.allocations, updatedWorksheet.allocations);
+  assert.equal(borrowerQuotePresentation(allocatedQuote).primary.feeOrigin, undefined);
   assert.ok(manage({ type: "archive", id: v1.id, revision: 2, archived: true }).templates);
   assert.deepEqual(manage(forQuote, officer).templates, []);
-  assert.match((await send({ ...save, feeRevision: 2, template: { id: v1.id, revision: 2 } })).error, /no longer applies/);
+  assert.match((await send({ ...updated, type: "saveAllocatedFeeWorksheet", feeRevision: 3, template: { id: v1.id, revision: 3 } })).error, /no longer applies/);
   db.prepare("UPDATE applications SET revision = 4 WHERE loanId = ?").run(loanId);
   assert.match((await send({ ...save, feeRevision: 2 })).error, /Reprice/);
 });
