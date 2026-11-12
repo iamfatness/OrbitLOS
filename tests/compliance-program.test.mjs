@@ -214,3 +214,34 @@ test("upgrading a pre-existing license register preserves company records", t =>
   assert.deepEqual(licenses[0].holder, { kind: "Company" });
   assert.equal(licenses[0].holderAvailable, true);
 });
+
+test("renewal queue is tenant-scoped, paged in date order and clears renewed licenses", t => {
+  const f = fixture(t);
+  const first = f.entity();
+  const second = f.create({ name: "Second fictional entity" }).entities.find(entity => entity.id !== first.id);
+  const save = (licenseNumber, entityId, expiresOn, status = "Active") => ({
+    operation: "saveLicense", entityId, id: crypto.randomUUID(), requestId: crypto.randomUUID(), revision: 0,
+    jurisdiction: "MI", licenseType: "Fictional company license", licenseNumber, status, expiresOn, effectiveOn: null, evidence: "",
+  });
+  const past = save("PAST", first.id, "2026-11-10", "Expired");
+  const boundary = save("DAY30", second.id, "2026-12-11");
+  assert.ok(f.run(past).licenses);
+  assert.ok(f.run(boundary).licenses);
+  f.run(save("DAY31", first.id, "2026-12-12"));
+  f.run(save("PENDING", second.id, "2026-11-10", "Pending"));
+  for (let index = 1; index <= 8; index++) f.run(save(`R-${index}`, first.id, "2026-11-15"));
+  const query = { operation: "licenseRenewals" };
+  const page = f.run(query);
+  assert.equal(page.total, 10);
+  assert.deepEqual([page.items[0].licenseId, page.items[0].renewal], [past.id, "Past expiration"]);
+  const next = f.run({ ...query, after: page.next });
+  assert.equal(next.items.length, 2);
+  assert.deepEqual([next.items[1].licenseId, next.items[1].entityName], [boundary.id, second.name]);
+  assert.equal(next.next, null);
+  f.run({ ...past, requestId: crypto.randomUUID(), revision: 1, status: "Active", expiresOn: "2027-01-01" });
+  assert.equal(f.run(query).total, 9);
+  assert.ok(f.run(query, f.lo).error);
+  const other = f.staff(f.owner, crypto.randomUUID());
+  const otherQueue = complianceCaseWork(f.db, { type: "program", input: query }, other, other.brokerage.id, f.roster, now);
+  assert.equal(otherQueue.total, 0);
+});

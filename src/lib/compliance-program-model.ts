@@ -21,6 +21,14 @@ export const licenseHolder = z.discriminatedUnion("kind", [
 export type LicenseHolder = z.infer<typeof licenseHolder>;
 export type LicenseHolderChoice = { holder: Exclude<LicenseHolder, { kind: "Company" }>; label: string };
 export const licenseRenewalLookahead = 30;
+const licenseRenewalCursor = z.strictObject({ expiresOn: z.iso.date(), entityId: z.uuid(), licenseId: z.uuid() });
+export type LicenseRenewalCursor = z.infer<typeof licenseRenewalCursor>;
+export type LicenseRenewalTarget = Pick<LicenseRenewalCursor, "entityId" | "licenseId">;
+export type LicenseRenewalItem = LicenseRenewalCursor & {
+  entityName: string; jurisdiction: string; licenseType: string; licenseNumber: string;
+  holderLabel: string; renewal: "Past expiration" | "Expires soon";
+};
+export type LicenseRenewalQueue = { kind: "licenseRenewals"; total: number; items: LicenseRenewalItem[]; next: LicenseRenewalCursor | null };
 export type ProgramLicense = LicenseFields & { id: string; revision: number; updatedAt: string; holder: LicenseHolder;
   holderLabel: string; holderAvailable: boolean; renewal: "Past expiration" | "Expires soon" | null };
 export type ProgramLicenses = { kind: "programLicenses"; entity: ProgramEntity; licenses: ProgramLicense[]; holderChoices: LicenseHolderChoice[] };
@@ -34,6 +42,7 @@ const scope = { entityId: z.uuid(), month: programMonth };
 export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("entities") }),
   z.strictObject({ operation: z.literal("createEntity"), ...change, name: title, nmls: z.string().regex(/^\d{0,15}$/), scopeNote: note }),
+  z.strictObject({ operation: z.literal("licenseRenewals"), after: licenseRenewalCursor.optional() }),
   z.strictObject({ operation: z.literal("licenses"), entityId: z.uuid() }),
   z.strictObject({ operation: z.literal("saveLicense"), ...change, entityId: z.uuid(), id: z.uuid(), revision: z.number().int().nonnegative(), ...licenseFields.shape, holder: licenseHolder.optional() }),
   z.strictObject({ operation: z.literal("month"), ...scope }),

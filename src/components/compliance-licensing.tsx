@@ -3,16 +3,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseStatuses,
-  type LicenseHolder, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
+  type LicenseHolder, type LicenseRenewalTarget, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
 import { researchSources } from "@/lib/compliance-research-model";
 import { Button } from "./ui/button";
 
 const stateNames = new Map(researchSources.map(source => [source.jurisdiction, source.title]));
 const stateName = (code: string) => code === "DC" ? "District of Columbia" : stateNames.get(code) ?? code;
 
-export function ComplianceLicensing({ brokerageId, paused }: { brokerageId: string; paused: boolean }) {
+export function ComplianceLicensing({ brokerageId, paused, initialTarget }: { brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget }) {
   const [entities, setEntities] = useState<readonly ProgramEntity[]>();
-  const [entityId, setEntityId] = useState("");
+  const [entityId, setEntityId] = useState(initialTarget?.entityId ?? "");
+  const target = useRef(initialTarget);
   const [loaded, setLoaded] = useState<ProgramLicenses>();
   const [filter, setFilter] = useState("");
   const [renewalOnly, setRenewalOnly] = useState(false);
@@ -30,14 +31,32 @@ export function ComplianceLicensing({ brokerageId, paused }: { brokerageId: stri
   useEffect(() => {
     if (paused) return;
     let active = true;
-    const input: ProgramRequest = entityId ? { operation: "licenses", entityId } : { operation: "entities" };
-    void accessComplianceCases({ type: "program", input }, brokerageId).then(result => {
+    void accessComplianceCases({ type: "program", input: { operation: "entities" } }, brokerageId).then(result => {
       if (!active) return;
       if ("error" in result) setFeedback({ message: result.error, error: true });
       else if (result.kind === "programEntities") {
         setEntities(result.entities);
-        if (result.entities.length === 1) setEntityId(result.entities[0].id);
-      } else if (result.kind === "programLicenses") setLoaded(result);
+        if (result.entities.length === 1) setEntityId(current => current || result.entities[0].id);
+      }
+    }, () => { if (active) setFeedback({ message: "Could not load legal entities. Refresh to try again.", error: true }); });
+    return () => { active = false; };
+  }, [brokerageId, paused, refresh]);
+
+  useEffect(() => {
+    if (paused || !entityId) return;
+    let active = true;
+    void accessComplianceCases({ type: "program", input: { operation: "licenses", entityId } }, brokerageId).then(result => {
+      if (!active) return;
+      if ("error" in result) setFeedback({ message: result.error, error: true });
+      else if (result.kind === "programLicenses") {
+        setLoaded(result);
+        if (target.current?.entityId === entityId) {
+          const license = result.licenses.find(item => item.id === target.current?.licenseId);
+          target.current = undefined;
+          if (license) { setEditing(license); setHolderKind(license.holder.kind); }
+          else setFeedback({ message: "This license is unavailable. Check the current register or return to renewals.", error: true });
+        }
+      }
     }, () => { if (active) setFeedback({ message: "Could not load the license register. Refresh to try again.", error: true }); });
     return () => { active = false; };
   }, [brokerageId, entityId, paused, refresh]);
@@ -124,7 +143,7 @@ export function ComplianceLicensing({ brokerageId, paused }: { brokerageId: stri
     {feedback && <p ref={feedbackRef} tabIndex={-1} role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
     <div className="loan-application-actions licensing-controls">
       <label className="field">Legal entity<select value={entityId} disabled={busy || !!editing || paused} onChange={event => {
-        setEntityId(event.target.value); setLoaded(undefined); setFilter(""); setRenewalOnly(false); setFeedback(undefined);
+        target.current = undefined; setEntityId(event.target.value); setLoaded(undefined); setFilter(""); setRenewalOnly(false); setFeedback(undefined);
       }}>
         <option value="">Select a legal entity</option>
         {entities?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}

@@ -3,7 +3,7 @@ import { readBranches } from "./branches";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import type { VersionedBrokerageMember } from "./brokerage-model";
-import { licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
+import { licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalQueue, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -19,6 +19,8 @@ export function initializeComplianceProgram(db: Store) {
     PRIMARY KEY(brokerageId,entityId,id), FOREIGN KEY(brokerageId,entityId) REFERENCES compliance_program_entities(brokerageId,id));
   CREATE UNIQUE INDEX IF NOT EXISTS compliance_program_license_number ON compliance_program_licenses(
     brokerageId,entityId,jurisdiction,licenseType COLLATE NOCASE,licenseNumber COLLATE NOCASE);
+  CREATE INDEX IF NOT EXISTS compliance_program_license_renewals ON compliance_program_licenses(brokerageId,expiresOn,entityId,id)
+    WHERE expiresOn IS NOT NULL AND status IN ('Active','Expired');
   CREATE TABLE IF NOT EXISTS compliance_program_items (
     brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, month TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL,
     category TEXT NOT NULL, status TEXT NOT NULL, ownerEmail TEXT NOT NULL, ownerRevision INTEGER NOT NULL,
@@ -42,6 +44,35 @@ function licenseHolderRecord(raw: unknown): { holder: LicenseHolder; label: stri
   if (!raw) return { holder: { kind: "Company" }, label: "Company" };
   const { holder, label } = JSON.parse(String(raw)) as { holder: unknown; label: string };
   return { holder: licenseHolder.parse(holder), label };
+}
+function renewalWindow(now: string) {
+  const today = now.slice(0, 10);
+  return { today, renewalThrough: new Date(Date.parse(today) + licenseRenewalLookahead * 86400000).toISOString().slice(0, 10) };
+}
+
+function licenseRenewals(db: Store, tenant: string, now: string, after?: LicenseRenewalCursor): LicenseRenewalQueue {
+  const { today, renewalThrough } = renewalWindow(now);
+  const where = `l.brokerageId=? AND l.expiresOn IS NOT NULL AND l.status IN ('Active','Expired')
+    AND l.expiresOn<=? AND (l.status='Active' OR l.expiresOn<?)`;
+  const total = Number(db.prepare(`SELECT count(*) AS total FROM compliance_program_licenses l WHERE ${where}`)
+    .get(tenant, renewalThrough, today)?.total);
+  const limit = 8;
+  const rows = db.prepare(`SELECT l.id,l.entityId,l.jurisdiction,l.licenseType,l.licenseNumber,l.expiresOn,l.holder,e.name
+    FROM compliance_program_licenses l JOIN compliance_program_entities e ON e.brokerageId=l.brokerageId AND e.id=l.entityId
+    WHERE ${where}${after ? " AND (l.expiresOn,l.entityId,l.id) > (?,?,?)" : ""}
+    ORDER BY l.expiresOn,l.entityId,l.id LIMIT ?`).all(tenant, renewalThrough, today,
+      ...(after ? [after.expiresOn, after.entityId, after.licenseId] : []), limit + 1);
+  const items = rows.slice(0, limit).map(row => {
+    const holder = licenseHolderRecord(row.holder);
+    const expiresOn = String(row.expiresOn);
+    return { licenseId: String(row.id), entityId: String(row.entityId), entityName: String(row.name), jurisdiction: String(row.jurisdiction),
+      licenseType: String(row.licenseType), licenseNumber: String(row.licenseNumber), expiresOn,
+      holderLabel: holder.holder.kind === "Company" ? "Company" : `${holder.holder.kind} · ${holder.label}`,
+      renewal: expiresOn < today ? "Past expiration" as const : "Expires soon" as const };
+  });
+  const last = items.at(-1);
+  return { kind: "licenseRenewals", total, items, next: rows.length > limit && last ?
+    { expiresOn: last.expiresOn, entityId: last.entityId, licenseId: last.licenseId } : null };
 }
 function entities(db: Store, tenant: string) {
   return { kind: "programEntities", entities: db.prepare("SELECT id,name,nmls,scopeNote,createdAt FROM compliance_program_entities WHERE brokerageId=? ORDER BY name,id LIMIT 51")
@@ -72,6 +103,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
   if (!parsed.success) return unavailable;
   const data = parsed.data, tenant = staff.brokerage.id;
   if (data.operation === "entities") return entities(db, tenant);
+  if (data.operation === "licenseRenewals") return licenseRenewals(db, tenant, now, data.after);
   const replay = "requestId" in data ? db.prepare("SELECT * FROM compliance_program_events WHERE brokerageId=? AND requestId=?").get(tenant, data.requestId) : undefined;
   if (replay && (replay.actor !== staff.email || replay.request !== JSON.stringify(data))) return changed;
   function event(entityId: string, period: string, id: string, action: string, note: string) {
@@ -103,8 +135,7 @@ export function complianceProgramWork(db: Store, input: ProgramRequest, staff: W
       })),
     ];
     const choices = new Map(holderChoices.map(choice => [JSON.stringify(choice.holder), choice.label]));
-    const today = now.slice(0, 10);
-    const renewalThrough = new Date(Date.parse(today) + licenseRenewalLookahead * 86400000).toISOString().slice(0, 10);
+    const { today, renewalThrough } = renewalWindow(now);
     const list = (): ProgramLicenses => ({ kind: "programLicenses", entity, holderChoices, licenses: db.prepare(`SELECT id,jurisdiction,
       licenseType,licenseNumber,status,effectiveOn,expiresOn,evidence,revision,updatedAt,holder FROM compliance_program_licenses
       WHERE brokerageId=? AND entityId=? ORDER BY jurisdiction,licenseType,licenseNumber`).all(tenant, entity.id).map(row => {

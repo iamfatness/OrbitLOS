@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import { complianceAttentionLabels, type ComplianceAttention } from "@/lib/compliance-case-model";
+import type { LicenseRenewalTarget } from "@/lib/compliance-program-model";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
 import type { MigrationDestination } from "@/lib/migration-record-model";
 import { observeTabReturn } from "@/lib/tab-return";
@@ -38,11 +39,12 @@ function inventoryStatus(data: Overview) {
   return `${scanned} of ${data.fileTotal} files inventoried${state === "Scanning" ? " · Scan in progress" : ""}${asOf ? ` · ${dateTime(asOf)} ET` : ""}`;
 }
 
-export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord }: {
+export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals }: {
   brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
   openHistoryRecord: (destination: MigrationDestination) => void;
+  licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void;
 }) {
-  const [view, setView] = useState<View>(pilot ? "Overview" : "Licensing");
+  const [view, setView] = useState<View>(pilot && !licenseTarget ? "Overview" : "Licensing");
   const [attention, setAttention] = useState<ComplianceAttention>();
   const [overview, setOverview] = useState<Overview | { error: string }>();
   const [revision, refresh] = useState(0);
@@ -87,12 +89,13 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       <p>{pilot ? "Fictional pilot for internal planning and evidence review. Regulatory coverage remains undetermined." :
         "Record licenses and use the research register and monthly review for internal planning. File-level evidence workflows are available in fictional pilots."}</p>
     </div>
+    {returnToRenewals && <div><Button size="sm" variant="outline" disabled={paused} onClick={returnToRenewals}>Back to license renewals</Button></div>}
     <nav className="loan-application-actions" aria-label="Compliance views">
       {views.filter((option) => pilot || option === "Licensing" || option === "Research & gaps" || option === "Monthly review").map((option) => <Button key={option} size="sm" variant={view === option ? "default" : "outline"}
         aria-current={view === option ? "page" : undefined} onClick={() => show(option)}>{option}</Button>)}
     </nav>
     <section ref={panel} tabIndex={-1} aria-label={`Compliance ${view.toLowerCase()}`}>
-      {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused} />}
+      {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused} initialTarget={licenseTarget} />}
       {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} />}
       {view === "Monthly review" && <ComplianceProgram key={brokerageId} brokerageId={brokerageId} paused={paused} />}
       {view === "Obligations" && <ComplianceObligations key={brokerageId} brokerageId={brokerageId} paused={paused} />}

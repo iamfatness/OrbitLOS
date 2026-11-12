@@ -3,6 +3,7 @@
 import { ArrowRight, BarChart3, Inbox, ListChecks, ShieldCheck, UsersRound } from "lucide-react";
 import type { ActionCounts } from "./use-action-counts";
 import { Button } from "./ui/button";
+import { LicenseRenewalAttention, type LicenseRenewalVisit } from "./license-renewal-attention";
 import { ReportScheduleAttentionPanel } from "./report-schedule-attention";
 
 const queues = [
@@ -19,10 +20,11 @@ function actionCount(count?: number) {
 }
 
 export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilot, refresh, openQueue, openReport,
-  openSchedule, scheduleReturn, openTeam, openCompliance }: {
+  openSchedule, scheduleReturn, openTeam, openCompliance, openRenewal, renewalReturn }: {
   brokerageId: string; counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean;
   refresh: () => void; openQueue: (queue: BrokerageQueue) => void; openReport: (report: BrokerageReport) => void;
   openSchedule: (reportId?: string) => void; scheduleReturn?: { reportId?: string };
+  openRenewal?: (visit: LicenseRenewalVisit) => void; renewalReturn?: LicenseRenewalVisit;
   openTeam: (panel: "Staff access" | "Branches" | "Loan settings" | "Workspaces") => void; openCompliance?: () => void;
 }) {
   return <div className="brokerage-overview record-form">
@@ -42,6 +44,7 @@ export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilo
         </button>)}
       </div>
     </section>
+    {openRenewal && <LicenseRenewalAttention key={brokerageId} brokerageId={brokerageId} busy={busy} open={openRenewal} returning={renewalReturn} />}
     <ReportScheduleAttentionPanel key={brokerageId} brokerageId={brokerageId} busy={busy} open={openSchedule} returning={scheduleReturn} />
     <div className="brokerage-overview-links">
       <section className="integration record-form" aria-labelledby="brokerage-performance-heading">
@@ -60,7 +63,7 @@ export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilo
           {openCompliance ? <li><Button size="sm" variant="ghost" disabled={busy} onClick={openCompliance}>Compliance overview<ArrowRight size={16} aria-hidden="true" /></Button></li> :
             <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Workspaces")}>Find a compliance pilot workspace<ArrowRight size={16} aria-hidden="true" /></Button></li>}
         </ul>
-        {!pilot && <p className="muted">Compliance work queues, research, and retention are available in fictional pilot workspaces.</p>}
+        {!pilot && !openCompliance && <p className="muted">Enable Compliance in Team → Workspaces to access licensing and internal reviews.</p>}
       </section>
     </div>
   </div>;
