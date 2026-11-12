@@ -53,6 +53,30 @@ export type MichiganRetentionResult = {
   kind: "michiganRetention"; versions: Review[]; next: number | null; held: boolean; message?: string;
 };
 export type MichiganBusinessRecords = { kind: "michiganBusinessRecords"; records: string[]; next: number | null };
+type ExportReview = Review & {
+  target: { kind: "loan" | "business"; id: string };
+  activeHold: boolean | null;
+};
+type StoredReview = { version: unknown; evidence: unknown; finding: unknown; at: unknown; actor: unknown };
+
+function readReview(row: StoredReview): Review {
+  return { version: Number(row.version), evidence: JSON.parse(String(row.evidence)),
+    finding: JSON.parse(String(row.finding)), at: String(row.at), actor: String(row.actor) };
+}
+
+export function readMichiganRetentionExport(db: Store, loanId: string | null, limit: number): ExportReview[] {
+  const filter = loanId === null ? "" : "WHERE r.targetKind='loan' AND r.targetId=?";
+  const args = loanId === null ? [limit] : [loanId, limit];
+  const rows = db.prepare(`SELECT r.targetKind,r.targetId,r.version,r.evidence,r.finding,r.at,r.actor,
+    CASE WHEN r.targetKind='loan' THEN EXISTS (
+      SELECT 1 FROM loan_retention_holds h WHERE h.loanId=r.targetId AND h.releasedAt IS NULL
+    ) END AS activeHold FROM michigan_retention_reviews r ${filter}
+    ORDER BY r.rowid DESC LIMIT ?`).all(...args);
+  return rows.map(row => ({ ...readReview(row as StoredReview),
+    target: { kind: row.targetKind === "loan" ? "loan" : "business", id: String(row.targetId) },
+    activeHold: row.activeHold === null ? null : Boolean(row.activeHold),
+  }));
+}
 
 export function michiganLoanState(draft: string) {
   return `upper(trim(json_extract(CASE WHEN json_valid(${draft}) THEN ${draft} END, '$.propertyLocation.state')))`;
@@ -119,10 +143,8 @@ export function michiganRetentionWork(db: Store, command: Command, staff: Worksp
     const rows = db.prepare(`SELECT version,evidence,finding,at,actor FROM michigan_retention_reviews
       WHERE targetKind=? AND targetId=? AND category=? AND (? IS NULL OR version<?) ORDER BY version DESC LIMIT 21`)
       .all(...args, before, before);
-    return { kind: "michiganRetention", versions: rows.slice(0, 20).map(row => ({
-      version: Number(row.version), evidence: JSON.parse(String(row.evidence)), finding: JSON.parse(String(row.finding)),
-      at: String(row.at), actor: String(row.actor),
-    })), next: rows.length > 20 ? Number(rows[19].version) : null, held: kind === "loan" && !!db.prepare(
+    return { kind: "michiganRetention", versions: (rows.slice(0, 20) as StoredReview[]).map(readReview),
+      next: rows.length > 20 ? Number(rows[19].version) : null, held: kind === "loan" && !!db.prepare(
       "SELECT 1 FROM loan_retention_holds WHERE loanId=? AND releasedAt IS NULL").get(targetId), message };
   }
   if (command.type === "michiganRetentionHistory") {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readMichiganRetentionExport } from "./michigan-retention";
 import { shiftReportDate } from "./report-date-range";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -57,8 +58,11 @@ export function retentionAuditWork(db:Store, command:Command, staff:WorkspaceSta
     const reviews=readDecisions(db,version,null,exportLimit+1);
     if (policies.length>exportLimit || reviews.length>exportLimit)
       return {error:"This export exceeds 1,000 policy versions or decisions. Select a policy version to narrow the export."};
+    const michiganRetention=version===null?readMichiganRetentionExport(db,null,exportLimit+1):undefined;
+    if (michiganRetention && michiganRetention.length>exportLimit)
+      return {error:"This export exceeds 1,000 Michigan retention versions. Choose a policy version for a policy-only export or download a selected loan’s retention ZIP."};
     const json=JSON.stringify({format:1,exportedAt:now,brokerageId:staff.brokerage.id,policyVersion:version,
-      latestVersion,policies,decisions:reviews.map(row=>row.decision)},null,2);
+      latestVersion,policies,decisions:reviews.map(row=>row.decision),michiganRetention},null,2);
     accessEvent(db,staff,"Prepared retention audit export",version===null?"All policies":`Policy version ${version}`,now);
     return {kind:"retentionAuditExport",json};
   }

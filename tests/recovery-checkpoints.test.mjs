@@ -287,3 +287,72 @@ test("Michigan retention records preserve dated evidence for each record categor
  assert.equal(history(record.category).held,false);
  assert.match(owner(save(record,4)).error,/loan is unavailable/i);
 });
+
+test("Michigan retention exports preserve scoped historical findings and reject changed or oversized snapshots", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {reviewRetentionExport,auditRetentionExport,retentionExportResponse}=await import("../src/lib/loan-retention-export.ts");
+ const {strFromU8,unzipSync}=await import("fflate");
+ const {db,staff}=ownerFixture(t);
+ const scope=staff.brokerage.id, now="2026-11-12T16:00:00.000Z";
+ initializeStore(db,false);
+ db.exec("INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','borrower@example.test','','Borrower')");
+ const addLoan=db.prepare("INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince) VALUES (?,'borrower','LO','',1,'Purchase','Closed','2026-11-11')");
+ addLoan.run("loan-one");
+ addLoan.run("loan-two");
+ const work=input=>loanRetentionWork(db,input,staff,scope,now);
+ const record={category:"Closed loan file",role:"Broker only",authority:"First mortgage",reference:"Fictional closing file",
+  closedOn:"2023-11-13",transfer:{status:"Unknown"}};
+ const save=(kind,id,evidence,expected=0)=>work({
+  type:"saveMichiganRetentionReview",id:crypto.randomUUID(),target:{kind,id},evidence,expected,
+ });
+ const audit={type:"exportRetentionAudit",policyVersion:null};
+ assert.deepEqual(JSON.parse(work(audit).json).michiganRetention,[]);
+ const denied={...staff,brokerage:{...staff.brokerage,role:"Processor"}};
+ assert.match(loanRetentionWork(db,audit,denied,scope,now).error,/current pilot owners/);
+ assert.match(loanRetentionWork(db,audit,staff,crypto.randomUUID(),now).error,/current pilot owners/);
+ assert.equal(reviewRetentionExport(db,denied,scope,"loan-one").status,404);
+ assert.equal(reviewRetentionExport(db,staff,crypto.randomUUID(),"loan-one").status,404);
+ assert.equal(save("loan","loan-one",record).kind,"michiganRetention");
+ assert.equal(save("loan","loan-two",{...record,reference:"Fictional second file"}).kind,"michiganRetention");
+ const books={category:"Other business records",authority:"Secondary mortgage",createdOn:"2025-01-01",
+  fiscalYearEnd:"2025-06-30",reference:"Fictional annual books"};
+ assert.equal(save("business","Books 2025",books).kind,"michiganRetention");
+ const beforeCorrection=reviewRetentionExport(db,staff,scope,"loan-one");
+ const corrected={...record,closedOn:"2024-06-01",reference:"Fictional corrected closing"};
+ assert.equal(save("loan","loan-one",corrected,1).versions[0].finding.date,"2027-06-01");
+ const confirm=fingerprint=>Promise.resolve(auditRetentionExport(db,staff,scope,"loan-one",fingerprint));
+ const stale=await retentionExportResponse(undefined,scope,beforeCorrection,confirm);
+ assert.equal(stale.status,409);
+ const hold={type:"hold",id:crypto.randomUUID(),loanId:"loan-one",reference:"Fictional exam hold"};
+ assert.equal(work(hold).kind,"saved");
+ const current=reviewRetentionExport(db,staff,scope,"loan-one");
+ const zip=await retentionExportResponse(undefined,scope,current,confirm);
+ assert.equal(zip.status,200);
+ const manifest=JSON.parse(strFromU8(unzipSync(new Uint8Array(await zip.arrayBuffer()))["manifest.json"]));
+ assert.deepEqual(manifest.michiganRetention.map(row=>[row.target.id,row.version,row.finding.date,row.activeHold]),[
+  ["loan-one",2,"2027-06-01",true],["loan-one",1,"2026-11-13",true],
+ ]);
+ assert.equal(manifest.michiganRetention[0].evidence.reference,corrected.reference);
+ assert.equal(manifest.holdHistory[0].id,hold.id);
+ assert(!JSON.stringify(manifest).includes(staff.email));
+ db.prepare("DELETE FROM loans WHERE id=?").run("loan-two");
+ const full=JSON.parse(work(audit).json);
+ assert.equal(full.michiganRetention.length,4);
+ assert(full.michiganRetention.some(row=>row.target.id==="loan-two" && !row.activeHold));
+ assert(full.michiganRetention.some(row=>row.target.kind==="business" && row.activeHold===null));
+ assert(!JSON.stringify(full).includes(staff.email));
+ assert.equal(work({type:"saveDispositionPolicy",id:crypto.randomUUID(),expected:0,
+  fundedDays:30,closedDays:30,reference:"Fictional retention policy"}).kind,"disposition");
+ const filtered=JSON.parse(work({...audit,policyVersion:1}).json);
+ assert.equal(filtered.policies[0].version,1);
+ assert(!("michiganRetention" in filtered));
+
+ db.exec(`WITH RECURSIVE n(version) AS (SELECT 3 UNION ALL SELECT version+1 FROM n WHERE version<1001)
+   INSERT INTO michigan_retention_reviews (id,targetKind,targetId,category,version,evidence,finding,at,actor,actorEmail)
+   SELECT 'fixture-' || n.version,r.targetKind,r.targetId,r.category,n.version,r.evidence,r.finding,r.at,r.actor,r.actorEmail
+   FROM n JOIN michigan_retention_reviews r ON r.targetKind='loan' AND r.targetId='loan-one' AND r.version=1`);
+ assert.match(work(audit).error,/exceeds 1,000 Michigan retention versions/);
+ assert.equal(reviewRetentionExport(db,staff,scope,"loan-one").status,413);
+ assert.equal(work({...audit,policyVersion:1}).kind,"retentionAuditExport");
+});
