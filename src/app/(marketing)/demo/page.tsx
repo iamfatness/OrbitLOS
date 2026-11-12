@@ -61,7 +61,7 @@ export default function DemoPage() {
           <li>Share a saved comparison with cash to close, five-year borrowing cost, break-even, and an expiration date. A fee edit opens an LO review while the borrower keeps the shared version through its expiration.</li>
           <li>Choose a manual lender offer for a fictional purchase or no-cash-out refinance. Download sample MISMO 3.4 with its note rate and term, then record the lender acknowledgment. If the terms change, Closing links to the current handoff.</li>
           <li>Compare sample DSCR and bank-statement terms. Rehearse an unsupported EQ result and use its saved scenario to add a manual lender offer.</li>
-          <li>Load a sample fee template by purpose and ZIP, including who pays and receives each fee. Adjust the allocation for the loan and follow it into the sample disclosure and closing packet.</li>
+          <li>Load a sample fee template with flat amounts or percentages of the loan amount or purchase price. Review the calculation, adjust the allocation, and follow it into the sample disclosure and closing packet.</li>
           <li>Assemble a sample disclosure package and track each mock response. Open a task from Today to follow up on a decline or compare changes and record the review with the revised package.</li>
           <li>Preview a reusable sample disclosure template matched to the reviewed loan purpose and property state. See which template version each prepared package used.</li>
           <li>Preview the disclosure deadline calendar with a fictional office closure. Open a draft that needs a revised signing target and see the original date retained on issued packages.</li>

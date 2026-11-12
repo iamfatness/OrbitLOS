@@ -5,7 +5,7 @@ import { feeTemplateChanged } from "./fee-template-model";
 import { feeOriginForQuote } from "./fee-templates";
 import { pricingInputError } from "./income-review-freshness";
 import type { PricingApplication, PricingOffer, PricingScenario } from "./pricing-model";
-import { estimateFees, feeAllocationIssue, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuotePresentation,
+import { estimateFees, feeAllocationIssue, feeBasisIssue, quoteOption, type FeeInputs, type FeeTemplateOrigin, type FeeWorksheet, type QuotePresentation,
   type quoteSelection, type SaveFeeWorksheet } from "./quote-worksheet";
 import { sharedQuoteReviewId } from "./shared-quote-model";
 import type { Store } from "./store";
@@ -40,9 +40,13 @@ export function saveFeeWorksheet(db: Store, data: SaveFeeWorksheet, now: string)
   const before = quoteFeeWorksheet(db, loanId, runId, offerId);
   let origin = template === null ? undefined : before?.origin;
   if (template && (template.id !== origin?.id || template.revision !== origin.revision)) {
-    origin = feeOriginForQuote(db, template, option.scenario, easternDate(new Date(now)));
-    if (!origin) return { error: feeTemplateChanged };
+    const resolved = feeOriginForQuote(db, template, option.scenario, easternDate(new Date(now)));
+    if (!resolved) return { error: feeTemplateChanged };
+    if ("error" in resolved) return resolved;
+    origin = resolved;
   }
+  const basisIssue = feeBasisIssue(origin, worksheet.purchasePrice);
+  if (basisIssue) return { error: basisIssue };
   if (data.type === "saveFeeWorksheet" && (before?.inputs.allocations || worksheet.allocations || origin?.allocations)) {
     return { error: "Refresh pricing before editing payer and payee details on this worksheet." };
   }

@@ -8,6 +8,9 @@ export const feeLabels = {
 } as const;
 export type FeeKey = keyof typeof feeLabels;
 export const feeKeys = Object.keys(feeLabels) as FeeKey[];
+export const feePercentageBases = ["Loan amount", "Purchase price"] as const;
+export type FeePercentageBasis = (typeof feePercentageBases)[number];
+export type FeeCalculation = { basis: FeePercentageBasis; basisPoints: number; baseCents: number; amountCents: number };
 export const feeCents = z.number().int().min(0).max(2_500_000_000);
 export const feeAmounts = z.record(z.enum(feeKeys), feeCents.nullable());
 export const feeContributionKeys = ["seller", "lender", "other"] as const;
@@ -65,6 +68,14 @@ export interface FeeTemplateOrigin extends z.infer<typeof feeTemplateChoice> {
   zip: string;
   fees: FeeInputs["fees"];
   allocations?: FeeInputs["allocations"];
+  calculations?: Partial<Record<FeeKey, FeeCalculation>>;
+}
+
+export function feeBasisIssue(origin: FeeTemplateOrigin | undefined, purchasePrice: number | null) {
+  const purchaseFee = Object.values(origin?.calculations ?? {}).find((fee) => fee.basis === "Purchase price");
+  return purchaseFee && purchaseFee.baseCents !== purchasePrice
+    ? "Match the purchase price used to calculate these fees or reprice with the new purchase price."
+    : null;
 }
 export interface FeeWorksheet {
   loanId: string;
@@ -129,6 +140,10 @@ export function allocatedFeeLines(input: FeeAllocationInputs | undefined) {
 }
 
 const feeCurrency = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+export function feeCalculationLabel(calculation: FeeCalculation) {
+  return `${calculation.basisPoints / 100}% × ${feeCurrency.format(calculation.baseCents / 100)} ${calculation.basis.toLowerCase()} = ${feeCurrency.format(calculation.amountCents / 100)}`;
+}
+
 export function feeAllocationLabel(line: AllocatedFeeLine) {
   const payers = [["Borrower", line.borrower] as const, ...feeContributionKeys.map((key) => [feeContributionLabels[key], line[key]] as const)];
   const amounts = payers.filter(([, amount]) => amount > 0).map(([payer, amount]) => `${payer} ${feeCurrency.format(amount / 100)}`);

@@ -4,7 +4,7 @@ import { feeTemplateChanged, feeTemplateConfig, feeTemplateRequest, feeTemplates
   type FeeTemplate, type FeeTemplatePage } from "./fee-template-model";
 import { pricingInputError } from "./income-review-freshness";
 import type { PricingScenario } from "./pricing-model";
-import type { FeeTemplateOrigin } from "./quote-worksheet";
+import { feeAllocationIssue, feeKeys, type FeeTemplateOrigin } from "./quote-worksheet";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
@@ -19,13 +19,32 @@ function readTemplate(row: Record<string, SqlValue>): FeeTemplate {
     revision: Number(row.revision), archived: Boolean(row.archived) };
 }
 
+function resolveTemplate(template: FeeTemplate, scenario: PricingScenario): FeeTemplate {
+  if (!template.rules || !Object.keys(template.rules).length) return template;
+  const fees = { ...template.fees };
+  const calculations: NonNullable<FeeTemplateOrigin["calculations"]> = {};
+  for (const key of feeKeys) {
+    const rule = template.rules[key];
+    if (!rule) continue;
+    const base = rule.basis === "Loan amount" ? scenario.loanAmount : scenario.purchasePrice;
+    if (!base) return { ...template, blocked: "Reprice with a purchase price to use this template." };
+    const baseCents = Math.round(base * 100);
+    const amountCents = Math.floor((baseCents * rule.basisPoints + 5_000) / 10_000);
+    fees[key] = amountCents;
+    calculations[key] = { ...rule, baseCents, amountCents };
+  }
+  const issue = feeAllocationIssue({ fees, allocations: template.allocations }, scenario.purpose === "Purchase");
+  return { ...template, fees, calculations, ...(issue ? { blocked: issue } : {}) };
+}
+
 export function feeOriginForQuote(db: Store, choice: Pick<FeeTemplateOrigin, "id" | "revision">,
-  scenario: Pick<PricingScenario, "purpose" | "zip">, asOf: string): FeeTemplateOrigin | undefined {
+  scenario: PricingScenario, asOf: string): FeeTemplateOrigin | { error: string } | undefined {
   const row = db.prepare(`SELECT id, revision, archived, config FROM brokerage_fee_templates
     WHERE id = ? AND revision = ? AND ${compatibleFees}`).get(choice.id, choice.revision, asOf, scenario.purpose, scenario.zip);
   if (!row) return;
-  const { id, revision, title, source, effectiveOn, zip, fees, allocations } = readTemplate(row);
-  return { id, revision, title, source, effectiveOn, zip, fees, ...(allocations ? { allocations } : {}) };
+  const { id, revision, title, source, effectiveOn, zip, fees, allocations, calculations, blocked } = resolveTemplate(readTemplate(row), scenario);
+  if (blocked) return { error: blocked };
+  return { id, revision, title, source, effectiveOn, zip, fees, ...(allocations ? { allocations } : {}), ...(calculations ? { calculations } : {}) };
 }
 
 function canActivate(db: Store, id: string, title: string) {
@@ -43,8 +62,8 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
   }
   const parsed = feeTemplateRequest.safeParse(input);
   if (!parsed.success) {
-    const paymentError = parsed.error.issues.find(({ path }) => path[0] === "config" && path[1] === "allocations");
-    return { error: paymentError?.message ?? "Enter a title, source, effective date, and at least one valid fee. Use five digits for a ZIP restriction." };
+    const feeError = parsed.error.issues.find(({ path }) => path[0] === "config" && ["allocations", "rules", "fees"].includes(String(path[1])));
+    return { error: feeError?.message ?? "Enter a title, source, effective date, and at least one valid fee. Use five digits for a ZIP restriction." };
   }
   const data = parsed.data;
   const asOf = easternDate(now);
@@ -60,7 +79,7 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
     const scenario = JSON.parse(String(run.scenario)) as PricingScenario;
     const rows = db.prepare(`SELECT id, revision, archived, config FROM brokerage_fee_templates WHERE ${compatibleFees}
       ORDER BY title COLLATE NOCASE, id LIMIT ?`).all(asOf, scenario.purpose, scenario.zip, activeLimit);
-    return { templates: rows.map(readTemplate), asOf, more: false };
+    return { templates: rows.map((row) => resolveTemplate(readTemplate(row), scenario)), asOf, more: false };
   }
   if (staff && staff.brokerage.role !== "Admin") return { error: "Only brokerage admins can manage fee templates." };
   return db.transaction(() => {
