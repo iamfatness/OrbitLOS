@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { feeTemplateConfig, type FeeTemplate, type FeeTemplatePage } from "@/lib/fee-template-model";
-import { blankFees, feeKeys, feeLabels } from "@/lib/quote-worksheet";
+import { allocatedFeeLines, blankFees, feeAllocationLabel, feeContributionKeys, feeContributionLabels, feeKeys, feeLabels } from "@/lib/quote-worksheet";
 import { Button } from "./ui/button";
 
 async function loadFeeTemplates(brokerageId: string, input: object): Promise<FeeTemplatePage> {
@@ -43,6 +43,18 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState<FeeTemplate>();
   const [draftError, setDraftError] = useState("");
+  const title = useRef<HTMLInputElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+  const newTemplate = useRef<HTMLButtonElement>(null);
+  const feedback = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (draft) title.current?.focus();
+    else if (opener.current) {
+      (opener.current.isConnected ? opener.current : newTemplate.current)?.focus();
+      opener.current = null;
+    }
+  }, [draft]);
+  useEffect(() => { if (draftError) feedback.current?.focus(); }, [draftError]);
   return <section className="pipeline relationship-panel" aria-label="Brokerage fee templates">
     <h2>Brokerage fee templates</h2>
     <p className="muted">Reuse sample fee estimates in pricing. Saved worksheets keep the template version and source used.</p>
@@ -63,7 +75,8 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
             <p>{template.purpose} · {template.zip || "Any ZIP"} · Effective {template.effectiveOn}</p>
             <p className="muted">{template.source}</p>
             <div className="loan-application-actions">
-              {!template.archived && <Button size="sm" variant="outline" disabled={busy || !!draft} onClick={() => {
+              {!template.archived && <Button size="sm" variant="outline" disabled={busy || !!draft} onClick={(event) => {
+                opener.current = event.currentTarget;
                 setDraftError("");
                 setDraft(template);
               }}>Edit fee template</Button>}
@@ -73,7 +86,8 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
               }}>{template.archived ? "Restore fee template" : "Archive fee template"}</Button>
             </div>
           </li>)}</ul>}
-          {!draft && <div><Button size="sm" disabled={busy} onClick={() => {
+          {!draft && <div><Button ref={newTemplate} size="sm" disabled={busy} onClick={(event) => {
+            opener.current = event.currentTarget;
             setDraftError("");
             setDraft({ id: crypto.randomUUID(), revision: 0, title: "", source: "", purpose: "Any loan purpose", zip: "",
               effectiveOn: page.asOf, fees: blankFees(), archived: false });
@@ -81,21 +95,27 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
             New fee template
           </Button></div>}
         </>}
-        {draft && <form className="document-item record-form" aria-label="Fee template editor" key={draft.id} onSubmit={(event) => {
+        {draft && <form className="document-item record-form fee-template-editor" aria-label="Fee template editor" key={draft.id} onSubmit={(event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
+          const allocations = feeKeys.flatMap((key) => {
+            const payee = String(data.get(`${key}-payee`) ?? "").trim();
+            const contributions = feeContributionKeys.map((party) => Math.round(Number(data.get(`${key}-${party}`) ?? "") * 100));
+            const [seller, lender, other] = contributions;
+            return payee || contributions.some(Boolean) ? [[key, { payee, seller, lender, other }]] : [];
+          });
           const config = feeTemplateConfig.safeParse({ ...Object.fromEntries(data), fees: Object.fromEntries(feeKeys.map((key) => {
             const value = String(data.get(key) ?? "");
             return [key, value === "" ? null : Math.round(Number(value) * 100)];
-          })) });
-          if (!config.success) return setDraftError("Check the title, source, date, and ZIP, and enter at least one fee amount.");
+          })), ...(allocations.length ? { allocations: Object.fromEntries(allocations) } : {}) });
+          if (!config.success) return setDraftError(config.error.issues[0]?.message ?? "Check the fee template fields.");
           setDraftError("");
           void request({ type: "publish", id: draft.id, revision: draft.revision, config: config.data }, "Fee template published.")
             .then((saved) => { if (saved) { setDraft(undefined); setSearch(""); } });
         }}>
-          {draftError && <p className="application-message" role="alert">{draftError}</p>}
-          <div className="form-grid">
-            <label className="field">Template title<input name="title" defaultValue={draft.title} maxLength={80} required /></label>
+          {draftError && <p ref={feedback} tabIndex={-1} className="application-message" role="alert">{draftError}</p>}
+          <div className="form-grid fee-template-metadata">
+            <label className="field">Template title<input ref={title} name="title" defaultValue={draft.title} maxLength={80} required /></label>
             <label className="field">Estimate source<input name="source" defaultValue={draft.source} maxLength={120} required placeholder="Fictional settlement schedule" /></label>
             <label className="field">Effective date<input name="effectiveOn" type="date" defaultValue={draft.effectiveOn} max={page?.asOf} required /></label>
             <label className="field">Loan purpose<select name="purpose" defaultValue={draft.purpose}>
@@ -107,6 +127,24 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
           <div className="form-grid">{feeKeys.map((key) => <label className="field" key={key}>{feeLabels[key]}
             <input type="number" name={key} min={0} max={25_000_000} step="0.01" defaultValue={draft.fees[key] === null ? "" : draft.fees[key] / 100} />
           </label>)}</div>
+          <details className="document-form fee-template-payment-options">
+            <summary>Default payer and payee details</summary>
+            <p className="muted">The borrower pays the remaining share. Use Purchase templates for seller-paid fees.</p>
+            {feeKeys.map((key) => {
+              const line = draft.allocations?.[key];
+              return <details className="document-form" key={key}>
+                <summary>{feeLabels[key]} payment defaults{line ? " · Saved" : ""}</summary>
+                <div className="form-grid fee-template-payment">
+                  <label className="field">{feeLabels[key]} payee<input name={`${key}-payee`} maxLength={80} defaultValue={line?.payee} /></label>
+                  {feeContributionKeys.map((party) => <label className="field" key={party}>
+                    {feeLabels[key]} {feeContributionLabels[party].toLowerCase()} amount
+                    <input type="number" name={`${key}-${party}`} min={0} max={25_000_000} step="0.01"
+                      defaultValue={line?.[party] ? line[party] / 100 : ""} />
+                  </label>)}
+                </div>
+              </details>;
+            })}
+          </details>
           <div className="loan-application-actions">
             <Button size="sm" type="submit" disabled={busy}>Publish fee template</Button>
             <Button size="sm" type="button" variant="outline" disabled={busy} onClick={() => setDraft(undefined)}>Cancel</Button>
@@ -137,7 +175,8 @@ export function FeeTemplatePicker({ brokerageId, loanId, runId, disabled, onLoad
     {notice}
     {page && !page.templates.length && <p className="muted">No active template matches this quote’s loan purpose and ZIP.</p>}
     {selected && <><p className="muted">{selected.source} · Effective {selected.effectiveOn} · {selected.zip || "Any ZIP"}</p>
-      <p className="muted">Loading replaces the fee fields below. Purchase price, payoffs, deposits, and credits stay in place.</p>
+      <p className="muted">Loading replaces fee amounts and payer and payee details. Loan amounts, deposits, and separate credits stay in place.</p>
+      {allocatedFeeLines(selected).map((line) => <p key={line.key}>{feeLabels[line.key]} · {feeAllocationLabel(line)}</p>)}
       <div><Button size="sm" type="button" disabled={busy || disabled} onClick={() => onLoad(selected)}>Load fee template</Button></div>
     </>}
   </div>;

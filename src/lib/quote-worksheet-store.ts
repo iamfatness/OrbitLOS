@@ -38,13 +38,13 @@ export function saveFeeWorksheet(db: Store, data: SaveFeeWorksheet, now: string)
     return { error: option.scenario.purpose === "Purchase" ? "Enter a purchase price at or above the loan amount." : "Enter estimated refinance payoffs, including zero if applicable." };
   }
   const before = quoteFeeWorksheet(db, loanId, runId, offerId);
-  if (data.type === "saveFeeWorksheet" && (before?.inputs.allocations || worksheet.allocations)) {
-    return { error: "Refresh pricing before editing payer and payee details on this worksheet." };
-  }
   let origin = template === null ? undefined : before?.origin;
   if (template && (template.id !== origin?.id || template.revision !== origin.revision)) {
     origin = feeOriginForQuote(db, template, option.scenario, easternDate(new Date(now)));
     if (!origin) return { error: feeTemplateChanged };
+  }
+  if (data.type === "saveFeeWorksheet" && (before?.inputs.allocations || worksheet.allocations || origin?.allocations)) {
+    return { error: "Refresh pricing before editing payer and payee details on this worksheet." };
   }
   if (JSON.stringify(before?.inputs) === JSON.stringify(worksheet) && JSON.stringify(before?.origin) === JSON.stringify(origin)) {
     return { message: "Fee worksheet is up to date." };

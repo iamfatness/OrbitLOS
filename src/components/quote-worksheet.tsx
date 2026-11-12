@@ -26,8 +26,20 @@ function cashLabel(option: Pick<QuoteOption, "estimate" | "purpose">) {
   return option.purpose === "Refinance" ? "Estimated cash to borrower" : "Estimated excess credits";
 }
 
-function FeeSource({ origin, fees }: { origin: FeeTemplateOrigin; fees: FeeInputs["fees"] }) {
-  const overrides = feeKeys.filter((key) => fees[key] !== origin.fees[key]);
+function allocationDraft(allocations: FeeInputs["allocations"]): AllocationDraft {
+  return Object.fromEntries(Object.entries(allocations ?? {}).map(([key, split]) => [key, {
+    payee: split.payee, seller: split.seller ? amountText(split.seller) : "", lender: split.lender ? amountText(split.lender) : "",
+    other: split.other ? amountText(split.other) : "",
+  }]));
+}
+
+function FeeSource({ origin, inputs }: { origin: FeeTemplateOrigin; inputs: Pick<FeeInputs, "fees" | "allocations"> }) {
+  const overrides = feeKeys.filter((key) => {
+    const current = inputs.allocations?.[key];
+    const original = origin.allocations?.[key];
+    return inputs.fees[key] !== origin.fees[key] || (current?.payee ?? "") !== (original?.payee ?? "") ||
+      feeContributionKeys.some((party) => (current?.[party] ?? 0) !== (original?.[party] ?? 0));
+  });
   return <div className="document-item">
     <p><strong>{origin.title} · Version {origin.revision}</strong></p>
     <p className="muted">{origin.source} · Effective {origin.effectiveOn} · {origin.zip || "Any ZIP"}</p>
@@ -42,12 +54,7 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
   const purchase = run.scenario.purpose === "Purchase";
   const canEdit = current && !stageBlocked;
   const [origin, setOrigin] = useState<FeeTemplateOrigin | undefined>(saved?.origin);
-  const [allocations, setAllocations] = useState<AllocationDraft>(() => Object.fromEntries(
-    Object.entries(saved?.inputs.allocations ?? {}).map(([key, split]) => [key, {
-      payee: split.payee, seller: split.seller ? amountText(split.seller) : "", lender: split.lender ? amountText(split.lender) : "",
-      other: split.other ? amountText(split.other) : "",
-    }]),
-  ));
+  const [allocations, setAllocations] = useState<AllocationDraft>(() => allocationDraft(saved?.inputs.allocations));
   const [fields, setFields] = useState<Record<string, string>>(() => {
     const fees = saved?.inputs.fees ?? blankFees();
     return {
@@ -86,6 +93,7 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
   }
   function loadSample() {
     setOrigin(undefined);
+    setAllocations({});
     setFields({ ...fields, origination: "995", appraisal: "650", creditReport: "85", settlement: "1400", government: "250",
       prepaid: "825", escrow: "1100", other: "0",
       purchasePrice: fields.purchasePrice || String(run.scenario.purchasePrice ?? run.scenario.propertyValue),
@@ -103,9 +111,10 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
     }}>
       {canEdit && <FeeTemplatePicker brokerageId={brokerageId} loanId={run.loanId} runId={run.id} disabled={busy} onLoad={(template) => {
         setOrigin(template);
+        setAllocations(allocationDraft(template.allocations));
         setFields((last) => ({ ...last, ...Object.fromEntries(feeKeys.map((key) => [key, amountText(template.fees[key])])) }));
       }} />}
-      {origin && <FeeSource origin={origin} fees={fees} />}
+      {origin && <FeeSource origin={origin} inputs={inputs} />}
       <div className="form-grid">
         {purchase ? field("purchasePrice", additionalFields.purchasePrice, true) : field("payoffs", additionalFields.payoffs, true)}
         {feeKeys.map((key) => field(key, feeLabels[key]))}
@@ -113,7 +122,7 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
         {purchase && field("sellerCredits", additionalFields.sellerCredits)}
         {field("otherCredits", additionalFields.otherCredits)}
       </div>
-      {editableFeeKeys.length > 0 && <details className="document-form">
+      {editableFeeKeys.length > 0 && <details className="document-form fee-worksheet-payment-options">
         <summary>Payer and payee details</summary>
         <p className="muted">Use fictional company names. Enter amounts each party pays directly. The borrower pays the remaining share. Record general credits in the credit fields above.</p>
         {editableFeeKeys.map((key) => {
@@ -159,7 +168,7 @@ function ItemizedFees({ option }: { option: QuoteOption }) {
   const input = estimate.inputs;
   const missing = missingFees(input.fees);
   return <>
-    {option.feeOrigin && <FeeSource origin={option.feeOrigin} fees={input.fees} />}
+    {option.feeOrigin && <FeeSource origin={option.feeOrigin} inputs={input} />}
     {missing.length > 0 && <p className="muted">Totals include known fees only. Still unknown · {missing.map((key) => feeLabels[key]).join(", ")}.</p>}
     <dl className="quote-terms">
     <div><dt>{option.purpose === "Purchase" ? "Purchase price" : "Estimated refinance payoffs"}</dt><dd>{formatFee(input.purchasePrice ?? input.payoffs ?? 0)}</dd></div>
