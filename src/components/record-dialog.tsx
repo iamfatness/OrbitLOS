@@ -681,7 +681,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           {loan.callCampaignName && <div><dt>Call campaign</dt><dd>{loan.callCampaignName}</dd></div>}
         </dl>
       </section>
-      <ProcessingHandoff loan={loan} assignment={assignment} history={state.processingActivity}
+      <ProcessingHandoff loan={loan} assignment={assignment} history={state.processingActivity} target={target}
         application={application} documents={requests} requireSecondReview={state.playbook.requireSecondReview} staff={staff}
         busy={busy} save={(input, after) => void save(input, after)} open={open} openReviews={canOpenReviews ? () => open(loanReviewsTarget) : undefined}
         openAssignment={staff?.brokerage.role === "Admin" ? () => show({ kind: "assignment", loanId: loan.id, returnTo: "processing-handoff" }) : undefined} />

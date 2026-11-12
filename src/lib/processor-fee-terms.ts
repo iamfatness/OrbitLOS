@@ -1,4 +1,4 @@
-import type { ProcessorFeeInput, ProcessorFeePage, ProcessorFeeTerms } from "./processor-fee-model";
+import type { ProcessorFeeCursor, ProcessorFeeInput, ProcessorFeePage, ProcessorFeeQueue, ProcessorFeeTerms } from "./processor-fee-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -13,6 +13,10 @@ export function initializeProcessorFees(db: Store) {
   );
   CREATE UNIQUE INDEX IF NOT EXISTS processor_fee_pending ON processor_fee_terms(loanId) WHERE endedReason IS NULL AND status = 'Pending';
   CREATE UNIQUE INDEX IF NOT EXISTS processor_fee_accepted ON processor_fee_terms(loanId) WHERE endedReason IS NULL AND status = 'Accepted';
+  CREATE INDEX IF NOT EXISTS processor_fee_pending_queue ON processor_fee_terms(offeredAt, loanId)
+    WHERE endedReason IS NULL AND status = 'Pending';
+  CREATE INDEX IF NOT EXISTS processor_fee_personal_queue ON processor_fee_terms(processorEmail, offeredAt, loanId)
+    WHERE endedReason IS NULL AND status = 'Pending';
   CREATE TRIGGER IF NOT EXISTS processor_fee_end_assignment AFTER UPDATE OF processorEmail ON loan_processing
     WHEN OLD.processorEmail IS NOT NEW.processorEmail
     BEGIN
@@ -24,6 +28,25 @@ const fields = "version, processorName, amountCents, reference, status, offeredA
 const pageSize = 8;
 const denied = { error: "Processing fee terms are available to this brokerage’s admin and the assigned processor." };
 const changed = { error: "The assignment or fee terms changed. Refresh before continuing." };
+
+export function readProcessorFeeQueue(db: Store, staff: WorkspaceStaff, request?: { after?: ProcessorFeeCursor }): ProcessorFeeQueue {
+  const personal = staff.brokerage.role === "Processor";
+  const params = personal ? [staff.email] : [];
+  const joins = `FROM processor_fee_terms fee JOIN loans loan ON loan.id = fee.loanId
+    JOIN loan_processing processing ON processing.loanId = fee.loanId AND processing.processorEmail = fee.processorEmail`;
+  const scope = `WHERE fee.status = 'Pending' AND fee.endedReason IS NULL AND loan.disposition = 'Active'
+      AND loan.stage NOT IN ('Funded', 'Closed') ${personal ? "AND fee.processorEmail = ?" : ""}`;
+  const count = Number(db.prepare(`SELECT count(*) AS count ${joins} ${scope}`).get(...params)?.count ?? 0);
+  if (!request) return { count, rows: [], next: null };
+  const { after } = request;
+  const rows = db.prepare(`SELECT fee.loanId, contact.name, fee.processorName, fee.offeredAt, fee.version, fee.amountCents
+    ${joins} JOIN contacts contact ON contact.id = loan.contactId ${scope}
+    ${after ? "AND (fee.offeredAt, fee.loanId) > (?, ?)" : ""}
+    ORDER BY fee.offeredAt, fee.loanId LIMIT 21`)
+    .all(...params, ...(after ? [after.offeredAt, after.loanId] : [])) as unknown as ProcessorFeeQueue["rows"];
+  const last = rows[19];
+  return { count, rows: rows.slice(0, 20), next: rows.length > 20 ? { offeredAt: last.offeredAt, loanId: last.loanId } : null };
+}
 
 export function processorFeeWork(db: Store, input: ProcessorFeeInput, staff: WorkspaceStaff, now: string):
   ProcessorFeePage | { message: string } | { error: string } {
@@ -48,7 +71,9 @@ export function processorFeeWork(db: Store, input: ProcessorFeeInput, staff: Wor
       const history = rows.slice(0, pageSize);
       const agreed = db.prepare(`SELECT ${fields} FROM processor_fee_terms
         WHERE loanId = ? ${scope} AND endedReason IS NULL AND status = 'Accepted'`).get(...bindings) as ProcessorFeeTerms | undefined;
-      return { kind: "processorFeeTerms", assignment: loan.processorEmail ? { name: String(loan.processorName), revision: Number(loan.revision) } : null,
+      const selected = input.selectedVersion === undefined ? undefined : db.prepare(`SELECT ${fields} FROM processor_fee_terms
+        WHERE loanId = ? ${scope} AND version = ?`).get(...bindings, input.selectedVersion) as ProcessorFeeTerms | undefined ?? null;
+      return { kind: "processorFeeTerms", selected, assignment: loan.processorEmail ? { name: String(loan.processorName), revision: Number(loan.revision) } : null,
         current: current ?? null, agreed: agreed ?? null, history, next: rows.length > pageSize ? history.at(-1)?.version ?? null : null,
         latestVersion, canOffer: admin && active && Boolean(loan.processorEmail), canRespond: !admin && active && current?.status === "Pending" };
     }

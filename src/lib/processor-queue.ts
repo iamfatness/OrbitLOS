@@ -12,7 +12,7 @@ import { shiftReportDate } from "./report-date-range";
 import { canUseServiceOrders, readServiceOrderQueue } from "./service-orders";
 import { serviceOrdersUnavailable } from "./service-order-model";
 import { changeDashboardView, readDashboardViews } from "./dashboard-views";
-import { processorFeeWork } from "./processor-fee-terms";
+import { processorFeeWork, readProcessorFeeQueue } from "./processor-fee-terms";
 
 const pageSize = 20;
 const fields = "loan.id, contact.name, loan.officer, plan.targetDate, profile.closingDate";
@@ -159,7 +159,12 @@ export function readProcessorQueue(db: Store, input: unknown, staff: WorkspaceSt
     return { checkedAt: now.toISOString(), files: [], next: null, views: [],
       serviceOrders: readServiceOrderQueue(db, parsed.data.serviceOrders, staff, now) };
   }
+  if (parsed.data.feeOffers) {
+    const feeOffers = readProcessorFeeQueue(db, staff, parsed.data.feeOffers);
+    return { checkedAt: now.toISOString(), files: [], next: null, views: [], feeOffers, feeOfferCount: feeOffers.count };
+  }
   const { readyOnly, after, exception, replyAfter, workload } = parsed.data;
+  const feeOfferCount = !readyOnly && !exception && !workload && !after && !replyAfter ? readProcessorFeeQueue(db, staff).count : undefined;
   const processor = staff.brokerage.role === "Processor";
   const views = readDashboardViews(db, processingViewScope(staff), processingViewFilters);
   const checkedAt = now.toISOString();
@@ -180,7 +185,7 @@ export function readProcessorQueue(db: Store, input: unknown, staff: WorkspaceSt
     ${processor ? "AND processing.processorEmail = ?" : ""} ${after ? "AND (processing.updatedAt, processing.loanId) > (?, ?)" : ""}
     ORDER BY processing.updatedAt, processing.loanId LIMIT ?`).all(...params) as unknown as BaseFile[];
   const files = rows.slice(0, pageSize);
-  if (!files.length) return { checkedAt, files: [], next: null, handoffHours, replies, workload: closingPage?.workload, views };
+  if (!files.length) return { checkedAt, feeOfferCount, files: [], next: null, handoffHours, replies, workload: closingPage?.workload, views };
   const ids = JSON.stringify([...new Set(files.map(({ id }) => id))]);
   const conditions = aged ? [] : db.prepare(`WITH pending AS (
     SELECT file.loanId, file.id AS submissionId, json_extract(item.value, '$.id') AS conditionId,
@@ -204,7 +209,7 @@ export function readProcessorQueue(db: Store, input: unknown, staff: WorkspaceSt
   const byClosing = new Map(closing.map((item) => [item.loanId, { count: Number(item.count), dueDate: String(item.dueDate),
     ...(workload ? { target: closingChecklistTarget(String(item.id)) } : {}) }]));
   const last = files.at(-1);
-  return { checkedAt, handoffHours, replies, workload: closingPage?.workload, views,
+  return { checkedAt, feeOfferCount, handoffHours, replies, workload: closingPage?.workload, views,
     files: files.map((file, index) => ({ ...file, condition: aged?.[index]?.condition ?? byCondition.get(file.id) ?? null, closing: byClosing.get(file.id) ?? null })),
     next: rows.length > pageSize && last ? aged?.[pageSize - 1]?.cursor ?? { id: last.id, updatedAt: last.updatedAt } : null };
 }

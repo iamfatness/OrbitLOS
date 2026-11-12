@@ -5,6 +5,7 @@ import { readProcessingWork, saveProcessingView } from "@/app/actions";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import type { IncomingLoanWorkItem } from "@/lib/incoming-loan-work-model";
 import { dateLabel, easternDate } from "@/lib/client-retention";
+import { processorFeeTarget } from "@/lib/processor-fee-model";
 import { serviceOrderTarget, serviceOrderViews } from "@/lib/service-order-model";
 import { closingWorkloadWindows, conditionAgingDays, processingExceptions, processingViewFilters,
   type ProcessingViewChange, type ProcessorQueueFile, type ProcessorQueuePage, type ProcessorQueueQuery } from "@/lib/processor-queue-model";
@@ -14,6 +15,8 @@ import { ConversationReplies } from "./conversation-replies";
 import { IncomingLoanWorkQueue } from "./incoming-loan-work-queue";
 import { ProcessorAssignmentRecovery, useProcessorAssignmentShortcut } from "./processor-assignment-recovery";
 import { Button } from "./ui/button";
+
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 const descriptions = {
   Unassigned: "Reviewed 1003s and active processing-stage loans that need a shared processor.",
@@ -86,9 +89,11 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
   const [viewResult, setViewResult] = useState<{ message: string } | { error: string }>();
   const viewAttempt = useRef<{ key: string; id: string } | null>(null);
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}`;
-  const pauseReadyQueue = query.readyOnly && reviewingLoan;
+  const feeFilter = useRef<HTMLButtonElement>(null);
+  const feeOpened = useRef<{ loanId: string; version: number; from: ProcessorQueuePage["feeOffers"] }>(null);
+  const pauseLiveQueue = reviewingLoan && (query.readyOnly || Boolean(query.feeOffers));
   useEffect(() => {
-    if (pauseReadyQueue) return;
+    if (pauseLiveQueue) return;
     let active = true;
     let reading = false;
     async function refreshQueue(isCurrent: () => boolean, initial = false) {
@@ -102,11 +107,11 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
       } finally { reading = false; }
     }
     void refreshQueue(() => true, true);
-    const watch = query.readyOnly && !query.after;
+    const watch = (query.readyOnly && !query.after) || Boolean(query.feeOffers && !query.feeOffers.after);
     const stopReturn = watch ? observeTabReturn(document, window, (isCurrent) => void refreshQueue(isCurrent)) : undefined;
     const stopChecks = watch ? observeVisibleChecks(document, window, refreshQueue, 5_000) : undefined;
     return () => { active = false; stopReturn?.(); stopChecks?.(); };
-  }, [brokerageId, pauseReadyQueue, query, version]);
+  }, [brokerageId, pauseLiveQueue, query, version]);
   const assignment = onAssignment && assignmentResult?.brokerageId === brokerageId ? assignmentResult : undefined;
   useEffect(() => {
     if (!assignment || "error" in assignment) return;
@@ -118,15 +123,24 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
   const page = current && !("error" in current) ? current : undefined;
   const views = data && !("error" in data.result) ? data.result.views : undefined;
   const today = page ? easternDate(new Date(page.checkedAt)) : "";
-  const { exception, readyOnly, workload, serviceOrders } = query;
+  const { exception, readyOnly, workload, serviceOrders, feeOffers } = query;
+  const feePage = page?.feeOffers;
   const workloadPage = page?.workload;
   const orderPage = page?.serviceOrders;
   const unassignedFiles = workloadPage?.processors.find(({ email }) => email === "unassigned")?.files ?? 0;
   const select = (next: ProcessorQueueQuery) => { setAssignmentLoanId(undefined); setAssignmentResult(undefined); setQuery(next); };
-  const refresh = () => select(serviceOrders ? { readyOnly: false, serviceOrders: { view: serviceOrders.view } } : processingViewFilters.parse(query));
+  const refresh = () => select(feeOffers ? { readyOnly: false, feeOffers: {} } : serviceOrders ? { readyOnly: false, serviceOrders: { view: serviceOrders.view } } : processingViewFilters.parse(query));
   const controlsBusy = assigning || savingView;
 
+  useEffect(() => {
+    if (reviewingLoan || !feePage || !feeOpened.current || feePage === feeOpened.current.from) return;
+    const opened = feeOpened.current;
+    feeOpened.current = null;
+    if (!feePage.rows.some(row => row.loanId === opened.loanId && row.version === opened.version)) feeFilter.current?.focus();
+  }, [reviewingLoan, feePage]);
+
   function switchFilter(next: ProcessorQueueQuery, viewId = "") {
+    feeOpened.current = null;
     setSelectedView(viewId);
     setViewResult(undefined);
     select(next);
@@ -164,20 +178,24 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
   return <section className="integration record-form manager-panel processing-panel" aria-label="Processing queue">
     <div className="section-heading"><h2>{team ? "Team processing queue" : "My processing queue"}</h2>
       {page && <span className="pill">Checked {dateTime(page.checkedAt)} ET</span>}</div>
-    <p className="muted">{serviceOrders ? "Review mock property services and employment, income, and asset verifications. Earliest due dates appear first." :
+    <p className="muted">{feeOffers ? "Oldest fee offers waiting for the assigned processor appear first." : serviceOrders ? "Review mock property services and employment, income, and asset verifications. Earliest due dates appear first." :
       workload ? "Compare active processing files by target closing date. Closing recorded shows active files with an actual closing date." : exception ? descriptions[exception] :
       "Oldest handoff updates appear first."}
       {page?.handoffHours && ` Current deadline: ${page.handoffHours} hours.`}</p>
-    {!readyOnly && !exception && !workload && !serviceOrders && <>
+    {!readyOnly && !exception && !workload && !serviceOrders && !feeOffers && <>
       <IncomingLoanWorkQueue brokerageId={brokerageId} view="processing"
         paused={reviewingLoan || controlsBusy || Boolean(assignmentLoanId)} version={version} open={openIncomingLoanWork} />
       {complianceWork}
     </>}
     <div className="loan-application-actions" role="group" aria-label="Processing queue filter">
-      <Button size="sm" variant={!readyOnly && !exception && !workload && !serviceOrders ? "default" : "outline"} disabled={controlsBusy} aria-pressed={!readyOnly && !exception && !workload && !serviceOrders} onClick={() => switchFilter({ readyOnly: false })}>Assigned files</Button>
+      <Button size="sm" variant={!readyOnly && !exception && !workload && !serviceOrders && !feeOffers ? "default" : "outline"} disabled={controlsBusy} aria-pressed={!readyOnly && !exception && !workload && !serviceOrders && !feeOffers} onClick={() => switchFilter({ readyOnly: false })}>Assigned files</Button>
       <Button size="sm" variant={readyOnly ? "default" : "outline"} disabled={controlsBusy} aria-pressed={readyOnly} onClick={() => switchFilter({ readyOnly: true })}>Ready to accept</Button>
       <Button size="sm" variant={workload ? "default" : "outline"} disabled={controlsBusy} aria-pressed={Boolean(workload)}
         onClick={() => switchFilter({ readyOnly: false, workload: { processor: "" } })}>Closing workload</Button>
+      <Button ref={feeFilter} size="sm" variant={feeOffers ? "default" : "outline"} disabled={controlsBusy}
+        aria-label="Pending fee offers" aria-pressed={Boolean(feeOffers)}
+        onClick={() => switchFilter({ readyOnly: false, feeOffers: {} })}>Pending fee offers
+        {page?.feeOfferCount !== undefined && ` · ${page.feeOfferCount}`}</Button>
       {mockServices && <Button size="sm" variant={serviceOrders ? "default" : "outline"} disabled={controlsBusy}
         aria-pressed={Boolean(serviceOrders)} onClick={() => switchFilter({ readyOnly: false, serviceOrders: { view: "Open" } })}>Service orders</Button>}
       {team && processingExceptions.map((item) => <Button key={item} size="sm" variant={exception === item ? "default" : "outline"}
@@ -185,7 +203,7 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
       <Button size="sm" variant="outline" disabled={controlsBusy} onClick={refresh}>Refresh processing</Button>
       <Button size="sm" variant="ghost" onClick={openTasks}>Open full task queue</Button>
     </div>
-    {!serviceOrders && views && <section className="record-form" aria-label="Saved processing views">
+    {!serviceOrders && !feeOffers && views && <section className="record-form" aria-label="Saved processing views">
       <div className="form-grid">
         <label className="field">Saved processing view<select value={selectedView} disabled={controlsBusy} onChange={(event) => {
           const view = views.find(({ id }) => id === event.target.value);
@@ -267,7 +285,26 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
         })}>Next page</Button>}
       </div>}
     </section>}
-    {page && !serviceOrders && <>
+    {feePage && <section className="record-form" aria-label="Pending processing fee offers">
+      <h3>{feePage.count} {feePage.count === 1 ? "offer" : "offers"} waiting for a response</h3>
+      {feePage.rows.length ? <ul className="loan-task-list">{feePage.rows.map(row => <li className="document-item" key={row.loanId}>
+        <div className="document-item-head"><strong>{row.name}</strong><span className="pill">Version {row.version}</span></div>
+        <p>{usd.format(row.amountCents / 100)}
+          {team && ` · ${row.processorName}`} · Offered {dateTime(row.offeredAt)} ET</p>
+        <div><Button size="sm" variant="outline" onClick={() => {
+          feeOpened.current = { loanId: row.loanId, version: row.version, from: feePage };
+          openLoan(row.loanId, processorFeeTarget(row.version));
+        }}>Open fee terms</Button></div>
+      </li>)}</ul> : <p className="empty-inline">{feeOffers?.after && feePage.count ? "No offers remain on this page." :
+        "No processing fee offers are waiting for a response."}</p>}
+      {(feeOffers?.after || feePage.next) && <div className="loan-application-actions">
+        {feeOffers?.after && <Button size="sm" variant="outline" onClick={refresh}>First page</Button>}
+        {feePage.next && <Button size="sm" variant="outline" onClick={() => select({
+          readyOnly: false, feeOffers: { after: feePage.next ?? undefined },
+        })}>Next page</Button>}
+      </div>}
+    </section>}
+    {page && !serviceOrders && !feeOffers && <>
       {page.replies && <ConversationReplies page={page.replies} today={today} after={query.replyAfter} open={openReply} showOwner={team}
         onPage={(replyAfter) => select({ ...query, replyAfter })} />}
       {page.files.length ? <ul className="loan-task-list">{page.files.map((file) => {

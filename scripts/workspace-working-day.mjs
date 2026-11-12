@@ -492,6 +492,18 @@ try {
     assert.ok((await fees(alternate, shared, unassigned, { type: "readFeeTerms" })).error);
     assert.equal((await fees(alternate, owner, unassigned, { type: "readFeeTerms" })).history[0].endedReason, "Assignment ended");
     assert.equal((await fees(brokerage, shared, primaryLoan, { type: "readFeeTerms" })).agreed.amountCents, 42550);
+    const pendingFees = (scope, staff) => from(scope, staff, "readProcessingWork", { readyOnly: false, feeOffers: {} });
+    const renewed = { ...primaryOffer, requestId: randomUUID(), expectedVersion: 1, amountCents: 48500, reference: "Fictional primary fee amendment" };
+    assert.ok((await fees(brokerage, owner, primaryLoan, renewed)).message);
+    const mine = await pendingFees(brokerage, shared);
+    assert.deepEqual(mine.feeOffers.rows.map(({ loanId, version }) => ({ loanId, version })), [{ loanId: primaryLoan, version: 2 }]);
+    assert.equal(mine.feeOffers.count, 1);
+    assert.equal((await pendingFees(alternate, shared)).feeOffers.rows[0].loanId, otherLoan);
+    assert.equal((await pendingFees(alternate, owner)).feeOffers.count, 1);
+    assert.ok((await pendingFees(brokerage, officer)).error);
+    const previous = await fees(brokerage, shared, primaryLoan, { type: "readFeeTerms", selectedVersion: 1 });
+    assert.equal(previous.selected.amountCents, 42550);
+    assert.equal(previous.current.version, 2);
     assert.ok((await from(alternate, shared, "readLoanForWork", primaryLoan)).error);
     assert.ok((await from(brokerage, shared, "readLoanForWork", otherLoan)).error);
     assert.ok((await from(brokerage, shared, "readLoanForWork", otherLoan, alternate)).error);

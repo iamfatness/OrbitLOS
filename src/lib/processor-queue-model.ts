@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { processorFeeInput } from "./processor-fee-model";
+import { processorFeeCursor, processorFeeInput, type ProcessorFeeQueue } from "./processor-fee-model";
 import { conversationCursor, type ConversationReplyPage } from "./conversation-model";
 import type { LoanProcessing } from "./processing-model";
 import { serviceOrderQueueQuery, type ServiceOrderQueuePage } from "./service-order-model";
@@ -21,11 +21,14 @@ export const processorQueueQuery = z.object({
   ...queueFilters, after: cursor.optional(), replyAfter: conversationCursor.optional(),
   workload: z.object({ ...workloadFilters, after: workloadCursor.optional() }).optional(),
   serviceOrders: serviceOrderQueueQuery.optional(),
+  feeOffers: z.object({ after: processorFeeCursor.optional() }).optional(),
 }).refine(({ exception, after }) => !after || Boolean(after.conditionId) === (exception === "Aging conditions"))
   .refine(({ readyOnly, exception, replyAfter }) => !replyAfter || (!readyOnly && !exception))
   .refine(({ workload, readyOnly, exception, after, replyAfter }) => !workload || (!readyOnly && !exception && !after && !replyAfter))
   .refine(({ serviceOrders, readyOnly, exception, after, replyAfter, workload }) =>
-    !serviceOrders || (!readyOnly && !exception && !after && !replyAfter && !workload));
+    !serviceOrders || (!readyOnly && !exception && !after && !replyAfter && !workload))
+  .refine(({ feeOffers, readyOnly, exception, after, replyAfter, workload, serviceOrders }) =>
+    !feeOffers || (!readyOnly && !exception && !after && !replyAfter && !workload && !serviceOrders));
 export type ProcessorQueueQuery = z.infer<typeof processorQueueQuery>;
 export const processingViewChange = z.discriminatedUnion("type", [
   z.object({ type: z.literal("saveView"), id: z.uuid(), name: z.string().trim().min(1).max(80), filters: processingViewFilters }),
@@ -50,4 +53,4 @@ export type ProcessorQueueFile = z.infer<typeof cursor> & {
   closing: { count: number; dueDate: string; target?: string } | null;
 };
 export type ProcessorQueuePage = { checkedAt: string; files: ProcessorQueueFile[]; next: z.infer<typeof cursor> | null; views: SavedProcessingView[];
-  handoffHours?: number; replies?: ConversationReplyPage; workload?: ProcessingWorkload; serviceOrders?: ServiceOrderQueuePage };
+  feeOfferCount?: number; feeOffers?: ProcessorFeeQueue; handoffHours?: number; replies?: ConversationReplyPage; workload?: ProcessingWorkload; serviceOrders?: ServiceOrderQueuePage };

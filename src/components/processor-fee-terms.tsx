@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { saveProcessingView } from "@/app/actions";
-import type { ProcessorFeeInput, ProcessorFeePage, ProcessorFeeTerms } from "@/lib/processor-fee-model";
+import { processorFeeTarget, type ProcessorFeeInput, type ProcessorFeePage, type ProcessorFeeTerms } from "@/lib/processor-fee-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -18,10 +18,11 @@ function FeeVersion({ terms }: { terms: ProcessorFeeTerms }) {
   </>;
 }
 
-export function ProcessorFees({ loanId, brokerageId, assignmentRevision }: {
-  loanId: string; brokerageId: string; assignmentRevision?: number;
+export function ProcessorFees({ loanId, brokerageId, assignmentRevision, targetVersion }: {
+  loanId: string; brokerageId: string; assignmentRevision?: number; targetVersion?: number;
 }) {
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(targetVersion !== undefined);
+  const [selectedVersion, setSelectedVersion] = useState(targetVersion);
   const [page, setPage] = useState<ProcessorFeePage>();
   const [readError, setReadError] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -36,7 +37,7 @@ export function ProcessorFees({ loanId, brokerageId, assignmentRevision }: {
     if (!started) return;
     let active = true;
     const fail = "Could not open processing fee terms. Refresh to try again.";
-    void saveProcessingView({ type: "readFeeTerms", loanId }, brokerageId).then(result => {
+    void saveProcessingView({ type: "readFeeTerms", loanId, selectedVersion }, brokerageId).then(result => {
       if (!active) return;
       if ("kind" in result && result.kind === "processorFeeTerms") {
         setPage(result);
@@ -47,7 +48,7 @@ export function ProcessorFees({ loanId, brokerageId, assignmentRevision }: {
       }
     }, () => { if (active) { setPage(undefined); setReadError(fail); } });
     return () => { active = false; };
-  }, [started, refresh, loanId, brokerageId, assignmentRevision]);
+  }, [started, refresh, loanId, brokerageId, assignmentRevision, selectedVersion]);
 
   useEffect(() => {
     if (feedback) feedbackRef.current?.focus();
@@ -55,6 +56,7 @@ export function ProcessorFees({ loanId, brokerageId, assignmentRevision }: {
 
   const basis = JSON.stringify([page?.assignment?.revision, page?.latestVersion]);
   const stale = Boolean(draft && draft.basis !== basis);
+  const historical = selectedVersion !== undefined && page?.current?.version !== selectedVersion;
 
   async function change(input: ProcessorFeeInput) {
     if (pending.current) return;
@@ -112,14 +114,20 @@ export function ProcessorFees({ loanId, brokerageId, assignmentRevision }: {
     }
   }
 
-  return <details className="document-form" onToggle={event => { if (event.currentTarget.open) setStarted(true); }}>
+  return <details className="document-form" id={targetVersion === undefined ? undefined : processorFeeTarget(targetVersion)}
+    open={targetVersion === undefined ? undefined : true} onToggle={event => { if (event.currentTarget.open) setStarted(true); }}>
     <summary>Processing fee terms</summary>
     {started && <section className="record-form" aria-label="Processing fee terms">
       <p className="muted">Record what the brokerage and assigned processor agreed for this file.</p>
       <div><Button size="sm" variant="outline" disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh fee terms</Button></div>
       {readError ? <p role="alert">{readError}</p> : !page && <p role="status">Loading fee terms…</p>}
       {feedback && <p tabIndex={-1} ref={feedbackRef} role={feedback.error ? "alert" : "status"}>{feedback.text}</p>}
-      {page && <>
+      {page && historical && <div className="record-form">
+        <p role="status">Fee offer v{selectedVersion} is no longer waiting for a response.</p>
+        {page.selected && <article className="document-item" aria-label="Selected fee terms"><FeeVersion terms={page.selected} /></article>}
+        <div><Button size="sm" variant="outline" onClick={() => setSelectedVersion(undefined)}>Show current terms</Button></div>
+      </div>}
+      {page && !historical && <>
         {!page.assignment && <p>Assign a processor to record a fee offer.</p>}
         {page.assignment && !page.current && <p>No fee terms recorded for {page.assignment.name}.</p>}
         {page.agreed && page.agreed.version !== page.current?.version && <article className="document-item" aria-label="Agreed fee terms">

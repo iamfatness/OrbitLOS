@@ -9,6 +9,7 @@ import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { pausedLoan } from "@/lib/loan-workflow";
 import { Button } from "./ui/button";
+import { processorFeeTargetVersion } from "@/lib/processor-fee-model";
 import { ProcessorFees } from "./processor-fee-terms";
 
 export function SecondReviewCheckpoint({ blocker, revision, busy, openReviews }: {
@@ -20,15 +21,16 @@ export function SecondReviewCheckpoint({ blocker, revision, busy, openReviews }:
   </section>;
 }
 
-export function ProcessingHandoff({ loan, assignment, application, documents, history, requireSecondReview, staff, busy, save, open, openReviews, openAssignment }: {
+export function ProcessingHandoff({ loan, assignment, application, documents, history, requireSecondReview, staff, busy, save, open, openReviews, openAssignment, target }: {
   loan: Loan; assignment?: LoanProcessing; application?: StaffApplication; documents: LoanDocumentRequest[]; history?: Workspace["processingActivity"];
-  requireSecondReview: boolean; staff: WorkspaceStaff | null; busy: boolean;
+  requireSecondReview: boolean; staff: WorkspaceStaff | null; busy: boolean; target?: string;
   save: (input: unknown, after: () => void) => void; open: (target: string) => void; openReviews?: () => void; openAssignment?: () => void;
 }) {
   const section = useRef<HTMLElement>(null);
   const noteField = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState<{ note: string; revision: number; applicationRevision: number | null }>();
   const role = staff?.brokerage.role ?? "Admin";
+  const feeVersion = processorFeeTargetVersion(target);
   const paused = pausedLoan(loan) || loan.stage === "Funded" || loan.stage === "Closed";
   const actions = assignment?.processorEmail && !paused ? availableProcessingActions(assignment.status, role) : [];
   const applicationRevision = application?.revision ?? null;
@@ -46,7 +48,8 @@ export function ProcessingHandoff({ loan, assignment, application, documents, hi
     {!paused && assignment?.status !== "Complete" && <p><strong>Next with</strong> · {nextOwner}</p>}
     {openAssignment && <div><Button size="sm" variant="outline" disabled={busy} onClick={openAssignment}>Manage assignment</Button></div>}
     {staff && (role === "Admin" || (role === "Processor" && assignment?.processorEmail === staff.email)) &&
-      <ProcessorFees key={loan.id} loanId={loan.id} brokerageId={staff.brokerage.id} assignmentRevision={assignment?.revision} />}
+      <ProcessorFees key={`${loan.id}:${feeVersion ?? ""}`} loanId={loan.id} brokerageId={staff.brokerage.id}
+        assignmentRevision={assignment?.revision} targetVersion={feeVersion} />}
     {requireSecondReview && <SecondReviewCheckpoint blocker={blocker} revision={application?.revision} busy={busy} openReviews={openReviews} />}
     {(application?.submittedAt || needsReview || assignment?.processorEmail) && <div className="loan-application-box">
       <strong>File checklist</strong>

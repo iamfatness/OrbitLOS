@@ -6,7 +6,7 @@ import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { readLoanAssignments } = await import("../src/lib/loan-assignments.ts");
 const { assignProcessor, readProcessorAssignmentReceipt } = await import("../src/lib/loan-processing.ts");
-const { changeProcessingView } = await import("../src/lib/processor-queue.ts");
+const { changeProcessingView, readProcessorQueue } = await import("../src/lib/processor-queue.ts");
 const { assignLoan, loanAccess } = await import("../src/lib/workspace-access.ts");
 
 const brokerageId = "fictional-team";
@@ -134,7 +134,18 @@ test("processor offers preserve accepted amounts until a replacement is accepted
   assert.equal(read().agreed.amountCents, 42550);
   assert.ok(respond(2, "Declined").message);
   assert.equal(read().agreed.amountCents, 42550);
+  const queue = (actor, query = { readyOnly: false, feeOffers: {} }) =>
+    readProcessorQueue(db, query, staff(actor), brokerageId, new Date(at));
+  assert.equal(queue(processor).feeOffers.count, 0);
   assert.ok(work(offer(2, 51025)).message);
+  assert.equal(queue(processor).feeOffers.rows[0].version, 3);
+  assert.equal(queue(backup).feeOffers.count, 0);
+  assert.ok(queue(officer).error);
+  assert.ok(queue(owner, { readyOnly: true, feeOffers: {} }).error);
+  const selected = work({ type: "readFeeTerms", selectedVersion: 2 }, processor);
+  assert.equal(selected.selected.status, "Declined");
+  assert.equal(selected.selected.endedReason, "Replaced");
+  assert.equal(selected.current.version, 3);
   assert.ok(respond(2).error);
   assert.ok(respond(3).message);
   assert.equal(read().agreed.amountCents, 51025);
