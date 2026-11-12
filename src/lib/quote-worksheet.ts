@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PricingOffer, PricingRun, PricingScenario } from "./pricing-model";
 import { offerDisplayName } from "./manual-pricing-model";
+import { propertyStateName } from "./property-state";
 
 export const feeLabels = {
   origination: "Origination fee", appraisal: "Appraisal", creditReport: "Credit report", settlement: "Title and settlement",
@@ -66,9 +67,17 @@ export interface FeeTemplateOrigin extends z.infer<typeof feeTemplateChoice> {
   source: string;
   effectiveOn: string;
   zip: string;
+  state?: string;
+  property?: FeePropertyLocation;
   fees: FeeInputs["fees"];
   allocations?: FeeInputs["allocations"];
   calculations?: Partial<Record<FeeKey, FeeCalculation>>;
+}
+
+export type FeePropertyLocation = { zip: string; state?: string };
+
+export function feeLocationLabel({ state, zip }: Pick<FeeTemplateOrigin, "state" | "zip">) {
+  return [state ? propertyStateName(state) : "Any state", zip ? `ZIP ${zip}` : "Any ZIP"].join(" · ");
 }
 
 export function feeBasisIssue(origin: FeeTemplateOrigin | undefined, purchasePrice: number | null) {
