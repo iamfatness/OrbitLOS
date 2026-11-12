@@ -76,12 +76,12 @@ function newColumn(priorEnding: z.infer<typeof balance>) {
   return { ...lines, priorEnding, AC063: { count: 0, amount: 0 }, AC065: 0 };
 }
 
-export function fv7EvidenceTemplate(csv: string, year: number, quarter: number, version: number) {
+export function fv7EntryBasis(csv: string, year: number, quarter: number, version: number) {
   const period = { year, quarter };
   const included = readSnapshot(csv, quarterName(period), version).filter(row => row.groups !== "Excluded");
   const blankAmount = () => ({ amount: null, reference: "" });
   const blankBalance = () => ({ count: null, amount: null });
-  return {
+  const template = {
     entityReference: "", snapshotSha256: createHash("sha256").update(csv).digest("hex"), year, quarter, version,
     priorEnding: { period: quarterName(priorQuarter(period)), reference: "",
       states: [...new Set(included.map(row => row.state))].sort()
@@ -97,6 +97,13 @@ export function fv7EvidenceTemplate(csv: string, year: number, quarter: number, 
     }),
     amountChanges: [], adjustments: [],
   };
+  const loans = included.map(row => ({ id: row.loan, received: row.received, amount: row.amount,
+    outcome: row.outcome, outcomeOn: row.outcomeOn, outcomeAmount: row.outcomeAmount }));
+  return { template, loans };
+}
+
+export function fv7EvidenceTemplate(csv: string, year: number, quarter: number, version: number) {
+  return fv7EntryBasis(csv, year, quarter, version).template;
 }
 
 export function buildFv7QuarterWorkpaper(csv: string, input: unknown) {

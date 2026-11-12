@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { accessReportingReadiness } from "@/app/actions";
 import { quarterName, type Quarter, type QuarterReviewSummary } from "@/lib/call-report-quarter-model";
-import { fv7EvidenceFileLimit, type Fv7SavedWorkpaper, type Fv7Workpaper, type ReportingReadiness } from "@/lib/call-report-readiness-model";
+import { fv7EvidenceFileLimit, type Fv7Entry, type Fv7SavedWorkpaper, type Fv7Workpaper, type ReportingReadiness } from "@/lib/call-report-readiness-model";
 import { dateTime, money } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { Fv7GuidedEntry } from "./call-report-fv7-entry";
 import { downloadSampleFile } from "./sample-download";
 
 const totals = (value: { count: number; amount: number } | null) => value
@@ -17,10 +18,12 @@ function Fv7EvidenceForm({ brokerageId, period, version, openLoan, onSaved }: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; error?: boolean }>();
   const [workpaper, setWorkpaper] = useState<Fv7Workpaper>();
+  const [entry, setEntry] = useState<Fv7Entry>();
   const [saved, setSaved] = useState<Fv7SavedWorkpaper>();
   const [checked, setChecked] = useState("");
   const preview = useRef<{ evidence: string; checked: string }>(null);
   const feedback = useRef<HTMLParagraphElement>(null);
+  const entryRegion = useRef<HTMLDivElement>(null);
   const pending = useRef(false);
   const fileName = `orbit-fv7-${period.year}-Q${period.quarter}-v${version}`;
 
@@ -28,11 +31,13 @@ function Fv7EvidenceForm({ brokerageId, period, version, openLoan, onSaved }: {
     if (message) feedback.current?.focus();
   }, [message]);
 
-  async function run(type: "fv7Template" | "fv7Preview" | "fv7Save", file?: File) {
+  useEffect(() => { if (entry) entryRegion.current?.focus(); }, [entry]);
+
+  async function run(type: "fv7Template" | "fv7Entry" | "fv7Preview" | "fv7Save", source?: File | string) {
     if (pending.current) return;
     if (type === "fv7Preview") {
       clearPreview();
-      if (!file?.size || file.size > fv7EvidenceFileLimit) {
+      if (!source || (typeof source !== "string" && (!source.size || source.size > fv7EvidenceFileLimit))) {
         setMessage({ text: "Choose a reviewed JSON evidence file under 1 MB.", error: true });
         return;
       }
@@ -42,14 +47,16 @@ function Fv7EvidenceForm({ brokerageId, period, version, openLoan, onSaved }: {
     setMessage(undefined);
     try {
       const target = { ...period, version };
-      const evidence = type === "fv7Preview" ? await file?.text() : undefined;
-      const source = preview.current;
-      const request = type === "fv7Save" && source ? { ...target, type, ...source } :
-        type === "fv7Preview" && evidence ? { ...target, type, evidence } : { ...target, type: "fv7Template" };
+      const evidence = type === "fv7Preview" ? (typeof source === "string" ? source : await source?.text()) : undefined;
+      const checkedSource = preview.current;
+      const request = type === "fv7Save" && checkedSource ? { ...target, type, ...checkedSource } :
+        type === "fv7Preview" && evidence ? { ...target, type, evidence } : { ...target, type };
       if (type !== request.type) return;
       const result = await accessReportingReadiness(request, brokerageId);
       if ("error" in result) {
         setMessage({ text: result.error, error: true });
+      } else if (result.kind === "fv7Entry") {
+        setEntry(result.entry);
       } else if (result.kind === "fv7Template") {
         downloadSampleFile(result.json, `${fileName}-evidence.json`, "application/json");
         setMessage({ text: "Evidence template downloaded." });
@@ -86,15 +93,24 @@ function Fv7EvidenceForm({ brokerageId, period, version, openLoan, onSaved }: {
   }
 
   return <>
-    <div><Button variant="outline" size="sm" disabled={busy} onClick={() => void run("fv7Template")}>Download evidence template</Button></div>
-    <form className="record-form" onSubmit={submit}>
-      <label className="field">Reviewed evidence file
-        <input type="file" name="evidence" accept=".json,application/json" required disabled={busy}
-          onChange={clearPreview} />
-      </label>
-      <p className="muted">Fill in the template’s entity, prior balances, intake source and evidence references. Include reporting states with zero activity.</p>
-      <div><Button type="submit" size="sm" disabled={busy}>{busy ? "Checking evidence…" : "Check evidence"}</Button></div>
-    </form>
+    {entry ? <div ref={entryRegion} tabIndex={-1}>
+      <Fv7GuidedEntry entry={entry} busy={busy} onChange={clearPreview} onOpenLoan={openLoan}
+        onCheck={evidence => void run("fv7Preview", evidence)} />
+    </div> : <div><Button size="sm" disabled={busy} onClick={() => void run("fv7Entry")}>Enter evidence in Orbit</Button></div>}
+    <details className="document-form">
+      <summary>Use an evidence file</summary>
+      <div className="record-form">
+        <div><Button variant="outline" size="sm" disabled={busy} onClick={() => void run("fv7Template")}>Download evidence template</Button></div>
+        <form className="record-form" onSubmit={submit}>
+          <label className="field">Reviewed evidence file
+            <input type="file" name="evidence" accept=".json,application/json" required disabled={busy}
+              onChange={clearPreview} />
+          </label>
+          <p className="muted">Fill in the template’s entity, prior balances, intake source and evidence references. Include reporting states with zero activity.</p>
+          <div><Button type="submit" size="sm" disabled={busy}>{busy ? "Checking evidence…" : "Check evidence"}</Button></div>
+        </form>
+      </div>
+    </details>
     {message && <p ref={feedback} tabIndex={-1} role={message.error ? "alert" : "status"}>{message.text}</p>}
     {workpaper && <Fv7Results key={checked} period={period} version={version} workpaper={workpaper}
       saved={saved} openLoan={openLoan} actions={!saved && <Button size="sm" disabled={busy} onClick={() => void run("fv7Save")}>

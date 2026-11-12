@@ -600,6 +600,15 @@ test("FV7 evidence links a downloaded closed-quarter review to source and adjust
   assert.equal(downloaded.kind, "fv7Template");
   const template = JSON.parse(downloaded.json);
   assert.equal(template.snapshotSha256, checksum(csv));
+  const entryRequest = { type: "fv7Entry", version };
+  const prepared = work(entryRequest);
+  assert.equal(prepared.kind, "fv7Entry");
+  assert.deepEqual(prepared.entry.template, template);
+  assert.deepEqual(prepared.entry.loans.find(item => item.id === loanId), {
+    id: loanId, name: "Fictional Borrower", received: "2026-06-20", amount: "300000", outcome: "", outcomeOn: "", outcomeAmount: "",
+  });
+  assert.match(work(entryRequest, officer).error, /brokerage admins/);
+  assert.match(work({ ...entryRequest, version: 99 }).error, /saved review/);
   assert.deepEqual(template.files.find(file => file.loanId === loanId),
     { loanId, revision: 1, state: "MI", source: null, intakeReference: "", opening: { amount: null, reference: "" }, ending: { amount: null, reference: "" } });
   assert.match(work({ ...preview, evidence: downloaded.json }).error, /entityReference/);

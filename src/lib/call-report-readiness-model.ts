@@ -1,10 +1,13 @@
 import { z } from "zod";
 import { easternDate } from "./client-retention";
 import type { QuarterReviewPage, QuarterReviewSummary } from "./call-report-quarter-model";
-import type { buildFv7QuarterWorkpaper } from "./mcr-fv7-quarter-evidence";
+import type { buildFv7QuarterWorkpaper, fv7EntryBasis } from "./mcr-fv7-quarter-evidence";
 
 export const fv7EvidenceFileLimit = 1_000_000;
 export type Fv7Workpaper = ReturnType<typeof buildFv7QuarterWorkpaper>;
+export type Fv7Entry = Omit<ReturnType<typeof fv7EntryBasis>, "loans"> & {
+  loans: (ReturnType<typeof fv7EntryBasis>["loans"][number] & { name: string | null })[];
+};
 export type Fv7SavedWorkpaper = {
   sequence: number;
   version: number;
@@ -28,6 +31,7 @@ export const reportingReadinessInput = z.discriminatedUnion("type", [
     evidenceKey: z.string().regex(/^[a-f0-9]{64}$/), requestId: z.uuid(), note: z.string().trim().max(500).default("") }),
   z.object({ type: z.literal("downloadQuarterReview"), year, quarter, version }),
   z.object({ type: z.literal("fv7Template"), year, quarter, version }),
+  z.object({ type: z.literal("fv7Entry"), year, quarter, version }),
   z.object({ type: z.literal("fv7Preview"), year, quarter, version,
     evidence: z.string().min(1).max(fv7EvidenceFileLimit) }),
   z.object({ type: z.literal("fv7Save"), year, quarter, version,
@@ -48,6 +52,7 @@ export type ReportingReadiness = { kind: "list"; indexing: boolean; blockers: nu
   { kind: "quarterReviewSaved"; review: QuarterReviewSummary } |
   { kind: "quarterReviewDownload"; version: number; csv: string } |
   { kind: "fv7Template"; version: number; json: string } |
+  { kind: "fv7Entry"; entry: Fv7Entry } |
   { kind: "fv7Preview"; workpaper: Fv7Workpaper; checked: string } |
   { kind: "fv7Saved"; saved: Fv7SavedWorkpaper } |
   { kind: "fv7History"; items: Fv7SavedWorkpaper[]; next: number | null } |

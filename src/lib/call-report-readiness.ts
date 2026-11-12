@@ -99,7 +99,7 @@ export function reportingReadinessWork(db: Store, input: unknown, staff: Workspa
   const range = quarterRange(data.year, data.quarter);
   const { from, through } = range;
   const dates = [from, through, from, through, from, through, through, from];
-  if (data.type === "fv7Template" || data.type === "fv7Preview" || data.type === "fv7Save" ||
+  if (data.type === "fv7Template" || data.type === "fv7Entry" || data.type === "fv7Preview" || data.type === "fv7Save" ||
     data.type === "fv7History" || data.type === "fv7Read") {
     return fv7WorkpaperWork(db, data, staff, now.toISOString());
   }

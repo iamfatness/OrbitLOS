@@ -3,12 +3,12 @@ import { ZodError } from "zod";
 import { quarterName } from "./call-report-quarter-model";
 import { fv7EvidenceFileLimit, type Fv7SavedWorkpaper, type Fv7Workpaper,
   type ReportingReadiness, type ReportingReadinessInput } from "./call-report-readiness-model";
-import { buildFv7QuarterWorkpaper, fv7EvidenceTemplate } from "./mcr-fv7-quarter-evidence";
+import { buildFv7QuarterWorkpaper, fv7EntryBasis } from "./mcr-fv7-quarter-evidence";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent } from "./workspace-access";
 
-type Input = Extract<ReportingReadinessInput, { type: "fv7Template" | "fv7Preview" | "fv7Save" | "fv7History" | "fv7Read" }>;
+type Input = Extract<ReportingReadinessInput, { type: "fv7Template" | "fv7Entry" | "fv7Preview" | "fv7Save" | "fv7History" | "fv7Read" }>;
 type Stored = Omit<Fv7SavedWorkpaper, "reconciled"> & { reconciled: number };
 const columns = "sequence, version, entityReference, reconciled, recordedAt, recordedBy";
 const pageSize = 10;
@@ -54,11 +54,16 @@ export function fv7WorkpaperWork(db: Store, input: Input, staff: WorkspaceStaff,
     if (!row?.closed) return { error: "Choose a saved review captured after this quarter ended." };
     const csv = String(row.csv);
     if (Buffer.byteLength(csv) > fv7EvidenceFileLimit) return { error: "This saved review exceeds the pilot workpaper size limit." };
-    if (input.type === "fv7Template") {
+    if (input.type === "fv7Template" || input.type === "fv7Entry") {
       try {
-        return { kind: "fv7Template", version, json: JSON.stringify(fv7EvidenceTemplate(csv, year, quarter, version), null, 2) };
+        const { template, loans } = fv7EntryBasis(csv, year, quarter, version);
+        if (input.type === "fv7Template") return { kind: "fv7Template", version, json: JSON.stringify(template, null, 2) };
+        const names = new Map(db.prepare(`SELECT loan.id, contact.name FROM loans loan
+          JOIN contacts contact ON contact.id = loan.contactId WHERE loan.id IN (SELECT value FROM json_each(?))`)
+          .all(JSON.stringify(loans.map(({ id }) => id))).map(({ id, name }) => [String(id), String(name)]));
+        return { kind: "fv7Entry", entry: { template, loans: loans.map(loan => ({ ...loan, name: names.get(loan.id) ?? null })) } };
       } catch {
-        return { error: "This saved review could not be used to create an evidence template." };
+        return { error: "This saved review could not be used to prepare evidence." };
       }
     }
     if (Buffer.byteLength(input.evidence) > fv7EvidenceFileLimit) return { error: "Choose an evidence file under 1 MB." };
