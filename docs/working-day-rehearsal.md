@@ -34,6 +34,8 @@ The returning-client stage starts with the original funded purchase. The owner e
 
 Use the [paired walkthrough](#run-a-paired-brokerage-walkthrough) for observed comparisons and the [lender sandbox acceptance](lender-sandbox-acceptance.md) for partner evidence. The scripted run uses fictional records and mocked lender outcomes. Google sign-in, phone, email and SMS delivery, lender contracts, and real-data approval require their own verification.
 
+On the joint 1003, the assigned LO now opens unconfirmed mock underwriting from Today. An inconclusive credit lookup leaves the same attempt queued. The next lookup accepts it, and a later DU rejection clears only its own confirmation item. A separate owner, unrelated LO and processor queue do not receive the personal work. These checks use the simulated provider outcomes documented in the [sandbox cases](lender-sandbox-acceptance.md#credit-and-aus-order-lookup).
+
 ## Hosted callback verification
 
 On `5212a59c-4719-4c5b-a5b0-b0ce8b127246`, the QA admin imported a fictional contact, lead, and callback. After enrolling the lead, Today opened the exact callback in Call Campaigns at its imported deadline. The operator logged a Connected call, completed the callback, and selected Start 1003 from the same campaign card. The borrower view showed the prefilled name and the loan timeline showed the original Connected call and note. The product page described the updated workflow. The local three-role rehearsal, recovery check, typecheck, lint, and 138 automated tests passed for this slice.

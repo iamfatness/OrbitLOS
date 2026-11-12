@@ -78,6 +78,8 @@ The hosted workbench records staff demo authorization for the sample credit repo
 
 For a joint 1003, the mock credit order records whether the LO attested to authorization for the primary borrower or all borrowers. The request retains the staff actor, timestamp, borrower count, and exact application revision. Mock AUS requires credit covering every borrower on the current submitted 1003. When a simulated response is missing, the LO can check the original reference. The check confirms the existing order and is safe to repeat, even when the application has since changed. A confirmed failure retains its separate retry path.
 
+Today lists unconfirmed orders on active loans for the current LO. The item opens and focuses the exact order, and reassignment moves the item with the loan. A simulated inconclusive lookup preserves the count and records the check. A definitive acceptance or rejection clears the item without replacing the original reference. [Sandbox lookup cases](lender-sandbox-acceptance.md#credit-and-aus-order-lookup)
+
 Live ordering still needs provider-accepted consent evidence, vendor access, current service schemas, credentials, and approved data handling. For each service, confirm which borrower identifiers and consent records the sandbox accepts, whether a status query can locate an order by the original correlation key, and how the provider identifies a safe retry or duplicate charge. The mock workbench attestation records the fictional order scope.
 
 ### F02 — Reviewed income analysis
