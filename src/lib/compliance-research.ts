@@ -8,6 +8,7 @@ import type { Store, SqlValue } from "./store";
 
 const unavailable = { error: complianceWorkUnavailable };
 const changed = { error: "This research work changed. Refresh before saving." };
+const requirementsByArea = Map.groupBy(stateRequirementSources, item => item.areaKey);
 const coverage = { legalApproval: false, runtimeEnforcement: false, evaluatedFiles: null } as const;
 type Row = { id: string; title: string; kind: "Requirement review" | "Control gap"; status: (typeof complianceCaseStatuses)[number];
   ownerEmail: string; ownerAccessRevision: number; revision: number; updatedAt: string;
@@ -67,7 +68,8 @@ export function complianceResearchWork(db: Store, input: ResearchRequest, staff:
     const states = researchSources.filter(entry => entry.jurisdiction !== "US").map(entry => {
       const work = stateRolloutSources.filter(item => item.jurisdiction === entry.jurisdiction);
       return { jurisdiction: entry.jurisdiction, name: entry.title,
-        tracked: work.filter(item => tracked.has(item.key) || trackedAreas.has(item.key)).length, total: work.length };
+        tracked: work.filter(item => tracked.has(item.key) || trackedAreas.has(item.key)).length, total: work.length,
+        requirements: work.reduce((total, item) => total + (requirementsByArea.get(item.key)?.length ?? 0), 0) };
     });
     const casesFor = (key: string) => (tracked.get(key) ?? []).map(row => {
         const item = project(row, roster, now.slice(0, 10));
@@ -77,7 +79,7 @@ export function complianceResearchWork(db: Store, input: ResearchRequest, staff:
     const items = selected.map(entry => ({
       source: entry,
       cases: casesFor(entry.key),
-      requirements: stateRequirementSources.filter(item => item.areaKey === entry.key)
+      requirements: (requirementsByArea.get(entry.key) ?? [])
         .map(item => ({ source: item.source, cases: casesFor(item.source.key) })),
     }));
     return { kind: "stateRollout", coverage, states, items } as const;

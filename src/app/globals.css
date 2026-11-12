@@ -1256,4 +1256,9 @@ button:disabled { cursor: default; }
 .state-scope-facts { display: grid; gap: 8px; overflow-wrap: anywhere; }
 .state-scope-facts dt { font-weight: 600; }
 .state-scope-facts dd { white-space: pre-wrap; }
+.state-rollout-requirement h4 { font-weight: 600; }
+.state-rollout-requirement > details > summary { cursor: pointer; min-height: 40px; padding-block: 9px; }
+@media (max-width: 600px) {
+  .state-rollout-requirement > details > summary { min-height: 44px; padding-block: 11px; }
+}
 .state-rollout-requirement + .state-rollout-requirement { border-top: 1px solid var(--line); padding-top: 12px; }

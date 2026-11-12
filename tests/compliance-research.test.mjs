@@ -140,10 +140,16 @@ test("specific requirements preserve independent review cases and counsel questi
     AK: ["REQ-AK-LICENSING-COMPANY", "REQ-AK-REPORTING-ANNUAL", "REQ-AK-REPORTING-MCR"],
     HI: ["REQ-HI-LICENSING-COMPANY", "REQ-HI-REPORTING-MCR"],
   };
+  let total = 0;
   for (const [code, expected] of Object.entries(rolloutRequirements)) {
-    const keys = read(code).items.flatMap(item => item.requirements.map(requirement => requirement.source.key));
+    const state = read(code);
+    const keys = state.items.flatMap(item => item.requirements.map(requirement => requirement.source.key));
+    assert.equal(state.states.find(item => item.jurisdiction === code).requirements, keys.length);
     for (const key of expected) assert.ok(keys.includes(key), key);
+    total += keys.length;
   }
+  assert.equal(Object.keys(rolloutRequirements).length, 50);
+  assert.equal(total, stateRequirementSources.length);
   const rmla = f.open("REQ-MI-REPORTING-RMLA");
   const fc = f.open("REQ-MI-REPORTING-FC");
   assert.notEqual(rmla.item.id, fc.item.id);
