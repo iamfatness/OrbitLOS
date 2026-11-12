@@ -4868,6 +4868,41 @@ try {
     if (process.argv.includes("--preview")) await destination.removeMatchedReceiptFixture(restoredCopy);
   });
 
+  await stage("Pilot staff track their own support requests and the owner updates the brokerage queue", async () => {
+    const endpoint = (id = brokerage) => `/api/brokerages?brokerage=${id}`;
+    const exact = (id, workspace) => `${endpoint(workspace)}&view=pilot-support-requests&id=${id}`;
+    const read = async (staff, url) => {
+      const response = await browse(staff, url);
+      assert.equal(response.status, 200);
+      return JSON.parse(response.text()).items;
+    };
+    const id = randomUUID(), other = randomUUID();
+    const report = { type: "pilotFeedback", id, step: "Documents", message: "The fictional document preview needs a second look." };
+    const intake = await Promise.all([post(endpoint(), report, officer), post(endpoint(), report, officer)]);
+    assert.deepEqual(intake, [{ message: "Support request saved." }, { message: "Support request saved." }]);
+    await post(endpoint(), { ...report, id: other, step: "UWM conditions", message: "Check the sample condition after a refresh." }, processor);
+    const adminView = await read(owner, exact(id));
+    assert.equal(adminView[0].ownerName, owner.name);
+    assert.equal(adminView[0].triage.author, officer.email);
+    assert.deepEqual(await read(officer, exact(other)), []);
+    assert.deepEqual(await read(processor, exact(id)), []);
+    const otherBrokerage = await browse(owner, exact(id, lenderBrokerage));
+    assert.ok(otherBrokerage.status === 403 || (otherBrokerage.status === 200 && !JSON.parse(otherBrokerage.text()).items.length));
+    assert.equal((await browse(officer, "/api/brokerages?view=pilot-support-requests")).status, 403);
+    const update = { type: "triagePilotFeedback", id, owner: owner.email, priority: "High", status: "Ready to retest",
+      retest: "Verified with the second fictional PDF.", requesterUpdate: "Try the sample preview again.", revision: 0 };
+    assert.equal((await postResponse(endpoint(), update, processor)).status, 403);
+    assert.equal((await postResponse(endpoint(), { ...update, owner: "inactive@example.test" }, owner)).status, 409);
+    await post(endpoint(), update, owner);
+    await post(endpoint(), update, owner);
+    assert.equal((await postResponse(endpoint(), { ...update, status: "In progress" }, owner)).status, 409);
+    const [staffView] = await read(officer, exact(id));
+    assert.equal(staffView.requesterUpdate, update.requesterUpdate);
+    assert.equal(staffView.status, update.status);
+    assert.equal("triage" in staffView, false);
+    assert.equal((await read(owner, exact(id)))[0].triage.revision, 1);
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

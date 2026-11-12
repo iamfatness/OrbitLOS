@@ -73,7 +73,7 @@ import { beginDocumentUpload, documentCleanupBatch, downloadableDocument, failDo
 import { fileProblem, leadDocumentPortalHttp, privatePdf, uploadBorrowerPdf, uploadSettings, verifyBorrowerEmail, type DocumentEnvironment } from "./lib/document-file-http";
 import { documentKey, type DocumentUploadMode } from "./lib/document-files-model";
 import { z } from "zod";
-import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback, type PilotPortalLink } from "./lib/pilot";
+import { loadProtectedPilotScenario, pilotFeedbackInput, pilotReview, pilotScenarioInput, pilotTriageInput, readPilotSupportRequests, recordPilotMeasurement, savePilotFeedback, triagePilotFeedback, type PilotPortalLink } from "./lib/pilot";
 import { explorationInput, loadExplorationExamples } from "./lib/pilot-exploration";
 import { loanScenarioWork } from "./lib/loan-scenarios";
 import { incomeWorksheetWork } from "./lib/income-review";
@@ -1631,9 +1631,14 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
     return confirmLenderPackagePdf(this.#store, input, objectId);
   }
-  pilotFeedback(staff: WorkspaceStaff, input: unknown) {
+  pilotFeedback(staff: WorkspaceStaff, input: unknown, active: { email: string; name: string; role: string }[] = []) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
-    return savePilotFeedback(this.#store, staff, input);
+    if (input && typeof input === "object" && "type" in input && input.type === "readPilotSupportRequests") {
+      return readPilotSupportRequests(this.#store, staff, input, active);
+    }
+    const admin = active.find(member => member.role === "Admin" && member.email === staff.email) ??
+      active.find(member => member.role === "Admin");
+    return savePilotFeedback(this.#store, staff, input, admin?.email ?? null);
   }
   pilotTriage(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
@@ -2233,6 +2238,19 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       if (request.method === "GET") {
         const view = url.searchParams.get("view");
+        if (view === "pilot-support-requests") {
+          if (!staff.brokerage.pilot || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+            return Response.json({ error: "Support requests are available in your pilot workspace." }, { status: 403, headers });
+          }
+          const active = await directory.complianceRoster(staff, bootstrapEmails);
+          if (!active) return Response.json({ error: "Refresh Team to check your pilot access." }, { status: 403, headers });
+          const result = await workspace.pilotFeedback(staff, {
+            type: "readPilotSupportRequests", id: url.searchParams.get("id") ?? undefined, status: url.searchParams.get("status") ?? undefined,
+            after: url.searchParams.has("afterId") || url.searchParams.has("afterCreatedAt") ?
+              { id: url.searchParams.get("afterId"), createdAt: url.searchParams.get("afterCreatedAt") } : undefined,
+          }, active);
+          return Response.json(result, { status: "kind" in result ? 200 : 400, headers });
+        }
         if (view === "processor-assignment-receipt") {
           if (url.searchParams.get("brokerage") !== staff.brokerage.id || staff.brokerage.role !== "Admin") {
             return Response.json({ error: loanAssignmentUnavailable }, { status: 403, headers });
@@ -2311,8 +2329,11 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
         }
         if (input && typeof input === "object" && "type" in input && input.type === "pilotFeedback") {
           if (!staff.brokerage.pilot || !pilotFeedbackInput.safeParse(input).success) return { status: 400, error: "Choose a pilot step and enter feedback up to 1,000 characters." };
-          const result = await workspace.pilotFeedback(staff, input);
-          return "error" in result ? { status: 409, error: result.error } : { value: result };
+          const active = await directory.complianceRoster(staff, bootstrapEmails);
+          if (!active) return { status: 403, error: "Refresh Team to check your pilot access." };
+          const result = await workspace.pilotFeedback(staff, input, active);
+          if ("error" in result) return { status: 409, error: result.error };
+          return "message" in result ? { value: result } : { status: 400, error: "Choose a valid support request." };
         }
         if (input && typeof input === "object" && "type" in input && input.type === "triagePilotFeedback") {
           if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin") return { status: 403, error: "Only a pilot admin can update feedback." };

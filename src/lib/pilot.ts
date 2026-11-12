@@ -7,6 +7,7 @@ import { easternDate, synchronizeRetentionTasks } from "./client-retention";
 import { startLeadFollowUp } from "./lead-inbox";
 import type { DemoGuideState } from "./brokerage-model";
 import { accessEvent } from "./workspace-access";
+import { pilotSupportRequestQuery, type PilotSupportRequest, type PilotSupportRequestPage } from "./pilot-support-request-model";
 import { applicationSteps, blankApplication, sampleApplication } from "./application-model";
 import { addApplicationActivity, getApplication, saveApplicationVersion } from "./applications";
 import { pilotSegmentLeadPrefix } from "./crm-segment-model";
@@ -32,7 +33,7 @@ export const pilotFeedbackInput = z.object({
 export const pilotTriageInput = z.object({
   type: z.literal("triagePilotFeedback"), id: z.uuid(), owner: z.email().max(254).nullable(),
   status: z.enum(pilotFeedbackStatuses), priority: z.enum(pilotPriorities),
-  retest: z.string().trim().max(500), revision: z.number().int().nonnegative(),
+  retest: z.string().trim().max(500), requesterUpdate: z.string().trim().max(500).optional(), revision: z.number().int().nonnegative(),
 });
 const pilotRunMetrics = {
   seconds: z.number().int().positive().max(86_400),
@@ -334,33 +335,69 @@ export function loadPilotScenario(db: Store, staff: WorkspaceStaff | null, input
   });
 }
 
-export function savePilotFeedback(db: Store, staff: WorkspaceStaff, input: unknown): PilotMutation {
+export function readPilotSupportRequests(db: Store, staff: WorkspaceStaff, input: unknown,
+  active: { email: string; name: string }[]): PilotSupportRequestPage | { error: string } {
+  const query = pilotSupportRequestQuery.safeParse(input);
+  if (!staff.brokerage.pilot || !query.success) return { error: "Choose a valid support request view in this pilot workspace." };
+  const { id, status, after } = query.data;
+  const admin = staff.brokerage.role === "Admin";
+  const pageSize = 20;
+  const rows = db.prepare(`SELECT id, step, message, createdAt, priority, status, owner,
+    coalesce(updatedAt, createdAt) AS updatedAt, requesterUpdate ${admin ? ", author, revision, retest" : ""}
+    FROM pilot_feedback WHERE 1 = 1 ${admin ? "" : "AND author = ?"} ${id ? "AND id = ?" : ""} ${status ? "AND status = ?" : ""}
+      ${after ? "AND (createdAt, id) < (?, ?)" : ""}
+    ORDER BY createdAt DESC, id DESC LIMIT ?`)
+    .all(...(admin ? [] : [staff.email]), ...(id ? [id] : []), ...(status ? [status] : []), ...(after ? [after.createdAt, after.id] : []), pageSize + 1) as unknown as
+    (PilotFeedback & { requesterUpdate: string; updatedAt: string })[];
+  const names = new Map(active.map(member => [member.email, member.name]));
+  const items = rows.slice(0, pageSize).map(({ id, step, message, createdAt, priority, status, owner, requesterUpdate, updatedAt,
+    author, revision, retest }): PilotSupportRequest => {
+    const ownerName = owner ? names.get(owner) ?? null : null;
+    return { id, step, message, createdAt, priority, status, ownerName, needsOwner: !ownerName && status !== "Closed",
+      requesterUpdate, updatedAt, ...(admin ? { triage: { author, owner, revision, retest } } : {}) };
+  });
+  const last = items.at(-1);
+  return { kind: "pilotSupportRequests", items, next: rows.length > pageSize && last ? { id: last.id, createdAt: last.createdAt } : null };
+}
+
+export function savePilotFeedback(db: Store, staff: WorkspaceStaff, input: unknown, owner: string | null = null): PilotMutation {
   const parsed = pilotFeedbackInput.safeParse(input);
   if (!staff.brokerage.pilot || !parsed.success) return { error: "Choose a pilot step and enter feedback up to 1,000 characters." } as const;
   const { id, step, message } = parsed.data;
   return db.transaction(() => {
     const existing = db.prepare("SELECT author, step, message FROM pilot_feedback WHERE id = ?").get(id);
     if (existing && (existing.author !== staff.email || existing.step !== step || existing.message !== message)) {
-      return { error: "Start a new feedback entry and try again." } as const;
+      return { error: "Start a new support request and try again." } as const;
     }
-    if (!existing) db.prepare("INSERT INTO pilot_feedback (id, author, step, message, createdAt) VALUES (?, ?, ?, ?, ?)").run(id, staff.email, step, message, new Date().toISOString());
-    return { message: "Feedback saved for the pilot admin." };
+    if (!existing) {
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO pilot_feedback (id, author, step, message, createdAt, owner) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(id, staff.email, step, message, now, owner);
+      accessEvent(db, staff, "Recorded pilot support request", id, now);
+    }
+    return { message: "Support request saved." };
   });
 }
 
 export function triagePilotFeedback(db: Store, staff: WorkspaceStaff, input: unknown): PilotMutation {
   const parsed = pilotTriageInput.safeParse(input);
   if (!staff.brokerage.pilot || staff.brokerage.role !== "Admin" || !parsed.success) return { error: "Only a pilot admin can update feedback." };
-  const { id, owner, status, priority, retest, revision } = parsed.data;
+  const { id, owner, status, priority, retest, requesterUpdate, revision } = parsed.data;
   if (status === "Closed" && !retest) return { error: "Record a retest result before closing this issue." };
   if (status !== "Open" && !owner) return { error: "Choose a staff owner before moving this issue forward." };
   return db.transaction(() => {
-    const before = db.prepare("SELECT revision FROM pilot_feedback WHERE id = ?").get(id);
-    if (!before || before.revision !== revision) return { error: "Feedback changed. Refresh Team before updating it." };
-    db.prepare(`UPDATE pilot_feedback SET owner = ?, status = ?, priority = ?, retest = ?, revision = revision + 1
-      WHERE id = ?`).run(owner, status, priority, retest, id);
-    accessEvent(db, staff, `Updated pilot feedback · ${status}`, id, new Date().toISOString());
-    return { message: "Pilot feedback updated." };
+    const before = db.prepare("SELECT revision, owner, status, priority, retest, requesterUpdate FROM pilot_feedback WHERE id = ?").get(id);
+    if (before && before.revision === revision + 1 && before.owner === owner && before.status === status &&
+        before.priority === priority && before.retest === retest && (requesterUpdate === undefined || before.requesterUpdate === requesterUpdate)) {
+      return { message: "Support request updated." };
+    }
+    if (!before || before.revision !== revision) return { error: "This request changed. Refresh the request to review the saved version." };
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE pilot_feedback SET owner = ?, status = ?, priority = ?, retest = ?,
+      requesterUpdate = coalesce(?, requesterUpdate), updatedAt = ?, revision = revision + 1
+      WHERE id = ?`).run(owner, status, priority, retest, requesterUpdate ?? null, now, id);
+    accessEvent(db, staff, `Updated pilot support request · ${status}`, id, now);
+    return { message: "Support request updated." };
   });
 }
 

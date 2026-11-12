@@ -101,6 +101,7 @@ export default function DemoPage() {
           <li>Claim an imported lead from the shared queue and open the prefilled 1003 directly from the campaign. The card shows the new loan even in a filtered call queue. Scheduled callbacks follow the loan, and missed deadlines stay visible in reporting.</li>
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Save the two runs for the same fictional case as you finish them. Compare staff time and handoffs, and record any external steps or blockers.</li>
+          <li>File a fictional pilot support request and follow its owner and status in Team.</li>
           <li>Open the work behind pilot support counts and download a redacted report for handoffs and recovery.</li>
           <li>Visit another brokerage workspace while keeping the default you chose for sign-in.</li>
           <li>Invite staff to sign in with a code sent to their work email or continue with Google.</li>

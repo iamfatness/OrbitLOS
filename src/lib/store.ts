@@ -1209,6 +1209,12 @@ export function initializeStore(db: Store, seedDemo = true) {
         ALTER TABLE pilot_feedback ADD COLUMN retest TEXT NOT NULL DEFAULT '';
         ALTER TABLE pilot_feedback ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;`);
     }
+    if (!db.prepare("PRAGMA table_info(pilot_feedback)").all().some((column) => column.name === "requesterUpdate")) {
+      db.exec(`ALTER TABLE pilot_feedback ADD COLUMN requesterUpdate TEXT NOT NULL DEFAULT '';
+        ALTER TABLE pilot_feedback ADD COLUMN updatedAt TEXT;`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS pilot_support_by_created ON pilot_feedback(createdAt DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS pilot_support_by_author ON pilot_feedback(author, createdAt DESC, id DESC);`);
     const portalColumns = db.prepare("PRAGMA table_info(realtor_portals)").all();
     if (!portalColumns.some((column) => column.name === "officerEmail")) {
       db.exec("ALTER TABLE realtor_portals ADD COLUMN officerEmail TEXT; ALTER TABLE realtor_portals ADD COLUMN officer TEXT NOT NULL DEFAULT '';");

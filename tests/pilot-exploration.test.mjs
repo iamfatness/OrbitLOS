@@ -10,7 +10,7 @@ const {readLeadInbox}=await import('../src/lib/lead-inbox-query.ts');
 const {readConversations}=await import('../src/lib/conversations.ts');
 const {readProcessorQueue}=await import('../src/lib/processor-queue.ts');
 const {brokerageFinanceWork}=await import('../src/lib/brokerage-finance.ts');
-const {loadPilotScenario}=await import('../src/lib/pilot.ts');
+const {loadPilotScenario,readPilotSupportRequests,savePilotFeedback,triagePilotFeedback}=await import('../src/lib/pilot.ts');
 const {loanReviewWork}=await import('../src/lib/loan-reviews.ts');
 const {readDraftQueue}=await import('../src/lib/communication-draft-query.ts');
 const {officerDashboardWork}=await import('../src/lib/officer-dashboard.ts');
@@ -127,4 +127,50 @@ test('invited evaluators receive complete personal data without activating acces
  assert.ok(loadExplorationExamples(db,admin,{...input,officerEmail:'unknown@example.test'},brokerageMembers(db,admin.brokerage.id,[]),now).error);
  assert.ok(loadExplorationExamples(db,admin,{...input,officerEmail:processor.email},brokerageMembers(db,admin.brokerage.id,[]),now).error);
  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
+});
+
+
+test('pilot support preserves existing feedback, pages consistently and protects private triage', t => {
+ const {db,admin,officer,processor,members}=fixture(t);
+ const id=crypto.randomUUID(), legacy=crypto.randomUUID();
+ const read=(staff,query={},roster=members)=>readPilotSupportRequests(db,staff,{type:'readPilotSupportRequests',...query},roster);
+ db.prepare('INSERT INTO pilot_feedback(id,author,step,message,createdAt) VALUES (?,?,?,?,?)')
+   .run(legacy,processor.email,'Pricing','Legacy fictional report','2026-10-01T12:00:00.000Z');
+ const input={type:'pilotFeedback',id,step:'Documents',message:'Fictional review issue'};
+ assert.ok(savePilotFeedback(db,officer,input,admin.email).message);
+ assert.ok(savePilotFeedback(db,officer,input,processor.email).message);
+ assert.ok(savePilotFeedback(db,processor,input,admin.email).error);
+ assert.equal(read(officer,{id}).items[0].ownerName,admin.name);
+ assert.equal(read(processor,{id}).items.length,0);
+ assert.equal(read(processor,{id:legacy}).items[0].updatedAt,'2026-10-01T12:00:00.000Z');
+ assert.equal(read(processor,{id:legacy}).items[0].requesterUpdate,'');
+ assert.equal(read(admin,{id},members.filter(member=>member.email!==admin.email)).items[0].needsOwner,true);
+
+ const update={type:'triagePilotFeedback',id,revision:0,owner:admin.email,status:'Ready to retest',priority:'High',
+   requesterUpdate:'Try the sample document again.',retest:'Private test notes'};
+ assert.ok(triagePilotFeedback(db,officer,update).error);
+ assert.ok(triagePilotFeedback(db,admin,{...update,status:'Closed',retest:''}).error);
+ assert.ok(triagePilotFeedback(db,admin,update).message);
+ assert.ok(triagePilotFeedback(db,admin,update).message);
+ assert.match(triagePilotFeedback(db,admin,{...update,status:'Open'}).error,/changed/);
+ const saved=read(admin,{id}).items[0];
+ assert.equal(saved.triage.revision,1);
+ assert.equal(saved.triage.retest,update.retest);
+ assert.equal(read(officer,{id}).items[0].requesterUpdate,update.requesterUpdate);
+ assert.equal('triage' in read(officer,{id}).items[0],false);
+ assert.equal(read(admin,{status:'Ready to retest'}).items[0].id,id);
+ assert.ok(read(admin,{id,status:'Open'}).error);
+ assert.ok(read({...admin,brokerage:{...admin.brokerage,pilot:false}}).error);
+
+ for(let index=0;index<21;index++){
+   db.prepare('INSERT INTO pilot_feedback(id,author,step,message,createdAt) VALUES (?,?,?,?,?)')
+     .run(crypto.randomUUID(),officer.email,'Pricing','Paged fictional report','2026-10-05T12:00:00.000Z');
+ }
+ const first=read(officer);
+ assert.equal(first.items.length,20);
+ assert.ok(first.next);
+ const last=read(officer,{after:first.next});
+ assert.equal(last.items.length,2);
+ assert.equal(last.next,null);
+ assert.equal(new Set([...first.items,...last.items].map(item=>item.id)).size,22);
 });

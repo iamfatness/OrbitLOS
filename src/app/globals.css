@@ -845,6 +845,15 @@ button:disabled { cursor: default; }
 .team-access-heading { flex-wrap: wrap; }
 .team-access-panel .document-item-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .staff-invite-feedback p { overflow-wrap: anywhere; }
+.pilot-support-requests h3 { font-weight: 650; }
+.pilot-support-requests .form-grid { max-width: 48rem; }
+.pilot-support-requests .form-grid .field { max-width: none; }
+.pilot-support-assignment { grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1fr)); }
+.pilot-support-notes { align-items: start; }
+.pilot-support-notes .muted { margin-top: 5px; }
+@media (max-width: 650px) {
+  .pilot-support-requests .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 520px) {
   .staff-invite-form .staff-invite-address { flex-basis: 100%; max-width: none; }
 }

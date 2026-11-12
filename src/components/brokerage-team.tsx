@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
+import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -12,8 +12,9 @@ import { TeamLoanAssignment } from "./loan-assignment";
 import { ManageDocumentTemplates } from "./document-checklist-templates";
 import { ManageFeeTemplates } from "./fee-templates";
 import { BrokerageBranches } from "./brokerage-branches";
+import { PilotSupportRequests } from "./pilot-support-requests";
 
-const teamPanels = ["Staff access", "Branches", "Loan settings", "Workspaces", "Pilot tools", "Access history"] as const;
+const teamPanels = ["Staff access", "Branches", "Loan settings", "Workspaces", "Pilot tools", "Support requests", "Access history"] as const;
 export type TeamPanel = (typeof teamPanels)[number];
 
 export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLoan, openDepartureWork, openRouting }: {
@@ -40,12 +41,12 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   useEffect(() => { if (message) feedback.current?.focus(); }, [message]);
   useEffect(() => { if (invitation) inviteFeedback.current?.focus(); }, [invitation]);
   const [confirmingReset, setConfirmingReset] = useState(false);
-  const feedbackAttempt = useRef<{ id: string; fields: string } | null>(null);
   const measurementAttempt = useRef<{ id: string; fields: string } | null>(null);
   const admin = staff.brokerage.role === "Admin";
   const pilot = staff.brokerage.pilot;
   const canUseSampleTools = pilot || staff.brokerage.id === demoBrokerageId;
-  const panels = teamPanels.filter((item) => (item !== "Branches" && item !== "Pilot tools") || canUseSampleTools);
+  const panels = teamPanels.filter((item) => item === "Support requests" ? pilot :
+    (item !== "Branches" && item !== "Pilot tools") || canUseSampleTools);
   const activePanel = panels.includes(panel) ? panel : "Staff access";
   const activeMembers = settings?.members.filter((member) => member.status === "Active") ?? [];
   const scenarioOwners = activeMembers.filter((member) => member.role !== "Processor");
@@ -133,19 +134,6 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
     void change({ type: "loadPilotScenario", id: scenarioAttempt.current.id, previousId, officerEmail, presenter }, () => {
       scenarioAttempt.current = null;
       setConfirmingReset(false);
-    });
-  }
-
-  function sendFeedback(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const fields = { step: data.get("step"), message: data.get("message") };
-    const signature = JSON.stringify(fields);
-    if (feedbackAttempt.current?.fields !== signature) feedbackAttempt.current = { id: crypto.randomUUID(), fields: signature };
-    void change({ type: "pilotFeedback", ...fields, id: feedbackAttempt.current.id }, () => {
-      form.reset();
-      feedbackAttempt.current = null;
     });
   }
 
@@ -310,37 +298,8 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
         </tr>)}</tbody>
       </table></div>}
     </section>}
-    {pilot && (!admin || activePanel === "Pilot tools") && <section className="pipeline relationship-panel" aria-label="Pilot feedback">
-      <h2>Pilot feedback</h2>
-      <p className="muted">Describe the workflow and what happened using fictional examples. Keep application answers, links, and documents out of feedback.</p>
-      <form className="record-form" onSubmit={sendFeedback}>
-        <label className="field">Workflow step<select name="step" required><option value="">Choose a step</option>
-          {pilotSteps.map((step) => <option key={step}>{step}</option>)}
-        </select></label>
-        <label className="field">Feedback<textarea name="message" required maxLength={1000} rows={3} /></label>
-        <div><Button size="sm" type="submit" disabled={busy}>Send pilot feedback</Button></div>
-      </form>
-      {admin && settings && (settings.pilotFeedback?.length ? <ul className="document-list">{settings.pilotFeedback.map((item) => <li className="document-item" key={item.id}>
-        <div className="document-item-head"><strong>{item.step}</strong><span className="pill">{item.priority} · {item.status}</span></div>
-        <p>{item.message}</p><small className="muted">{item.author} · {dateTime(item.createdAt)} ET</small>
-        <details className="loan-task-create"><summary>Update feedback</summary>
-          <form className="record-form" key={item.revision} onSubmit={(event) => {
-            event.preventDefault();
-            const data = new FormData(event.currentTarget);
-            void change({ type: "triagePilotFeedback", id: item.id, revision: item.revision, owner: data.get("owner") || null,
-              status: data.get("status"), priority: data.get("priority"), retest: data.get("retest") });
-          }}>
-            <label className="field">Issue owner<select name="owner" defaultValue={item.owner ?? ""}>
-              <option value="">Unassigned</option>{activeMembers.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.email}</option>)}
-            </select></label>
-            <label className="field">Priority<select name="priority" defaultValue={item.priority}>{pilotPriorities.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label className="field">Issue status<select name="status" defaultValue={item.status}>{pilotFeedbackStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
-            <label className="field">Retest result<textarea name="retest" maxLength={500} defaultValue={item.retest} rows={2} /></label>
-            <div><Button type="submit" size="sm" disabled={busy}>Save feedback status</Button></div>
-          </form>
-        </details>
-      </li>)}</ul> : <p className="muted">Staff feedback will appear here.</p>)}
-    </section>}
+    {pilot && (!admin || activePanel === "Support requests") &&
+      <PilotSupportRequests key={staff.brokerage.id} endpoint={endpoint} admin={admin} members={activeMembers} />}
     {admin && settings && activePanel === "Staff access" &&
       <section className="pipeline relationship-panel team-access-panel" aria-label="Staff access">
         <div className="section-heading team-access-heading"><h2>Staff access</h2>
