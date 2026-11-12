@@ -98,6 +98,7 @@ export default function DemoPage() {
           <li>Save the two runs for the same fictional case as you finish them. Compare staff time and handoffs, and record any external steps or blockers.</li>
           <li>Open the work behind pilot support counts and download a redacted report for handoffs and recovery.</li>
           <li>Keep your default brokerage when you visit a demo or open another workspace during a pause.</li>
+          <li>Invite staff to sign in with a code sent to their work email or continue with Google.</li>
           <li>Preview a pilot workspace restore and see if the checkpoint would change processor access or discard assignment receipts.</li>
         </ul>
         <p className="marketing-request-note">In a fresh hosted pilot, the guided walkthrough reached all seven steps and opened a separate rate-watch refinance in 3 minutes 58 seconds. One signed-in staff account worked the CSV import, mock lender clearance with two sample PDFs, funding, and repeat-client follow-up. The borrower and realtor used separate fictional views. Timing excluded sign-in and spoken narration.</p>
