@@ -573,3 +573,7 @@ Impeccable Polish informed the hierarchy between dates, outcome and exact source
 ### FV7 evidence workpaper
 
 Reused Orbit’s accepted quarter review, upload, record and download patterns. Impeccable Polish informed separating the saved version, evidence input and result. UI UX Pro Max recovery guidance informed the focused error and retry. The first phone capture showed crowded columns and zero-dollar amounts formatted as a dash. The final phone layout stacks intake channels and displays $0 for reviewed zeroes. Reviewed the populated result, selected loan and feedback at desktop, portrait and phone widths.
+
+### Saved FV7 workpapers
+
+Reused Orbit’s native disclosure, result, history list and download patterns. Impeccable Polish informed keeping the saved quarter version and workpaper number next to the result. UI UX Pro Max keyboard guidance informed visible focus after opening a saved record. The populated list, selected reconciled workpaper and separate workpaper with differences were inspected at desktop, portrait and phone widths.

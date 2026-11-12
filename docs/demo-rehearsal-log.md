@@ -1307,3 +1307,7 @@ Worker `49c96af9-270a-4478-b13b-d6dcf701db48` serves app `f24e0c333654`. A ficti
 ### FV7 saved quarter evidence workpaper
 
 Worker `02fd8b07-1849-4469-a5ee-3585f768f1a0` serves app `9a71b4eb0f20`. A fictional owner selected the earlier of two closed quarter versions, downloaded an exact-evidence template, corrected invalid JSON, and verified a checksum error on the other version. The matching version produced direct and third-party results, a state filter, loan facts drilldown with return focus, and a versioned workpaper download. A modified prior balance remained open for review. Hosted public Demo and signed-out routes passed. No provider actions or filing occurred.
+
+### Saved FV7 workpaper history
+
+Worker `1f6fb9e7-dd3d-43ed-af10-ac7a6a496f1c` serves app `52d4a57a0333`. The browser dropped a fictional owner’s successful save response and retried to the same receipt. A second evidence file saved a separate result with a difference. After reload the owner reopened the earlier review v1 workpaper while review v2 was current, recovered the exact uploaded evidence bytes and saw the original totals. Tests covered access, pagination and corrupted evidence. Public Demo and signed-out routes passed. No filing or provider action occurred.
