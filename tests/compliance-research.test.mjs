@@ -275,6 +275,43 @@ test("state scope saves an exact entity and source basis without granting approv
   assert.equal(work("stateScope", { ...query, revision: 1 }).sourceChanged, true);
   assert.equal(work("stateScope", { ...query, jurisdiction: "OH" }).revision, 0);
 });
+
+test("owner home separates current and changed company state records and pages the exact targets", t => {
+  const f = fixture(t);
+  const work = (type, input, actor = f.owner, target = f.tenant) =>
+    complianceCaseWork(f.db, { type, input }, f.staff(actor, target), target, f.roster, now);
+  const company = name => work("program", { operation: "createEntity", requestId: crypto.randomUUID(), name, nmls: "",
+    scopeNote: "Fictional broker scope" }).entities.find(entity => entity.name === name).id;
+  const north = company("Fictional North LLC");
+  const south = company("Fictional South LLC");
+  const facts = { activity: "Brokerage", lienScope: "First lien", companyEvidence: "", officeEvidence: "", originatorEvidence: "",
+    products: "Closed-end purchase", responsibility: "", reportingBasis: "", counselPacketReference: "" };
+  const save = (entityId, jurisdiction, expectedRevision = 0) =>
+    work("stateScope", { operation: "save", entityId, jurisdiction, expectedRevision, facts, requestId: crypto.randomUUID() });
+  const home = (stateOffset = 0) => work("program", { operation: "ownerHome", stateOffset });
+  for (const jurisdiction of ["MI", "OH", "WI", "IN", "IL"]) assert.equal(save(north, jurisdiction).revision, 1);
+  assert.equal(save(south, "MI").revision, 1);
+  assert.equal(home().stateScopes.total, 6);
+  assert.equal(home().stateScopes.needsRecheck, 0);
+  assert.equal(home().stateScopes.items.length, 5);
+  assert.equal(home(5).stateScopes.items.length, 1);
+  const license = { operation: "saveLicense", requestId: crypto.randomUUID(), id: crypto.randomUUID(), entityId: south,
+    revision: 0, jurisdiction: "MI", licenseType: "Fictional broker authority", licenseNumber: "FICTIONAL-009",
+    status: "Active", effectiveOn: null, expiresOn: null, evidence: "Fictional register reference" };
+  assert.equal(work("program", license).kind, "programLicenses");
+  assert.deepEqual(home().stateScopes.items[0], { entityId: south, entityName: "Fictional South LLC", jurisdiction: "MI",
+    revision: 1, changes: ["License records changed"] });
+  assert.equal(save(south, "MI", 1).revision, 2);
+  assert.equal(home().stateScopes.needsRecheck, 0);
+  f.db.prepare("UPDATE compliance_state_scope_versions SET sourceHash=?,licenseSnapshots=NULL WHERE entityId=? AND jurisdiction=? AND revision=2")
+    .run("previous research source", south, "MI");
+  f.db.prepare("UPDATE compliance_program_entities SET name=? WHERE id=?").run("Fictional South Updated LLC", south);
+  assert.deepEqual(home().stateScopes.items[0], { entityId: south, entityName: "Fictional South Updated LLC", jurisdiction: "MI",
+    revision: 2, changes: ["Company details changed", "Research sources changed", "License records were not captured"] });
+  assert.ok(work("program", { operation: "ownerHome" }, f.lo).error);
+  assert.equal(work("program", { operation: "ownerHome" }, f.owner, crypto.randomUUID()).stateScopes.total, 0);
+});
+
 test("state requirement evidence is versioned by entity, state, source and exact scope", t => {
   const f = fixture(t);
   const work = (type, input, actor = f.owner, target = f.tenant) =>

@@ -84,13 +84,14 @@ function ResearchLinks({ source }: { source: ResearchSource }) {
     <li key={link.url}><a className="underline" target="_blank" rel="noreferrer" href={link.url}>{link.label}</a></li>)}</ul>;
 }
 
-export function ComplianceResearch({ brokerageId, paused, startWithState, active, openReview }: {
+export function ComplianceResearch({ brokerageId, paused, startWithState, active, openReview, stateTarget }: {
   brokerageId: string; paused: boolean; startWithState?: boolean; active: boolean;
   openReview: (target: import("@/lib/compliance-program-model").ProgramReviewTarget, origin: string) => void;
+  stateTarget?: import("@/lib/compliance-program-model").StateScopeTarget;
 }) {
   const [view, setView] = useState<"Sources" | "Research work" | "State rollout">(startWithState ? "State rollout" : "Sources");
   const [jurisdiction, setJurisdiction] = useState("US");
-  const [rolloutState, setRolloutState] = useState(startWithState ? "" : "MI");
+  const [rolloutState, setRolloutState] = useState(stateTarget?.jurisdiction ?? (startWithState ? "" : "MI"));
   const rolloutSelect = useRef<HTMLSelectElement>(null);
   const rolloutSearch = useRef<HTMLInputElement>(null);
   const [requirementSearch, setRequirementSearch] = useState("");
@@ -238,7 +239,8 @@ export function ComplianceResearch({ brokerageId, paused, startWithState, active
             : `${selectedState?.requirements} specific requirements · ${rollout.states.filter(item => item.tracked > 0).length} of ${rollout.states.length} states have tracked work`}</p>
         </div>
         <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState}
-          paused={paused} initiallyOpen={startWithState} active={active} openReview={openReview} />
+          paused={paused} initiallyOpen={startWithState} initialEntityId={stateTarget?.jurisdiction === rolloutState ? stateTarget.entityId : undefined}
+          active={active} openReview={openReview} />
         <details className="document-form"><summary>Tracking by state</summary>
           <ul className="document-list">{rollout.states.map(item => <li key={item.jurisdiction} className="document-item">
             <div><strong>{item.name}</strong><p>{item.tracked} of {item.total} review areas tracked · {item.requirements} specific requirements</p></div>

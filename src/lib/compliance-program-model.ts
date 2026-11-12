@@ -85,7 +85,7 @@ const change = { requestId: z.uuid() };
 const scope = { entityId: z.uuid(), month: programMonth };
 export const programRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("entities") }),
-  z.strictObject({ operation: z.literal("ownerHome"), branchId: z.uuid().optional() }),
+  z.strictObject({ operation: z.literal("ownerHome"), branchId: z.uuid().optional(), stateOffset: z.int().min(0).max(2500).optional() }),
   z.strictObject({ operation: z.literal("createEntity"), ...change, name: title, nmls: z.string().regex(/^\d{0,15}$/), scopeNote: note }),
   z.strictObject({ operation: z.literal("licenseRenewals"), scope: z.enum(["mine", "brokerage"]).optional(), after: licenseRenewalCursor.optional() }),
   z.strictObject({ operation: z.literal("licenseHistory"), entityId: z.uuid(), licenseId: z.uuid() }),
@@ -112,10 +112,18 @@ export type ProgramMonth = { kind: "programMonth"; entity: ProgramEntity; month:
   history: { id: string; actor: string; at: string; action: string; note: string }[]; moreHistory: boolean;
   coverage: "Regulatory applicability not evaluated" };
 
+export type StateScopeTarget = { entityId: string; jurisdiction: string };
+export const stateScopePageSize = 5;
+export type StateScopeSummary = StateScopeTarget & {
+  entityName: string; revision: number;
+  changes: ("Company details changed" | "License records changed" | "Research sources changed" | "License records were not captured")[];
+};
+
 export type ComplianceOwnerHomeData = {
   kind: "ownerHome"; branchId?: string; asOf: string; through: string;
   branches: { id: string; name: string; licenseCount: number; active: boolean }[];
   entityCount: number; companyLicenseCount: number; savedStateCount: number;
+  stateScopes: { total: number; needsRecheck: number; items: StateScopeSummary[] };
   renewals: { total: number; items: (LicenseRenewalItem & { branchId: string | null })[] };
   reviews: { total: number; items: {
     id: string; entityId: string; entityName: string; month: string; title: string; internalTarget: string;

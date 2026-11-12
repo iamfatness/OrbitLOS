@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { LicenseRenewalTarget, ProgramReviewTarget } from "@/lib/compliance-program-model";
+import type { LicenseRenewalTarget, ProgramReviewTarget, StateScopeTarget } from "@/lib/compliance-program-model";
 import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
 import type { ReportingPeriod } from "@/lib/call-report-readiness-model";
 import type { MigrationDestination } from "@/lib/migration-record-model";
@@ -41,6 +41,8 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
   const [review, setReview] = useState<ProgramReviewTarget>();
   const [obligationVisit, setObligationVisit] = useState<{ itemId: string; returning: boolean }>();
   const [scopeVisit, setScopeVisit] = useState<string>();
+  const [stateTarget, setStateTarget] = useState<StateScopeTarget>();
+  const [stateOffset, setStateOffset] = useState(0);
   const [report, setReport] = useState<{ basis: ObligationReviewBasis; entity: string; period: ReportingPeriod }>();
   const reportOpen = !!report;
   const reportHeading = useRef<HTMLHeadingElement>(null);
@@ -70,6 +72,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     if (next === "Home") {
       setObligationVisit(undefined);
       setScopeVisit(undefined);
+      setStateTarget(undefined);
     }
     focusPanel.current = next !== "Home" || !returningTo;
     if (next !== "Home") setReturningTo(origin);
@@ -109,6 +112,7 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
     </section>}
     <section ref={panel} tabIndex={-1} hidden={!!report} aria-label={`Compliance ${view.toLowerCase()}`}>
       {view === "Home" && <ComplianceOwnerHome brokerageId={brokerageId} paused={paused} branchId={branchId} onBranch={onBranch} returningTo={returningTo}
+        stateOffset={stateOffset} onStatePage={setStateOffset} openState={(target, origin) => { setStateTarget(target); showArea("Research & gaps", origin); }}
         onSetup={openSetup} openArea={showArea} openFinding={openLoan}
         openFilingArchive={() => showArea("Filing history", "compliance-filing-history")}
         openPolicyFollowUp={() => showArea("Policy acknowledgments", "compliance-policy-follow-up")}
@@ -143,7 +147,8 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       </div>}
       {view === "Training & policies" && <ComplianceLearning key={brokerageId} brokerageId={brokerageId} paused={paused} admin />}
       {(view === "Research & gaps" || scopeVisit) && <div hidden={view !== "Research & gaps"}>
-        <ComplianceResearch key={brokerageId} brokerageId={brokerageId} paused={paused} startWithState={setup === "states"}
+        <ComplianceResearch key={brokerageId} brokerageId={brokerageId} paused={paused} startWithState={setup === "states" || !!stateTarget}
+          stateTarget={stateTarget}
           active={view === "Research & gaps"} openReview={(target, origin) => {
             setScopeVisit(origin);
             setReview(target);

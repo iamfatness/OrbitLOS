@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
-import type { LicenseRenewalTarget, ProgramReviewTarget } from "@/lib/compliance-program-model";
+import { stateScopePageSize, type LicenseRenewalTarget, type ProgramReviewTarget, type StateScopeTarget } from "@/lib/compliance-program-model";
 import { propertyStateName } from "@/lib/property-state";
 import { observeTabReturn } from "@/lib/tab-return";
 import { Button } from "./ui/button";
@@ -23,17 +23,19 @@ function WorkRow({ title, children, action, onOpen, id }: {
   </li>;
 }
 
-export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, returningTo, onSetup, openLicense, openReview, openFinding, openArea, openFilingArchive, openPolicyFollowUp }: {
+export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, returningTo, onSetup, openLicense, openReview, openFinding, openArea, openFilingArchive, openPolicyFollowUp,
+  stateOffset, onStatePage, openState }: {
   brokerageId: string; paused: boolean; branchId: string; onBranch: (id: string) => void; returningTo?: string;
   onSetup: (step: ComplianceSetupAction, createCompany?: boolean) => void; openLicense: (target: LicenseRenewalTarget) => void;
   openReview: (target: ProgramReviewTarget) => void; openFinding: (loanId: string, caseId: string) => void; openArea: (area: WorkArea) => void; openFilingArchive?: () => void; openPolicyFollowUp?: () => void;
+  stateOffset: number; onStatePage: (offset: number) => void; openState: (target: StateScopeTarget, origin: string) => void;
 }) {
-  const [response, setResponse] = useState<{ branch: string; data: Home | { error: string } }>();
+  const [response, setResponse] = useState<{ branch: string; stateOffset: number; data: Home | { error: string } }>();
   const [revision, refresh] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const focusReturn = useRef(returningTo);
   const retryFocus = useRef<HTMLButtonElement>(null);
-  const result = response?.branch === branchId ? response.data : undefined;
+  const result = response?.branch === branchId && response.stateOffset === stateOffset ? response.data : undefined;
   const home = result && "kind" in result ? result : undefined;
   const branch = home?.branches.find(item => item.id === home.branchId);
 
@@ -45,16 +47,16 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
       if (reading) return;
       reading = true;
       try {
-        const data = await accessComplianceCases({ type: "program", input: { operation: "ownerHome", branchId: branchId || undefined } }, brokerageId);
-        if (active && isCurrent() && ("error" in data || data.kind === "ownerHome")) setResponse({ branch: branchId, data });
+        const data = await accessComplianceCases({ type: "program", input: { operation: "ownerHome", branchId: branchId || undefined, stateOffset } }, brokerageId);
+        if (active && isCurrent() && ("error" in data || data.kind === "ownerHome")) setResponse({ branch: branchId, stateOffset, data });
       } catch {
-        if (active && isCurrent()) setResponse({ branch: branchId, data: { error: "Could not load Compliance work." } });
+        if (active && isCurrent()) setResponse({ branch: branchId, stateOffset, data: { error: "Could not load Compliance work." } });
       } finally { reading = false; }
     }
     void read(() => true);
     const stop = observeTabReturn(document, window, isCurrent => void read(isCurrent));
     return () => { active = false; stop(); };
-  }, [brokerageId, branchId, paused, revision]);
+  }, [brokerageId, branchId, paused, revision, stateOffset]);
 
   useEffect(() => {
     const target = focusReturn.current;
@@ -64,7 +66,10 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
       const details = button.closest("details");
       if (details) details.open = true;
       button.focus();
-    } else (heading.current ?? retryFocus.current)?.focus();
+    } else {
+      const stateHeading = target.startsWith("compliance-state-") ? document.getElementById("compliance-state-records") : null;
+      (stateHeading ?? heading.current ?? retryFocus.current)?.focus();
+    }
     focusReturn.current = undefined;
   }, [result, paused]);
 
@@ -72,6 +77,7 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
   const renewalTotal = home?.renewals.total ?? 0;
   const reviewTotal = home?.reviews.total ?? 0;
   const findingTotal = home?.fileFindings?.total ?? 0;
+  const stateScopes = home?.stateScopes;
   const hasWork = renewalTotal + reviewTotal + findingTotal > 0;
   const activeBranches = home?.branches.filter(item => item.active) ?? [];
   const missingBranchRecords = activeBranches.filter(item => !item.licenseCount).length;
@@ -157,6 +163,28 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
         </WorkRow>)}</ul>
         {findingTotal > home.fileFindings.items.length && <Button size="sm" variant="outline" onClick={() => openArea("Work queue")}>Open work queue ({findingTotal} findings)</Button>}
       </section>}
+    </section>}
+    {stateScopes && stateScopes.total > 0 && <section className="compliance-home-attention" aria-labelledby="compliance-state-records">
+      <h2 id="compliance-state-records" tabIndex={-1}>Saved state records</h2>
+      <p className="muted">{stateScopes.needsRecheck} {stateScopes.needsRecheck === 1 ? "needs" : "need"} recheck · {stateScopes.total - stateScopes.needsRecheck} awaiting scope review</p>
+      <ul className="compliance-home-list">{stateScopes.items.map(item => {
+        const id = `compliance-state-${item.entityId}-${item.jurisdiction}`;
+        return <WorkRow key={id} id={id} title={`${propertyStateName(item.jurisdiction)} · ${item.entityName}`} action="Open state record"
+          onOpen={() => openState({ entityId: item.entityId, jurisdiction: item.jurisdiction }, id)}>
+          <p>{item.changes.length ? "Needs recheck" : "Awaiting scope review"} · Version {item.revision}</p>
+          {!!item.changes.length && <p className="muted">{item.changes.join(" · ")}</p>}
+        </WorkRow>;
+      })}</ul>
+      {stateScopes.total > stateScopePageSize && <div className="loan-application-actions">
+        <Button size="sm" variant="outline" className="min-h-11" disabled={!stateOffset} onClick={() => {
+          focusReturn.current = "compliance-state-records";
+          onStatePage(Math.max(0, stateOffset - stateScopePageSize));
+        }}>Previous states</Button>
+        <Button size="sm" variant="outline" className="min-h-11" disabled={stateOffset + stateScopePageSize >= stateScopes.total} onClick={() => {
+          focusReturn.current = "compliance-state-records";
+          onStatePage(stateOffset + stateScopePageSize);
+        }}>More states</Button>
+      </div>}
     </section>}
     {!showSetupFirst && setup}
     {home && (openFilingArchive || openPolicyFollowUp) && <section className="compliance-home-shortcuts" aria-labelledby="compliance-records-heading">

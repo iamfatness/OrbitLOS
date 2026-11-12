@@ -1,7 +1,7 @@
 import { easternDate } from "./client-retention";
 import type { Store } from "./store";
 import { complianceProgramWork } from "./compliance-program";
-import { stateScopeLicenseSnapshot } from "./compliance-state-scope";
+import { stateScopeLicenseSnapshot } from "./compliance-state-basis";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
 import { filingArchiveRow, filingReceiptFields, obligationRequest, obligationPeriod, obligationPlanningNotice, type ObligationDraft, type ObligationRequest,
