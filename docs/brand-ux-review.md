@@ -593,3 +593,7 @@ Reused Orbit’s queue filters, record rows and exact loan focus pattern. Impecc
 ### Pilot support requests
 
 The Team panel extends the existing pilot feedback workflow. It reuses Orbit’s labeled forms, list rows, exact record view, and focus conventions in place of a new 21st.dev component pattern. Impeccable Polish informed using the desktop width to align assignment controls and shared and private notes, with one column at phone width. UI UX Pro Max’s form feedback and error-recovery guidance informed the draft-preserving conflict flow and keyboard return to the row or filter. Inspected populated and selected screens at desktop, portrait and phone widths.
+
+### Staff first-day checklist
+
+Impeccable Onboard and the approved Orbit design system informed optional entry from each role’s home, concise work descriptions and direct navigation to a real screen. UI UX Pro Max guidance on onboarding freedom, progress indicators and native control semantics informed a visible review count, explicit return and reversible checkboxes. Reused Orbit’s action rows, native status and form controls as the established 21st.dev pattern. Inspected desktop, portrait and phone layouts with partial progress, a completed LO checklist and a selected processor handoff.
