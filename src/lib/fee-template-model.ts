@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { feeAllocationIssue, feeAllocations, feeAmounts, feeKeys, feeLabels, feePercentageBases, feeTemplateChoice } from "./quote-worksheet";
-import type { FeeTemplateOrigin } from "./quote-worksheet";
+import type { FeePropertyLocation, FeeTemplateOrigin } from "./quote-worksheet";
+import { propertyStateCodes } from "./property-state";
 
 export const feeTemplatesUnavailable = "Fee templates are unavailable in this workspace.";
 export const feeTemplateChanged = "The fee template changed or no longer applies. Reload the templates and review the fees.";
@@ -10,6 +11,7 @@ export const feeTemplateConfig = z.object({
   effectiveOn: z.iso.date(),
   purpose: z.enum(["Any loan purpose", "Purchase", "Refinance"]),
   zip: z.string().regex(/^(?:\d{5})?$/),
+  state: z.enum(propertyStateCodes, { error: "Choose a valid property state." }).optional(),
   fees: feeAmounts,
   rules: z.partialRecord(z.enum(feeKeys), z.object({
     basis: z.enum(feePercentageBases), basisPoints: z.number().int().min(1, "Enter a percentage of at least 0.01%.").max(10_000, "Enter a percentage of 100% or less."),
@@ -48,4 +50,4 @@ export const feeTemplateRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive"), ...feeTemplateChoice.shape, archived: z.boolean() }),
 ]);
 
-export type FeeTemplatePage = { templates: FeeTemplate[]; asOf: string; more: boolean };
+export type FeeTemplatePage = { templates: FeeTemplate[]; asOf: string; more: boolean; property?: FeePropertyLocation };

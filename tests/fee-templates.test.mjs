@@ -169,6 +169,33 @@ test("fee templates scope use and preserve the original fee and source snapshot"
   assert.ok(manage({ ...percentageTemplate, revision: 1,
     config: { ...percentageTemplate.config, rules: { ...rules, origination: { ...rules.origination, basisPoints: 200 } } } }).templates);
   assert.deepEqual((await send({ ...calculatedSave, feeRevision: 4 })).loanWork.feeWorksheets[0].origin.calculations, calculation.calculations);
+  assert.ok(manage({ type: "archive", id: percentageTemplate.id, revision: 2, archived: true }).templates);
+  const regional = (title, state, zip = "") => ({ type: "publish", id: randomUUID(), revision: 0,
+    config: { ...config, title, state, zip } });
+  assert.match(manage(regional("Incorrect pairing", "OH", scenario.zip)).error, /ZIP 48304 is listed in Michigan/);
+  assert.match(manage(regional("Unresolved pairing", "MI", "00000")).error, /ZIP in the property directory/);
+  const broad = regional("General purchase", undefined);
+  const stateOnly = regional("Michigan purchase", "MI");
+  const differentState = regional("Ohio purchase", "OH");
+  const zipOnly = regional("ZIP purchase", undefined, scenario.zip);
+  const exact = regional("Michigan local purchase", "MI", scenario.zip);
+  const unknownZip = regional("Unlisted ZIP purchase", undefined, "00000");
+  for (const entry of [broad, stateOnly, differentState, zipOnly, exact, unknownZip]) assert.ok(manage(entry).templates);
+  const matching = manage(forQuote, officer);
+  assert.deepEqual(matching.property, { state: "MI", zip: scenario.zip });
+  assert.deepEqual(matching.templates.map(({ id }) => id), [exact.id, zipOnly.id, stateOnly.id, broad.id]);
+  const regionalSave = { ...save, type: "saveAllocatedFeeWorksheet", feeRevision: 4, template: { id: stateOnly.id, revision: 1 } };
+  const regionalWorksheet = (await send(regionalSave)).loanWork.feeWorksheets[0];
+  assert.deepEqual(regionalWorksheet.origin.property, matching.property);
+  assert.equal(regionalWorksheet.origin.state, "MI");
+  assert.ok(manage({ ...stateOnly, revision: 1, config: { ...stateOnly.config, state: "OH" } }).templates);
+  const stateRetry = await send(regionalSave);
+  assert.deepEqual(stateRetry.loanWork.feeWorksheets[0].origin, regionalWorksheet.origin);
+  db.prepare("UPDATE pricing_runs SET scenario = ? WHERE id = ?").run(JSON.stringify({ ...scenario, zip: "00000" }), runId);
+  const unresolved = manage(forQuote, officer);
+  assert.deepEqual(unresolved.property, { zip: "00000" });
+  assert.deepEqual(unresolved.templates.map(({ id }) => id), [unknownZip.id, broad.id]);
+  assert.match((await send({ ...regionalSave, feeRevision: 5, template: { id: exact.id, revision: 1 } })).error, /no longer applies/);
   db.prepare("UPDATE applications SET revision = 4 WHERE loanId = ?").run(loanId);
   assert.match((await send({ ...save, feeRevision: 4 })).error, /Reprice/);
 });

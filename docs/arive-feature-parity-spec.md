@@ -168,7 +168,7 @@ Brokerage admins publish sample fee templates with a source, effective date, loa
 
 Fee templates can include payer amounts and payee names alongside flat fee estimates. Seller-paid defaults require a purchase template. LOs can adjust the defaults on the quote, and the saved worksheet records the template version and the amounts actually used. Borrowers see the agreed sample fee breakdown in a shared quote. Staff retain the internal source and original defaults.
 
-Staff can also use a percentage of the saved pricing run's loan amount or purchase price. Purchase price rules require a purchase template and a priced purchase amount. The worksheet snapshots the base, percentage, rounded estimate, and any final edits. Remaining scope includes broader geographic rules and approved external estimates. Verify financed costs and provider coverage before live use.
+Staff can also use a percentage of the saved pricing run's loan amount or purchase price. Purchase price rules require a purchase template and a priced purchase amount. The worksheet snapshots the base, percentage, rounded estimate, and any final edits. State and ZIP restrictions match the location of the saved pricing run. State is resolved from the bundled ZIP directory. A ZIP without a directory state can match templates without a state restriction. Worksheets retain the template's scope and the matched property location. Remaining scope includes additional geographic rules and approved external estimates. Verify financed costs and provider coverage before live use.
 
 ### F12 — Reporting
 

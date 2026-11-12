@@ -4,15 +4,23 @@ import { feeTemplateChanged, feeTemplateConfig, feeTemplateRequest, feeTemplates
   type FeeTemplate, type FeeTemplatePage } from "./fee-template-model";
 import { pricingInputError } from "./income-review-freshness";
 import type { PricingScenario } from "./pricing-model";
-import { feeAllocationIssue, feeKeys, type FeeTemplateOrigin } from "./quote-worksheet";
+import { propertyStateCodes, propertyStateName } from "./property-state";
+import { feeAllocationIssue, feeKeys, type FeePropertyLocation, type FeeTemplateOrigin } from "./quote-worksheet";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
+import { zipCityState } from "./zip-city-state";
 
 const activeLimit = 24;
 const pageSize = 30;
+const templateState = "coalesce(json_extract(config, '$.state'), '')";
 const compatibleFees = `archived = 0 AND effectiveOn <= ? AND (purpose = 'Any loan purpose' OR purpose = ?)
-  AND (zip = '' OR zip = ?)`;
+  AND (zip = '' OR zip = ?) AND ${templateState} IN ('', ?)`;
+
+function feeProperty(zip: string): FeePropertyLocation {
+  const state = zipCityState(zip)?.state;
+  return state && propertyStateCodes.includes(state) ? { zip, state } : { zip };
+}
 
 function readTemplate(row: Record<string, SqlValue>): FeeTemplate {
   return { ...feeTemplateConfig.parse(JSON.parse(String(row.config))), id: String(row.id),
@@ -39,12 +47,14 @@ function resolveTemplate(template: FeeTemplate, scenario: PricingScenario): FeeT
 
 export function feeOriginForQuote(db: Store, choice: Pick<FeeTemplateOrigin, "id" | "revision">,
   scenario: PricingScenario, asOf: string): FeeTemplateOrigin | { error: string } | undefined {
+  const property = feeProperty(scenario.zip);
   const row = db.prepare(`SELECT id, revision, archived, config FROM brokerage_fee_templates
-    WHERE id = ? AND revision = ? AND ${compatibleFees}`).get(choice.id, choice.revision, asOf, scenario.purpose, scenario.zip);
+    WHERE id = ? AND revision = ? AND ${compatibleFees}`).get(choice.id, choice.revision, asOf, scenario.purpose, property.zip, property.state ?? "");
   if (!row) return;
-  const { id, revision, title, source, effectiveOn, zip, fees, allocations, calculations, blocked } = resolveTemplate(readTemplate(row), scenario);
+  const { id, revision, title, source, effectiveOn, zip, state, fees, allocations, calculations, blocked } = resolveTemplate(readTemplate(row), scenario);
   if (blocked) return { error: blocked };
-  return { id, revision, title, source, effectiveOn, zip, fees, ...(allocations ? { allocations } : {}), ...(calculations ? { calculations } : {}) };
+  return { id, revision, title, source, effectiveOn, zip, ...(state ? { state } : {}), property, fees,
+    ...(allocations ? { allocations } : {}), ...(calculations ? { calculations } : {}) };
 }
 
 function canActivate(db: Store, id: string, title: string) {
@@ -62,7 +72,7 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
   }
   const parsed = feeTemplateRequest.safeParse(input);
   if (!parsed.success) {
-    const feeError = parsed.error.issues.find(({ path }) => path[0] === "config" && ["allocations", "rules", "fees"].includes(String(path[1])));
+    const feeError = parsed.error.issues.find(({ path }) => path[0] === "config" && ["allocations", "rules", "fees", "state"].includes(String(path[1])));
     return { error: feeError?.message ?? "Enter a title, source, effective date, and at least one valid fee. Use five digits for a ZIP restriction." };
   }
   const data = parsed.data;
@@ -77,9 +87,11 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
       app ? { revision: Number(app.revision), correctionNote: String(app.correctionNote ?? "") } : undefined);
     if (freshness) return { error: freshness };
     const scenario = JSON.parse(String(run.scenario)) as PricingScenario;
+    const property = feeProperty(scenario.zip);
     const rows = db.prepare(`SELECT id, revision, archived, config FROM brokerage_fee_templates WHERE ${compatibleFees}
-      ORDER BY title COLLATE NOCASE, id LIMIT ?`).all(asOf, scenario.purpose, scenario.zip, activeLimit);
-    return { templates: rows.map((row) => resolveTemplate(readTemplate(row), scenario)), asOf, more: false };
+      ORDER BY (zip <> '') DESC, (${templateState} <> '') DESC, title COLLATE NOCASE, id LIMIT ?`)
+      .all(asOf, scenario.purpose, property.zip, property.state ?? "", activeLimit);
+    return { templates: rows.map((row) => resolveTemplate(readTemplate(row), scenario)), asOf, more: false, property };
   }
   if (staff && staff.brokerage.role !== "Admin") return { error: "Only brokerage admins can manage fee templates." };
   return db.transaction(() => {
@@ -91,8 +103,13 @@ export function feeTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff
         const replay = row && !row.archived && row.config === config && [data.revision, data.revision + 1].includes(revision);
         if (!replay) {
           if (row?.archived || revision !== data.revision) return { error: feeTemplateChanged };
-          const { title, purpose, effectiveOn, zip } = data.config;
+          const { title, purpose, effectiveOn, zip, state } = data.config;
           if (effectiveOn > asOf) return { error: "Choose an effective date on or before today." };
+          if (state && zip) {
+            const resolved = feeProperty(zip).state;
+            if (!resolved) return { error: "Use a ZIP in the property directory or leave the ZIP blank for a statewide template." };
+            if (resolved !== state) return { error: `ZIP ${zip} is listed in ${propertyStateName(resolved)}. Choose a ZIP in ${propertyStateName(state)} or clear the ZIP restriction.` };
+          }
           const error = canActivate(db, data.id, title);
           if (error) return { error };
           db.prepare(`INSERT INTO brokerage_fee_templates (id, title, revision, effectiveOn, purpose, zip, config)

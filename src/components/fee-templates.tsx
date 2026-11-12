@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { feeTemplateConfig, type FeeTemplate, type FeeTemplatePage } from "@/lib/fee-template-model";
 import { allocatedFeeLines, blankFees, feeAllocationLabel, feeCalculationLabel, feeContributionKeys, feeContributionLabels,
-  feeKeys, feeLabels, feePercentageBases, type FeeKey, type FeePercentageBasis } from "@/lib/quote-worksheet";
+  feeKeys, feeLabels, feeLocationLabel, feePercentageBases, type FeeKey, type FeePercentageBasis } from "@/lib/quote-worksheet";
+import { PropertyStateOptions } from "./property-state-field";
 import { Button } from "./ui/button";
 
 async function loadFeeTemplates(brokerageId: string, input: object): Promise<FeeTemplatePage> {
@@ -21,6 +22,8 @@ function useFeeTemplates(brokerageId: string) {
   const [page, setPage] = useState<FeeTemplatePage>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ error: boolean; text: string }>();
+  const feedback = useRef<HTMLParagraphElement>(null);
+  useEffect(() => { if (message?.error) feedback.current?.focus(); }, [message]);
   async function request(input: object, saved?: string) {
     if (busy) return false;
     setBusy(true);
@@ -36,7 +39,8 @@ function useFeeTemplates(brokerageId: string) {
       setBusy(false);
     }
   }
-  return { page, busy, request, notice: message && <p className="application-message" role={message.error ? "alert" : "status"}>{message.text}</p> };
+  return { page, busy, request, notice: message && <p ref={feedback} tabIndex={-1}
+    className="application-message" role={message.error ? "alert" : "status"}>{message.text}</p> };
 }
 
 export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
@@ -74,7 +78,7 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
           {page.more && <p className="muted">Search by title to find more archived fee templates.</p>}
           {page.templates.length > 0 && <ul className="document-list">{page.templates.map((template) => <li className="document-item" key={template.id}>
             <div className="document-item-head"><strong>{template.title}</strong><span className="pill">{template.archived ? "Archived" : `Version ${template.revision}`}</span></div>
-            <p>{template.purpose} · {template.zip || "Any ZIP"} · Effective {template.effectiveOn}</p>
+            <p>{template.purpose} · {feeLocationLabel(template)} · Effective {template.effectiveOn}</p>
             <p className="muted">{template.source}</p>
             <div className="loan-application-actions">
               {!template.archived && <Button size="sm" variant="outline" disabled={busy || !!draft} onClick={(event) => {
@@ -112,7 +116,8 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
             const basis = feeBases[key];
             return basis ? [[key, { basis, basisPoints: Math.round(Number(data.get(`${key}-percentage`)) * 100) }]] : [];
           });
-          const config = feeTemplateConfig.safeParse({ ...Object.fromEntries(data), fees: Object.fromEntries(feeKeys.map((key) => {
+          const config = feeTemplateConfig.safeParse({ ...Object.fromEntries(data), state: data.get("state") || undefined,
+            fees: Object.fromEntries(feeKeys.map((key) => {
             const value = String(data.get(key) ?? "");
             return [key, value === "" ? null : Math.round(Number(value) * 100)];
           })), ...(rules.length ? { rules: Object.fromEntries(rules) } : {}),
@@ -129,6 +134,9 @@ export function ManageFeeTemplates({ brokerageId }: { brokerageId: string }) {
             <label className="field">Effective date<input name="effectiveOn" type="date" defaultValue={draft.effectiveOn} max={page?.asOf} required /></label>
             <label className="field">Loan purpose<select name="purpose" defaultValue={draft.purpose}>
               <option>Any loan purpose</option><option>Purchase</option><option>Refinance</option>
+            </select></label>
+            <label className="field">State restriction<select name="state" defaultValue={draft.state ?? ""}>
+              <PropertyStateOptions placeholder="Any state" />
             </select></label>
             <label className="field">ZIP restriction<input name="zip" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} defaultValue={draft.zip} placeholder="Any ZIP" /></label>
           </div>
@@ -202,10 +210,15 @@ export function FeeTemplatePicker({ brokerageId, loanId, runId, disabled, onLoad
       </select></label>}
     </div>
     {notice}
-    {page && !page.templates.length && <p className="muted">No active template matches this quote’s loan purpose and ZIP.</p>}
-    {selected && <><p className="muted">{selected.source} · Effective {selected.effectiveOn} · {selected.zip || "Any ZIP"}</p>
-      <p className="muted">Loading replaces fee amounts and payer and payee details. Loan amounts, deposits, and separate credits stay in place.</p>
+    {page?.property && <p className="muted">
+      {page.property.state ? `Priced property · ${feeLocationLabel(page.property)}` : `State unavailable for ZIP ${page.property.zip}. Showing schedules without a state restriction.`}
+    </p>}
+    {page && !page.templates.length && <p className="muted">No active template matches this quote’s property and loan purpose.</p>}
+    {selected && <>
+      <p className="fee-template-selection"><strong>{selected.title} · Version {selected.revision}</strong></p>
+      <p className="muted">{feeLocationLabel(selected)} · Effective {selected.effectiveOn} · {selected.source}</p>
       {selected.blocked ? <p role="status">{selected.blocked}</p> : <>
+        <p className="muted">Loading replaces fee amounts and payer and payee details. Loan amounts, deposits, and separate credits stay in place.</p>
         {feeKeys.map((key) => {
           const calculation = selected.calculations?.[key];
           return calculation && <p key={key}>{feeLabels[key]} · {feeCalculationLabel(calculation)}</p>;
@@ -213,7 +226,7 @@ export function FeeTemplatePicker({ brokerageId, loanId, runId, disabled, onLoad
         {allocatedFeeLines(selected).map((line) => <p key={line.key}>{feeLabels[line.key]} · {feeAllocationLabel(line)}</p>)}
       </>}
       <div><Button size="sm" type="button" disabled={busy || disabled || !!selected.blocked} onClick={() => {
-        onLoad(selected);
+        onLoad({ ...selected, property: page?.property });
         setSelectedId("");
         templateSelect.current?.focus();
       }}>Load fee template</Button></div>

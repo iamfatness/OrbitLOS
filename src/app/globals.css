@@ -399,6 +399,7 @@ button:disabled { cursor: default; }
 .relationship-panel .field { max-width: 360px; }
 .fee-template-editor .form-grid { max-width: 48rem; align-items: end; }
 .fee-template-editor .form-grid .field { max-width: none; }
+.fee-template-selection { overflow-wrap: anywhere; }
 .fee-template-payment-options summary, .fee-worksheet-payment-options summary { min-height: 32px; align-content: center; }
 @media (max-width: 600px) {
   .fee-template-editor .fee-template-metadata, .fee-template-editor .fee-template-payment, .fee-worksheet-payment-options .form-grid {

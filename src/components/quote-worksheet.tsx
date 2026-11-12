@@ -4,7 +4,7 @@ import { useState } from "react";
 import { preflightFeeField, preflightFeesTarget } from "@/lib/file-preflight-model";
 import type { PricingOffer, PricingRun } from "@/lib/pricing-model";
 import { compareQuoteCosts } from "@/lib/quote-cost-comparison";
-import { allocatedFeeLine, blankFees, estimateFees, feeAllocationIssue, feeAllocationLabel, feeAllocations, feeBasisIssue, feeCalculationLabel, feeContributionKeys,
+import { allocatedFeeLine, blankFees, estimateFees, feeAllocationIssue, feeAllocationLabel, feeAllocations, feeBasisIssue, feeCalculationLabel, feeContributionKeys, feeLocationLabel,
   feeContributionLabels, feeKeys, feeLabels, missingFees,
   type FeeInputs, type FeeKey, type FeeTemplateOrigin, type FeeWorksheet, type QuoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
 import { FeeTemplatePicker } from "./fee-templates";
@@ -41,8 +41,9 @@ function FeeSource({ origin, inputs }: { origin: FeeTemplateOrigin; inputs: Pick
       feeContributionKeys.some((party) => (current?.[party] ?? 0) !== (original?.[party] ?? 0));
   });
   return <div className="document-item">
-    <p><strong>{origin.title} · Version {origin.revision}</strong></p>
-    <p className="muted">{origin.source} · Effective {origin.effectiveOn} · {origin.zip || "Any ZIP"}</p>
+    <p className="fee-template-selection"><strong>{origin.title} · Version {origin.revision}</strong></p>
+    <p className="muted">{origin.source} · Effective {origin.effectiveOn} · {feeLocationLabel(origin)}</p>
+    {origin.property && <p className="muted">Priced property · {origin.property.state ? feeLocationLabel(origin.property) : `ZIP ${origin.property.zip}`}</p>}
     {feeKeys.map((key) => {
       const calculation = origin.calculations?.[key];
       return calculation && <p key={key}>{feeLabels[key]} · {feeCalculationLabel(calculation)}</p>;
