@@ -5606,16 +5606,17 @@ try {
 
   const realtorFinancingFixture = await stage("Borrower permission and LO publication gate the sample realtor financing summary", async () => {
     const partnerName = "Fictional Financing Partner";
-    await write(owner, { type: "contact", role: "Realtor", name: partnerName, email: "working-day-financing-partner@example.test", phone: "" });
-    const partnerId = (await workspace(owner)).contacts.find(item => item.name === partnerName).id;
+    const { contactId: partnerId } = await write(owner, { type: "contact", role: "Realtor", name: partnerName,
+      email: "working-day-financing-partner@example.test", phone: "" });
     await action(owner, "mutate", { type: "createRealtorPortal", realtorId: partnerId, officerEmail: officer.email }, "realtors");
-    const link = (await workspace(owner)).realtorPortals.find(item => item.realtorId === partnerId);
+    const { portal: link } = await action(owner, "readRealtorWorkspace", { type: "profile", partnerId });
     assert.ok(link?.token);
     const borrowerName = "Fictional Financing Buyer";
-    const created = await write(officer, { type: "loan", contactId: "", borrower: borrowerName,
-      borrowerEmail: "working-day-financing-buyer@example.test", start1003: true, partnerId, officer: officer.name,
+    const created = await write(owner, { type: "loan", contactId: "", borrower: borrowerName,
+      borrowerEmail: "working-day-financing-buyer@example.test", start1003: true, partnerId, officer: owner.name,
       address: "", amount: 350000, purpose: "Purchase", stage: "Lead" });
     const loanId = created.loanWork.loanId;
+    await team(owner, { type: "assign", loanId, previousEmail: owner.email, email: officer.email });
     const { token } = (await file(officer, loanId)).applications[0];
     const initial = await borrower(token, { type: "read" });
     const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
