@@ -27,10 +27,10 @@ import { WorkspaceMaintenanceGate, guardWorkspaceMethods } from "./lib/workspace
 import { workspaceMaintenancePage } from "./lib/staff-auth";
 
 const maintenanceGates = new WeakMap<object, WorkspaceMaintenanceGate>();
-import { initializeUwmWorkflows, runUwmWorkflow, readUwmFile } from "./lib/uwm-workflows";
+import { initializeUwmWorkflows, reconcileUwmImportReceipt, runUwmWorkflow, readUwmFile } from "./lib/uwm-workflows";
 import { UwmError } from "./lib/uwm-live";
 import { connectUwmUser, disconnectUwmUser, initializeUwmUserAccess, uwmUserStatus } from "./lib/uwm-user-access";
-import { correlateUwmImport, initializeUwmOperations } from "./lib/uwm-operations";
+import { initializeUwmOperations } from "./lib/uwm-operations";
 import { uwmPublicClient } from "./lib/uwm-public-client";
 import { initializeUwmWebhooks, parseUwmWebhook, readUwmWebhookReceipts, saveUwmWebhook, uwmWebhookConnection, uwmWebhookHttp, type UwmWebhookEvent } from "./lib/uwm-webhooks";
 import { DurableObject } from "cloudflare:workers";
@@ -640,7 +640,7 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const details = await directory.brokerageDetails(this.#id);
     if (!details || details.pilot) throw new Error("Webhook brokerage unavailable");
     const receipt = saveUwmWebhook(this.#store, parseUwmWebhook(event.environment, event.kind, event.body));
-    const correlation=event.kind === "import" ? correlateUwmImport(this.#store, Number(receipt.receiptId)) : null;
+    const correlation=event.kind === "import" ? reconcileUwmImportReceipt(this.#store, Number(receipt.receiptId)) : null;
     return {...receipt,correlation};
   }
 

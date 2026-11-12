@@ -26,6 +26,8 @@ The mock workflow already creates a revision-specific Today item, prevents a sec
 
 ## Activation gate
 
+The synthetic import acceptance checks the saved request before and after a lost HTTP acknowledgment. It uses the authenticated Worker receiver to route the exact transaction, settles the matching request, rejects other environments, and retains one canonical receipt across duplicate delivery and workspace restart. A separate request-level fixture exercises a callback before HTTP return and verifies that a matching completion allows the next explicit document action without a second commit. Partner-originated callbacks and actual stage delivery remain part of sandbox acceptance.
+
 Record the provider technical owner, sandbox broker and contact mapping, granted scopes, server-side credential references, test identities, expected response samples, verification method, and quota limits. Run one purchase and one rate-and-term refinance with synthetic records. Verify positive and negative results, isolate both the sandbox and brokerage scope, and exercise rotation, disablement and manual recovery. Record evidence before promoting each capability. Use a separate approved enrollment and credential configuration for production.
 
 ## Credit and AUS order lookup

@@ -5,7 +5,7 @@ import { loanAccess } from "./workspace-access";
 import { UwmError, uwmWorkspaceEnabled, type UwmEnvironment } from "./uwm-live";
 import { uwmUserSettings } from "./uwm-user-access";
 import { uwmPublicClient, UwmRequestError } from "./uwm-public-client";
-import { bindUwmTransaction, prepareUwmOperation, uwmRequestDigest } from "./uwm-operations";
+import { bindUwmTransaction, correlateUwmImport, prepareUwmOperation, uwmRequestDigest } from "./uwm-operations";
 import { requireUwmBranchContact, uwmScanRequest, uwmScanResponse, uwmLoanNumber, uwmDocumentName,
   uwmConditionAttachments, uwmProductSearch, uwmFloatRequest, uwmLockRequest, uwmRelockRequest } from "./uwm-public-contracts";
 
@@ -69,6 +69,43 @@ function importCheck(db: Store, staff: WorkspaceStaff, input: Input & { importId
   return { op, check, transactionId: String(op.transactionId), scan: uwmScanResponse.parse(JSON.parse(String(check.scan))) };
 }
 
+export function reconcileUwmImportReceipt(db: Store, receiptId: number) {
+  return correlateUwmImport(db, receiptId, (outcome) => {
+    const requests = db.prepare(`SELECT request.id FROM uwm_live_requests request
+      JOIN uwm_request_evidence evidence ON evidence.requestId = request.id
+      JOIN uwm_import_checks checks ON checks.operationId = ? AND checks.committed = 1
+      WHERE request.loanId = ? AND request.environment = ? AND request.actor = ? AND request.action = 'commit-import'
+        AND request.state IN ('Dispatching', 'Unknown', 'Acknowledged')
+        AND evidence.applicationRevision = ? AND json_extract(evidence.details, '$.importId') = checks.operationId
+      LIMIT 2`).all(outcome.id, outcome.loanId, outcome.environment, outcome.actor, outcome.applicationRevision);
+    if (requests.length !== 1) return;
+    const result = {
+      importId: outcome.id, receiptId: outcome.receiptId, outcome: outcome.state,
+      message: outcome.state === "Completed" ? "UWM confirmed the loan import." : "UWM reported that the loan import failed.",
+    };
+    db.prepare("UPDATE uwm_live_requests SET state='Reconciled',result=?,updatedAt=? WHERE id=?")
+      .run(JSON.stringify(result), new Date().toISOString(), requests[0].id);
+  });
+}
+
+function recoverSavedImportReceipt(db: Store, loanId: string, environment: string) {
+  const completed = db.prepare(`SELECT DISTINCT op.receiptId FROM uwm_live_requests request
+    JOIN uwm_request_evidence evidence ON evidence.requestId = request.id
+    JOIN uwm_operations op ON op.id = json_extract(evidence.details, '$.importId') AND op.kind = 'import'
+      AND op.loanId = request.loanId AND op.environment = request.environment AND op.actor = request.actor
+      AND op.applicationRevision = evidence.applicationRevision
+    JOIN uwm_webhook_receipts receipt ON receipt.id = op.receiptId AND receipt.kind = 'import'
+      AND receipt.environment = op.environment AND receipt.transactionId = op.transactionId
+    WHERE request.loanId = ? AND request.environment = ? AND request.action = 'commit-import'
+      AND request.state IN ('Dispatching','Unknown','Acknowledged') AND op.state IN ('Completed','Failed') AND op.receiptId IS NOT NULL`)
+    .all(loanId, environment);
+  for (const row of completed) reconcileUwmImportReceipt(db, Number(row.receiptId));
+}
+
+function requestResult(row: { id?: unknown; state?: unknown; result?: unknown }) {
+  return { id: String(row.id), state: String(row.state), result: row.result ? JSON.parse(String(row.result)) as unknown : null };
+}
+
 // Every mutation is claimed synchronously before any await. An interrupted request
 // stays Dispatching; neither that state nor Unknown is automatically replayed.
 export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, raw: unknown, client?: Client, registerTransaction?: (operationId: string, transactionId: string) => Promise<void>) {
@@ -77,13 +114,14 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
   if (staff.brokerage.role === "Processor" && !["upload-document", "attach-documents", "submit-documents"].includes(input.action)) {
     throw new UwmError("Only an authorized loan officer or administrator can submit or price a loan.");
   }
+  recoverSavedImportReceipt(db, input.loanId, environment);
   const digest = uwmRequestDigest(JSON.stringify(input));
   const existing = db.prepare("SELECT * FROM uwm_live_requests WHERE id=?").get(input.id);
   if (existing) {
     if (existing.actor !== staff.email || existing.loanId !== input.loanId || existing.environment !== environment || existing.digest !== digest) {
       throw new UwmError("This request reference belongs to a different action.");
     }
-    return { id: input.id, state: String(existing.state), result: existing.result ? JSON.parse(String(existing.result)) as unknown : null };
+    return requestResult(existing);
   }
   if (input.action === "reconcile-request" && staff.brokerage.role !== "Admin") throw new UwmError("An administrator must record the lender verification.");
   if (input.action !== "reconcile-request") reviewed(db, input);
@@ -164,8 +202,10 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
       if (!current.check.ready) throw new UwmError("Resolve the UWM import checks before submitting this file.");
       await registerTransaction?.(input.importId, current.transactionId);
       beforeSend();
-      db.prepare("UPDATE uwm_import_checks SET committed=1 WHERE operationId=?").run(input.importId);
-      db.prepare("UPDATE uwm_operations SET state='Dispatching',updatedAt=? WHERE id=?").run(now, input.importId);
+      db.transaction(() => {
+        db.prepare("UPDATE uwm_import_checks SET committed=1 WHERE operationId=?").run(input.importId);
+        db.prepare("UPDATE uwm_operations SET state='Dispatching',updatedAt=? WHERE id=?").run(now, input.importId);
+      });
       await api.commitTransaction(current.transactionId);
       db.prepare("UPDATE uwm_operations SET state='Acknowledged',updatedAt=? WHERE id=? AND state='Dispatching'").run(new Date().toISOString(), input.importId);
       result = { importId: input.importId, message: "UWM accepted the import request. Waiting for its completion notification." };
@@ -224,13 +264,15 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
       }
     }
     db.prepare("UPDATE uwm_live_requests SET state='Acknowledged',result=?,updatedAt=? WHERE id=? AND state='Dispatching'").run(JSON.stringify(result), new Date().toISOString(), input.id);
-    return { id: input.id, state: "Acknowledged", result };
+    return requestResult(db.prepare("SELECT id,state,result FROM uwm_live_requests WHERE id=?").get(input.id)!);
   } catch (error) {
     // A multi-step action may already have created a transaction or document.
     // Even a later 4xx cannot make that whole workflow safe to replay.
     const state = sent ? "Unknown" : "Rejected";
     db.prepare("UPDATE uwm_live_requests SET state=?,updatedAt=? WHERE id=? AND state='Dispatching'").run(state, new Date().toISOString(), input.id);
     if (input.action === "commit-import" && sent) db.prepare("UPDATE uwm_operations SET state='Unknown',updatedAt=? WHERE id=? AND state='Dispatching'").run(new Date().toISOString(), input.importId);
+    const recorded = requestResult(db.prepare("SELECT id,state,result FROM uwm_live_requests WHERE id=?").get(input.id)!);
+    if (recorded.state !== state) return recorded;
     return { id: input.id, state, error: sent ? "UWM has not confirmed the full outcome. Check the lender file before taking another action."
       : error instanceof UwmError ? error.message : "The UWM request could not be validated." };
   }
@@ -239,6 +281,7 @@ export async function runUwmWorkflow(db: Store, env: UwmEnvironment, staff: Work
 export async function readUwmFile(db: Store, env: UwmEnvironment, staff: WorkspaceStaff, raw: unknown) {
   const input = z.strictObject({ loanId: z.uuid(), view: z.enum(["activity", "documents", "products"]), body: uwmProductSearch.optional() }).parse(raw);
   const environment = context(db, env, staff, input.loanId);
+  recoverSavedImportReceipt(db, input.loanId, environment);
   if (input.view === "activity") return {
     uploads: { xml: Boolean(env.UWM_STORAGE_ORIGIN), documents: Boolean(env.UWM_DOCUMENT_STORAGE_ORIGIN) },
     imports: db.prepare(`SELECT op.id,op.actor,op.applicationRevision,op.state,op.transactionId,op.lenderLoanNumber,checks.scan,checks.ready,checks.committed

@@ -20,6 +20,8 @@ Responses include `id`, `state`, and either `result` or `error`. `Acknowledged` 
 2. The result contains `importId`, `transactionId`, `readyToCommit`, and UWM's scan fields. `amend-import` takes `importId` and a `values` array in the order of those fields. The server preserves UWM's other field metadata, including its opaque XPath; it never executes the lender's regular expression or XPath.
 3. `commit-import` takes `importId` and explicitly submits a ready transaction. A changed application, wrong actor, duplicate commit or unresolved required field is rejected. UWM's acknowledgment is followed by the exact transaction/environment webhook correlation. Only a successful import callback supplies the permanent lender loan number for downstream operations.
 
+When that authenticated callback resolves an import, Orbit settles its exact committed request using the original receipt ID. This covers a missing HTTP response and a callback received before the HTTP request finishes. Refreshing request activity also recovers an older request if its verified receipt was already saved. The request ID and reviewed application revision are retained. Duplicate, conflicting and unmatched notifications do not replace the original evidence. A verified failure ends the request with a failure outcome and leaves the file without a confirmed lender loan number. No automatic lender retry is sent.
+
 The endpoint accepts a reviewed lender XML artifact; it does not certify Orbit's pilot XML generator or silently convert a fictional export to a production file. `UWM_STORAGE_ORIGIN` must be a separately approved HTTPS storage origin. Obtain and validate it with UWM; do not derive an allowlist from an arbitrary client URL.
 
 ## Documents and underwriting

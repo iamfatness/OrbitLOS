@@ -5,7 +5,7 @@ import { registerHooks } from "node:module";
 registerHooks({resolve(specifier, context, next) {try {return next(specifier,context);} catch(error) {
   if(error.code!=="ERR_MODULE_NOT_FOUND"||!specifier.startsWith("./"))throw error;return next(`${specifier}.ts`,context);
 }}});
-const {initializeUwmWorkflows,runUwmWorkflow,readUwmFile}=await import("../src/lib/uwm-workflows.ts");
+const {initializeUwmWorkflows,reconcileUwmImportReceipt,runUwmWorkflow,readUwmFile}=await import("../src/lib/uwm-workflows.ts");
 const {initializeUwmOperations,correlateUwmImport}=await import("../src/lib/uwm-operations.ts");
 const {initializeUwmWebhooks,saveUwmWebhook,parseUwmWebhook}=await import("../src/lib/uwm-webhooks.ts");
 const loanId="21499b2a-1e3d-40f7-a752-f9781ec7fc24", brokerageId="11499b2a-1e3d-40f7-a752-f9781ec7fc24";
@@ -13,6 +13,12 @@ const staff={name:"Test officer",email:"officer@example.test",brokerage:{id:brok
 const env={UWM_BROKERAGE_ID:brokerageId,UWM_USER_ENVIRONMENT:"stage",ORBIT_DEPLOYMENT:"stage",UWM_USER_CLIENT_ID:"fixture",UWM_USER_CLIENT_SECRET:"fixture",UWM_TOKEN_ENCRYPTION_KEY:"a".repeat(64),UWM_STORAGE_ORIGIN:"https://fixture.blob.core.windows.net",UWM_DOCUMENT_STORAGE_ORIGIN:"https://fixture.blob.core.windows.net"};
 const base=()=>({id:crypto.randomUUID(),loanId,applicationRevision:1,confirmed:true});
 const prepare=()=>({...base(),action:"prepare-import",xml:'<MESSAGE xmlns="http://www.mismo.org/residential/2009/schemas"></MESSAGE>',scan:{entityId:"1",contactId:"2"}});
+function importReceipt(db, {environment="stage",transactionId="tx-fixture",state="Completed",loanNumber="1234567890",hour="00"}={}) {
+  const receipt = saveUwmWebhook(db, parseUwmWebhook(environment, "import", JSON.stringify({
+    TransactionId: transactionId, LoanNumber: loanNumber, LoanStatus: state, LogDateTime: `2026-11-11T${hour}:00:00Z`,
+  })));
+  return Number(receipt.receiptId);
+}
 function setup(t){
  const sqlite=new DatabaseSync(":memory:");t.after(()=>sqlite.close());
  const db={exec:s=>sqlite.exec(s),prepare:s=>sqlite.prepare(s),transaction:fn=>{sqlite.exec("BEGIN");try{const r=fn();sqlite.exec("COMMIT");return r;}catch(e){sqlite.exec("ROLLBACK");throw e;}}};
@@ -33,10 +39,90 @@ test("import review, explicit commit and callback preserve sent revision and nev
  const commit={...base(),action:"commit-import",importId:input.id};
  assert.equal((await runUwmWorkflow(db,env,staff,commit,api)).state,"Acknowledged");assert.equal(writes(),4);
  await runUwmWorkflow(db,env,staff,commit,api);assert.equal(writes(),4);
- const receipt=saveUwmWebhook(db,parseUwmWebhook("stage","import",JSON.stringify({TransactionId:"tx-fixture",LoanNumber:"1234567890",LoanStatus:"Completed",LogDateTime:"2026-11-11T00:00:00Z"})));
- db.prepare("UPDATE applications SET revision=2").run();assert.equal(correlateUwmImport(db,Number(receipt.receiptId)),"Completed");
+ const receipt=importReceipt(db);
+ db.prepare("UPDATE applications SET revision=2").run();assert.equal(reconcileUwmImportReceipt(db,receipt),"Completed");
+ assert.equal((await runUwmWorkflow(db,env,staff,commit,api)).result.receiptId,receipt);
  const view=await readUwmFile(db,env,staff,{loanId,view:"activity"});assert.equal(view.imports[0].applicationRevision,1);assert.equal(view.imports[0].lenderLoanNumber,"1234567890");
  assert.equal(JSON.stringify(db.prepare("SELECT * FROM uwm_live_requests").all()).includes("sig=private"),false);
+});
+test("a matching completion settles a lost commit response and allows the next synthetic lender action", async (t) => {
+  const { db, api, writes } = setup(t);
+  const input = prepare();
+  await runUwmWorkflow(db, env, staff, input, api);
+  assert.equal(reconcileUwmImportReceipt(db, importReceipt(db, { hour: "01" })), "Needs review");
+  const original = api.commitTransaction;
+  api.commitTransaction = async () => { await original(); throw new Error("connection lost"); };
+  const commit = { ...base(), action: "commit-import", importId: input.id };
+  assert.equal((await runUwmWorkflow(db, env, staff, commit, api)).state, "Unknown");
+  assert.equal(writes(), 4);
+  const submit = { ...base(), action: "submit-documents", attachments: [{ attachmentId: 7, revisionId: "current" }] };
+  await assert.rejects(runUwmWorkflow(db, env, staff, submit, api), /needs reconciliation/);
+  assert.equal(reconcileUwmImportReceipt(db, importReceipt(db, { environment: "production" })), "Unmatched");
+  assert.equal(reconcileUwmImportReceipt(db, importReceipt(db, { transactionId: "another-transaction" })), "Unmatched");
+  assert.equal((await runUwmWorkflow(db, env, staff, commit, api)).state, "Unknown");
+
+  const receipt = importReceipt(db);
+  assert.equal(reconcileUwmImportReceipt(db, receipt), "Completed");
+  const reconciled = await runUwmWorkflow(db, env, staff, commit, api);
+  assert.equal(reconciled.state, "Reconciled");
+  assert.equal(reconciled.result.receiptId, receipt);
+  assert.equal(reconcileUwmImportReceipt(db, importReceipt(db, { hour: "02" })), "Duplicate outcome");
+  assert.equal(reconcileUwmImportReceipt(db, importReceipt(db, { loanNumber: "1234567891" })), "Conflicting outcome");
+  assert.deepEqual(await runUwmWorkflow(db, env, staff, commit, api), reconciled);
+  assert.equal(writes(), 4);
+  assert.equal(db.prepare("SELECT state FROM uwm_live_requests WHERE id=?").get(input.id).state, "Acknowledged");
+
+  api.listConditionAttachments = async (number) => {
+    assert.equal(number, "1234567890");
+    return { body: { attachments: [{ attachmentId: 7, revisionId: "current", SubmittedDateTime: null,
+      documentType: "All Conditions", files: [{ documentId: 9 }], conditions: ["condition"], comments: "" }] } };
+  };
+  let submitted = 0;
+  api.submitConditions = async () => { submitted++; return { body: { documentTypes: ["All Conditions"], errors: [] } }; };
+  assert.equal((await runUwmWorkflow(db, env, staff, submit, api)).state, "Acknowledged");
+  assert.equal(submitted, 1);
+});
+
+test("an import callback received during the HTTP call remains authoritative on return", async (t) => {
+  for (const state of ["Completed", "NotCompleted"]) await t.test(state, async (subtest) => {
+    const { db, api, writes } = setup(subtest);
+    const input = prepare();
+    await runUwmWorkflow(db, env, staff, input, api);
+    const original = api.commitTransaction;
+    const expected = state === "Completed" ? "Completed" : "Failed";
+    const receipt = importReceipt(db, { state, loanNumber: state === "Completed" ? "1234567890" : null });
+    api.commitTransaction = async () => {
+      const response = await original();
+      assert.equal(reconcileUwmImportReceipt(db, receipt), expected);
+      if (state === "NotCompleted") throw new Error("connection lost after the callback");
+      return response;
+    };
+    const commit = { ...base(), action: "commit-import", importId: input.id };
+    const result = await runUwmWorkflow(db, env, staff, commit, api);
+    assert.equal(result.state, "Reconciled");
+    assert.equal(result.result.outcome, expected);
+    assert.equal(result.result.receiptId, receipt);
+    assert.equal(db.prepare("SELECT state FROM uwm_operations").get().state, expected);
+    assert.deepEqual(await runUwmWorkflow(db, env, staff, commit, api), result);
+    assert.equal(writes(), 4);
+  });
+});
+
+test("activity recovers a previously recorded receipt without changing the saved application or calling UWM", async (t) => {
+  const { db, api, writes } = setup(t);
+  const input = prepare();
+  await runUwmWorkflow(db, env, staff, input, api);
+  api.commitTransaction = async () => { throw new Error("connection lost"); };
+  const commit = { ...base(), action: "commit-import", importId: input.id };
+  assert.equal((await runUwmWorkflow(db, env, staff, commit, api)).state, "Unknown");
+  const receipt = importReceipt(db);
+  assert.equal(correlateUwmImport(db, receipt), "Completed");
+  db.prepare("UPDATE applications SET revision=2").run();
+  const view = await readUwmFile(db, env, staff, { loanId, view: "activity" });
+  assert.equal(view.requests.find((request) => request.id === commit.id).state, "Reconciled");
+  assert.equal((await runUwmWorkflow(db, env, staff, commit, api)).result.receiptId, receipt);
+  assert.equal(db.prepare("SELECT revision FROM applications").get().revision, 2);
+  assert.equal(writes(), 3);
 });
 test("unauthorized branch, stale application, wrong deployment and other staff cannot dispatch",async t=>{
  const {db,api,writes}=setup(t),input=prepare();

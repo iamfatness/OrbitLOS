@@ -48,6 +48,9 @@ const officer = actor("Fictional Officer", "working-day-officer@example.test", "
 const competingOfficer = actor("Fictional Backup Officer", "working-day-backup@example.test", "LO");
 const processor = actor("Fictional Processor", "working-day-processor@example.test", "Processor");
 const brokerage = randomUUID();
+const lenderBrokerage = randomUUID();
+const lenderInbox = randomUUID();
+const webhookToken = randomBytes(32).toString("base64url");
 // This entry point exists only in the local fixture so it can simulate a lost wake.
 const fixtureScript = `
 import worker, { OrbitWorkspace } from "./index.js";
@@ -118,6 +121,18 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
   dispositionFixtureDate(loanId) {
     return this.ctx.storage.sql.exec("SELECT dispositionDate FROM loans WHERE id=?",loanId).one().dispositionDate;
   }
+  lostImportResponse(loanId, operationId, requestId, transactionId, email, at) {
+    const sql = this.ctx.storage.sql;
+    this.ctx.storage.transactionSync(() => {
+      sql.exec("INSERT INTO uwm_operations (id,loanId,applicationRevision,environment,kind,requestDigest,actor,state,transactionId,startedAt,updatedAt) " +
+        "VALUES (?,?,1,'production','import',?,?,'Unknown',?,?,?)",
+        operationId,loanId,"a".repeat(64),email,transactionId,at,at);
+      sql.exec("INSERT INTO uwm_import_checks(operationId,scan,ready,committed) VALUES (?,'{}',1,1)",operationId);
+      sql.exec("INSERT INTO uwm_live_requests VALUES (?,?,'production',?,'commit-import',?,'Unknown',NULL,?,?)",
+        requestId,loanId,email,"b".repeat(64),at,at);
+      sql.exec("INSERT INTO uwm_request_evidence VALUES (?,1,?)",requestId,JSON.stringify({importId:operationId}));
+    });
+  }
   retentionFixtureFile(requestId,objectId) {
     this.ctx.storage.sql.exec("INSERT INTO document_files (requestId,objectId,attemptedAt) VALUES (?,?,0) ON CONFLICT(requestId) DO UPDATE SET objectId=excluded.objectId",requestId,objectId);
   }
@@ -138,7 +153,10 @@ const runtime = new Miniflare({ ...convertV4MiniflareOptions({
       .map((file) => ({ type: "ESModule", path: join(file.parentPath, file.name) }))],
   modulesRoot: server, compatibilityDate: config.compatibility_date, compatibilityFlags: config.compatibility_flags,
   bindings: { ORBIT_AUTH_MODE: "google", GOOGLE_CLIENT_ID: "local-fixture", GOOGLE_CLIENT_SECRET: "local-fixture",
-    ORBIT_STAFF_EMAILS: owner.email, ORBIT_DOCUMENT_UPLOADS: "mock", ORBIT_PRICING_MODE: "mock" },
+    ORBIT_STAFF_EMAILS: owner.email, ORBIT_DOCUMENT_UPLOADS: "mock", ORBIT_PRICING_MODE: "mock", ORBIT_DEPLOYMENT: "production",
+    UWM_USER_ENVIRONMENT: "production", UWM_USER_CLIENT_ID: "local-fixture", UWM_USER_CLIENT_SECRET: "local-fixture",
+    UWM_TOKEN_ENCRYPTION_KEY: "a".repeat(64),
+    UWM_WEBHOOK_CONFIG: JSON.stringify({ production: { brokerageId: lenderInbox, token: webhookToken } }) },
   serviceBindings: { ASSETS: async request => {
     if(!process.argv.includes("--preview"))return new Response(null,{status:404});
     const root=resolve(server,"../client"),pathname=new URL(request.url).pathname;
@@ -4226,6 +4244,57 @@ try {
     }
     assert.equal((await response()).status,200);
   });
+  await stage("A synthetic import callback settles the original request in the exact workspace", async () => {
+    for (const [id, name] of [[lenderBrokerage, "Fictional Lender Workspace"], [lenderInbox, "Fictional Lender Inbox"]]) {
+      const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
+        [owner.email], { type: "create", id, name, pilot: false });
+      assert.equal(created.created, id, created.error);
+    }
+    const lenderOfficer = actor("Fictional Lender Officer", "lender-officer@example.test", "LO");
+    const otherLenderOfficer = actor("Fictional Other Officer", "other-lender-officer@example.test", "LO");
+    for (const staff of [lenderOfficer, otherLenderOfficer]) {
+      await post(`/api/brokerages?brokerage=${lenderBrokerage}`, { type: "invite", email: staff.email, role: "LO" }, owner);
+      await signIn(staff);
+    }
+    const added = await action(lenderOfficer, "mutate", { type: "loan", contactId: "", borrower: "Fictional Lender Buyer",
+      borrowerEmail: "lender-buyer@example.test", address: "", amount: 280000, purpose: "Purchase", stage: "Lead",
+      officer: lenderOfficer.name, partnerId: null }, undefined, lenderBrokerage, lenderBrokerage);
+    assert.ok(added.loanWork?.loanId, added.error);
+    const loanId = added.loanWork.loanId;
+    const [operationId, requestId, transactionId] = [randomUUID(), randomUUID(), randomUUID()];
+    const fixture = workspaces.getByName(lenderBrokerage);
+    await fixture.lostImportResponse(loanId, operationId, requestId, transactionId, lenderOfficer.email, new Date().toISOString());
+    await directory.registerUwmTransactionRoute({ email: lenderOfficer.email, name: lenderOfficer.name, brokerage: { id: lenderBrokerage } },
+      operationId, transactionId, "production");
+    const path = `/api/uwm-file/read?brokerage=${lenderBrokerage}`;
+    const view = (staff) => post(path, { loanId, view: "activity" }, staff);
+    assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
+    assert.equal((await postResponse(path, { loanId, view: "activity" }, otherLenderOfficer)).status, 409);
+    const send = async (environment, token, transaction = transactionId) => runtime.dispatchFetch(
+      `${origin}/api/webhooks/uwm/${environment}/import`, { method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { "X-API-Key": token } : {}) },
+        body: JSON.stringify({ TransactionId: transaction, LoanNumber: "1234567890", LoanStatus: "Completed",
+          LogDateTime: "2026-11-11T00:00:00Z" }) });
+    assert.equal((await send("production", null)).status, 401);
+    assert.equal((await send("stage", webhookToken)).status, 404);
+    assert.equal((await view(lenderOfficer)).requests[0].state, "Unknown");
+    const receipt = await send("production", webhookToken);
+    assert.equal(receipt.status, 200);
+    const saved = (await receipt.json()).receipt;
+    const accepted = await view(lenderOfficer);
+    assert.equal(accepted.imports[0].lenderLoanNumber, "1234567890");
+    assert.deepEqual(accepted.requests.map(({ id, state }) => [id, state]), [[requestId, "Reconciled"]]);
+    const repeat = (await (await send("production", webhookToken)).json()).receipt;
+    assert.equal(repeat.duplicate, true);
+    assert.equal(repeat.receiptId, saved.receiptId);
+    await fixture.restartMaintenanceFixture().catch(() => {});
+    assert.equal((await view(lenderOfficer)).requests[0].state, "Reconciled");
+    const inbox = await runtime.dispatchFetch(`${origin}/api/uwm-webhook-receipts?brokerage=${lenderInbox}`,
+      { headers: { Cookie: `__Host-orbit-session=${owner.token}` } });
+    assert.equal(inbox.status, 200);
+    assert.deepEqual((await inbox.json()).receipts, []);
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

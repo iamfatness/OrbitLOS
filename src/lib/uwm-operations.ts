@@ -77,7 +77,12 @@ export async function dispatchUwmOperation(db: Store, staff: WorkspaceStaff, inp
   }
   return { id: input.id, state: db.prepare("SELECT state FROM uwm_operations WHERE id=?").get(input.id)!.state };
 }
-export function correlateUwmImport(db: Store, receiptId: number) {
+export type VerifiedUwmImport = {
+  id: string; loanId: string; environment: string; actor: string; applicationRevision: number;
+  receiptId: number; state: "Completed" | "Failed";
+};
+
+export function correlateUwmImport(db: Store, receiptId: number, onVerified?: (outcome: VerifiedUwmImport) => void) {
   return db.transaction(() => {
     const receipt = db.prepare("SELECT environment,transactionId,loanNumber,body FROM uwm_webhook_receipts WHERE id=? AND kind='import'").get(receiptId);
     if (!receipt?.transactionId) return "Unmatched";
@@ -87,8 +92,14 @@ export function correlateUwmImport(db: Store, receiptId: number) {
     const payload = JSON.parse(String(receipt.body)) as { LoanStatus?: string | null };
     const state = payload.LoanStatus === "Completed" && receipt.loanNumber ? "Completed" : payload.LoanStatus === "NotCompleted" ? "Failed" : null;
     if (!state) return "Needs review";
+    const notify = (originalReceiptId: number) => onVerified?.({
+      id: String(operation.id), loanId: String(operation.loanId), environment: String(operation.environment),
+      actor: String(operation.actor), applicationRevision: Number(operation.applicationRevision), receiptId: originalReceiptId, state,
+    });
     if (["Completed", "Failed"].includes(String(operation.state))) {
-      return operation.state === state && operation.lenderLoanNumber === receipt.loanNumber ? "Duplicate outcome" : "Conflicting outcome";
+      if (operation.state !== state || operation.lenderLoanNumber !== receipt.loanNumber) return "Conflicting outcome";
+      if (typeof operation.receiptId === "number") notify(operation.receiptId);
+      return "Duplicate outcome";
     }
     if (!["Dispatching", "Acknowledged", "Unknown"].includes(String(operation.state))) return "Needs review";
     if (state === "Completed" && db.prepare("SELECT id FROM submissions WHERE lender='UWM' AND externalId=? AND loanId<>?")
@@ -97,6 +108,7 @@ export function correlateUwmImport(db: Store, receiptId: number) {
       .get(receipt.environment, receipt.loanNumber, operation.loanId)) return "Conflicting loan";
     db.prepare("UPDATE uwm_operations SET state=?,lenderLoanNumber=?,receiptId=?,updatedAt=? WHERE id=?")
       .run(state, receipt.loanNumber, receiptId, new Date().toISOString(), operation.id);
+    notify(receiptId);
     // Preserve the sent revision in the operation. Never overwrite a newer 1003
     // or advance the internal workflow based on an import status alone.
     return state;
