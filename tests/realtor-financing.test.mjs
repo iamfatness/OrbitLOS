@@ -62,6 +62,27 @@ function fixture(t, joint = false) {
   return { db, loanId, staff, borrower, coBorrower, realtor, otherRealtor, work, read, portal, answer, incoming, todayCount };
 }
 
+test("older workspaces repair a quote trigger installed before its columns", t => {
+  const { db, loanId, work } = fixture(t);
+  const trigger = db.prepare("SELECT sql FROM sqlite_schema WHERE name = 'end_realtor_financing_on_quote_update'").get().sql;
+  db.exec(`DROP TRIGGER end_realtor_financing_on_quote_update;
+    ALTER TABLE published_quotes DROP COLUMN expiresOn;
+    ALTER TABLE published_quotes DROP COLUMN reviewRevision;
+    ${trigger};`);
+  initializeStore(db, false);
+  initializeStore(db, false);
+  const quote = db.prepare("SELECT runId, expiresOn, reviewRevision FROM published_quotes WHERE loanId = ?").get(loanId);
+  assert.equal(quote.runId, "run");
+  assert.equal(quote.expiresOn, null);
+  assert.equal(quote.reviewRevision, 0);
+  db.prepare("UPDATE published_quotes SET expiresOn = '2026-11-12' WHERE loanId = ?").run(loanId);
+  const basis = work().value.preview.basis;
+  const id = randomUUID();
+  assert.equal(work({ type: "request", requestId: id, basis }).value.request.id, id);
+  db.prepare("UPDATE published_quotes SET expiresOn = '2026-11-13' WHERE loanId = ?").run(loanId);
+  assert.equal(db.prepare("SELECT endReason FROM realtor_financing_requests WHERE id = ?").get(id).endReason, "Shared quote changed");
+});
+
 test("both borrowers must grant permission before the LO can publish the exact redacted quote summary", t => {
   const { db, loanId, staff, borrower, coBorrower, realtor, otherRealtor, work, read, portal, answer, incoming, todayCount } = fixture(t, true);
   const actions = (token, answeredId) => borrowerActions({ realtorFinancing: read(token).value.request }, answeredId);

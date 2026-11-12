@@ -110,6 +110,18 @@ const salesTargetColumns = `
 `;
 
 export function initializeStore(db: Store, seedDemo = true) {
+  // Earlier builds could install these triggers before adding their columns. SQLite
+  // can reject subsequent schema changes until an incomplete trigger is removed.
+  const migratedTriggerColumns = [
+    { table: "loans", trigger: "end_realtor_financing_on_loan_change", columns: ["officerEmail", "disposition"] },
+    { table: "published_quotes", trigger: "end_realtor_financing_on_quote_update",
+      columns: ["presentation", "expiresOn", "reviewReason", "reviewRevision"] },
+    { table: "applications", trigger: "end_realtor_financing_on_application_change", columns: ["revokedAt", "correctionNote"] },
+  ];
+  for (const { table, trigger, columns } of migratedTriggerColumns) {
+    const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(({ name }) => name));
+    if (existing.size && columns.some(column => !existing.has(column))) db.exec(`DROP TRIGGER IF EXISTS ${trigger}`);
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT NOT NULL, role TEXT NOT NULL
@@ -840,69 +852,6 @@ export function initializeStore(db: Store, seedDemo = true) {
       FOREIGN KEY(requestId, participant) REFERENCES realtor_financing_participants(requestId, participant) ON DELETE CASCADE,
       UNIQUE(requestId, participant, decision)
     );
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_loan_change
-      AFTER UPDATE OF partnerId, contactId, officerEmail, stage, purpose, disposition ON loans
-      WHEN OLD.partnerId IS NOT NEW.partnerId OR OLD.contactId IS NOT NEW.contactId OR OLD.officerEmail IS NOT NEW.officerEmail
-        OR NEW.stage IN ('Funded', 'Closed') OR NEW.purpose <> 'Purchase' OR NEW.disposition <> 'Active'
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Loan or recipients changed'
-        WHERE loanId = NEW.id AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_quote_update
-      AFTER UPDATE OF runId, offerId, publishedAt, presentation, expiresOn, reviewReason, reviewRevision ON published_quotes
-      WHEN OLD.runId IS NOT NEW.runId OR OLD.offerId IS NOT NEW.offerId OR OLD.publishedAt IS NOT NEW.publishedAt
-        OR OLD.presentation IS NOT NEW.presentation OR OLD.expiresOn IS NOT NEW.expiresOn
-        OR OLD.reviewReason IS NOT NEW.reviewReason OR OLD.reviewRevision IS NOT NEW.reviewRevision
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Shared quote changed'
-        WHERE loanId = NEW.loanId AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_quote_removal
-      AFTER DELETE ON published_quotes
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Shared quote removed'
-        WHERE loanId = OLD.loanId AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_application_change
-      AFTER UPDATE OF revision, token, revokedAt, correctionNote ON applications
-      WHEN OLD.revision IS NOT NEW.revision OR OLD.token IS NOT NEW.token OR OLD.revokedAt IS NOT NEW.revokedAt
-        OR OLD.correctionNote IS NOT NEW.correctionNote
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Application or borrower link changed'
-        WHERE loanId = NEW.loanId AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_joint_change
-      AFTER UPDATE OF token, revokedAt ON joint_applications
-      WHEN OLD.token IS NOT NEW.token OR OLD.revokedAt IS NOT NEW.revokedAt
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Co-borrower link changed'
-        WHERE loanId = NEW.loanId AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_joint_addition
-      AFTER INSERT ON joint_applications
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Co-borrower added'
-        WHERE loanId = NEW.loanId AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_joint_removal
-      AFTER DELETE ON joint_applications
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Co-borrower removed'
-        WHERE loanId = OLD.loanId AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_realtor_link_change
-      AFTER UPDATE OF token ON realtor_portals
-      WHEN OLD.token IS NOT NEW.token
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Realtor link changed'
-        WHERE realtorId = NEW.realtorId AND endedAt IS NULL;
-      END;
-    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_realtor_link_removal
-      AFTER DELETE ON realtor_portals
-      BEGIN
-        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Realtor link removed'
-        WHERE realtorId = OLD.realtorId AND endedAt IS NULL;
-      END;
     CREATE TABLE IF NOT EXISTS shared_quote_history (
       loanId TEXT NOT NULL REFERENCES applications(loanId) ON DELETE CASCADE,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, product TEXT NOT NULL,
@@ -1490,8 +1439,9 @@ export function initializeStore(db: Store, seedDemo = true) {
       const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(({ name }) => name));
       if (!columns.has("presentation")) db.exec(`ALTER TABLE ${table} ADD COLUMN presentation TEXT`);
       if (!columns.has("expiresOn")) db.exec(`ALTER TABLE ${table} ADD COLUMN expiresOn TEXT`);
-      if (table === "published_quotes" && !columns.has("reviewReason")) {
-        db.exec("ALTER TABLE published_quotes ADD COLUMN reviewReason TEXT; ALTER TABLE published_quotes ADD COLUMN reviewRevision INTEGER NOT NULL DEFAULT 0");
+      if (table === "published_quotes") {
+        if (!columns.has("reviewReason")) db.exec("ALTER TABLE published_quotes ADD COLUMN reviewReason TEXT");
+        if (!columns.has("reviewRevision")) db.exec("ALTER TABLE published_quotes ADD COLUMN reviewRevision INTEGER NOT NULL DEFAULT 0");
       }
     }
     db.exec(`CREATE TABLE IF NOT EXISTS application_versions (
@@ -1774,6 +1724,72 @@ export function initializeStore(db: Store, seedDemo = true) {
         DROP TABLE sales_conversion_targets;
         ALTER TABLE sales_conversion_targets_next RENAME TO sales_conversion_targets;`);
     }
+    // These triggers reference columns added by workspace migrations.
+    db.exec(`
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_loan_change
+      AFTER UPDATE OF partnerId, contactId, officerEmail, stage, purpose, disposition ON loans
+      WHEN OLD.partnerId IS NOT NEW.partnerId OR OLD.contactId IS NOT NEW.contactId OR OLD.officerEmail IS NOT NEW.officerEmail
+        OR NEW.stage IN ('Funded', 'Closed') OR NEW.purpose <> 'Purchase' OR NEW.disposition <> 'Active'
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Loan or recipients changed'
+        WHERE loanId = NEW.id AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_quote_update
+      AFTER UPDATE OF runId, offerId, publishedAt, presentation, expiresOn, reviewReason, reviewRevision ON published_quotes
+      WHEN OLD.runId IS NOT NEW.runId OR OLD.offerId IS NOT NEW.offerId OR OLD.publishedAt IS NOT NEW.publishedAt
+        OR OLD.presentation IS NOT NEW.presentation OR OLD.expiresOn IS NOT NEW.expiresOn
+        OR OLD.reviewReason IS NOT NEW.reviewReason OR OLD.reviewRevision IS NOT NEW.reviewRevision
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Shared quote changed'
+        WHERE loanId = NEW.loanId AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_quote_removal
+      AFTER DELETE ON published_quotes
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Shared quote removed'
+        WHERE loanId = OLD.loanId AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_application_change
+      AFTER UPDATE OF revision, token, revokedAt, correctionNote ON applications
+      WHEN OLD.revision IS NOT NEW.revision OR OLD.token IS NOT NEW.token OR OLD.revokedAt IS NOT NEW.revokedAt
+        OR OLD.correctionNote IS NOT NEW.correctionNote
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Application or borrower link changed'
+        WHERE loanId = NEW.loanId AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_joint_change
+      AFTER UPDATE OF token, revokedAt ON joint_applications
+      WHEN OLD.token IS NOT NEW.token OR OLD.revokedAt IS NOT NEW.revokedAt
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Co-borrower link changed'
+        WHERE loanId = NEW.loanId AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_joint_addition
+      AFTER INSERT ON joint_applications
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Co-borrower added'
+        WHERE loanId = NEW.loanId AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_joint_removal
+      AFTER DELETE ON joint_applications
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Co-borrower removed'
+        WHERE loanId = OLD.loanId AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_realtor_link_change
+      AFTER UPDATE OF token ON realtor_portals
+      WHEN OLD.token IS NOT NEW.token
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Realtor link changed'
+        WHERE realtorId = NEW.realtorId AND endedAt IS NULL;
+      END;
+    CREATE TRIGGER IF NOT EXISTS end_realtor_financing_on_realtor_link_removal
+      AFTER DELETE ON realtor_portals
+      BEGIN
+        UPDATE realtor_financing_requests SET endedAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), endReason = 'Realtor link removed'
+        WHERE realtorId = OLD.realtorId AND endedAt IS NULL;
+      END;
+    `);
     closeReviewedApplicationFollowUps(db);
     createApplicationFollowUps(db);
     initializeRealtorReplyIndex(db);
