@@ -617,3 +617,7 @@ Impeccable and UI UX Pro Max informed focus, explicit approval and revocation, a
 ### Sandbox CRM event credentials
 
 Impeccable guided alignment and one-time credential presentation within the selected grant. The UI UX Pro Max feedback query informed explicit issue and copy feedback. The controls reuse Orbit's accepted 21st.dev-informed confirmation, labeled fields, and attempt history. The credential is masked on issue and the current decision and receipt ID remain visible after revocation.
+
+### Simulated delivery retry scheduling and archive
+
+Reused Orbit's accepted 21st.dev-informed filter, labeled select and exact-event history. Impeccable Polish guided preserving the existing delivery hierarchy. UI UX Pro Max disabled-state and reflow guidance informed the due-time message, unavailable retry controls and aligned filter row. The archive retains the source and both attempts.

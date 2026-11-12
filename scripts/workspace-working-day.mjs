@@ -119,8 +119,13 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
     return "Unexpectedly allowed";
   }
   deliveryAttemptFixtureDate(destinationId, eventId, at) {
-    this.ctx.storage.sql.exec("UPDATE automation_destination_attempts SET at=? WHERE destinationId=? AND eventSequence=" +
-      "(SELECT sequence FROM automation_events WHERE id=?)", at, destinationId, eventId);
+    const sql = this.ctx.storage.sql;
+    const earlier = minutes => new Date(Date.parse(at) - minutes * 60_000).toISOString();
+    this.ctx.storage.transactionSync(() => {
+      sql.exec("UPDATE automation_events SET occurredAt=? WHERE id=?", earlier(7), eventId);
+      sql.exec("UPDATE automation_destination_attempts SET at=CASE WHEN attempt=1 THEN ? ELSE ? END WHERE destinationId=? AND eventSequence=" +
+        "(SELECT sequence FROM automation_events WHERE id=?)", earlier(6), at, destinationId, eventId);
+    });
   }
   dispositionFixtureDates(loanId,fundingDate,dispositionDate) {
     const sql=this.ctx.storage.sql;
