@@ -33,6 +33,7 @@ export default function DemoPage() {
           <li>Use brokerage CRM fields such as outreach tier to filter a campaign segment and see which borrowers match before enrolling them.</li>
           <li>Set a closing priority on one loan file and filter production reports by that value, even when the borrower has more than one loan.</li>
           <li>Compare the opening pipeline with the prior quarter’s saved ending pipeline, then save an internal review CSV that stays available after corrections.</li>
+          <li>Check a saved fictional quarter against reviewed FV7 evidence and trace the totals to the loan records.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s. See how the next shared lead moves up after an unanswered lead reaches its retry limit.</li>
           <li>Attach a New Lead sequence to a CSV campaign. Work due calls and preview mock email or text from Today. A reply, conversion, or opt-out stops the remaining steps.</li>
           <li>Attach Cold Lead Reactivation or Past Client Outreach to a campaign. Select individual borrowers from a saved CRM segment preview or import a prepared list, then work the next steps in Today.</li>

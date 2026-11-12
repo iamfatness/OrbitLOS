@@ -5,6 +5,7 @@ import { accessReportingReadiness } from "@/app/actions";
 import { quarterName, type CarryoverTotals, type QuarterReviewPage } from "@/lib/call-report-quarter-model";
 import type { ReportingPeriod, ReportingReadinessInput } from "@/lib/call-report-readiness-model";
 import { dateTime, money } from "@/lib/utils";
+import { Fv7QuarterReview } from "./call-report-fv7";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
 
@@ -132,6 +133,8 @@ export function CallReportQuarterReview({ brokerageId, period, openLoan, openRea
           <div><Button size="sm" type="submit" disabled={busy}>Save quarter review v{(latest?.version ?? 0) + 1}</Button></div>
         </form>}
       </>}
+      {page?.fv7Available && <Fv7QuarterReview brokerageId={brokerageId} period={page.period}
+        reviews={page.history.filter(item => item.closed)} openLoan={openLoan} />}
       {!!page?.history.length && <div className="record-form">
         <h4>Saved review exports</h4>
         <ul className="document-list">{page.history.map((item) => <li key={item.version} className="document-item">

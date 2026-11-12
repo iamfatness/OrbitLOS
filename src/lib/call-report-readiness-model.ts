@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { easternDate } from "./client-retention";
 import type { QuarterReviewPage, QuarterReviewSummary } from "./call-report-quarter-model";
+import type { buildFv7QuarterWorkpaper } from "./mcr-fv7-quarter-evidence";
+
+export const fv7EvidenceFileLimit = 1_000_000;
 
 export const reportingReadinessUnavailable = "Reporting readiness is available to brokerage admins.";
 export const callReportFactsTarget = "loan-call-report";
@@ -15,6 +18,9 @@ export const reportingReadinessInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("saveQuarterReview"), year, quarter, previousVersion: version.nullable(),
     evidenceKey: z.string().regex(/^[a-f0-9]{64}$/), requestId: z.uuid(), note: z.string().trim().max(500).default("") }),
   z.object({ type: z.literal("downloadQuarterReview"), year, quarter, version }),
+  z.object({ type: z.literal("fv7Template"), year, quarter, version }),
+  z.object({ type: z.literal("fv7Preview"), year, quarter, version,
+    evidence: z.string().min(1).max(fv7EvidenceFileLimit) }),
 ]);
 export type ReportingReadinessInput = z.infer<typeof reportingReadinessInput>;
 export type ReportingPeriod = { year: string; quarter: number };
@@ -27,4 +33,6 @@ export type ReportingBlocker = z.infer<typeof cursor> & { borrower: string; offi
 export type ReportingReadiness = { kind: "list"; indexing: boolean; blockers: number; items: ReportingBlocker[]; next: z.infer<typeof cursor> | null;
   from: string; through: string } | { kind: "export"; csv: string; count: number } | QuarterReviewPage |
   { kind: "quarterReviewSaved"; review: QuarterReviewSummary } |
-  { kind: "quarterReviewDownload"; version: number; csv: string } | { error: string };
+  { kind: "quarterReviewDownload"; version: number; csv: string } |
+  { kind: "fv7Template"; version: number; json: string } |
+  { kind: "fv7Preview"; workpaper: ReturnType<typeof buildFv7QuarterWorkpaper> } | { error: string };

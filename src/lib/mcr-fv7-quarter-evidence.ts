@@ -76,6 +76,29 @@ function newColumn(priorEnding: z.infer<typeof balance>) {
   return { ...lines, priorEnding, AC063: { count: 0, amount: 0 }, AC065: 0 };
 }
 
+export function fv7EvidenceTemplate(csv: string, year: number, quarter: number, version: number) {
+  const period = { year, quarter };
+  const included = readSnapshot(csv, quarterName(period), version).filter(row => row.groups !== "Excluded");
+  const blankAmount = () => ({ amount: null, reference: "" });
+  const blankBalance = () => ({ count: null, amount: null });
+  return {
+    entityReference: "", snapshotSha256: createHash("sha256").update(csv).digest("hex"), year, quarter, version,
+    priorEnding: { period: quarterName(priorQuarter(period)), reference: "",
+      states: [...new Set(included.map(row => row.state))].sort()
+        .map(state => ({ state, direct: blankBalance(), thirdParty: blankBalance() })) },
+    adjustmentLedgerReference: "", amountChangeLedgerReference: "",
+    files: included.map(row => {
+      const groups = row.groups.split(" | ");
+      return {
+        loanId: row.loan, revision: Number(row.revision), state: row.state, source: null, intakeReference: "",
+        ...(groups.includes("Beginning pipeline") ? { opening: blankAmount() } : {}),
+        ...(groups.includes("Ending pipeline") ? { ending: blankAmount() } : { outcomeReference: "" }),
+      };
+    }),
+    amountChanges: [], adjustments: [],
+  };
+}
+
 export function buildFv7QuarterWorkpaper(csv: string, input: unknown) {
   const data = evidence.parse(input);
   const snapshotSha256 = createHash("sha256").update(csv).digest("hex");

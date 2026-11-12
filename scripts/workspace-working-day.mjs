@@ -720,7 +720,7 @@ try {
     assert.equal(finalCutover.evidence.readiness.counts["Needs review"], 2);
   });
 
-  await stage("Quarter reviews keep the original CSV after corrections", async () => {
+  const reportingFixture = await stage("Quarter reviews keep the original CSV after corrections", async () => {
     const reportingBrokerage = randomUUID();
     const workspace = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
       [owner.email], { type: "create", id: reportingBrokerage, name: "Fictional Reporting Review", pilot: true });
@@ -750,6 +750,28 @@ try {
     assert.equal(matched.comparison.changeCount, 0);
     const firstRequest = request(matched);
     assert.equal((await report(firstRequest)).review.version, 1);
+    if (prior.year === 2026) {
+      const template = await report({ type: "fv7Template", ...prior, version: 1 });
+      assert.equal(template.kind, "fv7Template", template.error);
+      const evidence = JSON.parse(template.json);
+      assert.equal(evidence.files[0].loanId, loanId);
+      const preview = { type: "fv7Preview", ...prior, version: 1, evidence: template.json };
+      assert.match((await report(preview)).error, /entityReference/);
+      assert.ok((await action(officer, "accessReportingReadiness", preview, undefined, reportingBrokerage, reportingBrokerage)).error);
+      assert.ok((await action(owner, "accessReportingReadiness", preview, undefined, reportingBrokerage, brokerage)).error);
+      Object.assign(evidence, { entityReference: "Fictional Michigan broker", adjustmentLedgerReference: "No fictional adjustments",
+        amountChangeLedgerReference: "No fictional amount changes" });
+      evidence.priorEnding.reference = "Fictional prior ending";
+      for (const totals of Object.values(evidence.priorEnding.states[0]).filter(value => typeof value === "object")) {
+        Object.assign(totals, { count: 0, amount: 0 });
+      }
+      Object.assign(evidence.files[0], { source: "direct", intakeReference: "Fictional application receipt",
+        ending: { amount: 350000, reference: "Fictional quarter ending" } });
+      const checked = await report({ ...preview, evidence: JSON.stringify(evidence) });
+      assert.equal(checked.kind, "fv7Preview", checked.error);
+      assert.deepEqual(checked.workpaper.states[0].direct.calculated.AC090, { count: 1, amount: 350000 });
+      assert.ok(checked.workpaper.pipelineReconciled);
+    }
     const original = await download(1);
     assert.equal(original.kind, "quarterReviewDownload", original.error);
     assert.ok(original.csv.includes("350000"));
@@ -763,6 +785,11 @@ try {
     assert.equal((await report(request(corrected, "Reviewed the corrected state and amount."))).review.version, 2);
     assert.equal((await download(1)).csv, original.csv);
     assert.ok((await download(2)).csv.includes("355000"));
+    if (prior.year === 2026) {
+      const replaced = await read(prior);
+      assert.equal((await report(request(replaced, "Fictional jurisdiction and amount correction."))).review.version, 2);
+    }
+    return { brokerage: reportingBrokerage, period: prior, loanId };
   });
 
   await stage("The initial guide shows when its controls are ready", async () => {
@@ -4798,7 +4825,7 @@ try {
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

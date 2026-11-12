@@ -37,6 +37,7 @@ export type QuarterReviewComparison = {
 };
 export type QuarterReviewPage = {
   kind: "quarterReview";
+  fv7Available?: boolean;
   period: Quarter;
   priorPeriod: Quarter;
   closed: boolean;

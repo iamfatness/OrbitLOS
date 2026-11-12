@@ -589,6 +589,22 @@ test("FV7 evidence links a downloaded closed-quarter review to source and adjust
   };
   const result = buildFv7QuarterWorkpaper(csv, evidence);
   assert.equal(result.reconciled, true);
+  const templateRequest = { type: "fv7Template", version };
+  const preview = { type: "fv7Preview", version, evidence: JSON.stringify(evidence) };
+  assert.match(work(templateRequest, officer).error, /brokerage admins/);
+  assert.match(work(preview, { ...admin, brokerage: { ...admin.brokerage, id: "different-pilot" } }).error, /brokerage admins/);
+  assert.match(work(templateRequest, { ...admin, brokerage: { ...admin.brokerage, pilot: false } }).error, /fictional pilot/);
+  assert.match(work({ ...templateRequest, version: version + 1 }).error, /saved review/);
+  assert.match(work({ ...preview, evidence: "{" }).error, /not valid JSON/);
+  const downloaded = work(templateRequest);
+  assert.equal(downloaded.kind, "fv7Template");
+  const template = JSON.parse(downloaded.json);
+  assert.equal(template.snapshotSha256, checksum(csv));
+  assert.deepEqual(template.files.find(file => file.loanId === loanId),
+    { loanId, revision: 1, state: "MI", source: null, intakeReference: "", opening: { amount: null, reference: "" }, ending: { amount: null, reference: "" } });
+  assert.match(work({ ...preview, evidence: downloaded.json }).error, /entityReference/);
+  assert.match(work({ ...preview, evidence: JSON.stringify({ ...evidence, snapshotSha256: "a".repeat(64) }) }).error, /reviewed checksum/);
+  assert.deepEqual(work(preview), { kind: "fv7Preview", workpaper: result });
   const [{ direct, thirdParty }] = result.states;
   assert.deepEqual(direct.calculated.AC090, { count: 2, amount: 420000 });
   assert.deepEqual(direct.lines.AC063, { count: 1, amount: 130000 });
