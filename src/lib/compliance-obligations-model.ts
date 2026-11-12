@@ -19,11 +19,22 @@ export const obligationDraft = z.strictObject({
 });
 const scope = { entityId: z.uuid() };
 const change = { requestId: z.uuid() };
+export const obligationStateReference = z.strictObject({
+  jurisdiction: z.string().regex(/^[A-Z]{2}$/),
+  revision: z.number().int().positive(),
+  sourceKey: z.string().regex(/^REQ-[A-Z]{2}-REPORTING-[A-Z0-9]+$/).max(30),
+});
+export const obligationStateSource = obligationStateReference.extend({
+  title: z.string(), authority: z.string(), sourceUrl: z.url(),
+});
+export type ObligationStateSource = z.infer<typeof obligationStateSource>;
 export const obligationRequest = z.discriminatedUnion("operation", [
   z.strictObject({ operation: z.literal("planWork"), ...scope, ...change, id: z.uuid(), period: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) }),
   z.strictObject({ operation: z.literal("occurrences"), ...scope, id: z.uuid(), offset: z.number().int().min(0).max(10000).default(0) }),
   z.strictObject({ operation: z.literal("list"), ...scope, offset: z.number().int().min(0).max(10000).default(0) }),
-  z.strictObject({ operation: z.literal("save"), ...scope, ...change, id: z.uuid(), expectedRevision: z.number().int().min(0), draft: obligationDraft }),
+  z.strictObject({ operation: z.literal("stateSources"), ...scope }),
+  z.strictObject({ operation: z.literal("save"), ...scope, ...change, id: z.uuid(), expectedRevision: z.number().int().min(0),
+    draft: obligationDraft, stateReference: obligationStateReference.optional() }),
   z.strictObject({ operation: z.literal("generate"), ...scope, ...change, id: z.uuid(), expectedRevision: z.number().int().positive(),
     period: z.string().regex(/^20\d{2}-(0[1-9]|1[0-2])$/) }),
 ]);
