@@ -10,6 +10,7 @@ const question = z.strictObject({ prompt: z.string().trim().min(1).max(1000),
   correctIndex: z.number().int().min(0).max(5), explanation: z.string().trim().min(1).max(1000) })
   .refine(q => q.correctIndex < q.options.length, "Answer must identify an option");
 export const learningRequest = z.discriminatedUnion("operation", [
+  z.strictObject({ operation: z.literal("myAssignments"), after: z.number().int().nonnegative().optional() }),
   z.strictObject({ operation: z.literal("list"), after: z.number().int().nonnegative().optional() }),
   z.strictObject({ operation: z.literal("listAssignments"), versionId: id, after: z.number().int().nonnegative().optional() }),
   z.strictObject({ operation: z.literal("readVersion"), ...version }),

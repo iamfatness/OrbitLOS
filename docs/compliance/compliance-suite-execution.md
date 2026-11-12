@@ -12,11 +12,11 @@
 | Package | Evidence in this branch | Remaining work |
 | --- | --- | --- |
 | CS0 | All 50 states have preliminary reporting matrix rows; Michigan detailed review list; MCR/HMDA artifact inventory and training/policy content review packet | Verify exact pilot legal entity/licenses/fiscal year; resolve source conflicts; full field-level reporting mappings; user then lawyer review. State rows are research coverage, not approved rule coverage |
-| CS1 | Implemented local entity/month internal work with admin ownership, target dates, evidence references, revisioned events, retry safety, monthly snapshots and restore protection | Browser acceptance; reviewed obligation templates/applicability; recurrence/jobs/reminders; canonical remediation links; calendar due-date rules; entity profile editing and delegated capabilities. This is partial CS1 |
+| CS1 | Implemented local entity/month internal work; versioned obligation registry and local screen; explicit period generation/history; tenant/owner checks, retry safety, monthly snapshots and restore protection | Browser acceptance; reviewed obligation templates/applicability; automatic recurrence/jobs/reminders; canonical remediation links; statutory deadline rules; entity profile editing and delegated capabilities. This is partial CS1 |
 | CS2 | Existing quarterly preparation retained; authoritative FV7 artifact links and section-level gaps documented | Complete field mapping/financial imports/XML serializer/schema fixtures/filing lifecycle. Proposed reporting ownership with release agent; acknowledgment and implementation pending |
 | CS3 | 50-state reporting research plus HMDA scope/form inventory | State/HMDA adapters, authoritative fixtures, legal review and submission evidence; all remain unsupported as automated filings |
-| CS4 | Twelve original draft training outlines, cadence distinctions, content and accessibility review requirements | Course/assignment/assessment/completion services and employee UI; reviewed content and qualified sign-off |
-| CS5 | Policy/QC source and publication review matrix | Versioned builders, acknowledgments, reproducible QC cycles and program workflows |
+| CS4 | Twelve original draft outlines; version/assignment/assessment/completion services; local draft/review/assign and employee screens; admin assignment completion and revocation | Visual acceptance; reviewed production content and qualified sign-off; rich authoring/version replacement, reminders and accessibility verification |
+| CS5 | Policy source review matrix; immutable policy versions and employee acknowledgment workflow; assignment revocation with retained completion evidence | Revision authoring screens; reproducible QC cycles, complaints and remediation integration; operational acceptance |
 | CS6 | Release checklist and scope boundaries documented | Examination packages/reviewer grants; operational/legal/commercial acceptance and measured design-partner outcomes |
 
 The whole plan is **not complete**. Do not convert the package table to completed merely because a source document, placeholder or review category exists.
@@ -59,7 +59,15 @@ Learning supports immutable policy/course versions, review evidence, internal pu
 
 Integration verification: all 542 repository tests, typecheck, lint and the production-target Cloudflare build pass. Tests cover the authenticated routing and atomic audit rollback as well as each service's lifecycle and access boundaries. This increment has not been deployed or visually accepted. Browser retry still reports local browser use disabled despite visibly enabled desktop controls; the user has authorized access, so no additional permission request is pending.
 
-The suite remains incomplete. Employee screens, statutory cadence validation, reminders, reviewed course content and controlled exam workflows remain open; see the package ledger and plan. The release agent remains the sole production promotion owner.
+The suite remains incomplete. Statutory cadence validation, reminders, reviewed course content and controlled exam workflows remain open; see the package ledger and plan. The release agent remains the sole production promotion owner.
+
+### User workflow follow-up
+
+Local Obligations now supports entity selection, paginated internal applicability review, version creation, explicit period generation and history retaining the original rule version. Local Training & policies supports draft policy/course authoring, recorded user/lawyer review evidence, internal publication and assignment. The daily compliance work panel exposes My training & policies, including current employees' own assignments, acknowledgments and assessments. Admins can also retrieve their own assignments without receiving the entire library in that view.
+
+The course editor currently creates two-answer questions (up to 20). Version replacement remains a backend capability without a dedicated editor. Admins can inspect paginated assignment completion and revoke assignments with a reason; completed evidence is retained after revocation. No production content or lawyer review was fabricated; rehearsal attestations are explicitly synthetic. No automatic notification or filing is performed.
+
+All 544 repository tests, typecheck, lint and the production-target build passed for this increment. The UI source detector did not report regex findings; rendered checks did not run. Browser control is unavailable, so these screens remain unverified and undeployed. The expanded built-Worker rehearsal passed on the final candidate, including obligation generation/history, role denial, policy publication review gate, assignment access and exact-retry acknowledgment. All rehearsal content and review references are fictional.
 
 - [Alabama–Missouri, including detailed Michigan pilot](reporting-states-a-m.md)
 - [Montana–Wyoming](reporting-states-m-w.md)

@@ -1704,6 +1704,36 @@ try {
     assert.equal(monthly.reviews[0].current,true);
     assert.equal(monthly.coverage,"Regulatory applicability not evaluated");
     assert.ok((await program(processor,{operation:"month",entityId:entity.id,month:period})).error);
+    {
+    const suite=async(staff,type,input)=>{
+      const result=await action(staff,"accessComplianceCases",{type,input},undefined,brokerage);
+      return result.result??result;
+    };
+    const obligationId=randomUUID();
+    const obligation={operation:"save",entityId:entity.id,id:obligationId,expectedRevision:0,requestId:randomUUID(),draft:{
+      title:"Fictional Michigan applicability review",sourceUrl:"https://example.test/michigan",authority:"Fictional test authority",basis:"Internal scope review fixture",
+      applicability:"Needs review",applicabilityReason:"Counsel determination pending",reviewerEvidence:"",effectiveFrom:"2026-01-01",effectiveThrough:"",
+      cadence:"Monthly",internalTargetDay:28,ownerEmail:owner.email}};
+    assert.ok((await suite(officer,"obligations",obligation)).error);
+    assert.equal((await suite(owner,"obligations",obligation)).revision,1);
+    const occurrence=await suite(owner,"obligations",{operation:"generate",entityId:entity.id,id:obligationId,expectedRevision:1,requestId:randomUUID(),period:"2026-11"});
+    assert.equal(occurrence.occurrence.status,"Applicability review gap");
+    assert.equal((await suite(owner,"obligations",{operation:"occurrences",entityId:entity.id,id:obligationId})).items.length,1);
+    const draftPolicy={operation:"createVersion",requestId:randomUUID(),contentId:randomUUID(),previousVersionId:null,kind:"Policy",title:"Fictional evidence handling policy",
+      body:"Fictional exercise only. Retain evidence and escalate missing facts.",sourceReferences:"Synthetic rehearsal; no real legal review",questions:[],passPercent:100};
+    const policy=await suite(owner,"learning",draftPolicy);
+    assert.equal((await suite(owner,"learning",draftPolicy)).versionId,policy.versionId);
+    assert.ok((await suite(owner,"learning",{operation:"publish",requestId:randomUUID(),versionId:policy.versionId})).error);
+    assert.equal((await suite(owner,"learning",{operation:"review",requestId:randomUUID(),versionId:policy.versionId,note:"Fictional owner review",lawyerReviewReference:"Synthetic legal review fixture only",rightsConfirmed:true,userReviewed:true})).state,"Owner reviewed");
+    assert.equal((await suite(owner,"learning",{operation:"publish",requestId:randomUUID(),versionId:policy.versionId})).state,"Internally published");
+    const assigned=await suite(owner,"learning",{operation:"assign",requestId:randomUUID(),versionId:policy.versionId,employeeEmail:officer.email,dueAt:"2026-11-30T23:59:59.000Z"});
+    assert.equal((await suite(officer,"learning",{operation:"myAssignments"})).items[0].id,assigned.assignmentId);
+    assert.ok((await suite(processor,"learning",{operation:"readAssignment",assignmentId:assigned.assignmentId})).error);
+    const acknowledgment={operation:"acknowledge",requestId:randomUUID(),assignmentId:assigned.assignmentId,versionId:policy.versionId,acknowledged:true};
+    assert.equal((await suite(officer,"learning",acknowledgment)).completed,true);
+    assert.equal((await suite(officer,"learning",acknowledgment)).completed,true);
+    assert.equal((await suite(officer,"learning",{operation:"readAssignment",assignmentId:assigned.assignmentId})).completion.completed,true);
+    }
 
     const ready = (await preflight()).preflight;
     assert.ok(ready.checks.every(({ state }) => state === "Ready"), JSON.stringify(ready.checks));

@@ -34,6 +34,12 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   if (!parsed.success) return unavailable;
   const data = parsed.data;
   if (!db.prepare("SELECT 1 FROM compliance_program_entities WHERE brokerageId=? AND id=?").get(tenant, data.entityId)) return unavailable;
+  if (data.operation === "occurrences") {
+    const rows = db.prepare(`SELECT obligationId,period,version,status,internalTarget,snapshot,createdBy,createdAt
+      FROM compliance_obligation_occurrences WHERE brokerageId=? AND entityId=? AND obligationId=? ORDER BY period DESC LIMIT 51 OFFSET ?`)
+      .all(tenant, data.entityId, data.id, data.offset);
+    return { kind: "obligationOccurrences", items: rows.slice(0,50), more: rows.length > 50, notice: obligationPlanningNotice };
+  }
   if (data.operation === "list") {
     const rows = db.prepare(`SELECT v.* FROM compliance_obligation_versions v WHERE brokerageId=? AND entityId=?
       AND revision=(SELECT max(n.revision) FROM compliance_obligation_versions n WHERE n.brokerageId=v.brokerageId AND n.entityId=v.entityId AND n.id=v.id)

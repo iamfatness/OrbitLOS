@@ -34,6 +34,18 @@ test("UTC final-month targets clamp leap years and enforce cadence anchors",()=>
   assert.equal(obligationPeriod("2026-01","Annual",31).internalTarget,"2026-12-31");
   assert.equal(obligationPeriod("2026-02","Quarterly",31),null);
 });
+
+test("period history preserves original versions and remains entity scoped",t=>{
+ const f=fixture(t);f.run(f.save());f.run(f.generate());
+ f.run(f.save({expectedRevision:1,draft:{...f.draft,title:"Revised internal basis"}}));
+ const query={operation:"occurrences",entityId:f.entityId,id:f.id};
+ const history=f.run(query);
+ assert.equal(history.items.length,1);assert.equal(history.items[0].version,1);
+ assert.equal(JSON.parse(history.items[0].snapshot).draft.title,f.draft.title);
+ assert.equal(f.run({...query,offset:50}).items.length,0);
+ assert.ok(f.run({...query,entityId:crypto.randomUUID()}).error);
+ assert.ok(f.run(query,f.staff,[]).error);
+});
 test("strict schema rejects legal activation claims and missing review evidence",t=>{
   const f=fixture(t);assert.ok(f.run({...f.save(),lawyerApproved:true}).error);
   assert.ok(f.run(f.save({draft:{...f.draft,applicability:"Required"}})).error);

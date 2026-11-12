@@ -43,6 +43,20 @@ function fixture(t) {
   return { db, work, mutate, draft, publish, assign, admin, employee, other, roster, tenant };
 }
 
+test("admins can read their own assignments without exposing employee work",t=>{
+ const f=fixture(t),v=f.draft();f.publish(v.versionId);
+ const mine=f.assign(v.versionId,f.admin);f.assign(v.versionId,f.employee);
+ assert.deepEqual(f.work({operation:"myAssignments"}).items.map(i=>i.id),[mine]);
+ assert.equal(f.work({operation:"list"}).kind,"learningLibrary");
+ assert.equal(f.work({operation:"myAssignments"},f.other).items.length,0);
+ f.mutate("acknowledge",{assignmentId:mine,versionId:v.versionId,acknowledged:true});
+ assert.equal(f.work({operation:"listAssignments",versionId:v.versionId}).items.find(i=>i.id===mine).completed,true);
+ f.mutate("revokeAssignment",{assignmentId:mine,note:"Replace with current version"});
+ assert.equal(f.work({operation:"myAssignments"}).items.length,0);
+ const historical=f.work({operation:"listAssignments",versionId:v.versionId}).items.find(i=>i.id===mine);
+ assert.equal(historical.active,false);assert.equal(historical.completed,true);
+});
+
 test("strict schemas reject fabricated approval, invalid assessments and unknown fields", () => {
   assert.equal(learningRequest.safeParse({ operation: "list", legalApproved: true }).success, false);
   assert.equal(learningRequest.safeParse({ operation: "attempt", requestId: uuid(), assignmentId: uuid(), versionId: uuid(), answers: [-1] }).success, false);

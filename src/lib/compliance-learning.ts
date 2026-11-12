@@ -68,8 +68,8 @@ export function complianceLearningWork(db: Store, input: unknown, staff: Workspa
       history: history.slice(0, 50).map(e => ({ operation: e.operation, actor: e.actor, at: e.at, evidence: JSON.parse(String(e.response)) })),
       moreHistory: history.length > 50 };
   }
-  if (data.operation === "list") {
-    if (admin) {
+  if (data.operation === "list" || data.operation === "myAssignments") {
+    if (admin && data.operation === "list") {
       const rows = db.prepare(`SELECT rowid AS sequence,${versionColumns} FROM compliance_learning_versions
         WHERE brokerageId=? AND rowid>? ORDER BY rowid LIMIT 26`).all(tenant, data.after ?? 0);
       return { kind: "learningLibrary", items: rows.slice(0, 25).map(r => ({ id: r.id, contentId: r.contentId,
@@ -95,7 +95,9 @@ export function complianceLearningWork(db: Store, input: unknown, staff: Workspa
     if (!admin || !getVersion(data.versionId)) return unavailable;
     const rows = db.prepare(`SELECT rowid AS sequence,${assignmentColumns} FROM compliance_learning_assignments
       WHERE brokerageId=? AND versionId=? AND rowid>? ORDER BY rowid LIMIT 26`).all(tenant, data.versionId, data.after ?? 0);
-    return { kind: "learningAssignments", items: rows.slice(0, 25).map(r => ({ ...r, active: active(r as unknown as Assignment) })),
+    return { kind: "learningAssignments", items: rows.slice(0, 25).map(r => ({ ...r, active: active(r as unknown as Assignment),
+      completed: Boolean(db.prepare(`SELECT 1 FROM compliance_learning_events WHERE brokerageId=? AND assignmentId=?
+        AND json_extract(response,'$.completed')=1 LIMIT 1`).get(tenant, String(r.id))) })),
       next: rows.length > 25 ? Number(rows[24].sequence) : null, disclaimer: learningDisclaimer };
   }
   const a = "assignmentId" in data ? getAssignment(data.assignmentId) : undefined;
