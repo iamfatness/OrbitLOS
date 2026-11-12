@@ -40,7 +40,7 @@ import { pinApplicationQuestionnaire, prepareApplicationAnswers, readApplication
 import { brokerAgreementStates } from "./state-broker-agreement-model";
 import { refinanceBenefitStates } from "./state-refinance-benefit-model";
 
-type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "brokerAgreementState" | "refinanceBenefitState" | "hasKansasProperty" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "lastExportProfile" |
+type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "brokerAgreementState" | "refinanceBenefitState" | "hasKansasProperty" | "hasMichiganProperty" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "lastExportProfile" |
   "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt" | "manualLenderRejected"> & { draft: string; step: number };
 type BorrowerStatusRow = Pick<ApplicationRow, "loanId" | "submittedAt" | "reviewedAt" | "correctionNote" | "revision">;
 
@@ -126,6 +126,7 @@ export function staffApplications(db: Store, loanId?: string): StaffApplication[
       ...(brokerAgreementState ? { brokerAgreementState } : {}),
       ...(refinanceBenefitState ? { refinanceBenefitState } : {}),
       ...(draftState === "KS" ? { hasKansasProperty: true as const } : {}),
+      ...(draftState === "MI" ? { hasMichiganProperty: true as const } : {}),
       ...(!row.submittedAt && typeof draft?.propertyAddress === "string" && draft.propertyAddress.trim()
         ? { draftHasPropertyStreet: true } : {}),
       lender: lender.get(row.loanId) ?? null,

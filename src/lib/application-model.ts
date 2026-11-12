@@ -233,6 +233,7 @@ export interface StaffApplication {
   brokerAgreementState?: (typeof import("./state-broker-agreement-model").brokerAgreementStates)[number];
   refinanceBenefitState?: import("./state-refinance-benefit-model").RefinanceBenefitState;
   hasKansasProperty?: true;
+  hasMichiganProperty?: true;
   lender: { details: LenderDetails; revision: number } | null;
   manualHandoff?: { exportPrepared: boolean; exportProfiles?: import("./lender-export-model").LenderExportProfile[];
     preparedExports?: import("./lender-export-model").PreparedLenderExport[];

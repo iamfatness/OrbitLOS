@@ -53,6 +53,7 @@ import { TridEvidencePanel } from "./trid-evidence-panel";
 import { StateBrokerAgreement } from "./state-broker-agreement";
 import { StateRefinanceBenefit } from "./state-refinance-benefit";
 import { KansasConsumerNotice } from "./kansas-consumer-notice";
+import { MichiganLoanPractices } from "./michigan-loan-practices";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
@@ -747,6 +748,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           save={save} open={open} refresh={refreshDisclosures} />}
       {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && propertyState === "MI" &&
         <TridEvidencePanel key={`${staff.brokerage.id}:${loan.id}`} loanId={loan.id} brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
+      {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && application?.hasMichiganProperty &&
+        <MichiganLoanPractices key={`${staff.brokerage.id}:${loan.id}`} loanId={loan.id} brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && agreementState &&
         <StateBrokerAgreement key={`${staff.brokerage.id}:${loan.id}:${agreementState}`} state={agreementState} loanId={loan.id}
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}

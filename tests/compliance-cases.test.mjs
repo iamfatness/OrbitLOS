@@ -19,6 +19,9 @@ test("Michigan loan practices preserve independent findings, scope and term boun
   const { db, work, addLoan, officer, processor, unrelated } = fixture(t);
   const loanId = addLoan({ state: " mi " });
   const other = addLoan({ state: "OH" });
+  assert.equal(staffApplications(db, loanId)[0].hasMichiganProperty, true);
+  assert.equal(staffApplications(db, loanId)[0].draft, null);
+  assert.equal(staffApplications(db, other)[0].hasMichiganProperty, undefined);
   const record = (input, actor) => work({ type: "michiganLoanPractices", input }, actor);
   const read = (id, actor) => record({ operation: "read", state: "MI", loanId: id }, actor);
   const evidence = { reference: "Fictional evidence", result: "No concern recorded" };
