@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { uwmRecoverySteps } from "./hosted-recovery/uwm-receipts.mjs";
 const folder=resolve(process.argv[2]||"");
 const run=JSON.parse(await readFile(resolve(folder,"run.json"),"utf8"));
 const url=new URL(process.argv[3]);
@@ -14,14 +15,15 @@ catch(error) {if(error.code!=="ENOENT")throw error;}
 assert.ok(Array.isArray(evidence)&&evidence.every(item=>item.run===run.run&&item.source===run.source),"Evidence belongs to another run");
 const anonymous=await fetch(new URL('/__recovery',url),{method:'POST',body:'initialize'});
 assert.equal(anonymous.status,404);
-const steps=['initialize','checkpoint','prepareChange','interrupt','restartInterrupted','reconcile','change','arm','restart','verify','replay','restartReplay','verifyReplay','directoryPrepare','directoryArmOld','directoryRejectOld','directoryRecover','directoryVerify','directoryResume','cleanup'];
-const phases=['new','initialized','checkpointed','prepared','interrupted','reconciled','changed','armed','restarted','verified','replayed','replayRestarted','replayVerified','directoryPrepared','directoryOldArmed','directoryOldRejected','directoryRecoveryArmed','directoryVerified','directoryResumed','cleaned'];
+const uwm = run.recoveryCase === 'uwm-receipts';
+const steps=uwm ? uwmRecoverySteps : ['initialize','checkpoint','prepareChange','interrupt','restartInterrupted','reconcile','change','arm','restart','verify','replay','restartReplay','verifyReplay','directoryPrepare','directoryArmOld','directoryRejectOld','directoryRecover','directoryVerify','directoryResume','cleanup'];
+const phases=uwm ? ['new','initialized','matched','destinationArmed','destinationVerified','directoryOldArmed','directoryOldVerified','directoryLatestArmed','verified','cleaned'] : ['new','initialized','checkpointed','prepared','interrupted','reconciled','changed','armed','restarted','verified','replayed','replayRestarted','replayVerified','directoryPrepared','directoryOldArmed','directoryOldRejected','directoryRecoveryArmed','directoryVerified','directoryResumed','cleaned'];
 const statusResponse=await fetch(new URL('/__recovery',url),{method:'POST',headers:{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`},body:'status'});
 assert.equal(statusResponse.status,200);
 const current=await statusResponse.json();assert.equal(current.run,run.run);assert.equal(current.source,run.source);
 if(current.artifactSha256)assert.equal(current.artifactSha256,run.artifactSha256,"Hosted artifact differs from prepared modules");
 const phaseIndex=phases.indexOf(current.phase);assert.ok(phaseIndex>=0);
-const start=phaseIndex+(phaseIndex>=4?1:0);
+const start=phaseIndex+(!uwm&&phaseIndex>=4?1:0);
 if(start===steps.length)console.log(JSON.stringify(current,null,2));
 for(const step of steps.slice(start)){
  const response=await fetch(new URL('/__recovery',url),{method:'POST',headers:{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`},body:step,signal:AbortSignal.timeout(60000)});

@@ -17,12 +17,14 @@ const source = execFileSync("git",["rev-parse","HEAD"],{cwd:fileURLToPath(root),
 const built = JSON.parse(await readFile(new URL("dist/server/wrangler.json",root),"utf8"));
 if (built.main !== "index.js" || !built.no_bundle) throw new Error("Build Orbit first");
 const run = randomUUID(), name = `orbit-recovery-${run.slice(0,8)}`;
+const recoveryCase = process.argv.includes("--uwm-receipts") ? "uwm-receipts" : "working-day";
 const folder = new URL(`.orbit/${name}/`,root);
 await mkdir(folder,{recursive:true});
 await cp(new URL("dist/server/",root),new URL("server/",folder),{recursive:true});
 await copyFile(new URL("scripts/hosted-recovery/worker.template.mjs",root),new URL("server/recovery-entry.mjs",folder));
 await copyFile(new URL("scripts/cutover-replacement-fixture.mjs",root),new URL("server/recovery-replacement.mjs",folder));
 await copyFile(new URL("scripts/hosted-recovery/reconciliation.mjs",root),new URL("server/recovery-reconciliation.mjs",folder));
+await copyFile(new URL("scripts/hosted-recovery/uwm-receipts.mjs",root),new URL("server/recovery-uwm-receipts.mjs",folder));
 await copyFile(new URL("scripts/hosted-recovery/directory-recovery.mjs",root),new URL("server/directory-recovery.mjs",folder));
 const {directoryRecoveryHoldPath,directoryRecoveryHoldPrefix}=await import("../src/lib/directory-recovery-hold.ts");
 const {directorySignInResetPath,directorySignInResetPrefix}=await import("../src/lib/directory-sign-in-reset.ts");
@@ -44,10 +46,15 @@ const config = { name, main:"server/recovery-entry.mjs", no_bundle:true, find_ad
   compatibility_flags:built.compatibility_flags, workers_dev:true, preview_urls:false,
   durable_objects:{bindings:[{name:"WORKSPACE",class_name:"RecoveryWorkspace"}]}, migrations:[{tag:"v1",new_sqlite_classes:["RecoveryWorkspace"]}],
   r2_buckets:[{binding:"DOCUMENTS",bucket_name:`${name}-documents`}],
-  vars:{RECOVERY_RUN:run,RECOVERY_SOURCE:source,RECOVERY_ARTIFACT:artifactSha256,FIXTURE_A:randomUUID(),FIXTURE_B:randomUUID(),FIXTURE_C:randomUUID(),
+  vars:{RECOVERY_RUN:run,RECOVERY_SOURCE:source,RECOVERY_ARTIFACT:artifactSha256,RECOVERY_CASE:recoveryCase,FIXTURE_A:randomUUID(),FIXTURE_B:randomUUID(),FIXTURE_C:randomUUID(),
     ORBIT_AUTH_MODE:"google",GOOGLE_CLIENT_ID:"fictional-recovery",GOOGLE_CLIENT_SECRET:"fictional-recovery",ORBIT_STAFF_EMAILS:"recovery-bootstrap@example.test",
     ORBIT_PRICING_MODE:"mock",ORBIT_DOCUMENT_UPLOADS:"mock"}, limits:{cpu_ms:1000} };
+const secrets = {RECOVERY_TOKEN:randomBytes(32).toString("base64url")};
+if (recoveryCase === "uwm-receipts") {
+  config.vars.UWM_USER_ENVIRONMENT = "stage";
+  secrets.UWM_WEBHOOK_CONFIG = JSON.stringify({stage:{brokerageId:config.vars.FIXTURE_A,token:randomBytes(32).toString("base64url")}});
+}
 await writeFile(new URL("wrangler.json",folder),JSON.stringify(config,null,2));
-await writeFile(new URL("secrets.json",folder),JSON.stringify({RECOVERY_TOKEN:randomBytes(32).toString("base64url")}),{mode:0o600});
-await writeFile(new URL("run.json",folder),JSON.stringify({run,source,artifactSha256,name,bucket:`${name}-documents`,config:fileURLToPath(new URL("wrangler.json",folder))},null,2));
+await writeFile(new URL("secrets.json",folder),JSON.stringify(secrets),{mode:0o600});
+await writeFile(new URL("run.json",folder),JSON.stringify({run,source,artifactSha256,name,recoveryCase,bucket:`${name}-documents`,config:fileURLToPath(new URL("wrangler.json",folder))},null,2));
 console.log(JSON.stringify({directory:fileURLToPath(folder),name,bucket:`${name}-documents`,source}));

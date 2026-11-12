@@ -26,7 +26,9 @@ try {
   const {origin}=await runtime.ready;
   const request=(action,authorized=true)=>runtime.dispatchFetch(origin+"/__recovery",{method:"POST",headers:authorized?{Authorization:`Bearer ${secrets.RECOVERY_TOKEN}`}:{},body:action});
   assert.equal((await request("initialize",false)).status,404);
-  for(const step of preview?["initialize"]:["initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change"]){
+  const steps = config.vars.RECOVERY_CASE === "uwm-receipts" ? ["initialize","match"] :
+    preview ? ["initialize"] : ["initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change"];
+  for(const step of steps){
     const response=await request(step);const result=await response.json();
     if(step==="interrupt") {
       assert.equal(response.status,409);assert.equal(result.error,"Simulated lost acknowledgment");

@@ -1,6 +1,7 @@
 // Test-only wrapper copied next to the built Worker by prepare-hosted-recovery.mjs.
 // Never included by the production entry point or its deployment configuration.
 import application, { OrbitWorkspace } from "./index.js";
+import { uwmReceiptRecovery, uwmRecoverySteps } from "./recovery-uwm-receipts.mjs";
 import { directoryRecoveryCommand, readDirectoryJournal, snapshotDirectory } from "./directory-recovery.mjs";
 import { recordFictionalReplacement } from "./recovery-replacement.mjs";
 import { directoryRecoveryHoldPrefix, directorySignInResetPrefix, directoryRepairPrefix, sampleDraft, finalStep } from "./recovery-fixtures.mjs";
@@ -39,6 +40,43 @@ export class RecoveryWorkspace extends OrbitWorkspace {
       this.ctx.storage.sql.exec("INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,'LO','Active',1)",
         second.id, first.admin.email, first.admin.name);
     });
+  }
+  probeUwmReceiptDirectory(actors) {
+    if (this.env.RECOVERY_CASE !== "uwm-receipts" || this.ctx.id.name !== "orbit-demo") throw new Error("Fixture directory only");
+    this.ctx.storage.transactionSync(() => {
+      for (const actor of actors) {
+        if (![this.env.FIXTURE_A,this.env.FIXTURE_B,this.env.FIXTURE_C].includes(actor.brokerage.id)) throw new Error("Unknown fixture brokerage");
+        this.ctx.storage.sql.exec("INSERT OR IGNORE INTO brokerages (id,name,pilot) VALUES (?,?,0)",actor.brokerage.id,actor.brokerage.name);
+        this.ctx.storage.sql.exec("INSERT INTO brokerage_members (brokerageId,email,name,role,status,accessRevision) VALUES (?,?,?,'Admin','Active',1)",
+          actor.brokerage.id,actor.email,actor.name);
+      }
+    });
+  }
+  probeUwmReceiptCommit(loanId,operationId,transactionId,email) {
+    if (this.env.RECOVERY_CASE !== "uwm-receipts" || this.ctx.id.name !== this.env.FIXTURE_B) throw new Error("Fixture destination only");
+    const now = new Date().toISOString();
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(`INSERT INTO uwm_operations (id,loanId,applicationRevision,environment,kind,requestDigest,actor,state,transactionId,startedAt,updatedAt)
+        VALUES (?,?,1,'stage','import',?,?,'Unknown',?,?,?)`,operationId,loanId,"a".repeat(64),email,transactionId,now,now);
+      this.ctx.storage.sql.exec("INSERT INTO uwm_import_checks(operationId,scan,ready,committed) VALUES (?,'{}',1,1)",operationId);
+    });
+  }
+  probeUwmMatchId(receiptId) {
+    if (this.env.RECOVERY_CASE !== "uwm-receipts" || this.ctx.id.name !== this.env.FIXTURE_A) throw new Error("Fixture inbox only");
+    return this.ctx.storage.sql.exec("SELECT destinationReceiptId FROM uwm_receipt_matches WHERE receiptId=?",receiptId).one().destinationReceiptId;
+  }
+  async probeUwmReceiptBookmark() {
+    if (this.env.RECOVERY_CASE !== "uwm-receipts" || !["orbit-demo",this.env.FIXTURE_B].includes(this.ctx.id.name)) throw new Error("Fixture recovery only");
+    return {run:this.env.RECOVERY_RUN,workspace:this.ctx.id.name,bookmark:await this.ctx.storage.getCurrentBookmark()};
+  }
+  async probeUwmReceiptArm(point) {
+    if (this.env.RECOVERY_CASE !== "uwm-receipts" || !["orbit-demo",this.env.FIXTURE_B].includes(this.ctx.id.name) ||
+        point.workspace !== this.ctx.id.name || point.run !== this.env.RECOVERY_RUN) throw new Error("Fixture recovery identity differs");
+    return {...point,bookmark:await this.ctx.storage.onNextSessionRestoreBookmark(point.bookmark)};
+  }
+  probeUwmReceiptRestart() {
+    if (this.env.RECOVERY_CASE !== "uwm-receipts" || !["orbit-demo",this.env.FIXTURE_B].includes(this.ctx.id.name)) throw new Error("Fixture recovery only");
+    this.ctx.abort("Isolated fictional receipt recovery restart");
   }
   probeIdentity() {
     if (![this.env.FIXTURE_A,this.env.FIXTURE_B].includes(this.ctx.id.name)) throw new Error("Fictional tenant only");
@@ -594,6 +632,11 @@ const recoveryWorker = {
     if (url.pathname === "/__recovery" && request.method === "POST") {
       if (Number(request.headers.get("Content-Length")||0)>128) return new Response("Too large",{status:413});
       const action = await request.text();
+      if (env.RECOVERY_CASE === "uwm-receipts") {
+        if (action !== "status" && !uwmRecoverySteps.includes(action)) return new Response("Unknown step",{status:400});
+        try { return Response.json(await uwmReceiptRecovery(action,env,url.origin,ctx,application),{headers:{"Cache-Control":"no-store"}}); }
+        catch(error) { return Response.json({error:error.message},{status:409,headers:{"Cache-Control":"no-store"}}); }
+      }
       if (!["status","initialize","checkpoint","prepareChange","interrupt","restartInterrupted","reconcile","change","arm","restart","verify","replay","restartReplay","verifyReplay","directoryPrepare","directoryArmOld","directoryRejectOld","directoryRecover","directoryVerify","directoryResume","cleanup"].includes(action)) return new Response("Unknown step",{status:400});
       try { return Response.json(await command(action,env,url.origin,ctx),{headers:{"Cache-Control":"no-store"}}); }
       catch(error) { return Response.json({error:error.message},{status:409,headers:{"Cache-Control":"no-store"}}); }
