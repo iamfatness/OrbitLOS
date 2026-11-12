@@ -1,5 +1,5 @@
 import { shiftReportDate } from "./report-date-range";
-import { tridElements, type TridEntry, type TridEvent } from "./trid-model";
+import { isLoanEstimateReceipt, tridElements, type TridEntry, type TridEvent } from "./trid-model";
 
 const weekday = (date: string) => new Date(date).getUTCDay();
 type Scope = Extract<TridEvent, { type: "scope" }>;
@@ -36,8 +36,48 @@ export function activeTridEntries(entries: TridEntry[]) {
   return entries.filter(({ sequence, event }) => event.type !== "void" && !voided.has(sequence));
 }
 
+type DatedEvidence = { on: string; localTime?: string };
+function compareEvidence(first: DatedEvidence, second: DatedEvidence) {
+  if (first.on !== second.on) return first.on < second.on ? "after" : "before";
+  if (!first.localTime || !second.localTime || first.localTime === second.localTime) return "unclear";
+  // In Michigan, the first Sunday in November repeats the hour after 01:00.
+  const repeatedHour = first.on.slice(5, 7) === "11" && Number(first.on.slice(8)) <= 7 && weekday(first.on) === 0 &&
+    first.localTime.startsWith("01:") && second.localTime.startsWith("01:");
+  return repeatedHour ? "unclear" : first.localTime < second.localTime ? "after" : "before";
+}
+
+function feeEvidence(active: TridEntry[]) {
+  const bySequence = new Map(active.map(entry => [entry.sequence, entry.event]));
+  function intentStatus(intent: Extract<TridEvent, { type: "intent" }>) {
+    const receipt = bySequence.get(intent.receiptSequence);
+    if (!receipt || !isLoanEstimateReceipt(receipt)) return "Needs the linked Loan Estimate receipt";
+    const order = compareEvidence(receipt, intent);
+    if (order === "before") return "Intent recorded before Loan Estimate receipt";
+    if (order === "unclear") return "Review same-day receipt and intent order";
+    return "Intent recorded after the linked Loan Estimate receipt";
+  }
+  return active.flatMap(({ sequence, event }) => {
+    if (event.type === "intent") return [{ sequence, status: intentStatus(event) }];
+    if (event.type !== "fee") return [];
+    const intent = event.intentSequence ? bySequence.get(event.intentSequence) : undefined;
+    const receipt = intent?.type === "intent" ? bySequence.get(intent.receiptSequence) : undefined;
+    const exception = "Review the credit report fee exception";
+    if (intent?.type !== "intent" || !receipt || !isLoanEstimateReceipt(receipt)) {
+      return [{ sequence, status: event.category === "Credit report" ? exception : "Needs linked receipt and intent evidence" }];
+    }
+    const intentOrder = compareEvidence(receipt, intent);
+    const feeOrder = compareEvidence(intent, event);
+    if (intentOrder === "before" || feeOrder === "before") {
+      return [{ sequence, status: event.category === "Credit report" ? exception : "Fee or intent recorded before its prerequisite" }];
+    }
+    if (intentOrder === "unclear" || feeOrder === "unclear") return [{ sequence, status: "Review same-day event order" }];
+    return [{ sequence, status: "Recorded after the linked receipt and intent" }];
+  });
+}
+
 export function tridTiming(entries: TridEntry[], now: string) {
-  const events = activeTridEntries(entries).map(({ event }) => event);
+  const active = activeTridEntries(entries);
+  const events = active.map(({ event }) => event);
   const scope = events.findLast(event => event.type === "scope");
   const elementEvents = events.filter(event => event.type === "element");
   const dates = Object.keys(tridElements).map(key => elementEvents.find(event => event.element === key)?.on);
@@ -65,7 +105,7 @@ export function tridTiming(entries: TridEntry[], now: string) {
   const correctedCd = events.some(event => event.type === "sent" && event.document === "Corrected CD");
   const wait = (earliest: string | null) => earliest && closingOn
     ? (closingOn >= earliest ? "Scheduled date meets interval" : "Scheduled date falls short") : "Needs delivery or closing evidence";
-  return { scope, applicationOn, leDue, leStatus, leEarliest, closingOn, leWait: wait(leEarliest),
+  return { scope, applicationOn, leDue, leStatus, leEarliest, closingOn, leWait: wait(leEarliest), feeEvidence: feeEvidence(active),
     cdReceipt, cdReceiptBasis: actualReceipt ? "Recorded receipt" : presumedReceipt ? "Presumed mail receipt" : "Missing receipt",
     cdEarliest: correctedCd || !scope ? null : cdEarliest,
     cdWait: correctedCd ? "Review corrected CD and whether the waiting period restarts" : !scope ? "Needs scope evidence" : wait(cdEarliest) };

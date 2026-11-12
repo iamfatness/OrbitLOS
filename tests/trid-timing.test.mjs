@@ -48,3 +48,20 @@ test("incomplete calendars and unresolved delivery cannot produce a positive res
   assert.equal(calculate([scope, ...elements, electronic, receipt, { ...cd, document: "Corrected CD" }]).cdEarliest, null);
   assert.equal(calculate([scope, ...elements, { type: "void", sequence: 7 }]).applicationOn, null);
 });
+
+test("fee review requires receipt, intent and fee order on linked records", () => {
+  const receipt = { type: "received", document: "Initial LE", version: "LE-1", on: "2026-07-07", localTime: "09:00" };
+  const intent = { type: "intent", receiptSequence: 2, on: "2026-07-07", localTime: "09:30" };
+  const fee = { type: "fee", intentSequence: 3, category: "Other", activity: "Payment method required", on: "2026-07-07", localTime: "10:00" };
+  const review = (receiptEntry, intentEntry, ...entries) => calculate([scope, receiptEntry, intentEntry, ...entries]).feeEvidence;
+  assert.match(review(receipt, intent, fee).at(-1).status, /after the linked receipt and intent/);
+  assert.match(review(receipt, intent, { ...fee, localTime: "09:15" }).at(-1).status, /before its prerequisite/);
+  assert.match(review(receipt, { ...intent, localTime: "08:55" }, fee).at(-1).status, /before its prerequisite/);
+  assert.match(review(receipt, intent, { ...fee, localTime: undefined }).at(-1).status, /same-day event order/);
+  assert.match(review(receipt, intent, fee, { type: "void", sequence: 2 }).at(-1).status, /Needs linked receipt/);
+  assert.match(review(receipt, intent, fee, { type: "void", sequence: 3 }).at(-1).status, /Needs linked receipt/);
+  assert.match(review(receipt, intent, { ...fee, category: "Credit report", intentSequence: undefined }).at(-1).status, /Review the credit report fee exception/);
+  const repeated = "2026-11-01";
+  assert.match(review({ ...receipt, on: repeated, localTime: "01:00" },
+    { ...intent, on: repeated, localTime: "01:30" }, { ...fee, on: repeated }).at(-1).status, /same-day event order/);
+});

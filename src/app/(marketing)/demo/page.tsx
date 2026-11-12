@@ -20,7 +20,7 @@ export default function DemoPage() {
           <li>See your pipeline, team workload, and funding in one view.</li>
           <li>Hand off loans, follow-ups, and branch lead routing when staff leave a pilot brokerage.</li>
           <li>In a fictional compliance pilot, record internal reviews and obligations, and assign staff training or policies for acknowledgment.</li>
-          <li>On a fictional Michigan loan, record application and disclosure receipt dates and review the timing evidence.</li>
+          <li>On a fictional Michigan loan, review application and disclosure receipt dates, borrower intent to proceed, and fee timing.</li>
           <li>Finish in the Brokerage Owner Scorecard. Open the records behind each campaign count and check current follow-ups, open conditions, and funding for the selected period.</li>
           <li>Build shared custom reports for intake and loan production. Open the leads or loans behind a count and download a CSV of the same records.</li>
           <li>Preview a fictional CRM import with call, email, or text restrictions. Compare source blocks with Orbit in the import receipt, then export the CRM snapshot with those restrictions intact.</li>

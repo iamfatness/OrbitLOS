@@ -3,14 +3,15 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
 import type { ComplianceCaseResult } from "@/lib/compliance-cases";
-import { tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
+import { isLoanEstimateReceipt, tridElements, tridEvent, type TridEvent } from "@/lib/trid-model";
 import { Button } from "./ui/button";
 
 type Result = Extract<ComplianceCaseResult, { kind: "trid" }>["result"];
 type Evidence = Exclude<Result, { error: string }>;
 const actions = {
   scope: "Record scope and calendar", element: "Record application element", sent: "Record disclosure send",
-  received: "Record disclosure receipt", closing: "Record planned consummation", void: "Withdraw incorrect evidence",
+  received: "Record disclosure receipt", intent: "Record intent to proceed", fee: "Record fee activity",
+  closing: "Record planned consummation", void: "Withdraw incorrect evidence",
 } as const;
 const dates = (value: string) => value.split(/[\s,]+/).filter(Boolean);
 
@@ -19,7 +20,9 @@ function describe(event: TridEvent) {
     case "scope": return `Scope and calendar for ${event.creditor}`;
     case "element": return `${tridElements[event.element]} received ${event.on}`;
     case "sent": return `${event.document} · ${event.version} · Sent ${event.on} by ${event.sender} via ${event.method}`;
-    case "received": return `${event.document} · ${event.version} · Received ${event.on}`;
+    case "received": return `${event.document} · ${event.version} · Received ${event.on}${event.localTime ? ` ${event.localTime}` : ""}`;
+    case "intent": return `Intent to proceed · Receipt ${event.receiptSequence} · ${event.on}${event.localTime ? ` ${event.localTime}` : ""}`;
+    case "fee": return `${event.name} · ${event.activity} · ${event.on}${event.localTime ? ` ${event.localTime}` : ""}${event.intentSequence ? ` · Intent ${event.intentSequence}` : ""}`;
     case "closing": return `Planned consummation ${event.on}`;
     case "void": return `Withdrew entry ${event.sequence}`;
   }
@@ -65,6 +68,7 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
     const reference = get("reference");
     const artifact = { document: get("document"), version: get("version") };
     const on = get("on");
+    const localTime = get("localTime") || undefined;
     let input: unknown;
     switch (action) {
       case "scope":
@@ -77,7 +81,11 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
         input = { type: action, reference, on, ...artifact, method: get("method"), sender: get("sender"),
           consentReference: get("consentReference").trim() || undefined };
         break;
-      case "received": input = { type: action, reference, on, ...artifact }; break;
+      case "received": input = { type: action, reference, on, localTime, ...artifact }; break;
+      case "intent": input = { type: action, reference, on, localTime, receiptSequence: Number(get("receiptSequence")) }; break;
+      case "fee": input = { type: action, reference, on, localTime,
+        intentSequence: get("intentSequence") ? Number(get("intentSequence")) : undefined,
+        name: get("feeName"), category: get("feeCategory"), activity: get("feeActivity") }; break;
       case "closing": input = { type: action, reference, on }; break;
       case "void": input = { type: action, reference, sequence: Number(get("sequence")) }; break;
     }
@@ -112,8 +120,11 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
 
   const timing = data?.timing;
   const withdrawn = new Set(data?.entries.flatMap(({ event }) => event.type === "void" ? [event.sequence] : []));
-  const receiptDates = new Map(data?.entries.flatMap(({ sequence, event }) =>
-    event.type === "element" && !withdrawn.has(sequence) ? [[event.element, event.on] as const] : []));
+  const active = data?.entries.filter(({ event, sequence }) => event.type !== "void" && !withdrawn.has(sequence)) ?? [];
+  const entriesByNumber = new Map(active.map(({ sequence, event }) => [sequence, event]));
+  const receiptDates = new Map(active.flatMap(({ event }) => event.type === "element" ? [[event.element, event.on] as const] : []));
+  const estimateReceipts = active.filter(({ event }) => isLoanEstimateReceipt(event));
+  const intents = active.filter(({ event }) => event.type === "intent");
   return <details className="details-section trid-evidence" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>TRID application and delivery evidence</summary>
     {open && <div className="record-form compliance-pilot-form">
@@ -137,6 +148,17 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
             {Object.entries(tridElements).map(([key, label]) => <div key={key}><dt>{label}</dt>
               <dd>{receiptDates.get(key as keyof typeof tridElements) ?? "Receipt date missing"}</dd></div>)}
           </dl>
+        </details>
+        <details className="details-section">
+          <summary>Intent and fee timing ({timing.feeEvidence.length})</summary>
+          <p className="muted">Compare the recorded order of events. Credit report fee exceptions need a separate review.</p>
+          {!timing.feeEvidence.length && <p>No intent or fee activity recorded.</p>}
+          <ul className="document-list">
+            {timing.feeEvidence.map(({ sequence, status }) => {
+              const event = entriesByNumber.get(sequence);
+              return event && <li className="document-item" key={sequence}><strong>{sequence}. {describe(event)}</strong><p>{status}</p></li>;
+            })}
+          </ul>
         </details>
         {readOnly ? <p className="muted">Evidence is read-only for this view.</p> : <section className="record-form" aria-label="Record evidence">
           <h3>Record evidence</h3>
@@ -176,10 +198,32 @@ export function TridEvidencePanel({ loanId, brokerageId, readOnly }: {
                 <label className="field">Sender<select name="sender"><option>Creditor</option><option>Broker</option><option>Settlement agent</option></select></label>
                 <label className="field">Consent evidence reference (required for electronic delivery)<input name="consentReference" maxLength={180} /></label>
               </>}
+              {action === "intent" && <>
+                <label className="field">Loan Estimate receipt<select name="receiptSequence" required><option value="">Choose a receipt</option>
+                  {estimateReceipts.map(({ sequence, event }) => <option key={sequence} value={sequence}>{sequence}. {describe(event)}</option>)}
+                </select></label>
+                {!estimateReceipts.length && <p className="muted">Record the Loan Estimate receipt first.</p>}
+              </>}
+              {action === "fee" && <>
+                <label className="field">Fee name<input name="feeName" required maxLength={180} /></label>
+                <div className="form-grid">
+                  <label className="field">Fee category<select name="feeCategory"><option>Other</option><option>Credit report</option></select></label>
+                  <label className="field">Activity<select name="feeActivity"><option>Fee imposed</option><option>Payment method required</option></select></label>
+                </div>
+                <label className="field">Linked intent to proceed<select name="intentSequence"><option value="">Leave unlinked for review</option>
+                  {intents.map(({ sequence, event }) => <option key={sequence} value={sequence}>{sequence}. {describe(event)}</option>)}
+                </select></label>
+                <p className="muted">Use the first time the fee or payment method was required. Record references only. Leave payment details out.</p>
+              </>}
               {action === "void" ? <label className="field">Entry to withdraw<select name="sequence" required><option value="">Choose an entry</option>
                 {data.entries.filter(entry => entry.event.type !== "void" && !withdrawn.has(entry.sequence)).map(entry =>
                   <option value={entry.sequence} key={entry.sequence}>{entry.sequence}. {describe(entry.event)}</option>)}
-              </select></label> : action !== "scope" && <label className="field">{action === "closing" ? "Planned consummation date" : action === "sent" ? "Send date" : "Receipt date"}<input name="on" type="date" required /></label>}
+              </select></label> : action !== "scope" && <label className="field">{action === "closing" ? "Planned consummation date"
+                : action === "sent" ? "Send date" : action === "intent" ? "Intent date" : action === "fee" ? "Activity date" : "Receipt date"}<input name="on" type="date" required /></label>}
+              {(action === "received" || action === "intent" || action === "fee") &&
+                <label className="field">Local time (optional)<input name="localTime" type="time" />
+                  <span className="muted">Enter the time in the recorded review time zone when it helps establish same-day order.</span>
+                </label>}
               <label className="field">{action === "scope" ? "Scope and office calendar evidence reference" : action === "void" ? "Correction reason or evidence reference" : "Evidence reference"}<input name="reference" required maxLength={180} /></label>
               <div><Button type="submit" size="sm">{busy ? "Recording…" : actions[action]}</Button></div>
             </fieldset>

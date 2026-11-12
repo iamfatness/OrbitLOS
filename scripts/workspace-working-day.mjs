@@ -1677,6 +1677,19 @@ try {
       const withdrawn = await recordTrid(owner, 10, { type: "void", sequence: 10, reference: "Fictional correction withdrawn" });
       assert.equal(withdrawn.result.timing.cdEarliest, "2026-07-13");
       assert.equal(withdrawn.result.entries.length, 11);
+      const initialLe = { ...send, document: "Initial LE", version: "fixture-le-fees", method: "Mail", on: "2026-07-07" };
+      assert.equal((await recordTrid(owner, 11, initialLe)).result.revision, 12);
+      const leReceipt = { type: "received", document: "Initial LE", version: initialLe.version, on: "2026-07-10",
+        localTime: "09:00", reference: "Fictional Loan Estimate receipt" };
+      assert.equal((await recordTrid(officer, 12, leReceipt)).result.revision, 13);
+      const intent = { type: "intent", receiptSequence: 13, on: "2026-07-10", localTime: "09:30", reference: "Fictional borrower intent" };
+      assert.match((await recordTrid(officer, 13, { ...intent, receiptSequence: 9 })).result.error, /recorded Loan Estimate receipt/);
+      assert.equal((await recordTrid(officer, 13, intent)).result.revision, 14);
+      const fee = { type: "fee", intentSequence: 14, on: "2026-07-10", localTime: "09:15", name: "Fictional appraisal fee",
+        category: "Other", activity: "Payment method required", reference: "Fictional fee activity receipt" };
+      assert.ok((await recordTrid(processor, 14, fee)).result.error);
+      assert.match((await recordTrid(owner, 14, fee)).result.timing.feeEvidence.at(-1).status, /before its prerequisite/);
+      assert.match((await readTrid(processor)).result.timing.feeEvidence.at(-1).status, /before its prerequisite/);
     }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;

@@ -2,7 +2,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { loanAccess } from "./workspace-access";
 import { activeTridEntries, tridLocalDate, tridTiming } from "./trid-timing";
-import type { TridEntry, TridEvent, TridRequest } from "./trid-model";
+import { isLoanEstimateReceipt, type TridEntry, type TridEvent, type TridRequest } from "./trid-model";
 
 export function initializeTridEvidence(db: Store) {
   db.exec(`CREATE TABLE IF NOT EXISTS compliance_trid_evidence (
@@ -69,6 +69,14 @@ function validateEvent(event: TridEvent, entries: TridEntry[], now: string) {
     if (receipts.some(item => item.document === event.document && item.version === event.version)) {
       return "Withdraw the original receipt entry before recording a correction.";
     }
+  }
+  if (event.type === "intent") {
+    const receipt = active.find(entry => entry.sequence === event.receiptSequence)?.event;
+    if (!receipt || !isLoanEstimateReceipt(receipt)) return "Choose a recorded Loan Estimate receipt.";
+  }
+  if (event.type === "fee" && event.intentSequence !== undefined &&
+    !active.some(entry => entry.sequence === event.intentSequence && entry.event.type === "intent")) {
+    return "Choose an active intent entry or leave the fee unlinked for review.";
   }
 }
 
