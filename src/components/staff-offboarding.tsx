@@ -75,6 +75,7 @@ export function StaffOffboarding({ endpoint, email, viewer, members, onRevoke, o
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const feedback = useRef<HTMLParagraphElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const [removal, setRemoval] = useState<"after handoff" | "immediate" | null>(null);
 
   useEffect(() => {
@@ -83,6 +84,8 @@ export function StaffOffboarding({ endpoint, email, viewer, members, onRevoke, o
       .then(setPage).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
   }, [email, endpoint, filter, refresh]);
+
+  useEffect(() => { heading.current?.focus(); }, []);
 
   useEffect(() => {
     if (message || error) feedback.current?.focus();
@@ -118,7 +121,7 @@ export function StaffOffboarding({ endpoint, email, viewer, members, onRevoke, o
 
   const teammates = members.filter((member) => member.email !== email && member.status === "Active");
   return <section className="staff-offboarding" aria-label="Staff offboarding">
-    <div className="document-item-head"><h3>{page?.member.status === "Revoked" ? "Recover open assignments" : "Offboarding preview"}</h3>
+    <div className="document-item-head"><h3 ref={heading} tabIndex={-1}>{page?.member.status === "Revoked" ? "Recover open assignments" : "Offboarding preview"}</h3>
       <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>Close preview</Button></div>
     <p className="muted">Hand off open work and redirect future leads before removing brokerage access. Routing changes keep existing links and earlier lead assignments.</p>
     {message && !error && <p ref={feedback} tabIndex={-1} className="application-message" role="status">{message}</p>}

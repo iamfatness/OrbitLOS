@@ -2359,7 +2359,7 @@ try {
     assert.equal(read(retried, nextLead).dueAt, dueAt);
     assert.equal(read(retried, stillShared).officerEmail, null);
   });
-  await stage("Team branches route website ZIPs and keep the original lead receipts", async () => {
+  await stage("Team branches route ZIPs and offboarding preserves open files, deadlines, and original lead receipts", async () => {
     const id = randomUUID();
     const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
       [owner.email], { type: "create", id, name: "Fictional branch brokerage", pilot: true });
@@ -2516,6 +2516,12 @@ try {
     assert.equal(routedAfterDeparture.officerEmail,officer.email);
     assert.equal(routedAfterDeparture.initialRouting.branch.revision,6);
     assert.deepEqual((await branchWorkspace()).inboxLeads.find(({id})=>id===reassigned.id).initialRouting,reassigned.initialRouting);
+    const sharedBranchId = randomUUID();
+    await post(teamPath,{type:"saveBranch",id:sharedBranchId,revision:0,name:"Fictional Shared Branch",staffEmails:[officer.email],ownerEmail:officer.email},owner);
+    const sharedPreview = await previewDeparture(officer,"Branch default");
+    const sharedRow = sharedPreview.items.find(({id})=>id===sharedBranchId);
+    assert.match((await post(teamPath,transferInput(officer,sharedPreview,sharedRow,null),owner)).message,/shared inbox/);
+    assert.ok(!(await previewDeparture(officer,"Branch default")).items.some(({id})=>id===sharedBranchId));
 
   });
   const crmFieldId = randomUUID();

@@ -31,6 +31,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
   const [invitationCopy, setInvitationCopy] = useState<{ email: string; url: string; copied: boolean }>();
   const [workspaceSearch, setWorkspaceSearch] = useState("");
   const [offboardingEmail, setOffboardingEmail] = useState<string | null>(null);
+  const offboardingReturn = useRef<string | null>(null);
   const creating = useRef<string | null>(null);
   const scenarioAttempt = useRef<{ key: string; id: string } | null>(null);
   const resetButton = useRef<HTMLButtonElement>(null);
@@ -374,9 +375,15 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
             }}>Cancel invitation</Button>}
           </form>}
           {member.status !== "Invited" && offboardingEmail !== member.email && <Button size="sm" variant="outline" disabled={busy}
-            onClick={() => setOffboardingEmail(member.email)}>{member.status === "Revoked" ? "Recover open work" : "Review offboarding"}</Button>}
+            ref={(button) => {
+              if (button && offboardingReturn.current === member.email) {
+                button.focus();
+                offboardingReturn.current = null;
+              }
+            }} onClick={() => setOffboardingEmail(member.email)}>{member.status === "Revoked" ? "Recover open work" : "Review offboarding"}</Button>}
           {member.status !== "Invited" && offboardingEmail === member.email && <StaffOffboarding key={member.email} email={member.email}
             viewer={staff.email} endpoint={endpoint} members={settings.members} open={openDepartureWork} onRevoke={async () => { await reloadTeam(); }} onClose={() => {
+              offboardingReturn.current = member.email;
               setOffboardingEmail(null);
               void Promise.all([reloadTeam(), refresh()]).catch((failure: Error) => setError(failure.message));
             }} />}
