@@ -11,6 +11,7 @@ import { Button } from "./ui/button";
 type Result = ReturnType<typeof complianceResearchWork>;
 type Detail = Extract<Result, { kind: "researchDetail" }>;
 type List = Extract<Result, { kind: "researchList" }>;
+type RolloutCases = Extract<Result, { kind: "stateRollout" }>["items"][number]["cases"];
 const initialFilters: ResearchFilters = { jurisdiction: "", status: "", ownership: "all" };
 const states = researchSources.filter((entry) => entry.jurisdiction !== "US");
 
@@ -42,6 +43,7 @@ function ResearchEditor({ detail, pending, save, heading }: {
     {item.sourceChanged && <p role="alert">The research source has changed or is unavailable. Review current authority; this case retains its original source snapshot.</p>}
     <details className="document-form"><summary>Research basis · {savedSource.researchBaseline}</summary>
       <p>{savedSource.summary}</p><p>{savedSource.applicability}</p><p>{savedSource.gap}</p>
+      {savedSource.counselQuestion && <p><strong>Counsel review</strong> · {savedSource.counselQuestion}</p>}
       <p><strong>Evidence to investigate</strong> · {savedSource.evidence}</p>
       <ResearchLinks source={savedSource} />
     </details>
@@ -131,6 +133,7 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
     if (!caseId && returning.current && (view === "Sources" || data)) {
       returning.current = false;
       const button = origin.current && panel.current?.querySelector<HTMLButtonElement>(`[data-research-action="${CSS.escape(origin.current)}"]`);
+      if (button) button.closest("details")?.setAttribute("open", "");
       (button || rolloutSelect.current)?.focus();
     }
   }, [caseId, data, detail, view]);
@@ -160,6 +163,24 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
       refresh((value) => value + 1);
     } catch { setMessage({ text: "The response was interrupted. Retry the same save or refresh to check its outcome.", error: true }); }
     finally { if (activeBrokerage.current === brokerageId) setPending(false); }
+  }
+  function renderCases(source: ResearchSource, cases: RolloutCases) {
+    return researchKinds.map(kind => {
+    const item = cases.find(entry => entry.kind === kind);
+      return <div className="loan-task compliance-row" key={kind}>
+        <div className="loan-task-copy"><strong>{kind}</strong>
+          <span>{item ? `${item.status} · ${item.ownerName ?? "Owner unavailable"}` : "Untracked"}</span>
+          {item?.followUpOn && <span>Internal follow-up · {item.followUpOn} UTC</span>}
+          {item?.evidenceReference && <span>Evidence · {item.evidenceReference}</span>}
+          {item?.sourceChanged && <span>Source changed since tracking began</span>}
+          {item?.overdue && <span>Past internal follow-up date</span>}
+        </div>
+        <Button data-research-action={`${source.key}:${kind}`} size="sm" variant="outline" disabled={pending || paused} onClick={() => {
+          if (item) openCase(item.id, `${source.key}:${kind}`);
+          else void mutate({ operation: "open", sourceKey: source.key, kind });
+        }}>{item ? `Open ${kind.toLowerCase()}` : `Track ${kind.toLowerCase()}`}</Button>
+      </div>;
+    });
   }
   return <div className="integration manager-panel record-form compliance-research-panel" ref={panel}>
     <h2>Research &amp; control gaps</h2>
@@ -202,27 +223,27 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
               }}>Review {item.name}</Button>
           </li>)}</ul>
         </details>
-        {rollout.items.map(({ source, cases }) => <section aria-label={source.title} className="document-item record-form" key={source.key}>
+        {rollout.items.map(({ source, cases, requirements }) => <section aria-label={source.title} className="document-item record-form" key={source.key}>
           <h3>{source.title}</h3>
           <details className="document-form"><summary>Open questions and evidence</summary>
             <p>{source.summary}</p><p>{source.applicability}</p><p>{source.gap}</p><p>{source.evidence}</p><ResearchLinks source={source} />
           </details>
-          {researchKinds.map(kind => {
-            const item = cases.find(entry => entry.kind === kind);
-            return <div className="loan-task compliance-row" key={kind}>
-              <div className="loan-task-copy"><strong>{kind}</strong>
-                <span>{item ? `${item.status} · ${item.ownerName ?? "Owner unavailable"}` : "Untracked"}</span>
-                {item?.followUpOn && <span>Internal follow-up · {item.followUpOn} UTC</span>}
-                {item?.evidenceReference && <span>Evidence · {item.evidenceReference}</span>}
-                {item?.sourceChanged && <span>Source changed since tracking began</span>}
-                {item?.overdue && <span>Past internal follow-up date</span>}
-              </div>
-              <Button data-research-action={`${source.key}:${kind}`} size="sm" variant="outline" disabled={pending || paused} onClick={() => {
-                if (item) openCase(item.id, `${source.key}:${kind}`);
-                else void mutate({ operation: "open", sourceKey: source.key, kind });
-              }}>{item ? `Open ${kind.toLowerCase()}` : `Track ${kind.toLowerCase()}`}</Button>
-            </div>;
-          })}
+          {renderCases(source, cases)}
+          {requirements.length > 0 && <details className="document-form">
+            <summary>Specific requirements ({requirements.length})</summary>
+            <div className="record-form">{requirements.map(requirement => <section className="record-form state-rollout-requirement"
+              key={requirement.source.key} aria-label={requirement.source.title}>
+              <h4>{requirement.source.title}</h4>
+              <p>{requirement.source.summary}</p>
+              <p><strong>Counsel review</strong> · {requirement.source.counselQuestion}</p>
+              <details><summary>Source and evidence</summary>
+                <p>Source checked {requirement.source.sourceDate}</p>
+                <ResearchLinks source={requirement.source} />
+                <p>{requirement.source.evidence}</p>
+              </details>
+              {renderCases(requirement.source, requirement.cases)}
+            </section>)}</div>
+          </details>}
         </section>)}
       </>}
     </section> : view === "Sources" && !caseId ? <>

@@ -3,6 +3,7 @@ import federal from "../../docs/compliance/federal-sources.json" with { type: "j
 import firstStates from "../../docs/compliance/state-sources-a-m.json" with { type: "json" };
 import lastStates from "../../docs/compliance/state-sources-m-w.json" with { type: "json" };
 import reportingReviews from "../../docs/compliance/state-reporting-review-sources.json" with { type: "json" };
+import stateRequirements from "../../docs/compliance/state-rollout-requirements.json" with { type: "json" };
 import { complianceCaseStatuses } from "./compliance-case-model";
 
 export const researchBaseline = "2026-11-10";
@@ -18,6 +19,7 @@ export const researchSources = [
 export type ResearchSource = (typeof researchSources)[number] & {
   sourceDate?: string;
   relatedSources?: { label: string; url: string }[];
+  counselQuestion?: string;
 };
 const reportingByState: Record<string, { summary: string; gap: string; sources: { label: string; url: string }[] }> = reportingReviews;
 const licensingChecklist = "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/stateresourcecenter/SitePages/Checklist-Compiler.aspx";
@@ -54,7 +56,24 @@ export const stateRolloutSources: ResearchSource[] = [...firstStates, ...lastSta
       : work.key === "LICENSING" ? { relatedSources: [{ label: "NMLS licensing checklists", url: licensingChecklist }] } : {}),
   };
 }));
-const researchByKey = new Map([...researchSources, ...stateRolloutSources].map(entry => [entry.key, entry]));
+export const stateRequirementSources = stateRequirements.map(entry => ({
+  areaKey: `STATE-${entry.jurisdiction}-${entry.area}`,
+  source: {
+    key: `REQ-${entry.jurisdiction}-${entry.area}-${entry.id}`,
+    jurisdiction: entry.jurisdiction,
+    title: entry.title,
+    sourceUrl: entry.sourceUrl,
+    summary: entry.summary,
+    applicability: "Confirm the entity, license, activity, product and period with counsel.",
+    gap: "Applicability and operational evidence require review for the proposed scope.",
+    evidence: entry.evidence,
+    sourceDate: entry.checkedOn,
+    counselQuestion: entry.counsel,
+    relatedSources: [{ label: entry.authority, url: entry.sourceUrl }, ...(entry.relatedSources ?? [])],
+  } satisfies ResearchSource,
+}));
+const researchByKey = new Map([...researchSources, ...stateRolloutSources, ...stateRequirementSources.map(item => item.source)]
+  .map(entry => [entry.key, entry]));
 export const getResearchSource = (key: string): ResearchSource | undefined => researchByKey.get(key);
 export const researchFilters = z.strictObject({ jurisdiction: z.string().max(2).default(""),
   status: z.enum(["", ...complianceCaseStatuses]).default(""), ownership: z.enum(["all", "mine", "unavailable"]).default("all") });

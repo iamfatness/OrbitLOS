@@ -1,0 +1,158 @@
+[
+  {
+    "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "FIRST",
+    "title": "First mortgage company authority",
+    "authority": "MCL 445.1652",
+    "sourceUrl": "https://legislature.mi.gov/Laws/MCL?objectName=MCL-445-1652",
+    "summary": "Confirm the company has the authority required for its proposed first-mortgage activity. The statute distinguishes license, registration and exceptions.",
+    "evidence": "Company authority, activities, exemption rationale if relevant, exact dates and source.",
+    "counsel": "Which entity, activities and offices are in scope? Does any claimed exception apply?",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "SECOND",
+    "title": "Secondary mortgage company authority",
+    "authority": "MCL 493.52",
+    "sourceUrl": "https://legislature.mi.gov/Laws/MCL?objectName=mcl-493-52",
+    "summary": "Evaluate the Secondary Mortgage Loan Act separately where the brokerage plans subordinate-lien activity.",
+    "evidence": "Secondary license or registration evidence, products, effective dates and any exception.",
+    "counsel": "Does the pilot include secondary mortgages, and which authority covers those transactions?",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "LICENSING",
+    "id": "MLO",
+    "title": "Individual origination authority",
+    "authority": "MCL 493.135",
+    "sourceUrl": "https://www.legislature.mi.gov/Laws/MCL?objectName=mcl-493-135",
+    "summary": "Review each Michigan originator's individual authority and unique identifier for the activity and dates. The act identifies exceptions and temporary authority provisions.",
+    "evidence": "Individual license, unique identifier, sponsorship and activity evidence. Test expired, absent and mismatched authority.",
+    "counsel": "Confirm treatment of exemptions, temporary authority and independent contractors before enabling the eligibility check.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "REPORTING",
+    "id": "RMLA",
+    "title": "Quarterly mortgage activity report",
+    "authority": "DIFS FAQ and NMLS FV7",
+    "sourceUrl": "https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/1st-mortgage",
+    "summary": "DIFS directs covered licensees and registrants to submit mortgage activity through the quarterly NMLS Mortgage Call Report. FV7 workpapers can reconcile part of the saved quarter.",
+    "evidence": "Exact entity/license and reporting state, prior balances, reconciled FV7 sections, documented no-activity treatment and filing receipt.",
+    "counsel": "Confirm quarter applicability, state supplements, zero-activity handling and any period-specific relief.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "NMLS FV7 guide",
+        "url": "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/mcr/licensing/mcr/topics/mcrUserGuide_start.html"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "REPORTING",
+    "id": "FC",
+    "title": "NMLS Financial Condition",
+    "authority": "DIFS FAQ and NMLS FV7",
+    "sourceUrl": "https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/1st-mortgage",
+    "summary": "DIFS describes annual calendar-year Financial Condition reporting for mortgage brokers and quarterly reporting for mortgage lenders and servicers.",
+    "evidence": "Entity activity classification, reporting period, approved account mapping and financial workpaper.",
+    "counsel": "Confirm which entity role governs when activities or licenses overlap and which FC sections apply.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "NMLS FV7 guide",
+        "url": "https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/mcr/licensing/mcr/topics/mcrUserGuide_start.html"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "REPORTING",
+    "id": "GAAP",
+    "title": "Michigan fiscal-year financial statement",
+    "authority": "DIFS FAQ, MBLSLA §7(2) and SMLA §6a(2)",
+    "sourceUrl": "https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/1st-mortgage",
+    "summary": "DIFS describes a GAAP financial statement due within 90 days after the company fiscal year ends. Review this separately from NMLS Financial Condition.",
+    "evidence": "Actual fiscal year-end, approved financial statement and submission evidence.",
+    "counsel": "Confirm the entity's obligation, current delivery method, period and any exceptions.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "RECORDS",
+    "id": "FIRST",
+    "title": "First mortgage records and examination",
+    "authority": "MCL 445.1671 and DIFS Mortgage Compliance FAQ",
+    "sourceUrl": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-compliance2",
+    "summary": "DIFS distinguishes the broker-only first-mortgage file from a lender's transfer or assignment scenario. The statute separately addresses other business records.",
+    "evidence": "Record class, closing or transfer basis, other applicable duties, holds and controlled examination export.",
+    "counsel": "Confirm broker and lender record custody, federal overlays, overlapping state requirements and disposition triggers. No deletion timer should be inferred from one source.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "MI",
+    "area": "RECORDS",
+    "id": "SECOND",
+    "title": "Secondary mortgage records",
+    "authority": "MCL 493.67 and DIFS Mortgage Compliance FAQ",
+    "sourceUrl": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-compliance2",
+    "summary": "Review record preservation and availability under the Secondary Mortgage Loan Act for any in-scope secondary activity.",
+    "evidence": "Document type, role, retention trigger, custody and location, hold evidence, and exam delivery procedure.",
+    "counsel": "Confirm applicable retention periods and overlaps before enabling a schedule.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OH",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Principal and branch registration",
+    "authority": "Ohio Revised Code §1322.07",
+    "sourceUrl": "https://codes.ohio.gov/ohio-revised-code/section-1322.07",
+    "summary": "Ohio's RMLA sets out registration for the principal and branch offices maintained for covered brokerage activity.",
+    "evidence": "Entity registration, branch inventory, registered addresses and documented activity dates.",
+    "counsel": "Confirm exemptions and how remote or shared offices fit the statute.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IN",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Loan broker and office licenses",
+    "authority": "Indiana Secretary of State Loan Brokers",
+    "sourceUrl": "https://securities.sos.in.gov/loan-brokers/",
+    "summary": "The Securities Division distinguishes the loan broker, offices and associated managers and originators.",
+    "evidence": "Broker authority, office and manager inventory, and NMLS evidence for the proposed activity.",
+    "counsel": "Confirm whether the activity falls under the Securities Division loan broker regime or a different authorization and which locations qualify.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Residential mortgage brokerage authority",
+    "authority": "205 ILCS 635/1-3",
+    "sourceUrl": "https://ilga.gov/legislation/ILCS/details?ActID=1196&ActName=Residential+Mortgage+License+Act+of+1987.&ChapAct=205+ILCS+635%2F&Chapter=FINANCIAL+REGULATION&ChapterID=20&MajorTopic=REGULATION&SeqEnd=700000&SeqStart=100000",
+    "summary": "Illinois's Residential Mortgage License Act addresses licensure for residential mortgage brokering and other specified activities.",
+    "evidence": "Exact entity license, authorized activity, office basis and applicable exemption documentation.",
+    "counsel": "Resolve entity and branch applicability, including any statutory exemption, before enabling workflow controls.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WI",
+    "area": "LICENSING",
+    "id": "COMPANY",
+    "title": "Mortgage broker authority",
+    "authority": "Wisconsin DFI Mortgage Banking FAQ",
+    "sourceUrl": "https://dfi.wi.gov/Pages/FinancialServices/MortgageBanking/FAQs.aspx",
+    "summary": "Wisconsin DFI distinguishes mortgage banker and mortgage broker authority and directs company applications through NMLS.",
+    "evidence": "Broker license and supported activities, office inventory and source dates.",
+    "counsel": "Confirm covered activities, locations, exemptions and any overlapping banker license before activation.",
+    "checkedOn": "2026-11-12"
+  }
+]

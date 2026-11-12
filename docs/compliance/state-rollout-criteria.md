@@ -13,3 +13,22 @@ For each proposed state scope:
 5. Obtain the user's and lawyer's review of the exact supported scope. Record verification and production availability for that release. Keep unsupported combinations visible.
 
 The reporting starting points in `state-reporting-review-sources.json` preserve all 50 rows from the November 11 draft reporting matrices. They retain the source links and unresolved questions. The other review areas use the existing state authority references and prompts for further rule extraction. Research must be refreshed and checked against the particular license and period. [NMLS licensing checklists](https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/stateresourcecenter/SitePages/Checklist-Compiler.aspx) · [NMLS FV7 guide](https://mortgage.nationwidelicensingsystem.org/knowledge/Products/nmls/pubs/mcr/licensing/mcr/topics/mcrUserGuide_start-1.html)
+
+## Batch execution
+
+| Batch | States | Current scope |
+| --- | --- | --- |
+| 1 | MI | Eight source-checked license, reporting and records review items added to the local candidate. Fictional TRID and reporting capabilities can support parts of the review. |
+| 2 | OH, IN, IL, WI | Company or office authority starting items checked and added. Other requirements and control verification remain open. |
+| 3 | MN, IA, MO, NE, SD, ND, KS | Preliminary catalog and reporting research. |
+| 4 | PA, NY, NJ, DE, MD, VA, WV | Preliminary catalog and reporting research. |
+| 5 | CT, RI, MA, VT, NH, ME | Preliminary catalog and reporting research. |
+| 6 | KY, TN, NC, SC, GA, FL, AL, MS, AR, LA | Preliminary catalog and reporting research. |
+| 7 | TX, OK, NM, CO, AZ, UT, NV | Preliminary catalog and reporting research. |
+| 8 | CA, OR, WA, ID, MT, WY, AK, HI | Preliminary catalog and reporting research. |
+
+Expand **Specific requirements** under the applicable review area. Each entry preserves the authority link, check date, evidence needed and a question for counsel. Admins can assign the specific requirement or control gap independently. The catalog is in [state-rollout-requirements.json](state-rollout-requirements.json).
+
+Michigan counsel decisions include entity and license scope, treatment of first and secondary mortgages and individual exceptions, the MCR and Financial Condition scope and zero-activity handling, the separate fiscal-year financial statement, and the retention periods and triggers that apply to each record class. State-specific loan terms, disclosures, communications, remaining exam controls and operational tests are still open. [Michigan DIFS reporting FAQ](https://www.michigan.gov/difs/News-and-Outreach/faq/consumer-finance/1st-mortgage) · [Michigan DIFS compliance FAQ](https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-compliance2)
+
+Batch 2 begins with company and branch authority. Counsel must review the named entity, office and activity scope and applicable exceptions before regulatory use. [Ohio Revised Code §1322.07](https://codes.ohio.gov/ohio-revised-code/section-1322.07) · [Indiana Securities Division](https://securities.sos.in.gov/loan-brokers/) · [Illinois General Assembly](https://ilga.gov/legislation/ILCS/details?ActID=1196&ActName=Residential+Mortgage+License+Act+of+1987.&ChapAct=205+ILCS+635%2F&Chapter=FINANCIAL+REGULATION&ChapterID=20&MajorTopic=REGULATION&SeqEnd=700000&SeqStart=100000) · [Wisconsin DFI](https://dfi.wi.gov/Pages/FinancialServices/MortgageBanking/FAQs.aspx)

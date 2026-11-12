@@ -1987,6 +1987,14 @@ try {
     const reportingReview = await research(owner, { operation: "open", sourceKey: reportingArea.source.key, kind: "Requirement review" });
     assert.equal((await research(owner, stateRollout)).items.find(item => item.source.key === reportingArea.source.key).cases[0].id, reportingReview.item.id);
     assert.equal((await research(owner, stateRollout)).coverage.legalApproval, false);
+    const rmla = reportingArea.requirements.find(item => item.source.key === "REQ-MI-REPORTING-RMLA");
+    assert.match(rmla.source.counselQuestion, /zero-activity/);
+    const rmlaReview = await research(owner, { operation: "open", sourceKey: rmla.source.key, kind: "Requirement review" });
+    assert.notEqual(rmlaReview.item.id, reportingReview.item.id);
+    assert.equal(rmla.source.sourceDate, "2026-11-12");
+    assert.equal(rmlaReview.item.sourceKey, rmla.source.key);
+    const ohio = await research(owner, { operation: "stateRollout", jurisdiction: "OH" });
+    assert.equal(ohio.items.flatMap(item => item.requirements)[0].source.key, "REQ-OH-LICENSING-COMPANY");
     const program=(staff,input,target=brokerage)=>action(staff,"accessComplianceCases",{type:"program",input},undefined,target);
     const entityRequest={operation:"createEntity",requestId:randomUUID(),name:"Michigan Pilot Compliance LLC",nmls:"",scopeNote:"Michigan pilot; user review and lawyer approval required before launch"};
     assert.ok((await program(officer,entityRequest)).error);

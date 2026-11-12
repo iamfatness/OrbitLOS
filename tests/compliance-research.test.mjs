@@ -11,7 +11,7 @@ registerHooks({ resolve(specifier, context, next) {
 } });
 const { initializeStore } = await import("../src/lib/store.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
-const { researchSources, stateRolloutSources } = await import("../src/lib/compliance-research-model.ts");
+const { researchSources, stateRolloutSources, stateRequirementSources } = await import("../src/lib/compliance-research-model.ts");
 const now = "2026-11-11T12:00:00.000Z";
 const filters = { jurisdiction: "", status: "", ownership: "all" };
 const unavailable = { error: "This compliance work is unavailable." };
@@ -76,6 +76,30 @@ test("state rollout tracks five independently owned areas across all 50 states",
   assert.equal(isolated.states.find(state => state.jurisdiction === "MI").tracked, 0);
   f.db.prepare("UPDATE compliance_cases SET confidentiality = 'Restricted' WHERE id = ?").run(item.id);
   assert.equal(f.run(query).items.find(entry => entry.source.key === "STATE-MI-REPORTING").cases.length, 1);
+});
+test("specific requirements preserve independent review cases and counsel questions", t => {
+  const f = fixture(t);
+  const read = jurisdiction => f.run({ operation: "stateRollout", jurisdiction });
+  assert.equal(new Set(stateRequirementSources.map(item => item.source.key)).size, 12);
+  assert.ok(stateRequirementSources.every(item => item.source.key.length <= 30 && item.source.counselQuestion &&
+    item.source.relatedSources.every(link => new URL(link.url).protocol === "https:")));
+  for (const code of ["OH", "IN", "IL", "WI"]) {
+    assert.equal(read(code).items.flatMap(item => item.requirements).length, 1);
+  }
+  const initial = read("MI");
+  assert.equal(initial.items.flatMap(item => item.requirements).length, 8);
+  const rmla = f.open("REQ-MI-REPORTING-RMLA");
+  const fc = f.open("REQ-MI-REPORTING-FC");
+  assert.notEqual(rmla.item.id, fc.item.id);
+  assert.equal(f.open("REQ-MI-REPORTING-RMLA").item.id, rmla.item.id);
+  const snapshot = JSON.parse(rmla.item.sourceSnapshot);
+  assert.equal(snapshot.researchBaseline, "2026-11-12");
+  assert.match(snapshot.counselQuestion, /zero-activity/);
+  const updated = read("MI");
+  assert.equal(updated.states.find(state => state.jurisdiction === "MI").tracked, 1);
+  assert.equal(updated.items.find(item => item.source.key === "STATE-MI-REPORTING").requirements
+    .find(item => item.source.key === "REQ-MI-REPORTING-FC").cases[0].id, fc.item.id);
+  assert.equal(updated.coverage.legalApproval, false);
 });
 test("opening research is idempotent, canonical, and preserves research-only status", (t) => {
   const f = fixture(t);

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { getResearchSource, researchRequest, researchSources, sourceSnapshot, stateRolloutSources, type ResearchRequest } from "./compliance-research-model";
+import { getResearchSource, researchRequest, researchSources, sourceSnapshot, stateRequirementSources,
+  stateRolloutSources, type ResearchRequest } from "./compliance-research-model";
 import { complianceWorkUnavailable, type complianceCaseStatuses } from "./compliance-case-model";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
@@ -54,7 +55,7 @@ export function complianceResearchWork(db: Store, input: ResearchRequest, staff:
     if (!selected.length) return unavailable;
     const rows = db.prepare(`SELECT ${columns} FROM ${source} WHERE ${scope} AND r.jurisdiction != 'US'`).all(staff.brokerage.id);
     const tracked = new Map<string, Row[]>();
-    const rolloutKeys = new Set(stateRolloutSources.map(entry => entry.key));
+    const rolloutKeys = new Set([...stateRolloutSources.map(entry => entry.key), ...stateRequirementSources.map(entry => entry.source.key)]);
     for (const row of rows) {
       const item = { ...row } as Row;
       if (!rolloutKeys.has(item.sourceKey)) continue;
@@ -62,17 +63,22 @@ export function complianceResearchWork(db: Store, input: ResearchRequest, staff:
       cases.push(item);
       tracked.set(item.sourceKey, cases);
     }
+    const trackedAreas = new Set(stateRequirementSources.filter(item => tracked.has(item.source.key)).map(item => item.areaKey));
     const states = researchSources.filter(entry => entry.jurisdiction !== "US").map(entry => {
       const work = stateRolloutSources.filter(item => item.jurisdiction === entry.jurisdiction);
-      return { jurisdiction: entry.jurisdiction, name: entry.title, tracked: work.filter(item => tracked.has(item.key)).length, total: work.length };
+      return { jurisdiction: entry.jurisdiction, name: entry.title,
+        tracked: work.filter(item => tracked.has(item.key) || trackedAreas.has(item.key)).length, total: work.length };
     });
-    const items = selected.map(entry => ({
-      source: entry,
-      cases: (tracked.get(entry.key) ?? []).map(row => {
+    const casesFor = (key: string) => (tracked.get(key) ?? []).map(row => {
         const item = project(row, roster, now.slice(0, 10));
         const { id, kind, status, ownerName, overdue, sourceChanged, followUpOn, evidenceReference } = item;
         return { id, kind, status, ownerName, overdue, sourceChanged, followUpOn, evidenceReference };
-      }),
+    });
+    const items = selected.map(entry => ({
+      source: entry,
+      cases: casesFor(entry.key),
+      requirements: stateRequirementSources.filter(item => item.areaKey === entry.key)
+        .map(item => ({ source: item.source, cases: casesFor(item.source.key) })),
     }));
     return { kind: "stateRollout", coverage, states, items } as const;
   }
