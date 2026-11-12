@@ -1,0 +1,35 @@
+{
+  "run": "1104971d-4cc6-4c3e-8b47-02d48ce1ad73",
+  "harnessSource": "ff46b05d24835c174d51ee22db5aec2a987ab4d6",
+  "applicationSource": "9cefc19afaa2a8464843afe8a87cfbb453a8a4bb",
+  "artifactSha256": "27520e9b840c246177e45ef888dc23a4f7da1039b363bf601f141fb094064216",
+  "isolatedWorker": "orbit-recovery-1104971d",
+  "isolatedWorkerVersion": "9a1c8cde-c324-4817-bfba-297e8d7dd3af",
+  "publishedWorkerVersion": "4b6cbc85-709f-4864-ae4c-4c1ffa2944ae",
+  "productCheckpoint": true,
+  "productRestore": true,
+  "checkpointComparison": {
+    "tables": 194,
+    "changed": 0,
+    "schemaChanged": false,
+    "kvChanged": false,
+    "alarmChanged": false
+  },
+  "checklistRecovery": {
+    "replayed": 2,
+    "originalTimestampPreserved": true,
+    "processorDenied": true,
+    "retryUnchanged": true,
+    "restartUnchanged": true
+  },
+  "unreviewedReopenRejected": true,
+  "reviewedReopenSucceeded": true,
+  "crossTenantCheckpointRejected": true,
+  "otherBrokeragePreserved": true,
+  "sharedDirectoryRestored": true,
+  "directoryTenantDatabasesUnchanged": 2,
+  "directoryRoutesVerified": 6,
+  "restoredUnverifiedRoutesHeld": true,
+  "recoveredWorkspacePreferenceOpened": true,
+  "fixtureResourcesRemoved": true
+}
