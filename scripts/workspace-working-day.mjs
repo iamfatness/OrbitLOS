@@ -1645,6 +1645,31 @@ try {
     assert.match((await review(processor, decision)).error, /Resolve the preflight issues/);
     const currentFile = await file(officer, loanId);
     const app = currentFile.applications[0];
+    {
+      const readTrid = staff => action(staff, "accessComplianceCases", { type: "trid", input: { operation: "read", loanId } }, undefined, brokerage);
+      const recordTrid = (staff, expectedRevision, event, requestId = randomUUID()) => action(staff, "accessComplianceCases",
+        { type: "trid", input: { operation: "record", loanId, expectedRevision, requestId, event } }, undefined, brokerage);
+      const scope = { type: "scope", coveredScenario: true, creditor: "Fictional creditor", leSender: "Creditor", zone: "America/Detroit",
+        calendarFrom: "2026-07-01", calendarThrough: "2026-07-31", openWeekdays: [1, 2, 3, 4, 5], closures: ["2026-07-03"], extraOpen: [], reference: "Fictional office schedule" };
+      assert.ok((await readTrid(competingOfficer)).result?.error);
+      assert.ok((await recordTrid(processor, 0, scope)).result?.error);
+      const requestId = randomUUID();
+      assert.equal((await recordTrid(officer, 0, scope, requestId)).result.revision, 1);
+      assert.equal((await recordTrid(officer, 0, scope, requestId)).result.revision, 1);
+      assert.ok((await recordTrid(officer, 0, scope)).result.error);
+      const keys = ["name", "income", "creditReportId", "propertyAddress", "estimatedValue", "loanAmount"];
+      for (const [index, element] of keys.entries()) {
+        const receipt = await recordTrid(officer, index + 1, { type: "element", element, on: "2026-07-02", reference: "Fictional intake receipt" });
+        assert.equal(receipt.result.timing.applicationOn, index === 5 ? "2026-07-02" : null);
+      }
+      assert.equal((await readTrid(owner)).result.timing.leDue, "2026-07-08");
+      const send = { type: "sent", document: "Initial CD", version: "fixture-cd", sender: "Creditor", method: "Electronic", on: "2026-07-08", reference: "Fictional delivery record" };
+      assert.ok((await recordTrid(officer, 7, send)).result.error);
+      const sent = await recordTrid(officer, 7, { ...send, consentReference: "Fictional consent record" });
+      assert.equal(sent.result.timing.cdEarliest, null);
+      const received = await recordTrid(officer, 8, { type: "received", document: "Initial CD", version: "fixture-cd", on: "2026-07-09", reference: "Fictional receipt record" });
+      assert.equal(received.result.timing.cdEarliest, "2026-07-13");
+    }
     await loanAction(officer, loanId, "useReviewedLoanAmount", { revision: app.revision, previousAmount: currentFile.loans[0].amount });
     const [fee] = currentFile.feeWorksheets;
     const selection = { runId: fee.runId, offerId: fee.offerId };

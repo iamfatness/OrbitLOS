@@ -13,3 +13,7 @@ Scope: internal compliance pilot, 2026-11-11. Built source `00498e79efca`; produ
 The owner and staff mutations ran in an isolated fictional workspace. Live verification exercised public routes and signed-out boundaries. Tests cover tenant and role checks. Course revision authoring, filing and real regulatory coverage remain outside this release.
 
 The review used the approved Orbit design system and brand references, Impeccable, and UI UX Pro Max. It reused the accepted Orbit form, list/detail, action and feedback patterns for the 21st.dev component reference requirement.
+
+## Michigan TRID evidence candidate
+
+Candidate assembled from compliance commit `92aa216`. Visual acceptance is pending for Disclosures → TRID application and delivery evidence. Check a populated Michigan fictional file, selected evidence form, incomplete and complete application dates, keyboard return, stale edits, and the separate admin, LO and assigned processor roles. Regulatory use requires owner and lawyer review.

@@ -36,7 +36,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
     result.push("A loan has an active retention hold. Keep the workspace paused and use the incident recovery review.");
   const programTables=["compliance_program_entities","compliance_program_items","compliance_program_events","compliance_program_reviews",
     "compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work",
-    "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events"];
+    "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_trid_evidence"];
   if(programTables.some(name=>previous.get(name)?.digest!==current.tables.find(item=>item.name===name)?.digest))
     result.push("Compliance program records changed. Reconcile entity profiles, work and review evidence before restoring.");
   const retentionTables=["loan_retention_holds","loan_retention_objects","loan_retention_policies","loan_retention_reviews"];
