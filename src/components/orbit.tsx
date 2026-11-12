@@ -61,6 +61,8 @@ import { stalledLoanUnavailable } from "@/lib/officer-dashboard-model";
 import { StalledLoans } from "./officer-dashboard";
 import { MigrationWorkspace } from "./migration-workspace";
 import { BrokerageTeam, type TeamPanel } from "./brokerage-team";
+import { StaffFirstDay } from "./staff-first-day";
+import type { FirstDayStepId } from "@/lib/staff-first-day-model";
 import { BrokerageOverview, brokerageReports, type BrokerageQueue, type BrokerageReport } from "./brokerage-overview";
 import { CommunicationQueue } from "./loan-communications";
 import { ConversationQueue } from "./conversation-queue";
@@ -104,9 +106,9 @@ import { supportReportUrl, type SupportWorkGroup } from "@/lib/pilot-support-mod
 const RecordDialog = lazy(async () => ({ default: (await import("./record-dialog")).RecordDialog }));
 const CustomReports = lazy(async () => ({ default: (await import("./custom-reports")).CustomReports }));
 
-type Section = "Brokerage" | "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Exceptions" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns" | "Compliance";
+type Section = "Brokerage" | "First-day checklist" | "Demo Guide" | "Today" | "Calendar" | "Coverage" | "Reviews" | "Review Inbox" | "Search" | "Pipeline" | "Processing" | "Exceptions" | "Lead Inbox" | "Contacts" | "Realtors" | "Past Clients" | "Tasks" | "Communications" | "Integrations" | "Team" | "Reports" | "Migration" | "Playbooks" | "Call Campaigns" | "Compliance";
 const scopedSections = new Set<Section>(["Today", "Calendar", "Coverage", "Reviews", "Review Inbox", "Search", "Processing", "Call Campaigns",
-  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration", "Exceptions", "Compliance", "Brokerage"]);
+  "Pipeline", "Contacts", "Lead Inbox", "Tasks", "Communications", "Past Clients", "Realtors", "Playbooks", "Team", "Migration", "Exceptions", "Compliance", "Brokerage", "First-day checklist"]);
 const reportTabs = ["Owner scorecard", "Funding dashboard", "Pipeline workload", "Sales conversion", "Referral queue", "Financials", "Production", "Returning clients", "Call report", "Custom reports"] as const;
 const [localOfficer] = localCampaignOfficers;
 const demoOfficer = localOfficer.name;
@@ -196,6 +198,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const [calendar, setCalendar] = useState<CalendarQuery>(() => ({ week: currentCalendarWeek(), scope: "Mine", group: "All" }));
   const [reportTab, setReportTab] = useState<(typeof reportTabs)[number]>(staff && staff.brokerage.role !== "Admin" ? "Custom reports" : "Owner scorecard");
   const [teamPanel, setTeamPanel] = useState<TeamPanel>("Staff access");
+  const [firstDayDestination, setFirstDayDestination] = useState<FirstDayStepId | "pilot-tools">();
   const [openLeadRouting, setOpenLeadRouting] = useState(false);
   const [scorecardFilters, setScorecardFilters] = useState<OwnerScorecardFilters>(() => ({ ...currentReportMonth(), owner: "" }));
   const [reportingPeriod, setReportingPeriod] = useState(currentReportingPeriod);
@@ -265,6 +268,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const admin = !staff || staff.brokerage.role === "Admin";
   const canReviewReplies = admin && (staff ? staff.brokerage.pilot === true : process.env.NODE_ENV === "development");
   const canReport = staff?.brokerage.role === "Admin";
+  const staffHome = processor ? "Processing" : admin ? "Brokerage" : "Today";
   const sectionTitle = section === "Brokerage" ? "Brokerage overview" : section === "Pipeline" ? "Loan pipeline" : section;
   const canOpenManagerReports = canReport || (!staff && process.env.NODE_ENV === "development");
   const canOpenReports = canOpenManagerReports || !!staff;
@@ -639,6 +643,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     recordTrigger.current = null;
     if (next !== "Call Campaigns") deferredCampaignLoad.current = undefined;
     setSection(next);
+    setFirstDayDestination(undefined);
     if (!preserveConversationOrigin) setAttentionVisit((last) => attention ? { section: next, visit: (last?.visit ?? 0) + 1 } : undefined);
     if (next !== "Contacts") setContactToolsOpen(false);
     setGuideCallbackId(undefined);
@@ -668,6 +673,37 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   function openBrokerageView(next: Section, attention = false) {
     focusSection.current = true;
     navigate(next, false, undefined, attention);
+  }
+
+  function openFirstDayStep(step: FirstDayStepId | "pilot-tools") {
+    switch (step) {
+      case "staff-access":
+      case "loan-defaults":
+      case "pilot-tools":
+        setTeamPanel(step === "staff-access" ? "Staff access" : step === "loan-defaults" ? "Loan settings" : "Pilot tools");
+        openBrokerageView("Team");
+        break;
+      case "lead-routing":
+      case "lead-inbox":
+        openBrokerageView("Lead Inbox");
+        setOpenLeadRouting(step === "lead-routing");
+        break;
+      case "assign-processing":
+      case "accept-handoff":
+      case "assigned-files":
+        openBrokerageView("Processing");
+        break;
+      case "today":
+        openBrokerageView("Today");
+        break;
+      case "processing-tasks":
+        openBrokerageView("Tasks");
+        break;
+      case "loan-pipeline":
+        openBrokerageView("Pipeline");
+        break;
+    }
+    setFirstDayDestination(step);
   }
 
   function openBrokerageReport(report: BrokerageReport) {
@@ -1344,6 +1380,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               <div className="heading-actions pipeline-actions">
                 {!processor && <Button onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>}
                 {syncButton()}
+                {firstDayDestination && <Button type="button" variant="outline" onClick={() => openBrokerageView("First-day checklist")}>Back to checklist</Button>}
                 {!processor && <Button className="pipeline-demo" variant="ghost" disabled={!controlsReady} onClick={() => navigate("Demo Guide")}><workspaceIcons.demo aria-hidden="true" /> Guided demo</Button>}
               </div>
             </div>
@@ -1358,6 +1395,11 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             </div>
             {section === "Demo Guide" && !controlsReady && <p className="muted" role="status">Getting the walkthrough ready…</p>}
             {!waitingForWorkspace && <div className="heading-actions">
+              {staff && section === "First-day checklist" && <Button type="button" variant="outline"
+                onClick={() => openBrokerageView(staffHome)}>Back to {staffHome}</Button>}
+              {staff && (firstDayDestination || section === staffHome || section === "Team") && <Button type="button"
+                variant={firstDayDestination ? "outline" : "ghost"} disabled={!controlsReady}
+                onClick={() => openBrokerageView("First-day checklist")}>{firstDayDestination ? "Back to checklist" : "First-day checklist"}</Button>}
               {section === "Brokerage" && canReport && <>
                 <Button disabled={busy || !controlsReady} onClick={() => show({ kind: "loan" })}><Plus /> New Lead</Button>
                 <Button variant="outline" disabled={busy || !controlsReady} onClick={() => openBrokerageView("Today")}>My work today</Button>
@@ -1523,7 +1565,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}
           {section === "Processing" && canOpenProcessing && <ProcessorQueue key={attentionVisit?.section === "Processing" ? attentionVisit.visit : 0}
-            brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor}
+            brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={!processor} initialReadyOnly={firstDayDestination === "accept-handoff"}
             complianceWork={staff?.brokerage.pilot && processor && <ComplianceDailyWork brokerageId={staff.brokerage.id}
               version={queueVersion} paused={!!modal || busy} open={openComplianceFinding} />}
             mockServices={!staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot}
@@ -1780,6 +1822,10 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             openDocument={(loanId, requestId) => void openQueueLoan({ kind: "details", loanId, target: `document-${requestId}` }, { kind: "document", id: requestId })}
             openLoan={(loanId, processing) => void openQueueLoan({ kind: "details", loanId, target: processing ? "processing-handoff" : undefined })}
             openAssignment={canReport ? (loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn }) : undefined} />}
+
+          {section === "First-day checklist" && staff && <StaffFirstDay key={staff.brokerage.id} brokerageId={staff.brokerage.id}
+            role={staff.brokerage.role} pilot={Boolean(staff.brokerage.pilot)} openStep={openFirstDayStep}
+            openPractice={() => openFirstDayStep("pilot-tools")} />}
 
           {section === "Team" && staff && <BrokerageTeam staff={staff} version={state} panel={teamPanel} setPanel={setTeamPanel} refresh={async () => invalidateWorkspace()}
             openRouting={() => { openBrokerageView("Lead Inbox"); setOpenLeadRouting(true); }}

@@ -635,6 +635,10 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS pilot_sample_contacts (
       contactId TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS staff_first_day (
+      email TEXT NOT NULL, role TEXT NOT NULL, step TEXT NOT NULL, completedAt TEXT,
+      revision INTEGER NOT NULL, PRIMARY KEY (email, role, step)
+    );
     CREATE TABLE IF NOT EXISTS pilot_feedback (
       id TEXT PRIMARY KEY, author TEXT NOT NULL, step TEXT NOT NULL, message TEXT NOT NULL, createdAt TEXT NOT NULL
     );

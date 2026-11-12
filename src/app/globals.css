@@ -842,6 +842,20 @@ button:disabled { cursor: default; }
 .brokerage-overview-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .brokerage-link-list { display: grid; gap: 2px; }
 .brokerage-link-list button { width: 100%; justify-content: space-between; min-height: 40px; }
+.staff-first-day > .muted { margin-bottom: 4px; }
+.first-day-list { margin: 0; padding: 0; list-style: none; }
+.first-day-step { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 20px; padding-block: 14px; border-bottom: 1px solid var(--line); }
+.first-day-copy h3 { font-size: 15px; font-weight: 650; }
+.first-day-copy p { max-width: 66ch; }
+.first-day-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.first-day-actions button { min-height: 40px; }
+.first-day-review { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; cursor: pointer; }
+.first-day-review input { inline-size: 18px; block-size: 18px; accent-color: var(--accent); }
+.first-day-practice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 14px; }
+@media (max-width: 860px) {
+  .first-day-step { grid-template-columns: minmax(0, 1fr); }
+  .first-day-actions button, .first-day-review, .first-day-practice button { min-height: 44px; }
+}
 .team-access-heading { flex-wrap: wrap; }
 .team-access-panel .document-item-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .staff-invite-feedback p { overflow-wrap: anywhere; }

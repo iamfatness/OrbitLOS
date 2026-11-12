@@ -4903,6 +4903,49 @@ try {
     assert.equal((await read(owner, exact(id)))[0].triage.revision, 1);
   });
 
+  await stage("First-day progress stays personal and scoped to the signed-in role and brokerage", async () => {
+    const endpoint = (id = brokerage) => `/api/brokerages?brokerage=${id}&view=staff-first-day`;
+    const checklist = async (staff, url = endpoint()) => {
+      const response = await browse(staff, url);
+      assert.equal(response.status, 200);
+      const data = JSON.parse(response.text());
+      assert.equal(data.kind, "staffFirstDay");
+      return data.steps;
+    };
+    const staffStep = { step: "staff-access", completed: true, revision: 0 };
+    assert.deepEqual((await checklist(owner)).map(({ id }) => id), ["staff-access", "loan-defaults", "lead-routing", "assign-processing"]);
+    assert.deepEqual((await checklist(officer)).map(({ id }) => id), ["today", "lead-inbox", "loan-pipeline"]);
+    assert.deepEqual((await checklist(processor)).map(({ id }) => id), ["accept-handoff", "assigned-files", "processing-tasks"]);
+    assert.equal((await postResponse(endpoint(), staffStep, officer)).status, 409);
+    assert.equal((await postResponse(endpoint(), { ...staffStep, email: processor.email }, owner)).status, 400);
+    assert.equal((await browse(owner, "/api/brokerages?view=staff-first-day")).status, 403);
+    const parallel = await Promise.all([post(endpoint(), staffStep, owner), post(endpoint(), staffStep, owner)]);
+    assert.deepEqual(parallel[0], parallel[1]);
+    assert.equal((await checklist(owner))[0].revision, 1);
+    const acrossWorkspace = await checklist(owner, endpoint(lenderBrokerage));
+    assert.ok(acrossWorkspace.every(step => !step.completed && step.revision === 0));
+    const undo = { ...staffStep, completed: false, revision: 1 };
+    await post(endpoint(), undo, owner);
+    assert.equal((await postResponse(endpoint(), staffStep, owner)).status, 409);
+    assert.equal((await checklist(owner))[0].revision, 2);
+
+    await post(endpoint(), { step: "today", completed: true, revision: 0 }, officer);
+    await post(endpoint(), { step: "accept-handoff", completed: true, revision: 0 }, processor);
+    assert.equal((await checklist(officer))[0].completed, true);
+    assert.equal((await checklist(processor))[0].completed, true);
+    assert.equal((await checklist(owner))[0].completed, false);
+    const alternateRole = actor("Fictional New Staff", "first-day-processor@example.test", "Processor");
+    await team(owner, { type: "invite", email: alternateRole.email, role: "Processor" });
+    await signIn(alternateRole);
+    assert.ok((await checklist(alternateRole)).every(step => !step.completed));
+    await post(endpoint(), { step: "assigned-files", completed: true, revision: 0 }, alternateRole);
+    await team(owner, { type: "role", email: alternateRole.email, role: "LO" });
+    assert.deepEqual((await checklist(alternateRole)).map(({ id }) => id), ["today", "lead-inbox", "loan-pipeline"]);
+    assert.ok((await checklist(alternateRole)).every(step => !step.completed));
+    await team(owner, { type: "revoke", email: alternateRole.email });
+    assert.notEqual((await browse(alternateRole, endpoint())).status, 200);
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));

@@ -97,6 +97,7 @@ import { quoteIntakeSettingsRequest, quoteLeadInput } from "./lib/quote-intake-m
 import { quoteConfiguredOwners, quoteIntakeRouting, quoteRoutingForForm, receiveQuoteLead, workOnQuoteSettings } from "./lib/quote-intake";
 import { branchesUnavailable } from "./lib/branch-model";
 import { canManageBranches, readBranches, updateBranch } from "./lib/branches";
+import { readStaffFirstDay, setFirstDayStep, updateStaffFirstDay } from "./lib/staff-first-day";
 import { documentTemplateWork } from "./lib/document-templates";
 import { feeTemplateWork } from "./lib/fee-templates";
 import { saveRealtorClaimPolicyInput } from "./lib/realtor-claim-model";
@@ -1631,6 +1632,11 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   confirmLenderPackagePdf(input: PackageDownloadInput, objectId: string) {
     return confirmLenderPackagePdf(this.#store, input, objectId);
   }
+  staffFirstDay(staff: WorkspaceStaff, update?: unknown) {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied." };
+    return update === undefined ? readStaffFirstDay(this.#store, staff) : updateStaffFirstDay(this.#store, staff, update);
+  }
+
   pilotFeedback(staff: WorkspaceStaff, input: unknown, active: { email: string; name: string; role: string }[] = []) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     if (input && typeof input === "object" && "type" in input && input.type === "readPilotSupportRequests") {
@@ -2236,8 +2242,24 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       const headers = { "Cache-Control": "private, no-store" };
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
+      const view = url.searchParams.get("view");
+      if (view === "staff-first-day") {
+        if (url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: "Open the checklist from your brokerage." }, { status: 403, headers });
+        }
+        if (request.method === "GET") {
+          const result = await workspace.staffFirstDay(staff);
+          return Response.json(result, { status: "error" in result ? 403 : 200, headers });
+        }
+        if (request.method === "POST") return borrowerJson(request, async input => {
+          const parsed = setFirstDayStep.safeParse(input);
+          if (!parsed.success) return { status: 400, error: "Choose a valid checklist step." };
+          const result = await workspace.staffFirstDay(staff, parsed.data);
+          return "error" in result ? { status: 409, error: result.error } : { value: result };
+        }, 1024);
+        return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      }
       if (request.method === "GET") {
-        const view = url.searchParams.get("view");
         if (view === "pilot-support-requests") {
           if (!staff.brokerage.pilot || url.searchParams.get("brokerage") !== staff.brokerage.id) {
             return Response.json({ error: "Support requests are available in your pilot workspace." }, { status: 403, headers });

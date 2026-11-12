@@ -68,7 +68,7 @@ function QueueProcessorForm({ endpoint, file, busy, save, cancel }: {
   </form>;
 }
 
-export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mockServices, openIncomingLoanWork, openLoan, openReply, openTasks, openAssignment, onAssignment, complianceWork }: {
+export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mockServices, openIncomingLoanWork, openLoan, openReply, openTasks, openAssignment, onAssignment, complianceWork, initialReadyOnly = false }: {
   brokerageId: string; version: object; team: boolean; openLoan: (id: string, target: string) => void; openTasks: () => void;
   mockServices: boolean;
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
@@ -76,8 +76,9 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
   openAssignment?: (id: string) => void;
   onAssignment?: () => void;
   complianceWork?: ReactNode;
+  initialReadyOnly?: boolean;
 }) {
-  const [query, setQuery] = useState<ProcessorQueueQuery>({ readyOnly: false });
+  const [query, setQuery] = useState<ProcessorQueueQuery>({ readyOnly: initialReadyOnly });
   const [data, setData] = useState<{ version: object; query: ProcessorQueueQuery; result: ProcessorQueuePage | { error: string } }>();
   const [assignmentLoanId, setAssignmentLoanId] = useState<string>();
   const recovery = useProcessorAssignmentShortcut(brokerageId, Boolean(onAssignment));
