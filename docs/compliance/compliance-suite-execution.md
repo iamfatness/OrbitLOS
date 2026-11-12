@@ -49,6 +49,18 @@ The additive `compliance_program_entities`, `compliance_program_items`, `complia
 
 ## Review packet
 
+## Backend integration follow-up
+
+The authenticated compliance action now accepts `obligations` and `learning` requests, returning a distinct envelope with a service result. Storage initializes six additive tables for obligation versions, occurrences and events, plus learning versions, assignments and events. Restore protection includes all six tables. Both services run inside the existing tenant-authenticated transaction.
+
+Obligations support internally reviewed applicability, versioned source/effective-date records and explicit repeat-safe generation of monthly, quarterly or annual planning occurrences. Missing applicability creates a review gap. Targets are internal dates; this does not implement a statutory scheduler, reminders or regulator filing.
+
+Learning supports immutable policy/course versions, review evidence, internal publication, employee assignments, exact-version acknowledgments and server-graded attempts. Publication requires recorded user-review and lawyer-review attestations; references are not independently verified lawyer credentials or legal approval. This is not accredited CE. There is no learning or obligation screen yet.
+
+Integration verification: all 542 repository tests, typecheck, lint and the production-target Cloudflare build pass. Tests cover the authenticated routing and atomic audit rollback as well as each service's lifecycle and access boundaries. This increment has not been deployed or visually accepted. Browser retry still reports local browser use disabled despite visibly enabled desktop controls; the user has authorized access, so no additional permission request is pending.
+
+The suite remains incomplete. Employee screens, statutory cadence validation, reminders, reviewed course content and controlled exam workflows remain open; see the package ledger and plan. The release agent remains the sole production promotion owner.
+
 - [Alabama–Missouri, including detailed Michigan pilot](reporting-states-a-m.md)
 - [Montana–Wyoming](reporting-states-m-w.md)
 - [MCR/HMDA form inventory and implementation gaps](reporting-form-inventory.md)

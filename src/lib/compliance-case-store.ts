@@ -1,8 +1,12 @@
 import { initializeComplianceProgram } from "./compliance-program";
+import { initializeComplianceObligations } from "./compliance-obligations";
+import { initializeComplianceLearning } from "./compliance-learning";
 import type { Store } from "./store";
 
 export function initializeComplianceCases(db: Store) {
   initializeComplianceProgram(db);
+  initializeComplianceObligations(db);
+  initializeComplianceLearning(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS compliance_cases (
       brokerageId TEXT NOT NULL, id TEXT NOT NULL, caseKey TEXT NOT NULL,

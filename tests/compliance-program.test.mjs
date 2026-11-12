@@ -114,3 +114,32 @@ test("restore refuses to rewind compliance program evidence",async()=>{
  assert.equal(restoreBlockers(before,before).length,0);
  assert.ok(restoreBlockers(before,{...before,tables:[{name:"compliance_program_events",digest:"new",rows:2}]}).some(x=>x.includes("Compliance program records changed")));
 });
+
+test("integrated learning and obligations retain authentication and atomic audit boundaries",t=>{
+ const f=fixture(t), e=f.entity();
+ const call=(type,input,staff=f.staff(),roster=f.roster)=>complianceCaseWork(f.db,{type,input},staff,f.tenant,roster,now);
+ assert.equal(call("obligations",{operation:"list",entityId:e.id}).result.kind,"obligationRegistry");
+ assert.equal(call("learning",{operation:"list"}).result.kind,"learningLibrary");
+ for(const type of ["learning","obligations"]){
+   const input=type==="learning"?{operation:"list"}:{operation:"list",entityId:e.id};
+   assert.ok(call(type,input,null).error);
+   assert.ok(call(type,input,f.staff(),[]).error);
+   assert.ok(call(type,input,{...f.staff(),brokerage:{...f.staff().brokerage,pilot:false}}).error);
+ }
+ const input={operation:"createVersion",requestId:crypto.randomUUID(),contentId:crypto.randomUUID(),previousVersionId:null,
+   kind:"Policy",title:"Fictional policy",body:"Internal draft for review",sourceReferences:"Fictional test evidence",questions:[],passPercent:100};
+ assert.ok(call("learning",input,f.staff(f.lo)).result.error);
+ f.sqlite.exec("CREATE TRIGGER fail_learning BEFORE INSERT ON compliance_learning_events BEGIN SELECT RAISE(ABORT,'audit unavailable'); END");
+ assert.throws(()=>call("learning",input),/audit unavailable/);
+ assert.equal(call("learning",{operation:"list"}).result.items.length,0);
+});
+
+test("restore protects obligation versions and learning evidence",async()=>{
+ const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
+ for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events",
+   "compliance_learning_versions","compliance_learning_assignments","compliance_learning_events"]){
+   const before={schema:"same",tables:[{name,digest:"old",rows:1}],impact:{},files:{items:[]}};
+   assert.equal(restoreBlockers(before,before).length,0);
+   assert.ok(restoreBlockers(before,{...before,tables:[{name,digest:"new",rows:2}]}).some(x=>x.includes("Compliance program records changed")));
+ }
+});
