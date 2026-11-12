@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accessComplianceCases } from "@/app/actions";
-import { countLicenseRecords, licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseRenewalOwner, licenseStatuses,
-  type LicenseHistory, type LicenseHolder, type LicenseRenewalOwner, type LicenseRenewalTarget, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
+import { countLicenseRecords, inLicenseRegisterScope, licenseFields, licenseHolder, licenseHolderKinds, licenseJurisdictions, licenseRenewalLookahead, licenseRenewalOwner, licenseStatuses,
+  type LicenseHistory, type LicenseHolder, type LicenseRegisterScope, type LicenseRenewalOwner, type LicenseRenewalTarget, type ProgramEntity, type ProgramLicense, type ProgramLicenses, type ProgramRequest } from "@/lib/compliance-program-model";
 import { propertyStateName as stateName } from "@/lib/property-state";
-import { LicenseRecordStatus } from "./license-state-review";
+import { LicenseRecordStatus } from "./license-record-status";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
 
@@ -44,12 +44,12 @@ function RenewalHistory({ brokerageId, entityId, licenseId }: { brokerageId: str
   </details>;
 }
 
-export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLicenseSaved }: {
-  brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget; onLicenseSaved?: () => void;
+export function ComplianceLicensing({ brokerageId, paused, initialTarget, reviewScope, onLicenseSaved }: {
+  brokerageId: string; paused: boolean; initialTarget?: LicenseRenewalTarget; reviewScope?: LicenseRegisterScope; onLicenseSaved?: () => void;
 }) {
   const [entities, setEntities] = useState<readonly ProgramEntity[]>();
-  const [entityId, setEntityId] = useState(initialTarget?.entityId ?? "");
-  const target = useRef(initialTarget);
+  const [entityId, setEntityId] = useState(reviewScope?.entityId ?? initialTarget?.entityId ?? "");
+  const target = useRef(reviewScope?.licenseId ? { entityId: reviewScope.entityId, licenseId: reviewScope.licenseId } : initialTarget);
   const [loaded, setLoaded] = useState<ProgramLicenses>();
   const [filter, setFilter] = useState("");
   const [renewalOnly, setRenewalOnly] = useState(false);
@@ -65,7 +65,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
   const attempt = useRef<{ key: string; id: string }>(null);
 
   useEffect(() => {
-    if (paused) return;
+    if (paused || reviewScope) return;
     let active = true;
     void accessComplianceCases({ type: "program", input: { operation: "entities" } }, brokerageId).then(result => {
       if (!active) return;
@@ -76,7 +76,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
       }
     }, () => { if (active) setFeedback({ message: "Could not load legal entities. Refresh to try again.", error: true }); });
     return () => { active = false; };
-  }, [brokerageId, paused, refresh]);
+  }, [brokerageId, paused, refresh, reviewScope]);
 
   useEffect(() => {
     if (paused || !entityId) return;
@@ -87,15 +87,17 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
       else if (result.kind === "programLicenses") {
         setLoaded(result);
         if (target.current?.entityId === entityId) {
-          const license = result.licenses.find(item => item.id === target.current?.licenseId);
+          const license = result.licenses.find(item => item.id === target.current?.licenseId &&
+            (!reviewScope || inLicenseRegisterScope(item, reviewScope)));
           target.current = undefined;
           if (license) { setEditing(license); setHolderKind(license.holder.kind); }
-          else setFeedback({ message: "This license is unavailable. Check the current register or return to renewals.", error: true });
+          else setFeedback({ message: reviewScope ? "This license changed or is unavailable for this review. Check the records below or return to the lead." :
+            "This license is unavailable. Check the current register or return to renewals.", error: true });
         }
       }
     }, () => { if (active) setFeedback({ message: "Could not load the license register. Refresh to try again.", error: true }); });
     return () => { active = false; };
-  }, [brokerageId, entityId, paused, refresh]);
+  }, [brokerageId, entityId, paused, refresh, reviewScope]);
 
   useEffect(() => {
     if (editing) editor.current?.focus();
@@ -110,12 +112,13 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
 
   const current = loaded?.entity.id === entityId ? loaded : undefined;
   const licenses = current?.licenses;
-  const visible = licenses?.filter(item => (!filter || item.jurisdiction === filter) && (!renewalOnly || item.renewal));
+  const visible = licenses?.filter(item => reviewScope ? inLicenseRegisterScope(item, reviewScope) :
+    (!filter || item.jurisdiction === filter) && (!renewalOnly || item.renewal));
   const renewals = licenses?.filter(item => item.renewal).length ?? 0;
   const currentCompanyStates = current ? [...new Set(current.licenses.filter(item =>
     item.holder.kind === "Company" && countLicenseRecords([item], current.asOf).current > 0).map(item => item.jurisdiction))] : [];
   const selected = typeof editing === "object" ? editing : undefined;
-  const selectedEntity = entities?.find(item => item.id === entityId);
+  const selectedEntity = current?.entity ?? entities?.find(item => item.id === entityId);
   const holderChoices = current?.holderChoices.filter(choice => choice.holder.kind === holderKind) ?? [];
   const previousHolder = selected?.holder.kind === holderKind ? selected.holder : undefined;
   const previousKey = previousHolder ? JSON.stringify(previousHolder) : "";
@@ -180,18 +183,18 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
     setHolderKind(typeof next === "object" ? next.holder.kind : "Company");
   }
 
-  return <div className="integration manager-panel record-form compliance-research-panel">
-    <h2>License register</h2>
-    <p className="muted">Record state licenses for the company, its branches, and loan officers. Recorded status is for internal review.</p>
+  return <div className={reviewScope ? "record-form" : "integration manager-panel record-form compliance-research-panel"}>
+    <h2>{reviewScope ? `${stateName(reviewScope.jurisdiction)} · ${reviewScope.holderName}` : "License register"}</h2>
+    {!reviewScope && <p className="muted">Record state licenses for the company, its branches, and loan officers. Recorded status is for internal review.</p>}
     {feedback && <p ref={feedbackRef} tabIndex={-1} role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
     <div className="loan-application-actions licensing-controls">
-      <label className="field">Legal entity<select value={entityId} disabled={busy || !!editing || paused} onChange={event => {
+      {!reviewScope && <label className="field">Legal entity<select value={entityId} disabled={busy || !!editing || paused} onChange={event => {
         target.current = undefined; setEntityId(event.target.value); setLoaded(undefined); setFilter(""); setRenewalOnly(false); setFeedback(undefined);
       }}>
         <option value="">Select a legal entity</option>
         {entities?.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select></label>
-      <Button size="sm" className="min-h-10" variant="outline" disabled={busy || paused || !!editing || !entities} onClick={() => choose("entity")}>Add legal entity</Button>
+      </select></label>}
+      {!reviewScope && <Button size="sm" className="min-h-10" variant="outline" disabled={busy || paused || !!editing || !entities} onClick={() => choose("entity")}>Add legal entity</Button>}
       <Button size="sm" className="min-h-10" variant="outline" disabled={busy || paused} onClick={() => {
         setEditing(undefined); setFeedback(undefined); setLoaded(undefined); setRefresh(value => value + 1);
       }}>Refresh register</Button>
@@ -261,7 +264,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
       </form>
       {selected && <RenewalHistory key={selected.id} brokerageId={brokerageId} entityId={entityId} licenseId={selected.id} />}
     </section> : entityId && licenses ? <>
-      <div className="loan-application-actions licensing-controls">
+      {!reviewScope && <><div className="loan-application-actions licensing-controls">
         <label className="field">Filter by state<select value={filter} onChange={event => setFilter(event.target.value)}>
           <option value="">All states</option>
           {licenseJurisdictions.map(code => <option key={code} value={code}>{code} · {stateName(code)}</option>)}
@@ -278,7 +281,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
         {licenseHolderKinds.map(kind => <p key={kind}><strong>{kind}</strong> · <LicenseRecordStatus counts={countLicenseRecords(
           licenses.filter(license => license.jurisdiction === filter && license.holder.kind === kind), current.asOf)} /></p>)}
       </section>}
-      {renewalOnly && <p className="muted">Shows past expiration dates and active licenses expiring within {licenseRenewalLookahead} days.</p>}
+      {renewalOnly && <p className="muted">Shows past expiration dates and active licenses expiring within {licenseRenewalLookahead} days.</p>}</>}
       {visible?.length ? <ul className="loan-task-list">{visible.map(item => <li key={item.id} className="loan-task compliance-row">
         <div className="loan-task-copy">
           <strong>{item.jurisdiction} · {item.licenseType}</strong>
@@ -293,7 +296,7 @@ export function ComplianceLicensing({ brokerageId, paused, initialTarget, onLice
         </div>
         <Button id={`edit-license-${item.id}`} size="sm" variant="outline" disabled={paused}
           aria-label={`Edit ${item.jurisdiction} license ${item.licenseNumber}`} onClick={() => choose(item)}>Edit license</Button>
-      </li>)}</ul> : <p>{filter && !renewalOnly ? `No ${stateName(filter)} licenses recorded for this entity.` : licenses.length ? "No licenses match these filters." : "No licenses recorded for this entity. Add a license to start its state register."}</p>}
-    </> : !feedback && <p role="status">{paused ? "License editing is paused." : !entities || entityId ? "Loading license register…" : "Select or add a legal entity to record its licenses."}</p>}
+      </li>)}</ul> : <p>{reviewScope ? "No matching license records remain for this review." : filter && !renewalOnly ? `No ${stateName(filter)} licenses recorded for this entity.` : licenses.length ? "No licenses match these filters." : "No licenses recorded for this entity. Add a license to start its state register."}</p>}
+    </> : !feedback && <p role="status">{paused ? "License editing is paused." : reviewScope || !entities || entityId ? "Loading license register…" : "Select or add a legal entity to record its licenses."}</p>}
   </div>;
 }

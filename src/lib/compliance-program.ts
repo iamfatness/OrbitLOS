@@ -146,12 +146,12 @@ function checkLicenseState(db: Store, tenant: string, data: Extract<ProgramReque
     return atIntake || (branch.active && officerAssigned) ?
       [{ id: branch.id, name: branch.name, active: branch.active, atIntake, officerAssigned }] : [];
   }) : [];
-  const records = db.prepare(`SELECT entityId,status,effectiveOn,expiresOn,holder FROM compliance_program_licenses
+  const records = db.prepare(`SELECT id,entityId,status,effectiveOn,expiresOn,holder FROM compliance_program_licenses
     WHERE brokerageId=? AND jurisdiction=? AND (holder IS NULL OR json_extract(holder,'$.holder.kind')='Company'
       OR (json_extract(holder,'$.holder.kind')='Branch' AND json_extract(holder,'$.holder.id') IN (SELECT value FROM json_each(?)))
       OR (json_extract(holder,'$.holder.kind')='Loan officer' AND json_extract(holder,'$.holder.id')=?))`)
     .all(tenant, data.jurisdiction, JSON.stringify(branches.map(branch => branch.id)), officer?.email ?? null) as
-      (Pick<LicenseFields, "status" | "effectiveOn" | "expiresOn"> & { entityId: string; holder: string | null })[];
+      (Pick<LicenseFields, "status" | "effectiveOn" | "expiresOn"> & { id: string; entityId: string; holder: string | null })[];
   const byEntity = Map.groupBy(records.map(({ holder, ...record }) => ({ ...record, holder: licenseHolderRecord(holder).holder })), record => record.entityId);
   return { kind: "licenseStateCheck", jurisdiction: data.jurisdiction, asOf,
     ...(selection ? { assignment: {
@@ -161,13 +161,21 @@ function checkLicenseState(db: Store, tenant: string, data: Extract<ProgramReque
     } } : {}),
     entities: entities(db, tenant).entities.map(({ id, name }) => {
       const licenses = byEntity.get(id) ?? [];
-      const company = countLicenseRecords(licenses.filter(record => record.holder.kind === "Company"), asOf);
-      return { id, name, company,
-        ...(officer ? { officer: countLicenseRecords(licenses.flatMap(record => record.holder.kind === "Loan officer" ?
-          [{ ...record, holderAvailable: record.holder.accessRevision === (officer.accessRevision ?? 0) }] : []), asOf) } : {}),
-        ...(branches.length ? { branches: branches.map(branch => ({ id: branch.id, counts: countLicenseRecords(
-          licenses.filter(record => record.holder.kind === "Branch" && record.holder.id === branch.id)
-            .map(record => ({ ...record, holderAvailable: branch.active })), asOf) })) } : {}),
+      const company = licenses.filter(record => record.holder.kind === "Company");
+      const officerRecords = officer ? licenses.flatMap(record => record.holder.kind === "Loan officer" ?
+        [{ ...record, holderAvailable: record.holder.accessRevision === (officer.accessRevision ?? 0) }] : []) : undefined;
+      const branchRecords = branches.map(branch => ({ id: branch.id, records:
+        licenses.filter(record => record.holder.kind === "Branch" && record.holder.id === branch.id)
+          .map(record => ({ ...record, holderAvailable: branch.active })) }));
+      return { id, name, company: countLicenseRecords(company, asOf),
+        ...(officerRecords ? { officer: countLicenseRecords(officerRecords, asOf) } : {}),
+        ...(branchRecords.length ? { branches: branchRecords.map(branch => ({ id: branch.id,
+          counts: countLicenseRecords(branch.records, asOf) })) } : {}),
+        ...(selection ? { singleRecords: {
+          company: company.length === 1 ? company[0].id : undefined,
+          officer: officerRecords?.length === 1 ? officerRecords[0].id : undefined,
+          branches: Object.fromEntries(branchRecords.flatMap(branch => branch.records.length === 1 ? [[branch.id, branch.records[0].id]] : [])),
+        } } : {}),
       };
     }),
   };

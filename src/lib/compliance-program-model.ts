@@ -48,6 +48,14 @@ export function countLicenseRecords(records: readonly (Pick<LicenseFields, "stat
   }
   return counts;
 }
+export type LicenseRegisterScope = {
+  entityId: string; jurisdiction: string; holder: { kind: "Company" } | { kind: "Branch" | "Loan officer"; id: string };
+  holderName: string; licenseId?: string;
+};
+export function inLicenseRegisterScope(license: ProgramLicense, scope: LicenseRegisterScope) {
+  return license.jurisdiction === scope.jurisdiction && license.holder.kind === scope.holder.kind &&
+    (!("id" in scope.holder) || ("id" in license.holder && license.holder.id === scope.holder.id));
+}
 export type LicenseStateCheck = { kind: "licenseStateCheck"; jurisdiction: string; asOf: string;
   assignment?: {
     officer: { name: string | null } | null;
@@ -55,7 +63,8 @@ export type LicenseStateCheck = { kind: "licenseStateCheck"; jurisdiction: strin
     branches: { id: string; name: string; active: boolean; atIntake: boolean; officerAssigned?: boolean }[];
   };
   entities: { id: string; name: string; company: LicenseRecordCounts; officer?: LicenseRecordCounts;
-    branches?: { id: string; counts: LicenseRecordCounts }[] }[] };
+    branches?: { id: string; counts: LicenseRecordCounts }[];
+    singleRecords?: { company?: string; officer?: string; branches: Record<string, string> } }[] };
 
 export type ProgramLicenses = { kind: "programLicenses"; entity: ProgramEntity; asOf: string; licenses: ProgramLicense[];
   holderChoices: LicenseHolderChoice[]; renewalOwners: (LicenseRenewalOwner & { name: string })[] };

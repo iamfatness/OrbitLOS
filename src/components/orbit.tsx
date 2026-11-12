@@ -1562,7 +1562,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           }
 
           {section === "Lead Inbox" && <LeadInbox key={attentionVisit?.section === "Lead Inbox" ? attentionVisit.visit : 0}
-            openRouting={openLeadRouting}
+            openRouting={openLeadRouting} onLicenseSaved={refreshCounts}
             initialView={attentionVisit?.section === "Lead Inbox" ? leadAttentionView : undefined} version={state} staff={staff} now={taskNow} busy={busy}
             focusLeadId={focusLeadId} focusTaskId={focusLeadTaskId} focusDocumentId={focusLeadDocumentId} focusArchivedLeadId={focusArchivedLeadId}
             save={(input, after) => save(input, after, true, "inbox")}

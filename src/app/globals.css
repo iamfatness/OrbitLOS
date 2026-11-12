@@ -1229,6 +1229,15 @@ button:disabled { cursor: default; }
 .license-state-controls .field { flex: 1 1 12rem; width: auto; }
 .work-queue.license-state-result { margin: 0; overflow-wrap: anywhere; }
 .license-state-entity + .license-state-entity { border-top: 1px solid var(--line); padding-top: 8px; }
+.license-state-holder { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.license-state-review .license-state-result { max-width: 50rem; }
+.license-state-holder > button { margin-inline-start: auto; }
+.license-state-holder + .license-state-holder { margin-top: 6px; }
+.license-register-dialog { scroll-padding-block-start: 70px; }
+@media (max-width: 600px) {
+  .license-register-dialog .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .license-state-controls .field { flex-basis: 9rem; }
+}
 .licensing-entity { overflow-wrap: anywhere; }
 .licensing-entity p { margin: 4px 0 0; }
 .state-rollout-requirement + .state-rollout-requirement { border-top: 1px solid var(--line); padding-top: 12px; }

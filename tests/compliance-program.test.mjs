@@ -375,6 +375,14 @@ test("assignment license check includes the intake branch and current officer me
   ]);
   assert.equal(result.entities[0].company.current,1);
   assert.equal(result.entities[0].officer.current,1);
+  const licenseIds = Object.fromEntries(f.run({operation:"licenses",entityId:entity.id}).licenses.map(record=>[record.licenseNumber,record.id]));
+  assert.deepEqual(result.entities[0].singleRecords,{
+    company:licenseIds.COMPANY,officer:licenseIds.OFFICER,branches:{[intake]:licenseIds.WEST,[primary]:licenseIds.EAST},
+  });
+  assert.equal(save("EAST-SECOND",{kind:"Branch",id:primary}).kind,"programLicenses");
+  const grouped = f.run(request).entities[0];
+  assert.equal(grouped.singleRecords.branches[primary],undefined);
+  assert.deepEqual(grouped.branches.find(branch=>branch.id===primary).counts,{current:1,expired:1,review:0});
   const shared = f.run({...request,assignment:{leadId,officerEmail:null}});
   assert.deepEqual(shared.assignment.branches.map(branch=>branch.id),[intake]);
   assert.equal(shared.entities[0].officer,undefined);

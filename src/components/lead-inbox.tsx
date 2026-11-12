@@ -142,8 +142,9 @@ function LeadPropertyStateEditor({ lead, busy, save }: { lead: InboxLead; busy: 
   </details>;
 }
 
-function LeadOwnerAssignment({ lead, members, busy, assign, staff }: {
+function LeadOwnerAssignment({ lead, members, busy, assign, staff, onLicenseSaved }: {
   lead: InboxLead; members: BrokerageMember[]; busy: boolean; assign: (email: string | null) => void; staff: WorkspaceStaff | null;
+  onLicenseSaved?: () => void;
 }) {
   const [selection, setSelection] = useState<{ savedOwner: string | null; ownerEmail: string }>();
   const ownerEmail = selection?.savedOwner === lead.officerEmail ? selection.ownerEmail : lead.officerEmail ?? "";
@@ -165,15 +166,16 @@ function LeadOwnerAssignment({ lead, members, busy, assign, staff }: {
     </form>}
     {staff && workspaceFeatures(staff.brokerage).compliance &&
       <LeadLicenseStateReview key={lead.propertyState} brokerageId={staff.brokerage.id} leadId={lead.id}
-        propertyState={lead.propertyState} officerEmail={ownerEmail || null} />}
+        propertyState={lead.propertyState} officerEmail={ownerEmail || null} busy={busy} onLicenseSaved={onLicenseSaved} />}
   </>;
 }
 
-function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentId, save, convert, openCampaign, openConversation, close }: {
+function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentId, save, convert, openCampaign, openConversation, onLicenseSaved, close }: {
   lead: InboxLead; staff: WorkspaceStaff | null; members: BrokerageMember[]; now: number; busy: boolean; focusTaskId?: string; save: Save; convert: Convert;
   focusDocumentId?: string;
   openCampaign: (campaignId: string, leadId: string) => void;
   openConversation: (leadId: string) => void;
+  onLicenseSaved?: () => void;
   close: () => void;
 }) {
   const [match, setMatch] = useState("");
@@ -230,7 +232,7 @@ function LeadCard({ lead, staff, members, now, busy, focusTaskId, focusDocumentI
         {intake && <a href={`#intake-review-${lead.id}`}>Review intake answers for the 1003</a>}
         <LeadPropertyStateEditor lead={lead} busy={busy} save={save} />
         {isAdmin && <LeadOwnerAssignment key={lead.id} lead={lead}
-          members={members} busy={busy} assign={assign} staff={staff} />}
+          members={members} busy={busy} assign={assign} staff={staff} onLicenseSaved={onLicenseSaved} />}
         {lead.heldAt ? <div className="work-queue">
           <p><strong>On hold</strong> · {lead.holdReason}</p>
           <p className="muted">Original deadlines stay on the record. {lead.campaignId
@@ -422,7 +424,7 @@ function ArchivedLeads({ brokerageId, busy, restore, focusId }: {
   </section>;
 }
 
-export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId, focusTaskId, focusDocumentId, focusArchivedLeadId, save, convert, openCampaign, openConversation, openRouting }: {
+export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId, focusTaskId, focusDocumentId, focusArchivedLeadId, save, convert, openCampaign, openConversation, openRouting, onLicenseSaved }: {
   version: object; staff: WorkspaceStaff | null;
   now: number; busy: boolean; focusLeadId?: string; focusTaskId?: string; focusArchivedLeadId?: string; save: Save; convert: Convert;
   initialView?: LeadInboxView;
@@ -430,6 +432,7 @@ export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId,
   openCampaign: (campaignId: string, leadId: string) => void;
   openConversation: (leadId: string) => void;
   openRouting?: boolean;
+  onLicenseSaved?: () => void;
 }) {
   const [view, setView] = useState<LeadInboxView>(focusArchivedLeadId ? "Archived" : initialView ?? "All open");
   const [selection, setSelection] = useState<{ from?: string; id?: string }>();
@@ -535,7 +538,7 @@ export function LeadInbox({ version, staff, now, busy, initialView, focusLeadId,
         <LeadCard key={`${lead.id}:${selected.quoteOverridePolicy?.revision ?? "none"}`} lead={selected} staff={staff} members={members ?? []} now={now} busy={busy || readingDetails}
           focusTaskId={lead.id === focusLeadId ? focusTaskId : undefined} focusDocumentId={lead.id === focusLeadId ? focusDocumentId : undefined}
           save={save} convert={convert} openCampaign={openCampaign}
-          openConversation={openConversation} close={() => selectLead()} /> :
+          openConversation={openConversation} onLicenseSaved={onLicenseSaved} close={() => selectLead()} /> :
         <li className="document-item" key={lead.id}>
           <LeadHeading lead={lead} now={now} />
           {staff?.brokerage.role === "LO" && !lead.officerEmail ?
