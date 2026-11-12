@@ -613,3 +613,7 @@ Reused Orbit’s existing disclosures, receipt rows and keyboard return as the a
 ### Partner permissions
 
 Impeccable and UI UX Pro Max informed focus, explicit approval and revocation, and recovery after an interrupted save. The 21st.dev pattern reference reused the accepted Orbit Integrations disclosure, checkbox group and list-to-detail layout. The selected grant shows scope, approval, expiry, test result and retained history together. The revoked state keeps the last decision readable on phone widths.
+
+### Sandbox CRM event credentials
+
+Impeccable guided alignment and one-time credential presentation within the selected grant. The UI UX Pro Max feedback query informed explicit issue and copy feedback. The controls reuse Orbit's accepted 21st.dev-informed confirmation, labeled fields, and attempt history. The credential is masked on issue and the current decision and receipt ID remain visible after revocation.
