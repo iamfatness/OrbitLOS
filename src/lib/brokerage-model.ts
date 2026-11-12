@@ -148,10 +148,6 @@ export function brokerageUrl(id: string, guide?: ReturnType<typeof workspaceGuid
   return search.size ? `/workspace?${search}` : "/workspace";
 }
 
-export function switchWorkspaceUrl(id: string) {
-  return `${brokerageUrl(id)}&switch=1`;
-}
-
 export function defaultWorkspaceUrl(id: string) {
   return `${brokerageUrl(id)}&default=1`;
 }

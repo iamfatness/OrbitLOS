@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, switchWorkspaceUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
+import { demoBrokerageId, brokerageRoles, brokerageUrl, defaultWorkspaceUrl, pilotFeedbackStatuses, pilotPriorities, pilotSteps, pilotWalkthroughs, type BrokerageSettings } from "@/lib/brokerage-model";
 import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -200,10 +200,10 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
         <Button variant="outline" size="sm" onClick={()=>void copyWorkspace()}>Copy workspace link</Button>
       </div>
       {copyStatus && <p role="status">{copyStatus}</p>}
+      {!!(operationalWorkspaces.length || sampleWorkspaces.length) && <p className="muted">Opening another workspace keeps your sign-in default.</p>}
       {!!operationalWorkspaces.length && <div className="workspace-list"><h3>Operational workspaces</h3>{operationalWorkspaces.map(item =>
-        <a className="workspace-list-item" key={item.id} href={switchWorkspaceUrl(item.id)}><strong>{item.name}</strong><span>{item.role}{item.maintenance ? " · Paused" : ""}</span></a>)}</div>}
+        <a className="workspace-list-item" key={item.id} href={brokerageUrl(item.id)}><strong>{item.name}</strong><span>{item.role}{item.maintenance ? " · Paused" : ""}</span></a>)}</div>}
       {!!sampleWorkspaces.length && <details className="workspace-samples"><summary>Demo &amp; test workspaces ({sampleWorkspaces.length})</summary>
-        <p className="muted">Visit a sample workspace while keeping your sign-in default.</p>
         <label className="field">Find a demo or test workspace<input type="search" value={workspaceSearch} onChange={event=>setWorkspaceSearch(event.target.value)} placeholder="Search by name or reference"/></label>
         <div className="workspace-list">{matchingSamples.map(item => <a className="workspace-list-item" key={item.id} href={brokerageUrl(item.id)}>
           <strong>{item.name}</strong><span>{item.role} · {item.id === demoBrokerageId ? "Demo" : "Test"}{item.maintenance ? " · Paused" : ""} · {item.id.slice(0,8)}</span></a>)}</div>

@@ -441,6 +441,53 @@ try {
     assert.equal((await browse(newSession, "/workspace")).headers.get("location"), scoped(brokerage));
   });
 
+  let sharedProcessor;
+  await stage("A contract processor visits two workspaces without moving the default or mixing files", async () => {
+    const alternate = randomUUID();
+    const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
+      [owner.email], { type: "create", id: alternate, name: "Fictional Lakeshore Brokerage", pilot: false });
+    assert.equal(created.created, alternate, created.error);
+    const shared = actor("Fictional Contract Processor", "shared-processor@example.test", "Processor");
+    const teamAt = (scope, input) => post(`/api/brokerages?brokerage=${scope}`, input, owner);
+    for (const scope of [brokerage, alternate]) {
+      await teamAt(scope, { type: "invite", email: shared.email, role: "Processor" });
+    }
+    await signIn(shared);
+    const from = (scope, staff, name, input, expected = scope) => action(staff, name, input, undefined, expected, scope);
+    const createLoan = async (scope, name) => {
+      const result = await from(scope, owner, "mutate", { type: "loan", contactId: "", borrower: name,
+        borrowerEmail: `${randomUUID()}@example.test`, address: "", amount: 250000, purpose: "Purchase",
+        stage: "Processing", officer: owner.name, partnerId: null, start1003: true });
+      assert.ok(result.loanWork?.loanId, result.error);
+      return result.loanWork.loanId;
+    };
+    const primaryLoan = await createLoan(brokerage, "Fictional Shared Processor Primary");
+    const otherLoan = await createLoan(alternate, "Fictional Shared Processor Alternate");
+    const unassigned = await createLoan(alternate, "Fictional Unassigned Processor Loan");
+    for (const [scope, loanId] of [[brokerage, primaryLoan], [alternate, otherLoan]]) {
+      await teamAt(scope, { type: "assignProcessor", email: shared.email, loanId, revision: 0 });
+      assert.equal((await from(scope, shared, "readLoanForWork", loanId)).loans[0].id, loanId);
+      assert.ok((await from(scope, shared, "readProcessingWork", { readyOnly: false })).files.some(file => file.id === loanId));
+    }
+    assert.ok((await from(alternate, shared, "readLoanForWork", unassigned)).error);
+    assert.ok((await from(alternate, shared, "readLoanForWork", primaryLoan)).error);
+    assert.ok((await from(brokerage, shared, "readLoanForWork", otherLoan)).error);
+    assert.ok((await from(brokerage, shared, "readLoanForWork", otherLoan, alternate)).error);
+    const finance = { type: "list", from: shiftReportDate(today, -1), through: today, view: "Funded", owner: "" };
+    assert.equal((await from(brokerage, owner, "accessBrokerageFinance", finance)).error, undefined);
+    assert.match((await from(brokerage, shared, "accessBrokerageFinance", finance)).error, /workspace owner/);
+    const request = await from(alternate, shared, "mutate", { type: "requestDocument", loanId: otherLoan,
+      kind: "Pay stub", instructions: "Fictional shared processor alternate evidence." });
+    assert.ok(request.message, request.error);
+    assert.ok((await from(alternate, shared, "readLoanForWork", otherLoan)).documentRequests.some(item => item.kind === "Pay stub"));
+    const saved = `/workspace?brokerage=${brokerage}`;
+    const visit = `/workspace?brokerage=${alternate}`;
+    assert.equal((await browse(shared, saved + "&default=1")).headers.get("location"), saved);
+    assert.equal((await browse(shared, visit)).headers.get("set-cookie"), null);
+    assert.equal((await browse(shared, "/workspace")).headers.get("location"), saved);
+    sharedProcessor = { staff: shared, alternate, primaryLoan, otherLoan };
+  });
+
   await stage("The owner scorecard is scoped through the deployed action", async () => {
     const filters = { from: shiftReportDate(today, -7), through: today, owner: "" };
     const summary = await action(owner, "readOwnerReport", { kind: "summary", ...filters });
@@ -4697,7 +4744,7 @@ try {
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }
