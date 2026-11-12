@@ -629,3 +629,7 @@ Reused the 21st.dev-informed Integrations disclosure and owner exception list. I
 ### Saved report schedules
 
 Reused the accepted 21st.dev-informed Integrations disclosure, checkbox group and receipt detail. Impeccable Polish informed the form alignment and keeping the report summary within the selected schedule. UI UX Pro Max date formatting and empty-state guidance informed the Eastern-date label, readable receipt dates and recipient validation. The responsive check included two long recipient identities and a retained receipt after archive.
+
+### Report schedule attention
+
+Reused the 21st.dev-informed Brokerage action rows and the existing schedule editor. Impeccable Polish guided the due and blocked summary, exact report version labels and single-column phone controls. UI UX Pro Max focus guidance informed returning to the original schedule action, or the section heading after its row clears.
