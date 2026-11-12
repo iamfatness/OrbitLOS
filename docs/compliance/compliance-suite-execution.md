@@ -80,3 +80,11 @@ All 544 repository tests, typecheck, lint and the production-target build passed
 - [MCR/HMDA form inventory and implementation gaps](reporting-form-inventory.md)
 - [Training and policy content review](training-policy-content-review.md)
 - [Delivery plan](compliance-suite-plan.md) and [specification](compliance-suite-spec.md)
+
+## Internal compliance pilot published November 11, 2026
+
+OrbitLOS.com serves Worker `87d41312-c616-4615-b4e9-e4af0006e991` from application source `00498e79efca`. The pilot admin can open Monthly review, Obligations, and Training & policies from Compliance. An obligation period can create one owned monthly review item and retains the original obligation version. An LO opens personal assignments from Today and a processor opens them from Processing.
+
+A built fictional 47-stage rehearsal and separate owner, LO, and processor browser sessions verified the release. The checks covered filtering, a concurrent edit with retained input, monthly snapshot evidence, obligation period history and retry, interrupted draft recovery, course review and assignment, assessment retry and completion, policy acknowledgment, and role boundaries. See [UI review coverage](../ui-review-coverage.md) for screenshot evidence. The public Demo describes the internal fictional scope.
+
+State coverage, applicability, statutory calculations, real training content and filing remain subject to the existing review gates. Course revision authoring and the FV7 workpaper are separate increments.
