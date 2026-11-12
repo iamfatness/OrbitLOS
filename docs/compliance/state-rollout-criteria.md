@@ -168,3 +168,9 @@ In a fictional pilot, save the legal entity's scope under **State rollout**, the
 Michigan first-mortgage charge reviews now have a loan-level evidence workflow. It records the assessed charge and payments, documented actual expense or written rate guarantee, and extension evidence. Counsel still needs to confirm the transaction scope and evidence, including treatment of split collections and overlapping federal requirements. [Michigan charge evidence workflow](michigan-overnight-review.md)
 
 The Michigan application booklet review adds a separate state application and delivery record. Counsel must review transaction coverage, the application trigger, the booklet and the evidence for the responsible parties and channel. [Michigan booklet evidence workflow](michigan-overnight-review.md#michigan-application-booklet)
+
+### Illinois disposition integration
+
+The Illinois application-file disposition control was locally verified on the separate `feature/fv7-forward-breakdown` branch at `00a0799`. The reported checks covered resolved findings, elapsed retention and counsel-reviewed dates, reopening after corrections, exclusion for active holds, and the exact version and counsel reference in the audit export. The owner path was exercised on desktop, portrait and phone with fictional records.
+
+Commit `b8a44f3` on that branch adds the owner-scoped Illinois loan-log service and examination workbook. The reported checks covered workbook content and brokerage isolation. The owner screen and browser rehearsal are pending. Counsel still needs to review the high-risk file population and cutoff, shared appreciation applicability, pending application exceptions, and separate servicing or secondary-market duties. Production remains pending owner and counsel review.

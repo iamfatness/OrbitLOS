@@ -2,7 +2,8 @@ import { complianceProgramWork } from "./compliance-program";
 import { complianceStateScopeWork } from "./compliance-state-scope";
 import type { ScopeReviewRequest } from "./compliance-scope-review-model";
 import type { ResearchSource } from "./compliance-research-model";
-import type { ProgramItem, ProgramReviewTarget } from "./compliance-program-model";
+import type { ProgramItem, ProgramReviewTarget, StateReviewBasis } from "./compliance-program-model";
+import { propertyStateName } from "./property-state";
 import type { VersionedBrokerageMember } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -60,27 +61,30 @@ export function complianceScopeReviewWork(db: Store, data: ScopeReviewRequest, s
       WHERE r.brokerageId=? AND r.entityId=? AND r.jurisdiction=? AND r.scopeRevision=?
       ORDER BY i.updatedAt DESC,i.id DESC LIMIT ? OFFSET ?`).all(...args, pageSize + 1, offset);
     return { kind: "scopeReviews" as const, canAssign, sources,
-      reviewers: reviewers.map(({ email, name, accessRevision }) => ({ email, name, revision: accessRevision ?? 0 })),
+      reviewers: reviewers.map(({ email, name, accessRevision }) => ({
+        email, name, revision: accessRevision ?? 0, isCurrentUser: email === staff.email && (accessRevision ?? 0) === actorRevision,
+      })),
       next: rows.length > pageSize ? offset + pageSize : null,
       items: rows.slice(0, pageSize).map(row => ({
         target: { entityId, month: String(row.month), itemId: String(row.id) } satisfies ProgramReviewTarget,
         question: String(row.instructions), status: row.status as ProgramItem["status"], internalTarget: String(row.internalTarget),
         reviewer: reviewers.find(member => member.email === row.ownerEmail && (member.accessRevision ?? 0) === row.ownerRevision)?.name ?? null,
-        source: JSON.parse(String(row.source)) as typeof sources[number], evidence: String(row.evidence),
+        source: JSON.parse(String(row.source)) as StateReviewBasis["source"], evidence: String(row.evidence),
         latestNote: typeof row.latestNote === "string" ? row.latestNote : null,
       })) };
   }
   if (!canAssign) return { error: "Save the current state details before assigning this question." };
-  const source = sources.find(entry => entry.key === data.sourceKey);
-  if (!source) return { error: "Choose a reference saved with this state record." };
+  const source = sources.find(entry => entry.key === data.sourceKey) ?? null;
+  if (data.sourceKey && !source) return { error: "Choose a reference saved with this state record." };
   if (!reviewers.some(member => member.email === data.reviewerEmail && (member.accessRevision ?? 0) === data.reviewerRevision)) {
     return { error: "The reviewer’s access changed. Refresh and choose a current brokerage admin." };
   }
   // Use a separate event key so the state-review command has its own replay identity.
   const eventId = crypto.randomUUID();
   const month = data.internalTarget.slice(0, 7);
+  const title = source ? `${jurisdiction} state review: ${source.title}` : `${propertyStateName(jurisdiction)} · ${data.question}`;
   const result = complianceProgramWork(db, { operation: "schedule", entityId, month, requestId: eventId,
-    title: `${jurisdiction} state review: ${source.title}`.slice(0, 160), category: "Management review", ownerEmail: data.reviewerEmail,
+    title: title.slice(0, 160), category: "Management review", ownerEmail: data.reviewerEmail,
     internalTarget: data.internalTarget, instructions: data.question }, staff, roster, now);
   if ("error" in result) return result;
   const itemId = String(db.prepare("SELECT id FROM compliance_program_events WHERE brokerageId=? AND requestId=?").get(tenant, eventId)!.id);

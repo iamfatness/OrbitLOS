@@ -379,6 +379,45 @@ test("state question appears in admin review, retains its source version, and re
   assert.equal(archived.items[0].status, "Completed");
   assert.equal(work("scopeReview", read, f.owner, [f.owner, { ...f.backup, accessRevision: 2 }]).items[0].reviewer, null);
 });
+
+test("an owner can track a state question without a source and record an external answer", t => {
+  const f = fixture(t);
+  const work = (type, input) => complianceCaseWork(f.db, { type, input }, f.staff(f.owner), f.tenant, [f.owner], now);
+  const entityId = work("program", { operation: "createEntity", requestId: crypto.randomUUID(), name: "Fictional Solo Broker",
+    nmls: "", scopeNote: "Fictional first office" }).entities[0].id;
+  const facts = { activity: "Brokerage", lienScope: "Unresolved", companyEvidence: "", officeEvidence: "", originatorEvidence: "",
+    products: "Purchase", responsibility: "", reportingBasis: "", counselPacketReference: "" };
+  assert.equal(work("stateScope", { operation: "save", entityId, jurisdiction: "MI", expectedRevision: 0, facts,
+    requestId: crypto.randomUUID() }).revision, 1);
+  const basis = { entityId, jurisdiction: "MI", scopeRevision: 1 };
+  const read = { operation: "read", ...basis };
+  const [owner] = work("scopeReview", read).reviewers;
+  assert.equal(owner.isCurrentUser, true);
+  const question = "Which filings should we review for this office?";
+  const submit = { operation: "assign", ...basis, requestId: crypto.randomUUID(), reviewerEmail: owner.email,
+    reviewerRevision: owner.revision, internalTarget: "2026-11-19", question };
+  const result = work("scopeReview", submit);
+  assert.equal(result.kind, "scopeReviewAssigned");
+  assert.deepEqual(work("scopeReview", submit), result);
+  assert.ok(work("scopeReview", { ...submit, sourceKey: "REQ-MI-LOAN-FEES" }).error);
+  const { month, itemId } = result.target;
+  const home = work("program", { operation: "ownerHome" });
+  assert.ok(home.reviews.items.some(item => item.id === itemId && item.ownerName === owner.name && item.title.includes(question)));
+  const [pending] = work("program", { operation: "month", entityId, month }).items;
+  assert.equal(pending.stateReview.source, null);
+  assert.deepEqual(pending.stateReview.facts, facts);
+  const update = { operation: "update", entityId, month, id: itemId, ownerEmail: owner.email, internalTarget: submit.internalTarget,
+    evidence: "Fictional compliance advice, office reference 7", note: "External reviewer answered the question. Confirm the scope next quarter." };
+  assert.equal(work("program", { ...update, status: "Awaiting review", expectedRevision: 1,
+    requestId: crypto.randomUUID() }).items[0].status, "Awaiting review");
+  assert.equal(work("program", { ...update, status: "Completed", expectedRevision: 2,
+    requestId: crypto.randomUUID() }).items[0].status, "Completed");
+  const saved = work("scopeReview", read).items;
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].source, null);
+  assert.equal(saved[0].latestNote, update.note);
+  assert.equal(saved[0].evidence, update.evidence);
+});
 test("opening research is idempotent, canonical, and preserves research-only status", (t) => {
   const f = fixture(t);
   assert.equal(f.list().counts.total, 0);

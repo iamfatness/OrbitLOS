@@ -20,7 +20,7 @@ export function ComplianceScopeReviews({ brokerageId, entityId, jurisdiction, sc
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [sourceKey, setSource] = useState("");
-  const [reviewerSelection, setReviewer] = useState("");
+  const [reviewerSelection, setReviewer] = useState<string>();
   const [internalTarget, setTarget] = useState("");
   const [question, setQuestion] = useState("");
   const feedback = useRef<HTMLParagraphElement>(null);
@@ -41,11 +41,15 @@ export function ComplianceScopeReviews({ brokerageId, entityId, jurisdiction, sc
   }, [active, paused, brokerageId, entityId, jurisdiction, scopeRevision, version, offset]);
   useEffect(() => { if (saveError || notice) feedback.current?.focus(); }, [saveError, notice]);
 
+  const source = data?.sources.find(item => item.key === sourceKey);
+  const selectedReviewer = reviewerSelection === undefined ? data?.reviewers.find(item => item.isCurrentUser) :
+    data?.reviewers.find(item => reviewerKey(item) === reviewerSelection);
+
   async function assign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const reviewer = data?.reviewers.find(item => reviewerKey(item) === reviewerSelection);
+    const reviewer = selectedReviewer;
     if (!reviewer || busy || paused || !data?.canAssign) return;
-    const input = { operation: "assign", entityId, jurisdiction, scopeRevision, sourceKey, reviewerEmail: reviewer.email,
+    const input = { operation: "assign", entityId, jurisdiction, scopeRevision, sourceKey: sourceKey || undefined, reviewerEmail: reviewer.email,
       reviewerRevision: reviewer.revision, internalTarget, question: question.trim() };
     const body = JSON.stringify(input);
     if (retry.current?.body !== body) retry.current = { body, id: crypto.randomUUID() };
@@ -58,16 +62,17 @@ export function ComplianceScopeReviews({ brokerageId, entityId, jurisdiction, sc
       else if (result.kind === "scopeReviewAssigned") {
         retry.current = undefined;
         setQuestion("");
+        setSource("");
+        setReviewer(undefined);
+        setTarget("");
         if (editor.current) editor.current.open = false;
-        setNotice(`Review assigned to ${reviewer.name}.`);
+        setNotice(reviewer.isCurrentUser ? "Question saved. You own the follow-up." : `Question saved. ${reviewer.name} owns the follow-up.`);
         setOffset(0);
         refresh(value => value + 1);
-      } else setSaveError("Assignment could not be confirmed. Retry the same question.");
-    } catch { setSaveError("Assignment could not be confirmed. Retry the same question."); }
+      } else setSaveError("Save could not be confirmed. Retry the same question.");
+    } catch { setSaveError("Save could not be confirmed. Retry the same question."); }
     finally { setBusy(false); }
   }
-  const source = data?.sources.find(item => item.key === sourceKey);
-  const selectedReviewer = data?.reviewers.find(item => reviewerKey(item) === reviewerSelection);
   return <section className="record-form" aria-label="State review questions">
     <h3>State review questions</h3>
     {(!data || readError) && <p role={readError ? "alert" : "status"}>{readError ||
@@ -79,7 +84,7 @@ export function ComplianceScopeReviews({ brokerageId, entityId, jurisdiction, sc
       {data.items.length > 0 && <ul className="document-list">{data.items.map(item => <li className="document-item" key={item.target.itemId}>
         <div className="min-w-0 break-words">
           <strong>{item.question}</strong>
-          <p>{item.status} · {item.reviewer ?? "Reviewer needs reassignment"} · Internal target {item.internalTarget}</p>
+          <p>{item.status} · {item.reviewer ?? "Follow-up owner needs reassignment"} · Internal follow-up {item.internalTarget}</p>
           {item.latestNote && <p><strong>Decision or next action</strong> · {item.latestNote}</p>}
           {item.evidence && <p><strong>Evidence reference</strong> · {item.evidence}</p>}
         </div>
@@ -91,31 +96,34 @@ export function ComplianceScopeReviews({ brokerageId, entityId, jurisdiction, sc
         {data.next !== null && <Button type="button" size="sm" variant="outline" onClick={() => setOffset(data.next ?? 0)}>More questions</Button>}
       </div>}
       {data.canAssign ? <details ref={editor} className="details-section">
-        <summary className="min-h-11 content-center">Assign a question for review</summary>
+        <summary className="min-h-11 content-center">Add a question for review</summary>
         <form className="record-form" onSubmit={assign}>
           <fieldset className="record-form" disabled={paused || busy}>
-            <p className="muted">The reviewer receives an internal review item linked to state record version {scopeRevision}. Use references for supporting evidence.</p>
             <label className="field">Question<textarea rows={3} required minLength={5} maxLength={1000} value={question}
               onChange={event => setQuestion(event.target.value)} /></label>
-            <label className="field">Supporting source<select required value={sourceKey} onChange={event => setSource(event.target.value)}>
-              <option value="">Choose a saved source</option>{data.sources.map(item => <option key={item.key} value={item.key}>{item.title}</option>)}
-            </select></label>
-            {source && <p><a className="name-link break-words" href={source.sourceUrl} target="_blank" rel="noreferrer">{source.title}</a></p>}
             <div className="form-grid items-start">
               <div className="min-w-0">
-                <label className="field">Reviewer<select required value={selectedReviewer ? reviewerSelection : ""} onChange={event => setReviewer(event.target.value)}>
+                <label className="field">Who will follow up?<select required value={selectedReviewer ? reviewerKey(selectedReviewer) : ""} onChange={event => setReviewer(event.target.value)}>
                   <option value="">Choose a brokerage admin</option>{data.reviewers.map(item =>
-                    <option key={reviewerKey(item)} value={reviewerKey(item)}>{item.name} · {item.email}</option>)}
+                    <option key={reviewerKey(item)} value={reviewerKey(item)}>{item.isCurrentUser ? "Me" : `${item.name} · ${item.email}`}</option>)}
                 </select></label>
-                {selectedReviewer && <p className="muted break-words">{selectedReviewer.name} · {selectedReviewer.email}</p>}
+                {selectedReviewer && !selectedReviewer.isCurrentUser && <p className="muted break-words">{selectedReviewer.name} · {selectedReviewer.email}</p>}
               </div>
               <label className="field">Internal follow-up date<input type="date" required min="2000-01-01" max="2099-12-31"
                 value={internalTarget} onChange={event => setTarget(event.target.value)} /></label>
             </div>
-            <div><Button type="submit" size="sm" className="min-h-11">{busy ? "Assigning…" : "Assign review"}</Button></div>
+            <p className="muted">The question appears in Monthly review with the saved company and state details. Record the answer there, including advice received outside Orbit.</p>
+            {data.sources.length > 0 && <details className="details-section">
+              <summary className="min-h-11 content-center">Add a source (optional)</summary>
+              <label className="field">Supporting source<select value={sourceKey} onChange={event => setSource(event.target.value)}>
+                <option value="">No source selected</option>{data.sources.map(item => <option key={item.key} value={item.key}>{item.title}</option>)}
+              </select></label>
+              {source && <p><a className="name-link break-words" href={source.sourceUrl} target="_blank" rel="noreferrer">{source.title}</a></p>}
+            </details>}
+            <div><Button type="submit" size="sm" className="min-h-11">{busy ? "Saving…" : "Save question"}</Button></div>
           </fieldset>
         </form>
-      </details> : <p className="muted">To assign a question, save a current version of these state details.</p>}
+      </details> : <p className="muted">To add a question, save a current version of these state details.</p>}
     </>}
   </section>;
 }

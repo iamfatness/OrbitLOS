@@ -77,7 +77,7 @@ export type LicenseHistory = { kind: "licenseHistory"; entries: { id: string; ac
 export const programCategories = ["Reporting preparation", "Training review", "Policy review", "Quality control", "License review", "Management review"] as const;
 export const programStatuses = ["Planned", "In progress", "Awaiting evidence", "Awaiting review", "Completed"] as const;
 export type StateReviewBasis = { jurisdiction: string; revision: number; entityName: string; facts: StateScopeFacts;
-  source: { title: string; sourceUrl: string } };
+  source: { key: string; title: string; sourceUrl: string } | null };
 export const programMonth = z.string().regex(/^(20\d{2})-(0[1-9]|1[0-2])$/);
 const title = z.string().trim().min(3).max(160);
 const note = z.string().trim().min(5).max(1500);
