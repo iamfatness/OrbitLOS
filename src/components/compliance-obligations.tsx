@@ -142,8 +142,8 @@ export function ComplianceObligations({brokerageId,paused}:{brokerageId:string;p
    <p className="muted">Internal planning. Applicability and statutory deadlines require legal review.</p>
    {(error||notice)&&<div ref={feedback} tabIndex={-1} className={error?"application-message banner-error":"application-message"} role={error?"alert":"status"}>{error||notice}</div>}
    {selected===undefined?<>
-     <div className="form-grid"><label className="field">Legal entity<select value={entityId} disabled={loadingEntities} onChange={e=>{setEntity(e.target.value);setItems([]);setOffset(0);setMore(false);setError("");setNotice("");setLoading(Boolean(e.target.value));}}><option value="">Select an entity</option>{entities.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>
-       {selectedEntity&&<span className="muted break-words md:hidden" aria-hidden="true">{selectedEntity.name}</span>}</label>
+     <div className="form-grid"><label className="field">Legal entity<select value={entityId} title={selectedEntity?.name} disabled={loadingEntities} onChange={e=>{setEntity(e.target.value);setItems([]);setOffset(0);setMore(false);setError("");setNotice("");setLoading(Boolean(e.target.value));}}><option value="">Select an entity</option>{entities.map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select>
+       {selectedEntity&&<span className="muted break-words xl:hidden" aria-hidden="true">{selectedEntity.name}</span>}</label>
      <label className="field">Applicability on this page<select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">All decisions</option>{["Needs review","Required","Not applicable"].map(s=><option key={s}>{s}</option>)}</select></label></div>
      <div className="loan-application-actions"><Button disabled={!entityId||loading} onClick={()=>{newId.current=crypto.randomUUID();edit(null);}}>Add obligation</Button><Button variant="outline" onClick={()=>{setLoading(Boolean(entityId));setError("");setNotice("");refresh(v=>v+1);}}>Refresh</Button></div>
      {!entityId&&<p>Add a legal entity in Compliance → Licensing to start planning obligations.</p>}
