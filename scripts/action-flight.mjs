@@ -24,7 +24,10 @@ export async function readActionResult(response, name) {
   const { returnValue } = actionResult;
   assert.equal(returnValue.ok, true, `Action protocol error for ${name}`);
   const data = returnValue.data;
-  for (const [record, field] of [[data, "mismoXml"], [data, "csv"], [data, "html"], ...(data?.batches ?? []).map((batch) => [batch, "csv"])]) {
+  for (const [record, field] of [[data, "mismoXml"], [data, "csv"], [data, "html"],
+    ...(data?.kind === "fv7Template" ? [[data, "json"]] : []),
+    ...(data?.kind === "fv7Read" ? [[data, "evidence"]] : []),
+    ...(data?.batches ?? []).map((batch) => [batch, "csv"])]) {
     const reference = /^\$([a-f0-9]+)$/.exec(record?.[field] ?? "");
     if (reference) {
       assert.ok(textChunks.has(reference[1]), `The ${name} action must include its ${field} text chunk`);

@@ -6,10 +6,21 @@ const state = z.string().refine((value) => reportStates.includes(value));
 const originator = z.string().regex(/^[1-9]\d{0,12}$/);
 const channels = ["brokered", "retail", "wholesale"] as const;
 const qmLines = ["AC920", "AC930", "AC940"] as const;
+const forwardType = ["AC100", "AC110", "AC120", "AC130"] as const;
+const forwardPurpose = ["AC300", "AC310", "AC320"] as const;
+const forwardLien = ["AC500", "AC510", "AC520"] as const;
+const forwardLines = [...forwardType, ...forwardPurpose, ...forwardLien] as const;
+const forwardFields = { type: z.enum(forwardType), purpose: z.enum(forwardPurpose), reference };
+const forwardClassification = z.discriminatedUnion("lien", [
+  z.strictObject({ ...forwardFields, lien: z.enum(["AC500", "AC520"]) }),
+  z.strictObject({ ...forwardFields, lien: z.literal("AC510"),
+    exposureAmount: z.number().int().min(0).max(1_000_000_000), exposureReference: reference }),
+]);
 
 export const fv7FundedEvidence = z.strictObject({
   ledgerReference: reference,
   rosterReference: reference,
+  forwardBreakdown: z.literal(true).optional(),
   entries: z.array(z.strictObject({
     loanId: reference,
     state,
@@ -20,6 +31,7 @@ export const fv7FundedEvidence = z.strictObject({
     qmLine: z.enum(qmLines),
     fundingReference: reference,
     classificationReference: reference,
+    forward: forwardClassification.optional(),
   })).max(1_000),
   originators: z.array(z.strictObject({ state, originator, reference })).max(1_000),
 });
@@ -47,8 +59,16 @@ function emptyState(state: string) {
   };
 }
 
+function emptyForwardState(state: string) {
+  const column = () => Object.fromEntries(forwardLines.map(line => [line, emptyTotals()])) as Record<typeof forwardLines[number], Totals>;
+  return { state, channels: { brokered: column(), retail: column(), wholesale: column() },
+    unclassified: [] as { loanId: string; amount: number; fundingReference: string }[] };
+}
+
 export function reconcileFv7Funded(states: string[], fundedFiles: FundedFile[], evidence: FundedEvidence) {
   const workpapers = new Map(states.map((state) => [state, emptyState(state)]));
+  const forwardRequested = evidence.forwardBreakdown === true || evidence.entries.some(entry => entry.forward);
+  const forwardStates = new Map(forwardRequested ? states.map(state => [state, emptyForwardState(state)] as const) : []);
   const issues: string[] = [];
   const entries = new Map(evidence.entries.map((entry) => [entry.loanId, entry]));
   const rosterKey = (state: string, id: string) => `${state}:${id}`;
@@ -96,6 +116,17 @@ export function reconcileFv7Funded(states: string[], fundedFiles: FundedFile[], 
     loans.push({ ...entry, originatorReference: staff.reference });
   }
   for (const loanId of entries.keys()) issues.push(`Loan ${loanId} is in the funded ledger but absent from the saved funded activity.`);
+  if (forwardRequested) for (const entry of loans) {
+    const forward = forwardStates.get(entry.state)!;
+    if (!entry.forward) forward.unclassified.push({ loanId: entry.loanId, amount: entry.amount, fundingReference: entry.fundingReference });
+    else {
+      const lines = forward.channels[entry.channel];
+      const classification = entry.forward;
+      addLoan(lines[classification.type], entry.amount);
+      addLoan(lines[classification.purpose], entry.amount);
+      addLoan(lines[classification.lien], classification.lien === "AC510" ? classification.exposureAmount : entry.amount);
+    }
+  }
 
   const results = [...workpapers.values()].map(({ state, AC070BySource, channels: byChannel, originators, issues }) => {
     const channelTotals = channels.map((channel) => ({
@@ -114,8 +145,23 @@ export function reconcileFv7Funded(states: string[], fundedFiles: FundedFile[], 
     return { state, AC070, AC070BySource, AC990, channels: channelTotals,
       originators: [...originators].map(([originator, totals]) => ({ originator, ...totals })), mloTotal, issues };
   });
+  const reconciled = !issues.length && results.every((state) => !state.issues.length);
+  const forwardResults = [...forwardStates.values()].map(({ state, channels: byChannel, unclassified }) => ({
+    state, unclassified,
+    channels: channels.map(channel => {
+      const lines = byChannel[channel];
+      return { channel, lines,
+        AC190: sumTotals(forwardType.map(line => lines[line])),
+        AC390: sumTotals(forwardPurpose.map(line => lines[line])),
+        AC590: sumTotals(forwardLien.map(line => lines[line])) };
+    }),
+  }));
   return {
-    reconciled: !issues.length && results.every((state) => !state.issues.length),
+    reconciled,
     states: results, issues, loans, ledgerReference: evidence.ledgerReference, rosterReference: evidence.rosterReference,
+    ...(forwardRequested ? { forwardBreakdown: {
+      reconciled: reconciled && forwardResults.every(state => !state.unclassified.length),
+      states: forwardResults,
+    } } : {}),
   };
 }

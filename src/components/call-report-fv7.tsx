@@ -5,8 +5,10 @@ import { accessReportingReadiness } from "@/app/actions";
 import { quarterName, type Quarter, type QuarterReviewSummary } from "@/lib/call-report-quarter-model";
 import { fv7EvidenceFileLimit, type Fv7Entry, type Fv7SavedWorkpaper, type Fv7Workpaper, type ReportingReadiness } from "@/lib/call-report-readiness-model";
 import { dateTime, money } from "@/lib/utils";
+import { dateLabel } from "@/lib/client-retention";
 import { Button } from "./ui/button";
 import { Fv7GuidedEntry } from "./call-report-fv7-entry";
+import { Fv7ForwardBreakdown, forwardLineLabels, type ForwardEvidenceFilter } from "./call-report-fv7-forward";
 import { downloadSampleFile } from "./sample-download";
 
 const totals = (value: { count: number; amount: number } | null) => value
@@ -124,7 +126,21 @@ function Fv7Results({ period, version, workpaper, openLoan, actions, saved }: {
 }) {
   const [stateFilter, setStateFilter] = useState("");
   const [fileLimit, setFileLimit] = useState(10);
-  const files = workpaper.evidence.files.filter(file => !stateFilter || file.state === stateFilter);
+  const [forwardFilter, setForwardFilter] = useState<ForwardEvidenceFilter>();
+  const evidenceDisclosure = useRef<HTMLDetailsElement>(null);
+  const evidenceHeading = useRef<HTMLHeadingElement>(null);
+  const lineTrigger = useRef<HTMLButtonElement>(null);
+  const funded = new Map(workpaper.fundedReview?.loans.map(loan => [loan.loanId, loan]));
+  const files = workpaper.evidence.files.filter(file => {
+    if (!forwardFilter) return !stateFilter || file.state === stateFilter;
+    const loan = funded.get(file.loanId);
+    if (!loan?.forward || loan.state !== forwardFilter.state || loan.channel !== forwardFilter.channel) return false;
+    return [loan.forward.type, loan.forward.purpose, loan.forward.lien, "AC190", "AC390", "AC590"].some(line => line === forwardFilter.line);
+  });
+  const forward = workpaper.fundedReview?.forwardBreakdown;
+  useEffect(() => {
+    if (forwardFilter) evidenceHeading.current?.focus();
+  }, [forwardFilter]);
   const fileName = `orbit-fv7-${period.year}-Q${period.quarter}-v${version}-workpaper${saved ? `-${saved.sequence}` : ""}`;
   return <div className="record-form" aria-label={saved ? "Saved FV7 workpaper" : "FV7 workpaper results"} role="region">
       <div>
@@ -132,9 +148,11 @@ function Fv7Results({ period, version, workpaper, openLoan, actions, saved }: {
         <p className="break-words">Entity {workpaper.evidence.entityReference} · {workpaper.evidence.files.length} reviewed {workpaper.evidence.files.length === 1 ? "file" : "files"}</p>
         <p>Application pipeline · {workpaper.pipelineReconciled ? "Reconciled" : "Needs review"}</p>
         <p>Funded ledger and MLO evidence · {workpaper.fundedReview ? workpaper.fundedReview.reconciled ? "Reconciled" : "Needs review" : "Evidence not supplied"}</p>
+        <p>Forward loan type, purpose and lien · {forward ? forward.reconciled ? "Reconciled" : "Needs review" : "Evidence not supplied"}</p>
       </div>
       <label className="field">Reporting state<select value={stateFilter} onChange={event => {
         setStateFilter(event.target.value);
+        setForwardFilter(undefined);
         setFileLimit(10);
       }}><option value="">All reviewed states</option>{workpaper.states.map(({ state }) => <option key={state}>{state}</option>)}</select></label>
       {workpaper.states.filter(({ state }) => !stateFilter || state === stateFilter).map(({ state, direct, thirdParty, issues }) =>
@@ -150,13 +168,39 @@ function Fv7Results({ period, version, workpaper, openLoan, actions, saved }: {
           {[...issues, ...(workpaper.fundedReview?.states.find(item => item.state === state)?.issues ?? [])].map(issue => <p key={issue}>{issue}</p>)}
         </article>)}
       {workpaper.fundedReview?.issues.map(issue => <p key={issue}>{issue}</p>)}
-      <details className="document-form">
+      {forward && <Fv7ForwardBreakdown forward={forward} stateFilter={stateFilter} openLoan={openLoan} select={(filter, trigger) => {
+        lineTrigger.current = trigger;
+        setForwardFilter(filter);
+        setFileLimit(10);
+        if (evidenceDisclosure.current) evidenceDisclosure.current.open = true;
+      }} />}
+      <details className="document-form" ref={evidenceDisclosure}>
         <summary>Loan evidence · {files.length} {files.length === 1 ? "file" : "files"}</summary>
-        <ul className="document-list">{files.slice(0, fileLimit).map(file => <li className="document-item" key={file.loanId}>
-          <p>{file.state} · {file.source === "direct" ? "Direct" : "Third party"} · {file.lines.join(" / ")} · Facts v{file.revision}</p>
-          <p className="muted break-words">Intake reference {file.intakeReference}</p>
-          <div><Button size="sm" variant="outline" onClick={() => openLoan(file.loanId)}>Open loan facts</Button></div>
-        </li>)}</ul>
+        {forwardFilter && <div className="section-heading">
+          <h4 ref={evidenceHeading} tabIndex={-1}>{forwardFilter.state} · <span className="capitalize">{forwardFilter.channel}</span> · {forwardFilter.line} {forwardLineLabels[forwardFilter.line]}</h4>
+          <Button size="sm" variant="outline" onClick={() => {
+            setForwardFilter(undefined);
+            setFileLimit(10);
+            lineTrigger.current?.focus();
+          }}>Clear line filter</Button>
+        </div>}
+        <ul className="document-list">{files.slice(0, fileLimit).map(file => {
+          const loan = funded.get(file.loanId);
+          return <li className="document-item" key={file.loanId}>
+            <p>{file.state} · {file.source === "direct" ? "Direct" : "Third party"} · {file.lines.join(" / ")} · Facts v{file.revision}</p>
+            <p className="muted break-words">Intake reference {file.intakeReference}</p>
+            {loan?.forward && <>
+              <p><strong>{money(loan.amount)}</strong> · Funded {dateLabel(loan.fundedOn)} · <span className="capitalize">{loan.channel}</span></p>
+              <p>{[loan.forward.type, loan.forward.purpose, loan.forward.lien].map(line => `${line} ${forwardLineLabels[line]}`).join(" · ")}</p>
+              <p className="muted break-words">Funding reference {loan.fundingReference}</p>
+              <p className="muted break-words">Classification reference {loan.forward.reference}</p>
+              {loan.forward.lien === "AC510" && <p className="muted break-words">
+                Lien exposure {money(loan.forward.exposureAmount)} · {loan.forward.exposureReference}
+              </p>}
+            </>}
+            <div><Button size="sm" variant="outline" onClick={() => openLoan(file.loanId)}>Open loan facts</Button></div>
+          </li>;
+        })}</ul>
         {files.length > fileLimit && <div><Button variant="outline" size="sm" onClick={() => setFileLimit(limit => limit + 10)}>Show more loans</Button></div>}
       </details>
       <div className="loan-application-actions">

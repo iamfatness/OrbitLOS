@@ -206,7 +206,7 @@ export function buildFv7QuarterWorkpaper(csv: string, input: unknown) {
   return {
     ...pipeline,
     pipelineReconciled: pipeline.reconciled,
-    reconciled: pipeline.reconciled && (fundedReview?.reconciled ?? true),
+    reconciled: pipeline.reconciled && (fundedReview?.reconciled ?? true) && (fundedReview?.forwardBreakdown?.reconciled ?? true),
     fundedReview,
     evidence: {
       entityReference: data.entityReference, snapshotSha256, version: data.version, priorEnding: data.priorEnding,

@@ -34,6 +34,7 @@ export default function DemoPage() {
           <li>Set a closing priority on one loan file and filter production reports by that value, even when the borrower has more than one loan.</li>
           <li>Compare the opening pipeline with the prior quarter’s saved ending pipeline, then save an internal review CSV that stays available after corrections.</li>
           <li>Enter reviewed balances and loan references for a fictional quarter, then save and reopen the FV7 workpaper.</li>
+          <li>Review fictional funded loans by type, purpose and lien, and open the evidence behind each total.</li>
           <li>Open pending processing fee offers from the queue and review the exact version awaiting the assigned processor’s response.</li>
           <li>Upload a lead CSV, see who gets the next call, and carry the borrower’s details into the first and repeat 1003s. See how the next shared lead moves up after an unanswered lead reaches its retry limit.</li>
           <li>Attach a New Lead sequence to a CSV campaign. Work due calls and preview mock email or text from Today. A reply, conversion, or opt-out stops the remaining steps.</li>

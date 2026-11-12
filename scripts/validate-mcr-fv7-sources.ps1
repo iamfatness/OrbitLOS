@@ -84,6 +84,12 @@ try {
         $channel = @('brokered', 'brokered', 'retail', 'retail', 'wholesale', 'wholesale')[$column - 1]
         $value = if ($column % 2) { 'amount' } else { 'count' }
         $mapping = "Funded review: channels[$channel].lines.$line.$value"
+      } elseif ($path -match '^Mcr/Rmla/SectionISection/(AC(?:1[0-3]0|3[0-2]0|5[0-2]0))_([1-6])$') {
+        $line = $Matches[1]
+        $column = [int] $Matches[2]
+        $channel = @('brokered', 'brokered', 'retail', 'retail', 'wholesale', 'wholesale')[$column - 1]
+        $value = if ($column % 2) { 'amount' } else { 'count' }
+        $mapping = "Forward review: forwardBreakdown.states[].channels[$channel].lines.$line.$value"
       } elseif ($path -match '^Mcr/Rmla/ListSectionOfSectionIMlosItem/DetailItemList/SectionIMlosItem/(ACMLO(?:_[23])?)$') {
         $value = @{ ACMLO = 'originator'; ACMLO_2 = 'amount'; ACMLO_3 = 'count' }[$Matches[1]]
         $mapping = "Funded review: originators[].$value"
@@ -96,7 +102,10 @@ try {
     if (@($inventory | Where-Object Mapping -like 'Funded review:*').Count -ne 21) {
       throw 'The expected 21 classification and MLO fields did not match the pinned schema.'
     }
+    if (@($inventory | Where-Object Mapping -like 'Forward review:*').Count -ne 60) {
+      throw 'The expected 60 forward type, purpose and lien fields did not match the pinned schema.'
+    }
     $inventory | Export-Csv -LiteralPath $FieldInventory -NoTypeInformation -Encoding utf8
-    Write-Output "Inventoried $($inventory.Count) XSD leaves and attributes, including 38 pipeline inputs and 21 funded-review fields."
+    Write-Output "Inventoried $($inventory.Count) XSD leaves and attributes, including 38 pipeline inputs, 21 funded-review fields and 60 forward-review fields."
   } finally { $sampleZip.Dispose() }
 } finally { $schemaZip.Dispose() }

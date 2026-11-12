@@ -6028,12 +6028,95 @@ try {
     return { loanId, borrowerName, version, ownerBefore, loBefore };
   });
 
+  const fv7ForwardFixture = await stage("Funded FV7 lines reconcile to reviewed loan records and preserve the original workpaper", async () => {
+    const reportBrokerage = randomUUID();
+    const created = await directory.manage({ email: owner.email, name: owner.name, brokerage: { id: "orbit-demo" } },
+      [owner.email], { type: "create", id: reportBrokerage, name: "Fictional Funded Review", pilot: true });
+    assert.equal(created.created, reportBrokerage, created.error);
+    const period = { year: 2026, quarter: 3 };
+    const scope = (name, input, staff = owner) => action(staff, name, input, undefined, reportBrokerage, reportBrokerage);
+    const report = (input, staff = owner) => scope("accessReportingReadiness", { ...period, ...input }, staff);
+    const cases = [
+      { name: "Fictional Conventional Buyer", state: "MI", originator: "123456", amount: 350000, source: "direct", channel: "brokered",
+        type: "AC100", purpose: "AC300", lien: "AC500", qmLine: "AC920", reference: "MI classification 01" },
+      { name: "Fictional FHA Refinance", state: "MI", originator: "654321", amount: 240000, source: "direct", channel: "brokered",
+        type: "AC110", purpose: "AC320", lien: "AC510", qmLine: "AC930", reference: "MI classification 02" },
+      { name: "Fictional Wholesale Improvement", state: "OH", originator: "987654", amount: 180000, source: "thirdParty", channel: "wholesale",
+        type: "AC120", purpose: "AC310", lien: "AC520", qmLine: "AC940", reference: "OH classification 01" },
+    ];
+    const fundedOn = "2026-09-22";
+    const fixture = workspaces.getByName(reportBrokerage);
+    for (const row of cases) {
+      const loan = await scope("mutate", { type: "loan", contactId: "", borrower: row.name, borrowerEmail: "", address: "",
+        amount: row.amount, purpose: row.purpose === "AC320" ? "Refinance" : "Purchase", stage: "Lead", officer: owner.name,
+        partnerId: null, start1003: false });
+      assert.ok(loan.message, loan.error);
+      row.loanId = loan.loanWork.loanId;
+      await fixture.dispositionFixtureDates(row.loanId, fundedOn, null);
+      const facts = await scope("mutate", { type: "saveCallReport", loanId: row.loanId, revision: 0,
+        facts: { ...emptyCallReportFacts, eligibility: "Include", state: row.state, originator: row.originator,
+          receivedDate: "2026-07-08", receivedAmount: row.amount, outcome: "Closed and funded", outcomeDate: fundedOn, outcomeAmount: row.amount } });
+      assert.ok(facts.message, facts.error);
+    }
+    const quarter = await report({ type: "quarterReview" });
+    const result = await report({ type: "saveQuarterReview", previousVersion: null, evidenceKey: quarter.comparison.key, requestId: randomUUID(),
+      note: "Fictional funded evidence fixture." });
+    assert.equal(result.kind, "quarterReviewSaved", result.error);
+    const version = result.review.version;
+    const template = await report({ type: "fv7Template", version });
+    assert.equal(template.kind, "fv7Template", template.error);
+    const evidence = JSON.parse(template.json);
+    Object.assign(evidence, { entityReference: "Fictional Michigan and Ohio broker", adjustmentLedgerReference: "No fictional adjustments",
+      amountChangeLedgerReference: "No fictional amount changes" });
+    evidence.priorEnding.reference = "Fictional prior ending";
+    for (const { direct, thirdParty } of evidence.priorEnding.states) {
+      Object.assign(direct, { count: 0, amount: 0 });
+      Object.assign(thirdParty, { count: 0, amount: 0 });
+    }
+    evidence.files = evidence.files.map(file => {
+      const row = cases.find(({ loanId }) => loanId === file.loanId);
+      return { ...file, source: row.source, intakeReference: `${row.reference} intake`, outcomeReference: `${row.reference} funding` };
+    });
+    evidence.fundedReview = {
+      forwardBreakdown: true, ledgerReference: "Fictional closing ledger", rosterReference: "Fictional state roster",
+      entries: cases.map(({ loanId, state, amount, originator, source, channel, qmLine, type, purpose, lien, reference }) =>
+        ({ loanId, state, fundedOn, amount, originator: source === "direct" ? originator : null, channel, qmLine,
+          fundingReference: `${reference} funding`, classificationReference: `${reference} QM`, forward: { type, purpose, lien, reference,
+            ...(lien === "AC510" ? { exposureAmount: 245000, exposureReference: "MI reviewed lien exposure" } : {}) } })),
+      originators: cases.filter(({ source }) => source === "direct").map(({ state, originator }) =>
+        ({ state, originator, reference: `Fictional license ${originator}` })),
+    };
+    const preview = (source) => report({ type: "fv7Preview", version, evidence: JSON.stringify(source) });
+    const partial = structuredClone(evidence);
+    delete partial.fundedReview.entries[0].forward;
+    const missing = await preview(partial);
+    assert.equal(missing.kind, "fv7Preview", missing.error);
+    assert.equal(missing.workpaper.reconciled, false);
+    assert.equal(missing.workpaper.fundedReview.reconciled, true);
+    assert.deepEqual(missing.workpaper.fundedReview.forwardBreakdown.states.find(({ state }) => state === "MI")
+      .unclassified.map(({ loanId }) => loanId), [cases[0].loanId]);
+    const checked = await preview(evidence);
+    assert.equal(checked.kind, "fv7Preview", checked.error);
+    assert.equal(checked.workpaper.reconciled, true);
+    const [mi, oh] = ["MI", "OH"].map(code => checked.workpaper.fundedReview.forwardBreakdown.states.find(({ state }) => state === code));
+    assert.deepEqual(mi.channels.find(({ channel }) => channel === "brokered").AC190, { count: 2, amount: 590000 });
+    assert.deepEqual(mi.channels.find(({ channel }) => channel === "brokered").AC590, { count: 2, amount: 595000 });
+    assert.deepEqual(oh.channels.find(({ channel }) => channel === "wholesale").lines.AC520, { count: 1, amount: 180000 });
+    const saved = await report({ type: "fv7Save", version, evidence: JSON.stringify(evidence), checked: checked.checked });
+    assert.equal(saved.kind, "fv7Saved", saved.error);
+    const original = await report({ type: "fv7Read", sequence: saved.saved.sequence });
+    assert.deepEqual(original.workpaper, checked.workpaper);
+    assert.equal(original.evidence, JSON.stringify(evidence));
+    await assert.rejects(report({ type: "fv7Read", sequence: saved.saved.sequence }, officer), /403 !== 200/);
+    return { brokerage: reportBrokerage, period, version, sequence: saved.saved.sequence, evidence, cases };
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture,preapprovalTemplateFixture,preapprovalPolicyFixture,preapprovalQueueFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture,preapprovalTemplateFixture,preapprovalPolicyFixture,preapprovalQueueFixture,fv7ForwardFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }
