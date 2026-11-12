@@ -16,11 +16,12 @@ import { Button } from "./ui/button";
 
 const todayViews = ["My Tasks", "Stalled loans", "My production", "Past-client opportunities"] as const;
 
-export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients, complianceWork, renewalWork, refreshCounts }: {
+export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIncomingLoanWork, openWork, save, openReply, openTasks, openStalled, refreshStalled, openFunding, openOpportunity, openPastClients, complianceWork, renewalWork, refreshCounts, returningWork, onWorkReturn }: {
   brokerageId: string; version: object; busy: boolean; openWork: (item: OfficerQueueItem) => void; openTasks: () => void;
   save: (input: unknown) => Promise<void>;
   reviewingLoan: boolean; openIncomingLoanWork: (item: IncomingLoanWorkItem) => void;
   refreshCounts: () => void;
+  returningWork?: string; onWorkReturn: () => void;
   openReply: (id: string) => void; openFunding: (id: string) => void; openOpportunity: (item: RetentionOpportunity) => void;
   openPastClients: () => void; openStalled: (id: string) => void; refreshStalled: () => void; complianceWork?: ReactNode; renewalWork?: ReactNode;
 }) {
@@ -59,6 +60,12 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
 
   const current = data?.version === version && data.query === query ? data.result : undefined;
   const page = current && !("error" in current) ? current : undefined;
+  useEffect(() => {
+    if (!returningWork || reviewingLoan || !current) return;
+    const action = document.querySelector<HTMLElement>(`[data-today-work="${CSS.escape(returningWork)}"]`);
+    (action ?? document.getElementById("today-loan-work-heading"))?.focus({ preventScroll: true });
+    onWorkReturn();
+  }, [current, onWorkReturn, returningWork, reviewingLoan]);
   const replyResult = replyData?.brokerageId === brokerageId && replyData.version === version && replyData.query === query ? replyData.result : undefined;
   const replies = replyResult ? "error" in replyResult ? undefined : replyResult.page : page?.replies;
   const replyCheckedAt = replyResult && "checkedAt" in replyResult ? replyResult.checkedAt : page?.checkedAt;
@@ -84,7 +91,7 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
     {!current && <p className="muted" role="status">Loading your due work…</p>}
     {current && "error" in current && <p role="alert">{current.error}</p>}
     {page && <>
-      <div className="section-heading"><h3>Work through {dateLabel(page.through)}</h3><span className="pill">{page.items.length} on this page</span></div>
+      <div className="section-heading"><h3 id="today-loan-work-heading" tabIndex={-1}>Work through {dateLabel(page.through)}</h3><span className="pill">{page.items.length} on this page</span></div>
       {page.items.length ? <ul className="loan-task-list">{page.items.map((item) => {
         const deadline = item.handoffDueAt ?? item.dueAt;
         const step = item.sequence;
@@ -102,7 +109,8 @@ export function OfficerToday({ brokerageId, version, busy, reviewingLoan, openIn
               await save({ type: "recordSequenceMock", leadId: item.recordId, version: step.version, position: step.position, recipient: step.recipient });
               setDeadlineRefresh((count) => count + 1);
             }}>{step.recipient ? `Record mock ${step.channel.toLowerCase()}` : "Skip unavailable recipient"}</Button>
-          </details> : <Button size="sm" variant="outline" disabled={!!step && (busy || !due)} onClick={() => openWork(item)}>{queueActionLabel(item)}</Button>}
+          </details> : <Button size="sm" variant="outline" data-today-work={`${item.kind}:${item.id}`}
+            disabled={!!step && (busy || !due)} onClick={() => openWork(item)}>{queueActionLabel(item)}</Button>}
         </li>;
       })}</ul> : <p className="empty-inline">{page.next ? "No actionable items on this page. More work may be available on the next page." :
         query.after ? "No more actionable items in this window." : query.horizon === 1 ? "No work due today. Choose Next 7 days to see upcoming first contacts and follow-ups." :
