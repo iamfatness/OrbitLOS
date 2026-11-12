@@ -9,6 +9,7 @@ import type { WorkspaceStaff } from "@/lib/staff-store";
 import { dateTime } from "@/lib/utils";
 import { pausedLoan } from "@/lib/loan-workflow";
 import { Button } from "./ui/button";
+import { ProcessorFees } from "./processor-fee-terms";
 
 export function SecondReviewCheckpoint({ blocker, revision, busy, openReviews }: {
   blocker: string | null; revision?: number; busy: boolean; openReviews?: () => void;
@@ -44,6 +45,8 @@ export function ProcessingHandoff({ loan, assignment, application, documents, hi
     <p>Loan owner {loan.officer || "Unassigned"} · Processor {assignment?.processorName || "Unassigned"}</p>
     {!paused && assignment?.status !== "Complete" && <p><strong>Next with</strong> · {nextOwner}</p>}
     {openAssignment && <div><Button size="sm" variant="outline" disabled={busy} onClick={openAssignment}>Manage assignment</Button></div>}
+    {staff && (role === "Admin" || (role === "Processor" && assignment?.processorEmail === staff.email)) &&
+      <ProcessorFees key={loan.id} loanId={loan.id} brokerageId={staff.brokerage.id} assignmentRevision={assignment?.revision} />}
     {requireSecondReview && <SecondReviewCheckpoint blocker={blocker} revision={application?.revision} busy={busy} openReviews={openReviews} />}
     {(application?.submittedAt || needsReview || assignment?.processorEmail) && <div className="loan-application-box">
       <strong>File checklist</strong>

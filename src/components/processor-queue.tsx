@@ -138,7 +138,10 @@ export function ProcessorQueue({ brokerageId, version, team, reviewingLoan, mock
     setViewResult(undefined);
     try {
       const result = await saveProcessingView(input, brokerageId);
-      if (!result.message) { setViewResult({ error: result.error ?? "Could not save the processing view." }); return; }
+      if (!("message" in result)) {
+        setViewResult({ error: "error" in result ? result.error : "Could not save the processing view." });
+        return;
+      }
       after();
       setViewResult({ message: result.message });
       refresh();

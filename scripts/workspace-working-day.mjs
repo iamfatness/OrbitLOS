@@ -470,6 +470,28 @@ try {
       assert.ok((await from(scope, shared, "readProcessingWork", { readyOnly: false })).files.some(file => file.id === loanId));
     }
     assert.ok((await from(alternate, shared, "readLoanForWork", unassigned)).error);
+    const fees = (scope, staff, loanId, data) => from(scope, staff, "saveProcessingView", { loanId, ...data });
+    const primaryOffer = { type: "offerFeeTerms", requestId: randomUUID(), assignmentRevision: 1, expectedVersion: null,
+      amountCents: 42550, reference: "Fictional primary processing agreement" };
+    assert.equal((await fees(brokerage, owner, primaryLoan, primaryOffer)).message, "Fee terms v1 saved.");
+    assert.deepEqual(await fees(brokerage, owner, primaryLoan, primaryOffer), { message: "Fee terms v1 saved." });
+    const alternateOffer = { ...primaryOffer, requestId: randomUUID(), amountCents: 58000, reference: "Fictional alternate processing agreement" };
+    assert.ok((await fees(alternate, owner, otherLoan, alternateOffer)).message);
+    const accept = { type: "respondFeeTerms", version: 1, response: "Accepted" };
+    assert.ok((await fees(brokerage, shared, primaryLoan, accept)).message);
+    assert.equal((await fees(brokerage, shared, primaryLoan, { type: "readFeeTerms" })).agreed.amountCents, 42550);
+    assert.equal((await fees(alternate, shared, otherLoan, { type: "readFeeTerms" })).current.amountCents, 58000);
+    assert.ok((await fees(alternate, shared, primaryLoan, { type: "readFeeTerms" })).error);
+    assert.ok((await fees(brokerage, shared, otherLoan, { type: "readFeeTerms" })).error);
+    assert.ok((await fees(alternate, shared, otherLoan, { ...alternateOffer, requestId: randomUUID() })).error);
+    assert.ok((await fees(brokerage, officer, primaryLoan, { type: "readFeeTerms" })).error);
+
+    await teamAt(alternate, { type: "assignProcessor", email: shared.email, loanId: unassigned, revision: 0 });
+    assert.ok((await fees(alternate, owner, unassigned, { ...alternateOffer, requestId: randomUUID() })).message);
+    await teamAt(alternate, { type: "assignProcessor", email: null, loanId: unassigned, revision: 1 });
+    assert.ok((await fees(alternate, shared, unassigned, { type: "readFeeTerms" })).error);
+    assert.equal((await fees(alternate, owner, unassigned, { type: "readFeeTerms" })).history[0].endedReason, "Assignment ended");
+    assert.equal((await fees(brokerage, shared, primaryLoan, { type: "readFeeTerms" })).agreed.amountCents, 42550);
     assert.ok((await from(alternate, shared, "readLoanForWork", primaryLoan)).error);
     assert.ok((await from(brokerage, shared, "readLoanForWork", otherLoan)).error);
     assert.ok((await from(brokerage, shared, "readLoanForWork", otherLoan, alternate)).error);

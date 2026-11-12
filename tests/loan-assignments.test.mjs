@@ -6,6 +6,7 @@ import { sqliteStore } from "../scripts/workspace-baseline.mjs";
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { readLoanAssignments } = await import("../src/lib/loan-assignments.ts");
 const { assignProcessor, readProcessorAssignmentReceipt } = await import("../src/lib/loan-processing.ts");
+const { changeProcessingView } = await import("../src/lib/processor-queue.ts");
 const { assignLoan, loanAccess } = await import("../src/lib/workspace-access.ts");
 
 const brokerageId = "fictional-team";
@@ -99,4 +100,53 @@ test("processor assignment receipts prove the exact save across retries and newe
   assert.ok(assignProcessor(db, actor, { ...input, member: backup, requestId: crypto.randomUUID() }).error);
   assert.equal(open(loanId).processing.processorEmail, backup.email);
   assert.equal(db.prepare("SELECT count(*) AS n FROM workspace_access_history WHERE action = 'Assigned shared processor'").get().n, 2);
+});
+
+test("processor offers preserve accepted amounts until a replacement is accepted and end on reassignment", (t) => {
+  const { db, loan } = fixture(t);
+  const loanId = "terms-file";
+  loan(loanId);
+  loan("other-file");
+  assert.ok(assignProcessor(db, staff(owner), { loanId, revision: 0, member: processor }).message);
+  const use = (input, actor = owner, id = brokerageId) =>
+    changeProcessingView(db, { loanId, ...input }, staff(actor), id, new Date(at));
+  const read = (actor = owner) => use({ type: "readFeeTerms" }, actor);
+  const offer = (version, amountCents) => ({
+    type: "offerFeeTerms", requestId: crypto.randomUUID(), assignmentRevision: 1, expectedVersion: version,
+    amountCents, reference: "Fictional contract reference",
+  });
+  const respond = (version, response = "Accepted", actor = processor) => use({ type: "respondFeeTerms", version, response }, actor);
+  assert.ok(read(officer).error);
+  assert.ok(read(backup).error);
+  assert.ok(use({ type: "readFeeTerms" }, processor, "different-brokerage").error);
+  const original = offer(null, 42550);
+  assert.match(use(original).message, /v1 saved/);
+  assert.deepEqual(use(original), use(original));
+  assert.ok(use({ ...original, amountCents: 10 }).error);
+  assert.ok(use(offer(null, 10)).error);
+  assert.ok(respond(1, "Accepted", owner).error);
+  assert.ok(respond(1, "Accepted", backup).error);
+  assert.match(respond(1).message, /accepted/);
+  assert.match(respond(1).message, /accepted/);
+  assert.equal(read(processor).agreed.amountCents, 42550);
+  assert.ok(use(offer(1, 50000)).message);
+  assert.equal(read().current.amountCents, 50000);
+  assert.equal(read().agreed.amountCents, 42550);
+  assert.ok(respond(2, "Declined").message);
+  assert.equal(read().agreed.amountCents, 42550);
+  assert.ok(use(offer(2, 51025)).message);
+  assert.ok(respond(2).error);
+  assert.ok(respond(3).message);
+  assert.equal(read().agreed.amountCents, 51025);
+  assert.equal(read().history.find(item => item.version === 1).amountCents, 42550);
+  assert.equal(read().history.find(item => item.version === 1).status, "Accepted");
+  assert.ok(assignProcessor(db, staff(owner), { loanId, revision: 1, member: backup }).message);
+  assert.ok(read(processor).error);
+  assert.deepEqual(read(backup).history, []);
+  assert.equal(read().current, null);
+  assert.equal(read().history[0].endedReason, "Assignment ended");
+  assert.ok(assignProcessor(db, staff(owner), { loanId, revision: 2, member: processor }).message);
+  assert.equal(read(processor).agreed, null);
+  assert.ok(respond(3).error);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM workspace_access_history WHERE action = 'Saved processing fee terms'").get().n, 3);
 });

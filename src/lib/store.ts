@@ -39,6 +39,7 @@ import { crmFieldFilter } from "./crm-field-model";
 import { readCampaignRouting } from "./campaign-routing";
 import { campaignResponses } from "./campaign-response";
 import { initializeProcessingConditions, reopenedMockUwmAtSql } from "./processing-conditions";
+import { initializeProcessorFees } from "./processor-fee-terms";
 import { initializeCallReportReadiness } from "./call-report-readiness";
 import { initializeComplianceCases } from "./compliance-case-store";
 import { serviceOrderKinds } from "./service-order-model";
@@ -1552,6 +1553,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     initializeLeadReplyIndex(db);
     initializeBorrowerChannels(db);
     initializeProcessingConditions(db);
+    initializeProcessorFees(db);
     if (db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('retiredClosingHoldDrafts', '1') RETURNING key").get()) {
       db.exec(`WITH pending AS MATERIALIZED (
         SELECT draft.id, ${reopenedMockUwmAtSql("draft.loanId")} AS since FROM communication_drafts draft

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { processorFeeInput } from "./processor-fee-model";
 import { conversationCursor, type ConversationReplyPage } from "./conversation-model";
 import type { LoanProcessing } from "./processing-model";
 import { serviceOrderQueueQuery, type ServiceOrderQueuePage } from "./service-order-model";
@@ -30,6 +31,7 @@ export const processingViewChange = z.discriminatedUnion("type", [
   z.object({ type: z.literal("saveView"), id: z.uuid(), name: z.string().trim().min(1).max(80), filters: processingViewFilters }),
   z.object({ type: z.literal("removeView"), id: z.uuid() }),
 ]);
+export const processingWorkspaceInput = z.discriminatedUnion("type", [...processingViewChange.options, ...processorFeeInput]);
 export type ProcessingViewChange = z.infer<typeof processingViewChange>;
 export type SavedProcessingView = { id: string; name: string; filters: z.infer<typeof processingViewFilters> };
 export type ClosingWorkloadWindow = (typeof closingWorkloadWindows)[number];

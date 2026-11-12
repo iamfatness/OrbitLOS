@@ -1,4 +1,4 @@
-import { closingWorkloadWindows, processingViewChange, processingViewFilters, processorQueueQuery, processorQueueUnavailable, type ProcessingWorkload, type ProcessorQueueFile, type ProcessorQueuePage, type ProcessorQueueQuery } from "./processor-queue-model";
+import { closingWorkloadWindows, processingWorkspaceInput, processingViewFilters, processorQueueQuery, processorQueueUnavailable, type ProcessingWorkload, type ProcessorQueueFile, type ProcessorQueuePage, type ProcessorQueueQuery } from "./processor-queue-model";
 import { easternDate } from "./client-retention";
 import { readProcessingConversationReplies } from "./conversations";
 import { activeProcessingLoan, processingAcceptanceReady, processingReviewReady, unassignedProcessingLoan } from "./loan-processing";
@@ -12,6 +12,7 @@ import { shiftReportDate } from "./report-date-range";
 import { canUseServiceOrders, readServiceOrderQueue } from "./service-orders";
 import { serviceOrdersUnavailable } from "./service-order-model";
 import { changeDashboardView, readDashboardViews } from "./dashboard-views";
+import { processorFeeWork } from "./processor-fee-terms";
 
 const pageSize = 20;
 const fields = "loan.id, contact.name, loan.officer, plan.targetDate, profile.closingDate";
@@ -140,10 +141,12 @@ function canUseProcessingFilters(staff: WorkspaceStaff, { exception, workload }:
 
 export function changeProcessingView(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()) {
   if (!canUseProcessorQueue(staff, brokerageId)) return { error: processorQueueUnavailable };
-  const parsed = processingViewChange.safeParse(input);
-  if (!parsed.success) return { error: "Check the processing view name and filters." };
-  if (parsed.data.type === "saveView" && !canUseProcessingFilters(staff, parsed.data.filters)) return { error: processorQueueUnavailable };
-  return db.transaction(() => changeDashboardView(db, staff, processingViewScope(staff), parsed.data, now.toISOString()));
+  const parsed = processingWorkspaceInput.safeParse(input);
+  if (!parsed.success) return { error: "Check the processing view or fee terms." };
+  const change = parsed.data;
+  if (change.type !== "saveView" && change.type !== "removeView") return processorFeeWork(db, change, staff, now.toISOString());
+  if (change.type === "saveView" && !canUseProcessingFilters(staff, change.filters)) return { error: processorQueueUnavailable };
+  return db.transaction(() => changeDashboardView(db, staff, processingViewScope(staff), change, now.toISOString()));
 }
 
 export function readProcessorQueue(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string, now = new Date()): ProcessorQueuePage | { error: string } {
