@@ -5604,7 +5604,7 @@ try {
     assert.deepEqual((await mine()).offers, []);
   });
 
-  const realtorFinancingFixture = await stage("Borrower permission and LO publication gate the sample realtor financing summary", async () => {
+  const realtorFinancingFixture = await stage("Borrower next actions and LO Today hand off the approved realtor financing summary", async () => {
     const partnerName = "Fictional Financing Partner";
     const { contactId: partnerId } = await write(owner, { type: "contact", role: "Realtor", name: partnerName,
       email: "working-day-financing-partner@example.test", phone: "" });
@@ -5650,17 +5650,28 @@ try {
     const request = { type: "request", loanId, requestId: randomUUID(), basis: staffView.preview.basis };
     const publish = { ...request, type: "publish" };
     const terms = async () => (await realtor(link.token)).referrals.find(item => item.borrowerName === borrowerName)?.financing;
+    const ready = async (actor = officer, view = "today") => (await incoming(actor, view)).items
+      .find(item => item.kind === "realtor-financing" && item.id === request.requestId);
     await post(staffPath, request, officer);
     assert.equal((await borrower(token, { type: "status" })).loanStatus.realtorFinancing.permission, "Pending");
     assert.equal((await post(jointPath, { type: "read", token: coToken })).realtorFinancing.permission, "Pending");
     assert.equal((await postResponse(staffPath, publish, officer)).status, 409);
+    assert.equal(await ready(), undefined);
     const approval = { type: "respond", token, requestId: request.requestId, operationId: randomUUID(), decision: "Approve" };
     await post(borrowerPath, approval);
     await post(borrowerPath, approval);
     assert.equal((await postResponse(staffPath, publish, officer)).status, 409);
+    assert.equal(await ready(), undefined);
     await post(borrowerPath, { ...approval, token: coToken, operationId: randomUUID() });
+    assert.equal((await ready()).loanId, loanId);
+    assert.equal((await file(officer, loanId)).realtorFinancingReadyId, request.requestId);
+    assert.equal(await ready(competingOfficer), undefined);
+    assert.equal(await ready(owner), undefined);
+    assert.equal(await ready(processor, "processing"), undefined);
     assert.equal(await terms(), undefined);
     const result = await post(staffPath, publish, officer);
+    assert.equal(await ready(), undefined);
+    assert.equal((await file(officer, loanId)).realtorFinancingReadyId, undefined);
     assert.deepEqual(await terms(), { ...staffView.preview.terms, publishedAt: result.request.publishedAt });
     assert.ok(!(await realtor(realtorToken)).referrals.some(item => item.borrowerName === borrowerName));
     await post(borrowerPath, { ...approval, token: coToken, operationId: randomUUID(), decision: "Revoke" });

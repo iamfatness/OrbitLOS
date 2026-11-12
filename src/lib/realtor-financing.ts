@@ -18,29 +18,36 @@ const unavailable = { error: realtorFinancingUnavailable, status: 404 } as const
 const changed = { error: "The financing summary changed. Refresh the current quote and permissions.", status: 409 } as const;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 
+export const realtorFinancingReadyCandidateSql = `request.publishedAt IS NULL AND request.endedAt IS NULL
+  AND EXISTS (SELECT 1 FROM realtor_financing_participants party WHERE party.requestId = request.id)
+  AND NOT EXISTS (SELECT 1 FROM realtor_financing_participants party WHERE party.requestId = request.id
+    AND NOT EXISTS (SELECT 1 FROM realtor_financing_decisions consent
+      WHERE consent.requestId = party.requestId AND consent.participant = party.participant AND consent.decision = 'Approve'))`;
+
+export const realtorFinancingSource = `JOIN applications app ON app.loanId = loan.id
+  JOIN published_quotes quote ON quote.loanId = loan.id
+  JOIN pricing_runs run ON run.id = quote.runId AND run.loanId = loan.id
+  JOIN contacts partner ON partner.id = loan.partnerId AND partner.role = 'Realtor'
+  JOIN realtor_portals portal ON portal.realtorId = partner.id
+  LEFT JOIN joint_applications joint ON joint.loanId = loan.id
+  LEFT JOIN past_client_profiles past ON past.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id`;
+export const currentRealtorFinancingSql = `loan.purpose = 'Purchase' AND ${activePreapprovalLoan}
+  AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND coalesce(app.correctionNote, '') = ''
+  AND app.revokedAt IS NULL AND app.expiresAt > ? AND portal.expiresAt > ?
+  AND (joint.loanId IS NULL OR (joint.revokedAt IS NULL AND joint.submittedAt IS NOT NULL AND joint.confirmedDemo = 1 AND joint.expiresAt > ?))
+  AND json_extract(app.draft, '$.confirmedDemo') = 1 AND run.mode = 'mock'
+  AND run.applicationRevision = app.revision AND quote.expiresOn >= ? AND quote.reviewReason IS NULL AND json_valid(quote.presentation)
+  AND (run.incomeReviewRevision IS NULL OR EXISTS (${approvedIncomeSql("run.loanId", "run.incomeReviewRevision")}))`;
+export const realtorFinancingDates = (now: string) => [now, now, now, easternDate(new Date(now))];
+
 function currentCandidate(db: Store, loanId: string, now: string): Candidate | null {
   const row = db.prepare(`SELECT loan.contactId, loan.officerEmail, app.token AS borrowerToken, app.revision AS applicationRevision,
-    joint.token AS jointToken, joint.expiresAt AS jointExpiresAt, joint.revokedAt AS jointRevokedAt,
-    joint.submittedAt AS jointSubmittedAt, joint.confirmedDemo AS jointConfirmed,
-    contact.id AS realtorId, contact.name AS realtorName, portal.token AS realtorToken,
+    joint.token AS jointToken, partner.id AS realtorId, partner.name AS realtorName, portal.token AS realtorToken,
     quote.runId, quote.offerId, quote.publishedAt, quote.presentation, quote.expiresOn, quote.reviewRevision,
     coalesce(json_extract(run.scenario, '$.nonAgency.program'), 'Conventional') AS program
-    FROM loans loan JOIN applications app ON app.loanId = loan.id
-    JOIN published_quotes quote ON quote.loanId = loan.id
-    JOIN pricing_runs run ON run.id = quote.runId AND run.loanId = loan.id
-    JOIN contacts contact ON contact.id = loan.partnerId AND contact.role = 'Realtor'
-    JOIN realtor_portals portal ON portal.realtorId = contact.id
-    LEFT JOIN joint_applications joint ON joint.loanId = loan.id
-    LEFT JOIN past_client_profiles past ON past.loanId = loan.id LEFT JOIN closing_progress closing ON closing.loanId = loan.id
-    WHERE loan.id = ? AND loan.purpose = 'Purchase' AND ${activePreapprovalLoan}
-      AND app.submittedAt IS NOT NULL AND app.reviewedAt IS NOT NULL AND coalesce(app.correctionNote, '') = ''
-      AND app.revokedAt IS NULL AND app.expiresAt > ? AND portal.expiresAt > ?
-      AND json_extract(app.draft, '$.confirmedDemo') = 1 AND run.mode = 'mock'
-      AND run.applicationRevision = app.revision AND quote.expiresOn >= ? AND quote.reviewReason IS NULL AND json_valid(quote.presentation)
-      AND (run.incomeReviewRevision IS NULL OR EXISTS (${approvedIncomeSql("run.loanId", "run.incomeReviewRevision")}))`)
-    .get(loanId, now, now, easternDate(new Date(now)));
+    FROM loans loan ${realtorFinancingSource} WHERE loan.id = ? AND ${currentRealtorFinancingSql}`)
+    .get(loanId, ...realtorFinancingDates(now));
   if (!row || typeof row.presentation !== "string") return null;
-  if (row.jointToken && (row.jointRevokedAt || !row.jointSubmittedAt || row.jointConfirmed !== 1 || String(row.jointExpiresAt) <= now)) return null;
   const primary = JSON.parse(row.presentation)?.primary;
   if (!primary || primary.purpose !== "Purchase" || primary.runId !== row.runId || primary.offerId !== row.offerId ||
     typeof primary.loanAmount !== "number") return null;
@@ -74,6 +81,20 @@ function requestPermissions(db: Store, requestId: string): RealtorFinancingReque
 
 function closeRequest(db: Store, id: string, now: string, reason: string) {
   db.prepare("UPDATE realtor_financing_requests SET endedAt = ?, endReason = ? WHERE id = ? AND endedAt IS NULL").run(now, reason, id);
+}
+
+function everyBorrowerApproved(db: Store, requestId: string, candidate: Candidate) {
+  const permissions = requestPermissions(db, requestId);
+  return permissions.length === candidate.participants.length && permissions.every(party => party.status === "Approved");
+}
+
+export function readyRealtorFinancingId(db: Store, loanId: string, now: string) {
+  const request = db.prepare(`SELECT request.id, request.basis FROM realtor_financing_requests request
+    WHERE request.loanId = ? AND ${realtorFinancingReadyCandidateSql}`).get(loanId);
+  if (!request) return null;
+  const candidate = currentCandidate(db, loanId, now);
+  const id = String(request.id);
+  return candidate && candidate.basis === request.basis && everyBorrowerApproved(db, id, candidate) ? id : null;
 }
 
 function logAction(db: Store, staff: { name: string; email: string }, loanId: string, action: string, now: string) {
@@ -128,8 +149,7 @@ export function workOnRealtorFinancing(db: Store, input: unknown, staff: Workspa
       return view(latestRequest(db, data.loanId), "Realtor access withdrawn.");
     }
     if (!candidate || current.basis !== data.basis || candidate.basis !== data.basis || current.endedAt) return changed;
-    const permissions = requestPermissions(db, current.id);
-    if (permissions.length !== candidate.participants.length || permissions.some(party => party.status !== "Approved")) {
+    if (!everyBorrowerApproved(db, current.id, candidate)) {
       return { error: "Each borrower must approve this summary in their own portal before you can publish it.", status: 409 };
     }
     if (!current.publishedAt) {
@@ -198,8 +218,7 @@ export function readSharedRealtorFinancing(db: Store, loanIds: string[], realtor
     const loanId = String(request.loanId);
     const candidate = currentCandidate(db, loanId, now);
     if (!candidate || candidate.basis !== request.basis || candidate.realtorTokenHash !== tokenHash) continue;
-    const permissions = requestPermissions(db, String(request.id));
-    if (permissions.length === candidate.participants.length && permissions.every(party => party.status === "Approved")) {
+    if (everyBorrowerApproved(db, String(request.id), candidate)) {
       summaries.set(loanId, { ...candidate.terms, publishedAt: String(request.publishedAt) });
     }
   }

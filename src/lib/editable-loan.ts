@@ -9,6 +9,7 @@ import { readPlaybook } from "./playbooks";
 import { returningClientOption } from "./past-client-queue";
 import type { ReturningClientOption } from "./past-client-queue-model";
 import type { WorkspaceStaff } from "./staff-store";
+import { readyRealtorFinancingId } from "./realtor-financing";
 import { loanWorkRecords, readBrokerageTemplates, type Store } from "./store";
 import { loanAccess, scopeJointLinks } from "./workspace-access";
 import { searchTaskTarget } from "./workspace-search-model";
@@ -87,7 +88,10 @@ export function readEditableLoan(db: Store, input: unknown, staff: WorkspaceStaf
       .get(loanId, ...(owner ? [staff.email, ...(localName ? [localName] : [])] : [])) as Pick<Loan, "stage" | "stageSince" | "disposition"> | undefined;
     if (!current || !isStalledLoan(current, now)) return { error: stalledLoanUnavailable };
   } else if (!loanAccess(db, staff, loanId)) return { error: loanWorkUnavailable };
-  return editableLoanRecords(db, loanId, staff, loanHandoffVersion(db, loanId), Boolean(stalled));
+  const work = editableLoanRecords(db, loanId, staff, loanHandoffVersion(db, loanId), Boolean(stalled));
+  const realtorFinancingReadyId = staff.brokerage.pilot && staff.brokerage.role !== "Processor"
+    ? readyRealtorFinancingId(db, loanId, new Date(now).toISOString()) : null;
+  return { ...work, ...(realtorFinancingReadyId ? { realtorFinancingReadyId } : {}) };
 }
 
 function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, handoffVersion: string, stalled = false) {

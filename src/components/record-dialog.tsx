@@ -50,6 +50,7 @@ import { TridEvidencePanel } from "./trid-evidence-panel";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
+import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
@@ -521,7 +522,7 @@ function loanSection(target?: string) {
   if (target.startsWith("lender-") || target.startsWith("document-") || target.startsWith("loan-question-") ||
     target === serviceOrdersTarget || target.startsWith(serviceOrderTargetPrefix)) return "Conditions";
   if (target === "credit-aus" || target.startsWith(creditAusAttemptTargetPrefix) || target === "loan-pricing" ||
-    target === "income-worksheet" || target === sharedQuoteReviewTarget) return "Pricing & credit";
+    target === "income-worksheet" || target === sharedQuoteReviewTarget || target === realtorFinancingTarget) return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" || target === closingDisclosureReviewTarget ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
   if (["loan-activity-overview", "loan-activity", "loan-tasks", "loan-retention", "loan-communications", "loan-audit-history", loanReviewsTarget, filePreflightRequestTarget].includes(target) ||
@@ -718,7 +719,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
       {staff?.brokerage.pilot && !processor && loan.purpose === "Purchase" &&
-        <StaffRealtorFinancing key={loan.id} loanId={loan.id} brokerageId={staff.brokerage.id} />}
+        <StaffRealtorFinancing key={loan.id} loanId={loan.id} brokerageId={staff.brokerage.id} onChanged={reviewChanged} />}
       {(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&
         <IncomeWorksheet key={`${loan.id}:${incomeWorksheetRevision ?? "current"}`} loanId={loan.id}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} focused={target === "income-worksheet"} worksheetRevision={incomeWorksheetRevision}

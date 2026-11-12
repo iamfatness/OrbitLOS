@@ -1,4 +1,5 @@
 import { Calculator, CheckCircle2, FileCheck2, RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { SampleQuotePresentation } from "./quote-worksheet";
 import { needsBorrowerDocument, type BorrowerLoanStatus, type DocumentRequest } from "@/lib/document-model";
 import type { Stage } from "@/lib/model";
@@ -37,7 +38,8 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
 }) {
   const stage = stageUpdates[status.stage];
   const pause = status.closingPause;
-  const actions = borrowerActions(status);
+  const [answeredFinancingId, setAnsweredFinancingId] = useState<string>();
+  const actions = borrowerActions(status, answeredFinancingId);
   const hasActions = actions.length > 0;
   const processing = status.documents.filter((item) => item.pdfStatus === "Processing").length;
   const received = status.documents.filter((item) => item.status === "Received").length;
@@ -65,8 +67,8 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
     {!hasActions && actionCenter}
     {status.disclosure && <BorrowerSampleDisclosure key={status.disclosure.version} item={status.disclosure} busy={busy} respond={respondToDisclosure} />}
     <BorrowerQuestionCards questions={status.questions} busy={busy} answer={answerQuestion} />
-    {status.realtorFinancing && <BorrowerFinancingPermission token={token} initial={status.realtorFinancing}
-      key={`${status.realtorFinancing.id}:${status.realtorFinancing.permission}:${status.realtorFinancing.publishedAt}`} />}
+    {status.realtorFinancing && <BorrowerFinancingPermission token={token} initial={status.realtorFinancing} onAnswered={setAnsweredFinancingId}
+      key={status.realtorFinancing.id} />}
     {status.quoteExpiredOn && <section className="application-panel application-receipt document-section" aria-label="Expired sample quote">
       <h2><Calculator size={19} /> Your sample quote expired</h2>
       <p>The sample quote was available through {dateLabel(status.quoteExpiredOn)} Eastern. Your loan officer can share an updated comparison.</p>

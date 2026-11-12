@@ -52,3 +52,5 @@ export type BorrowerRealtorFinancingView = {
 };
 export type SharedRealtorFinancing = RealtorFinancingTerms & { publishedAt: string };
 export const realtorFinancingUnavailable = "This pilot financing summary is unavailable.";
+export const realtorFinancingTarget = "realtor-financing-summary";
+export const borrowerFinancingTarget = "borrower-realtor-financing";

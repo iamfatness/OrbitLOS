@@ -5,6 +5,8 @@ import { unconfirmedMockOrder } from "./credit-aus-model";
 import { latestManualReturnFollowUp, manualReturnDueAt, manualReturnLender, manualReturnPhase, manualReturnTitle, manualReturnWorkId,
   pendingManualReturn } from "./manual-lender-work";
 import { readPlaybook } from "./playbooks";
+import { currentRealtorFinancingSql, readyRealtorFinancingId, realtorFinancingDates, realtorFinancingReadyCandidateSql,
+  realtorFinancingSource } from "./realtor-financing";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { isDemoStaff } from "./workspace-access";
@@ -60,6 +62,8 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
   const documentArgs = processing ? (team ? [] : [staff.email]) : ownerArgs;
   const leadDocuments = !processing && staff.brokerage.pilot;
   const mockUnderwriting = !processing && fictionalUwmWorkspace(staff);
+  const realtorFinancing = !processing && staff.brokerage.pilot;
+  const checkedAt = now.toISOString();
   const rows = db.prepare(`WITH incoming AS (
     SELECT 'document' AS kind, request.id, loan.id AS loanId, contact.name,
       coalesce(request.submittedAt, request.requestedAt) AS receivedAt, request.revision,
@@ -87,6 +91,13 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       request.revision, request.kind || ' · Lead', NULL, 0, NULL, NULL, NULL, NULL, NULL
     FROM referral_leads lead JOIN lead_document_requests request ON request.leadId = lead.id
     WHERE lead.officerEmail = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND request.status = 'Received'` : ""}
+    ${realtorFinancing ? `UNION ALL
+    SELECT 'realtor-financing', request.id, loan.id, contact.name,
+      (SELECT max(decidedAt) FROM realtor_financing_decisions WHERE requestId = request.id AND decision = 'Approve'), 0,
+      'Realtor financing summary ready', NULL, 0, NULL, NULL, NULL, NULL, NULL
+    FROM loans loan CROSS JOIN realtor_financing_requests request ON request.loanId = loan.id ${contacts}
+    ${realtorFinancingSource}
+    WHERE loan.officerEmail = ? AND ${realtorFinancingReadyCandidateSql} AND ${currentRealtorFinancingSql}` : ""}
   ), borrower_answers AS (
     SELECT 'question', question.id, loan.id, contact.name, question.answeredAt, question.revision,
       CASE WHEN question.recipient = 'Co-borrower' THEN 'Co-borrower answer' ELSE 'Borrower answer' END,
@@ -100,20 +111,21 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
     .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(mockUnderwriting ? [...ownerArgs, unconfirmedMockOrder] : []),
-      ...(leadDocuments ? [staff.email] : []), ...documentArgs,
+      ...(leadDocuments ? [staff.email] : []), ...(realtorFinancing ? [staff.email, ...realtorFinancingDates(checkedAt)] : []), ...documentArgs,
       ...(after ? [after.receivedAt, after.kind, after.id] : []), limit + 1) as unknown as
       (Omit<IncomingLoanWorkItem, "linkedCondition" | "returnStatus" | "returnDeadline" | "returnEventId" | "returnFollowUp"> & {
         loanId: string; linkedCondition: number; returnStatus: IncomingLoanWorkItem["returnStatus"] | null; returnDueAt: string | null;
         returnEventId: string | null; returnFollowUp: string | null; returnSubmissionId: string | null;
       })[];
-  const checkedAt = now.toISOString();
-  const items = rows.slice(0, limit).map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnSubmissionId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
+  const scanned = rows.slice(0, limit);
+  const valid = scanned.filter(({ kind, loanId, id }) => kind !== "realtor-financing" || readyRealtorFinancingId(db, loanId, checkedAt) === id);
+  const items = valid.map(({ kind, loanId, linkedCondition, returnStatus, returnDueAt, returnEventId, returnSubmissionId, returnFollowUp, ...item }): IncomingLoanWorkItem => {
     const work = { ...item, linkedCondition: Boolean(linkedCondition) };
     if (kind === "lead-document") return { ...work, kind, leadId: loanId };
     return { ...work, kind, loanId, ...(returnStatus ? { returnStatus } : {}),
       ...(returnDueAt ? { returnDeadline: { dueAt: returnDueAt, overdue: returnDueAt < checkedAt } } : {}),
       ...(returnEventId ? { returnEventId, returnSubmissionId } : {}), ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}) };
   });
-  const last = items.at(-1);
+  const last = scanned.at(-1);
   return { items, next: rows.length > limit && last ? { id: last.id, kind: last.kind, receivedAt: last.receivedAt } : null };
 }

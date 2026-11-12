@@ -50,7 +50,7 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
   const result = data?.brokerageId === brokerageId && data.view === view && data.after === after ? data.result : undefined;
   const page = result && !("error" in result) ? result : undefined;
   return <section className="record-form" aria-label="Incoming loan work">
-    <div className="section-heading"><h3>Incoming loan work</h3>{page && <div className="loan-application-actions">
+    <div className="section-heading"><h3 id={`incoming-${view}-heading`} tabIndex={-1}>Incoming loan work</h3>{page && <div className="loan-application-actions">
       {page.items.length > 0 && <span className="pill">{page.items.length} on this page</span>}
       <Button size="sm" variant="outline" disabled={paused} onClick={() => setAttempt((current) => current + 1)}>Refresh incoming work</Button>
     </div>}</div>
@@ -61,11 +61,11 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
       const action = item.returnStatus ? manualReturnSteps[item.returnStatus].action :
         item.kind === "application" ? "Review 1003" : item.kind === "document" ? "Review document" :
         item.kind === "lead-document" ? "Review lead document" : item.kind === "question" ? "Review borrower answer" :
-          item.kind === "underwriting" ? "Open order" : "Open handoff";
+          item.kind === "underwriting" ? "Open order" : item.kind === "realtor-financing" ? "Open financing summary" : "Open handoff";
       return <li className={item.returnEventId ? "loan-task lender-return-task" : "loan-task"} key={`${item.kind}:${item.id}:${item.returnEventId ?? ""}`}>
       <div className="loan-task-copy"><strong>{item.name} · {item.title}</strong>
         <span>{item.returnStatus ? `${item.returnStatus} · ` : item.kind === "application" ? "Submitted " :
-          item.kind === "underwriting" ? "Ordered " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
+          item.kind === "underwriting" ? "Ordered " : item.kind === "realtor-financing" ? "Permissions complete " : "Received "}{dateTime(item.receivedAt)} ET{item.linkedCondition && " · Lender condition"}{item.assignee && ` · ${item.assignee}`}</span>
         {item.returnDeadline && <span className={item.returnDeadline.overdue ? "open-chip" : "muted"}>
           {item.returnDeadline.overdue ? "Return overdue since" : "Follow up by"} {dateTime(item.returnDeadline.dueAt)} ET
         </span>}
@@ -82,7 +82,8 @@ export function IncomingLoanWorkQueue({ brokerageId, view, paused, version, open
           latest={item.returnFollowUp} paused={paused}
           onSaved={() => setAttempt((current) => current + 1)} />
       </div>}
-    </li>;})}</ul> : <p className="empty-inline">{after ? "No more incoming items need attention." : view === "today" ?
+    </li>;})}</ul> : <p className="empty-inline">{page.next ? "No items on this page need attention. Check older incoming work." :
+      after ? "No more incoming items need attention." : view === "today" ?
       "New 1003s, received documents, borrower answers, unconfirmed orders, and lender or processor returns appear here." :
       "Received documents, borrower answers, and ready handoffs on assigned files appear here."}</p>)}
     {(after || page?.next) && <div className="loan-application-actions">

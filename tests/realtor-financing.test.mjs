@@ -15,6 +15,9 @@ registerHooks({ resolve(specifier, context, next) {
 const { initializeStore, insertContact, insertLoan } = await import("../src/lib/store.ts");
 const { workOnRealtorFinancing, borrowerRealtorFinancing } = await import("../src/lib/realtor-financing.ts");
 const { realtorReferrals } = await import("../src/lib/realtor-portal.ts");
+const { borrowerActions } = await import("../src/lib/borrower-action-model.ts");
+const { readIncomingLoanWorkPage } = await import("../src/lib/incoming-loan-work.ts");
+const { readActionCounts } = await import("../src/lib/workspace-action-counts.ts");
 
 function fixture(t, joint = false) {
   const sqlite = new DatabaseSync(":memory:");
@@ -53,11 +56,16 @@ function fixture(t, joint = false) {
   const portal = (token = realtor, clock = now, pilot = true) => realtorReferrals(db, { type: "read", token }, clock.toISOString(), pilot);
   const answer = (token, requestId, decision, operationId = randomUUID()) => borrowerRealtorFinancing(db,
     { type: "respond", token, requestId, decision, operationId }, now);
-  return { db, loanId, staff, borrower, coBorrower, realtor, otherRealtor, work, read, portal, answer };
+  const incoming = (actor = staff, clock = now, view = "today") =>
+    readIncomingLoanWorkPage(db, { view }, actor, staff.brokerage.id, undefined, clock);
+  const todayCount = () => readActionCounts(db, staff, staff.brokerage.id, now).today;
+  return { db, loanId, staff, borrower, coBorrower, realtor, otherRealtor, work, read, portal, answer, incoming, todayCount };
 }
 
 test("both borrowers must grant permission before the LO can publish the exact redacted quote summary", t => {
-  const { db, staff, borrower, coBorrower, realtor, otherRealtor, work, read, portal, answer } = fixture(t, true);
+  const { db, loanId, staff, borrower, coBorrower, realtor, otherRealtor, work, read, portal, answer, incoming, todayCount } = fixture(t, true);
+  const actions = (token, answeredId) => borrowerActions({ realtorFinancing: read(token).value.request }, answeredId);
+  const ready = (page = incoming()) => page.items.filter(item => item.kind === "realtor-financing");
   assert.equal(work({ type: "read" }, { ...staff, email: "other@example.test" }).status, 404);
   assert.equal(work({ type: "read" }, { ...staff, brokerage: { ...staff.brokerage, role: "Processor" } }).status, 404);
   assert.equal(work({ type: "read" }, { ...staff, brokerage: { ...staff.brokerage, pilot: false } }).status, 404);
@@ -71,15 +79,35 @@ test("both borrowers must grant permission before the LO can publish the exact r
   assert.equal(work(publish).status, 409);
   assert.equal(read().value.request.permission, "Pending");
   assert.equal(read(coBorrower).value.request.permission, "Pending");
+  assert.deepEqual(actions(borrower).map(item => item.target), ["borrower-realtor-financing"]);
+  assert.deepEqual(actions(coBorrower).map(item => item.kind), ["Permission"]);
+  assert.deepEqual(actions(borrower, request.requestId), []);
+  assert.deepEqual(ready(), []);
+  const baselineCount = todayCount();
   assert.equal(answer(realtor, request.requestId, "Approve").status, 404);
   const firstAnswerId = randomUUID();
   assert.equal(answer(borrower, request.requestId, "Approve", firstAnswerId).value.request.permission, "Approved");
   assert.equal(answer(borrower, request.requestId, "Approve", firstAnswerId).value.request.permission, "Approved");
   assert.equal(answer(coBorrower, request.requestId, "Approve", firstAnswerId).status, 404);
   assert.equal(work(publish).status, 409);
+  assert.deepEqual(actions(borrower), []);
+  assert.equal(actions(coBorrower).length, 1);
+  assert.deepEqual(ready(), []);
   assert.equal(answer(coBorrower, request.requestId, "Approve").value.request.permission, "Approved");
+  assert.deepEqual(ready().map(item => [item.id, item.loanId]), [[request.requestId, loanId]]);
+  assert.equal(todayCount(), baselineCount + 1);
+  assert.deepEqual(ready(incoming({ ...staff, email: "another-officer@example.test" })), []);
+  assert.deepEqual(ready(incoming({ ...staff, email: "other-admin@example.test", brokerage: { ...staff.brokerage, role: "Admin" } })), []);
+  assert.deepEqual(ready(incoming({ ...staff, brokerage: { ...staff.brokerage, role: "Processor" } }, undefined, "processing")), []);
+  assert.deepEqual(ready(incoming(staff, new Date("2026-11-13T05:00:00.000Z"))), []);
+  db.exec("UPDATE contacts SET name = 'Fictional changed partner' WHERE id = 'partner'");
+  assert.deepEqual(ready(), []);
+  assert.equal(todayCount(), baselineCount);
+  db.exec("UPDATE contacts SET name = 'Fictional partner' WHERE id = 'partner'");
+  assert.equal(ready().length, 1);
   assert.equal(portal().value.referrals[0].financing, undefined);
   const published = work(publish).value.request.publishedAt;
+  assert.deepEqual(ready(), []);
   assert.equal(work(publish).value.request.publishedAt, published);
   assert.deepEqual(portal().value.referrals[0].financing, { ...terms, publishedAt: published });
   assert.deepEqual(portal(otherRealtor).value.referrals, []);

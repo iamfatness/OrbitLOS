@@ -51,12 +51,13 @@ function CoBorrowerForm({ token }: { token?: string }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [answeredFinancingId, setAnsweredFinancingId] = useState<string>();
   const pending = useRef<AbortController | null>(null);
   const requestVersion = useRef(0);
   const submitted = Boolean(view?.submittedAt);
   const awaitingOtherPortion = submitted && !view?.complete;
   const mockHandoff = view?.documentUploadsMode === "mock";
-  const actions = submitted && view?.complete ? borrowerActions(view) : [];
+  const actions = submitted && view?.complete ? borrowerActions(view, answeredFinancingId) : [];
   const actionCenter = view?.complete && <BorrowerActionCenter actions={actions}
     processing={view.documents?.filter((request) => request.pdfStatus === "Processing").length} />;
 
@@ -168,8 +169,8 @@ function CoBorrowerForm({ token }: { token?: string }) {
         respond={(input) => void perform(input, "Your sample disclosure response was recorded.")} />}
       <BorrowerQuestionCards questions={view?.questions} busy={busy}
         answer={(input) => void perform(input, "Your answer was sent to the loan team.")} />
-      {token && view?.realtorFinancing && <BorrowerFinancingPermission token={token} initial={view.realtorFinancing}
-        key={`${view.realtorFinancing.id}:${view.realtorFinancing.permission}:${view.realtorFinancing.publishedAt}`} />}
+      {token && view?.realtorFinancing && <BorrowerFinancingPermission token={token} initial={view.realtorFinancing} onAnswered={setAnsweredFinancingId}
+        key={view.realtorFinancing.id} />}
       {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}
         busy={busy} refresh={refresh} attach={attach} uploadsMode={view.documentUploadsMode} />}
     </div> : view && <section className="application-panel" aria-label="Co-borrower portion"

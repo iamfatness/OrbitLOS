@@ -96,6 +96,7 @@ import { applyLoanMutation, loanWorkUnavailable, type EditableLoan } from "@/lib
 import { announceBorrowerChange, borrowerChecklistTokens, borrowerDisclosureTokens } from "@/lib/borrower-change-signal";
 import { conditionTarget, submissionTarget, type UwmAlert } from "@/lib/uwm-alert-model";
 import { incomingLoanWorkProcessingStatuses, type IncomingLoanWorkItem, type IncomingLoanWorkQuery } from "@/lib/incoming-loan-work-model";
+import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
 import { leadDocumentsUnavailable, type LeadDocumentLocation } from "@/lib/lead-document-model";
 import { manualReturnSteps } from "@/lib/lender-export-model";
 import { secondReviewBlocker } from "@/lib/application-model";
@@ -861,6 +862,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
             question.id === item.id && question.revision === item.revision && question.status === "Answered") :
           item.kind === "underwriting" ? view === "today" && result.mockCreditAusRuns.some((run) =>
             run.id === item.id && (run.applicationRevision ?? 0) === item.revision && run.result.status === unconfirmedMockOrder) :
+          item.kind === "realtor-financing" ? view === "today" && result.realtorFinancingReadyId === item.id :
           assigned?.loanId === item.id && assigned.revision === item.revision && !!assigned.processorEmail &&
           (view === "today" ? assigned.status === "Returned to LO" : assigned.status === "Ready for processing" && readyToAccept);
         if (!inQueue || !current || loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed") {
@@ -1117,7 +1119,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       { kind: "manual-return-work", submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId,
         eventId: item.returnEventId, personal: true });
     const target = item.kind === "application" ? "loan-application" : item.kind === "document" ? `document-${item.id}` :
-      item.kind === "question" ? staffQuestionTarget(item.id) : item.kind === "underwriting" ? creditAusAttemptTarget(item.id) : "processing-handoff";
+      item.kind === "question" ? staffQuestionTarget(item.id) : item.kind === "underwriting" ? creditAusAttemptTarget(item.id) :
+      item.kind === "realtor-financing" ? realtorFinancingTarget : "processing-handoff";
     void openQueueLoan({ kind: "details", loanId: item.loanId, target }, { kind: "incoming-loan-work", item, view });
   }
 
@@ -1288,12 +1291,13 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     const currentOrder = modal?.kind === "details" && modal.target?.startsWith(creditAusAttemptTargetPrefix) ?
       loanWork?.mockCreditAusRuns.find((run) => creditAusAttemptTarget(run.id) === modal.target) : undefined;
     const resolvedOrder = currentOrder && currentOrder.result.status !== unconfirmedMockOrder;
+    const financingReturn = section === "Today" && modal?.kind === "details" && modal.target === realtorFinancingTarget;
     const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
     exceptionTrigger.current = null;
     recordTrigger.current = null;
-    if (trigger || original || pipelineLoan) requestAnimationFrame(() => {
+    if (trigger || original || pipelineLoan || financingReturn) requestAnimationFrame(() => {
       const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
-      const target = trigger && section === "Exceptions" ?
+      const target = financingReturn ? document.getElementById("incoming-today-heading") ?? sectionHeading.current : trigger && section === "Exceptions" ?
         (trigger.isConnected && !currentOrder?.conflict?.reviewedAt ? trigger : document.getElementById("owner-exception-filter")) :
         (original?.isConnected && !resolvedOrder ? original : replacement || sectionHeading.current);
       target?.focus({ preventScroll: true });

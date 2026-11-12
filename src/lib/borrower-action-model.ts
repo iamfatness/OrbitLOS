@@ -1,6 +1,7 @@
 import type { BorrowerDisclosure } from "./disclosure-model";
 import { needsBorrowerDocument, type DocumentRequest } from "./document-model";
 import { borrowerQuestionTarget, needsBorrowerAnswer, type BorrowerQuestion } from "./borrower-question-model";
+import { borrowerFinancingTarget, type BorrowerRealtorFinancingView } from "./realtor-financing-model";
 
 export const borrowerCorrectionTarget = "borrower-correction-form";
 export const borrowerDisclosureTarget = "borrower-sample-disclosure";
@@ -9,25 +10,30 @@ export const borrowerDocumentTarget = (id: string) => `borrower-document-${id}`;
 
 export type BorrowerActionItem = {
   target: string;
-  kind: "Correction" | "Signature" | "Replacement" | "Retry" | "Document" | "Question";
+  kind: "Correction" | "Signature" | "Replacement" | "Retry" | "Document" | "Question" | "Permission";
   title: string;
   button: string;
   date: string | null;
 };
 
 const priority: Record<BorrowerActionItem["kind"], number> = {
-  Correction: 0, Replacement: 1, Signature: 2, Retry: 3, Document: 4, Question: 5,
+  Correction: 0, Replacement: 1, Signature: 2, Retry: 3, Document: 4, Question: 5, Permission: 6,
 };
 
-export function borrowerActions({ documents = [], questions = [], disclosure, correction }: {
+export function borrowerActions({ documents = [], questions = [], disclosure, correction, realtorFinancing }: {
   documents?: DocumentRequest[];
   questions?: BorrowerQuestion[];
   disclosure?: BorrowerDisclosure;
   correction?: string;
-}): BorrowerActionItem[] {
+  realtorFinancing?: BorrowerRealtorFinancingView["request"];
+}, answeredFinancingId?: string): BorrowerActionItem[] {
   if (correction) return [{ target: borrowerCorrectionTarget, kind: "Correction", title: "Update your application",
     button: "Continue corrections", date: null }];
   const actions: BorrowerActionItem[] = [];
+  if (realtorFinancing?.permission === "Pending" && realtorFinancing.id !== answeredFinancingId) {
+    actions.push({ target: borrowerFinancingTarget, kind: "Permission", title: "Review realtor sharing permission",
+      button: "Open sharing request", date: null });
+  }
   if (disclosure?.state === "Available" && disclosure.signer.status === "Pending") {
     actions.push({ target: borrowerDisclosureTarget, kind: "Signature", title: "Review and sign the sample disclosure",
       button: "Open sample disclosure", date: disclosure.signBy });

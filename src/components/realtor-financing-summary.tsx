@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { BorrowerRealtorFinancingView, RealtorFinancingTerms, StaffRealtorFinancingView } from "@/lib/realtor-financing-model";
+import { borrowerFinancingTarget, realtorFinancingTarget, type BorrowerRealtorFinancingView, type RealtorFinancingTerms,
+  type StaffRealtorFinancingView } from "@/lib/realtor-financing-model";
 import { dateLabel } from "@/lib/client-retention";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
@@ -28,15 +29,15 @@ async function updateFinancing<T extends object>(endpoint: string, input: Record
   return result;
 }
 
-export function StaffRealtorFinancing({ loanId, brokerageId }: { loanId: string; brokerageId: string }) {
+export function StaffRealtorFinancing({ loanId, brokerageId, onChanged }: { loanId: string; brokerageId: string; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
-  return <details className="details-section realtor-financing-disclosure" onToggle={event => setOpen(event.currentTarget.open)}>
+  return <details id={realtorFinancingTarget} className="details-section realtor-financing-disclosure" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Realtor financing summary</summary>
-    {open && <StaffFinancingDetails loanId={loanId} brokerageId={brokerageId} />}
+    {open && <StaffFinancingDetails loanId={loanId} brokerageId={brokerageId} onChanged={onChanged} />}
   </details>;
 }
 
-function StaffFinancingDetails({ loanId, brokerageId }: { loanId: string; brokerageId: string }) {
+function StaffFinancingDetails({ loanId, brokerageId, onChanged }: { loanId: string; brokerageId: string; onChanged: () => void }) {
   const endpoint = `/api/brokerages?brokerage=${encodeURIComponent(brokerageId)}&view=realtor-financing`;
   const [view, setView] = useState<StaffRealtorFinancingView>();
   const [load, setLoad] = useState(0);
@@ -73,6 +74,7 @@ function StaffFinancingDetails({ loanId, brokerageId }: { loanId: string; broker
         { type, loanId, requestId, ...(type === "withdraw" ? {} : { basis }) }));
       pending.current = null;
       setConfirmWithdraw(false);
+      onChanged();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Try saving again."); }
     finally { setBusy(false); }
   }
@@ -119,10 +121,10 @@ function StaffFinancingDetails({ loanId, brokerageId }: { loanId: string; broker
   </div>;
 }
 
-export function BorrowerFinancingPermission({ token, initial }: {
-  token: string; initial: NonNullable<BorrowerRealtorFinancingView["request"]>;
+export function BorrowerFinancingPermission({ token, initial, onAnswered }: {
+  token: string; initial: NonNullable<BorrowerRealtorFinancingView["request"]>; onAnswered: (requestId: string) => void;
 }) {
-  const [request, setRequest] = useState<BorrowerRealtorFinancingView["request"]>(initial);
+  const [decision, setDecision] = useState<BorrowerRealtorFinancingView["request"]>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -131,6 +133,8 @@ export function BorrowerFinancingPermission({ token, initial }: {
   const alert = useRef<HTMLParagraphElement>(null);
   useEffect(() => { if (notice) feedback.current?.focus(); }, [notice]);
   useEffect(() => { if (error) alert.current?.focus(); }, [error]);
+  const request = decision === null ? null : decision?.permission === "Approved" && initial.permission === "Pending"
+    ? { ...initial, permission: "Approved" as const } : initial;
 
   async function respond(decision: "Approve" | "Decline" | "Revoke") {
     if (!request || busy) return;
@@ -141,16 +145,18 @@ export function BorrowerFinancingPermission({ token, initial }: {
     try {
       const value = await updateFinancing<BorrowerRealtorFinancingView>("/api/realtor-financing-permission",
         { token, type: "respond", requestId: request.id, decision, operationId: attempt.current.id }, undefined, true);
-      setRequest(value.request);
+      setDecision(value.request);
       attempt.current = null;
+      onAnswered(request.id);
       setNotice(decision === "Approve" ? "Permission recorded." :
         decision === "Decline" ? "You declined to share this summary." : "Your permission was withdrawn.");
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Try saving your decision again."); }
     finally { setBusy(false); }
   }
 
-  return <section className="application-panel application-receipt document-section" aria-labelledby="borrower-realtor-financing">
-    <h2 id="borrower-realtor-financing">Realtor sharing permission</h2>
+  return <section id={borrowerFinancingTarget} tabIndex={-1} data-borrower-action-target
+    className="application-panel application-receipt document-section" aria-labelledby="borrower-realtor-financing-heading">
+    <h2 id="borrower-realtor-financing-heading">Realtor sharing permission</h2>
     {notice && <p ref={feedback} tabIndex={-1} className="application-message" role="status">{notice}</p>}
     {error && <p ref={alert} tabIndex={-1} className="application-message banner-error" role="alert">{error}</p>}
     {request && <>
