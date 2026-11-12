@@ -2,11 +2,11 @@ import type { BrokerageRole, VersionedBrokerageMember } from "./brokerage-model"
 import { closingGateLabels, closingGateRules, type ClosingGateRule } from "./closing-gate-model";
 import { closingGateFileJoins, closingGateSources, closingGateTarget, currentClosingGatePolicy } from "./closing-gates";
 import { easternDate } from "./client-retention";
-import { disclosureClosingReviewPrefix, disclosureIssuePrefix, disclosureReviewPrefix, disclosureTarget } from "./disclosure-model";
-import { canUseSampleDisclosures } from "./disclosures";
+import { closingPackageReviewCategory, disclosureClosingReviewPrefix, disclosureIssuePrefix, disclosureReviewPrefix, disclosureTarget } from "./disclosure-model";
+import { canUseSampleDisclosures, currentSignedClosingPackageSql } from "./disclosures";
 import { creditAusAttemptTarget, unconfirmedMockOrder } from "./credit-aus-model";
 import { fictionalUwmWorkspace } from "./uwm-live";
-import { fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
+import { closingPackageException, fileExceptionKinds, fileExceptionQuery, fileExceptionsUnavailable, overdueManualReturnFilter, unattendedManualReturnFilter,
   type FileException, type FileExceptionPage, type FileExceptionQuery } from "./file-exception-model";
 import { loanReviewsTarget, reviewTarget } from "./loan-review-model";
 import { closingDisclosureReviewTarget } from "./file-preflight-model";
@@ -76,6 +76,7 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
     review.escalatedAt IS NOT NULL AS escalated, review.applicationRevision AS version, (${reviewChanged}) AS changed, NULL AS requestStatus
     FROM loan_reviews review JOIN loans loan ON loan.id = review.loanId ${loanJoins} LEFT JOIN applications app ON app.loanId = loan.id
     WHERE ${active} AND review.status IN ('Requested', 'Changes requested')
+      AND review.category <> '${closingPackageReviewCategory}'
       AND (review.dueOn < ? OR review.escalatedAt IS NOT NULL OR (${reviewChanged}))
       ${showCheckpoint ? `AND NOT (review.category = '1003 second review' AND ${activePipeline} AND ${pendingRequiredApproval})` : ""}`,
   "review.dueOn", "'-'", "review.id", [today]);
@@ -106,6 +107,27 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
   `strftime('%Y-%m-%dT%H:%M:%fZ', app.reviewedAt, '+${handoffHours} hours')`, "loan.id", "loan.id");
 
   if (canUseSampleDisclosures(staff)) {
+    const packageChanged = "package.version IS NULL";
+    const packageRequesterActs = `review.status = 'Changes requested' OR ${packageChanged}`;
+    add(closingPackageException, `${loanColumns}, 'Sample closing review' AS title,
+      CASE WHEN review.status = 'Changes requested' THEN 'Returned for corrections' WHEN ${packageChanged} THEN 'Package outdated'
+        WHEN review.dueOn < ? THEN 'Review overdue' ELSE 'Escalated' END AS status,
+      review.dueOn, NULL AS reopenedAt, NULL AS nextParty,
+      CASE WHEN ${packageRequesterActs} THEN review.requesterName ELSE review.reviewerName END AS ownerName,
+      CASE WHEN ${packageRequesterActs} THEN review.requesterEmail ELSE review.reviewerEmail END AS ownerEmail,
+      CASE WHEN NOT (${packageRequesterActs}) THEN review.reviewerRole END AS reviewerRole,
+      CASE WHEN NOT (${packageRequesterActs}) THEN review.reviewerAccessRevision END AS reviewerAccessRevision,
+      review.escalatedAt IS NOT NULL AS escalated, pinned.version, (${packageChanged}) AS changed, NULL AS requestStatus
+      FROM loan_reviews review JOIN loans loan ON loan.id = review.loanId ${loanJoins}
+      JOIN loan_review_events event ON event.sequence = (
+        SELECT candidate.sequence FROM loan_review_events candidate
+        WHERE candidate.reviewId = review.id AND candidate.action IN ('Requested', 'Resubmitted') ORDER BY candidate.sequence DESC LIMIT 1
+      ) JOIN loan_review_closing_packages pinned ON pinned.eventId = event.id
+      LEFT JOIN disclosure_packages package ON package.loanId = loan.id AND package.version = pinned.version AND package.revision = pinned.revision
+        AND ${currentSignedClosingPackageSql}
+      WHERE ${activePipeline} AND review.category = '${closingPackageReviewCategory}' AND review.status IN ('Requested', 'Changes requested')
+        AND (review.dueOn < ? OR review.escalatedAt IS NOT NULL OR ${packageRequesterActs})`,
+    "review.dueOn", "loan.id", "review.id", [today, today]);
     add("Disclosure reviews", `${loanColumns}, 'Sample disclosure v' || package.version AS title, coalesce(package.reviewReason,task.title) AS status,
       NULL AS dueOn, NULL AS reopenedAt, NULL AS nextParty, loan.officer AS ownerName, loan.officerEmail AS ownerEmail,
       NULL AS reviewerRole, NULL AS reviewerAccessRevision, 0 AS escalated, NULL AS version, 0 AS changed, NULL AS requestStatus
@@ -114,7 +136,10 @@ function selectFileExceptions(db: Store, { filter, after }: FileExceptionQuery, 
         AND package.version = (SELECT max(latest.version) FROM disclosure_packages latest WHERE latest.loanId = loan.id)
         AND task.id IN ('${disclosureReviewPrefix}' || loan.id || ':' || package.version,
           '${disclosureIssuePrefix}' || loan.id || ':' || package.version, '${disclosureClosingReviewPrefix}' || loan.id || ':' || package.version)
-      WHERE ${activePipeline} AND task.completedAt IS NULL AND package.supersededAt IS NULL`, "task.dueAt", "loan.id", "task.id");
+      WHERE ${activePipeline} AND task.completedAt IS NULL AND package.supersededAt IS NULL
+      ${filter === "All file exceptions" ? `AND NOT EXISTS (SELECT 1 FROM loan_reviews assigned
+        WHERE assigned.loanId = loan.id AND assigned.category = '${closingPackageReviewCategory}' AND assigned.status IN ('Requested', 'Changes requested'))` : ""}`,
+    "task.dueAt", "loan.id", "task.id");
   }
 
   if (fictionalUwmWorkspace(staff)) {
@@ -224,6 +249,7 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
       (member.role === "Processor" && member.email === processorEmail)) &&
       (!reviewerRole || (member.role === reviewerRole && (member.accessRevision ?? 0) === reviewerAccessRevision));
     const required = kind === "Required 1003 approvals";
+    const closingReview = kind === closingPackageException;
     const internalReview = kind === "Internal reviews" || required;
     const manual = kind === "Manual lender returns" ? manualReturnSteps[status as ManualReturnStatus] : undefined;
     const gate = kind === "Closing and funding holds" ? requestStatus as ClosingGateRule : undefined;
@@ -232,21 +258,25 @@ export function nameFileExceptions({ rows, next, today, checkedAt }: Candidates,
     const underwriting = kind === "Underwriting conflicts";
     const dueAt = handoff || disclosure ? sortOn : undefined;
     const target = underwriting ? creditAusAttemptTarget(id) : handoff ? "processing-handoff" : disclosure ?
-      id.startsWith(disclosureClosingReviewPrefix) ? closingDisclosureReviewTarget : disclosureTarget : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
+      id.startsWith(disclosureClosingReviewPrefix) ? closingDisclosureReviewTarget : disclosureTarget : closingReview ? reviewTarget(id) : gate ? closingGateTarget(gate, parentId, id) : manual ? manual.target : kind === "Missing evidence" ? `document-${id}` : internalReview ?
       (status === "Reviewer needed" ? loanReviewsTarget : reviewTarget(id)) : conditionTarget(parentId, id);
     const action = underwriting ? "Review the unmatched response on the original order" : handoff ? "Reviewed 1003 is ready for a processor" : disclosure ?
       id.startsWith(disclosureReviewPrefix) ? "Review the change and prepare an updated sample package" : status :
+      closingReview ? (!available ? "Check staff availability" : status === "Returned for corrections" ? "Correct and resubmit the signed replacement" :
+        changed ? "Resubmit with the current signed package" : "Review the signed package") :
       gate ? closingGateLabels[gate] : manual ? manual.action : kind === "Missing evidence" ? (status === "Needs replacement" ? "Follow up on replacement evidence" : "Follow up on requested evidence") :
       internalReview ? (status === "Reviewer needed" ? requestStatus ?? "Assign a second reviewer for the current 1003" :
         changed ? "Resubmit the review for the current 1003" : status === "Changes requested" ? "Respond to requested changes" :
         available ? "Record a review decision" : "Reassign the reviewer") :
         requestStatus === "Received" ? "Review received evidence" : requestStatus === "Accepted" ? "Check delivery and clearance" :
           requestStatus ? "Follow up on borrower evidence" : "Review the lender request and request evidence";
-    const evidence = version === null ? null : `${manual ? "Current 1003" : internalReview || underwriting ? "Submitted 1003" : "Document"} revision ${version}`;
+    const evidence = version === null ? null : closingReview ? `Package v${version}` :
+      `${manual ? "Current 1003" : internalReview || underwriting ? "Submitted 1003" : "Document"} revision ${version}`;
     const currentStatus = required && status === "Awaiting approval" && !available ? "Reviewer unavailable" : status;
     return { kind, id, parentId, sortOn, loanId, borrower, title, status: currentStatus, target, action, owner: member?.name || ownerName || null,
       ...(returnEventId ? { returnEventId, returnSubmissionId: requestStatus === "Rejected" ? null : id, returnDueAt: sortOn } : {}),
       ...(dueAt ? { dueAt } : {}),
+      ...(closingReview && version !== null ? { closingPackageVersion: version } : {}),
       ...(returnFollowUp ? { returnFollowUp: JSON.parse(returnFollowUp) } : {}),
       ownerAvailable: available, nextParty, dueOn, reopenedAt, evidence, overdue: returnEventId || dueAt ? sortOn < checkedAt : !!dueOn && dueOn < today,
       escalated: Boolean(escalated) };

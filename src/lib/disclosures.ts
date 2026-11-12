@@ -7,6 +7,7 @@ import { compareDisclosureTerms } from "./disclosure-change-model";
 import { disclosureSigningDeadline, storedDisclosureCalendarBasis, type DisclosureCalendarBasis } from "./disclosure-calendar-model";
 import { disclosureTemplateChanged, disclosureTemplateMatch, type DisclosureTemplateBasis } from "./disclosure-template-model";
 import { disclosureTemplatesForLoan, selectedDisclosureTemplate } from "./disclosure-templates";
+import { approvedIncomeSql } from "./income-review-freshness";
 import { disclosureClosingReviewPrefix, disclosureDeclinePrefix, disclosureDeclineTaskTitle, disclosureIssuePrefix, disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
   closingPackageReviewCategory, type ClosingPackageAssignment, type ClosingPackageReviewEvidence, type ClosingPackageReviewRef,
   type ClosingDisclosureReview, type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
@@ -88,8 +89,10 @@ export function readDisclosureWork(db: Store, loanId: string, now = new Date()):
   const revisionReason = latest ? latest.reviewReason ?? (current.source ?
     matchesSource(latest, current.source) ? null : "Application, quote or fees changed" : current.error ?? null) : null;
   const assignment = latest ? readClosingPackageAssignment(db, loanId) : undefined;
-  const closingAssignment = assignment && (assignment.status !== "Approved" ||
-    (!revisionReason && sameClosingPackage(assignment, latest))) ? assignment : undefined;
+  const assignmentCurrent = assignment?.status === "Requested" ? sameClosingPackage(assignment, currentClosingPackage(db, loanId)) :
+    !!(assignment && !revisionReason && latest?.issuedAt && sameClosingPackage(assignment, latest));
+  const closingAssignment = assignment && (assignment.status !== "Approved" || assignmentCurrent)
+    ? { ...assignment, current: assignmentCurrent } : undefined;
   return { source: current.source ?? null, unavailable: current.error ?? null, revisionReason, closingReviews, closingAssignment, suggestedDeadline, draftTargetChanged, templateOptions, packages: rows
     .map((item) => {
       const quote = JSON.parse(item.quote) as DisclosurePackage["quote"];
@@ -127,7 +130,7 @@ export function sameClosingPackage(a?: ClosingPackageReviewRef, b?: ClosingPacka
 }
 
 export function readClosingPackageAssignment(db: Store, loanId: string): ClosingPackageAssignment | undefined {
-  return db.prepare(`SELECT review.id, review.status, review.reviewerName, review.dueOn, pinned.version, pinned.revision,
+  return db.prepare(`SELECT review.id, review.status, review.reviewerName, review.dueOn, review.escalatedAt, pinned.version, pinned.revision,
     CASE WHEN review.status = 'Changes requested' THEN (
       SELECT decision.note FROM loan_review_events decision WHERE decision.reviewId = review.id AND decision.action = 'Changes requested'
       ORDER BY decision.sequence DESC LIMIT 1
@@ -150,14 +153,31 @@ export function closingPackageEvidence(db: Store, loanId: string, reference: Clo
     ...changeReviewEvidence(db, loanId, row.changeReview as string | null, source) };
 }
 
+// The queue and the decision command use the same signed package and pricing basis.
+export const currentSignedClosingPackageSql = `package.issuedAt IS NOT NULL AND package.reviewReason IS NULL AND package.supersededAt IS NULL
+  AND package.version = (SELECT max(latest.version) FROM disclosure_packages latest WHERE latest.loanId = package.loanId)
+  AND EXISTS (SELECT 1 FROM closing_disclosure_reviews confirmed WHERE confirmed.loanId = package.loanId AND confirmed.version < package.version)
+  AND json_array_length(package.signers) > 0 AND NOT EXISTS (
+    SELECT 1 FROM json_each(package.signers) signer
+    WHERE json_extract(signer.value, '$.status') IS NOT 'Signed' OR coalesce(json_extract(signer.value, '$.receipt'), '') = ''
+  ) AND EXISTS (
+    SELECT 1 FROM applications application JOIN pricing_runs price ON price.id = package.runId AND price.loanId = application.loanId
+    JOIN fee_worksheets fee ON fee.runId = price.id AND fee.offerId = price.selectedId
+    WHERE application.loanId = package.loanId AND application.submittedAt IS NOT NULL AND application.reviewedAt IS NOT NULL
+      AND coalesce(application.correctionNote, '') = '' AND application.revision = package.applicationRevision
+      AND price.applicationRevision = application.revision AND price.mode = 'mock' AND price.selectedId = package.offerId
+      AND fee.revision = package.feeRevision
+      AND price.id = (SELECT latest.id FROM pricing_runs latest WHERE latest.loanId = package.loanId AND latest.selectedId IS NOT NULL
+        ORDER BY latest.selectedAt DESC, latest.rowid DESC LIMIT 1)
+      AND EXISTS (SELECT 1 FROM json_each(price.offers) offer WHERE json_extract(offer.value, '$.id') = package.offerId)
+      AND (price.incomeReviewRevision IS NULL OR EXISTS (${approvedIncomeSql("package.loanId", "price.incomeReviewRevision")}))
+  )`;
+
 export function currentClosingPackage(db: Store, loanId: string): ClosingPackageReviewRef | undefined {
   if (!activeDisclosureLoan(db, loanId)) return;
-  const [item] = packageRows(db, loanId, 1);
-  if (!item?.issuedAt || item.reviewReason || item.supersededAt || !replacesConfirmedPackage(db, item)) return;
-  const signers: DisclosureSigner[] = JSON.parse(item.signers);
-  if (!signers.length || !signers.every(({ status, receipt }) => status === "Signed" && receipt)) return;
-  const { source } = disclosureSource(db, loanId);
-  if (source && matchesSource(item, source)) return { version: item.version, revision: item.revision };
+  const row = db.prepare(`SELECT package.version, package.revision FROM disclosure_packages package
+    WHERE package.loanId = ? AND ${currentSignedClosingPackageSql}`).get(loanId) as ClosingPackageReviewRef | undefined;
+  if (row) return { version: row.version, revision: row.revision };
 }
 
 export function hasClosingConfirmation(db: Store, loanId: string, { version, revision }: ClosingPackageReviewRef) {

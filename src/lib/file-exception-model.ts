@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { ManualReturnFollowUp } from "./lender-export-model";
 
 export const fileExceptionsUnavailable = "File exceptions are available to brokerage admins.";
-export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns", "Closing and funding holds", "Unassigned handoffs", "Disclosure reviews", "Underwriting conflicts"] as const;
+export const closingPackageException = "Closing package reviews";
+export const fileExceptionKinds = ["Missing evidence", "Internal reviews", "Reopened conditions", "Required 1003 approvals", "Manual lender returns", "Closing and funding holds", "Unassigned handoffs", "Disclosure reviews", "Underwriting conflicts", closingPackageException] as const;
 export const overdueManualReturnFilter = "Overdue lender returns";
 export const unattendedManualReturnFilter = "Overdue lender returns without follow-up";
 export const fileExceptionFilters = ["All file exceptions", ...fileExceptionKinds, overdueManualReturnFilter, unattendedManualReturnFilter] as const;
@@ -18,5 +19,6 @@ export type FileException = z.infer<typeof cursor> & {
   returnSubmissionId?: string | null;
   returnDueAt?: string;
   returnFollowUp?: ManualReturnFollowUp;
+  closingPackageVersion?: number;
 };
 export type FileExceptionPage = { items: FileException[]; next: FileExceptionQuery["after"] | null; today: string };

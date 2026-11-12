@@ -212,7 +212,9 @@ New replacement reviews save the exact before-and-after terms, fees and payer or
 
 The LO can assign a signed replacement to an eligible teammate. Reviewers open the assigned package and its before-and-after terms from Reviews or the Review inbox. Returning it requires an internal reason and invalidates that sample package for closing. The LO prepares, issues and signs the replacement before resubmitting. Assignment, return, resubmission and approval preserve their exact package revisions in history. The current assigned review must finish before staff can confirm closing.
 
-Next, surface returned and stale closing package reviews alongside overdue work in the owner exception queue, with the person who acts next and a link to the exact work.
+The owner can filter Exceptions for returned, outdated, overdue and escalated sample closing package reviews. Each row identifies the next staff member, due date and package version, and opens the exact team review. Resubmitting a current signed package clears the stale exception. Approving clears the overdue review.
+
+Next, add a brokerage policy to require an independent review when changed terms or fees reopen a sample closing package, and expose the outstanding approval in closing readiness.
 
 ### F17 — Funding and settlement reconciliation
 

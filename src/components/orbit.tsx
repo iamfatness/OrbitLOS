@@ -83,7 +83,7 @@ import { UwmAlertQueue } from "./uwm-alert-queue";
 import { workspaceIcons } from "./workspace-icons";
 import { BrokeragePlaybooks, type ManagerExceptionView } from "./brokerage-playbooks";
 import { FileExceptions } from "./file-exceptions";
-import type { FileException } from "@/lib/file-exception-model";
+import { closingPackageException, type FileException } from "@/lib/file-exception-model";
 import { CallCampaigns } from "./call-campaigns";
 import { localCampaignOfficers } from "@/lib/call-campaign-model";
 import { fundingMilestones, fundingTaskAudience, playbookWork, reversedFundingTaskPrefix, type PlaybookWork } from "@/lib/playbook-model";
@@ -245,6 +245,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const reviewQueueTrigger = useRef<string>(null);
   const [reviewQueueReturn, setReviewQueueReturn] = useState<string>();
   const exceptionTrigger = useRef<HTMLButtonElement>(null);
+  const closingExceptionTrigger = useRef<string>(null);
+  const [closingExceptionReturn, setClosingExceptionReturn] = useState<string>();
   const [detailedTasks, setDetailedTasks] = useState(processorTaskEntry);
   const [focusContactTask, setFocusContactTask] = useState<string>();
   const pagedTasks = !!staff && !detailedTasks;
@@ -926,14 +928,24 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
         const loan = result.loans[0];
         const application = result.applications[0];
         const underwriting = item.kind === "Underwriting conflicts";
+        const closingReview = item.kind === closingPackageException;
+        const assignment = result.disclosureWork?.closingAssignment;
         const current = underwriting ? result.mockCreditAusRuns.some((run) =>
           run.id === item.id && run.result.status === unconfirmedMockOrder && run.conflict?.detectedAt === item.sortOn && !run.conflict.reviewedAt) :
+          closingReview ? assignment?.id === item.id && assignment.version === item.closingPackageVersion && assignment.dueOn === item.dueOn &&
+            (item.status === "Returned for corrections" ? assignment.status === "Changes requested" :
+              assignment.status === "Requested" && assignment.current === (item.status !== "Package outdated") &&
+                (item.status !== "Escalated" || !!assignment.escalatedAt)) :
           item.kind === "Unassigned handoffs" ?
           application?.submittedAt && application.reviewedAt && !application.correctionNote && !result.loanProcessing[0]?.processorEmail :
           item.kind === "Disclosure reviews" ? result.tasks.some(({ id, completedAt }) => id === item.id && !completedAt) :
             result.submissions.some(({ id, conditions }) => id === item.parentId &&
               conditions.some((condition: Submission["conditions"][number]) => condition.id === item.id && !condition.satisfiedAt));
         if (!canReport || !current || (!underwriting && (loan.disposition !== "Active" || loan.stage === "Funded" || loan.stage === "Closed"))) {
+          if (closingReview && section === "Exceptions") {
+            closingExceptionTrigger.current = null;
+            setClosingExceptionReturn(item.id);
+          }
           setReviewVersion((version) => version + 1);
           setError("This exception changed. Check the refreshed queue.");
           return;
@@ -1304,11 +1316,12 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   function openFileException(item: FileException, trigger?: HTMLButtonElement) {
     if (pending.current) return;
     exceptionTrigger.current = trigger ?? null;
+    closingExceptionTrigger.current = section === "Exceptions" && item.kind === closingPackageException ? item.id : null;
     void openQueueLoan({ kind: "details", loanId: item.loanId, target: item.target },
       item.kind === "Missing evidence" ? { kind: "document", id: item.id } :
         item.kind === "Manual lender returns" ? { kind: "manual-return-work",
           submissionId: item.returnSubmissionId === undefined ? item.id : item.returnSubmissionId, eventId: item.returnEventId, personal: false } :
-          staff && (item.kind === "Unassigned handoffs" || item.kind === "Disclosure reviews" || item.kind === "Reopened conditions" ||
+          staff && (item.kind === "Unassigned handoffs" || item.kind === "Disclosure reviews" || item.kind === "Reopened conditions" || item.kind === closingPackageException ||
             item.kind === "Underwriting conflicts") ?
             { kind: "file-exception", item } : undefined);
   }
@@ -1348,12 +1361,18 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
     const todayWork = section === "Today" ? todayWorkTrigger.current : null;
     const reviewWork = section === "Reviews" ? reviewQueueTrigger.current : null;
+    const closingException = section === "Exceptions" ? closingExceptionTrigger.current : null;
     todayWorkTrigger.current = null;
     reviewQueueTrigger.current = null;
     exceptionTrigger.current = null;
+    closingExceptionTrigger.current = null;
     recordTrigger.current = null;
     if (todayWork) setTodayWorkReturn(todayWork);
     else if (reviewWork) setReviewQueueReturn(reviewWork);
+    else if (closingException) {
+      setClosingExceptionReturn(closingException);
+      setReviewVersion((version) => version + 1);
+    }
     else if (trigger || original || pipelineLoan || incomingReturn) requestAnimationFrame(() => {
       const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
       const target = incomingReturn ? document.getElementById("incoming-today-heading") ?? sectionHeading.current : trigger && section === "Exceptions" ?
@@ -1895,6 +1914,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               openRecord={resource => resource.kind === "lead" ? openLeadWork(resource.id) :
                 void openQueueLoan({ kind: "details", loanId: resource.id })} />
             <FileExceptions brokerageId={staff.brokerage.id} version={queueVersion} busy={busy}
+              returningClosingReview={closingExceptionReturn} onClosingReviewReturn={() => setClosingExceptionReturn(undefined)}
               standalone open={openFileException} assign={(loanId, manualReturn) => show({ kind: "assignment", loanId, manualReturn })} />
           </>}
           {section === "Playbooks" && admin && <LoanStageEditSettings brokerageId={staff?.brokerage.id ?? demoBrokerageId} />}

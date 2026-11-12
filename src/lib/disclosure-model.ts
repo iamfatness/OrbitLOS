@@ -29,6 +29,7 @@ export type ClosingPackageReviewEvidence = ClosingPackageReviewRef &
   Pick<DisclosurePackage, "applicationRevision" | "feeRevision" | "changeReview" | "legacyChanges">;
 export type ClosingPackageAssignment = ClosingPackageReviewRef & {
   id: string; status: "Requested" | "Changes requested" | "Approved"; reviewerName: string; dueOn: string;
+  escalatedAt: string | null;
   correctionReason: string | null;
 };
 export const disclosureTemplateChoice = z.object({ id: z.uuid(), revision: version });
@@ -72,7 +73,7 @@ export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
   revisionReason: string | null;
   closingReviews: ClosingDisclosureReview[];
-  closingAssignment?: ClosingPackageAssignment;
+  closingAssignment?: ClosingPackageAssignment & { current: boolean };
   suggestedDeadline?: DisclosureDeadline;
   templateOptions?: DisclosureTemplateOptions;
   draftTargetChanged?: { version: number; signBy: string } | null;

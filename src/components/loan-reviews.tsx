@@ -284,11 +284,13 @@ export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvide
 
   const closing = page?.review.closingPackage;
   const returning = page?.review.category === closingPackageReviewCategory && page.review.status === "Changes requested";
+  const needsReplacement = page?.review.category === closingPackageReviewCategory &&
+    (returning || (page.review.status === "Requested" && page.review.evidenceChanged)) && !page.review.resubmitClosingPackage;
   const returnReason = returning ? page.history.find((event) => event.action === "Changes requested")?.note : undefined;
   const evidence = page && ({ "1003 second review": ["Open 1003", "loan-application"], "Document checklist": ["Open document checklist", "document-checklist"],
     "Closing readiness": ["Open closing workbench", "closing-workbench"], "General file review": null,
     [filePreflightCategory]: ["Open file preflight", filePreflightTarget],
-    [closingPackageReviewCategory]: returning ? ["Open disclosures to prepare a replacement", disclosureTarget] : ["Open current closing package", closingDisclosureReviewTarget] })[page.review.category];
+    [closingPackageReviewCategory]: needsReplacement ? ["Open disclosures to prepare a replacement", disclosureTarget] : ["Open current closing package", closingDisclosureReviewTarget] })[page.review.category];
   return <section className="details-section document-section" id={loanReviewsTarget} tabIndex={-1} aria-label="Team reviews">
     <div className="section-heading"><h3><ClipboardCheck size={17} /> Team reviews</h3>
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setVersion((value) => value + 1); setError(""); }}><RefreshCw /> Refresh team reviews</Button>
@@ -316,7 +318,7 @@ export function LoanReviews({ brokerageId, loanId, focusId, onChanged, openEvide
         <SavedDisclosureTermChanges changes={closing.changeReview?.changes} legacyChanges={closing.legacyChanges} />
       </div>}
       {returnReason && <p><strong>Correction requested</strong> · {returnReason}</p>}
-      {page.review.evidenceChanged && <p>{closing ? (returning && !page.review.resubmitClosingPackage
+      {page.review.evidenceChanged && <p>{closing ? (needsReplacement
         ? "Prepare, issue and sign a replacement before resubmitting this review." : "This review refers to an earlier package version.")
         : page.review.preflight ? "The file evidence has changed since this review." : "The submitted 1003 version has changed since this review."}</p>}
       {!page.review.reviewerAvailable && (page.review.status === "Requested" || page.review.status === "Changes requested") && <p>The reviewer needs to be reassigned.</p>}

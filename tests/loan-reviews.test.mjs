@@ -23,7 +23,8 @@ const { emptyPipelineFilters } = await import("../src/lib/pipeline-model.ts");
 const { stalledLoanPage } = await import("../src/lib/officer-stalled.ts");
 const { readOfficerQueue, readWorkspaceCalendar } = await import("../src/lib/officer-queue.ts");
 const { readProcessorQueue } = await import("../src/lib/processor-queue.ts");
-const { readFileExceptions, fileExceptionOwners, nameFileExceptions } = await import("../src/lib/file-exceptions.ts");
+const { countFileExceptions, readFileExceptions, fileExceptionOwners, nameFileExceptions } = await import("../src/lib/file-exceptions.ts");
+const { closingPackageException } = await import("../src/lib/file-exception-model.ts");
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { readPlaybook } = await import("../src/lib/playbooks.ts");
 const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
@@ -542,6 +543,8 @@ test("a named closing reviewer returns and approves exact signed versions withou
   }
   const isOpenTask = ({ version }) => !!db.prepare("SELECT 1 FROM tasks WHERE id = ? AND completedAt IS NULL")
     .get(`${disclosureClosingReviewPrefix}${loanId}:${version}`);
+  const exceptions = (filter = closingPackageException, time = at, members = roster) =>
+    nameFileExceptions(readFileExceptions(db, { filter }, admin, id, new Date(time)), members).items;
   await saveFees(0, 125_000);
   const first = await signedReplacement(1);
   await ok("confirmClosingDisclosure", first);
@@ -555,6 +558,15 @@ test("a named closing reviewer returns and approves exact signed versions withou
   assert.ok(work(assignment, { ...admin, brokerage: { ...admin.brokerage, id: "foreign" } }).error);
   assert.equal(work(assignment).kind, "saved");
   assert.equal(work(assignment).kind, "saved");
+  assert.equal(exceptions().length, 0);
+  const overdueAt = "2026-11-09T15:00:00.000Z";
+  const [overdue] = exceptions(closingPackageException, overdueAt);
+  assert.deepEqual([overdue.target, overdue.status, overdue.owner, overdue.evidence, overdue.overdue],
+    [reviewTarget(assignment.id), "Review overdue", processor.name, "Package v2", true]);
+  assert.equal(exceptions("Internal reviews", overdueAt).some((item) => item.id === assignment.id), false);
+  const [unavailable] = exceptions(closingPackageException, overdueAt, roster.map((member) => member.email === processor.email ?
+    { ...member, accessRevision: member.accessRevision + 1 } : member));
+  assert.equal(unavailable.ownerAvailable, false);
   assert.ok(work({ ...assignment, id: crypto.randomUUID() }).error);
   assert.equal(isOpenTask(second), false);
   assert.match((await command("confirmClosingDisclosure", second, admin)).error, /assigned closing package review/);
@@ -575,6 +587,14 @@ test("a named closing reviewer returns and approves exact signed versions withou
   assert.deepEqual(returned.history[0].closingPackage, second);
   assert.equal(returned.history[0].note, change.note);
   assert.equal(readDisclosureWork(db, loanId).closingAssignment.correctionReason, change.note);
+  const [corrections] = exceptions();
+  assert.deepEqual([corrections.status, corrections.owner, corrections.closingPackageVersion, corrections.overdue],
+    ["Returned for corrections", officer.name, 2, false]);
+  const all = exceptions("All file exceptions");
+  assert.equal(all.filter((item) => item.loanId === loanId && [closingPackageException, "Disclosure reviews"].includes(item.kind)).length, 1);
+  assert.equal(countFileExceptions(db, admin, id, new Date(at), 100), all.length);
+  assert.ok(readFileExceptions(db, { filter: closingPackageException }, processor, id).error);
+  assert.ok(readFileExceptions(db, { filter: closingPackageException }, admin, "foreign").error);
   assert.ok(work({ type: "inbox", unread: false }).notices.some(({ reviewId, label }) => reviewId === assignment.id && label === "Changes requested"));
   const resend = { type: "resubmit", loanId, id: assignment.id, revision: 2, eventId: crypto.randomUUID(), dueOn: today, note: "Reconciled the title estimate." };
   assert.match(work({ ...resend, closingPackage: second }).error, /newer sample package/);
@@ -586,6 +606,7 @@ test("a named closing reviewer returns and approves exact signed versions withou
   assert.equal(work({ ...resend, closingPackage: third }).kind, "saved");
   const approve = { ...change, revision: 3, eventId: crypto.randomUUID(), decision: "Approved", note: "Verified the corrected settlement entry." };
   assert.equal(work(approve, processor).kind, "saved");
+  assert.equal(exceptions().length, 0);
   assert.equal(isOpenTask(third), true);
   await ok("confirmClosingDisclosure", third, processor);
   assert.equal(isOpenTask(third), false);
@@ -594,6 +615,17 @@ test("a named closing reviewer returns and approves exact signed versions withou
   await saveFees(3, 165_000);
   assert.equal(work(detail).review.evidenceChanged, true);
   assert.deepEqual(work(detail).history.map(({ action, closingPackage }) => [action, closingPackage.version]), history);
+  const fourth = await signedReplacement(4, packageRef());
+  const next = create({ category: closingPackageReviewCategory, closingPackage: fourth });
+  assert.equal(work(next).kind, "saved");
+  await saveFees(4, 172_000);
+  const [stale] = exceptions();
+  assert.deepEqual([stale.status, stale.owner, stale.closingPackageVersion, stale.target],
+    ["Package outdated", officer.name, 4, reviewTarget(next.id)]);
+  assert.equal(readDisclosureWork(db, loanId).closingAssignment.current, false);
+  assert.match(work({ ...approve, id: next.id, revision: 1, eventId: crypto.randomUUID() }, processor).error, /signed closing package changed/);
+  db.prepare("UPDATE loans SET stage = 'Funded' WHERE id = ?").run(loanId);
+  assert.equal(exceptions().length, 0);
   assert.doesNotMatch(JSON.stringify(borrower({ type: "status" })), /Correct the title|reconciled the title|closingAssignment|closingPackage/i);
   assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
 });
