@@ -83,6 +83,10 @@ test("specific requirements preserve independent review cases and counsel questi
   assert.equal(new Set(stateRequirementSources.map(item => item.source.key)).size, stateRequirementSources.length);
   assert.ok(stateRequirementSources.every(item => item.source.key.length <= 30 && item.source.counselQuestion &&
     item.source.relatedSources.every(link => new URL(link.url).protocol === "https:")));
+  assert.deepEqual(
+    new Set(stateRequirementSources.filter(item => item.areaKey.endsWith("-LICENSING")).map(item => item.source.jurisdiction)),
+    new Set(stateRolloutSources.map(item => item.jurisdiction)),
+  );
   const rolloutRequirements = {
     MI: ["REQ-MI-LOAN-FEES", "REQ-MI-OUTREACH-ADVERTISING"],
     OH: ["REQ-OH-REPORTING-MCR"],
@@ -127,6 +131,14 @@ test("specific requirements preserve independent review cases and counsel questi
     AZ: ["REQ-AZ-LICENSING-COMPANY", "REQ-AZ-REPORTING-RENEWAL"],
     UT: ["REQ-UT-LICENSING-COMPANY", "REQ-UT-REPORTING-CONDITION"],
     NV: ["REQ-NV-LICENSING-COMPANY", "REQ-NV-REPORTING-MONTHLY", "REQ-NV-REPORTING-MCR", "REQ-NV-REPORTING-FINSTAT"],
+    CA: ["REQ-CA-LICENSING-COMPANY", "REQ-CA-LICENSING-CFL", "REQ-CA-REPORTING-BAR", "REQ-CA-REPORTING-CFLANNUAL"],
+    OR: ["REQ-OR-LICENSING-COMPANY", "REQ-OR-REPORTING-ANNUAL"],
+    WA: ["REQ-WA-LICENSING-COMPANY", "REQ-WA-REPORTING-MCR", "REQ-WA-RECORDS-RETENTION"],
+    ID: ["REQ-ID-LICENSING-COMPANY", "REQ-ID-OUTREACH-ADVERTISING"],
+    MT: ["REQ-MT-LICENSING-COMPANY", "REQ-MT-REPORTING-MCR"],
+    WY: ["REQ-WY-LICENSING-COMPANY", "REQ-WY-REPORTING-RENEWAL", "REQ-WY-REPORTING-MCR"],
+    AK: ["REQ-AK-LICENSING-COMPANY", "REQ-AK-REPORTING-ANNUAL", "REQ-AK-REPORTING-MCR"],
+    HI: ["REQ-HI-LICENSING-COMPANY", "REQ-HI-REPORTING-MCR"],
   };
   for (const [code, expected] of Object.entries(rolloutRequirements)) {
     const keys = read(code).items.flatMap(item => item.requirements.map(requirement => requirement.source.key));
