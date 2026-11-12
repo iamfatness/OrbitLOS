@@ -561,3 +561,7 @@ Application `3e0a68053ecb`. The old operational list link changed the saved sign
 ### Original disclosure fee comparison
 
 Application `5ba15236711f`. Impeccable Operate informed the distinction between selecting a version and inspecting the evidence. UI UX Pro Max form guidance informed focus on the new charge and retained input after a failed save. Reused Orbit's native disclosure, form, and evidence-list patterns. Compact phone choices keep the full disclosure reference visible beneath the field. See [UI review coverage](ui-review-coverage.md) for the populated and selected screenshots.
+
+### Michigan revised Loan Estimate review
+
+The charge picker follows Orbit’s existing disclosure form and version history. The LO can select the exact original and revised snapshots and see each selected amount and the timing issue together. On a stale save the selections stay in the form. A withdrawn source leaves the review open. The assigned processor sees the same evidence in a read-only view. The populated form and review were checked on desktop, portrait and phone.

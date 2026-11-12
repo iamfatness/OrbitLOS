@@ -1295,3 +1295,7 @@ Worker `7fd37cca-2941-482f-a334-d243d97d95b5` serves application `3e0a68053ecb`.
 ### Original disclosure fee comparison pilot
 
 Worker `3ba79b71-c220-4dbe-9f23-c0efa5c131a5` serves app `5ba15236711f`. Fictional owner and LO entered original and closing snapshots, recorded an unobtained service, and reviewed individual and aggregate changes. The assigned processor reviewed the same exact versions. A withdrawn closing source invalidated the selected comparison, and an incomplete replacement with conflicting classification kept the result open. The public Demo and signed-out routes passed staged and live. No provider actions or production loan changes occurred.
+
+### Michigan revised Loan Estimate review pilot
+
+Worker `9bc9df67-c3d6-47e7-b5ca-d39f730c126e` serves app `3e6679d0d8f5`. Fictional owner and LO selected exact disclosure versions and two charges, recovered a stale save, and reviewed the proposed amounts and date evidence. The assigned processor saw the chronology, then saw proposed amounts removed when the revised snapshot was withdrawn. The original comparison remained available. Public Demo and signed-out routes passed staged and live. The existing signed-in desktop workspace reloaded into the same brokerage after publication. No provider actions or production loan changes occurred.
