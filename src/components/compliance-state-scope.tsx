@@ -7,6 +7,7 @@ import { stateScopeFacts, type StateScopeFacts } from "@/lib/compliance-state-sc
 import { LicenseRecordStatus } from "./license-record-status";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
+import { ComplianceStateReadiness } from "./compliance-state-readiness";
 
 type Scope = Extract<ComplianceCaseResult, { kind: "stateScope" }>;
 type Entity = Extract<ComplianceCaseResult, { kind: "programEntities" }>["entities"][number];
@@ -161,6 +162,8 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
             legalApproval: current.legalApproval,
           }, null, 2), `orbit-${jurisdiction}-scope-v${current.revision}.json`, "application/json");
         }}>Download scope version</Button></div>}
+        {current.revision > 0 && <ComplianceStateReadiness key={`${entityId}:${current.revision}`}
+          brokerageId={brokerageId} entityId={entityId} jurisdiction={jurisdiction} scopeRevision={current.revision} paused={paused} />}
         {version === undefined ? <>
           <section className="state-scope-register record-form" aria-label="License records on file">
             <h3>License records on file</h3>

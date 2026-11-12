@@ -223,6 +223,60 @@ test("state scope saves an exact entity and source basis without granting approv
   assert.equal(work("stateScope", { ...query, revision: 1 }).sourceChanged, true);
   assert.equal(work("stateScope", { ...query, jurisdiction: "OH" }).revision, 0);
 });
+test("state requirement evidence is versioned by entity, state, source and exact scope", t => {
+  const f = fixture(t);
+  const work = (type, input, actor = f.owner, target = f.tenant) =>
+    complianceCaseWork(f.db, { type, input }, f.staff(actor, target), target, f.roster, now);
+  const entity = work("program", { operation: "createEntity", requestId: crypto.randomUUID(), name: "Fictional Michigan",
+    nmls: "", scopeNote: "Fictional test entity" }).entities[0];
+  const facts = { activity: "Brokerage", lienScope: "First lien", companyEvidence: "", officeEvidence: "",
+    originatorEvidence: "", products: "Closed-end purchase", responsibility: "", reportingBasis: "", counselPacketReference: "" };
+  const scope = (jurisdiction, expectedRevision = 0) => work("stateScope", {
+    operation: "save", jurisdiction, entityId: entity.id, expectedRevision, facts, requestId: crypto.randomUUID(),
+  });
+  const sourceKey = "REQ-MI-LOAN-FEES";
+  const query = { operation: "read", entityId: entity.id, jurisdiction: "MI", scopeRevision: 1, sourceKey };
+  assert.ok(work("stateReadiness", query).error);
+  for (const jurisdiction of stateRolloutSources.filter(item => item.key.endsWith("-LICENSING")).map(item => item.jurisdiction)) {
+    assert.equal(scope(jurisdiction).revision, 1);
+    const state = work("stateReadiness", { ...query, jurisdiction, sourceKey: undefined });
+    assert.ok(state.items.some(item => item.key.startsWith(`REQ-${jurisdiction}-LICENSING-`)), jurisdiction);
+    assert.ok(state.items.every(item => item.recorded === null), jurisdiction);
+  }
+  assert.equal(work("stateReadiness", query).legalApproval, false);
+  assert.ok(work("stateReadiness", query, f.lo).error);
+  assert.ok(work("stateReadiness", query, f.owner, crypto.randomUUID()).error);
+  assert.ok(work("stateReadiness", { ...query, jurisdiction: "OH" }).error);
+  const save = { ...query, operation: "save", expectedRevision: 0, requestId: crypto.randomUUID(), facts: {
+    counsel: "Counsel advised applicable", counselEvidence: "Fictional counsel reference",
+    control: "Control tested internally", controlEvidence: "Fictional test reference", nextAction: "Review deployment evidence",
+  } };
+  assert.ok(work("stateReadiness", { ...save, facts: { ...save.facts, counselEvidence: "" } }).error);
+  assert.ok(work("stateReadiness", { ...save, facts: { ...save.facts, controlEvidence: "" } }).error);
+  assert.equal(work("stateReadiness", save).revision, 1);
+  assert.equal(work("stateReadiness", save).revision, 1);
+  assert.ok(work("stateReadiness", { ...save, requestId: crypto.randomUUID() }).error);
+  assert.equal(work("stateReadiness", { ...save, expectedRevision: 1, requestId: crypto.randomUUID(),
+    facts: { ...save.facts, nextAction: "Fictional updated review" } }).revision, 2);
+  const reviewed = work("stateReadiness", query);
+  assert.equal(reviewed.items.find(item => item.key === sourceKey).recorded.revision, 2);
+  assert.deepEqual(reviewed.history[1].facts, save.facts);
+  assert.equal(work("program", { operation: "saveLicense", requestId: crypto.randomUUID(), id: crypto.randomUUID(),
+    entityId: entity.id, revision: 0, jurisdiction: "MI", licenseType: "Fictional broker authority", licenseNumber: "FICTIONAL-002",
+    status: "Active", effectiveOn: null, expiresOn: null, evidence: "Fictional register reference" }).kind, "programLicenses");
+  assert.equal(work("stateScope", { operation: "read", entityId: entity.id, jurisdiction: "MI" }).licensesChanged, true);
+  assert.equal(work("stateReadiness", query).readOnly, true);
+  assert.ok(work("stateReadiness", { ...save, expectedRevision: 2, requestId: crypto.randomUUID() }).error);
+  assert.equal(scope("MI", 1).revision, 2);
+  const currentQuery = { ...query, scopeRevision: 2 };
+  assert.equal(work("stateReadiness", currentQuery).readOnly, false);
+  assert.equal(work("stateReadiness", currentQuery).items.find(item => item.key === sourceKey).recorded, null);
+  f.db.prepare("UPDATE compliance_state_scope_versions SET sourceHash=? WHERE jurisdiction='MI' AND revision=2").run("changed");
+  assert.equal(work("stateReadiness", currentQuery).scopeChanged, true);
+  assert.ok(work("stateReadiness", { ...save, scopeRevision: 2, requestId: crypto.randomUUID() }).error);
+  assert.equal(work("stateReadiness", query).historical, true);
+  assert.equal(work("stateReadiness", query).history.length, 2);
+});
 test("opening research is idempotent, canonical, and preserves research-only status", (t) => {
   const f = fixture(t);
   assert.equal(f.list().counts.total, 0);
