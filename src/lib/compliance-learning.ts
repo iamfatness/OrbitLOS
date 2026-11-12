@@ -68,6 +68,26 @@ export function complianceLearningWork(db: Store, input: unknown, staff: Workspa
       history: history.slice(0, 50).map(e => ({ operation: e.operation, actor: e.actor, at: e.at, evidence: JSON.parse(String(e.response)) })),
       moreHistory: history.length > 50 };
   }
+  if (data.operation === "policyFollowUp") {
+    if (!admin) return unavailable;
+    const members = JSON.stringify(roster.filter(member => member.status === "Active").map(member => ({
+      email: member.email, revision: member.accessRevision ?? 0, name: member.name,
+    })));
+    const scope = `FROM compliance_learning_assignments a
+      JOIN compliance_learning_versions v ON v.brokerageId=a.brokerageId AND v.id=a.versionId AND v.kind='Policy'
+      JOIN json_each(?) roster ON json_extract(roster.value,'$.email')=a.employeeEmail AND json_extract(roster.value,'$.revision')=a.accessRevision
+      WHERE a.brokerageId=? AND NOT EXISTS (
+        SELECT 1 FROM compliance_learning_events e WHERE e.brokerageId=a.brokerageId AND e.assignmentId=a.id
+        AND (e.operation='revokeAssignment' OR json_extract(e.response,'$.completed')=1)
+      )`;
+    const counts = db.prepare(`SELECT count(*) AS total, sum(julianday(a.dueAt) < julianday(?)) AS pastTarget ${scope}`).get(now, members, tenant);
+    const filter = data.filter === "Past target" ? "AND julianday(a.dueAt) < julianday(?)" : data.filter === "Due later" ? "AND julianday(a.dueAt) >= julianday(?)" : "";
+    const rows = db.prepare(`SELECT a.id,a.versionId,a.dueAt,a.employeeEmail,v.title,v.createdAt,
+      json_extract(roster.value,'$.name') AS employeeName ${scope} ${filter}
+      ORDER BY julianday(a.dueAt),a.id LIMIT 26 OFFSET ?`).all(members, tenant, ...(filter ? [now] : []), data.offset);
+    return { kind: "policyFollowUp", total: Number(counts?.total ?? 0), pastTarget: Number(counts?.pastTarget ?? 0), more: rows.length > 25,
+      items: rows.slice(0, 25).map(row => ({ ...row, pastTarget: Date.parse(String(row.dueAt)) < Date.parse(now) })) };
+  }
   if (data.operation === "list" || data.operation === "myAssignments") {
     if (admin && data.operation === "list") {
       const rows = db.prepare(`SELECT rowid AS sequence,${versionColumns} FROM compliance_learning_versions
@@ -97,7 +117,8 @@ export function complianceLearningWork(db: Store, input: unknown, staff: Workspa
   if (data.operation === "listAssignments") {
     if (!admin || !getVersion(data.versionId)) return unavailable;
     const rows = db.prepare(`SELECT rowid AS sequence,${assignmentColumns} FROM compliance_learning_assignments
-      WHERE brokerageId=? AND versionId=? AND rowid>? ORDER BY rowid LIMIT 26`).all(tenant, data.versionId, data.after ?? 0);
+      WHERE brokerageId=? AND versionId=? AND rowid>? ${data.assignmentId ? "AND id=?" : ""} ORDER BY rowid LIMIT 26`)
+      .all(tenant, data.versionId, data.after ?? 0, ...(data.assignmentId ? [data.assignmentId] : []));
     return { kind: "learningAssignments", items: rows.slice(0, 25).map(r => ({ ...r, active: active(r as unknown as Assignment),
       completed: Boolean(db.prepare(`SELECT 1 FROM compliance_learning_events WHERE brokerageId=? AND assignmentId=?
         AND json_extract(response,'$.completed')=1 LIMIT 1`).get(tenant, String(r.id))) })),

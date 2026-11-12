@@ -14,8 +14,8 @@ type Selection = { heldOnly: boolean; search: string; offset: number };
 type Review = { loan: LoanRow; action: "history" | "hold" | "release"; id: string };
 const initial: Selection = { heldOnly: false, search: "", offset: 0 };
 
-export function LoanRetention({ brokerageId, paused, openLoan }: {
-  brokerageId: string; paused: boolean; openLoan: (id: string) => void;
+export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
+  brokerageId: string; paused: boolean; openLoan: (id: string) => void; openEvidence: (id: string) => void;
 }) {
   const [disposition, setDisposition] = useState(false);
   const dispositionLink = useRef<HTMLButtonElement>(null);
@@ -127,22 +127,23 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
     }
   }
 
-  if (paused) return <p className="muted">Loan retention is unavailable while the workspace is paused.</p>;
+  if (paused && (!inventory || disposition)) return <p className="muted">Loan retention is unavailable while the workspace is paused.</p>;
 
   if (disposition) return <RetentionDisposition brokerageId={brokerageId} openLoan={openLoan} onBack={()=>{
     setDisposition(false);
     requestAnimationFrame(()=>dispositionLink.current?.focus());
   }} />;
 
+  const locked = pending || paused;
   return <div className="integration manager-panel record-form loan-retention">
     <div className="section-heading">
-      <h2>Loan retention</h2>
-      <Button ref={dispositionLink} type="button" variant="outline" disabled={pending || !!review}
+      <h2>Loan evidence &amp; retention</h2>
+      <div className="loan-application-actions"><Button ref={dispositionLink} type="button" variant="outline" disabled={locked || !!review}
         onClick={()=>setDisposition(true)}>Disposition review</Button>
-      {inventory && <Button variant="outline" aria-pressed={selection.heldOnly} disabled={pending || !!review}
+      {inventory && <Button variant="outline" aria-pressed={selection.heldOnly} disabled={locked || !!review}
         onClick={() => { setNotice(""); load({ ...selection, heldOnly: !selection.heldOnly, offset: 0 }); }}>
         {inventory.held} {inventory.held === 1 ? "active hold" : "active holds"}
-      </Button>}
+      </Button>}</div>
     </div>
     <p className="muted">Holds protect the loan and its checklist PDFs from deletion.</p>
     <form className="loan-application-actions retention-search" onSubmit={(event) => {
@@ -150,11 +151,11 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
       setNotice("");
       load({ ...selection, search: search.trim(), offset: 0 });
     }}>
-      <label className="field">Borrower name
-        <input value={search} maxLength={100} disabled={pending || !!review} onChange={(event) => setSearch(event.target.value)} />
+      <label className="field">Borrower name or file ID
+        <input value={search} maxLength={100} disabled={locked || !!review} onChange={(event) => setSearch(event.target.value)} />
       </label>
-      <Button type="submit" variant="outline" disabled={pending || !!review}>Search</Button>
-      <Button type="button" variant="outline" disabled={pending || !!review} onClick={() => load({ ...selection })}>Refresh</Button>
+      <Button type="submit" variant="outline" disabled={locked || !!review}>Search</Button>
+      <Button type="button" variant="outline" disabled={locked || !!review} onClick={() => load({ ...selection })}>Refresh</Button>
     </form>
     {notice && <p ref={receipt} role="status" tabIndex={-1}>{notice}</p>}
     {error && !review && <p role="alert">{error}</p>}
@@ -163,6 +164,7 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
         {review.action === "history" ? "Hold history" : review.action === "hold" ? "Place retention hold" : "Release retention hold"}
       </h3>
       <strong>{review.loan.borrower}</strong>
+      <p className="muted">File ID {review.loan.id}</p>
       {review.action !== "history" &&
         <form className="record-form" onSubmit={event => { event.preventDefault(); void save(); }}>
           <p className="muted">{review.action === "hold" ?
@@ -205,11 +207,13 @@ export function LoanRetention({ brokerageId, paused, openLoan }: {
       {inventory.loans.length === 0 && <p>{selection.heldOnly ? "No matching loans are on hold." : "No matching loans."}</p>}
       <ul className="loan-task-list">{inventory.loans.map(loan => <li key={loan.id} className="loan-task document-item record-form">
         <div className="section-heading"><strong>{loan.borrower}</strong>{loan.holdId && <span className="muted">On hold</span>}</div>
-        <p className="muted">{loan.stage} · {loan.requests} {loan.requests === 1 ? "request" : "requests"} · {loan.pdfs} saved {loan.pdfs === 1 ? "PDF" : "PDFs"}</p>
+        {loan.address && <p>{loan.address}</p>}
+        <p className="muted">File ID {loan.id}</p>
+        <p className="muted">{loan.purpose} · {loan.stage} · {loan.requests} {loan.requests === 1 ? "request" : "requests"} · {loan.pdfs} saved {loan.pdfs === 1 ? "PDF" : "PDFs"}</p>
         <div className="loan-application-actions">
-          <Button variant="outline" disabled={pending || !!review} onClick={() => openLoan(loan.id)}>Open loan</Button>
-          <Button variant="outline" disabled={pending || !!review} onClick={event => void inspect(loan, "history", event.currentTarget)}>Hold history</Button>
-          <Button variant="outline" disabled={pending || !!review}
+          <Button variant="outline" disabled={locked || !!review} onClick={() => openEvidence(loan.id)}>Open disclosure evidence</Button>
+          <Button variant="outline" disabled={locked || !!review} onClick={event => void inspect(loan, "history", event.currentTarget)}>Hold history</Button>
+          <Button variant="outline" disabled={locked || !!review}
             onClick={event => void inspect(loan, loan.holdId ? "release" : "hold", event.currentTarget)}>
             {loan.holdId ? "Release hold" : "Place hold"}
           </Button>

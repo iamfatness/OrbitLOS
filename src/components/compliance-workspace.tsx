@@ -6,6 +6,7 @@ import type { ObligationReviewBasis } from "@/lib/compliance-obligations-model";
 import type { ReportingPeriod } from "@/lib/call-report-readiness-model";
 import type { MigrationDestination } from "@/lib/migration-record-model";
 import { ComplianceFilingArchive } from "./compliance-filing-archive";
+import { CompliancePolicyFollowUp } from "./compliance-policy-follow-up";
 import { ComplianceInventory } from "./compliance-inventory";
 import { ComplianceLeadBackfill } from "./compliance-lead-backfill";
 import { ComplianceQueue } from "./compliance-queue";
@@ -18,18 +19,18 @@ import { ComplianceResearch } from "./compliance-research";
 import { Button } from "./ui/button";
 import { ComplianceOwnerHome, type ComplianceSetupAction } from "./compliance-owner-home";
 
-type View = "Home" | "Filing history" | "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
+type View = "Home" | "Filing history" | "Policy acknowledgments" | "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
 const areas: { label: string; links: { view: View; label: string; pilot?: boolean }[] }[] = [
   { label: "Licenses & branches", links: [{ view: "Licensing", label: "License register" }] },
   { label: "Calendar & filings", links: [{ view: "Monthly review", label: "Monthly review" }, { view: "Obligations", label: "Recurring work", pilot: true }] },
   { label: "File reviews", links: [{ view: "Work queue", label: "File findings", pilot: true }, { view: "Coverage & gaps", label: "File inventory", pilot: true }] },
-  { label: "Policies & evidence", links: [{ view: "Training & policies", label: "Training & policies", pilot: true }, { view: "Loan retention", label: "Loan retention", pilot: true }] },
+  { label: "Policies & evidence", links: [{ view: "Training & policies", label: "Training & policies", pilot: true }, { view: "Loan retention", label: "Loan evidence & retention", pilot: true }] },
   { label: "Research", links: [{ view: "Research & gaps", label: "Research & sources" }] },
 ];
 
-export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals, returnToBrokerageLicenses,
+export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openEvidence, openHistoryRecord, licenseTarget, returnToRenewals, returnToBrokerageLicenses,
   onLicenseSaved, openLicensing, branchId, onBranch, openBranches, returningFromBranches, openCallReport, renderReport }: {
-  brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
+  brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void; openEvidence: (loanId: string) => void;
   openHistoryRecord: (destination: MigrationDestination) => void;
   licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void; returnToBrokerageLicenses?: () => void; onLicenseSaved?: () => void; openLicensing?: boolean;
   branchId: string; onBranch: (id: string) => void; openBranches: () => void; returningFromBranches?: boolean; openCallReport: () => void;
@@ -106,12 +107,14 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       {view === "Home" && <ComplianceOwnerHome brokerageId={brokerageId} paused={paused} branchId={branchId} onBranch={onBranch} returningTo={returningTo}
         onSetup={openSetup} openArea={showArea} openFinding={openLoan}
         openFilingArchive={pilot ? () => showArea("Filing history", "compliance-filing-history") : undefined}
+        openPolicyFollowUp={pilot ? () => showArea("Policy acknowledgments", "compliance-policy-follow-up") : undefined}
         openLicense={target => { setSetup(undefined); setLocalLicense(target); show("Licensing", `compliance-renewal-${target.licenseId}`); }}
         openReview={target => { setReview(target); show("Monthly review", `compliance-review-${target.itemId}`); }} />}
       {view === "Licensing" && <ComplianceLicensing key={brokerageId} brokerageId={brokerageId} paused={paused}
         initialTarget={localLicense ?? licenseTarget} setupEntity={setup === "company"} setupBranch={setup === "licenses" ? branchId : undefined} onLicenseSaved={onLicenseSaved} />}
+      {view === "Policy acknowledgments" && <CompliancePolicyFollowUp brokerageId={brokerageId} paused={paused} />}
       {view === "Filing history" && <ComplianceFilingArchive brokerageId={brokerageId} paused={paused} />}
-      {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} />}
+      {view === "Loan retention" && <LoanRetention brokerageId={brokerageId} paused={paused} openLoan={openLoan} openEvidence={openEvidence} />}
       {view === "Monthly review" && <>
         {obligationVisit && <Button size="sm" variant="outline" className="mb-3" onClick={() => {
           setObligationVisit({ ...obligationVisit, returning: true });

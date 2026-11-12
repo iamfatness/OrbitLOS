@@ -23,10 +23,10 @@ function WorkRow({ title, children, action, onOpen, id }: {
   </li>;
 }
 
-export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, returningTo, onSetup, openLicense, openReview, openFinding, openArea, openFilingArchive }: {
+export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, returningTo, onSetup, openLicense, openReview, openFinding, openArea, openFilingArchive, openPolicyFollowUp }: {
   brokerageId: string; paused: boolean; branchId: string; onBranch: (id: string) => void; returningTo?: string;
   onSetup: (step: ComplianceSetupAction, createCompany?: boolean) => void; openLicense: (target: LicenseRenewalTarget) => void;
-  openReview: (target: ProgramReviewTarget) => void; openFinding: (loanId: string, caseId: string) => void; openArea: (area: WorkArea) => void; openFilingArchive?: () => void;
+  openReview: (target: ProgramReviewTarget) => void; openFinding: (loanId: string, caseId: string) => void; openArea: (area: WorkArea) => void; openFilingArchive?: () => void; openPolicyFollowUp?: () => void;
 }) {
   const [response, setResponse] = useState<{ branch: string; data: Home | { error: string } }>();
   const [revision, refresh] = useState(0);
@@ -128,6 +128,7 @@ export function ComplianceOwnerHome({ brokerageId, paused, branchId, onBranch, r
         <h2 id="compliance-attention-heading" ref={heading} tabIndex={-1}>Needs attention</h2>
         {openFilingArchive && <Button id="compliance-filing-history" size="sm" variant="outline" onClick={openFilingArchive}>Filing history</Button>}
       </div>
+      {openPolicyFollowUp && <div><Button id="compliance-policy-follow-up" size="sm" variant="outline" onClick={openPolicyFollowUp}>Policy acknowledgments</Button></div>}
       {!hasWork && <p className="muted">No recorded renewals or review work due through {displayDate(home.through)}{home.fileFindings ? ", and no sample file findings" : ""}.</p>}
       {renewalTotal > 0 && <section aria-label="License renewals">
         <h3>License renewals</h3>

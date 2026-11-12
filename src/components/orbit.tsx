@@ -1653,6 +1653,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               openReadiness={() => { setReportingPeriod(period); setManagerExceptionView("reporting"); navigate("Playbooks", false); }}
               openLoan={loanId => void openQueueLoan({ kind: "details", loanId, target: callReportFactsTarget })} />}
             openHistoryRecord={openMigrationDestination}
+            openEvidence={loanId => void openQueueLoan({ kind: "details", loanId, target: disclosureTarget })}
             openLoan={(loanId, caseId) => void openQueueLoan({ kind: "details", loanId, target: caseId ? complianceCaseTarget(caseId) : complianceTarget })} />}
           {section === "Review Inbox" && canOpenCalendar && <ReviewInboxPanel inbox={reviewInbox} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
             busy={busy} open={(loanId, reviewId) => void openQueueLoan({ kind: "details", loanId, target: reviewTarget(reviewId) })} />}

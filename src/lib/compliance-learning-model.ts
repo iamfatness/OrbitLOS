@@ -9,10 +9,19 @@ const question = z.strictObject({ prompt: z.string().trim().min(1).max(1000),
   options: z.array(z.string().trim().min(1).max(500)).min(2).max(6),
   correctIndex: z.number().int().min(0).max(5), explanation: z.string().trim().min(1).max(1000) })
   .refine(q => q.correctIndex < q.options.length, "Answer must identify an option");
+export const policyFollowUpFilters = ["All outstanding", "Past target", "Due later"] as const;
+export const policyFollowUpPage = z.object({
+  kind: z.literal("policyFollowUp"), total: z.int().nonnegative(), pastTarget: z.int().nonnegative(), more: z.boolean(),
+  items: z.array(z.object({
+    id, versionId: id, title: z.string(), employeeName: z.string(), employeeEmail: z.string(),
+    dueAt: z.string(), createdAt: z.string(), pastTarget: z.boolean(),
+  })),
+});
 export const learningRequest = z.discriminatedUnion("operation", [
+  z.strictObject({ operation: z.literal("policyFollowUp"), filter: z.enum(policyFollowUpFilters), offset: z.int().min(0).max(10000) }),
   z.strictObject({ operation: z.literal("myAssignments"), after: z.number().int().nonnegative().optional() }),
   z.strictObject({ operation: z.literal("list"), after: z.number().int().nonnegative().optional() }),
-  z.strictObject({ operation: z.literal("listAssignments"), versionId: id, after: z.number().int().nonnegative().optional() }),
+  z.strictObject({ operation: z.literal("listAssignments"), versionId: id, assignmentId: id.optional(), after: z.number().int().nonnegative().optional() }),
   z.strictObject({ operation: z.literal("readVersion"), ...version }),
   z.strictObject({ operation: z.literal("readAssignment"), ...assignment }),
   z.strictObject({ operation: z.literal("createVersion"), ...mutation, contentId: id,

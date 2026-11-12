@@ -62,7 +62,7 @@ export function initializeLoanRetention(db: Store) {
 
 type Hold = { id: string; reference: string; placedAt: string; placedBy: string; releaseReference: string | null;
   releasedAt: string | null; releasedBy: string | null };
-type LoanRow = { id: string; borrower: string; stage: string; requests: number; pdfs: number; holdId: string | null };
+type LoanRow = { id: string; borrower: string; address: string; purpose: string; stage: string; requests: number; pdfs: number; holdId: string | null };
 type Work = { kind: "list"; loans: LoanRow[]; total: number; held: number; next: number | null } |
   { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult | { error: string };
 export type LoanRetentionResult = Work;
@@ -81,10 +81,10 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
     if (data.type === "list") {
       const source = `FROM loans loan JOIN contacts contact ON contact.id=loan.contactId
         LEFT JOIN loan_retention_holds hold ON hold.loanId=loan.id AND hold.releasedAt IS NULL
-        WHERE (? = 0 OR hold.id IS NOT NULL) AND instr(lower(contact.name), lower(?)) > 0`;
-      const args = [Number(data.heldOnly), data.search];
+        WHERE (? = 0 OR hold.id IS NOT NULL) AND (instr(lower(contact.name), lower(?)) > 0 OR instr(lower(loan.id), lower(?)) > 0)`;
+      const args = [Number(data.heldOnly), data.search, data.search];
       const count = db.prepare(`SELECT count(*) AS n ${source}`).get(...args)?.n;
-      const loans = db.prepare(`SELECT loan.id,contact.name AS borrower,loan.stage,hold.id AS holdId,
+      const loans = db.prepare(`SELECT loan.id,contact.name AS borrower,loan.address,loan.purpose,loan.stage,hold.id AS holdId,
         (SELECT count(*) FROM document_requests request WHERE request.loanId=loan.id) AS requests,
         (SELECT count(*) FROM (
           SELECT objectId FROM loan_retention_pdf_references WHERE loanId=loan.id
