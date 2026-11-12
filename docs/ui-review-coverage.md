@@ -117,3 +117,14 @@ The quote worksheet showed 1.25% of $350,000 as $4,375 and 0.2% of $450,000 as $
 Checked the populated editor, blocked picker, quote worksheet and borrower view at 1440 × 900, 900 × 1200 and 390 × 844. Inspected final desktop and phone captures in `.orbit/fee-percentage-{editor,blocked,worksheet,borrower}-*.png`. Used Impeccable layout review and UI UX Pro Max validation and focus guidance. Reused the accepted fee-form and disclosure patterns informed by 21st.dev. The source scan, 618 tests, lint, typecheck, production build and 70-stage mock rehearsal passed. The authenticated workflow used isolated fictional records. The phone picker can shorten long template names. The saved template heading and calculation text wrap.
 
 Product and Demo passed staged and live at desktop and phone widths. Fourteen public, portal and signed-out checks passed in both environments. All 3,984 browser assets matched the build in two staged passes and two ordinary live passes.
+
+
+## State and ZIP fee schedules
+
+Verified on app `7f95ced654ea`, Worker `23fa096e-8aff-4506-b140-dd25924feec5`. The fictional owner corrected a Michigan template with a New York ZIP after the error took focus and kept the draft. The owner published statewide and ZIP-specific Michigan schedules, an Ohio schedule and a nationwide schedule. Searching and editing reopened the exact state, and Cancel returned focus to the same row.
+
+The assigned LO loaded the picker on a quote priced for Michigan ZIP 48067. The matching ZIP schedule appeared first, the statewide schedule appeared before the nationwide schedule, and the Ohio schedule was absent. The phone picker displayed the complete selected title below the native select. Keyboard loading restored focus to that select. The LO published the statewide $725 appraisal. The staff record retained the Michigan scope and priced ZIP, and the borrower saw the itemized $725 fee. Repricing with an unlisted ZIP showed the fallback explanation and the nationwide option. Automated checks also covered legacy ZIP-only schedules, mismatched direct saves, and template changes preserving the saved location.
+
+Checked 1440 × 900, 900 × 1200 and 390 × 844 and inspected final owner, picker, worksheet and borrower captures in `.orbit/fee-state-{owner,picker,worksheet,borrower}-*.png`. Used Impeccable layout review and UI UX Pro Max guidance on form labels, focus and long content. Reused Orbit's property-state select, worksheet and disclosure patterns informed by 21st.dev. The source scan, 618 tests, lint, typecheck, production build and 70-stage mock rehearsal passed. Authenticated role checks used isolated fictional records.
+
+The updated Product and Demo pages passed at desktop and phone widths. Fourteen public, portal and signed-out checks passed staged and live. All 4,036 browser assets matched the build in two staged passes and two ordinary live passes.
