@@ -85,7 +85,6 @@ test("brokerage templates retain versions and issuance confirms the exact previe
   assert.equal(publish(0).templates[0].revision, 1);
   assert.equal(publish(0).templates[0].revision, 1);
   assert.deepEqual(work().page.templates, [{ id, title: first.title, revision: 1 }]);
-  const { type, requestId, confirmed, ...terms } = issue;
   const preview = (revision, update = {}) => work({ ...issue, type: "preview", template: { id, revision }, ...update }).preview;
   const initial = preview(1);
   assert.equal(initial.template.note, first.note);

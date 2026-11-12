@@ -680,3 +680,9 @@ The fictional browser exercised a populated owner editor, publishing a new quest
 Impeccable Polish informed the aligned question and required-answer controls and the stacked phone editor. UI UX Pro Max label and recovery guidance informed explicit request checkboxes and the reload path. Orbit reused its 21st.dev-informed checklist rows, version labels and native selection controls. The full selected question wraps below the dropdown at narrow widths.
 
 The fictional browser exercised an owner's published rule, both applicant previews, keyboard selection and reload, the created request's exact evidence, and both private checklists. Inspected desktop and phone captures in `.orbit/checklist-answers-{owner-rule,primary-preview,co-preview,staff-request}-*.png`. The 900 px layouts were also exercised.
+
+### Brokerage sample preapproval templates
+
+Impeccable Polish informed the owner editor and the placement of the preview directly before confirmation. UI UX Pro Max guided the visible labels, focus on the preview, and recovery when a newer template version appears. Orbit reused its 21st.dev-informed disclosure, form and receipt patterns.
+
+The fictional browser opened a populated owner template and its original version history, then previewed and issued from a selected loan. Publishing a newer template from the owner tab triggered a stale preview error. Refresh preserved the entered amount and selection, and editing the amount invalidated the prior preview. Inspected the desktop and phone editor, history, preview and issued-version captures in `.orbit/preapproval-templates-*.png`. The 900 px layouts were also exercised. Inspected the rendered one-page PDF for the fictional banner, amount, expiry, note and footer.
