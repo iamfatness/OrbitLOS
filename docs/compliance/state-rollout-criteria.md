@@ -22,7 +22,7 @@ The reporting starting points in `state-reporting-review-sources.json` preserve 
 
 | Batch | States | Current scope |
 | --- | --- | --- |
-| 1 | MI | Specific reviews cover first and secondary authority, originators, reporting, records, first-mortgage fees and advertising. The fictional pilot has verified loan-practice and retention workflows locally, including versioned records, audit exports and disposition review. Advertising workflow, counsel review and release acceptance remain open. |
+| 1 | MI | Specific reviews cover first and secondary authority, originators, reporting, records, first-mortgage fees and advertising. The fictional pilot has locally verified loan-practice, retention, disposition and advertising evidence workflows, with saved versions and review exports. Counsel review and release acceptance remain open. |
 | 2 | OH, IN, IL, WI | Specific reviews in all five areas, including reports of condition, state agreement forms, advertising and examination files. Period instructions and operational rehearsals remain open. |
 | 3 | MN, IA, MO, NE, SD, ND, KS | Specific reviews in all five areas for all seven states, including distinct Iowa reporting bases, state borrower disclosures and records. Entity applicability, exceptions and operational rehearsals remain open. |
 | 4 | PA, NY, NJ, DE, MD, VA, WV | Specific reviews in all five areas for all seven states. Counsel applicability, control implementation and operational verification are tracked per requirement. |

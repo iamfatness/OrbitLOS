@@ -16,15 +16,16 @@ import { ComplianceObligations } from "./compliance-obligations";
 import { ComplianceLicensing } from "./compliance-licensing";
 import { ComplianceLearning } from "./compliance-learning";
 import { ComplianceResearch } from "./compliance-research";
+import { AdvertisingReview } from "./advertising-review";
 import { Button } from "./ui/button";
 import { ComplianceOwnerHome, type ComplianceSetupAction } from "./compliance-owner-home";
 
-type View = "Home" | "Filing history" | "Policy acknowledgments" | "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention";
+type View = "Home" | "Filing history" | "Policy acknowledgments" | "Licensing" | "Training & policies" | "Obligations" | "Monthly review" | "Work queue" | "Coverage & gaps" | "Research & gaps" | "Loan retention" | "Advertising review";
 const areas: { label: string; links: { view: View; label: string; pilot?: boolean }[] }[] = [
   { label: "Licenses & branches", links: [{ view: "Licensing", label: "License register" }] },
   { label: "Calendar & filings", links: [{ view: "Monthly review", label: "Monthly review" }, { view: "Obligations", label: "Recurring work" }] },
   { label: "File reviews", links: [{ view: "Work queue", label: "File findings", pilot: true }, { view: "Coverage & gaps", label: "File inventory", pilot: true }] },
-  { label: "Policies & evidence", links: [{ view: "Training & policies", label: "Training & policies" }, { view: "Loan retention", label: "Loan evidence & retention", pilot: true }] },
+  { label: "Policies & evidence", links: [{ view: "Training & policies", label: "Training & policies" }, { view: "Loan retention", label: "Loan evidence & retention", pilot: true }, { view: "Advertising review", label: "Advertising evidence" }] },
   { label: "Research", links: [{ view: "Research & gaps", label: "Research & sources" }] },
 ];
 
@@ -157,6 +158,8 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
             setView("Monthly review");
           }} />
       </div>}
+      {view === "Advertising review" && <AdvertisingReview key={brokerageId} brokerageId={brokerageId} paused={paused}
+        openMonthlyReview={() => show("Monthly review")} />}
       {view === "Work queue" && <ComplianceQueue brokerageId={brokerageId} admin paused={paused} openLoan={openLoan} />}
       {view === "Coverage & gaps" && <div className="integration manager-panel record-form">
         <h2>Coverage &amp; gaps</h2>
