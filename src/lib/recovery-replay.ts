@@ -1,9 +1,9 @@
 import type {Store} from "./store";
 import type {WorkspaceStaff} from "./staff-store";
 import {loanAccess} from "./workspace-access";
-import {setDocumentDeadline} from "./deadline-actions";
-import {recoveryEditReview,expectedRecoveryDocument,sameRecoveryDocument,type RecoveryEdit,type RecoveryEditInspection,type RecoveryReplay} from "./recovery-edit-model";
-import {inspectRecoveryEdit,readRecoveryDocument,recordRecoveryProof,validRecoveryProof} from "./recovery-edits";
+import {setClosingChecklistStatus,setDocumentDeadline} from "./deadline-actions";
+import {recoveryEditReview,type RecoveryEdit,type RecoveryEditInspection,type RecoveryReplay} from "./recovery-edit-model";
+import {inspectRecoveryEdit,readRecoveryState,recordRecoveryProof,validRecoveryProof} from "./recovery-edits";
 import {maintenanceAdmin,maintenanceState,maintenanceView,pendingRecoveryReplay,pendingWorkspaceRestore,recordMaintenanceEvent} from "./workspace-maintenance";
 
 export type ReplayReservation={replay:RecoveryReplay;edit:RecoveryEdit};
@@ -56,14 +56,16 @@ export function applyRecoveryReplay(db:Store,staff:WorkspaceStaff,reservation:Re
     const prior=db.prepare("SELECT editId,result FROM recovery_replay_proofs WHERE id=?").get(replay.id);
     if(prior){if(prior.editId!==edit.id)throw new Error("Recovery receipt identity differs.");return JSON.parse(String(prior.result)) as ReplayResult;}
     const observed=inspectRecoveryEdit(db,edit),at=new Date().toISOString();
-    let result:ReplayResult={state:"Not applied",message:"The original document revision is no longer available. No change was made.",at};
-    if(staff.brokerage.role==="Admin"&&staff.brokerage.pilot&&loanAccess(db,staff,edit.command.loanId)&&observed.canReplay){
-      const changed=setDocumentDeadline(db,edit.command,staff,at);
+    const {command,proof}=edit;
+    let result:ReplayResult={state:"Not applied",message:"The original record revision is no longer available. No change was made.",at};
+    if(staff.brokerage.role==="Admin"&&staff.brokerage.pilot&&loanAccess(db,staff,command.loanId)&&observed.canReplay&&proof){
+      const changed=command.type==="completeClosingItem"
+        ? setClosingChecklistStatus(db,command,at,proof.at)
+        : setDocumentDeadline(db,command,staff,at);
       if("error" in changed)throw new Error(changed.error);
-      const after=readRecoveryDocument(db,edit.command.loanId,edit.command.requestId);
-      if(!sameRecoveryDocument(after,expectedRecoveryDocument(edit)))throw new Error("Recovered revision differs from the saved receipt.");
-      recordRecoveryProof(db,edit,edit.before,after,at);
-      result={state:"Applied",message:"Saved due-date change recovered. Complete a new reopening review.",at};
+      recordRecoveryProof(db,edit,edit.before,readRecoveryState(db,command),proof.at);
+      const label=command.type==="completeClosingItem"?"Closing checklist change":"Saved due-date change";
+      result={state:"Applied",message:`${label} recovered. Complete a new reopening review.`,at};
     }
     db.prepare("INSERT INTO recovery_replay_proofs VALUES (?,?,?,?)").run(replay.id,edit.id,JSON.stringify(result),at);
     return result;

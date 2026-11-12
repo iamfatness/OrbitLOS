@@ -18,12 +18,12 @@ export function setClosingTarget(db: Store, loanId: string, previous: string | n
   return { message: "Target closing date saved." };
 }
 
-export function setClosingChecklistStatus(db: Store, input: { loanId: string; itemId: string; revision: number; completed: boolean }, now: string) {
+export function setClosingChecklistStatus(db: Store, input: { loanId: string; itemId: string; revision: number; completed: boolean }, now: string, completedAt = now) {
   const item = db.prepare("SELECT title, completedAt, revision FROM closing_items WHERE id = ? AND loanId = ?").get(input.itemId, input.loanId);
   if (!item) return { error: "This closing item is unavailable on the loan." } as const;
   if (Boolean(item.completedAt) !== input.completed) {
     if (item.revision !== input.revision) return { error: "This closing item changed. Refresh the loan before updating it." } as const;
-    db.prepare("UPDATE closing_items SET completedAt = ?, revision = revision + 1 WHERE id = ?").run(input.completed ? now : null, input.itemId);
+    db.prepare("UPDATE closing_items SET completedAt = ?, revision = revision + 1 WHERE id = ?").run(input.completed ? completedAt : null, input.itemId);
     addApplicationActivity(db, input.loanId, `${input.completed ? "Completed closing item" : "Reopened closing item"} · ${item.title}`, now);
   }
   return { message: input.completed ? "Closing item completed." : "Closing item reopened." };

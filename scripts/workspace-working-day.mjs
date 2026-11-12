@@ -67,6 +67,15 @@ export class WorkingDayWorkspace extends OrbitWorkspace {
       this.ctx.storage.sql.exec("DELETE FROM recovery_edit_proofs WHERE id=?",editId);
     });
   }
+  restoreClosingItemFixture(editId){
+    const row=this.ctx.storage.sql.exec("SELECT beforeState FROM recovery_edit_proofs WHERE id=?",editId).one();
+    const before=JSON.parse(row.beforeState);
+    this.ctx.storage.transactionSync(()=>{
+      this.ctx.storage.sql.exec("UPDATE closing_items SET revision=?,completedAt=? WHERE id=?",before.revision,before.completedAt,before.id);
+      this.ctx.storage.sql.exec("DELETE FROM recovery_edit_proofs WHERE id=?",editId);
+    });
+  }
+  advanceClosingItemFixture(itemId){this.ctx.storage.sql.exec("UPDATE closing_items SET revision=revision+1 WHERE id=?",itemId);}
   loseNextRecoveryConfirmation() {this.loseRecoveryConfirmation=true;}
   finishWorkspaceRecoveryEdit(...args) {if(this.loseRecoveryConfirmation){this.loseRecoveryConfirmation=false;throw new Error("Fictional lost receipt confirmation");}return super.finishWorkspaceRecoveryEdit(...args);}
   async recoveryFixtureCounts(loanId) {return JSON.stringify({proofs:this.ctx.storage.sql.exec("SELECT count(*) AS n FROM recovery_edit_proofs").one().n,
@@ -4040,6 +4049,70 @@ try {
     assert.equal((await post(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
     assert.equal((await file(owner,loanId)).documentRequests[0].dueOn,"2030-05-01");
     if(process.argv.includes("--preview"))await workspaces.getByName(brokerage).restoreDeadlineFixture(edit.id);
+  });
+  await stage("Pilot restores confirmed closing checklist changes without overwriting newer work", async () => {
+    const created = await write(officer,{type:"loan",contactId:"",borrower:"Fictional Checklist Recovery",borrowerEmail:"closing-recovery@example.test",
+      address:"",amount:210000,purpose:"Purchase",stage:"Lead",officer:officer.name,partnerId:null,start1003:true});
+    const loanId = created.loanWork.loanId;
+    const item = async (title) => {
+      const itemId = randomUUID();
+      await write(officer,{type:"saveClosingItem",loanId,itemId,revision:0,title,owner:officer.name,dueDate:"2030-04-02"});
+      return itemId;
+    };
+    const completed = await item("Verify wire instructions"), reopened = await item("Review settlement figures"), updated = await item("Confirm title review");
+    const setStatus = (itemId,revision,completed) => ({type:"completeClosingItem",loanId,itemId,revision,completed});
+    await write(officer,setStatus(completed,1,true));
+    await write(officer,setStatus(reopened,1,true));
+    await write(officer,setStatus(reopened,2,false));
+    await write(officer,setStatus(updated,1,true));
+    const fileBefore = await file(officer,loanId);
+    const original = fileBefore.closingItems.find(item=>item.id===completed);
+    assert.ok(original.completedAt);
+    const store = workspaces.getByName(brokerage);
+    const counts = await store.recoveryFixtureCounts(loanId);
+    await write(officer,setStatus(completed,1,true));
+    assert.equal(await store.recoveryFixtureCounts(loanId),counts);
+    const endpoint = `/api/workspace-maintenance?brokerage=${brokerage}`;
+    const status = async () => (await runtime.dispatchFetch(origin+endpoint,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}})).json();
+    const edits = async (revision) => (await runtime.dispatchFetch(origin+endpoint+`&edits=1&revision=${revision}`,{headers:{Cookie:`__Host-orbit-session=${owner.token}`}})).json();
+    let view = await status();
+    view = await post(endpoint,{type:"pause",revision:view.revision,reason:"Fictional closing checklist recovery.",confirmation:"Fictional Working Day"},owner);
+    const report = (await edits(view.revision)).inspection;
+    const select = (report,itemId,completed) => report.items.find(row=>row.command.itemId===itemId&&row.command.completed===completed);
+    const completion = select(report,completed,true), reopening = select(report,reopened,false), changed = select(report,updated,true);
+    assert.equal(completion.finding,"Saved revision present");
+    assert.equal(completion.proof.after.completedAt,original.completedAt);
+    assert.equal(reopening.proof.after.completedAt,null);
+    for (const edit of [completion,reopening,changed]) await store.restoreClosingItemFixture(edit.id);
+    // Emulate an independent newer checklist update after restore. Its revision
+    // advances while the item stays open, so status alone cannot justify replay.
+    await store.advanceClosingItemFixture(updated);
+    let inspected = (await edits(view.revision)).inspection;
+    assert.equal(select(inspected,updated,true).finding,"Different revision present");
+    assert.equal(select(inspected,updated,true).canReplay,false);
+    const recoverInput = (edit) => ({id:edit.id,revision:view.revision,offset:0,fingerprint:edit.fingerprint,
+      note:"Restore the confirmed checklist change from its original revision."});
+    assert.equal((await postResponse(endpoint+"&replay=1",recoverInput(select(inspected,updated,true)),owner)).status,409);
+    assert.equal((await postResponse(endpoint+"&replay=1",recoverInput(select(inspected,completed,true)),officer)).status,409);
+    for (const [itemId,nextCompleted] of [[completed,true],[reopened,false]]) {
+      const edit = select(inspected,itemId,nextCompleted);
+      assert.equal(edit.canReplay,true);
+      const result = await post(endpoint+"&replay=1",recoverInput(edit),owner);
+      assert.match(result.message,/Closing checklist change recovered/);
+      view = result.view;
+      const receiptCounts = await store.recoveryFixtureCounts(loanId);
+      assert.deepEqual((await post(endpoint+"&replay=1",{id:edit.id,resume:true},owner)).view,view);
+      assert.equal(await store.recoveryFixtureCounts(loanId),receiptCounts);
+      inspected = (await edits(view.revision)).inspection;
+      assert.equal(select(inspected,itemId,nextCompleted).replay.state,"Applied");
+    }
+    view = await post(endpoint,{type:"review",revision:view.revision,review:"Reconciled completion, reopening and newer work.",checks:[true,true,true]},owner);
+    assert.equal((await post(endpoint,{type:"reopen",revision:view.revision,confirmation:"Fictional Working Day"},owner)).mode,"Open");
+    const after = await file(officer,loanId);
+    assert.equal(after.closingItems.find(item=>item.id===completed).completedAt,original.completedAt);
+    assert.equal(after.closingItems.find(item=>item.id===reopened).completedAt,null);
+    assert.equal(after.closingItems.find(item=>item.id===updated).completedAt,null);
+    if(process.argv.includes("--preview")) await store.restoreClosingItemFixture(completion.id);
   });
   await stage("Owner retention holds protect PDFs and export verified bytes with hold history", async () => {
     const created = await write(owner, {type:"loan", contactId:"", borrower:"Fictional Retention Borrower",

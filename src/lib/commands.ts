@@ -1,4 +1,4 @@
-import {readRecoveryDocument,recordRecoveryProof} from "./recovery-edits";
+import {readRecoveryState,recordRecoveryProof} from "./recovery-edits";
 import type {RecoveryEdit} from "./recovery-edit-model";
 import { z } from "zod";
 import { saveBorrowerChannelsInput } from "./borrower-channel-model";
@@ -1028,8 +1028,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "completeClosingItem": {
+          const before = recoveryEdit ? readRecoveryState(db, data) : null;
           const result = setClosingChecklistStatus(db, data, now);
           if ("error" in result) throw new WorkspaceError(result.error);
+          if (recoveryEdit) recordRecoveryProof(db, recoveryEdit, before, readRecoveryState(db, data), now);
           message = result.message;
           break;
         }
@@ -1472,10 +1474,10 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           break;
         }
         case "setDocumentDeadline": {
-          const before = recoveryEdit ? readRecoveryDocument(db,data.loanId,data.requestId) : null;
+          const before = recoveryEdit ? readRecoveryState(db,data) : null;
           const result = setDocumentDeadline(db, data, staff, now);
           if ("error" in result) throw new WorkspaceError(result.error);
-          if(recoveryEdit)recordRecoveryProof(db,recoveryEdit,before,readRecoveryDocument(db,data.loanId,data.requestId),now);
+          if(recoveryEdit)recordRecoveryProof(db,recoveryEdit,before,readRecoveryState(db,data),now);
           message = result.message;
           break;
         }

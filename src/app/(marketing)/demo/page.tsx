@@ -22,6 +22,7 @@ export default function DemoPage() {
           <li>Build shared custom reports for intake and loan production. Open the leads or loans behind a count and download a CSV of the same records.</li>
           <li>Preview a fictional CRM import with call, email, or text restrictions. Compare source blocks with Orbit in the import receipt, then export the CRM snapshot with those restrictions intact.</li>
           <li>In a fictional loan cutover, restore open work for the assigned processor, reconcile revisions and lender receipts, and compare handoff review references.</li>
+          <li>In a fictional recovery drill, review and restore a saved closing checklist change with its original receipt.</li>
           <li>Use brokerage CRM fields such as outreach tier to filter a campaign segment and see which borrowers match before enrolling them.</li>
           <li>Set a closing priority on one loan file and filter production reports by that value, even when the borrower has more than one loan.</li>
           <li>Compare the opening pipeline with the prior quarter’s saved ending pipeline, then save an internal review CSV that stays available after corrections.</li>

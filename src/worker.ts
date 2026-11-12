@@ -18,7 +18,7 @@ import {applyRecoveryReplay,recoveryReplay,reserveRecoveryReplay,finishRecoveryR
 import {recoveryReplayInput} from "./lib/recovery-edit-model";
 import {readRecoveryEdit} from "./lib/recovery-edits";
 import {pendingRecoveryReplay,pendingWorkspaceRestore} from "./lib/workspace-maintenance";
-import {initializeRecoveryEdits,recoveryDeadlineIntent,beginRecoveryEdit,finishRecoveryEdit,readRecoveryProof,recoveryEditRows,inspectRecoveryEdit} from "./lib/recovery-edits";
+import {initializeRecoveryEdits,recoveryIntentForCommand,beginRecoveryEdit,finishRecoveryEdit,readRecoveryProof,recoveryEditRows,inspectRecoveryEdit} from "./lib/recovery-edits";
 import {recoveryEditPage,recoveryEditReview,type RecoveryEdit,type RecoveryEditInspection} from "./lib/recovery-edit-model";
 import { inspectMaintenanceStore } from "./lib/maintenance-inspection";
 import { maintenanceInspectionInput, maintenanceDecisionInput } from "./lib/maintenance-inspection-model";
@@ -1280,10 +1280,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
     const optOutPlans = optOutTarget ? campaignOptOutPlans(this.#store, optOutTarget) : [];
     const campaignOptOutRoster = staff && optOutPlans.length ? await this.#campaignOptOutRoster(staff, optOutPlans) : undefined;
     let recoveryEdit:RecoveryEdit|undefined;
-    const intent=staff?recoveryDeadlineIntent(this.#store,staff,input):null;
+    const intent=staff?recoveryIntentForCommand(this.#store,staff,input):null;
     if(staff&&intent) {
       try {recoveryEdit=await this.env.WORKSPACE.getByName(demoBrokerageId).beginWorkspaceRecoveryEdit(staff,intent);}
-      catch {return {error:"The recovery receipt could not be prepared. Your due date was not changed; try saving again."};}
+      catch {return {error:"The recovery receipt could not be prepared. Try saving the change again."};}
     }
     const result = await executeCommand(this.#store, input, staff, referralOwner, leadMembers,
       { scopedLeadUpdates: true, scopedLoanUpdates: true, scopedContactUpdates: true, scopedInboxUpdates: scope === "inbox", scopedTaskUpdates: scope === "tasks",
