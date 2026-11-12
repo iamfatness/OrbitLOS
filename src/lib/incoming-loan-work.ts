@@ -91,14 +91,15 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
       request.revision, request.kind || ' · Lead', NULL, 0, NULL, NULL, NULL, NULL, NULL
     FROM referral_leads lead JOIN lead_document_requests request ON request.leadId = lead.id
     WHERE lead.officerEmail = ? AND lead.resolvedAt IS NULL AND lead.heldAt IS NULL AND request.status = 'Received'` : ""}
-    ${realtorFinancing ? `UNION ALL
-    SELECT 'realtor-financing', request.id, loan.id, contact.name,
-      (SELECT max(decidedAt) FROM realtor_financing_decisions WHERE requestId = request.id AND decision = 'Approve'), 0,
-      'Realtor financing summary ready', NULL, 0, NULL, NULL, NULL, NULL, NULL
+  )${realtorFinancing ? `, financing AS (
+    SELECT 'realtor-financing' AS kind, request.id, loan.id AS loanId, contact.name,
+      (SELECT max(decidedAt) FROM realtor_financing_decisions WHERE requestId = request.id AND decision = 'Approve') AS receivedAt,
+      0 AS revision, 'Realtor financing summary ready' AS title, NULL AS assignee, 0 AS linkedCondition, NULL AS note,
+      NULL AS returnStatus, NULL AS returnDueAt, NULL AS returnEventId, NULL AS returnSubmissionId
     FROM loans loan CROSS JOIN realtor_financing_requests request ON request.loanId = loan.id ${contacts}
     ${realtorFinancingSource}
-    WHERE loan.officerEmail = ? AND ${realtorFinancingReadyCandidateSql} AND ${currentRealtorFinancingSql}` : ""}
-  ), borrower_answers AS (
+    WHERE loan.officerEmail = ? AND ${realtorFinancingReadyCandidateSql} AND ${currentRealtorFinancingSql}
+  )` : ""}, borrower_answers AS (
     SELECT 'question', question.id, loan.id, contact.name, question.answeredAt, question.revision,
       CASE WHEN question.recipient = 'Co-borrower' THEN 'Co-borrower answer' ELSE 'Borrower answer' END,
       ${team ? "processing.processorName" : "NULL"}, 0, NULL, NULL, NULL, NULL, NULL
@@ -107,7 +108,8 @@ export function readIncomingLoanWorkPage(db: Store, input: unknown, staff: Works
     WHERE ${activeProcessingLoan} AND ${scope} AND question.status = 'Answered' AND question.answeredAt IS NOT NULL
       AND ${Number(isDemoStaff(staff) || staff.brokerage.pilot === true)} = 1
   ), page AS (
-    SELECT * FROM (SELECT * FROM incoming UNION ALL SELECT * FROM borrower_answers) ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
+    SELECT * FROM (SELECT * FROM incoming UNION ALL SELECT * FROM borrower_answers${realtorFinancing ? " UNION ALL SELECT * FROM financing" : ""})
+    ${after ? "WHERE (receivedAt, kind, id) < (?, ?, ?)" : ""}
     ORDER BY receivedAt DESC, kind DESC, id DESC LIMIT ?
   ) SELECT page.*, ${latestManualReturnFollowUp} AS returnFollowUp FROM page ORDER BY receivedAt DESC, kind DESC, id DESC`)
     .all(...documentArgs, ...(processing ? [] : ownerArgs), ...documentArgs, ...(mockUnderwriting ? [...ownerArgs, unconfirmedMockOrder] : []),
