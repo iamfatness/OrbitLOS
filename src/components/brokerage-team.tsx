@@ -55,7 +55,7 @@ export function BrokerageTeam({ staff, uwmConnection, version, panel, setPanel, 
   const pilot = staff.brokerage.pilot;
   const canUseSampleTools = pilot || staff.brokerage.id === demoBrokerageId;
   const panels = teamPanels.filter((item) => item === "Support requests" ? pilot :
-    (item !== "Branches" && item !== "Pilot tools") || canUseSampleTools);
+    item !== "Pilot tools" || canUseSampleTools);
   const activePanel = panels.includes(panel) ? panel : "Staff access";
   const activeMembers = settings?.members.filter((member) => member.status === "Active") ?? [];
   const scenarioOwners = activeMembers.filter((member) => member.role !== "Processor");
@@ -268,7 +268,7 @@ export function BrokerageTeam({ staff, uwmConnection, version, panel, setPanel, 
       }}>Retry loading team</Button>}
     </div>}
     {message && <p ref={feedback} tabIndex={-1} role="status" className="application-message">{message}</p>}
-    {admin && settings && activePanel === "Branches" && canUseSampleTools && <BrokerageBranches key={`branches-${staff.brokerage.id}`} endpoint={endpoint}
+    {admin && settings && activePanel === "Branches" && <BrokerageBranches key={`branches-${staff.brokerage.id}`} endpoint={endpoint}
       members={settings.members} refreshTeam={reloadTeam} openRouting={openRouting} />}
     {admin && settings && activePanel === "Pilot tools" && canUseSampleTools && <section className="pipeline relationship-panel" aria-label="Demo examples">
         <details className="document-form"><summary>Self-guided demo examples</summary>

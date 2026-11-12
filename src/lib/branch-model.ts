@@ -3,7 +3,7 @@ import type { VersionedBrokerageMember } from "./brokerage-model";
 
 export const branchLimit = 24;
 export const branchStaffLimit = 24;
-export const branchesUnavailable = "Branch setup is available to brokerage admins in demo and pilot workspaces.";
+export const branchesUnavailable = "Branch setup is available to admins in this brokerage.";
 const email = z.email().toLowerCase().max(254);
 const version = { id: z.uuid(), revision: z.int().nonnegative() };
 export const branchChange = z.discriminatedUnion("type", [

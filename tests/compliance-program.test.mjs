@@ -10,6 +10,7 @@ registerHooks({ resolve(specifier, context, next) {
   }
 } });
 const { initializeStore } = await import("../src/lib/store.ts");
+const { updateBranch } = await import("../src/lib/branches.ts");
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 
 const now = "2026-11-11T12:00:00.000Z";
@@ -166,4 +167,33 @@ test("license register uses recorded state scope, exact retries, and current ope
   assert.ok(work(list, { ...operational, brokerage: { ...operational.brokerage, features: { compliance: false, uwm: false, revision: 2 } } }).error);
   assert.ok(work(list, f.staff(f.lo)).error);
   assert.ok(work({ ...list, entityId: crypto.randomUUID() }).error);
+});
+
+test("operational branch and officer license holders retain identity through archive and reinvitation", t => {
+  const f = fixture(t);
+  const entity = f.entity();
+  const admin = f.staff();
+  const staff = { ...admin, brokerage: { ...admin.brokerage, pilot: false, features: { compliance: true, uwm: false, revision: 1 } } };
+  const branch = crypto.randomUUID();
+  assert.ok(updateBranch(f.db, { type: "saveBranch", id: branch, revision: 0, name: "Fictional Office", staffEmails: [], ownerEmail: null },
+    staff, f.tenant, f.roster).message);
+  const read = { operation: "licenses", entityId: entity.id };
+  const work = (input, roster = f.roster) => complianceCaseWork(f.db, { type: "program", input }, staff, f.tenant, roster, now);
+  const save = (licenseNumber, holder, expiresOn) => ({ operation: "saveLicense", entityId: entity.id, id: crypto.randomUUID(), requestId: crypto.randomUUID(),
+    revision: 0, jurisdiction: "MI", licenseType: "Fictional license", licenseNumber, status: "Active", effectiveOn: null,
+    expiresOn, evidence: "", holder });
+  const office = save("BRANCH-01", { kind: "Branch", id: branch }, "2026-12-11");
+  const loanOfficer = save("LO-01", { kind: "Loan officer", id: f.lo.email, accessRevision: 1 }, "2026-11-10");
+  assert.equal(work(office).licenses[0].renewal, "Expires soon");
+  assert.equal(work(loanOfficer).licenses[1].renewal, "Past expiration");
+  assert.ok(work(save("FOREIGN", { kind: "Branch", id: crypto.randomUUID() }, null)).error);
+  assert.ok(work(save("STALE", { kind: "Loan officer", id: f.lo.email, accessRevision: 0 }, null)).error);
+  assert.ok(updateBranch(f.db, { type: "setBranchActive", id: branch, revision: 1, active: false }, staff, f.tenant, f.roster).message);
+  const rehired = f.roster.map(member => member.email === f.lo.email ? { ...member, accessRevision: 3 } : member);
+  const after = work(read, rehired);
+  assert.deepEqual(after.licenses.map(item => [item.holderLabel, item.holderAvailable]), [["Fictional Office", false], ["lo", false]]);
+  assert.equal(work({ ...office, revision: 1, requestId: crypto.randomUUID(), status: "Inactive", holder: undefined }, rehired).licenses[0].renewal, null);
+  const reassigned = work({ ...loanOfficer, revision: 1, requestId: crypto.randomUUID(), holder: { ...loanOfficer.holder, accessRevision: 3 } }, rehired);
+  assert.equal(reassigned.licenses[1].holderAvailable, true);
+  assert.equal(reassigned.licenses[1].holder.accessRevision, 3);
 });

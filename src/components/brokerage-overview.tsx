@@ -18,9 +18,9 @@ function actionCount(count?: number) {
   return count === undefined ? "—" : count >= 100 ? "100+" : String(count);
 }
 
-export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilot, hasBranches, refresh, openQueue, openReport,
+export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilot, refresh, openQueue, openReport,
   openSchedule, scheduleReturn, openTeam, openCompliance }: {
-  brokerageId: string; counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean; hasBranches: boolean;
+  brokerageId: string; counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean;
   refresh: () => void; openQueue: (queue: BrokerageQueue) => void; openReport: (report: BrokerageReport) => void;
   openSchedule: (reportId?: string) => void; scheduleReturn?: { reportId?: string };
   openTeam: (panel: "Staff access" | "Branches" | "Loan settings" | "Workspaces") => void; openCompliance?: () => void;
@@ -55,7 +55,7 @@ export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilo
         <h2 id="brokerage-setup-heading"><UsersRound size={19} aria-hidden="true" /> Team and setup</h2>
         <ul className="brokerage-link-list">
           <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Staff access")}>Staff access<ArrowRight size={16} aria-hidden="true" /></Button></li>
-          {hasBranches && <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Branches")}>Branches<ArrowRight size={16} aria-hidden="true" /></Button></li>}
+          <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Branches")}>Branches<ArrowRight size={16} aria-hidden="true" /></Button></li>
           <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Loan settings")}>Loan settings<ArrowRight size={16} aria-hidden="true" /></Button></li>
           {openCompliance ? <li><Button size="sm" variant="ghost" disabled={busy} onClick={openCompliance}>Compliance overview<ArrowRight size={16} aria-hidden="true" /></Button></li> :
             <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Workspaces")}>Find a compliance pilot workspace<ArrowRight size={16} aria-hidden="true" /></Button></li>}

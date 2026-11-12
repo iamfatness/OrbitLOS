@@ -1,5 +1,5 @@
 import { branchAccessRevision, branchStaffCurrent, branchChange, branchLimit, branchesUnavailable, type BrokerageBranch } from "./branch-model";
-import { demoBrokerageId, type VersionedBrokerageMember } from "./brokerage-model";
+import type { VersionedBrokerageMember } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent } from "./workspace-access";
@@ -22,7 +22,7 @@ export function readBranches(db: Store) {
 }
 
 export function canManageBranches(staff: WorkspaceStaff, brokerageId: string) {
-  return staff.brokerage.id === brokerageId && staff.brokerage.role === "Admin" && (brokerageId === demoBrokerageId || !!staff.brokerage.pilot);
+  return staff.brokerage.id === brokerageId && staff.brokerage.role === "Admin";
 }
 
 export function updateBranch(db: Store, input: unknown, staff: WorkspaceStaff, brokerageId: string, roster: VersionedBrokerageMember[],

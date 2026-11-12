@@ -1561,7 +1561,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           </>}
 
           {section === "Brokerage" && canReport && <BrokerageOverview brokerageId={staff.brokerage.id} counts={actionCounts} unavailable={countsUnavailable} busy={busy || !controlsReady}
-            pilot={Boolean(staff.brokerage.pilot)} hasBranches={Boolean(staff.brokerage.pilot) || staff.brokerage.id === demoBrokerageId} refresh={refreshCounts}
+            pilot={Boolean(staff.brokerage.pilot)} refresh={refreshCounts}
             openQueue={(queue) => openBrokerageView(brokerageQueueSections[queue], queue !== "exceptions")} openReport={openBrokerageReport}
             openTeam={(panel) => { setTeamPanel(panel); openBrokerageView("Team"); }}
             openCompliance={complianceEnabled ? () => openBrokerageView("Compliance") : undefined} openSchedule={openReportSchedule} scheduleReturn={reportScheduleReturn} />}
