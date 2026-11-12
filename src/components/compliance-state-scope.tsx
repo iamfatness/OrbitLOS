@@ -77,6 +77,7 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
 
   const current = data?.entityId === entityId && (version === undefined ? data.revision === data.latestRevision : data.revision === version)
     ? data : undefined;
+  const selectedEntity = entities?.find(entity => entity.id === entityId);
   const basis = current?.savedBasis;
   const savedFacts = current?.facts ?? emptyFacts;
   const facts = draft?.facts ?? savedFacts;
@@ -137,6 +138,7 @@ export function ComplianceStateScope({ brokerageId, jurisdiction, paused }: {
           setError(""); setNotice(""); setRefresh(value => value + 1);
         }}>Refresh scope</Button>
       </div>
+      {selectedEntity && <p className="state-scope-entity-name">{selectedEntity.name}</p>}
       {!entities && !error && <p role="status">{paused ? "Scope is unavailable while the workspace is paused." : "Loading legal entities…"}</p>}
       {entities?.length === 0 && <p>Add a legal entity in Compliance → Licensing to record its scope.</p>}
       {(error || notice) && <p ref={feedback} tabIndex={-1} role={error ? "alert" : "status"}>{error || notice}</p>}

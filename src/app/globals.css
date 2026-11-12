@@ -1243,6 +1243,10 @@ button:disabled { cursor: default; }
 .compliance-state-scope > summary { min-height: 44px; padding-block: 12px; }
 .state-scope-body { max-width: 50rem; }
 .state-scope-controls .field { flex: 1 1 15rem; }
+.state-scope-entity-name { display: none; }
+@media (max-width: 600px) {
+  .state-scope-entity-name { display: block; font-weight: 600; overflow-wrap: anywhere; }
+}
 .state-scope-body .field { max-width: none; }
 .state-scope-body .field textarea { width: 100%; }
 .state-scope-register { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--background); }
