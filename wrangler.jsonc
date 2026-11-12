@@ -28,10 +28,6 @@
     {
       "name": "DEMO_EMAIL",
       "destination_address": "demo-inbox@example.test"
-    },
-    {
-      "name": "STAFF_EMAIL",
-      "allowed_sender_addresses": ["login@orbitlos.com"]
     }
   ],
   "ratelimits": [
