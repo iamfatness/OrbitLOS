@@ -27,7 +27,7 @@ const { readFileExceptions, fileExceptionOwners, nameFileExceptions } = await im
 const { executeCommand } = await import("../src/lib/commands.ts");
 const { readPlaybook } = await import("../src/lib/playbooks.ts");
 const { readDisclosureWork } = await import("../src/lib/disclosures.ts");
-const { sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
+const { closingPackageReviewCategory, disclosureClosingReviewPrefix, sampleDisclosureDocuments } = await import("../src/lib/disclosure-model.ts");
 const { loanStageEditWork } = await import("../src/lib/loan-stage-edits.ts");
 const { closingGateWork } = await import("../src/lib/closing-gates.ts");
 const { newPortalAccessCode, portalToken } = await import("../src/lib/brokerage-model.ts");
@@ -499,6 +499,102 @@ test("preflight pins sample evidence, rejects stale decisions, and keeps the app
   assert.equal(lookup(detail).review.evidenceChanged, true);
   assert.deepEqual(lookup(detail).history[0], approved);
   assert.doesNotMatch(JSON.stringify(borrower({ type: "status" })), /preflight|Resolved the sample issues/i);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
+test("a named closing reviewer returns and approves exact signed versions without bypassing the handoff", async (t) => {
+  const { db, id, officer, processor, admin, outsider, roster, work, create } = fixture(t, true);
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(at) });
+  const loanId = "loan";
+  const command = (type, fields, actor = officer) => executeCommand(db, { type, loanId, ...fields }, actor, undefined, roster);
+  const ok = async (type, fields, actor) => {
+    const result = await command(type, fields, actor);
+    assert.ok(!result.error, result.error);
+    return result.state ?? result.loanWork;
+  };
+  const application = (await ok("startApplication")).applications[0];
+  const borrower = (input) => borrowerCommandResult(db, { token: application.token, ...input });
+  const initial = borrower({ type: "read" }).application;
+  const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+  const submitted = borrower({ type: "submit", revision: initial.revision, step: 9, draft }).application;
+  await ok("reviewApplication", { revision: submitted.revision });
+  const scenario = { purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: 450000, purchasePrice: 450000,
+    zip: draft.propertyLocation.zip, creditScore: 760, monthlyIncome: 9500, occupancy: "Primary residence",
+    propertyType: "Single family", firstTimeBuyer: false };
+  const [run] = (await ok("runPricing", { applicationRevision: submitted.revision, scenario })).pricingRuns;
+  const choice = { runId: run.id, offerId: run.offers[0].id };
+  await ok("selectOffer", choice);
+  const saveFees = (feeRevision, settlement) => ok("saveFeeWorksheet", { ...choice, feeRevision, worksheet: {
+    fees: { origination: 95_000, appraisal: 65_000, creditReport: 0, settlement, government: 0, prepaid: 0, escrow: 0, other: 0 },
+    purchasePrice: 45_000_000, payoffs: null, deposit: 0, sellerCredits: 0, otherCredits: 0,
+  } });
+  const packageRef = () => {
+    const [{ version, revision }] = readDisclosureWork(db, loanId).packages;
+    return { version, revision };
+  };
+  async function signedReplacement(feeRevision, previous) {
+    await ok("prepareDisclosurePackage", { ...choice, feeRevision, applicationRevision: submitted.revision, documents: sampleDisclosureDocuments,
+      previousVersion: previous?.version ?? null, signBy: today,
+      ...(previous ? { reviewedPackageRevision: previous.revision, revisionNote: "Reconciled the fictional settlement fee." } : {}) });
+    await ok("issueDisclosurePackage", packageRef());
+    await ok("respondToDisclosurePackage", { ...packageRef(), signer: "Borrower", response: "Signed" });
+    return packageRef();
+  }
+  const isOpenTask = ({ version }) => !!db.prepare("SELECT 1 FROM tasks WHERE id = ? AND completedAt IS NULL")
+    .get(`${disclosureClosingReviewPrefix}${loanId}:${version}`);
+  await saveFees(0, 125_000);
+  const first = await signedReplacement(1);
+  await ok("confirmClosingDisclosure", first);
+  await saveFees(1, 137_500);
+  const second = await signedReplacement(2, packageRef());
+  assert.equal(isOpenTask(second), true);
+  assert.deepEqual(work({ type: "loan", loanId, prepareClosing: true }).closingPackage, second);
+  const assignment = create({ category: closingPackageReviewCategory, closingPackage: second });
+  assert.ok(work({ ...assignment, closingPackage: first }).error);
+  assert.ok(work(assignment, { ...admin, brokerage: { ...admin.brokerage, pilot: false } }).error);
+  assert.ok(work(assignment, { ...admin, brokerage: { ...admin.brokerage, id: "foreign" } }).error);
+  assert.equal(work(assignment).kind, "saved");
+  assert.equal(work(assignment).kind, "saved");
+  assert.ok(work({ ...assignment, id: crypto.randomUUID() }).error);
+  assert.equal(isOpenTask(second), false);
+  assert.match((await command("confirmClosingDisclosure", second, admin)).error, /assigned closing package review/);
+  const detail = { type: "detail", loanId, id: assignment.id };
+  assert.ok(work(detail, outsider).error);
+  const assigned = work({ type: "queue", view: "Assigned to me", filter: "Open" }, processor);
+  assert.equal(assigned.reviews[0].id, assignment.id);
+  assert.equal(work(detail, processor).review.closingPackage.changeReview.changes.find(({ label }) => label === "Title and settlement").after, "$1,375.00");
+  const change = { type: "decide", loanId, id: assignment.id, revision: 1, eventId: crypto.randomUUID(),
+    decision: "Changes requested", note: "Correct the title and settlement entry before approval." };
+  assert.match(work(change, admin).error, /assigned reviewer/);
+  assert.match(work(change, processor, roster.map((member) => member.email === processor.email ?
+    { ...member, accessRevision: member.accessRevision + 1 } : member)).error, /assigned reviewer/);
+  assert.equal(work(change, processor).kind, "saved");
+  assert.equal(work(change, processor).kind, "saved");
+  const returned = work(detail);
+  assert.equal(returned.review.status, "Changes requested");
+  assert.deepEqual(returned.history[0].closingPackage, second);
+  assert.equal(returned.history[0].note, change.note);
+  assert.equal(readDisclosureWork(db, loanId).closingAssignment.correctionReason, change.note);
+  assert.ok(work({ type: "inbox", unread: false }).notices.some(({ reviewId, label }) => reviewId === assignment.id && label === "Changes requested"));
+  const resend = { type: "resubmit", loanId, id: assignment.id, revision: 2, eventId: crypto.randomUUID(), dueOn: today, note: "Reconciled the title estimate." };
+  assert.match(work({ ...resend, closingPackage: second }).error, /newer sample package/);
+  await saveFees(2, 151_000);
+  const third = await signedReplacement(3, packageRef());
+  assert.equal(isOpenTask(third), false);
+  assert.match((await command("confirmClosingDisclosure", third, admin)).error, /assigned closing package review/);
+  assert.deepEqual(work(detail).review.resubmitClosingPackage, third);
+  assert.equal(work({ ...resend, closingPackage: third }).kind, "saved");
+  const approve = { ...change, revision: 3, eventId: crypto.randomUUID(), decision: "Approved", note: "Verified the corrected settlement entry." };
+  assert.equal(work(approve, processor).kind, "saved");
+  assert.equal(isOpenTask(third), true);
+  await ok("confirmClosingDisclosure", third, processor);
+  assert.equal(isOpenTask(third), false);
+  const history = work(detail).history.map(({ action, closingPackage }) => [action, closingPackage.version]);
+  assert.deepEqual(history, [["Approved", 3], ["Resubmitted", 3], ["Changes requested", 2], ["Requested", 2]]);
+  await saveFees(3, 165_000);
+  assert.equal(work(detail).review.evidenceChanged, true);
+  assert.deepEqual(work(detail).history.map(({ action, closingPackage }) => [action, closingPackage.version]), history);
+  assert.doesNotMatch(JSON.stringify(borrower({ type: "status" })), /Correct the title|reconciled the title|closingAssignment|closingPackage/i);
   assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
 });
 

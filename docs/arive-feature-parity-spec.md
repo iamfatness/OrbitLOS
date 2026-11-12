@@ -210,7 +210,9 @@ In the fictional workspace, selected quote or fee changes reopen the closing con
 
 New replacement reviews save the exact before-and-after terms, fees and payer or payee changes against the package. Staff can reopen them from Disclosures or Closing. New sample packets include the saved comparison. Earlier review records can display a comparison when both original packages are available.
 
-The next staff handoff is a named reviewer for the exact changed package. Acceptance covers opening it from assigned work, returning it to the LO with a reason, resubmitting the corrected version, and preserving earlier decisions and packet downloads after a later change. The existing team review assignment and history provide the workflow reference.
+The LO can assign a signed replacement to an eligible teammate. Reviewers open the assigned package and its before-and-after terms from Reviews or the Review inbox. Returning it requires an internal reason and invalidates that sample package for closing. The LO prepares, issues and signs the replacement before resubmitting. Assignment, return, resubmission and approval preserve their exact package revisions in history. The current assigned review must finish before staff can confirm closing.
+
+Next, surface returned and stale closing package reviews alongside overdue work in the owner exception queue, with the person who acts next and a link to the exact work.
 
 ### F17 — Funding and settlement reconciliation
 

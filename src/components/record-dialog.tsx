@@ -52,7 +52,7 @@ import { DisclosureWorkbench } from "./disclosure-workbench";
 import { TridEvidencePanel } from "./trid-evidence-panel";
 import { StateBrokerAgreement } from "./state-broker-agreement";
 import { StateRefinanceBenefit } from "./state-refinance-benefit";
-import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
+import { disclosureTarget, disclosureTask, requestClosingPackageReviewTarget } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
 import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
@@ -530,7 +530,7 @@ function loanSection(target?: string) {
     target === "income-worksheet" || target === sharedQuoteReviewTarget || target === realtorFinancingTarget) return "Pricing & credit";
   if (target === "closing-workbench" || target === "loan-closing-date" || target === "loan-funding" || target === closingDisclosureReviewTarget ||
     target === callReportFactsTarget || target.startsWith("closing-checklist-")) return "Closing";
-  if (["loan-activity-overview", "loan-activity", "loan-tasks", "loan-retention", "loan-communications", "loan-audit-history", loanReviewsTarget, filePreflightRequestTarget].includes(target) ||
+  if (["loan-activity-overview", "loan-activity", "loan-tasks", "loan-retention", "loan-communications", "loan-audit-history", loanReviewsTarget, filePreflightRequestTarget, requestClosingPackageReviewTarget].includes(target) ||
     target.startsWith(appointmentTargetPrefix) || target.startsWith(searchTaskTarget("")) || target.startsWith(reviewTarget(""))) return "Activity";
   return "Overview";
 }
@@ -757,7 +757,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         admin={staff.brokerage.role === "Admin"} openDisclosures={() => open(disclosureTarget)} />}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
-        brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+        brokerageId={staff?.brokerage.id ?? demoBrokerageId} canOpenReviews={canOpenReviews}
         reopenedCondition={reopenedClosing} openCondition={open} manualHandoff={manualLenderClosingAction(application)}
         advanceDemoToFunding={(campaignLender || linkedManual) && (!staff || staff.brokerage.pilot) ? () => open("loan-funding") : undefined}
         canMarkClearToClose={!processor && loan.stage !== "Clear to Close" && closingReviewReady(loan, state)}
@@ -832,7 +832,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </nav>
       {canOpenReviews && <LoanReviews loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
         focusId={target?.startsWith(reviewTarget("")) ? target.slice(reviewTarget("").length) : undefined}
-        onChanged={reviewChanged} openEvidence={open} requestPreflight={target === filePreflightRequestTarget} />}
+        onChanged={reviewChanged} openEvidence={open} requestPreflight={target === filePreflightRequestTarget}
+        requestClosing={target === requestClosingPackageReviewTarget} />}
       <LoanAppointments loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
         focusId={target?.startsWith(appointmentTargetPrefix) ? target.slice(appointmentTargetPrefix.length) : undefined} onChange={appointmentChanged} />
       {realtorDraft && <section className="details-section">

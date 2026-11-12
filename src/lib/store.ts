@@ -522,6 +522,12 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS one_open_preflight_by_loan ON loan_reviews(loanId)
       WHERE category = 'File preflight' AND status IN ('Requested', 'Changes requested');
+    CREATE TABLE IF NOT EXISTS loan_review_closing_packages (
+      eventId TEXT PRIMARY KEY REFERENCES loan_review_events(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL, revision INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS one_open_closing_package_review_by_loan ON loan_reviews(loanId)
+      WHERE category = 'Closing package changes' AND status IN ('Requested', 'Changes requested');
     CREATE TABLE IF NOT EXISTS loan_review_notices (
       eventId TEXT NOT NULL REFERENCES loan_review_events(id) ON DELETE CASCADE,
       recipientEmail TEXT NOT NULL, recipientRole TEXT NOT NULL, recipientRevision INTEGER NOT NULL,

@@ -12,7 +12,9 @@ import type { SqlValue, Store } from "./store";
 import { loanAccess } from "./workspace-access";
 import { readFilePreflight } from "./file-preflight";
 import { filePreflightCategory, preflightBlocked, type FilePreflight } from "./file-preflight-model";
-import { canUseSampleDisclosures } from "./disclosures";
+import { closingPackageReviewCategory, type ClosingPackageReviewRef } from "./disclosure-model";
+import { canUseSampleDisclosures, closingPackageEvidence, currentClosingPackage, flagDisclosureReview, hasClosingConfirmation,
+  readClosingPackageAssignment, sameClosingPackage, updateAssignedClosingTask } from "./disclosures";
 
 const pageSize = 20;
 const active = "review.status IN ('Requested', 'Changes requested')";
@@ -81,6 +83,13 @@ function pinnedPreflight(db: Store, reviewId: string): FilePreflight | null {
   return row ? JSON.parse(String(row.snapshot)) as FilePreflight : null;
 }
 
+function pinnedClosingPackage(db: Store, reviewId: string): ClosingPackageReviewRef | undefined {
+  return db.prepare(`SELECT basis.version, basis.revision FROM loan_review_events event
+    JOIN loan_review_closing_packages basis ON basis.eventId = event.id
+    WHERE event.reviewId = ? AND event.action IN ('Requested', 'Resubmitted') ORDER BY event.sequence DESC LIMIT 1`)
+    .get(reviewId) as ClosingPackageReviewRef | undefined;
+}
+
 function latestPreflightReview(db: Store, loanId: string) {
   return db.prepare(`SELECT ${columns} ${joined} WHERE review.loanId = ? AND review.category = ?
     ORDER BY NOT (${active}), review.createdAt DESC, review.rowid DESC LIMIT 1`).get(loanId, filePreflightCategory) as unknown as Base | undefined;
@@ -112,11 +121,14 @@ function queue(db: Store, input: ReviewQueueQuery, staff: WorkspaceStaff, today:
 }
 
 function history(db: Store, id: string, before?: number) {
-  const rows = db.prepare(`SELECT sequence, action, actorName, note, context, at, pinned.snapshot FROM loan_review_events event
-    LEFT JOIN loan_review_preflight pinned ON pinned.eventId = event.id WHERE reviewId = ?
+  const rows = db.prepare(`SELECT sequence, action, actorName, note, context, at, pinned.snapshot,
+    closing.version AS packageVersion, closing.revision AS packageRevision FROM loan_review_events event
+    LEFT JOIN loan_review_preflight pinned ON pinned.eventId = event.id
+    LEFT JOIN loan_review_closing_packages closing ON closing.eventId = event.id WHERE reviewId = ?
     ${before ? "AND sequence < ?" : ""} ORDER BY sequence DESC LIMIT ?`).all(id, ...(before ? [before] : []), pageSize + 1) as unknown as
-    (ReviewHistoryEvent & { snapshot: string | null })[];
-  const events = rows.slice(0, pageSize).map(({ snapshot, ...event }) => ({ ...event,
+    (ReviewHistoryEvent & { snapshot: string | null; packageVersion: number | null; packageRevision: number | null })[];
+  const events = rows.slice(0, pageSize).map(({ snapshot, packageVersion, packageRevision, ...event }) => ({ ...event,
+    ...(packageVersion !== null && packageRevision !== null ? { closingPackage: { version: packageVersion, revision: packageRevision } } : {}),
     ...(snapshot ? { preflight: JSON.parse(snapshot) as FilePreflight } : {}) }));
   return { history: events, before: rows.length > pageSize ? events.at(-1)?.sequence ?? null : null };
 }
@@ -193,7 +205,11 @@ export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding
     const eligible = loan.active ? options(members, loan, staff.email) : [];
     const preflightKey = input.preparePreflight && loan.inPipeline && eligible.length && canUseSampleDisclosures(staff) ?
       readFilePreflight(db, input.loanId).key : undefined;
-    return { kind: "loan", reviews, options: eligible, today, preflightKey,
+    const candidate = input.prepareClosing && eligible.length && canUseSampleDisclosures(staff) ? currentClosingPackage(db, input.loanId) : undefined;
+    const assignment = candidate ? readClosingPackageAssignment(db, input.loanId) : undefined;
+    const closingPackage = candidate && !hasClosingConfirmation(db, input.loanId, candidate) &&
+      (!assignment || (assignment.status === "Approved" && !sameClosingPackage(candidate, assignment))) ? candidate : undefined;
+    return { kind: "loan", reviews, options: eligible, today, preflightKey, closingPackage,
       hasMore: rows.length > pageSize, canReview1003: loan.applicationRevision !== null,
       ...(routingBlock ? { routingBlock: { dueOn: String(routingBlock.dueOn), reason: String(routingBlock.reason) } } :
         pendingApproval && pendingApproval.needsAssignment
@@ -201,13 +217,21 @@ export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding
   }
   const row = scopedReview(db, input.loanId, input.id);
   if (!row) return { error: reviewsUnavailable };
-  if (row.category === filePreflightCategory && !canUseSampleDisclosures(staff)) return { error: reviewsUnavailable };
+  const isClosing = row.category === closingPackageReviewCategory;
+  if ((row.category === filePreflightCategory || isClosing) && !canUseSampleDisclosures(staff)) return { error: reviewsUnavailable };
   const reviewerAvailable = currentReviewer(row, loan, members);
   const preflight = row.category === filePreflightCategory ? readFilePreflight(db, input.loanId) : undefined;
-  const changed = preflight ? pinnedPreflight(db, row.id)?.key !== preflight.key : evidenceChanged(row, loan);
+  const reference = isClosing ? pinnedClosingPackage(db, row.id) : undefined;
+  const currentPackage = isClosing ? currentClosingPackage(db, row.loanId) : undefined;
+  const closingPackage = reference && closingPackageEvidence(db, row.loanId, reference);
+  const resubmitClosingPackage = currentPackage && reference && currentPackage.version > reference.version ? currentPackage : undefined;
+  const changed = isClosing ? !sameClosingPackage(reference, currentPackage) :
+    preflight ? pinnedPreflight(db, row.id)?.key !== preflight.key : evidenceChanged(row, loan);
   return { kind: "detail", review: { ...summary(row, today), revision: row.revision, reviewerEmail: row.reviewerEmail,
     applicationRevision: row.applicationRevision, evidenceChanged: changed, reviewerAvailable, canManage: canManage(row, staff), preflight,
-    canDecide: loan.active && (!preflight || loan.inPipeline) && row.status === "Requested" && row.reviewerEmail === staff.email && reviewerAvailable && !changed,
+    closingPackage, resubmitClosingPackage,
+    canDecide: loan.active && (!(preflight || isClosing) || loan.inPipeline) && row.status === "Requested" &&
+      row.reviewerEmail === staff.email && reviewerAvailable && !changed,
     options: options(members, loan, row.requesterEmail), mentionOptions: options(members, loan, staff.email) }, ...history(db, row.id, input.before), today };
 }
 
@@ -215,19 +239,23 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
   const loan = scopeLoan(db, staff, input.loanId);
   if (!loan) return { error: reviewsUnavailable };
   const row = scopedReview(db, input.loanId, input.id);
-  const isPreflight = (input.type === "create" ? input.category : row?.category) === filePreflightCategory;
-  if (isPreflight && !canUseSampleDisclosures(staff)) return { error: reviewsUnavailable };
+  const category = input.type === "create" ? input.category : row?.category;
+  const isPreflight = category === filePreflightCategory;
+  const isClosing = category === closingPackageReviewCategory;
+  if ((isPreflight || isClosing) && !canUseSampleDisclosures(staff)) return { error: reviewsUnavailable };
   const eventId = input.type === "create" ? input.id : input.eventId;
   const receipt = JSON.stringify(input);
   const prior = db.prepare("SELECT actorEmail, reviewId, request FROM loan_review_events WHERE id = ?").get(eventId);
   const saved = { kind: "saved" as const, id: input.id, message: "Internal review updated." };
   if (prior) return prior.actorEmail === staff.email && prior.reviewId === input.id && prior.request === receipt ? saved :
     { error: "This action was already used. Refresh the review before continuing." };
-  const log = (action: ReviewHistoryEvent["action"], context = "", preflight?: FilePreflight) => {
+  const log = (action: ReviewHistoryEvent["action"], context = "", preflight?: FilePreflight, closing?: ClosingPackageReviewRef) => {
     db.prepare(`INSERT INTO loan_review_events
       (id, reviewId, actorEmail, actorName, action, note, at, request, context) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(eventId, input.id, staff.email, staff.name, action, input.note, at, receipt, context);
     if (preflight) db.prepare("INSERT INTO loan_review_preflight (eventId, snapshot) VALUES (?, ?)").run(eventId, JSON.stringify(preflight));
+    if (closing) db.prepare("INSERT INTO loan_review_closing_packages (eventId, version, revision) VALUES (?, ?, ?)")
+      .run(eventId, closing.version, closing.revision);
   };
   const assigned = (name: string, date: string, version: number | null) =>
     `${name} · Due ${date}${version === null ? "" : ` · 1003 revision ${version}`}`;
@@ -250,12 +278,23 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
         return { error: "This file already has a preflight review. Open the existing review." };
       }
     }
+    const closing = isClosing ? currentClosingPackage(db, input.loanId) : undefined;
+    if (isClosing) {
+      if (!closing || !sameClosingPackage(closing, input.closingPackage) || hasClosingConfirmation(db, input.loanId, closing)) {
+        return { error: "Open the current signed replacement package before assigning a closing review." };
+      }
+      const latest = readClosingPackageAssignment(db, input.loanId);
+      if (latest && (latest.status !== "Approved" || sameClosingPackage(latest, closing))) {
+        return { error: "This package already has a review. Open the existing review." };
+      }
+    }
     db.prepare(`INSERT INTO loan_reviews (id, loanId, title, category, requesterEmail, requesterName, reviewerEmail, reviewerName,
       reviewerRole, reviewerAccessRevision, dueOn, status, applicationRevision, createdAt, updatedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Requested', ?, ?, ?)`)
       .run(input.id, input.loanId, input.title, input.category, staff.email, staff.name, reviewer.email, reviewer.name,
         reviewer.role, reviewer.accessRevision ?? 0, input.dueOn, input.category === "1003 second review" ? loan.applicationRevision : null, at, at);
-    log("Requested", assigned(reviewer.name, input.dueOn, input.category === "1003 second review" ? loan.applicationRevision : null), preflight);
+    log("Requested", assigned(reviewer.name, input.dueOn, input.category === "1003 second review" ? loan.applicationRevision : null), preflight, closing);
+    if (closing) updateAssignedClosingTask(db, input.loanId, closing, at, true);
     notify(reviewer.email, "Review assigned");
     if (input.category === "1003 second review") {
       db.prepare("DELETE FROM application_review_routing_blocks WHERE loanId = ? AND applicationRevision = ?").run(input.loanId, loan.applicationRevision);
@@ -280,6 +319,8 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
       db.prepare("UPDATE loan_reviews SET status = 'Canceled', escalatedAt = NULL, updatedAt = ?, revision = revision + 1 WHERE id = ?")
         .run(at, row.id);
       log("Canceled", "Staff offboarding");
+      const closing = isClosing ? currentClosingPackage(db, row.loanId) : undefined;
+      if (closing) updateAssignedClosingTask(db, row.loanId, closing, at, false);
       return { ...saved, message: "Review canceled. Its history remains on the loan." };
     }
     const member = selectReviewer(input.replacement, reviewer ? row.requesterEmail : row.reviewerEmail);
@@ -297,7 +338,7 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
     return { ...saved, message: "Review handed off with its original deadline and evidence." };
   }
   if (input.type === "decide") {
-    if (!loan.active || (isPreflight && !loan.inPipeline) || row.status !== "Requested" || row.reviewerEmail !== staff.email || !currentReviewer(row, loan, members)) {
+    if (!loan.active || ((isPreflight || isClosing) && !loan.inPipeline) || row.status !== "Requested" || row.reviewerEmail !== staff.email || !currentReviewer(row, loan, members)) {
       return { error: "Only the current assigned reviewer can record a decision on this active file." };
     }
     const preflight = isPreflight ? readFilePreflight(db, input.loanId) : undefined;
@@ -308,9 +349,17 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
       return { error: "Resolve the preflight issues before recording an approval." };
     }
     if (evidenceChanged(row, loan)) return { error: "The submitted 1003 changed. Ask the requester to resubmit this review." };
+    const closing = isClosing ? currentClosingPackage(db, row.loanId) : undefined;
+    if (isClosing && !sameClosingPackage(closing, pinnedClosingPackage(db, row.id))) {
+      return { error: "The signed closing package changed. Ask the requester to resubmit the current package." };
+    }
     db.prepare("UPDATE loan_reviews SET status = ?, escalatedAt = NULL, updatedAt = ?, revision = revision + 1 WHERE id = ?")
       .run(input.decision, at, row.id);
-    log(input.decision, row.applicationRevision === null ? "" : `1003 revision ${row.applicationRevision}`, preflight);
+    log(input.decision, row.applicationRevision === null ? "" : `1003 revision ${row.applicationRevision}`, preflight, closing);
+    if (closing) {
+      if (input.decision === "Changes requested") flagDisclosureReview(db, row.loanId, "Closing reviewer requested changes", at);
+      else updateAssignedClosingTask(db, row.loanId, closing, at, false);
+    }
     notify(row.requesterEmail, input.decision === "Approved" ? "Review approved" : "Changes requested");
     return { ...saved, message: input.decision === "Approved" ? "Internal approval recorded." : "Changes requested." };
   }
@@ -326,7 +375,12 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
     notify(reviewer.email, "Reviewer or deadline updated");
   } else if (input.type === "resubmit") {
     const preflight = isPreflight ? readFilePreflight(db, input.loanId) : undefined;
-    const changed = preflight ? pinnedPreflight(db, row.id)?.key !== preflight.key : evidenceChanged(row, loan);
+    const reference = isClosing ? pinnedClosingPackage(db, row.id) : undefined;
+    const closing = isClosing ? currentClosingPackage(db, row.loanId) : undefined;
+    if (isClosing && (!closing || !reference || closing.version <= reference.version || !sameClosingPackage(closing, input.closingPackage))) {
+      return { error: "Issue and sign a newer sample package before resubmitting this closing review." };
+    }
+    const changed = isClosing || (preflight ? pinnedPreflight(db, row.id)?.key !== preflight.key : evidenceChanged(row, loan));
     if (row.status !== "Changes requested" && !changed) return { error: "Resubmit after changes were requested or the review evidence changed." };
     if (!loan.active || !currentReviewer(row, loan, members)) return { error: "Resume the file and confirm its reviewer before resubmitting." };
     if (preflight && (!loan.inPipeline || input.preflightKey !== preflight.key)) {
@@ -335,7 +389,8 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
     if (row.category === "1003 second review" && loan.applicationRevision === null) return { error: "Wait for the updated 1003 submission before resubmitting the review." };
     db.prepare(`UPDATE loan_reviews SET status = 'Requested', dueOn = ?, applicationRevision = ?, escalatedAt = NULL, updatedAt = ?, revision = revision + 1 WHERE id = ?`)
       .run(input.dueOn, row.category === "1003 second review" ? loan.applicationRevision : null, at, row.id);
-    log("Resubmitted", assigned(row.reviewerName, input.dueOn, row.category === "1003 second review" ? loan.applicationRevision : null), preflight);
+    log("Resubmitted", assigned(row.reviewerName, input.dueOn, row.category === "1003 second review" ? loan.applicationRevision : null), preflight, closing);
+    if (closing) updateAssignedClosingTask(db, row.loanId, closing, at, true);
     notify(row.reviewerEmail, "Review resubmitted");
   } else if (input.type === "escalate") {
     if (row.escalatedAt) return { error: "This review is already escalated." };
@@ -344,6 +399,8 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
   } else {
     db.prepare("UPDATE loan_reviews SET status = 'Canceled', escalatedAt = NULL, updatedAt = ?, revision = revision + 1 WHERE id = ?").run(at, row.id);
     log("Canceled");
+    const closing = isClosing ? currentClosingPackage(db, row.loanId) : undefined;
+    if (closing) updateAssignedClosingTask(db, row.loanId, closing, at, false);
     notify(row.reviewerEmail, "Review canceled");
   }
   return saved;

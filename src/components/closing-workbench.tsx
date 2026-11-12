@@ -6,10 +6,11 @@ import { dateLabel, easternDate } from "@/lib/client-retention";
 import type { ClosingGatePhase } from "@/lib/closing-gate-model";
 import type { ClosingPacketWork } from "@/lib/closing-packet-model";
 import { closingServiceEvidenceLimit, type ClosingServiceEvidence } from "@/lib/closing-service-evidence-model";
-import { disclosurePackageStatus, disclosureTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
+import { disclosurePackageStatus, disclosureTarget, requestClosingPackageReviewTarget, type ClosingDisclosureReview, type DisclosureWork } from "@/lib/disclosure-model";
 import { closingDisclosureReviewTarget } from "@/lib/file-preflight-model";
 import { closingChecklistListTarget, closingChecklistTarget, closingWorkbenchTarget, pausedLoan, reopenedMockClosingMessage } from "@/lib/loan-workflow";
 import { currentManualAcknowledgmentRequired } from "@/lib/lender-export-model";
+import { reviewTarget } from "@/lib/loan-review-model";
 import { serviceOrderSlug, serviceOrderTarget, type ServiceOrder } from "@/lib/service-order-model";
 import { serviceOrderPdf } from "@/lib/service-order-pdf";
 import { disclosureStatuses, fundingReversalStage, type ClosingItem, type DraftAudience, type Loan, type Workspace } from "@/lib/model";
@@ -71,16 +72,19 @@ function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy,
   </section>;
 }
 
-function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
-  loan: Loan; work?: DisclosureWork; busy: boolean; save: Save; open: (target: string) => void;
+function ClosingDisclosureEvidence({ loan, work, busy, save, open, canOpenReviews }: {
+  loan: Loan; work?: DisclosureWork; busy: boolean; save: Save; open: (target: string) => void; canOpenReviews?: boolean;
 }) {
   const item = work?.packages[0];
   if (!work || !item) return null;
-  const { revisionReason, closingReviews } = work;
+  const { revisionReason, closingReviews, closingAssignment } = work;
   const status = disclosurePackageStatus(item);
   const review = closingReviews.find((entry) => entry.current);
   const past = closingReviews.filter((entry) => !entry.current);
   const active = (!loan.disposition || loan.disposition === "Active") && loan.stage !== "Funded" && loan.stage !== "Closed";
+  const ready = active && status === "Mock signing complete" && !revisionReason;
+  const canAssign = canOpenReviews && ready && past.length > 0 && !closingAssignment;
+  const newerPackage = closingAssignment && (item.version !== closingAssignment.version || item.revision !== closingAssignment.revision);
   const signerRows = (signers: ClosingDisclosureReview["signers"]) => <ul>
     {signers.map(({ role, status, receipt }) => <li key={role}>{role} · {status}{receipt && ` · ${receipt}`}</li>)}
   </ul>;
@@ -102,7 +106,8 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
     {review ? reviewSummary(review) : <>
       {past.length > 0 && <div className="work-queue">
         <strong>Closing review reopened</strong>
-        <p>{revisionReason ?? (status === "Mock signing complete" ? "Confirm the signed replacement package for closing." :
+        <p>{revisionReason ?? (status === "Mock signing complete" ? (closingAssignment && closingAssignment.status !== "Approved"
+          ? "Finish the assigned review before confirming the closing handoff." : "Review the signed replacement before closing.") :
           status === "Draft" ? "Issue the replacement sample package and collect the mock signatures." :
             status === "Declined" ? "Follow up on the declined sample package." : "Collect the remaining mock signatures.")}</p>
         <p className="muted">Prior confirmation · Package v{past[0].version} · {past[0].actor}</p>
@@ -113,8 +118,17 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
         <p><strong>Changes recorded for package v{item.version}</strong></p>
         <SavedDisclosureTermChanges changes={item.changeReview.changes} legacyChanges={item.legacyChanges} />
       </div>}
-      {active && status === "Mock signing complete" && !revisionReason && <div>
-        <Button size="sm" className="min-h-11" disabled={busy} onClick={() => void save({ type: "confirmClosingDisclosure", loanId: loan.id,
+      {closingAssignment && <div className="record-form">
+        <p><strong>{closingAssignment.status === "Approved" ? "Review approved" : closingAssignment.status === "Changes requested"
+          ? "Returned for corrections" : newerPackage ? "Review needs resubmission" : "Awaiting reviewer decision"}</strong> · Package v{closingAssignment.version}</p>
+        <p className="muted">{closingAssignment.reviewerName}{closingAssignment.status !== "Approved" && ` · Due ${dateLabel(closingAssignment.dueOn)}`}</p>
+        {closingAssignment.correctionReason && <p className="break-words">{closingAssignment.correctionReason}</p>}
+        {canOpenReviews && <div><Button size="sm" variant="outline" className="min-h-11" onClick={() => open(reviewTarget(closingAssignment.id))}>
+          Open assigned closing review</Button></div>}
+      </div>}
+      {(canAssign || (ready && (!closingAssignment || closingAssignment.status === "Approved"))) && <div className="loan-application-actions">
+        {canAssign && <Button size="sm" className="min-h-11" disabled={busy} onClick={() => open(requestClosingPackageReviewTarget)}>Assign closing reviewer</Button>}
+        <Button size="sm" variant={canAssign ? "outline" : "default"} className="min-h-11" disabled={busy} onClick={() => void save({ type: "confirmClosingDisclosure", loanId: loan.id,
           version: item.version, revision: item.revision })}>Confirm sample package for closing</Button>
       </div>}
     </>}
@@ -205,7 +219,7 @@ function ClosingServiceLinks({ item, links, orders, editable, busy, save, open }
 }
 
 export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseFunding, canRehearseFailure, canMarkClearToClose, manualClearance, borrowerCheckIn,
-  advanceDemoToFunding, reopenedCondition, openCondition, brokerageId, manualHandoff }: {
+  advanceDemoToFunding, reopenedCondition, openCondition, brokerageId, manualHandoff, canOpenReviews }: {
   loan: Loan; state: Workspace; busy: boolean; save: Save; preview: (audience: DraftAudience, draftId: string) => void;
   brokerageId: string;
   canReverseFunding: boolean; canRehearseFailure: boolean; canMarkClearToClose: boolean;
@@ -214,6 +228,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   advanceDemoToFunding?: () => void;
   reopenedCondition: { category: string; target: string } | null;
   manualHandoff: { title: string; target: string } | null;
+  canOpenReviews?: boolean;
   openCondition: (target: string) => void;
 }) {
   const actualInput = useRef<HTMLInputElement>(null);
@@ -352,7 +367,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
         <Button size="sm" type="submit" variant="outline" disabled={busy}>Reverse funding</Button>
       </form>
     </details>}
-    <ClosingDisclosureEvidence loan={loan} work={state.disclosureWork} busy={busy} save={save} open={openCondition} />
+    <ClosingDisclosureEvidence loan={loan} work={state.disclosureWork} busy={busy} save={save} open={openCondition} canOpenReviews={canOpenReviews} />
     <ClosingPacketExports loanId={loan.id} brokerageId={brokerageId} packets={state.closingPacketWork} disclosures={state.disclosureWork} busy={busy} save={save} />
     <details className="document-form"><summary>Track disclosure and signature status</summary>
       <form key={progress?.revision ?? 0} onSubmit={(event) => {

@@ -242,6 +242,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const recordTrigger = useRef<HTMLElement>(null);
   const todayWorkTrigger = useRef<string>(null);
   const [todayWorkReturn, setTodayWorkReturn] = useState<string>();
+  const reviewQueueTrigger = useRef<string>(null);
+  const [reviewQueueReturn, setReviewQueueReturn] = useState<string>();
   const exceptionTrigger = useRef<HTMLButtonElement>(null);
   const [detailedTasks, setDetailedTasks] = useState(processorTaskEntry);
   const [focusContactTask, setFocusContactTask] = useState<string>();
@@ -1345,10 +1347,13 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
     if (incomingReturn && modal?.kind === "details" && modal.target === samplePreapprovalTarget) refreshCounts();
     const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
     const todayWork = section === "Today" ? todayWorkTrigger.current : null;
+    const reviewWork = section === "Reviews" ? reviewQueueTrigger.current : null;
     todayWorkTrigger.current = null;
+    reviewQueueTrigger.current = null;
     exceptionTrigger.current = null;
     recordTrigger.current = null;
     if (todayWork) setTodayWorkReturn(todayWork);
+    else if (reviewWork) setReviewQueueReturn(reviewWork);
     else if (trigger || original || pipelineLoan || incomingReturn) requestAnimationFrame(() => {
       const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
       const target = incomingReturn ? document.getElementById("incoming-today-heading") ?? sectionHeading.current : trigger && section === "Exceptions" ?
@@ -1642,7 +1647,12 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
           {section === "Search" && canOpenCalendar && <WorkspaceSearch brokerageId={staff?.brokerage.id ?? demoBrokerageId} processor={processor}
             selection={searchSelection} onSearch={setSearchSelection} version={state} busy={busy} open={(record) => void openSearchResult(record)} />}
           {section === "Reviews" && canOpenCalendar && <LoanReviewQueue brokerageId={staff?.brokerage.id ?? demoBrokerageId} team={admin}
-            version={reviewVersion} busy={busy} open={(row) => void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) })} />}
+            version={reviewVersion} busy={busy} returningReview={reviewQueueReturn} onReviewReturn={() => setReviewQueueReturn(undefined)}
+            open={(row) => {
+              if (pending.current) return;
+              reviewQueueTrigger.current = row.id;
+              void openQueueLoan({ kind: "details", loanId: row.loanId, target: reviewTarget(row.id) });
+            }} />}
           {section === "Compliance" && admin && staff && complianceEnabled && <ComplianceWorkspace key={staff.brokerage.id} licenseTarget={renewalVisit?.target}
             returnToRenewals={renewalVisit ? returnToLicenseRenewals : undefined} onLicenseSaved={refreshCounts}
             returnToBrokerageLicenses={registerVisit === "register" ? () => { navigate("Brokerage", false); setRegisterVisit("return"); } : undefined}

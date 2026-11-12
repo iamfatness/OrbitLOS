@@ -7,6 +7,7 @@ import type { DisclosureDeadline } from "@/lib/disclosure-calendar-model";
 import { disclosurePackageStatus, disclosureResponses, disclosureTarget,
   type DisclosurePackage } from "@/lib/disclosure-model";
 import { compareDisclosureTerms } from "@/lib/disclosure-change-model";
+import { reviewTarget } from "@/lib/loan-review-model";
 import type { Loan, Workspace } from "@/lib/model";
 import { latestSelectedPricingRun, pricingInputsMatch } from "@/lib/pricing-model";
 import { feeKeys, feeLabels, sampleFeeLabel, type QuoteOption } from "@/lib/quote-worksheet";
@@ -116,6 +117,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
   const reviewReason = current?.reviewReason ?? (sourceChanged ? "Application or quote changed" : null);
   const needsChangeNote = Boolean(reviewReason);
   const shifted = work?.draftTargetChanged;
+  const returned = work?.closingAssignment?.status === "Changes requested" ? work.closingAssignment : undefined;
 
   return <section className="details-section document-section" id={disclosureTarget} tabIndex={-1} aria-label="Disclosure and Critical Dates">
     <div className="section-heading"><h3><ClipboardList size={17} /> Disclosure &amp; Critical Dates</h3><span className="pill">Mock signing</span></div>
@@ -133,6 +135,10 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
       "Open this loan from Pipeline to load the disclosure workbench."}</p>}
     {current && reviewReason && <div className="work-queue">
       <strong>Review required · {reviewReason}</strong>
+      {returned?.correctionReason && <div className="record-form">
+        <p className="break-words">{returned.reviewerName} · {returned.correctionReason}</p>
+        <div><Button size="sm" variant="outline" className="min-h-11" onClick={() => open(reviewTarget(returned.id))}>Open closing review</Button></div>
+      </div>}
       <p>Review the updated terms and prepare a revised sample package to resolve the task. Prior responses stay with their version.</p>
       {source && <DisclosureTermChanges changes={compareDisclosureTerms(current, source)} />}
     </div>}
