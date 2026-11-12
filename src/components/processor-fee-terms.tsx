@@ -136,12 +136,10 @@ export function ProcessorFees({ loanId, brokerageId, assignmentRevision }: {
           </div>}
         </article>}
         {page.canOffer && <form className="record-form" onSubmit={submit} aria-label="Record fee offer">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="field">Processing fee (USD)<input inputMode="decimal" maxLength={10} required disabled={busy}
-              value={draft?.amount ?? ""} onChange={event => setDraft({ amount: event.target.value, reference: draft?.reference ?? "", basis: draft?.basis ?? basis })} /></label>
-            <label className="field">Agreement reference<input required maxLength={180} disabled={busy}
-              value={draft?.reference ?? ""} onChange={event => setDraft({ reference: event.target.value, amount: draft?.amount ?? "", basis: draft?.basis ?? basis })} /></label>
-          </div>
+          <label className="field">Processing fee (USD)<input inputMode="decimal" maxLength={10} required disabled={busy}
+            value={draft?.amount ?? ""} onChange={event => setDraft({ amount: event.target.value, reference: draft?.reference ?? "", basis: draft?.basis ?? basis })} /></label>
+          <label className="field">Agreement reference<textarea required rows={3} maxLength={180} disabled={busy}
+            value={draft?.reference ?? ""} onChange={event => setDraft({ reference: event.target.value, amount: draft?.amount ?? "", basis: draft?.basis ?? basis })} /></label>
           {stale && <p role="status">The assignment or version changed. Review the current terms before using your draft.</p>}
           <div className="loan-application-actions">
             {stale && <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() =>
