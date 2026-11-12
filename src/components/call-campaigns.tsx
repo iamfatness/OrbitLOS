@@ -119,7 +119,7 @@ function CampaignImport({ campaign, staff, busy, save, rehearsal }: {
       setAssignToMe(event.target.checked); setReport(undefined); setImported(false);
     }} /> Assign imported leads to me</label>}
     {error && <p className="application-error" role="alert">{error}</p>}
-    {rows.length > 0 && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => run(false)}>Preview {rows.length} leads</Button></div>}
+    {rows.length > 0 && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => run(false)}>Preview {rows.length} {rows.length === 1 ? "lead" : "leads"}</Button></div>}
     {report && <div className="record-form">
       <strong>{imported ? "Import complete" : `${ready} ready · ${flagged.length} need review`}{suppressed > 0 && ` · ${suppressed} suppressed`}</strong>
       <ul className="document-list">{report.rows.map((row) => <li className="document-item" key={row.key}>

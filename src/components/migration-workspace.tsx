@@ -220,7 +220,7 @@ function PipelineMigration({ busy, save, brokerageId, openRecord, reviewCutover 
       {!applied && ownership && <fieldset className="record-form">
         <legend>Owner mapping</legend>
         <p className="muted">Choose one destination for each missing staff email. Unassigned leads go to the shared inbox. Admins can assign unassigned contact follow-ups later.{file?.batch && " Orbit remembers these choices for later batches in this export."}</p>
-        <div className="form-grid">{ownership.missing.map(({ email, count, target }) => {
+        <div className="form-grid migration-owner-mapping">{ownership.missing.map(({ email, count, target }) => {
           const eligible = ownership.eligible;
           const selection = ownerMappings[email] ?? target;
           const valid = selection === "unassigned" || eligible.some((owner) => owner.email === selection);
