@@ -15,6 +15,46 @@ const { initializeStore, insertContact, insertLoan } = await import("../src/lib/
 const { complianceCaseWork } = await import("../src/lib/compliance-cases.ts");
 const { staffApplications } = await import("../src/lib/applications.ts");
 
+test("state refinance benefit review preserves different state evidence and closing checks", (t) => {
+  const { db, work, addLoan, officer, processor, unrelated } = fixture(t);
+  const mn = addLoan({ state: " mn ", purpose: "Refinance" });
+  const ne = addLoan({ state: "NE", purpose: "Refinance" });
+  const purchase = addLoan({ state: "NE", purpose: "Purchase" });
+  const record = (input, actor) => work({ type: "stateRefinanceBenefit", input }, actor);
+  const event = on => ({ on, reference: "Fictional document reference" });
+  const common = { applicability: "Covered for internal review", scopeReference: "Fictional scope",
+    comparisonReference: "Fictional terms and costs", outcome: "Benefit documented", rationale: "Fictional terms reviewed",
+    closed: event("2026-11-06") };
+  const save = (loanId, facts) => ({ operation: "save", loanId, facts: { ...common, ...facts },
+    requestId: crypto.randomUUID(), expectedRevision: 0 });
+  const read = (loanId, state, actor) => record({ operation: "read", loanId, state }, actor);
+  assert.equal(staffApplications(db, mn)[0].draft, null);
+  assert.equal(staffApplications(db, mn)[0].refinanceBenefitState, "MN");
+  assert.ok(read(mn, "NE", officer).error);
+  assert.ok(read(purchase, "NE", officer).error);
+  assert.ok(read(mn, "MN", unrelated).error);
+  const mnSave = save(mn, { state: "MN", applicationCircumstances: event("2026-11-02"), signed: event("2026-11-06") });
+  assert.ok(record(mnSave, processor).error);
+  assert.ok(record({ ...mnSave, facts: { ...mnSave.facts, signed: event("2026-11-12") } }, officer).error);
+  assert.match(record(mnSave, officer).review[0], /on or after the closing date/);
+  assert.equal(record(mnSave, officer).revision, 1);
+  assert.ok(record({ ...mnSave, requestId: crypto.randomUUID() }, officer).error);
+  assert.ok(record({ ...mnSave, expectedRevision: 1, requestId: crypto.randomUUID() }, officer).error);
+  const update = record({ ...mnSave, expectedRevision: 1, requestId: crypto.randomUUID(), correction: "Fictional revised signature record",
+    facts: { ...mnSave.facts, signed: event("2026-11-05") } }, officer);
+  assert.deepEqual(update.review, []);
+  assert.equal(update.history[1].facts.signed.on, "2026-11-06");
+  assert.equal(read(mn, "MN", processor).revision, 2);
+  const neSave = save(ne, { state: "NE", zone: "America/Chicago", outcome: "No benefit identified",
+    worksheetVersion: "2026-10-15", delivered: event("2026-11-06"), acknowledged: event("2026-11-05") });
+  assert.deepEqual(record(neSave, officer).review.map(gap => gap.includes("predates delivery") || gap.includes("establish that order")), [true, true]);
+  const historical = record({ ...neSave, requestId: crypto.randomUUID(), expectedRevision: 1, correction: "Fictional date correction",
+    facts: { ...neSave.facts, closed: event("2026-07-17"), delivered: event("2026-07-15"), acknowledged: event("2026-07-15") } }, officer);
+  assert.match(historical.review[0], /predates July 18/);
+  db.prepare("UPDATE loans SET purpose='Purchase' WHERE id=?").run(ne);
+  assert.ok(read(ne, "NE", officer).error);
+});
+
 test("broker agreement evidence keeps state triggers and corrections with the accessible pilot loan", (t) => {
   const { db, work, addLoan, admin, officer, processor, unrelated } = fixture(t);
   const indiana = addLoan({ state: "in " });

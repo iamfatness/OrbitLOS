@@ -72,6 +72,10 @@ Batch 3 includes Iowa's October 2026 reporting rule transition, Missouri's separ
 
 [Kansas OSBC notice rule](https://www.osbckansas.gov/legal/cml_lawbook_2026.pdf#page=104)
 
+On a Minnesota or Nebraska fictional refinance, expand the state refinance benefit review in **Disclosures**. The assigned loan officer or admin can record references to the terms, costs and borrower circumstances, along with the reviewed outcome, rationale and dated evidence. The assigned processor can read the result. Corrections preserve earlier versions and require a reference.
+
+Minnesota flags a missing signature and compares the signature date to actual closing. A signature dated on closing day remains a review issue under the statutory prior-to-closing-date wording. The Nebraska review records the worksheet version and borrower delivery and acknowledgment evidence. It supports a recorded outcome of no identified benefit and flags when the dates cannot establish delivery before the refinance. The Department announced the Nebraska provision was effective July 18, 2026 and lists its prescribed form revised October 15, 2026. Counsel must determine the covered entity and transaction, applicable form and acceptable evidence. [Minnesota §58.13](https://www.revisor.mn.gov/statutes/2026/cite/58.13) · [Nebraska §45-737](https://nebraskalegislature.gov/laws/statutes.php?statute=45-737) · [Nebraska prescribed form](https://ndbf.nebraska.gov/sites/default/files/doc/Net%20Tangible%20Benefit%20Form%20(1).pdf)
+
 ### Later batches
 
 Batch 4 distinguishes the New York broker Volume of Operations Report, New Jersey's annual state return and Delaware's Volume and Assets reports from NMLS reporting. Confirm the exact reporting year, license status and filing route. Maryland recurring reporting and West Virginia state annual and statistical instructions still need confirmation. [New York DFS](https://www.dfs.ny.gov/apps_and_licensing/mortgage_companies) · [NJDOBI annual reports](https://www.nj.gov/dobi/bankdedfund/welcome.htm) · [Delaware OSBC](https://banking.delaware.gov/faqs/licensing-help/) · [West Virginia Code §31-17-11](https://code.wvlegislature.gov/31-17-11/)

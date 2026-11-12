@@ -817,7 +817,13 @@
     "summary": "The statute calls for disclosure of whether a refinance provides a net tangible benefit, using the director's worksheet or a prescribed substantially similar form.",
     "evidence": "Existing and proposed terms, fees, documented benefit assessment, worksheet version and borrower delivery proof.",
     "counsel": "Confirm applicability, the operative form, timing and how the licensee documents cases with no identified benefit.",
-    "checkedOn": "2026-11-12"
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Nebraska Department of Banking and Finance prescribed form, revised October 15, 2026",
+        "url": "https://ndbf.nebraska.gov/sites/default/files/doc/Net%20Tangible%20Benefit%20Form%20(1).pdf"
+      }
+    ]
   },
   {
     "jurisdiction": "NE",

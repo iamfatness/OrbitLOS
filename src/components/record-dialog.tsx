@@ -51,6 +51,7 @@ import { serviceOrdersTarget, serviceOrderTargetPrefix } from "@/lib/service-ord
 import { DisclosureWorkbench } from "./disclosure-workbench";
 import { TridEvidencePanel } from "./trid-evidence-panel";
 import { StateBrokerAgreement } from "./state-broker-agreement";
+import { StateRefinanceBenefit } from "./state-refinance-benefit";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
@@ -634,6 +635,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const application = state.applications.find((item) => item.loanId === loan.id);
   const propertyState = application?.draft?.propertyLocation?.state?.trim().toUpperCase();
   const agreementState = application?.brokerAgreementState;
+  const benefitState = application?.refinanceBenefitState;
   const propertyStatus = application && !application.submittedAt
     ? (application.draftHasPropertyStreet ? "Address entered in 1003 draft" : "Awaiting 1003 submission")
     : "Address pending";
@@ -746,6 +748,9 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
         <TridEvidencePanel key={`${staff.brokerage.id}:${loan.id}`} loanId={loan.id} brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && agreementState &&
         <StateBrokerAgreement key={`${staff.brokerage.id}:${loan.id}:${agreementState}`} state={agreementState} loanId={loan.id}
+          brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
+      {section === "Disclosures" && canOpenDisclosures && staff?.brokerage.pilot && benefitState && loan.purpose === "Refinance" &&
+        <StateRefinanceBenefit key={`${staff.brokerage.id}:${loan.id}:${benefitState}`} state={benefitState} loanId={loan.id}
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
         loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}

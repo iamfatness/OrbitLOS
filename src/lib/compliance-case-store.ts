@@ -6,10 +6,12 @@ import { initializeComplianceLearning } from "./compliance-learning";
 import type { Store } from "./store";
 import { initializeTridEvidence } from "./trid-evidence";
 import { initializeStateBrokerAgreement } from "./state-broker-agreement";
+import { initializeStateRefinanceBenefit } from "./state-refinance-benefit";
 
 export function initializeComplianceCases(db: Store) {
   initializeTridEvidence(db);
   initializeStateBrokerAgreement(db);
+  initializeStateRefinanceBenefit(db);
   initializeComplianceProgram(db);
   initializeStateScope(db);
   initializeStateReadiness(db);
