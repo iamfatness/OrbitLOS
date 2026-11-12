@@ -63,6 +63,8 @@ import { staffAuthStore, type StaffAuthStore, type StaffIdentity, type Workspace
 import { defaultWorkspace, brokerageIdPattern, brokerageUrl, demoBrokerageId, portalBrokerage, staffSignInRequired, workspaceGuide, type BrokerageMember, type VersionedBrokerageMember } from "./lib/brokerage-model";
 import { activateBrokerages, activeBrokerages, bootstrapDemoMembers, brokerageHistory, brokerageMembers, changeBrokerage, consumeStaffEmailCode, departureRoster, history as recordBrokerageHistory, initializeBrokerages, pilotSeatCapacity, readStaffAccess, rememberWorkspace, reserveStaffEmailCode, selectedActiveMembers } from "./lib/brokerages";
 import { readPilotSupport, readPilotSupportWork, readSupportRecovery } from "./lib/pilot-support";
+import { pilotSupportAccess } from "./lib/pilot-support-access";
+import { pilotSupportAccessInput, type PilotSupportAccessInput, type PilotSupportAccessResult } from "./lib/pilot-support-access-model";
 import { supportChanged, supportUnavailable, supportWorkChanged, supportWorkGroup, supportWorkOffset, supportWorkPaused,
   type SupportRecoveryState, type SupportWorkGroup } from "./lib/pilot-support-model";
 import { accessEvent, assignLoan, scopeWorkspace, workspaceAccessHistory } from "./lib/workspace-access";
@@ -1718,6 +1720,10 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
       active.find(member => member.role === "Admin");
     return savePilotFeedback(this.#store, staff, input, admin?.email ?? null);
   }
+  pilotSupportAccess(staff: WorkspaceStaff, input: PilotSupportAccessInput, active: VersionedBrokerageMember[]): PilotSupportAccessResult {
+    if (!this.#accepts(staff)) return { error: "Workspace access denied.", status: 403 };
+    return pilotSupportAccess(this.#store, staff, input, active);
+  }
   pilotTriage(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
     return triagePilotFeedback(this.#store, staff, input);
@@ -2321,6 +2327,28 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       const view = url.searchParams.get("view");
+      if (view === "pilot-support-access") {
+        if (!staff.brokerage.pilot || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: "Open support access from your pilot workspace." }, { status: 403, headers });
+        }
+        const identity = staff;
+        const run = async (input: unknown, write: boolean) => {
+          const parsed = pilotSupportAccessInput.safeParse(input);
+          if (!parsed.success || write === (parsed.data.type === "manage" || parsed.data.type === "mine")) {
+            return Response.json({ error: "Choose a valid support access action." }, { status: 400, headers });
+          }
+          const active = await directory.complianceRoster(identity, bootstrapEmails);
+          if (!active) return Response.json({ error: "Refresh Team to check your pilot access." }, { status: 403, headers });
+          const result = await workspace.pilotSupportAccess(identity, parsed.data, active);
+          return Response.json(result, { status: "error" in result ? result.status : 200, headers });
+        };
+        if (request.method === "GET") {
+          const requestId = url.searchParams.get("requestId");
+          return run(requestId === null ? { type: "mine" } : { type: "manage", requestId }, false);
+        }
+        if (request.method === "POST") return borrowerJson(request, input => run(input, true), 1536);
+        return new Response(null, { status: 405, headers: { ...headers, Allow: "GET, POST" } });
+      }
       if (view === "partner-permissions") {
         if (staff.brokerage.role !== "Admin" || url.searchParams.get("brokerage") !== staff.brokerage.id) {
           return Response.json({ error: "Open partner permissions as an admin in this brokerage." }, { status: 403, headers });

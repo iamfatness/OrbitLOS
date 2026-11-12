@@ -105,6 +105,7 @@ export default function DemoPage() {
           <li>Review simulated delivery failures in the owner queue and open the exact attempt history.</li>
           <li>Open due or blocked report schedules from Brokerage and review simulated delivery receipts.</li>
           <li>Set a staff seat limit in a fictional pilot and see how many seats pending invitations reserve.</li>
+          <li>Share a pilot support request summary with one named reviewer for a limited time and see when they viewed it.</li>
           <li>Subscribe simulated destinations to new leads, submitted 1003s, and funding events. Preview a batch, review its receipt, and retry failed simulations in Integrations.</li>
           <li>Follow the first-day checklist for an owner, loan officer, or processor. Open each step in the workspace and pick up where you left off.</li>
           <li>File a fictional pilot support request and follow its owner and status in Team.</li>

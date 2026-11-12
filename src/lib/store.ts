@@ -728,6 +728,17 @@ export function initializeStore(db: Store, seedDemo = true) {
     CREATE TABLE IF NOT EXISTS pilot_feedback (
       id TEXT PRIMARY KEY, author TEXT NOT NULL, step TEXT NOT NULL, message TEXT NOT NULL, createdAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS pilot_support_grants (
+      id TEXT PRIMARY KEY, requestId TEXT NOT NULL REFERENCES pilot_feedback(id), reviewer TEXT NOT NULL,
+      reviewerRevision INTEGER NOT NULL, approver TEXT NOT NULL, approverRevision INTEGER NOT NULL,
+      hours INTEGER NOT NULL, approvedAt TEXT NOT NULL, expiresAt TEXT NOT NULL, revokedAt TEXT, revokedBy TEXT
+    );
+    CREATE INDEX IF NOT EXISTS pilot_support_grants_by_request ON pilot_support_grants(requestId, approvedAt DESC);
+    CREATE INDEX IF NOT EXISTS pilot_support_grants_by_reviewer ON pilot_support_grants(reviewer, expiresAt) WHERE revokedAt IS NULL;
+    CREATE TABLE IF NOT EXISTS pilot_support_grant_reads (
+      id TEXT PRIMARY KEY, grantId TEXT NOT NULL REFERENCES pilot_support_grants(id), openedAt TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS pilot_support_grant_reads_by_grant ON pilot_support_grant_reads(grantId, openedAt);
     CREATE TABLE IF NOT EXISTS pilot_measurements (
       id TEXT PRIMARY KEY, walkthrough TEXT NOT NULL, workflow TEXT NOT NULL, seconds INTEGER NOT NULL,
       repeatEntries INTEGER NOT NULL, systemSwitches INTEGER NOT NULL, createdAt TEXT NOT NULL

@@ -350,7 +350,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
       </table></div>}
     </section>}
     {pilot && (!admin || activePanel === "Support requests") &&
-      <PilotSupportRequests key={staff.brokerage.id} endpoint={endpoint} admin={admin} members={activeMembers} />}
+      <PilotSupportRequests key={staff.brokerage.id} endpoint={endpoint} admin={admin} members={activeMembers} refreshMembers={reloadTeam} />}
     {admin && settings && activePanel === "Staff access" &&
       <section className="pipeline relationship-panel team-access-panel" aria-label="Staff access">
         <div className="section-heading team-access-heading"><h2>Staff access</h2>

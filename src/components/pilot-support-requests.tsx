@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { pilotFeedbackStatuses, pilotPriorities, pilotSteps, type BrokerageMember } from "@/lib/brokerage-model";
+import { pilotFeedbackStatuses, pilotPriorities, pilotSteps, type VersionedBrokerageMember } from "@/lib/brokerage-model";
 import type { PilotSupportRequest, PilotSupportRequestPage } from "@/lib/pilot-support-request-model";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { PilotSupportGrantManager, PilotSupportShared } from "./pilot-support-access";
 
 type StatusFilter = "" | PilotSupportRequest["status"];
 type Cursor = PilotSupportRequestPage["next"];
@@ -31,8 +32,8 @@ function ownerLabel(item: PilotSupportRequest) {
   return item.ownerName ?? (item.needsOwner ? "Needs assignment" : "Unassigned");
 }
 
-export function PilotSupportRequests({ endpoint, admin, members }: {
-  endpoint: string; admin: boolean; members: BrokerageMember[];
+export function PilotSupportRequests({ endpoint, admin, members, refreshMembers }: {
+  endpoint: string; admin: boolean; members: VersionedBrokerageMember[]; refreshMembers: () => Promise<unknown>;
 }) {
   const [filter, setFilter] = useState<StatusFilter>("");
   const [page, setPage] = useState<PilotSupportRequestPage>();
@@ -43,6 +44,7 @@ export function PilotSupportRequests({ endpoint, admin, members }: {
   const [saving, setSaving] = useState(false);
   const [intakeError, setIntakeError] = useState("");
   const [notice, setNotice] = useState("");
+  const [shared, setShared] = useState(false);
   const attempt = useRef<{ key: string; id: string } | null>(null);
   const filterControl = useRef<HTMLSelectElement>(null);
   const intakeAlert = useRef<HTMLParagraphElement>(null);
@@ -112,13 +114,17 @@ export function PilotSupportRequests({ endpoint, admin, members }: {
       {intakeError && <p ref={intakeAlert} tabIndex={-1} className="application-message banner-error" role="alert">{intakeError}</p>}
       {notice && <p className="application-message" role="status">{notice}</p>}
     </form>
-    {selected && <RequestDetails key={selected} id={selected} endpoint={endpoint} members={members} onSaved={refreshList}
+    {selected && <RequestDetails key={selected} id={selected} endpoint={endpoint} members={members} refreshMembers={refreshMembers} onSaved={refreshList}
       onClose={() => {
         setSelected(undefined);
         const target = returnControl.current;
         if (target?.isConnected) target.focus();
         else filterControl.current?.focus();
       }} />}
+    {!admin && <details className="pilot-support-access" onToggle={event => setShared(event.currentTarget.open)}>
+      <summary>Shared with me</summary>
+      {shared && <PilotSupportShared endpoint={endpoint} />}
+    </details>}
     <div className="record-form">
       <div className="document-item-head"><h3>{admin ? "Brokerage requests" : "Your requests"}</h3>
         <Button type="button" size="sm" variant="outline" disabled={listLoading} onClick={() => refreshList()}>Refresh list</Button>
@@ -156,8 +162,9 @@ export function PilotSupportRequests({ endpoint, admin, members }: {
   </section>;
 }
 
-function RequestDetails({ id, endpoint, members, onSaved, onClose }: {
-  id: string; endpoint: string; members: BrokerageMember[]; onSaved: () => void; onClose: () => void;
+function RequestDetails({ id, endpoint, members, refreshMembers, onSaved, onClose }: {
+  id: string; endpoint: string; members: VersionedBrokerageMember[]; refreshMembers: () => Promise<unknown>;
+  onSaved: () => void; onClose: () => void;
 }) {
   const [item, setItem] = useState<PilotSupportRequest>();
   const [editRevision, setEditRevision] = useState<number>();
@@ -166,6 +173,7 @@ function RequestDetails({ id, endpoint, members, onSaved, onClose }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [grantControls, setGrantControls] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const detailAlert = useRef<HTMLParagraphElement>(null);
   const detailNotice = useRef<HTMLParagraphElement>(null);
@@ -244,6 +252,10 @@ function RequestDetails({ id, endpoint, members, onSaved, onClose }: {
       <Button type="button" size="sm" variant="outline" disabled={saving || loading} onClick={() => void refresh(false)}>Refresh request</Button>
       <Button type="button" size="sm" variant="outline" disabled={saving} onClick={onClose}>Back to requests</Button>
     </div>
+    {item && triage && <details className="pilot-support-access" onToggle={event => setGrantControls(event.currentTarget.open)}>
+      <summary>Temporary support access</summary>
+      {grantControls && <PilotSupportGrantManager endpoint={endpoint} requestId={id} members={members} refreshMembers={refreshMembers} />}
+    </details>}
     {item && triage && <form key={formVersion} className="record-form" aria-label="Update support request" onSubmit={event => {
       if (changed) event.preventDefault();
       else void update(event);

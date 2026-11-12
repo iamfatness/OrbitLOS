@@ -5560,6 +5560,50 @@ try {
     }
   });
 
+  await stage("Pilot support summaries require named, current and revocable access", async () => {
+    const endpoint = `/api/brokerages?brokerage=${brokerage}&view=pilot-support-access`;
+    const id = randomUUID(), otherId = randomUUID();
+    await team(officer, { type: "pilotFeedback", id, step: "Documents", message: "Private fictional support request text." });
+    await team(officer, { type: "pilotFeedback", id: otherId, step: "Pricing", message: "Second fictional support request." });
+    const roster = (await (await readTeam(owner)).json()).members;
+    const reviewerRevision = roster.find(member => member.email === processor.email).accessRevision;
+    const approval = { type: "approve", requestId: id, grantId: randomUUID(), reviewer: processor.email, reviewerRevision, hours: 1 };
+    const open = { type: "open", grantId: approval.grantId, openId: randomUUID() };
+    const manage = async () => (await readTeam(owner, { view: "pilot-support-access", requestId: id })).json();
+    const mine = async () => (await readTeam(processor, { view: "pilot-support-access" })).json();
+    const share = (input, staff = owner) => postResponse(endpoint, input, staff);
+    assert.equal((await share(approval, officer)).status, 403);
+    assert.equal((await share(open, processor)).status, 404);
+    assert.equal((await share({ ...approval, reviewerRevision: reviewerRevision + 1 })).status, 409);
+    assert.equal((await share({ ...approval, hours: 25 })).status, 400);
+    assert.equal((await share(approval)).status, 200);
+    assert.equal((await share(approval)).status, 200);
+    assert.equal((await share({ ...approval, grantId: randomUUID() })).status, 409);
+    assert.equal((await share(open, officer)).status, 404);
+    assert.equal((await share(open)).status, 404);
+    assert.equal((await postResponse(`/api/brokerages?brokerage=${lenderBrokerage}&view=pilot-support-access`, open, owner)).status, 403);
+    assert.equal((await readTeam(processor, { view: "pilot-support-access", requestId: id })).status, 403);
+    assert.deepEqual((await mine()).offers.map(item => item.id), [approval.grantId]);
+    const ordinary = await (await readTeam(processor, { view: "pilot-support-requests", id })).json();
+    assert.deepEqual(ordinary.items, []);
+    const summary = (await share(open, processor)).result.summary;
+    assert.deepEqual(Object.keys(summary).sort(), ["createdAt", "expiresAt", "openedAt", "priority", "receiptId", "status", "step", "updatedAt"]);
+    assert.equal(summary.step, "Documents");
+    assert.deepEqual((await share(open, processor)).result.summary, summary);
+    assert.equal((await manage()).grants[0].openCount, 1);
+    assert.equal((await share({ type: "revoke", requestId: otherId, grantId: approval.grantId })).status, 404);
+    const revoke = { type: "revoke", requestId: id, grantId: approval.grantId };
+    assert.equal((await share(revoke)).status, 200);
+    const revoked = (await manage()).grants[0];
+    assert.equal(revoked.status, "Revoked");
+    assert.equal(revoked.revokedBy, owner.email);
+    assert.equal(revoked.openCount, 1);
+    assert.equal((await share(revoke)).status, 200);
+    assert.deepEqual((await manage()).grants, [revoked]);
+    assert.equal((await share(open, processor)).status, 404);
+    assert.deepEqual((await mine()).offers, []);
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
