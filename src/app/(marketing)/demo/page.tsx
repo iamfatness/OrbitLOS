@@ -86,7 +86,7 @@ export default function DemoPage() {
           <li>Record a post-funding check-in, see its note on the scheduled callback in Tasks, and confirm the original property address when starting a separate refinance.</li>
           <li>Follow a returning-client refinance from campaign reply through processor handoff, borrower documents, and funded repeat business.</li>
             <li>Record mock credit authorization for a joint 1003. Open unconfirmed credit or AUS orders from Today and check the original result.</li>
-            <li>Review a mismatched mock underwriting response in Exceptions. Keep the original order pending until a matching result arrives.</li>
+            <li>Review a mismatched mock underwriting response in Exceptions. Retrying a lost lookup response preserves the original order and its history.</li>
           <li>Claim an imported lead from the shared queue and open the prefilled 1003 directly from the campaign. The card shows the new loan even in a filtered call queue. Scheduled callbacks follow the loan, and missed deadlines stay visible in reporting.</li>
           <li>Open a fresh fictional pilot and use the guided walkthrough to explore appointments, open files, borrower conversations, and funded loans.</li>
           <li>Save the two runs for the same fictional case as you finish them. Compare staff time and handoffs, and record any external steps or blockers.</li>

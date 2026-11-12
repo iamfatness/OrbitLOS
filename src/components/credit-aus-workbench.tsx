@@ -15,6 +15,7 @@ function Attempt({ run, creditReference, stale, busy = false, save, canReviewCon
   const { result, conflict } = run;
   const id = creditAusAttemptTarget(run.id);
   const needsAdmin = conflict && !conflict.reviewedAt;
+  const lookup = useRef<{ attemptId: string; id: string } | null>(null);
   const focusOutcome = () => requestAnimationFrame(() => document.getElementById(id)?.querySelector<HTMLElement>("[data-credit-aus-outcome]")?.focus());
   return <div className="document-item" id={id} tabIndex={-1}>
     <div className="document-item-head"><strong>{run.reference}</strong><span className="pill" tabIndex={-1} data-credit-aus-outcome>{result.status}</span></div>
@@ -38,9 +39,11 @@ function Attempt({ run, creditReference, stale, busy = false, save, canReviewCon
     {result.status === unconfirmedMockOrder && !needsAdmin && <>
       <p>{conflict?.reviewedAt ? "Check the original order again to confirm its result." : run.lastCheckedAt ? `Last check inconclusive · ${dateTime(run.lastCheckedAt)} ET` :
         "The mock provider’s response is missing. Check this order’s original result."}</p>
-      {save && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => void save({
-        type: "reconcileMockCreditAus", loanId: run.loanId, attemptId: run.id,
-      }, focusOutcome)}>
+      {save && <div><Button size="sm" variant="outline" disabled={busy} onClick={() => {
+        if (lookup.current?.attemptId !== run.id) lookup.current = { attemptId: run.id, id: crypto.randomUUID() };
+        void save({ type: "reconcileMockCreditAus", loanId: run.loanId, attemptId: run.id, lookupId: lookup.current.id },
+          () => { lookup.current = null; focusOutcome(); });
+      }}>
         Check original {run.service === "Credit" ? "credit" : run.service} result
       </Button></div>}
     </>}

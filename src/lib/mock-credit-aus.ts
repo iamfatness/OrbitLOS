@@ -30,7 +30,7 @@ export const mockRetryInput = z.object({
   ...fields, type: z.literal("retryMockCreditAus"), service: z.enum(creditAusServices), previousId: z.uuid(),
 });
 export const mockReconcileInput = z.object({
-  loanId, type: z.literal("reconcileMockCreditAus"), attemptId: z.uuid(),
+  loanId, type: z.literal("reconcileMockCreditAus"), attemptId: z.uuid(), lookupId: z.uuid().optional(),
 });
 export const mockConflictReviewInput = z.object({
   loanId, type: z.literal("reviewMockUnderwritingConflict"), attemptId: z.uuid(),
@@ -43,12 +43,14 @@ type MockInput = SingleOrderInput | PairedOrderInput | z.infer<typeof mockReconc
 type RunRow = Record<string, SqlValue>;
 type MockLookup = "rejected" | "inconclusive-first" | "conflict-first";
 type StoredResult = MockCreditAusResult & {
-  borrowerCount?: number; reconciledAt?: string; lastCheckedAt?: string; mockLookup?: MockLookup; conflict?: MockUnderwritingConflict;
+  borrowerCount?: number; reconciledAt?: string; lastCheckedAt?: string; mockLookup?: MockLookup;
+  conflict?: MockUnderwritingConflict; lookupIds?: string[];
 };
 
 function readRun(row: RunRow): MockCreditAusRun {
   const { borrowerCount, reconciledAt, lastCheckedAt, conflict, ...result } = JSON.parse(String(row.result)) as StoredResult;
   delete result.mockLookup;
+  delete result.lookupIds;
   return {
     id: String(row.id), loanId: String(row.loanId), service: row.service as MockCreditAusRun["service"],
     reference: String(row.reference), creditId: row.creditId as string | null, retryOf: row.retryOf as string | null,
@@ -192,6 +194,9 @@ function reconcileOrder(db: Store, input: z.infer<typeof mockReconcileInput | ty
     audit("Dismissed mismatched mock underwriting response");
     return { message: "Mismatched response dismissed. The original order still needs confirmation." };
   }
+  if (input.lookupId && stored.lookupIds?.includes(input.lookupId)) {
+    return { message: "This mock lookup is already recorded. Review the current order status." };
+  }
   if (stored.reconciledAt) return { message: "The original mock result is already confirmed." };
   if (stored.status !== unconfirmedMockOrder) return { error: "Only a request awaiting confirmation can be checked." };
   if (stored.conflict && !stored.conflict.reviewedAt) return { error: conflictPending };
@@ -201,19 +206,21 @@ function reconcileOrder(db: Store, input: z.infer<typeof mockReconcileInput | ty
     borrowerCount: stored.borrowerCount ?? 1 };
   const reference = String(row.reference);
   const check = classifyUnderwritingLookup(identity, simulateLookup(stored, identity, reference), reference);
+  // A mock order has at most one intermediate lookup and one terminal lookup.
+  const lookupIds = input.lookupId ? [...(stored.lookupIds ?? []), input.lookupId] : stored.lookupIds;
   if (check.outcome === "conflict") {
-    write({ ...stored, conflict: { reference: check.reference, detectedAt: now } });
+    write({ ...stored, lookupIds, conflict: { reference: check.reference, detectedAt: now } });
     audit("Flagged mismatched mock underwriting response");
     return { message: "Mock response did not match this order. Sent to brokerage admin review." };
   }
   if (check.outcome === "inconclusive") {
-    write({ ...stored, lastCheckedAt: now });
+    write({ ...stored, lookupIds, lastCheckedAt: now });
     audit(`Checked unconfirmed mock ${service} result · ${unconfirmedMockOrder}`);
     return { message: "The mock lookup was inconclusive. The original order is still pending." };
   }
   const rejected = check.outcome === "rejected";
   const result = mockResult(service, rejected ? "failure" : "eligible");
-  write({ ...result, borrowerCount: stored.borrowerCount, reconciledAt: now, conflict: stored.conflict });
+  write({ ...result, borrowerCount: stored.borrowerCount, reconciledAt: now, conflict: stored.conflict, lookupIds });
   audit(`Confirmed original mock ${service} result · ${result.status}`);
   if (rejected) return { message: "Mock provider confirmed no order was placed. You can retry." };
   return { message: "Original mock result confirmed." };
