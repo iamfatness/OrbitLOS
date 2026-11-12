@@ -65,7 +65,7 @@ import { conditionTarget, submissionTarget } from "@/lib/uwm-alert-model";
 import { downloadSampleFile } from "./sample-download";
 import { CutoverInventoryDownload } from "./cutover-file-inventory";
 import type { WorkspaceMutationSuccess } from "@/lib/commands";
-import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, mockClearanceClosingStages, pausedLoan,
+import { canRecordFundingCheckIn, closingReviewReady, fundingCheckInTarget, loanAmountComparisonTarget, loanNextAction, loanTaskTarget, mockClearanceClosingStages, pausedLoan,
   closingChecklistListTarget, manualLenderClosingAction, reopenedMockClosingCondition } from "@/lib/loan-workflow";
 import { LoanWorkflow } from "./loan-workflow";
 import { ProcessingHandoff, SecondReviewCheckpoint } from "./processing-handoff";
@@ -848,7 +848,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
             blocked={prospectingBlocked(task.purpose, borrower?.outreachSuppressed)}
             context={task.id === `rate-watch:${loan.id}` ? rateContext : undefined}
             action={task.id === checkInTask?.id ? <Button size="sm" variant="outline" disabled={busy} onClick={() => open(fundingCheckInTarget)}>Record check-in</Button> :
-              disclosureTask(task.id) ? <Button size="sm" variant="outline" disabled={busy} onClick={() => open(disclosureTarget)}>Open disclosures</Button> :
+              disclosureTask(task.id) ? <Button size="sm" variant="outline" disabled={busy} onClick={() => open(loanTaskTarget(task.id))}>
+                {loanTaskTarget(task.id) === closingDisclosureReviewTarget ? "Open closing review" : "Open disclosures"}</Button> :
               isSharedQuoteReview(task.id) && !processor ? <Button size="sm" variant="outline" disabled={busy}
                 onClick={() => show({ kind: "pricing", loanId: loan.id, reviewSharedQuote: true })}>Open quote review</Button> : undefined}
             onChange={task.campaignCallback || disclosureTask(task.id) || isSharedQuoteReview(task.id) || task.id.startsWith(reversedFundingTaskPrefix) ||

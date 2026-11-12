@@ -49,13 +49,14 @@ function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy,
   const download = (packet: NonNullable<typeof latest>) => <div>
     <p>Packet v{packet.version} · Disclosure v{packet.disclosureVersion} · {packet.current ? "Current snapshot" : "Prior snapshot"}</p>
     <p className="muted">Prepared by {packet.preparedBy} · {dateTime(packet.preparedAt)} ET</p>
-    <Button size="sm" variant="outline" disabled={downloading !== undefined} onClick={() => void downloadVersion(packet.version)}>
+    <Button size="sm" variant="outline" className="min-h-11" disabled={downloading !== undefined} onClick={() => void downloadVersion(packet.version)}>
       {downloading === packet.version ? "Downloading…" : `Download sample closing packet v${packet.version}`}
     </Button>
   </div>;
   return <section className="document-item" aria-label="Sample closing packets">
     <div className="document-item-head"><strong>Sample closing packet</strong><span className="pill">Internal PDF</span></div>
     <p className="muted">Save the confirmed mock receipts, critical dates, and closing checklist as a versioned staff copy.</p>
+    {latest && !packets.canPrepare && <p role="status">Confirm the current signed package in this loan before preparing a new closing packet. Prior downloads remain available.</p>}
     {downloadError && <p role="alert">{downloadError}</p>}
     {confirmation && !latest?.current && <div><Button size="sm" disabled={busy} onClick={() => void save({
       type: "prepareClosingPacket", loanId, previousVersion: latest?.version ?? null,
@@ -74,10 +75,8 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
 }) {
   const item = work?.packages[0];
   if (!work || !item) return null;
-  const { source, closingReviews } = work;
+  const { revisionReason, closingReviews } = work;
   const status = disclosurePackageStatus(item);
-  const sourceCurrent = source && item.applicationRevision === source.applicationRevision && item.feeRevision === source.feeRevision &&
-    item.quote.runId === source.quote.runId && item.quote.offerId === source.quote.offerId;
   const review = closingReviews.find((entry) => entry.current);
   const past = closingReviews.filter((entry) => !entry.current);
   const active = (!loan.disposition || loan.disposition === "Active") && loan.stage !== "Funded" && loan.stage !== "Closed";
@@ -95,17 +94,23 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open }: {
   </>;
   return <section className="document-item" id={closingDisclosureReviewTarget} tabIndex={-1} aria-label="Sample disclosures for closing">
     <div className="document-item-head"><strong>Sample disclosures for closing</strong><span className="pill">Mock evidence</span></div>
-    <p>Package v{item.version} · {review ? "Confirmed for closing handoff" : sourceCurrent ? status : "Review required"}</p>
+    <p>Package v{item.version} · {review ? "Confirmed for closing handoff" : revisionReason ? "Review required" : status}</p>
     {review ? reviewSummary(review) : <>
+      {past.length > 0 && <div className="work-queue">
+        <strong>Closing review reopened</strong>
+        <p>{revisionReason ?? (status === "Mock signing complete" ? "Confirm the signed replacement package for closing." :
+          status === "Draft" ? "Issue the replacement sample package and collect the mock signatures." :
+            status === "Declined" ? "Follow up on the declined sample package." : "Collect the remaining mock signatures.")}</p>
+        <p className="muted">Prior confirmation · Package v{past[0].version} · {past[0].actor}</p>
+      </div>}
       <p>1003 revision {item.applicationRevision} · Fee worksheet revision {item.feeRevision}</p>
       {signerRows(item.signers)}
-      {past.length > 0 && <p className="muted">The prior closing review applies to an earlier package or revision.</p>}
-      {active && status === "Mock signing complete" && sourceCurrent && <div>
-        <Button size="sm" disabled={busy} onClick={() => void save({ type: "confirmClosingDisclosure", loanId: loan.id,
+      {active && status === "Mock signing complete" && !revisionReason && <div>
+        <Button size="sm" className="min-h-11" disabled={busy} onClick={() => void save({ type: "confirmClosingDisclosure", loanId: loan.id,
           version: item.version, revision: item.revision })}>Confirm sample package for closing</Button>
       </div>}
     </>}
-    <div><Button size="sm" variant="outline" onClick={() => open(disclosureTarget)}>Open disclosure package</Button></div>
+    <div><Button size="sm" variant="outline" className="min-h-11" onClick={() => open(disclosureTarget)}>Open disclosure package</Button></div>
     {past.length > 0 && <details className="document-form">
       <summary>Previous closing disclosure reviews</summary>
       {past.map((entry) => <div key={`${entry.version}:${entry.revision}`}>

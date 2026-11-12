@@ -66,12 +66,13 @@ export function readFilePreflight(db: Store, loanId: string): FilePreflight {
   const item = disclosure.packages[0];
   const confirmation = disclosure.closingReviews.find(({ current }) => current);
   const packageStatus = item ? disclosurePackageStatus(item) : null;
+  const readyToConfirm = packageStatus === "Mock signing complete" && source && !disclosure.revisionReason;
   add("disclosures", "Sample disclosures", confirmation ? `Confirmed package v${confirmation.version} · Revision ${confirmation.revision}` :
     !item ? "Prepare and issue a sample package." :
-      packageStatus === "Mock signing complete" && source && !item.reviewReason ?
+      readyToConfirm ?
         `Confirm signed package v${item.version} in Closing.` :
-        `Package v${item.version} · ${item.reviewReason ?? packageStatus}.`,
-  Boolean(confirmation), !confirmation && packageStatus === "Mock signing complete" && source ? closingDisclosureReviewTarget : disclosureTarget);
+        `Package v${item.version} · ${disclosure.revisionReason ?? packageStatus}.`,
+  Boolean(confirmation), !confirmation && readyToConfirm ? closingDisclosureReviewTarget : disclosureTarget);
 
   const lender = applicationReady ? db.prepare(`SELECT id, lender, externalId, status, conditions, syncedAt FROM submissions
     WHERE loanId = ? AND ((id = ? AND syncedAt IS NULL) OR (lender = 'UWM' AND syncedAt IS NOT NULL AND externalId = ?))

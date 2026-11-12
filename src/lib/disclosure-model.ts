@@ -7,6 +7,8 @@ import type { DisclosureTemplateBasis, DisclosureTemplateOptions } from "./discl
 export const disclosureTarget = "loan-disclosures";
 export const disclosureReviewPrefix = "disclosure-review:";
 export const disclosureSigningPrefix = "disclosure-signing:";
+export const disclosureIssuePrefix = "disclosure-revised-issue:";
+export const disclosureClosingReviewPrefix = "disclosure-closing-review:";
 export const disclosureDeclinePrefix = "disclosure-decline:";
 export const disclosureDeclineTaskTitle = "Follow up on declined sample disclosure";
 export const sampleDisclosureDocuments = ["Sample loan terms", "Sample fee summary", "Sample borrower acknowledgment"] as const;
@@ -56,6 +58,7 @@ export type DisclosurePackage = DisclosureSource & {
 };
 export type DisclosureWork = {
   source: DisclosureSource | null; unavailable: string | null; packages: DisclosurePackage[];
+  revisionReason: string | null;
   closingReviews: ClosingDisclosureReview[];
   suggestedDeadline?: DisclosureDeadline;
   templateOptions?: DisclosureTemplateOptions;
@@ -85,5 +88,6 @@ export function disclosurePackageStatus(item: DisclosurePackage) {
 }
 
 export function disclosureTask(id: string) {
-  return id.startsWith(disclosureReviewPrefix) || id.startsWith(disclosureSigningPrefix) || id.startsWith(disclosureDeclinePrefix);
+  return id.startsWith(disclosureReviewPrefix) || id.startsWith(disclosureSigningPrefix) || id.startsWith(disclosureDeclinePrefix) ||
+    id.startsWith(disclosureIssuePrefix) || id.startsWith(disclosureClosingReviewPrefix);
 }

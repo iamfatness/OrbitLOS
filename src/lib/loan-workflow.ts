@@ -5,7 +5,8 @@ import { afterHours, fundingTaskAudience, fundingTaskId } from "./playbook-model
 import type { BrokerageRole } from "./brokerage-model";
 import { secondReviewBlocker } from "./application-model";
 import { loanReviewsTarget } from "./loan-review-model";
-import { disclosureTarget, disclosureTask } from "./disclosure-model";
+import { disclosureClosingReviewPrefix, disclosureIssuePrefix, disclosureReviewPrefix, disclosureTarget, disclosureTask } from "./disclosure-model";
+import { closingDisclosureReviewTarget } from "./file-preflight-model";
 import { mockUwmReceiptTaskPrefix } from "./uwm-handoff-recovery";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "./shared-quote-model";
 import { manualLenderAcknowledgmentTarget } from "./lender-export-model";
@@ -61,6 +62,7 @@ export function isStalledLoan(loan: Pick<Loan, "disposition" | "stage" | "stageS
 }
 
 export function loanTaskTarget(id: string, readOnly = false) {
+  if (id.startsWith(disclosureClosingReviewPrefix)) return closingDisclosureReviewTarget;
   if (disclosureTask(id)) return disclosureTarget;
   if (isSharedQuoteReview(id)) return sharedQuoteReviewTarget;
   if (id.startsWith("first-contact:") || id.startsWith("outreach:")) return "loan-activity";
@@ -201,6 +203,10 @@ export function loanNextAction(loan: LoanActionRecord, state: LoanNextActionStat
     title: `Follow up on ${waitingCondition.request.kind}`, target: waitingCondition.target, dueAt: null,
     blocker: application?.submittedAt ? "Waiting on borrower" : "Waiting for the 1003",
   };
+  const disclosureReview = !pastClient && state.tasks.find(item => item.loanId === loan.id && !item.completedAt &&
+    (item.id.startsWith(disclosureReviewPrefix) || item.id.startsWith(disclosureIssuePrefix) || item.id.startsWith(disclosureClosingReviewPrefix)));
+  if (disclosureReview) return { title: disclosureReview.title, target: loanTaskTarget(disclosureReview.id),
+    dueAt: disclosureReview.dueAt, blocker: null, taskId: disclosureReview.id };
   if (!funding && actualClosing && loan.stage !== "Closed") return {
     title: "Record funding", target: "loan-funding", dueAt: null, blocker: null,
   };
