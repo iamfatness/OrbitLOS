@@ -5,6 +5,7 @@ import { disclosureCalendarReference, type DisclosureCalendarBasis, type Disclos
 import type { DisclosureTemplateBasis, DisclosureTemplateOptions } from "./disclosure-template-model";
 
 export const disclosureTarget = "loan-disclosures";
+export const findingDisclosureTarget = (caseId: string) => `${disclosureTarget}-finding-${caseId}`;
 export const disclosureReviewPrefix = "disclosure-review:";
 export const disclosureSigningPrefix = "disclosure-signing:";
 export const disclosureDeclinePrefix = "disclosure-decline:";

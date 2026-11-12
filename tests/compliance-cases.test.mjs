@@ -514,6 +514,8 @@ test("manual status and older sample evidence cannot resolve or review another p
   assert.match(edit(reviewed.item, review).error, /workbench/);
   addPackage(loanId, 2);
   assert.equal(read(item.id).packageState, "Superseded");
+  assert.equal(read(item.id).latestPackageVersion, 2);
+  assert.equal(read(item.id).evidencePackageRevision, null);
   assert.equal(read(item.id).history[0].action, "recordSampleReview");
   assert.match(edit(reviewed.item, review).error, /workbench/);
   const newer = open(loanId, 2);
@@ -522,6 +524,9 @@ test("manual status and older sample evidence cannot resolve or review another p
   assert.equal(newer.sampleReview, null);
   assert.match(edit(newer.item, review).error, /workbench/);
   assert.deepEqual(work({ type: "list", kind: "Operational finding" }).counts, { cases: 2, files: 1 });
+  db.prepare("UPDATE disclosure_packages SET supersededAt = ? WHERE loanId = ? AND version = 2").run(at, loanId);
+  assert.equal(read(item.id).latestPackageVersion, null);
+  assert.equal(read(item.id).history[0].action, "recordSampleReview");
 });
 
 test("daily findings follow the current owner and hand off a revision-bound review request to the manager", (t) => {

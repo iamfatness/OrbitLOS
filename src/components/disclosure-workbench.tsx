@@ -106,9 +106,10 @@ function SigningTarget({ current, suggestion, today, busy, refresh }: {
   </div>;
 }
 
-export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, save, open, refresh }: {
+export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, save, open, refresh, evidenceTarget, backToFinding }: {
   loan: Loan; state: Workspace; busy: boolean; readOnly?: boolean; save: (input: unknown, after?: (result: WorkspaceMutationSuccess) => void) => Promise<void>;
   open: (target: string) => void; refresh?: () => void; brokerageId: string;
+  evidenceTarget?: string; backToFinding?: () => void;
 }) {
   const work = state.disclosureWork;
   const [current, ...previous] = work?.packages ?? [];
@@ -132,11 +133,11 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
   const reviewReason = current?.reviewReason ?? (sourceChanged ? "Application or quote changed" : null);
   const needsChangeNote = Boolean(reviewReason);
   const shifted = work?.draftTargetChanged;
+  const evidenceOnPackage = evidenceTarget && current && !current.supersededAt;
+  const returnToFinding = backToFinding && <div><Button size="sm" variant="outline" className="min-h-11"
+    onClick={backToFinding}>Back to finding</Button></div>;
 
-  return <section className="details-section document-section" id={disclosureTarget} tabIndex={-1} aria-label="Disclosure and Critical Dates">
-    <div className="section-heading"><h3><ClipboardList size={17} /> Disclosure &amp; Critical Dates</h3><span className="pill">Mock signing</span></div>
-    <p className="muted">Assemble a sample package from the reviewed 1003 and saved quote. Signing activity stays in Orbit.</p>
-    <div className="form-grid">
+  const dates = <div className="form-grid">
       <div><strong>1003 submitted</strong><p>{stamp(app?.submittedAt)}</p></div>
       <div><strong>1003 reviewed</strong><p>{stamp(app?.reviewedAt)}</p></div>
       <div><strong>Sample signing target</strong><p>{current ? dateLabel(current.signBy) : "Unscheduled"}{targetPassed && " · Past due"}</p>
@@ -144,16 +145,29 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
       <div><strong>Closing target</strong><p>{target ? dateLabel(target) : "Unscheduled"}</p></div>
       {closed && <div><strong>Closing recorded</strong><p>{dateLabel(closed)}</p></div>}
       {funded && <div><strong>Funding recorded</strong><p>{dateLabel(funded)}</p></div>}
-    </div>
+  </div>;
+  return <section className="details-section document-section" id={disclosureTarget} tabIndex={-1} aria-label="Disclosure and Critical Dates">
+    <div className="section-heading"><h3><ClipboardList size={17} /> Disclosure &amp; Critical Dates</h3><span className="pill">Mock signing</span></div>
+    {!evidenceTarget && <>
+      <p className="muted">Assemble a sample package from the reviewed 1003 and saved quote. Signing activity stays in Orbit.</p>
+      {dates}
+    </>}
     {!work && <p>{refresh ? <Button size="sm" variant="outline" disabled={busy} onClick={refresh}>Load disclosure workbench</Button> :
       "Open this loan from Pipeline to load the disclosure workbench."}</p>}
+    {evidenceTarget && !evidenceOnPackage && <section id={evidenceTarget} tabIndex={-1} className="document-item record-form"
+      aria-label="Current disclosure evidence">
+      <p>{work ? "No current sample disclosure package on this loan." : "The disclosure workbench needs to be loaded."}</p>
+      {returnToFinding}
+    </section>}
     {current && reviewReason && <div className="work-queue">
       <strong>Review required · {reviewReason}</strong>
       <p>Review the updated terms and prepare a revised sample package to resolve the task. Prior responses stay with their version.</p>
       {source && <ChangedTerms previous={current} current={source} />}
     </div>}
-    {current && command && <section className="document-item" aria-label={`Sample disclosure package version ${current.version}`}>
+    {current && command && <section className="document-item" id={evidenceOnPackage ? evidenceTarget : undefined}
+      tabIndex={evidenceOnPackage ? -1 : undefined} aria-label={`Sample disclosure package version ${current.version}`}>
       <div className="document-item-head"><strong>Sample package v{current.version}</strong><span className="pill">{status}</span></div>
+      {evidenceOnPackage && returnToFinding}
       <p className="muted">Prepared {stamp(current.preparedAt)}{current.issuedAt && ` · Issued ${stamp(current.issuedAt)}`}</p>
       <ChangeReview item={current} />
       <PackagePreview item={current} />
@@ -188,6 +202,7 @@ export function DisclosureWorkbench({ loan, state, busy, readOnly, brokerageId, 
       {editable && source && !reviewReason && !shifted && status === "Draft" && <div><Button size="sm" disabled={busy}
         onClick={() => void save({ type: "issueDisclosurePackage", ...command })}>Issue sample package</Button></div>}
     </section>}
+    {evidenceTarget && dates}
     {work && !source && <div className="work-queue">
       <p>{work.unavailable}</p>
       <div className="loan-application-actions">

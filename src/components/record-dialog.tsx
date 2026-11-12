@@ -54,7 +54,7 @@ import { StateBrokerAgreement } from "./state-broker-agreement";
 import { StateRefinanceBenefit } from "./state-refinance-benefit";
 import { KansasConsumerNotice } from "./kansas-consumer-notice";
 import { MichiganLoanPractices } from "./michigan-loan-practices";
-import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
+import { disclosureTarget, disclosureTask, findingDisclosureTarget } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
 import { StaffRealtorFinancing } from "./realtor-financing-summary";
 import { realtorFinancingTarget } from "@/lib/realtor-financing-model";
@@ -96,7 +96,7 @@ import { observeHandoffChecks } from "@/lib/tab-return";
 import { observeBorrowerChange } from "@/lib/borrower-change-signal";
 
 export type Modal =
-  | { kind: "details"; loanId: string; target?: string; campaignLender?: CampaignLenderPath; incomeWorksheetRevision?: number }
+  | { kind: "details"; loanId: string; target?: string; campaignLender?: CampaignLenderPath; incomeWorksheetRevision?: number; returnToEvidence?: boolean }
   | { kind: "assignment"; loanId: string; returnTo?: "processing-handoff" | "document-checklist"; manualReturn?: ManualReturnAssignment }
   | { kind: "loan"; loanId?: string; stage?: Stage; contactId?: string }
   | { kind: "contactHistory"; contactId: string }
@@ -522,7 +522,7 @@ function visibleLoanSections(staff: WorkspaceStaff | null) {
 function loanSection(target?: string) {
   if (!target) return "Overview";
   if (target === "loan-scenarios") return "Scenarios";
-  if (target === disclosureTarget) return "Disclosures";
+  if (target === disclosureTarget || target.startsWith(findingDisclosureTarget(""))) return "Disclosures";
   if (target === complianceTarget || target.startsWith(complianceCaseTarget(""))) return "Compliance";
   if (target === "loan-application" || target === jointBorrowerPortionsTarget || target === loanAmountComparisonTarget || target === "manual-lender-export" ||
     target === manualLenderAcknowledgmentTarget) return "1003";
@@ -539,7 +539,7 @@ function loanSection(target?: string) {
 
 function needsScopedLoan(destination: string, state: Workspace, staff: WorkspaceStaff | null) {
   const section = loanSection(destination);
-  return (!state.disclosureWork && (destination === disclosureTarget || (!staff && hasDisclosures(staff) && section === "Closing"))) ||
+  return (!state.disclosureWork && (section === "Disclosures" || (!staff && hasDisclosures(staff) && section === "Closing"))) ||
     (!staff && state.closingServiceEvidence === undefined && ["Conditions", "Closing"].includes(section));
 }
 
@@ -601,7 +601,7 @@ function CarriedCallbackRescheduleForm({ loanId, taskId, dueAt, revision, busy, 
   </details>;
 }
 
-function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, incomeWorksheetRevision, openConversation, openRateWatchRefinance, appointmentChanged, reviewChanged,
+function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLender, incomeWorksheetRevision, openConversation, openRateWatchRefinance, appointmentChanged, reviewChanged, returnToEvidence,
   markDraftChanged, open, refreshDisclosures }: {
   target?: string; campaignLender?: CampaignLenderPath; incomeWorksheetRevision?: number; loan: Loan; state: Workspace; staff: WorkspaceStaff | null;
   busy: boolean; save: Save; show: (modal: Modal) => void;
@@ -610,6 +610,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   appointmentChanged: () => void;
   reviewChanged: () => void;
   markDraftChanged: (editor: Node) => void;
+  returnToEvidence?: boolean;
   open: (destination: string) => void;
   refreshDisclosures: () => void;
 }) {
@@ -657,6 +658,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
   const savedOffer = savedPricing?.offers.find((item) => item.id === savedPricing.selectedId);
   const rate = state.mockUwmRates.find((item) => item.loanId === loan.id);
   const section = loanSection(target);
+  const findingCaseId = target?.startsWith(findingDisclosureTarget("")) ? target.slice(findingDisclosureTarget("").length) : undefined;
   const uwm = submissions.filter((item) => item.lender === "UWM");
   const linkedManual = application?.manualHandoff?.acknowledgmentOutdated ? undefined :
     submissions.find((item) => item.id === application?.manualHandoff?.submissionId && item.syncedAt === null);
@@ -745,6 +747,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       </>}
       {section === "Disclosures" && canOpenDisclosures &&
         <DisclosureWorkbench loan={loan} state={state} busy={busy} readOnly={processor} brokerageId={staff?.brokerage.id ?? demoBrokerageId}
+          evidenceTarget={findingCaseId ? target : undefined} backToFinding={findingCaseId ? () => show({ kind: "details", loanId: loan.id,
+            target: complianceCaseTarget(findingCaseId), campaignLender, returnToEvidence: true }) : undefined}
           save={save} open={open} refresh={refreshDisclosures} />}
       {section === "Disclosures" && canOpenDisclosures && complianceEnabled && staff?.brokerage.pilot && propertyState === "MI" &&
         <TridEvidencePanel key={`${staff.brokerage.id}:${loan.id}`} loanId={loan.id} brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
@@ -761,7 +765,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           brokerageId={staff.brokerage.id} readOnly={processor || pausedLoan(loan)} />}
       {section === "Compliance" && staff?.brokerage.pilot && <ComplianceQueue key={`${loan.id}:${target}`} brokerageId={staff.brokerage.id}
         loanId={loan.id} initialCaseId={target?.startsWith(complianceCaseTarget("")) ? target.slice(complianceCaseTarget("").length) : undefined}
-        admin={staff.brokerage.role === "Admin"} openDisclosures={() => open(disclosureTarget)} />}
+        admin={staff.brokerage.role === "Admin"} returnToEvidence={returnToEvidence}
+        openDisclosures={canOpenDisclosures ? (caseId) => open(caseId ? findingDisclosureTarget(caseId) : disclosureTarget) : undefined} />}
       {section === "Closing" && <>
       <ClosingWorkbench loan={loan} state={state} busy={busy} save={save} canReverseFunding={!staff || staff.brokerage.role === "Admin"}
         brokerageId={staff?.brokerage.id ?? demoBrokerageId}
@@ -1075,6 +1080,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
   const detailLoan = details ? loan : undefined;
   const borrowerName = detailLoan && state.contacts.find(({ id }) => id === detailLoan.contactId)?.name || "Borrower";
   const nextAction = detailLoan && loanNextAction(detailLoan, state, staff?.brokerage.role);
+  const focusedFinding = target?.startsWith(complianceCaseTarget("")) || target?.startsWith(findingDisclosureTarget(""));
   const nextActionNote = nextAction && [nextAction.blocker, nextAction.dueAt && `Due ${dateTime(nextAction.dueAt)} ET`].filter(Boolean).join(" · ");
   function openLoanDetail(destination: string) {
     if (!detailLoan) return;
@@ -1085,7 +1091,7 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
       }
       destination = "loan-pricing";
     }
-    if (needsScopedLoan(destination, state, staff)) openContactLoan(detailLoan.id, destination);
+    if (destination.startsWith(findingDisclosureTarget("")) || needsScopedLoan(destination, state, staff)) openContactLoan(detailLoan.id, destination);
     else show({ kind: "details", loanId: detailLoan.id, target: destination, campaignLender });
   }
   const scopedContact = (modal.kind === "contactHistory" || modal.kind === "contact") &&
@@ -1192,14 +1198,14 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
             {returnToSupport ? <ArrowLeft /> : <X />}
           </Button>
         </div>
-        {nextAction && <div className="loan-dialog-controls">
-          <button type="button" className="loan-status-action" disabled={busy} onClick={() => openLoanDetail(nextAction.target)}>
+        {detailLoan && <div className="loan-dialog-controls">
+          {nextAction && !focusedFinding && <button type="button" className="loan-status-action" disabled={busy} onClick={() => openLoanDetail(nextAction.target)}>
             <span className="loan-next-action-copy">
               <span className="loan-next-action-title"><small>Next action</small><strong>{nextAction.title}</strong></span>
               {nextActionNote && <span className="loan-next-action-note" title={nextActionNote}>{nextActionNote}</span>}
             </span>
             <ArrowRight size={18} aria-hidden="true" />
-          </button>
+          </button>}
           <nav className="loan-section-nav" aria-label="Loan sections">{visibleLoanSections(staff).map(([name, destination]) =>
             <button key={name} type="button" aria-current={returnSection === name ? "page" : undefined}
               onClick={() => openLoanDetail(destination)}>{name}</button>)}</nav>
@@ -1222,9 +1228,11 @@ export function RecordDialog({ modal, state, staff, busy, error, save, show, clo
         }}>
         {modal.kind === "details" && loan && <LoanDetails loan={loan} state={state} staff={staff} busy={busy}
           save={save} show={show} target={target} campaignLender={campaignLender} incomeWorksheetRevision={modal.incomeWorksheetRevision} openConversation={openConversation}
+          returnToEvidence={modal.returnToEvidence}
           openRateWatchRefinance={openRateWatchRefinance}
           appointmentChanged={appointmentChanged} reviewChanged={reviewChanged} markDraftChanged={markDraftChanged}
-          open={openLoanDetail} refreshDisclosures={() => openContactLoan(loan.id, disclosureTarget)} />}
+          open={openLoanDetail} refreshDisclosures={() => openContactLoan(loan.id,
+            target?.startsWith(findingDisclosureTarget("")) ? target : disclosureTarget)} />}
         {modal.kind === "assignment" && staff?.brokerage.role === "Admin" && <LoanAssignmentEditor key={modal.loanId}
           brokerageId={staff.brokerage.id} loanId={modal.loanId} version={assignmentVersion} onChanged={assignmentChanged}
           manualReturn={modal.manualReturn}

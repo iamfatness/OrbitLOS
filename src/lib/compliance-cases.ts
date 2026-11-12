@@ -217,6 +217,7 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
     packageRow.version !== item.packageVersion || packageRow.supersededAt ? "Superseded" :
       packageRow.reviewReason ? "Needs review" : samplePackage(db, item.loanId) ? "Current" : "Outside sample scope";
   const currentPackageRevision = packageState === "Current" && typeof packageRow?.revision === "number" ? packageRow.revision : null;
+  const latestPackageVersion = packageRow && !packageRow.supersededAt ? Number(packageRow.version) : null;
   const currentCheck = item.loanId && item.packageVersion && currentPackageRevision !== null ?
     evaluateSampleReceipt(sampleReceiptBasis(db, { brokerageId: staff.brokerage.id, caseId: item.id, loanId: item.loanId },
       item.packageVersion, currentPackageRevision)) : null;
@@ -228,7 +229,7 @@ function detail(db: Store, staff: WorkspaceStaff, roster: readonly Member[], ite
   const canUpdateStatus = admin || (projected.ownerState === "Assigned" && projected.ownerEmail === staff.email);
   const submitted = packageState === "Current" && packageRow ? currentReviewSubmission(db, staff.brokerage.id, item, packageRow.revision) : undefined;
   const decision = item.loanId ? lastReviewDecision(db, staff.brokerage.id, item) : null;
-  return { kind: "detail", item: projected, packageState, coverage, sampleReviewRevision,
+  return { kind: "detail", item: projected, packageState, latestPackageVersion, coverage, sampleReviewRevision,
     canUpdateStatus: canUpdateStatus && !submitted,
     submitPackageRevision: canUpdateStatus && !submitted ? currentPackageRevision : null,
     evidencePackageRevision: canUpdateStatus ? currentPackageRevision : null,

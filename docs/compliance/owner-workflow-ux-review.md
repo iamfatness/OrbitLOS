@@ -73,4 +73,4 @@ Use a fictional brokerage with two branches, an upcoming renewal, a saved state 
 
 The owner-session prompts are a release usability check. The scripted walkthrough uses fictional records and cannot establish that a first-time owner can complete the same tasks unaided. Counsel review remains a separate production release gate.
 
-The local pilot also opened a superseded loan finding by keyboard and returned to the exact row. The detail explains that newer evidence belongs on the current file. On a phone the loan's general next-action banner can point to an unrelated quote above that exact finding. Keep the finding's status and the action to open current evidence together in the next file-review pass.
+**Superseded loan findings.** The local pilot shows the original package and its status with an **Open current evidence** action. It reloads the loan and puts the latest sample disclosure package first. **Back to finding** returns to the original case and its evidence action. The general loan action is omitted from these two focused views. The original package receipt and case history remain available.
