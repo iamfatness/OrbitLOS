@@ -4,6 +4,7 @@ import { quarterRange, reportOutcomes, reportStates } from "./call-report-model"
 import { priorQuarter, quarterName, quarterReviewColumns } from "./call-report-quarter-model";
 import { readCsv } from "./contact-csv";
 import { reconcileFv7Pipeline } from "./mcr-fv7-pipeline";
+import { fv7FundedEvidence, reconcileFv7Funded } from "./mcr-fv7-funded-review";
 
 const reference = z.string().trim().min(1).max(160);
 const amount = z.number().int().min(0).max(1_000_000_000);
@@ -32,6 +33,7 @@ const evidence = z.strictObject({
     before: amount, after: amount, reference })).max(5_000),
   adjustments: z.array(z.strictObject({ loanId: reference, kind: z.enum(["add", "remove"]), date: z.iso.date(),
     reference, commentary: z.string().trim().min(1).max(500) })).max(200),
+  fundedReview: fv7FundedEvidence.optional(),
 });
 
 const activityLines = {
@@ -103,6 +105,7 @@ export function buildFv7QuarterWorkpaper(csv: string, input: unknown) {
     }
   }
   const loanEvidence = [];
+  const fundedFiles = [];
   for (const [loanId, row] of included) {
     if (row.groups === "Excluded") continue;
     const reviewed = files.get(loanId);
@@ -160,6 +163,7 @@ export function buildFv7QuarterWorkpaper(csv: string, input: unknown) {
     if (adjustment) jurisdiction.hasAdjustments = true;
     column.AC065 += end - start;
     loanEvidence.push({ ...reviewed, lines: [startLine, endLine], amountChangeReferences: events.map(({ reference }) => reference) });
+    if (endLine === "AC070") fundedFiles.push({ loanId, state: row.state, amount: end, fundedOn: lastDay, originator: row.originator, source: reviewed.source });
     files.delete(loanId);
   }
   if (files.size) throw new Error("The evidence includes a loan missing from the saved review or marked excluded.");
@@ -167,8 +171,13 @@ export function buildFv7QuarterWorkpaper(csv: string, input: unknown) {
     states: [...states.values()].map(({ hasAdjustments, ...values }) => ({
       ...values, adjustmentCommentary: hasAdjustments ? `See the reviewed adjustment ledger ${data.adjustmentLedgerReference}.` : "",
     })) };
+  const pipeline = reconcileFv7Pipeline(workpaper);
+  const fundedReview = data.fundedReview ? reconcileFv7Funded([...states.keys()], fundedFiles, data.fundedReview) : null;
   return {
-    ...reconcileFv7Pipeline(workpaper),
+    ...pipeline,
+    pipelineReconciled: pipeline.reconciled,
+    reconciled: pipeline.reconciled && (fundedReview?.reconciled ?? true),
+    fundedReview,
     evidence: {
       entityReference: data.entityReference, snapshotSha256, version: data.version, priorEnding: data.priorEnding,
       amountChangeLedgerReference: data.amountChangeLedgerReference, adjustmentLedgerReference: data.adjustmentLedgerReference,

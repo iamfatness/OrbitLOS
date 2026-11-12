@@ -614,6 +614,96 @@ test("FV7 evidence links a downloaded closed-quarter review to source and adjust
   assert.equal(buildFv7QuarterWorkpaper(csv, mismatch).reconciled, false);
 });
 
+test("FV7 funded review checks individual closings against the saved pipeline and state MLO evidence", async (t) => {
+  const { db, admin, officer, loanId, contactId, stageSince } = fundingFixture(t);
+  const quarter = { year: 2026, quarter: 3 };
+  const now = new Date("2026-10-05T15:00:00Z");
+  const work = (input) => reportingReadinessWork(db, { ...quarter, ...input }, admin, admin.brokerage.id, now);
+  const second = "second-direct-closing";
+  const thirdParty = "funded-from-third-party";
+  for (const id of [second, thirdParty]) {
+    insertLoan(db, { id, contactId, partnerId: null, officer: officer.name, officerEmail: officer.email,
+      address: "", amount: 310000, purpose: "Purchase", stage: "Underwriting", stageSince });
+  }
+  const fundedOn = "2026-09-22";
+  for (const [id, originator] of [[loanId, "00123456"], [second, "654321"], [thirdParty, "987654"]]) {
+    db.prepare("INSERT INTO closing_progress (loanId, fundingDate) VALUES (?, ?)").run(id, fundedOn);
+    const result = await executeCommand(db, { type: "saveCallReport", loanId: id, revision: 0, facts: {
+      ...emptyCallReportFacts, eligibility: "Include", state: "MI", originator, receivedDate: "2026-07-08", receivedAmount: 310000,
+      outcome: "Closed and funded", outcomeDate: fundedOn, outcomeAmount: 310000,
+    } }, admin);
+    assert.ok(result.state, result.error);
+  }
+  const page = work({ type: "quarterReview" });
+  const { review } = work({ type: "saveQuarterReview", previousVersion: null, evidenceKey: page.comparison.key,
+    requestId: crypto.randomUUID(), note: "Fictional closed quarter." });
+  const { csv } = work({ type: "downloadQuarterReview", version: review.version });
+  const scope = (state) => ({ state, direct: { count: 0, amount: 0 }, thirdParty: { count: 0, amount: 0 } });
+  const entry = (id, originator, channel, qmLine) => ({
+    loanId: id, state: "MI", fundedOn, amount: 310000, originator, channel, qmLine, fundingReference: `funding-${id}`,
+    classificationReference: `classification-${id}`,
+  });
+  const evidence = {
+    ...quarter, entityReference: "fictional-mi-broker", snapshotSha256: createHash("sha256").update(csv).digest("hex"), version: review.version,
+    priorEnding: { period: "2026 Q2", reference: "fixture-prior-receipt", states: [scope("MI"), scope("OH")] },
+    adjustmentLedgerReference: "no-adjustments-review", amountChangeLedgerReference: "no-amount-changes-review", amountChanges: [], adjustments: [],
+    files: [
+      { loanId, revision: 1, state: "MI", source: "direct", intakeReference: "intake-direct", outcomeReference: "settlement-direct" },
+      { loanId: second, revision: 1, state: "MI", source: "direct", intakeReference: "intake-direct-two", outcomeReference: "settlement-direct-two" },
+      { loanId: thirdParty, revision: 1, state: "MI", source: "thirdParty", intakeReference: "intake-third-party", outcomeReference: "settlement-third-party" },
+    ],
+    fundedReview: {
+      ledgerReference: "fixture-closing-ledger", rosterReference: "fixture-mi-mlo-roster",
+      entries: [entry(loanId, "123456", "brokered", "AC920"), entry(second, "654321", "brokered", "AC930"),
+        entry(thirdParty, null, "wholesale", "AC940")],
+      originators: [{ state: "MI", originator: "123456", reference: "license-a" }, { state: "MI", originator: "654321", reference: "license-b" }],
+    },
+  };
+  const check = (value = evidence) => buildFv7QuarterWorkpaper(csv, value);
+  const result = check();
+  assert.equal(result.reconciled, true);
+  assert.equal(result.fundedReview.reconciled, true);
+  const [mi, oh] = result.fundedReview.states;
+  assert.deepEqual(mi.AC070, { count: 3, amount: 930000 });
+  assert.deepEqual(mi.AC990, mi.AC070);
+  assert.deepEqual(mi.mloTotal, { count: 2, amount: 620000 });
+  assert.deepEqual(mi.AC070BySource.direct, mi.mloTotal);
+  assert.deepEqual(mi.AC070BySource.thirdParty, { count: 1, amount: 310000 });
+  assert.deepEqual(mi.channels.find(({ channel }) => channel === "brokered").lines.AC930, { count: 1, amount: 310000 });
+  assert.deepEqual(mi.channels.find(({ channel }) => channel === "wholesale").lines.AC940, mi.AC070BySource.thirdParty);
+  assert.equal(result.fundedReview.loans.find((file) => file.loanId === second).originatorReference, "license-b");
+  assert.equal(result.fundedReview.loans.find((file) => file.loanId === thirdParty).originatorReference, null);
+  assert.deepEqual(oh.AC070, { count: 0, amount: 0 });
+  assert.deepEqual(oh.originators, []);
+  const { fundedReview, ...pipelineOnly } = evidence;
+  assert.equal(check(pipelineOnly).fundedReview, null);
+  const swapped = structuredClone(evidence);
+  swapped.fundedReview.entries[0].originator = "654321";
+  swapped.fundedReview.entries[1].originator = "123456";
+  const rejected = check(swapped);
+  assert.equal(rejected.reconciled, false);
+  assert.equal(rejected.fundedReview.states[0].issues.filter((issue) => issue.includes("differs between")).length, 2);
+  const swappedChannels = structuredClone(evidence);
+  swappedChannels.fundedReview.entries[0].channel = "wholesale";
+  swappedChannels.fundedReview.entries[2].channel = "brokered";
+  const channelIssues = check(swappedChannels).fundedReview.states[0].issues.join();
+  assert.match(channelIssues, /retail closings do not add up to direct AC070/);
+  assert.match(channelIssues, /Wholesale closings do not add up to third-party AC070/);
+  const wrongLicense = structuredClone(evidence);
+  wrongLicense.fundedReview.originators[0].state = "OH";
+  const missingRoster = check(wrongLicense).fundedReview.states[0];
+  assert.deepEqual(missingRoster.AC990, missingRoster.AC070);
+  assert.match(missingRoster.issues.join(), /needs reviewed MLO evidence/);
+  const missing = structuredClone(evidence);
+  missing.fundedReview.entries[0].loanId = "not-in-saved-quarter";
+  const missingReview = check(missing).fundedReview;
+  assert.equal(missingReview.reconciled, false);
+  assert.match(missingReview.states[0].issues.join(), /missing from the reviewed funded ledger/);
+  assert.match(missingReview.issues.join(), /absent from the saved funded activity/);
+  assert.throws(() => check({ ...evidence, fundedReview: { ...fundedReview, entries: [...fundedReview.entries, fundedReview.entries[0]] } }),
+    /Duplicate loan/);
+});
+
 test("an empty or provisional quarter is explicit and a closed snapshot can supersede it across years", (t) => {
   const { db, admin } = fundingFixture(t);
   db.exec("DELETE FROM loans");
