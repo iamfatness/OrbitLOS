@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, CalendarClock } from "lucide-react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { accessComplianceCases } from "@/app/actions";
 import type { LicenseRenewalCursor, LicenseRenewalQueue, LicenseRenewalTarget } from "@/lib/compliance-program-model";
 import { observeTabReturn, observeVisibleChecks } from "@/lib/tab-return";
@@ -11,8 +11,11 @@ export type LicenseRenewalVisit = { target: LicenseRenewalTarget; after?: Licens
 
 const actionId = ({ entityId, licenseId }: LicenseRenewalTarget) => `renewal-${entityId}-${licenseId}`;
 
-export function LicenseRenewalAttention({ brokerageId, busy, open, returning, mine = false }: {
+const registerActionId = "brokerage-license-register";
+
+export function LicenseRenewalAttention({ brokerageId, busy, open, returning, mine = false, openRegister, returnToRegisterAction }: {
   brokerageId: string; busy: boolean; open: (visit: LicenseRenewalVisit) => void; returning?: LicenseRenewalVisit; mine?: boolean;
+  openRegister?: () => void; returnToRegisterAction?: boolean;
 }) {
   const [after, setAfter] = useState(returning?.after);
   const [data, setData] = useState<LicenseRenewalQueue>();
@@ -22,7 +25,7 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning, mi
   const heading = useRef<HTMLHeadingElement>(null);
   const headingId = useId();
   const Heading = mine ? "h3" : "h2";
-  const restoreFocus = useRef(!!returning);
+  const restoreFocus = useRef(!!returning || !!returnToRegisterAction);
 
   useEffect(() => {
     let active = true;
@@ -54,9 +57,10 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning, mi
   useEffect(() => {
     if (loading || !restoreFocus.current) return;
     restoreFocus.current = false;
-    const button = returning && document.getElementById(actionId(returning.target));
+    const id = returnToRegisterAction ? registerActionId : returning ? actionId(returning.target) : undefined;
+    const button = id && document.getElementById(id);
     (button || heading.current)?.focus();
-  }, [loading, returning]);
+  }, [loading, returning, returnToRegisterAction]);
 
   function changePage(cursor?: LicenseRenewalCursor) {
     restoreFocus.current = true;
@@ -66,15 +70,30 @@ export function LicenseRenewalAttention({ brokerageId, busy, open, returning, mi
     setAfter(cursor);
   }
 
+  const coverage = data?.coverage;
+  const states = coverage?.currentCompanyStates ?? [];
+  const needsCompanyRecords = coverage?.entitiesWithoutCurrentCompanyRecords ?? 0;
+  const checkLabel = mine ? "renewals" : "licenses";
+
   return <section className={mine ? "document-item record-form" : "integration record-form"} aria-labelledby={headingId}>
     <div className="section-heading">
-      <Heading id={headingId} tabIndex={-1} ref={heading}>{!mine && <CalendarClock size={19} aria-hidden="true" />}{mine ? "My license renewals" : "License renewals"}</Heading>
-      <Button type="button" size="sm" variant="outline" disabled={loading || busy} onClick={() => {
+      <Heading id={headingId} tabIndex={-1} ref={heading}>{!mine && <ShieldCheck size={19} aria-hidden="true" />}{mine ? "My license renewals" : "States & licenses"}</Heading>
+      <Button type="button" size="sm" variant="outline" className={mine ? undefined : "min-h-10 max-sm:min-h-11"} disabled={loading || busy} onClick={() => {
         setLoading(true); setError(false); setGeneration(value => value + 1);
-      }}>Refresh renewals</Button>
+      }}>{mine ? "Refresh renewals" : "Refresh licenses"}</Button>
     </div>
-    {loading && !data && <p className="muted" role="status">Checking license renewals…</p>}
-    {error && <p className="muted" role="alert">{data ? "Could not refresh renewals. Showing the last check." : "Could not load renewals. Refresh to try again."}</p>}
+    {loading && !data && <p className="muted" role="status">{mine ? "Checking license renewals…" : "Checking state licenses…"}</p>}
+    {error && <p className="muted" role="alert">{data ? `Could not refresh ${checkLabel}. Showing the last check.` : `Could not load ${checkLabel}. Refresh to try again.`}</p>}
+    {openRegister && <div><Button id={registerActionId} type="button" size="sm" variant="outline" className="min-h-10 max-sm:min-h-11"
+      disabled={busy} onClick={openRegister}>Open license register<ArrowRight aria-hidden="true" /></Button></div>}
+    {coverage && <div className="grid gap-1">
+      {coverage.entityCount === 0 ? <p>Add a legal entity to start recording state licenses.</p> : <>
+        {states.length ? <p><strong>Current company records</strong> · {states.join(", ")}</p> :
+          <p>No current company license records on file.</p>}
+        {states.length > 0 && needsCompanyRecords > 0 && <p className="muted">No current company records for {needsCompanyRecords} of {coverage.entityCount} legal entities.</p>}
+      </>}
+    </div>}
+    {!mine && data && <h3 className="font-semibold">License renewals</h3>}
     {data && (data.total ? <>
       <p className="muted" role="status">{data.total} {data.total === 1 ? "license needs" : "licenses need"} renewal review</p>
       <ul className="document-list">{data.items.map(item => <li className="document-item" key={actionId(item)}>

@@ -19,12 +19,13 @@ function actionCount(count?: number) {
   return count === undefined ? "—" : count >= 100 ? "100+" : String(count);
 }
 
-export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilot, refresh, openQueue, openReport,
-  openSchedule, scheduleReturn, openTeam, openCompliance, openRenewal, renewalReturn }: {
-  brokerageId: string; counts?: ActionCounts; unavailable: boolean; busy: boolean; pilot: boolean;
+export function BrokerageOverview({ brokerageId, counts, unavailable, busy, refresh, openQueue, openReport,
+  openSchedule, scheduleReturn, openTeam, openCompliance, openRenewal, renewalReturn, openRegister, returnToRegisterAction }: {
+  brokerageId: string; counts?: ActionCounts; unavailable: boolean; busy: boolean;
   refresh: () => void; openQueue: (queue: BrokerageQueue) => void; openReport: (report: BrokerageReport) => void;
   openSchedule: (reportId?: string) => void; scheduleReturn?: { reportId?: string };
   openRenewal?: (visit: LicenseRenewalVisit) => void; renewalReturn?: LicenseRenewalVisit;
+  openRegister?: () => void; returnToRegisterAction?: boolean;
   openTeam: (panel: "Staff access" | "Branches" | "Loan settings" | "Workspaces") => void; openCompliance?: () => void;
 }) {
   return <div className="brokerage-overview record-form">
@@ -44,7 +45,14 @@ export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilo
         </button>)}
       </div>
     </section>
-    {openRenewal && <LicenseRenewalAttention key={brokerageId} brokerageId={brokerageId} busy={busy} open={openRenewal} returning={renewalReturn} />}
+    {openRenewal ? <LicenseRenewalAttention key={brokerageId} brokerageId={brokerageId} busy={busy} open={openRenewal}
+      returning={renewalReturn} openRegister={openRegister} returnToRegisterAction={returnToRegisterAction} /> :
+      <section className="integration record-form" aria-labelledby="brokerage-licensing-heading">
+        <h2 id="brokerage-licensing-heading"><ShieldCheck size={19} aria-hidden="true" /> States &amp; licenses</h2>
+        <p className="muted">Enable Compliance in workspace settings to record state licenses.</p>
+        <div><Button size="sm" variant="outline" className="min-h-10 max-sm:min-h-11" disabled={busy} onClick={() => openTeam("Workspaces")}>
+          Workspace settings<ArrowRight aria-hidden="true" /></Button></div>
+      </section>}
     <ReportScheduleAttentionPanel key={brokerageId} brokerageId={brokerageId} busy={busy} open={openSchedule} returning={scheduleReturn} />
     <div className="brokerage-overview-links">
       <section className="integration record-form" aria-labelledby="brokerage-performance-heading">
@@ -60,10 +68,8 @@ export function BrokerageOverview({ brokerageId, counts, unavailable, busy, pilo
           <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Staff access")}>Staff access<ArrowRight size={16} aria-hidden="true" /></Button></li>
           <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Branches")}>Branches<ArrowRight size={16} aria-hidden="true" /></Button></li>
           <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Loan settings")}>Loan settings<ArrowRight size={16} aria-hidden="true" /></Button></li>
-          {openCompliance ? <li><Button size="sm" variant="ghost" disabled={busy} onClick={openCompliance}>Compliance overview<ArrowRight size={16} aria-hidden="true" /></Button></li> :
-            <li><Button size="sm" variant="ghost" disabled={busy} onClick={() => openTeam("Workspaces")}>Find a compliance pilot workspace<ArrowRight size={16} aria-hidden="true" /></Button></li>}
+          {openCompliance && <li><Button size="sm" variant="ghost" disabled={busy} onClick={openCompliance}>Compliance overview<ArrowRight size={16} aria-hidden="true" /></Button></li>}
         </ul>
-        {!pilot && !openCompliance && <p className="muted">Enable Compliance in Team → Workspaces to access licensing and internal reviews.</p>}
       </section>
     </div>
   </div>;

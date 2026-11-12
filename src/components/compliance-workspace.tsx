@@ -39,10 +39,10 @@ function inventoryStatus(data: Overview) {
   return `${scanned} of ${data.fileTotal} files inventoried${state === "Scanning" ? " · Scan in progress" : ""}${asOf ? ` · ${dateTime(asOf)} ET` : ""}`;
 }
 
-export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals, onLicenseSaved, openLicensing }: {
+export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, openHistoryRecord, licenseTarget, returnToRenewals, returnToBrokerageLicenses, onLicenseSaved, openLicensing }: {
   brokerageId: string; pilot: boolean; paused: boolean; openLoan: (loanId: string, caseId?: string) => void;
   openHistoryRecord: (destination: MigrationDestination) => void;
-  licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void; onLicenseSaved?: () => void; openLicensing?: boolean;
+  licenseTarget?: LicenseRenewalTarget; returnToRenewals?: () => void; returnToBrokerageLicenses?: () => void; onLicenseSaved?: () => void; openLicensing?: boolean;
 }) {
   const [view, setView] = useState<View>(pilot && !licenseTarget && !openLicensing ? "Overview" : "Licensing");
   const [attention, setAttention] = useState<ComplianceAttention>();
@@ -89,6 +89,8 @@ export function ComplianceWorkspace({ brokerageId, pilot, paused, openLoan, open
       <p>{pilot ? "Fictional pilot for internal planning and evidence review. Regulatory coverage remains undetermined." :
         "Record licenses and use the research register and monthly review for internal planning. File-level evidence workflows are available in fictional pilots."}</p>
     </div>
+    {returnToBrokerageLicenses && <div><Button size="sm" variant="outline" className="min-h-10 max-sm:min-h-11"
+      disabled={paused} onClick={returnToBrokerageLicenses}>Back to States &amp; licenses</Button></div>}
     {returnToRenewals && <div><Button size="sm" variant="outline" disabled={paused} onClick={returnToRenewals}>Back to license renewals</Button></div>}
     <nav className="loan-application-actions" aria-label="Compliance views">
       {views.filter((option) => pilot || option === "Licensing" || option === "Research & gaps" || option === "Monthly review").map((option) => <Button key={option} size="sm" variant={view === option ? "default" : "outline"}

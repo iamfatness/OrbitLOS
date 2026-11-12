@@ -5,7 +5,7 @@ import { storedQuoteRouting } from "./quote-intake-model";
 import type { Store } from "./store";
 import type { WorkspaceStaff } from "./staff-store";
 import { workspaceFeatures, type VersionedBrokerageMember } from "./brokerage-model";
-import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
+import { countLicenseRecords, licenseFields, licenseHolder, licenseRenewalLookahead, programRequest, type LicenseHolder, type LicenseHolderChoice, type LicenseRenewalCursor, type LicenseRenewalOwner, type LicenseRenewalAssignment, type LicenseRenewalQueue, type LicenseCoverageSummary, type LicenseHistory, type LicenseStateCheck, type LicenseFields, type ProgramLicense, type ProgramLicenses, type ProgramRequest, type ProgramEntity, type ProgramItem, type ProgramMonth } from "./compliance-program-model";
 
 const unavailable = { error: "This compliance program is unavailable." };
 const changed = { error: "This program changed. Refresh and review before saving." };
@@ -101,9 +101,26 @@ function licenseRenewals(db: Store, tenant: string, now: string, owners: Readonl
       renewal: expiresOn < today ? "Past expiration" as const : "Expires soon" as const };
   });
   const last = items.at(-1);
-  return { kind: "licenseRenewals", total, items, next: rows.length > limit && last ?
+  return { kind: "licenseRenewals", total, items, ...(owner ? {} : { coverage: licenseCoverage(db, tenant, today) }),
+    next: rows.length > limit && last ?
     { expiresOn: last.expiresOn, entityId: last.entityId, licenseId: last.licenseId } : null };
 }
+function licenseCoverage(db: Store, tenant: string, asOf: string): LicenseCoverageSummary {
+  const entityIds = new Set<string>();
+  const states = new Set<string>();
+  const records = db.prepare(`SELECT DISTINCT l.entityId, l.jurisdiction
+    FROM compliance_program_licenses l
+    JOIN compliance_program_entities e ON e.brokerageId=l.brokerageId AND e.id=l.entityId
+    WHERE l.brokerageId=? AND (l.holder IS NULL OR l.holder='' OR json_extract(l.holder,'$.holder.kind')='Company')
+      AND l.status='Active' AND (l.effectiveOn IS NULL OR l.effectiveOn<=?) AND (l.expiresOn IS NULL OR l.expiresOn>=?)`).all(tenant, asOf, asOf);
+  for (const record of records) {
+    entityIds.add(String(record.entityId));
+    states.add(String(record.jurisdiction));
+  }
+  const entityCount = Number(db.prepare("SELECT count(*) AS total FROM compliance_program_entities WHERE brokerageId=?").get(tenant)?.total);
+  return { currentCompanyStates: [...states].sort(), entityCount, entitiesWithoutCurrentCompanyRecords: entityCount - entityIds.size };
+}
+
 function entities(db: Store, tenant: string) {
   return { kind: "programEntities", entities: db.prepare("SELECT id,name,nmls,scopeNote,createdAt FROM compliance_program_entities WHERE brokerageId=? ORDER BY name,id LIMIT 51")
     .all(tenant).map(row => ({ ...row } as ProgramEntity)) } as const;

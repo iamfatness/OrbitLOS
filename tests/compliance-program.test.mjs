@@ -214,6 +214,8 @@ test("upgrading a pre-existing license register preserves company records", t =>
   assert.equal(licenses[0].evidence, "Saved prior evidence");
   assert.deepEqual(licenses[0].holder, { kind: "Company" });
   assert.equal(licenses[0].holderAvailable, true);
+  assert.deepEqual(f.run({ operation: "licenseRenewals" }).coverage,
+    { currentCompanyStates: ["MI"], entityCount: 1, entitiesWithoutCurrentCompanyRecords: 0 });
 });
 
 test("renewal queue is tenant-scoped, paged in date order and clears renewed licenses", t => {
@@ -245,6 +247,32 @@ test("renewal queue is tenant-scoped, paged in date order and clears renewed lic
   const other = f.staff(f.owner, crypto.randomUUID());
   const otherQueue = complianceCaseWork(f.db, { type: "program", input: query }, other, other.brokerage.id, f.roster, now);
   assert.equal(otherQueue.total, 0);
+});
+
+test("brokerage coverage counts current company records across entities without counting officer or future records", t => {
+  const f = fixture(t);
+  const query = { operation: "licenseRenewals" };
+  assert.deepEqual(f.run(query).coverage,
+    { currentCompanyStates: [], entityCount: 0, entitiesWithoutCurrentCompanyRecords: 0 });
+  const first = f.entity();
+  const second = f.create({ name: "Second fictional entity" }).entities.find(entity => entity.id !== first.id);
+  const save = (entityId, jurisdiction, licenseNumber, values = {}) => {
+    const result = f.run({ operation: "saveLicense", entityId, jurisdiction, licenseNumber, id: crypto.randomUUID(),
+      requestId: crypto.randomUUID(), revision: 0, licenseType: "Fictional license", status: "Active",
+      effectiveOn: null, expiresOn: null, evidence: "", ...values });
+    assert.ok(result.licenses, result.error);
+  };
+  save(first.id, "MI", "CURRENT-1");
+  save(first.id, "MI", "CURRENT-2", { effectiveOn: "2026-11-11", expiresOn: "2026-11-11" });
+  save(first.id, "PA", "CURRENT-3");
+  save(second.id, "OH", "FUTURE", { effectiveOn: "2026-11-12" });
+  save(second.id, "NY", "LAPSED", { expiresOn: "2026-11-10" });
+  save(second.id, "NV", "PENDING", { status: "Pending" });
+  save(second.id, "WI", "OFFICER", { holder: { kind: "Loan officer", id: f.lo.email, accessRevision: 1 } });
+  assert.deepEqual(f.run(query).coverage,
+    { currentCompanyStates: ["MI", "PA"], entityCount: 2, entitiesWithoutCurrentCompanyRecords: 1 });
+  assert.equal(f.run({ ...query, scope: "mine" }).coverage, undefined);
+  assert.ok(f.run(query, f.lo).error);
 });
 
 test("renewal owner changes are versioned, safely replayed and visible in exact history", t => {

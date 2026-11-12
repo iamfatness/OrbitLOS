@@ -34,7 +34,9 @@ export type LicenseRenewalItem = LicenseRenewalCursor & {
   entityName: string; jurisdiction: string; licenseType: string; licenseNumber: string;
   holderLabel: string; renewalOwner: LicenseRenewalAssignment | null; renewal: "Past expiration" | "Expires soon";
 };
-export type LicenseRenewalQueue = { kind: "licenseRenewals"; total: number; items: LicenseRenewalItem[]; next: LicenseRenewalCursor | null };
+export type LicenseCoverageSummary = { currentCompanyStates: string[]; entityCount: number; entitiesWithoutCurrentCompanyRecords: number };
+export type LicenseRenewalQueue = { kind: "licenseRenewals"; total: number; items: LicenseRenewalItem[]; next: LicenseRenewalCursor | null;
+  coverage?: LicenseCoverageSummary };
 export type ProgramLicense = LicenseFields & { id: string; revision: number; updatedAt: string; holder: LicenseHolder;
   holderLabel: string; holderAvailable: boolean; renewalOwner: LicenseRenewalAssignment | null; renewal: "Past expiration" | "Expires soon" | null };
 export type LicenseRecordCounts = { current: number; expired: number; review: number };
