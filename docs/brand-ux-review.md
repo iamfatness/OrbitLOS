@@ -625,3 +625,7 @@ Reused Orbit's accepted 21st.dev-informed filter, labeled select and exact-event
 ### Owner delivery exceptions
 
 Reused the 21st.dev-informed Integrations disclosure and owner exception list. Impeccable Polish guided aligning the event name and retry status, keeping the destination and short event reference on their own lines, and reusing the exact attempt detail. UI UX Pro Max empty-state and focus guidance informed the filters and keyboard return to the selector after a row clears.
+
+### Saved report schedules
+
+Reused the accepted 21st.dev-informed Integrations disclosure, checkbox group and receipt detail. Impeccable Polish informed the form alignment and keeping the report summary within the selected schedule. UI UX Pro Max date formatting and empty-state guidance informed the Eastern-date label, readable receipt dates and recipient validation. The responsive check included two long recipient identities and a retained receipt after archive.
