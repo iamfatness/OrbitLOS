@@ -101,6 +101,39 @@ test("specific requirements preserve independent review cases and counsel questi
     .find(item => item.source.key === "REQ-MI-REPORTING-FC").cases[0].id, fc.item.id);
   assert.equal(updated.coverage.legalApproval, false);
 });
+test("state scope saves an exact entity and source basis without granting approval", t => {
+  const f = fixture(t);
+  const work = (type, input, actor = f.owner) => complianceCaseWork(f.db, { type, input }, f.staff(actor), f.tenant, f.roster, now);
+  const entity = work("program", { operation: "createEntity", requestId: crypto.randomUUID(), name: "Fictional Michigan",
+    nmls: "", scopeNote: "Broker scope needs counsel review" }).entities[0];
+  const query = { operation: "read", jurisdiction: "MI", entityId: entity.id };
+  const save = { ...query, operation: "save", requestId: crypto.randomUUID(), expectedRevision: 0, facts: {
+    activity: "Brokerage", lienScope: "First lien", companyEvidence: "Fictional license", officeEvidence: "",
+    originatorEvidence: "", products: "Closed-end purchase", responsibility: "Creditor LE", reportingBasis: "Fictional Q3",
+    counselPacketReference: "",
+  } };
+  assert.equal(work("stateScope", query).revision, 0);
+  assert.ok(work("stateScope", save, f.lo).error);
+  assert.ok(work("stateScope", { ...query, jurisdiction: "DC" }).error);
+  assert.ok(work("stateScope", { ...query, entityId: crypto.randomUUID() }).error);
+  const first = work("stateScope", save);
+  assert.equal(first.legalApproval, false);
+  assert.equal(first.revision, 1);
+  assert.equal(work("stateScope", save).history.length, 1);
+  assert.ok(work("stateScope", { ...save, requestId: crypto.randomUUID() }).error);
+  const newScope = { ...save, requestId: crypto.randomUUID(), expectedRevision: 1,
+    facts: { ...save.facts, products: "Purchase and refinance", counselPacketReference: "Fictional counsel packet" } };
+  assert.equal(work("stateScope", newScope).revision, 2);
+  const historical = work("stateScope", { ...query, revision: 1 });
+  assert.deepEqual(historical.facts, save.facts);
+  assert.deepEqual(historical.savedBasis, first.savedBasis);
+  assert.equal(historical.latestRevision, 2);
+  const sources = JSON.parse(historical.savedBasis.sources).map(entry => JSON.parse(entry));
+  assert.ok(sources.some(entry => entry.key === "REQ-MI-REPORTING-RMLA" && entry.counselQuestion));
+  f.db.prepare("UPDATE compliance_state_scope_versions SET sourceHash = ? WHERE revision = 1").run("historic");
+  assert.equal(work("stateScope", { ...query, revision: 1 }).sourceChanged, true);
+  assert.equal(work("stateScope", { ...query, jurisdiction: "OH" }).revision, 0);
+});
 test("opening research is idempotent, canonical, and preserves research-only status", (t) => {
   const f = fixture(t);
   assert.equal(f.list().counts.total, 0);

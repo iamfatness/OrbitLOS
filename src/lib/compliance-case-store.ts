@@ -1,4 +1,5 @@
 import { initializeComplianceProgram } from "./compliance-program";
+import { initializeStateScope } from "./compliance-state-scope";
 import { initializeComplianceObligations } from "./compliance-obligations";
 import { initializeComplianceLearning } from "./compliance-learning";
 import type { Store } from "./store";
@@ -7,6 +8,7 @@ import { initializeTridEvidence } from "./trid-evidence";
 export function initializeComplianceCases(db: Store) {
   initializeTridEvidence(db);
   initializeComplianceProgram(db);
+  initializeStateScope(db);
   initializeComplianceObligations(db);
   initializeComplianceLearning(db);
   db.exec(`

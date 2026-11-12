@@ -7,6 +7,7 @@ import { researchBaseline, researchKinds, researchSources, type ResearchFilters,
 import type { complianceResearchWork } from "@/lib/compliance-research";
 import { dateTime } from "@/lib/utils";
 import { Button } from "./ui/button";
+import { ComplianceStateScope } from "./compliance-state-scope";
 
 type Result = ReturnType<typeof complianceResearchWork>;
 type Detail = Extract<Result, { kind: "researchDetail" }>;
@@ -212,6 +213,7 @@ export function ComplianceResearch({ brokerageId, paused }: { brokerageId: strin
           <p>{selectedState?.name} · {selectedState?.tracked} of {selectedState?.total} review areas tracked</p>
           <p className="muted">{rollout.states.filter(item => item.tracked > 0).length} of {rollout.states.length} states have tracked review work.</p>
         </div>
+        <ComplianceStateScope key={`${brokerageId}:${rolloutState}`} brokerageId={brokerageId} jurisdiction={rolloutState} paused={paused} />
         <details className="document-form"><summary>Tracking by state</summary>
           <ul className="document-list">{rollout.states.map(item => <li key={item.jurisdiction} className="document-item">
             <div><strong>{item.name}</strong><p>{item.tracked} of {item.total} review areas tracked</p></div>

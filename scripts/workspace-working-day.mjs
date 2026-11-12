@@ -2002,6 +2002,24 @@ try {
     const entityResult=await program(owner,entityRequest);
     const entity=entityResult.entities.find(item=>item.name===entityRequest.name);
     assert.equal((await program(owner,entityRequest)).entities.length,entityResult.entities.length);
+    const scope = (staff, input) => action(staff, "accessComplianceCases", { type: "stateScope", input }, undefined, brokerage);
+    const scopeQuery = { operation: "read", entityId: entity.id, jurisdiction: "MI" };
+    const firstScope = { ...scopeQuery, operation: "save", expectedRevision: 0, requestId: randomUUID(), facts: {
+      activity: "Brokerage", lienScope: "First lien", companyEvidence: "Fictional license record", officeEvidence: "Fictional office record",
+      originatorEvidence: "Fictional sponsorship", products: "Fictional closed-end purchase", responsibility: "Creditor sends LE",
+      reportingBasis: "Fictional Q3 and December fiscal close", counselPacketReference: "",
+    } };
+    assert.ok((await scope(officer, firstScope)).error);
+    assert.equal((await scope(owner, scopeQuery)).revision, 0);
+    assert.equal((await scope(owner, firstScope)).revision, 1);
+    assert.equal((await scope(owner, firstScope)).history.length, 1);
+    assert.ok((await scope(owner, { ...firstScope, requestId: randomUUID() })).error);
+    const secondScope = { ...firstScope, expectedRevision: 1, requestId: randomUUID(),
+      facts: { ...firstScope.facts, counselPacketReference: "Fictional review packet" } };
+    assert.equal((await scope(owner, secondScope)).revision, 2);
+    const historicalScope = await scope(owner, { ...scopeQuery, revision: 1 });
+    assert.equal(historicalScope.facts.counselPacketReference, "");
+    assert.equal(historicalScope.legalApproval, false);
     const period=new Date().toISOString().slice(0,7);
     const schedule={operation:"schedule",requestId:randomUUID(),entityId:entity.id,month:period,title:"Review Michigan broker reporting scope",category:"Reporting preparation",ownerEmail:owner.email,internalTarget:period+"-01",instructions:"Confirm quarterly activity and annual financial obligations with lawyer"};
     let monthly=await program(owner,schedule);

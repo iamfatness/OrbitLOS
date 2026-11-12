@@ -6,6 +6,8 @@ import { complianceObligationsWork } from "./compliance-obligations";
 import { learningRequest } from "./compliance-learning-model";
 import { complianceLearningWork } from "./compliance-learning";
 import { complianceProgramWork } from "./compliance-program";
+import { stateScopeRequest } from "./compliance-state-scope-model";
+import { complianceStateScopeWork } from "./compliance-state-scope";
 import { z } from "zod";
 import { researchRequest } from "./compliance-research-model";
 import { complianceResearchWork } from "./compliance-research";
@@ -31,6 +33,7 @@ const decisionFields = {
 const cursor = z.object({ id: z.uuid(), openedAt: z.iso.datetime(), cohort: z.string().max(800), snapshot: z.number().int().nonnegative() });
 const dailyCursor = z.strictObject({ id: z.uuid(), openedAt: z.iso.datetime(), snapshot: z.string().max(500) });
 const request = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("stateScope"), input: stateScopeRequest }),
   z.strictObject({ type: z.literal("trid"), input: tridRequest }),
   z.strictObject({ type: z.literal("obligations"), input: obligationRequest }),
   z.strictObject({ type: z.literal("learning"), input: learningRequest }),
@@ -330,6 +333,7 @@ export function complianceCaseWork(db: Store, input: unknown, staff: WorkspaceSt
   if (!staff.brokerage.pilot && (staff.brokerage.role !== "Admin" ||
       (data.type !== "research" && data.type !== "program"))) return unavailable;
   return db.transaction(() => {
+    if (data.type === "stateScope") return complianceStateScopeWork(db, data.input, staff, now);
     if (data.type === "trid") return { kind: "trid" as const, result: tridEvidenceWork(db, data.input, staff, now) };
     if (data.type === "obligations") return { kind: "obligations" as const, result: complianceObligationsWork(db, data.input, staff, roster, now) as unknown };
     if (data.type === "learning") return { kind: "learning" as const, result: complianceLearningWork(db, data.input, staff, roster, now) as unknown };
