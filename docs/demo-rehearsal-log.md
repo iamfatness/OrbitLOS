@@ -1389,3 +1389,9 @@ Worker `4422c5bb-6127-4af3-8e09-24cfb35b411a` serves app `a7fc5b2e6677`. The 62-
 Worker `4311c417-7b8c-422f-b423-90f271a73839` serves app `632f0ee3b515` at 100 percent with all 24 bindings preserved. All 3,384 browser assets matched on both staged and both live passes. Public Demo, signed-out settings and invalid quote-link boundaries passed. The same signed-in Chrome session opened OrbitLOS Production from the generic workspace URL before and after promotion.
 
 The 63-stage fictional working day verified owner publication, rejection of stale and missing confirmation, immutable receipt replay, selected lead access, and the receipt after loan conversion. The browser verified 1440, 900 and 390 px, the populated owner editor and preview, retained applicant answers, fresh permission and focus, and the assigned LO's lead and 1003 evidence. All 588 tests, typecheck, lint and the Cloudflare build passed. Authenticated quote-intake writes were exercised in the isolated fictional workspace. [Visual evidence](ui-review-coverage.md#published-quote-intake-consent)
+
+### Brokerage controls for intake corrections
+
+Worker `0740dcdf-8101-4632-91c1-ab470e4cb6b6` serves app `7d068772c250` at 100 percent with all 24 bindings preserved. All 3,434 browser assets matched twice on staged and live routing. Public Demo, signed-out access boundaries, and the same signed-in OrbitLOS Production workspace passed after promotion.
+
+The 64-stage fictional working day verified owner publication, assigned LO and processor boundaries, rejection of a restricted correction, borrower draft values, and receipt replay. The browser covered stale permission recovery, required reason focus, 1440/900/390 px, and the selected receipt after reopening the converted loan. All 589 tests, lint, typecheck and the Cloudflare build passed. Authenticated mutations ran in the isolated fictional workspace. [Visual evidence](ui-review-coverage.md#corrections-while-creating-a-1003)

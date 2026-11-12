@@ -662,3 +662,9 @@ The built browser exercised each borrower’s action, an interrupted response, i
 Impeccable Polish informed the order of the editor label, multiline wording and permission checkbox. UI UX Pro Max input labels and error recovery informed keeping unchanged fields filled and focusing the update above the checkbox. The editor and selected-record disclosure reuse the existing 21st.dev-informed Orbit forms. The phone pass gave the wording room to wrap and kept the checkbox label and disclosure easy to tap.
 
 The built fictional browser exercised the populated owner editor and draft preview, keyboard publication and history, the already-filled borrower form while a newer version was published, and the selected lead and converted loan. Checked 1440, 900 and 390 px and opened the final desktop and phone evidence in `.orbit/quote-intake-consent-{editor,form,lead,converted}-*.png`. The 900 px check used the focused borrower control. The public Demo copy was checked separately.
+
+### Corrections while creating a 1003
+
+Impeccable Polish guided placing the correction directly below the selected submitted answer and keeping the saved evidence in the loan's existing disclosure pattern. UI UX Pro Max input-label and error-recovery guidance informed the labeled field and reason, plus the reopen path after a permissions change. The existing 21st.dev-informed intake form and receipt supply the component patterns. Phone widths keep the checkbox and label together with 44 px tap height.
+
+The built browser exercised owner publication, the selected LO's review, disabled corrections, a revoked permission in another open session, required reason focus, conversion, and opening the receipt again from Pipeline. Final captures at 1440, 900, and 390 px are `.orbit/intake-overrides-{owner,officer,receipt}-*.png`. The desktop and phone captures were opened and inspected.
