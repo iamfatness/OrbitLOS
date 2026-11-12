@@ -120,6 +120,13 @@ test("specific requirements preserve independent review cases and counsel questi
     MS: ["REQ-MS-LICENSING-COMPANY", "REQ-MS-RECORDS-FILE"],
     AR: ["REQ-AR-LICENSING-COMPANY", "REQ-AR-REPORTING-QUARTERLY"],
     LA: ["REQ-LA-LICENSING-COMPANY", "REQ-LA-LOAN-AGREEMENT"],
+    TX: ["REQ-TX-LICENSING-COMPANY", "REQ-TX-REPORTING-MCR", "REQ-TX-REPORTING-SSSF"],
+    OK: ["REQ-OK-LICENSING-COMPANY", "REQ-OK-REPORTING-MCR"],
+    NM: ["REQ-NM-LICENSING-COMPANY", "REQ-NM-REPORTING-MCR"],
+    CO: ["REQ-CO-LICENSING-COMPANY", "REQ-CO-REPORTING-MCR"],
+    AZ: ["REQ-AZ-LICENSING-COMPANY", "REQ-AZ-REPORTING-RENEWAL"],
+    UT: ["REQ-UT-LICENSING-COMPANY", "REQ-UT-REPORTING-CONDITION"],
+    NV: ["REQ-NV-LICENSING-COMPANY", "REQ-NV-REPORTING-MONTHLY", "REQ-NV-REPORTING-MCR", "REQ-NV-REPORTING-FINSTAT"],
   };
   for (const [code, expected] of Object.entries(rolloutRequirements)) {
     const keys = read(code).items.flatMap(item => item.requirements.map(requirement => requirement.source.key));
