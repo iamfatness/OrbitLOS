@@ -9,6 +9,8 @@ const { borrowerCommandResult } = await import("../src/lib/applications.ts");
 const { blankBorrower } = await import("../src/lib/urla.ts");
 const { documentTemplateWork, applyDocumentTemplate } = await import("../src/lib/document-templates.ts");
 const { nameFileExceptions, readFileExceptions } = await import("../src/lib/file-exceptions.ts");
+const { defaultQuoteIntakeConfig } = await import("../src/lib/quote-intake-model.ts");
+const { workOnQuoteSettings } = await import("../src/lib/quote-intake.ts");
 
 const at = "2026-11-10T04:55:00.000Z";
 const asOf = "2026-11-09";
@@ -196,4 +198,67 @@ test("conditional checklist items use the selected borrower's reviewed 1003 and 
   assert.equal(db.prepare(`SELECT applicationRevision FROM document_checklist_origins origin JOIN document_requests request
     ON request.id = origin.requestId WHERE request.kind = 'Homeowners insurance'`).get().applicationRevision, 3);
   assert.equal(db.prepare("SELECT count(*) AS total FROM document_checklist_origins WHERE applicationRevision = 2").get().total, 3);
+});
+
+test("checklist answer rules require reviewed, same-applicant evidence and explicit selections", (t) => {
+  const { db, admin, officer, templateId, publish, work, apply, loan } = fixture(t);
+  const { id, token } = loan();
+  const question = { id: crypto.randomUUID(), prompt: "Does the fictional property have an HOA?", kind: "Yes or no",
+    required: true, prefill: null, when: null };
+  const profile = (revision, prompt) => workOnQuoteSettings(db, { type: "publish", profile: "Purchase", revision,
+    config: { ...defaultQuoteIntakeConfig, applicationQuestions: [{ ...question, prompt }] } }, admin, admin.brokerage.id, at);
+  assert.equal(profile(0, question.prompt).revision, 1);
+  assert.deepEqual(work({ type: "manage" }).answerChoices, [{ profile: "Purchase", questionId: question.id, prompt: question.prompt }]);
+  const rule = (equals, prompt = question.prompt) => ({ answer: { questionId: question.id, prompt, equals } });
+  const config = { title: "Fictional HOA evidence", purpose: "Purchase", items: [
+    { kind: "Photo ID", instructions: "Fictional ID", dueDays: null },
+    { kind: "Bank statement", instructions: "Fictional HOA packet", dueDays: 2, when: rule("Yes") },
+    { kind: "Homeowners insurance", instructions: "Fictional insurance", dueDays: null, when: rule("No") },
+  ] };
+  const command = { ...publish, type: "publishAnswerRules", config };
+  assert.ok(work(command, officer).error);
+  assert.match(work({ ...command, type: "publishRules" }).error, /Reload Orbit/);
+  assert.match(work({ ...command, config: { ...config, items: [{ ...config.items[1], when: rule("Yes", "Unpublished wording") }] } }).error, /published/);
+  assert.equal(work(command).templates[0].revision, 1);
+  assert.match(work({ ...publish, type: "publishRules", revision: 1 }).error, /Reload Orbit/);
+  const preview = (recipient = "Primary borrower") => work({ type: "loan", loanId: id, recipient }, officer).preview;
+  assert.equal(preview().matches[templateId]["Bank statement"], "Needs reviewed 1003");
+  const draft = JSON.stringify(sampleApplication(blankApplication()));
+  db.prepare("UPDATE applications SET revision = 3, draft = ?, reviewedAt = ? WHERE loanId = ?").run(draft, at, id);
+  db.prepare("INSERT INTO application_versions (loanId, revision, draft, submittedAt, reviewedAt) VALUES (?, 3, ?, ?, ?)").run(id, draft, at, at);
+  db.prepare("INSERT INTO application_questionnaires (loanId, profile, formRevision, questions, primaryAnswers) VALUES (?, 'Purchase', 1, ?, ?)")
+    .run(id, JSON.stringify([question]), JSON.stringify({ [question.id]: "No" }));
+  db.prepare(`INSERT INTO joint_applications (loanId, token, expiresAt, draft, updatedAt, submittedAt, primarySubmittedAt)
+    VALUES (?, ?, '2099-01-01T00:00:00.000Z', ?, ?, ?, ?)`).run(id, "j".repeat(64), JSON.stringify(blankBorrower()), at, at, at);
+  const receipt = (who, revision, value, submittedAt = at) => db.prepare(`INSERT INTO application_questionnaire_submissions
+    (loanId, applicant, revision, submittedAt, answers) VALUES (?, ?, ?, ?, ?)`)
+    .run(id, who, revision, submittedAt, JSON.stringify([{ id: question.id, prompt: question.prompt, prefill: null, value }]));
+  assert.equal(preview().matches[templateId]["Bank statement"], "Missing answer");
+  receipt("Primary borrower", 1, "Yes");
+  receipt("Co-borrower", 1, "No");
+  receipt("Primary borrower", 2, "No", "2026-11-10T04:56:00.000Z");
+  assert.equal(preview().matches[templateId]["Bank statement"], "Matches");
+  assert.equal(preview("Co-borrower").matches[templateId]["Bank statement"], "Does not match");
+  assert.equal(preview("Co-borrower").matches[templateId]["Homeowners insurance"], "Matches");
+  assert.equal(preview().answerEvidence[templateId]["Bank statement"].responseRevision, 1);
+  assert.match(apply(id, officer, { reviewedRevision: 3 }).error, /select/);
+  assert.match(apply(id, officer, { reviewedRevision: 2, selectedKinds: ["Bank statement"] }).error, /reviewed 1003 changed/);
+  assert.match(apply(id, officer, { reviewedRevision: 3, recipient: "Co-borrower", selectedKinds: ["Bank statement", "Photo ID"] }).error, /no longer matches/);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM document_requests").get().total, 0);
+  assert.match(apply(id, officer, { reviewedRevision: 3, selectedKinds: ["Bank statement"] }).message, /^Added 1/);
+  assert.match(apply(id, officer, { reviewedRevision: 3, selectedKinds: ["Bank statement"] }).message, /already on the checklist/);
+  const stored = db.prepare("SELECT answerBasis, applicationRevision FROM document_checklist_origins").get();
+  assert.deepEqual(JSON.parse(stored.answerBasis), { ...rule("Yes").answer, formRevision: 1, responseRevision: 1 });
+  assert.equal(stored.applicationRevision, 3);
+  const { statusView: { loanStatus: { documents } } } = borrowerCommandResult(db, { type: "status", token });
+  assert.deepEqual(documents.map(({ kind }) => kind), ["Bank statement"]);
+  assert.doesNotMatch(JSON.stringify(documents), /templateAnswerBasis|fictional property/);
+
+  const changedPrompt = "Does the fictional property have a new HOA policy?";
+  assert.equal(profile(1, changedPrompt).revision, 2);
+  assert.equal(work({ ...command, revision: 1, config: { ...config, items: [
+    config.items[0], { ...config.items[1], when: rule("Yes", changedPrompt) },
+  ] } }).templates[0].revision, 2);
+  assert.equal(preview().matches[templateId]["Bank statement"], "Question changed");
+  assert.equal(db.prepare("SELECT answerBasis FROM document_checklist_origins").get().answerBasis, stored.answerBasis);
 });

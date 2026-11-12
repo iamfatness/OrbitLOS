@@ -490,6 +490,15 @@ button:disabled { cursor: default; }
 .quote-intake .demo-confirm:has(.quote-consent-copy) { min-height: 44px; font-size: 16px; line-height: 1.5; }
 .quote-intake .demo-confirm:has(.quote-consent-copy) input { flex: none; margin-top: 5px; }
 .quote-consent-receipt > summary { min-height: 44px; align-content: center; }
+.checklist-template-fields { align-items: start; }
+.checklist-template-fields .field { min-width: 0; }
+.checklist-answer-question select { max-width: 100%; }
+.checklist-answer-question > .muted { font-weight: 400; overflow-wrap: anywhere; }
+.document-form .checklist-request-choice { display: flex; align-items: center; min-height: 44px; font-size: 14px; }
+.checklist-request-choice input { flex: none; margin-top: 0; }
+@media (max-width: 600px) {
+  .checklist-template-fields { grid-template-columns: minmax(0, 1fr); }
+}
 .application-question-editor > summary { min-height: 44px; align-content: center; }
 .application-question-prompt { grid-column: 1 / -1; }
 .application-question-editor .demo-confirm { display: flex; align-items: center; min-height: 44px; font-size: 14px; }

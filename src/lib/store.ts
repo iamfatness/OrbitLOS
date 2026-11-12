@@ -25,6 +25,7 @@ import type { WorkspaceStaff } from "./staff-store";
 import { leadFollowUp, leadRouting } from "./lead-inbox";
 import { quoteIntakeEvidence, storedQuoteConsent, storedQuoteRouting } from "./quote-intake-model";
 import { quoteOverridePolicy } from "./quote-intake";
+import { documentAnswerBasis } from "./document-template-model";
 import { readRealtorClaimPolicy } from "./realtor-claim-queue";
 import { processingActivityPrefix, type LoanProcessing } from "./processing-model";
 import type { FeeWorksheet, QuotePresentation } from "./quote-worksheet";
@@ -310,7 +311,7 @@ export function initializeStore(db: Store, seedDemo = true) {
     );
     CREATE TABLE IF NOT EXISTS document_checklist_origins (
       requestId TEXT PRIMARY KEY REFERENCES document_requests(id) ON DELETE CASCADE,
-      templateId TEXT NOT NULL, revision INTEGER NOT NULL, applicationRevision INTEGER,
+      templateId TEXT NOT NULL, revision INTEGER NOT NULL, applicationRevision INTEGER, answerBasis TEXT,
       FOREIGN KEY(templateId, revision) REFERENCES document_checklist_versions(templateId, revision)
     );
     CREATE TABLE IF NOT EXISTS tasks (
@@ -929,9 +930,11 @@ export function initializeStore(db: Store, seedDemo = true) {
         WHERE status IN ('Ordered', 'Received');
       CREATE INDEX IF NOT EXISTS open_service_orders_by_due ON service_orders(dueOn, id) WHERE status IN ('Ordered', 'Received');
       CREATE INDEX IF NOT EXISTS closing_service_evidence_by_order ON closing_service_evidence(orderId);`);
-    if (!db.prepare("PRAGMA table_info(document_checklist_origins)").all().some(({ name }) => name === "applicationRevision")) {
+    const checklistOriginColumns = new Set(db.prepare("PRAGMA table_info(document_checklist_origins)").all().map(({ name }) => name));
+    if (!checklistOriginColumns.has("applicationRevision")) {
       db.exec("ALTER TABLE document_checklist_origins ADD COLUMN applicationRevision INTEGER");
     }
+    if (!checklistOriginColumns.has("answerBasis")) db.exec("ALTER TABLE document_checklist_origins ADD COLUMN answerBasis TEXT");
     if (!db.prepare("PRAGMA table_info(pilot_scenario)").all().some((column) => column.name === "presenter")) {
       db.exec("ALTER TABLE pilot_scenario ADD COLUMN presenter INTEGER NOT NULL DEFAULT 0");
     }
@@ -1853,9 +1856,10 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
     callReportFiles: includeReports ? callReportFiles(db, loanId) : null,
     mismoLoans: rows<{ loanId: string }>(db, `SELECT loanId FROM mismo_rehearsals ${where()}`, ...args).map((row) => row.loanId),
     applications: staffApplications(db, loanId),
-    documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries"> & { evidenceJson: string; acceptedJson: string }>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
+    documentRequests: rows<Omit<LoanDocumentRequest, "previousUwmDeliveries"> & { evidenceJson: string; acceptedJson: string; answerBasisJson: string | null }>(db, `SELECT requests.*, deliveries.receipt AS uwmReceipt, deliveries.sentAt AS uwmSentAt,
       failures.failedAt AS uwmDeliveryFailedAt, origin.revision AS templateRevision, json_extract(version.config, '$.title') AS templateTitle,
-      origin.applicationRevision AS templateApplicationRevision, ${pdfColumns()},
+      origin.applicationRevision AS templateApplicationRevision,
+      ${loanId ? "CASE WHEN json_valid(origin.answerBasis) THEN origin.answerBasis END" : "NULL"} AS answerBasisJson, ${pdfColumns()},
       (SELECT json_group_array(json_object('id', link.id, 'revision', link.revision, 'sourceId', link.sourceId, 'sourceRevision', link.sourceRevision,
         'kind', link.kind, 'reviewedAt', link.reviewedAt, 'reviewedBy', link.reviewedBy, 'linkedAt', link.linkedAt, 'linkedBy', link.linkedBy,
         'pdf', json(CASE WHEN link.objectId IS NULL THEN 'false' ELSE 'true' END)))
@@ -1870,12 +1874,15 @@ export function loanWorkRecords(db: Store, includeReports: boolean, loanId?: str
       LEFT JOIN mock_delivery_failures failures ON failures.requestId = requests.id AND failures.revision = requests.revision
       LEFT JOIN document_checklist_origins origin ON origin.requestId = requests.id
       LEFT JOIN document_checklist_versions version ON version.templateId = origin.templateId AND version.revision = origin.revision
-      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, templateApplicationRevision, evidenceJson, acceptedJson, ...request }) =>
-      ({ ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}),
+      ${where("requests.loanId")} ORDER BY requests.requestedAt, requests.id`, ...args).map(({ templateTitle, templateRevision, templateApplicationRevision, evidenceJson, acceptedJson, answerBasisJson, ...request }) => {
+      const answerBasis = answerBasisJson ? documentAnswerBasis.safeParse(JSON.parse(answerBasisJson)) : undefined;
+      return { ...request, ...(templateTitle ? { templateTitle, templateRevision } : {}),
+        ...(answerBasis?.success ? { templateAnswerBasis: answerBasis.data } : {}),
         ...(acceptedJson !== "[]" ? { acceptedVersions: JSON.parse(acceptedJson) as LoanDocumentRequest["acceptedVersions"] } : {}),
         ...(evidenceJson !== "[]" ? { evidenceLinks: JSON.parse(evidenceJson) as LoanDocumentRequest["evidenceLinks"] } : {}),
         ...(templateApplicationRevision !== null ? { templateApplicationRevision } : {}), previousUwmDeliveries: db.prepare(`SELECT receipt, sentAt, documentRevision
-        FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] })),
+        FROM uwm_document_delivery_history WHERE requestId = ? ORDER BY sentAt DESC`).all(request.id) as LoanDocumentRequest["previousUwmDeliveries"] };
+    }),
     pricingRuns: rows<Omit<PricingRun, "scenario" | "offers" | "notices" | "incomeReviewCurrent"> &
       { scenario: string; offers: string; notices: string; incomeReviewCurrent: number }>(db, `
       SELECT run.*, (run.incomeReviewRevision IS NULL OR EXISTS (${approvedIncomeSql("run.loanId", "run.incomeReviewRevision")})) AS incomeReviewCurrent

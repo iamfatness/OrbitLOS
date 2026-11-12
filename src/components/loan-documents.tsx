@@ -116,6 +116,9 @@ export function LoanDocumentCard({ request, brokerageId, pilot, openCondition, r
         {request.conditionId && !compact && <small className="muted">Linked lender condition</small>}
         {request.templateTitle && <small className="muted">{request.templateTitle} · Version {request.templateRevision}
           {request.templateApplicationRevision != null && ` · Reviewed 1003 revision ${request.templateApplicationRevision}`}</small>}
+        {request.templateAnswerBasis && !compact && <small className="muted">
+          “{request.templateAnswerBasis.prompt}” · {request.templateAnswerBasis.equals} · Questions v{request.templateAnswerBasis.formRevision}
+        </small>}
         {request.instructions && !compact && <p>{request.instructions}</p>}
         {request.replacementNote && <p><strong>Replacement instructions</strong> · {request.replacementNote}</p>}
         {needsBorrowerDocument(request.status) && <>

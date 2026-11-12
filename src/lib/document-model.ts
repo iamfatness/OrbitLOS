@@ -66,6 +66,7 @@ export interface LoanDocumentRequest extends DocumentRequest {
   templateRevision?: number | null;
   templateTitle?: string | null;
   templateApplicationRevision?: number;
+  templateAnswerBasis?: import("./document-template-model").DocumentAnswerBasis;
   requestedAt: string;
   deadlineRevision: number;
   submissionId: string | null;

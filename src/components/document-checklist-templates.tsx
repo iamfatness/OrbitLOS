@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { dateLabel } from "@/lib/client-retention";
 import { checklistInstructions, checklistPresetNames, checklistPresets, documentKinds, documentRecipient, documentRecipients, primaryDocumentRecipient,
   type DocumentKind, type DocumentRecipient, type LoanDocumentRequest } from "@/lib/document-model";
-import { documentTemplateConfig, documentTemplateDueOn, documentTemplateEmployment, documentTemplateOccupancies, documentTemplatePurposes,
+import { documentAnswerKey, documentTemplateConfig, documentTemplateDueOn, documentTemplateEmployment, documentTemplateOccupancies, documentTemplatePurposes,
   documentTemplateRuleLabel, type DocumentTemplate, type DocumentTemplateConfig, type DocumentTemplatePage, type DocumentTemplateRule } from "@/lib/document-template-model";
 import { Button } from "./ui/button";
 
@@ -24,7 +24,7 @@ const emptyTemplate: DocumentTemplateConfig = { title: "", purpose: "Any loan pu
 export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }) {
   const [opened, setOpened] = useState(false);
   const [page, setPage] = useState<DocumentTemplatePage>();
-  const [draft, setDraft] = useState<{ id: string; revision: number; config: DocumentTemplateConfig; hadRules?: boolean }>();
+  const [draft, setDraft] = useState<{ id: string; revision: number; config: DocumentTemplateConfig; hadRules?: boolean; hadAnswerRules?: boolean }>();
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
@@ -42,7 +42,8 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
 
   function edit(template: DocumentTemplate) {
     const { id, revision, title, purpose, items } = template;
-    setDraft({ id, revision, config: { title, purpose, items }, hadRules: items.some((item) => item.when) });
+    setDraft({ id, revision, config: { title, purpose, items }, hadRules: items.some((item) => item.when),
+      hadAnswerRules: items.some((item) => item.when?.answer) });
   }
 
   function change(update: Partial<DocumentTemplateConfig>) {
@@ -111,7 +112,8 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
           event.preventDefault();
           const config = documentTemplateConfig.safeParse(draft.config);
           if (!config.success) { setFeedback({ text: "Enter a title and choose at least one document with a valid deadline.", error: true }); return; }
-          const type = draft.hadRules || config.data.items.some((item) => item.when) ? "publishRules" : "publish";
+          const type = draft.hadAnswerRules || config.data.items.some((item) => item.when?.answer) ? "publishAnswerRules" :
+            draft.hadRules || config.data.items.some((item) => item.when) ? "publishRules" : "publish";
           void run({ type, id: draft.id, revision: draft.revision, config: config.data }, "Document checklist published.");
         }}>
           <h3>{draft.revision ? `Edit template version ${draft.revision}` : "New checklist template"}</h3>
@@ -125,15 +127,19 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
           </div>
           <p className="muted">Deadline days are calendar days from application of the template. Enter 0 for the same day or leave blank for no due date.</p>
           <p className="muted">When you set a rule, every selected criterion must match. Employment is checked for the borrower receiving the request.</p>
+          {!page?.answerChoices?.length && <p className="muted">Publish a yes-or-no question before 1003 submission to use its answer in a checklist rule.</p>}
           {documentKinds.map((kind) => {
             const item = draft.config.items.find((entry) => entry.kind === kind);
             const editItem = (update: Partial<DocumentTemplateConfig["items"][number]>) =>
               change({ items: draft.config.items.map((entry) => entry.kind === kind ? { ...entry, ...update } : entry) });
-            const editRule = (when: DocumentTemplateRule) => editItem({ when: when.occupancy || when.employment ? when : undefined });
+            const editRule = (when: DocumentTemplateRule) => editItem({ when: when.occupancy || when.employment || when.answer ? when : undefined });
+            const answer = item?.when?.answer;
+            const choices = page?.answerChoices ?? [];
+            const answerKey = answer ? documentAnswerKey(answer) : "";
             return <div key={kind} className="record-form">
               <label className="demo-confirm"><input type="checkbox" checked={!!item} disabled={busy}
                 onChange={(event) => toggleKind(kind, event.target.checked)} /><span>Include {kind.toLowerCase()}</span></label>
-              {item && <div className="form-grid">
+              {item && <div className="form-grid checklist-template-fields">
                 <label className="field">{kind} instructions<textarea value={item.instructions} rows={2} maxLength={500} disabled={busy}
                   onChange={(event) => editItem({ instructions: event.target.value })} /></label>
                 <label className="field">{kind} deadline days<input type="number" min={0} max={90} step={1} value={item.dueDays ?? ""} disabled={busy}
@@ -148,6 +154,22 @@ export function ManageDocumentTemplates({ brokerageId }: { brokerageId: string }
                   <option value="">Any employment</option>
                   {documentTemplateEmployment.map((option) => <option key={option}>{option}</option>)}
                 </select></label>
+                {(answer || choices.length > 0) && <label className="field checklist-answer-question">{kind} application question<select
+                  value={answerKey} disabled={busy} onChange={(event) => {
+                    const choice = choices.find((option) => documentAnswerKey(option) === event.target.value);
+                    editRule({ ...item.when, answer: choice ? { questionId: choice.questionId, prompt: choice.prompt, equals: answer?.equals ?? "Yes" } : undefined });
+                  }}>
+                  <option value="">Any answer</option>
+                  {answer && !choices.some((choice) => documentAnswerKey(choice) === answerKey) &&
+                    <option value={answerKey}>Earlier version · {answer.prompt}</option>}
+                  {choices.map((choice) => <option key={documentAnswerKey(choice)} value={documentAnswerKey(choice)}>
+                    {choice.profile} · {choice.prompt}
+                  </option>)}
+                </select>{answer && <span className="muted">{answer.prompt}</span>}</label>}
+                {answer && <label className="field">{kind} required answer<select value={answer.equals} disabled={busy}
+                  onChange={(event) => editRule({ ...item.when, answer: { ...answer, equals: event.target.value === "No" ? "No" : "Yes" } })}>
+                  <option>Yes</option><option>No</option>
+                </select></label>}
               </div>}
             </div>;
           })}
@@ -172,6 +194,7 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string>(checklistPresetNames[0]);
   const [recipient, setRecipient] = useState<DocumentRecipient>(primaryDocumentRecipient);
+  const [selection, setSelection] = useState<{ key: string; kinds: DocumentKind[] }>();
   useEffect(() => {
     if (!opened || !customAvailable) return;
     const controller = new AbortController();
@@ -186,12 +209,16 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
   const preset = checklistPresetNames.find((name) => name === selected);
   const rulePreview = !error && loaded?.forRevision === applicationReviewRevision && page?.preview?.recipient === recipient ? page.preview : undefined;
   const conditional = template?.items.some((item) => item.when);
+  const answerRules = template?.items.some((item) => item.when?.answer);
   const items: DocumentTemplateConfig["items"] | undefined = template?.items ??
     (preset ? checklistPresets[preset].map((kind) => ({ kind, instructions: checklistInstructions[kind], dueDays: null })) : undefined);
   const preview = items?.map((item) => ({ ...item, existing: requests.find((request) => request.kind === item.kind && !request.conditionId && documentRecipient(request) === recipient),
     match: template && item.when ? rulePreview?.matches[template.id]?.[item.kind] ?? "Checking reviewed answers" : "Matches",
+    answerBasis: template ? rulePreview?.answerEvidence?.[template.id]?.[item.kind] : undefined,
     dueOn: page ? documentTemplateDueOn(page.asOf, item.dueDays) : null }));
-  const missing = preview?.filter((item) => !item.existing && item.match === "Matches").length ?? 0;
+  const eligible = preview?.filter((item) => !item.existing && item.match === "Matches").map(({ kind }) => kind) ?? [];
+  const selectionKey = `${loanId}:${selected}:${template?.revision}:${recipient}:${rulePreview?.reviewedRevision}:${page?.asOf}`;
+  const selectedKinds = selection?.key === selectionKey ? eligible.filter((kind) => selection.kinds.includes(kind)) : answerRules ? [] : eligible;
   return <details className="document-form" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
     <summary>Apply a reusable document checklist</summary>
     {opened && <div className="record-form">
@@ -218,18 +245,23 @@ export function ApplyDocumentChecklist({ brokerageId, loanId, customAvailable, r
       {conditional && rulePreview?.reviewedRevision != null && <p className="muted">Rules checked against reviewed 1003 revision {rulePreview.reviewedRevision}.</p>}
       {preview && <ul className="document-list" aria-label="Checklist preview">{preview.map((item) => <li key={item.kind} className="document-item">
         <div className="document-item-head"><strong>{item.kind}</strong><span className="pill">
-          {item.existing ? "Already on checklist" : item.match === "Matches" ? "Will be requested" : item.match}</span></div>
+          {item.existing ? "Already on checklist" : item.match === "Matches" ? template ? "Available" : "Will be requested" : item.match}</span></div>
         {item.when && <p className="muted">Rule · {documentTemplateRuleLabel(item.when)}</p>}
+        {item.answerBasis && <p className="muted">Matched {recipient.toLowerCase()}’s reviewed answer · Questions v{item.answerBasis.formRevision}</p>}
         {!item.existing && item.match === "Matches" && <>
           {item.instructions && <p>{item.instructions}</p>}
           {item.dueOn && <p>Due <time dateTime={item.dueOn}>{dateLabel(item.dueOn)}</time></p>}
+          {template && <label className="demo-confirm checklist-request-choice"><input type="checkbox" checked={selectedKinds.includes(item.kind)}
+            disabled={busy} onChange={(event) => setSelection({ key: selectionKey,
+              kinds: event.target.checked ? [...selectedKinds, item.kind] : selectedKinds.filter((kind) => kind !== item.kind) })} />
+            <span>Add {item.kind.toLowerCase()}</span></label>}
         </>}
       </li>)}</ul>}
-      {preview && <div><Button size="sm" disabled={busy || !missing || (conditional && !rulePreview)} onClick={() => {
+      {preview && <div><Button size="sm" disabled={busy || !selectedKinds.length || (conditional && !rulePreview)} onClick={() => {
         if (template && page) void save({ type: "applyDocumentTemplate", loanId, templateId: template.id, revision: template.revision, asOf: page.asOf, recipient,
-          ...(conditional ? { reviewedRevision: rulePreview?.reviewedRevision } : {}) });
+          selectedKinds, ...(conditional ? { reviewedRevision: rulePreview?.reviewedRevision } : {}) });
         else if (preset) void save({ type: "applyDocumentPreset", loanId, preset, recipient });
-      }}>Add missing requests{missing > 0 ? ` (${missing})` : ""}</Button></div>}
+      }}>{template ? "Add selected requests" : "Add missing requests"}{selectedKinds.length > 0 ? ` (${selectedKinds.length})` : ""}</Button></div>}
     </div>}
   </details>;
 }

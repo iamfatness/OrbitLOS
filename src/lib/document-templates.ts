@@ -1,15 +1,17 @@
 import { addApplicationActivity } from "./applications";
 import { demoBrokerageId } from "./brokerage-model";
 import { easternDate } from "./client-retention";
-import { documentTemplateApplicationChanged, documentTemplateChanged, documentTemplateConfig, documentTemplateDueOn, documentTemplateLimit,
-  documentTemplateRequest, documentTemplatesUnavailable, type applyDocumentTemplateInput, type DocumentTemplate, type DocumentTemplatePage } from "./document-template-model";
+import { documentAnswerKey, documentTemplateApplicationChanged, documentTemplateChanged, documentTemplateConfig, documentTemplateDueOn, documentTemplateLimit,
+  documentTemplateRequest, documentTemplatesUnavailable, type applyDocumentTemplateInput, type DocumentAnswerChoice, type DocumentTemplate, type DocumentTemplatePage } from "./document-template-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
 import type { z } from "zod";
 import { documentRecipientAvailable } from "./borrower-documents";
 import { primaryDocumentRecipient } from "./document-model";
-import { documentRuleMatch, reviewedDocumentFacts } from "./document-template-rules";
+import { documentRuleDecision, reviewedDocumentFacts } from "./document-template-rules";
+import { currentQuoteForm } from "./quote-intake";
+import { quotePurpose } from "./quote-intake-model";
 
 function supported(staff: WorkspaceStaff | null) {
   return !staff || staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot;
@@ -38,6 +40,19 @@ function titleAvailable(db: Store, title: string, id: string) {
     WHERE archived = 0 AND title = ? COLLATE NOCASE AND id <> ?`).get(title, id);
 }
 
+function documentAnswerChoices(db: Store) {
+  const forms = [currentQuoteForm(db), ...quotePurpose.options.map((purpose) => currentQuoteForm(db, purpose))];
+  const choices = new Map<string, DocumentAnswerChoice>();
+  for (const { profile, config } of forms) {
+    for (const question of config.applicationQuestions ?? []) {
+      if (question.kind !== "Yes or no") continue;
+      const choice = { profile, questionId: question.id, prompt: question.prompt };
+      choices.set(documentAnswerKey(choice), choice);
+    }
+  }
+  return [...choices.values()];
+}
+
 export function documentTemplateWork(db: Store, input: unknown, staff: WorkspaceStaff | null, brokerageId: string,
   now = new Date()): DocumentTemplatePage | { error: string } {
   if (!supported(staff) || (staff ? staff.brokerage.id !== brokerageId : brokerageId !== demoBrokerageId)) {
@@ -56,20 +71,43 @@ export function documentTemplateWork(db: Store, input: unknown, staff: Workspace
       ORDER BY template.title COLLATE NOCASE, template.id LIMIT ?`).all(loan.purpose, documentTemplateLimit);
     const templates = rows.map(templateFromRow);
     const conditional = templates.filter((template) => template.items.some((item) => item.when));
-    const facts = conditional.length ? reviewedDocumentFacts(db, data.loanId, recipient) : null;
-    const matches = Object.fromEntries(conditional.map((template) => [template.id,
-      Object.fromEntries(template.items.filter((item) => item.when).map((item) => [item.kind, documentRuleMatch(item.when, facts)]))]));
-    return { templates, asOf, more: false, preview: { recipient, reviewedRevision: facts?.revision ?? null, matches } };
+    const answerRules = conditional.some((template) => template.items.some((item) => item.when?.answer));
+    const facts = conditional.length ? reviewedDocumentFacts(db, data.loanId, recipient, answerRules) : null;
+    const matches: NonNullable<DocumentTemplatePage["preview"]>["matches"] = {};
+    const answerEvidence: NonNullable<DocumentTemplatePage["preview"]>["answerEvidence"] = {};
+    for (const template of conditional) {
+      matches[template.id] = {};
+      for (const item of template.items) {
+        if (!item.when) continue;
+        const { match, basis } = documentRuleDecision(item.when, facts);
+        matches[template.id][item.kind] = match;
+        if (basis) (answerEvidence[template.id] ??= {})[item.kind] = basis;
+      }
+    }
+    return { templates, asOf, more: false, preview: { recipient, reviewedRevision: facts?.revision ?? null, matches,
+      ...(answerRules ? { answerEvidence } : {}) } };
   }
   if (staff && staff.brokerage.role !== "Admin") return { error: "Only brokerage admins can manage document templates." };
   return db.transaction(() => {
+    const answerChoices = documentAnswerChoices(db);
     if (data.type !== "manage") {
       const row = db.prepare(`${templateQuery} WHERE template.id = ?`).get(data.id);
       const current = row && templateFromRow(row);
       const at = now.toISOString();
       if ("config" in data) {
+        if (data.type !== "publishAnswerRules" && (data.config.items.some((item) => item.when?.answer) || current?.items.some((item) => item.when?.answer))) {
+          return { error: "Reload Orbit to edit a checklist with brokerage answer rules." };
+        }
         if (data.type === "publish" && (data.config.items.some((item) => item.when) || current?.items.some((item) => item.when))) {
           return { error: "Reload Orbit to edit a checklist with reviewed 1003 rules." };
+        }
+        for (const item of data.config.items) {
+          if (!item.when?.answer) continue;
+          const key = documentAnswerKey(item.when.answer);
+          const prior = current?.items.find(({ kind }) => kind === item.kind)?.when?.answer;
+          if (!answerChoices.some((choice) => documentAnswerKey(choice) === key) && (!prior || documentAnswerKey(prior) !== key)) {
+            return { error: "Choose a published yes-or-no application question for each new answer rule." };
+          }
         }
         const config = JSON.stringify(data.config);
         if (!current || (current.revision === data.revision && row?.config !== config)) {
@@ -108,7 +146,7 @@ export function documentTemplateWork(db: Store, input: unknown, staff: Workspace
     const pageSize = 30;
     const rows = db.prepare(`${templateQuery} WHERE instr(lower(template.title), lower(?)) > 0
       ORDER BY template.archived, template.title COLLATE NOCASE, template.id LIMIT ?`).all(search, pageSize + 1);
-    return { templates: rows.slice(0, pageSize).map(templateFromRow), asOf, more: rows.length > pageSize };
+    return { templates: rows.slice(0, pageSize).map(templateFromRow), asOf, more: rows.length > pageSize, answerChoices };
   });
 }
 
@@ -125,20 +163,29 @@ export function applyDocumentTemplate(db: Store, data: z.infer<typeof applyDocum
     return { error: "Choose a checklist for the current loan purpose." };
   }
   const conditional = template.items.some((item) => item.when);
-  const facts = conditional ? reviewedDocumentFacts(db, data.loanId, recipient) : null;
+  const answerRules = template.items.some((item) => item.when?.answer);
+  if (answerRules && !data.selectedKinds) return { error: "Reload Orbit and select the document requests to add." };
+  const facts = conditional ? reviewedDocumentFacts(db, data.loanId, recipient, answerRules) : null;
   if (conditional && data.reviewedRevision !== (facts?.revision ?? null)) return { error: documentTemplateApplicationChanged };
-  const matching = template.items.filter((item) => documentRuleMatch(item.when, facts) === "Matches");
+  const matching = template.items.flatMap((item) => {
+    if (data.selectedKinds && !data.selectedKinds.includes(item.kind)) return [];
+    const { match, basis } = documentRuleDecision(item.when, facts);
+    return match === "Matches" ? [{ ...item, basis }] : [];
+  });
+  if (data.selectedKinds && matching.length !== data.selectedKinds.length) {
+    return { error: "A selected request no longer matches this applicant. Reload templates and review the requests again." };
+  }
   const existing = new Set(db.prepare("SELECT kind FROM document_requests WHERE loanId = ? AND recipient = ? AND conditionId IS NULL")
     .all(data.loanId, recipient).map(({ kind }) => kind));
   const insert = db.prepare(`INSERT INTO document_requests (id, loanId, kind, instructions, requestedAt, dueOn, recipient) VALUES (?, ?, ?, ?, ?, ?, ?)`);
-  const origin = db.prepare("INSERT INTO document_checklist_origins (requestId, templateId, revision, applicationRevision) VALUES (?, ?, ?, ?)");
+  const origin = db.prepare("INSERT INTO document_checklist_origins (requestId, templateId, revision, applicationRevision, answerBasis) VALUES (?, ?, ?, ?, ?)");
   let added = 0;
   for (const item of matching) {
     if (existing.has(item.kind)) continue;
     const requestId = crypto.randomUUID();
     const dueOn = documentTemplateDueOn(data.asOf, item.dueDays);
     insert.run(requestId, data.loanId, item.kind, item.instructions, now, dueOn, recipient);
-    origin.run(requestId, template.id, template.revision, item.when ? facts?.revision ?? null : null);
+    origin.run(requestId, template.id, template.revision, item.when ? facts?.revision ?? null : null, item.basis ? JSON.stringify(item.basis) : null);
     added++;
   }
   if (added) {

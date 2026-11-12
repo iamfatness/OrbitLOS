@@ -5772,7 +5772,7 @@ try {
     return { browserLead, loanId };
   });
 
-  const applicationQuestionsFixture = await stage("Joint applicants save and submit separate answers to versioned brokerage questions", async () => {
+  const applicationQuestionWork = await stage("Joint applicants save and submit separate answers to versioned brokerage questions", async () => {
     const path = `/api/quote-intake-settings?brokerage=${brokerage}`;
     const profile = "Purchase";
     const current = await post(path, { type: "read", profile }, owner);
@@ -5830,7 +5830,58 @@ try {
     assert.deepEqual(receipts.map(({ applicant, formRevision, answers }) => [applicant, formRevision, answers.map(({ value }) => value)]),
       [["Primary borrower", v1.revision, ["Yes", "Tuesday morning"]], ["Co-borrower", v1.revision, ["No"]]]);
     assert.ok((await action(competingOfficer, "readLoanForWork", loanId)).error);
-    return preview ? { ...preview, first, detail, version: v1.revision } : null;
+    return { rehearsal, preview: preview ? { ...preview, first, detail, version: v1.revision } : null, first, detail, version: v1.revision };
+  });
+  const applicationQuestionsFixture = applicationQuestionWork.preview;
+  const checklistAnswersFixture = await stage("Staff select checklist requests supported by each applicant's reviewed answers", async () => {
+    const { rehearsal, first, detail, version } = applicationQuestionWork;
+    const { loanId, token, coToken } = rehearsal;
+    const profile = "Purchase";
+    const settingsPath = `/api/quote-intake-settings?brokerage=${brokerage}`;
+    const settings = await post(settingsPath, { type: "read", profile }, owner);
+    await post(settingsPath, { type: "publish", profile, revision: settings.revision,
+      config: { ...settings.config, applicationQuestions: [first, detail] } }, owner);
+    const path = `/api/document-templates?brokerage=${brokerage}`;
+    const title = "Fictional callback checklist";
+    const templateId = randomUUID();
+    const answer = (equals) => ({ answer: { questionId: first.id, prompt: first.prompt, equals } });
+    const publish = { type: "publishAnswerRules", id: templateId, revision: 0, config: { title, purpose: profile, items: [
+      { kind: "Photo ID", instructions: "Provide fictional identification.", dueDays: null },
+      { kind: "Bank statement", instructions: "Provide the fictional bank statement.", dueDays: 1, when: answer("Yes") },
+      { kind: "Tax form", instructions: "Provide the fictional tax form.", dueDays: 2, when: answer("No") },
+    ] } };
+    assert.ok((await postResponse(path, publish, officer)).status >= 400);
+    const published = await post(path, publish, owner);
+    assert.ok(published.answerChoices.some(({ questionId, prompt }) => questionId === first.id && prompt === first.prompt));
+    const preview = (recipient) => post(path, { type: "loan", loanId, recipient }, officer);
+    assert.equal((await preview("Primary borrower")).preview.matches[templateId]["Bank statement"], "Needs reviewed 1003");
+    const application = (await file(officer, loanId)).applications[0];
+    await loanAction(officer, loanId, "reviewApplication", { revision: application.revision });
+    const primary = await preview("Primary borrower");
+    const co = await preview("Co-borrower");
+    assert.equal(primary.preview.matches[templateId]["Bank statement"], "Matches");
+    assert.equal(co.preview.matches[templateId]["Bank statement"], "Does not match");
+    assert.equal(co.preview.matches[templateId]["Tax form"], "Matches");
+    assert.equal(primary.preview.answerEvidence[templateId]["Bank statement"].formRevision, version);
+    const apply = { type: "applyDocumentTemplate", loanId, templateId, revision: 1, asOf: primary.asOf,
+      reviewedRevision: primary.preview.reviewedRevision, recipient: "Primary borrower" };
+    assert.match((await action(officer, "mutate", apply)).error, /select/);
+    assert.match((await action(officer, "mutate", { ...apply, selectedKinds: ["Bank statement"], reviewedRevision: apply.reviewedRevision - 1 })).error, /1003 changed/);
+    assert.match((await action(officer, "mutate", { ...apply, selectedKinds: ["Bank statement", "Tax form"] })).error, /no longer matches/);
+    assert.equal((await file(officer, loanId)).documentRequests.length, 0);
+    const selection = { ...apply, selectedKinds: ["Bank statement"] };
+    assert.match((await write(officer, selection)).message, /^Added 1/);
+    assert.match((await write(officer, selection)).message, /already on the checklist/);
+    const [request] = (await file(officer, loanId)).documentRequests;
+    assert.equal(request.kind, "Bank statement");
+    assert.equal(request.templateApplicationRevision, apply.reviewedRevision);
+    assert.deepEqual(request.templateAnswerBasis, primary.preview.answerEvidence[templateId]["Bank statement"]);
+    const primaryDocs = (await borrower(token, { type: "status" })).loanStatus.documents;
+    const coDocs = (await post("/api/joint-application", { type: "read", token: coToken })).documents;
+    assert.deepEqual(primaryDocs.map(({ kind }) => kind), ["Bank statement"]);
+    assert.equal("templateAnswerBasis" in primaryDocs[0], false);
+    assert.deepEqual(coDocs, []);
+    return { ...rehearsal, title, templateId, first, version };
   });
 
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
@@ -5838,7 +5889,7 @@ try {
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }
