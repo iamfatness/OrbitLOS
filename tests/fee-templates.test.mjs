@@ -146,6 +146,29 @@ test("fee templates scope use and preserve the original fee and source snapshot"
   assert.ok(manage({ type: "archive", id: v1.id, revision: 2, archived: true }).templates);
   assert.deepEqual(manage(forQuote, officer).templates, []);
   assert.match((await send({ ...updated, type: "saveAllocatedFeeWorksheet", feeRevision: 3, template: { id: v1.id, revision: 3 } })).error, /no longer applies/);
+  const rules = { origination: { basis: "Loan amount", basisPoints: 125 }, government: { basis: "Purchase price", basisPoints: 13 } };
+  const percentageTemplate = { type: "publish", id: randomUUID(), revision: 0,
+    config: { ...config, title: "Percentage estimates", fees: blankFees(), rules } };
+  assert.match(manage({ ...percentageTemplate, config: { ...percentageTemplate.config, purpose: "Any loan purpose" } }).error, /Choose Purchase/);
+  assert.match(manage({ ...percentageTemplate, config: { ...percentageTemplate.config, fees } }).error, /Choose one calculation/);
+  assert.ok(manage(percentageTemplate).templates);
+  db.prepare("UPDATE pricing_runs SET scenario = ? WHERE id = ?").run(JSON.stringify({ ...scenario, purchasePrice: null }), runId);
+  assert.match(manage(forQuote, officer).templates[0].blocked, /Reprice with a purchase price/);
+  db.prepare("UPDATE pricing_runs SET scenario = ? WHERE id = ?").run(JSON.stringify({ ...scenario, loanAmount: 350000.4 }), runId);
+  const calculation = manage(forQuote, officer).templates[0];
+  assert.deepEqual(calculation.calculations.origination, { ...rules.origination, baseCents: 35_000_040, amountCents: 437_501 });
+  assert.deepEqual(calculation.calculations.government, { ...rules.government, baseCents: 36_000_000, amountCents: 46_800 });
+  const calculatedSave = { ...updated, type: "saveAllocatedFeeWorksheet", feeRevision: 3,
+    template: { id: percentageTemplate.id, revision: 1 }, worksheet: { ...worksheet, fees: { ...calculation.fees, origination: 440000 } } };
+  assert.match((await send({ ...calculatedSave, worksheet: { ...calculatedSave.worksheet, purchasePrice: 37_000_000 } })).error, /Match the purchase price/);
+  const calculated = (await send(calculatedSave)).loanWork.feeWorksheets[0];
+  assert.deepEqual(calculated.origin.calculations, calculation.calculations);
+  assert.equal(calculated.origin.fees.origination, 437_501);
+  assert.equal(calculated.inputs.fees.origination, 440_000);
+  assert.equal((await send(calculatedSave)).loanWork.feeWorksheets[0].revision, 4);
+  assert.ok(manage({ ...percentageTemplate, revision: 1,
+    config: { ...percentageTemplate.config, rules: { ...rules, origination: { ...rules.origination, basisPoints: 200 } } } }).templates);
+  assert.deepEqual((await send({ ...calculatedSave, feeRevision: 4 })).loanWork.feeWorksheets[0].origin.calculations, calculation.calculations);
   db.prepare("UPDATE applications SET revision = 4 WHERE loanId = ?").run(loanId);
-  assert.match((await send({ ...save, feeRevision: 2 })).error, /Reprice/);
+  assert.match((await send({ ...save, feeRevision: 4 })).error, /Reprice/);
 });

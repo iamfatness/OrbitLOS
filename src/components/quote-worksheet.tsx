@@ -4,7 +4,7 @@ import { useState } from "react";
 import { preflightFeeField, preflightFeesTarget } from "@/lib/file-preflight-model";
 import type { PricingOffer, PricingRun } from "@/lib/pricing-model";
 import { compareQuoteCosts } from "@/lib/quote-cost-comparison";
-import { allocatedFeeLine, blankFees, estimateFees, feeAllocationIssue, feeAllocationLabel, feeAllocations, feeContributionKeys,
+import { allocatedFeeLine, blankFees, estimateFees, feeAllocationIssue, feeAllocationLabel, feeAllocations, feeBasisIssue, feeCalculationLabel, feeContributionKeys,
   feeContributionLabels, feeKeys, feeLabels, missingFees,
   type FeeInputs, type FeeKey, type FeeTemplateOrigin, type FeeWorksheet, type QuoteOption, type QuotePresentation } from "@/lib/quote-worksheet";
 import { FeeTemplatePicker } from "./fee-templates";
@@ -43,6 +43,10 @@ function FeeSource({ origin, inputs }: { origin: FeeTemplateOrigin; inputs: Pick
   return <div className="document-item">
     <p><strong>{origin.title} · Version {origin.revision}</strong></p>
     <p className="muted">{origin.source} · Effective {origin.effectiveOn} · {origin.zip || "Any ZIP"}</p>
+    {feeKeys.map((key) => {
+      const calculation = origin.calculations?.[key];
+      return calculation && <p key={key}>{feeLabels[key]} · {feeCalculationLabel(calculation)}</p>;
+    })}
     {overrides.length > 0 && <p className="muted">Edited for this quote · {overrides.map((key) => feeLabels[key]).join(", ")}</p>}
   </div>;
 }
@@ -79,7 +83,8 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
     ...(checkedSplits.success ? { allocations: checkedSplits.data } : {}),
   };
   const allocationIssue = checkedSplits.success ? feeAllocationIssue(inputs, purchase) : checkedSplits.error.issues[0]?.message ?? "Check the fee contributions.";
-  const estimate = allocationIssue ? null : estimateFees(run.scenario, offer, inputs);
+  const basisIssue = feeBasisIssue(origin, inputs.purchasePrice);
+  const estimate = allocationIssue || basisIssue ? null : estimateFees(run.scenario, offer, inputs);
   const missing = missingFees(fees);
   const valid = Object.values(fields).every((value) => value === "" || (Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 25_000_000));
   const label = `${offer.product} at ${offer.rate.toFixed(3)}%`;
@@ -151,9 +156,10 @@ export function FeeWorksheetEditor({ run, offer, saved, busy, save, brokerageId,
         })}
       </details>}
       {allocationIssue && <p role="alert">{allocationIssue}</p>}
+      {basisIssue && <p role="alert">{basisIssue}</p>}
       {valid && estimate && <p>Estimated closing costs {formatFee(estimate.closingCosts)} · {cashLabel({ estimate, purpose: run.scenario.purpose })} {formatFee(Math.abs(estimate.cashToClose))}
         {missing.length > 0 && " · Known fees only"}</p>}
-      {valid && !estimate && !allocationIssue && <p className="muted">{purchase ? "Enter a purchase price at or above the loan amount." : "Enter estimated payoffs, including zero if applicable."}</p>}
+      {valid && !estimate && !allocationIssue && !basisIssue && <p className="muted">{purchase ? "Enter a purchase price at or above the loan amount." : "Enter estimated payoffs, including zero if applicable."}</p>}
       <div className="loan-application-actions">
         <Button size="sm" variant="outline" type="button" onClick={loadSample} disabled={busy || !canEdit}>Load sample fees</Button>
         <Button size="sm" type="submit" disabled={busy || !canEdit || !estimate || !valid}>Save fee worksheet</Button>
