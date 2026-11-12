@@ -549,3 +549,7 @@ App `e9aae63d8fb0`. Impeccable Operate informed the distinction between timing, 
 ### Intent and fee timing
 
 App `059280d5fa49`. Impeccable Operate and UI UX Pro Max error-summary guidance informed a separate timing review beside the existing labeled form. The accepted Orbit fields, disclosure and evidence rows were reused. A phone check caught a clipped selected option. The revised control shows a short choice with the exact Loan Estimate version below it. Final desktop, portrait and phone captures and keyboard acceptance are recorded in [UI review coverage](ui-review-coverage.md).
+
+### Invited staff email-code sign-in
+
+App `4684a5e1c7f7`. The sign-in choice and verification form reuse Orbit's accepted fields, buttons, and focus treatment. Impeccable Clarify informed the invitation and recovery copy. UI UX Pro Max authentication guidance informed allowing paste and one-time-code autofill alongside Google sign-in. The approved Inter typography was retained. The independent browser pass inspected the selected invitation, sign-in choice, and code recovery at desktop, portrait, and phone widths. See [UI review coverage](ui-review-coverage.md).

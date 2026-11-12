@@ -303,7 +303,7 @@ Worker `1b5fa032-9214-4af2-9e50-a9821fdc3425` serves all traffic. All 23 binding
 
 ### Invalidate restored sign-in state
 
-After the final directory restore and before reopening traffic, clear the restored staff sessions and pending Google sign-in attempts. The reset covers all staff in the shared directory and requires staff to sign in again. Prepare a dedicated incident credential and put its SHA-256 digest in `signInResetTokenSha256` on the active pause marker, using the same token format as the drain status credential. Keep the pause active until tracked work drains and all in-flight sign-ins have been reconciled.
+After the final directory restore and before reopening traffic, clear the restored staff sessions, pending Google sign-in attempts, and outstanding staff email codes. The reset covers all staff in the shared directory and requires staff to sign in again. Prepare a dedicated incident credential and put its SHA-256 digest in `signInResetTokenSha256` on the active pause marker, using the same token format as the drain status credential. Keep the pause active until tracked work drains and all in-flight sign-ins have been reconciled.
 
 1. Send a GET to `/api/ops/directory-sign-in-reset` with the reset bearer credential. Review the counts and fingerprint. The response contains no staff, session or sign-in identifiers.
 2. Send a POST to the same path with `requestId=<new UUID>`, `fingerprint=<review fingerprint>` and `confirm=sign-out-all-staff`. Orbit verifies the current marker, drain and reviewed state before deleting the session and sign-in rows in a single transaction.

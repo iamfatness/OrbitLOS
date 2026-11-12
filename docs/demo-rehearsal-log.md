@@ -1281,3 +1281,9 @@ Published app `e9aae63d8fb0` as Worker `8d95d30f-09ad-4ee1-bc9b-42c7d855ceb8`. T
 ### Michigan intent and fee timing pilot
 
 Published app `059280d5fa49` as Worker `b5097862-0963-4ffb-9539-5c3d7f366844`. The fictional owner and LO linked an intent to its Loan Estimate receipt, recorded fee activity, reviewed early timing and an unlinked credit report fee, and recovered a stale draft. Withdrawing the original receipt reopened the linked fee review. The assigned processor saw the result without edit controls. No fees were collected and no provider actions occurred. The public Demo was checked staged and live.
+
+### Invited staff email-code sign-in
+
+App `4684a5e1c7f7` serves production on Worker `4d051228-350f-4c86-a1a0-94c6afadc1aa`. The first staged code request returned 503 against the earlier directory. Compatibility source `35bd770` and Worker `12345564-6c08-44d8-94fa-28a5342f56d5` installed the new directory methods with email held. The final stage and ordinary production passed the public sign-in choice, uninvited request, Demo copy, and signed-out workspace checks. The 23 prior bindings matched. The added STAFF_EMAIL binding restricts sending to login@orbitlos.com.
+
+The isolated browser rehearsal verified simulated delivery, exact invited email, wrong-code recovery, scoped Processor activation, and sign-out. The unit tests checked saved defaults, unrelated pending invites, revoked or expired codes, method-separated sessions, and sign-in reset after directory recovery. Delivery to an actual invited inbox remains unverified.
