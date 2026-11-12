@@ -1,0 +1,19 @@
+{
+  "run": "1e0be7b8-c5df-4dd5-a775-fa64e8d10780",
+  "harnessSource": "eb74cebd41dd440163ea42835f066e80a98dd934",
+  "applicationSource": "be0a4c808f1a80a9fc0a5eeca1682a7da6a78054",
+  "artifactSha256": "14100a0d6c9f9e1cae62428749590ef1f05fd4bcbb47fe80b061a8360c11bb00",
+  "isolatedWorker": "orbit-recovery-1e0be7b8",
+  "syntheticCallbackVerified": true,
+  "destinationPointInTimeRestore": true,
+  "matchRecoveredOnce": true,
+  "reusedIdDidNotMisidentifyReceipt": true,
+  "inboxOnlyAdminDenied": true,
+  "directoryPointInTimeRestore": true,
+  "unverifiedDirectoryRefused": true,
+  "verifiedLoanRouteRecovered": true,
+  "originalInboxReceiptPreserved": true,
+  "repeatAfterRestoreUnchanged": true,
+  "otherBrokerageUnchanged": true,
+  "fixtureResourcesRemoved": true
+}
