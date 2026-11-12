@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { accessClosingGates } from "@/app/actions";
 import { dateLabel } from "@/lib/client-retention";
 import { closingGateLabels, closingGatePhases, closingGateRules, type ClosingGateCheck, type ClosingGatePhase,
@@ -11,17 +11,17 @@ const loadError = { error: "Could not load closing and funding checks. Refresh t
 
 function useGateWork(brokerageId: string, loanId?: string, fileVersion?: object) {
   const scope = JSON.stringify([brokerageId, loanId]);
-  const [loaded, setLoaded] = useState<{ scope: string; result: ClosingGateResult | undefined }>();
+  const [loaded, setLoaded] = useState<{ scope: string; fileVersion?: object; result: ClosingGateResult | undefined }>();
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     let current = true;
     const input = loanId ? { type: "loan", loanId } : { type: "settings" };
-    void accessClosingGates(input, brokerageId).then((result) => { if (current) setLoaded({ scope, result }); })
-      .catch(() => { if (current) setLoaded({ scope, result: loadError }); });
+    void accessClosingGates(input, brokerageId).then((result) => { if (current) setLoaded({ scope, fileVersion, result }); })
+      .catch(() => { if (current) setLoaded({ scope, fileVersion, result: loadError }); });
     return () => { current = false; };
   }, [brokerageId, loanId, fileVersion, revision, scope]);
-  return { result: loaded?.scope === scope ? loaded.result : undefined,
-    setResult: (result: ClosingGateResult | undefined) => setLoaded({ scope, result }), reload: () => setRevision((value) => value + 1) };
+  return { result: loaded?.scope === scope && loaded.fileVersion === fileVersion ? loaded.result : undefined,
+    setResult: (result: ClosingGateResult | undefined) => setLoaded({ scope, fileVersion, result }), reload: () => setRevision((value) => value + 1) };
 }
 
 export function useLoanClosingGates(brokerageId: string, loanId: string, fileVersion: object) {
@@ -43,19 +43,25 @@ function ClosingGatePolicyForm({ brokerageId, policy, published, reload }: { bro
     setNotice("");
     try {
       const result = await accessClosingGates({ type: "publish", revision: policy.revision, reason: values.get("reason"),
-        rules: { closing: values.getAll("closing"), funding: values.getAll("funding") } }, brokerageId);
+        rules: { closing: values.getAll("closing"), funding: values.getAll("funding"),
+          ...(policy.canRequireChangedPackageReview ? { changedPackageReview: values.has("changedPackageReview") } : {}) } }, brokerageId);
       if ("error" in result) setNotice(result.error);
       else if (result.kind === "settings") { form.reset(); published(result); }
     } catch { setNotice("Could not publish the policy. Refresh to try again."); }
     finally { setBusy(false); }
   }}>
-    <p className="muted">{policy.revision ? `Published policy v${policy.revision} · ${policy.publishedBy} · ${policy.reason}` : "No required checks are configured."}</p>
     <p>Choose which checks apply before staff record each milestone. Preview the selections here before publishing them for the brokerage.</p>
     <div className="form-grid">{closingGatePhases.map((phase) => <fieldset key={phase}>
       <legend>{phase === "closing" ? "Before recording closing" : "Before recording funding"}</legend>
       {closingGateRules.map((rule) => <label className="demo-confirm" key={rule}><input type="checkbox" name={phase} value={rule}
         defaultChecked={policy.rules[phase].includes(rule)} disabled={busy} />{closingGateLabels[rule]}</label>)}
     </fieldset>)}</div>
+    {policy.canRequireChangedPackageReview && <fieldset className="record-form">
+      <legend>Revised sample closing packages</legend>
+      <label className="demo-confirm"><input type="checkbox" name="changedPackageReview"
+        defaultChecked={policy.rules.changedPackageReview} disabled={busy} />Require independent approval when the terms or fees change</label>
+      <p className="muted">After the first confirmed package, a different staff member approves a changed replacement before staff can confirm it, record closing or record funding.</p>
+    </fieldset>}
     <label className="field">Reason for policy change<textarea name="reason" rows={2} minLength={8} maxLength={300} required disabled={busy} /></label>
     <div className="loan-application-actions"><Button type="submit" size="sm" disabled={busy}>Publish closing and funding policy</Button>
       {notice && <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={reload}>Reload policy</Button>}</div>
@@ -65,11 +71,24 @@ function ClosingGatePolicyForm({ brokerageId, policy, published, reload }: { bro
 
 function ClosingGateSettingsContent({ brokerageId }: { brokerageId: string }) {
   const { result, setResult, reload } = useGateWork(brokerageId);
+  const status = useRef<HTMLParagraphElement>(null);
+  const [publishedRevision, setPublishedRevision] = useState<number>();
+  useEffect(() => {
+    if (publishedRevision !== undefined && result && "kind" in result && result.kind === "settings" && result.revision === publishedRevision) {
+      status.current?.focus({ preventScroll: true });
+    }
+  }, [publishedRevision, result]);
   if (!result) return <p role="status">Loading closing and funding policy…</p>;
   if ("error" in result) return <><p role="alert">{result.error}</p><Button size="sm" variant="ghost" onClick={reload}>Reload policy</Button></>;
   if (result.kind !== "settings") return null;
-  return <ClosingGatePolicyForm key={result.revision} brokerageId={brokerageId} policy={result} published={setResult}
-    reload={() => { setResult(undefined); reload(); }} />;
+  return <>
+    <p ref={status} tabIndex={-1} role="status" className="muted">{result.revision
+      ? `Published policy v${result.revision} · ${result.publishedBy} · ${result.reason}` : "No required checks are configured."}</p>
+    <ClosingGatePolicyForm key={result.revision} brokerageId={brokerageId} policy={result} published={(policy) => {
+      setPublishedRevision(policy.revision);
+      setResult(policy);
+    }} reload={() => { setPublishedRevision(undefined); setResult(undefined); reload(); }} />
+  </>;
 }
 
 export function ManageClosingGates({ brokerageId }: { brokerageId: string }) {

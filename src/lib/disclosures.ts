@@ -1,6 +1,7 @@
 import { addApplicationActivity, getApplication } from "./applications";
 import { applicationDraft, type ApplicationDraft } from "./application-model";
 import { demoBrokerageId } from "./brokerage-model";
+import { currentClosingGatePolicy } from "./closing-gate-policy-store";
 import { easternDate, easternDayStart } from "./client-retention";
 import { changedDisclosureTarget, currentDisclosureCalendar } from "./disclosure-calendar";
 import { compareDisclosureTerms } from "./disclosure-change-model";
@@ -9,7 +10,7 @@ import { disclosureTemplateChanged, disclosureTemplateMatch, type DisclosureTemp
 import { disclosureTemplatesForLoan, selectedDisclosureTemplate } from "./disclosure-templates";
 import { approvedIncomeSql } from "./income-review-freshness";
 import { disclosureClosingReviewPrefix, disclosureDeclinePrefix, disclosureDeclineTaskTitle, disclosureIssuePrefix, disclosureReviewPrefix, disclosureSigningPrefix, type BorrowerDisclosure, type BorrowerDisclosureResponse,
-  closingPackageReviewCategory, type ClosingPackageAssignment, type ClosingPackageReviewEvidence, type ClosingPackageReviewRef,
+  changedClosingApprovalRequired, closingPackageReviewCategory, type ChangedClosingApproval, type ClosingPackageAssignment, type ClosingPackageReviewEvidence, type ClosingPackageReviewRef,
   type ClosingDisclosureReview, type DisclosureCommand, type DisclosurePackage, type DisclosureSigner,
   type DisclosureSource, type DisclosureWork } from "./disclosure-model";
 import { quoteFeeWorksheet, quoteSnapshot } from "./quote-worksheet-store";
@@ -93,7 +94,8 @@ export function readDisclosureWork(db: Store, loanId: string, now = new Date()):
     !!(assignment && !revisionReason && latest?.issuedAt && sameClosingPackage(assignment, latest));
   const closingAssignment = assignment && (assignment.status !== "Approved" || assignmentCurrent)
     ? { ...assignment, current: assignmentCurrent } : undefined;
-  return { source: current.source ?? null, unavailable: current.error ?? null, revisionReason, closingReviews, closingAssignment, suggestedDeadline, draftTargetChanged, templateOptions, packages: rows
+  const changedClosingApproval = latest ? readChangedClosingApproval(db, loanId) : undefined;
+  return { source: current.source ?? null, unavailable: current.error ?? null, revisionReason, closingReviews, closingAssignment, changedClosingApproval, suggestedDeadline, draftTargetChanged, templateOptions, packages: rows
     .map((item) => {
       const quote = JSON.parse(item.quote) as DisclosurePackage["quote"];
       return {
@@ -130,7 +132,7 @@ export function sameClosingPackage(a?: ClosingPackageReviewRef, b?: ClosingPacka
 }
 
 export function readClosingPackageAssignment(db: Store, loanId: string): ClosingPackageAssignment | undefined {
-  return db.prepare(`SELECT review.id, review.status, review.reviewerName, review.dueOn, review.escalatedAt, pinned.version, pinned.revision,
+  return db.prepare(`SELECT review.id, review.status, review.reviewerName, review.reviewerEmail, review.dueOn, review.escalatedAt, pinned.version, pinned.revision,
     CASE WHEN review.status = 'Changes requested' THEN (
       SELECT decision.note FROM loan_review_events decision WHERE decision.reviewId = review.id AND decision.action = 'Changes requested'
       ORDER BY decision.sequence DESC LIMIT 1
@@ -183,6 +185,64 @@ export function currentClosingPackage(db: Store, loanId: string): ClosingPackage
 export function hasClosingConfirmation(db: Store, loanId: string, { version, revision }: ClosingPackageReviewRef) {
   return !!db.prepare("SELECT 1 FROM closing_disclosure_reviews WHERE loanId = ? AND version = ? AND revision = ?")
     .get(loanId, version, revision);
+}
+
+export function closingPackageAuthor(db: Store, loanId: string, version: number) {
+  const row = db.prepare(`SELECT package.preparedByEmail, package.changeReview, loan.officerEmail FROM disclosure_packages package JOIN loans loan ON loan.id = package.loanId
+    WHERE package.loanId = ? AND package.version = ?`).get(loanId, version);
+  const change: DisclosurePackage["changeReview"] = row?.changeReview ? JSON.parse(String(row.changeReview)) : null;
+  return { email: (row?.preparedByEmail ?? row?.officerEmail ?? null) as string | null, legacyName: row?.preparedByEmail ? null : change?.actor ?? null };
+}
+
+export function isIndependentClosingReviewer(author: ReturnType<typeof closingPackageAuthor>, reviewer: { email: string; name: string }) {
+  return reviewer.email !== author.email && reviewer.name !== author.legacyName;
+}
+
+export function readChangedClosingApproval(db: Store, loanId: string, policy = currentClosingGatePolicy(db)): ChangedClosingApproval | undefined {
+  if (!policy.rules.changedPackageReview || !activeDisclosureLoan(db, loanId)) return;
+  const [item] = packageRows(db, loanId, 1);
+  if (!item) return;
+  const baseline = db.prepare(`SELECT package.runId, package.offerId, package.applicationRevision, package.feeRevision
+    FROM closing_disclosure_reviews review JOIN disclosure_packages package ON package.loanId = review.loanId AND package.version = review.version
+    JOIN loans loan ON loan.id = review.loanId
+    WHERE review.loanId = ? AND review.version < ? AND (
+      review.version = (SELECT min(first.version) FROM closing_disclosure_reviews first WHERE first.loanId = review.loanId)
+      OR EXISTS (
+        SELECT 1 FROM loan_reviews team JOIN loan_review_events event ON event.reviewId = team.id AND event.action = 'Approved'
+        JOIN loan_review_closing_packages basis ON basis.eventId = event.id
+        WHERE team.loanId = review.loanId AND team.category = ? AND team.status = 'Approved'
+          AND basis.version = review.version AND basis.revision = review.revision
+          AND event.actorEmail IS NOT coalesce(package.preparedByEmail, loan.officerEmail)
+          AND (package.preparedByEmail IS NOT NULL OR event.actorName IS NOT json_extract(package.changeReview, '$.actor'))
+      )
+    ) ORDER BY review.version DESC LIMIT 1`).get(loanId, item.version, closingPackageReviewCategory);
+  const { source } = disclosureSource(db, loanId);
+  const outdated = !!item.reviewReason || !source || !matchesSource(item, source);
+  if (!baseline && !(outdated && db.prepare("SELECT 1 FROM closing_disclosure_reviews WHERE loanId = ? LIMIT 1").get(loanId))) return;
+  const changedBasis = baseline && (baseline.runId !== item.runId || baseline.offerId !== item.offerId ||
+    baseline.applicationRevision !== item.applicationRevision || baseline.feeRevision !== item.feeRevision);
+  if (!item.changeReview && !outdated && !changedBasis) return;
+
+  const { version, revision } = item;
+  const assignment = readClosingPackageAssignment(db, loanId);
+  const assigned = assignment && assignment.status !== "Approved" ? { reviewId: assignment.id, reviewerName: assignment.reviewerName } : {};
+  if (assignment?.status === "Changes requested") return { status: "Returned for corrections", version, ...assigned };
+  const current = currentClosingPackage(db, loanId);
+  if (!current) return { status: "Needs signed replacement", version, ...assigned };
+  const author = closingPackageAuthor(db, loanId, version);
+  const decision = db.prepare(`SELECT review.id, event.actorName, event.at FROM loan_reviews review
+    JOIN loan_review_events event ON event.reviewId = review.id AND event.action = 'Approved'
+    JOIN loan_review_closing_packages basis ON basis.eventId = event.id
+    WHERE review.loanId = ? AND review.category = ? AND review.status = 'Approved' AND basis.version = ? AND basis.revision = ?
+      AND event.actorEmail IS NOT ? AND event.actorName IS NOT ?
+    ORDER BY event.sequence DESC LIMIT 1`).get(loanId, closingPackageReviewCategory, version, revision, author.email, author.legacyName);
+  if (decision) return { status: "Approved", version, reviewId: String(decision.id), reviewerName: String(decision.actorName), approvedAt: String(decision.at) };
+  if (assignment?.status === "Requested") {
+    const independent = isIndependentClosingReviewer(author, { email: assignment.reviewerEmail, name: assignment.reviewerName });
+    return { status: !independent ? "Needs reviewer" : sameClosingPackage(assignment, current) ? "Awaiting approval" : "Needs resubmission",
+      version, ...assigned };
+  }
+  return { status: "Needs reviewer", version };
 }
 
 export function updateAssignedClosingTask(db: Store, loanId: string, reference: ClosingPackageReviewRef, at: string, waiting: boolean) {
@@ -262,6 +322,8 @@ export function recordClosingDisclosureReview(db: Store, staff: WorkspaceStaff |
   if (!signers.length || signers.some(({ status, receipt }) => status !== "Signed" || !receipt)) {
     return { error: "Record each mock signature before confirming the sample package for closing." } as const;
   }
+  const approval = readChangedClosingApproval(db, loanId);
+  if (approval && approval.status !== "Approved") return { error: changedClosingApprovalRequired } as const;
   if (hasClosingConfirmation(db, loanId, item)) return { message: "This sample package is already confirmed for the closing handoff." } as const;
   const assignment = readClosingPackageAssignment(db, loanId);
   if (assignment && assignment.status !== "Approved") {
@@ -398,9 +460,9 @@ export function updateDisclosurePackage(db: Store, staff: WorkspaceStaff | null,
       completeTask(db, disclosureClosingReviewPrefix, latest, now);
     }
     db.prepare(`INSERT INTO disclosure_packages (loanId, version, runId, offerId, applicationRevision, feeRevision,
-      quote, documents, signers, preparedAt, signBy, changeReview, deadlineBasis, templateBasis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      quote, documents, signers, preparedAt, preparedByEmail, signBy, changeReview, deadlineBasis, templateBasis) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(data.loanId, version, quote.runId, quote.offerId, applicationRevision, feeRevision, JSON.stringify(quote),
-        JSON.stringify(template?.documents ?? data.documents), JSON.stringify(disclosureNames(draft)), now, data.signBy,
+        JSON.stringify(template?.documents ?? data.documents), JSON.stringify(disclosureNames(draft)), now, staff?.email ?? null, data.signBy,
         changeReview ? JSON.stringify(changeReview) : null, deadlineBasis ? JSON.stringify(deadlineBasis) : null,
         template ? JSON.stringify(template.basis) : null);
     const replacement = { loanId: data.loanId, version };

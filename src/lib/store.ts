@@ -352,7 +352,7 @@ export function initializeStore(db: Store, seedDemo = true) {
       loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
       version INTEGER NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
       runId TEXT NOT NULL, offerId TEXT NOT NULL, applicationRevision INTEGER NOT NULL, feeRevision INTEGER NOT NULL,
-      quote TEXT NOT NULL, documents TEXT NOT NULL, signers TEXT NOT NULL, preparedAt TEXT NOT NULL, signBy TEXT NOT NULL,
+      quote TEXT NOT NULL, documents TEXT NOT NULL, signers TEXT NOT NULL, preparedAt TEXT NOT NULL, preparedByEmail TEXT, signBy TEXT NOT NULL,
       issuedAt TEXT, supersededAt TEXT, reviewReason TEXT, declineFollowUp TEXT, changeReview TEXT, deadlineBasis TEXT, templateBasis TEXT,
       PRIMARY KEY (loanId, version)
     );
@@ -1433,6 +1433,9 @@ export function initializeStore(db: Store, seedDemo = true) {
     }
     if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "templateBasis")) {
       db.exec("ALTER TABLE disclosure_packages ADD COLUMN templateBasis TEXT");
+    }
+    if (!db.prepare("PRAGMA table_info(disclosure_packages)").all().some(({ name }) => name === "preparedByEmail")) {
+      db.exec("ALTER TABLE disclosure_packages ADD COLUMN preparedByEmail TEXT");
     }
     if (!db.prepare("PRAGMA table_info(borrower_questions)").all().some(({ name }) => name === "setBatchId")) {
       db.exec("ALTER TABLE borrower_questions ADD COLUMN setBatchId TEXT REFERENCES borrower_question_set_batches(id) ON DELETE SET NULL");

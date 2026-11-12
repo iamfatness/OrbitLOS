@@ -548,14 +548,31 @@ test("a named closing reviewer returns and approves exact signed versions withou
   await saveFees(0, 125_000);
   const first = await signedReplacement(1);
   await ok("confirmClosingDisclosure", first);
+  await ok("prepareClosingPacket", { previousVersion: null, disclosureVersion: first.version, disclosureRevision: first.revision });
+  const initialPacket = db.prepare("SELECT pdf FROM closing_packets WHERE loanId = ? AND version = 1").get(loanId).pdf;
+  const policy = { type: "publish", revision: 0, reason: "Review changed fictional packages before closing.",
+    rules: { closing: [], funding: [], changedPackageReview: true } };
+  assert.ok(closingGateWork(db, policy, officer, id, at).error);
+  assert.ok(closingGateWork(db, policy, { ...admin, brokerage: { ...admin.brokerage, pilot: false } }, id, at).error);
+  assert.equal(closingGateWork(db, policy, admin, id, at).rules.changedPackageReview, true);
+  assert.equal(closingGateWork(db, { ...policy, revision: 1, rules: { closing: [], funding: [] } }, admin, id, at).rules.changedPackageReview, true);
+  assert.equal(readDisclosureWork(db, loanId).changedClosingApproval, undefined);
   await saveFees(1, 137_500);
+  assert.equal(readDisclosureWork(db, loanId).changedClosingApproval.status, "Needs signed replacement");
   const second = await signedReplacement(2, packageRef());
+  assert.equal(readDisclosureWork(db, loanId).changedClosingApproval.status, "Needs reviewer");
+  assert.match((await command("confirmClosingDisclosure", second)).error, /independent approval/);
+  assert.match((await command("recordClosing", { closingDate: today, revision: 0,
+    gateOverride: { key: "a".repeat(64), reason: "Fictional override attempt" } }, admin)).error, /independent approval/);
+  assert.match((await command("prepareClosingPacket", { previousVersion: 1, disclosureVersion: second.version,
+    disclosureRevision: second.revision })).error, /independent approval/);
   assert.equal(isOpenTask(second), true);
   assert.deepEqual(work({ type: "loan", loanId, prepareClosing: true }).closingPackage, second);
   const assignment = create({ category: closingPackageReviewCategory, closingPackage: second });
   assert.ok(work({ ...assignment, closingPackage: first }).error);
   assert.ok(work(assignment, { ...admin, brokerage: { ...admin.brokerage, pilot: false } }).error);
   assert.ok(work(assignment, { ...admin, brokerage: { ...admin.brokerage, id: "foreign" } }).error);
+  assert.match(work({ ...assignment, reviewerEmail: officer.email }, admin).error, /did not prepare/);
   assert.equal(work(assignment).kind, "saved");
   assert.equal(work(assignment).kind, "saved");
   assert.equal(exceptions().length, 0);
@@ -569,7 +586,7 @@ test("a named closing reviewer returns and approves exact signed versions withou
   assert.equal(unavailable.ownerAvailable, false);
   assert.ok(work({ ...assignment, id: crypto.randomUUID() }).error);
   assert.equal(isOpenTask(second), false);
-  assert.match((await command("confirmClosingDisclosure", second, admin)).error, /assigned closing package review/);
+  assert.match((await command("confirmClosingDisclosure", second, admin)).error, /independent approval/);
   const detail = { type: "detail", loanId, id: assignment.id };
   assert.ok(work(detail, outsider).error);
   const assigned = work({ type: "queue", view: "Assigned to me", filter: "Open" }, processor);
@@ -584,6 +601,7 @@ test("a named closing reviewer returns and approves exact signed versions withou
   assert.equal(work(change, processor).kind, "saved");
   const returned = work(detail);
   assert.equal(returned.review.status, "Changes requested");
+  assert.equal(readDisclosureWork(db, loanId).changedClosingApproval.status, "Returned for corrections");
   assert.deepEqual(returned.history[0].closingPackage, second);
   assert.equal(returned.history[0].note, change.note);
   assert.equal(readDisclosureWork(db, loanId).closingAssignment.correctionReason, change.note);
@@ -601,18 +619,23 @@ test("a named closing reviewer returns and approves exact signed versions withou
   await saveFees(2, 151_000);
   const third = await signedReplacement(3, packageRef());
   assert.equal(isOpenTask(third), false);
-  assert.match((await command("confirmClosingDisclosure", third, admin)).error, /assigned closing package review/);
+  assert.match((await command("confirmClosingDisclosure", third, admin)).error, /independent approval/);
   assert.deepEqual(work(detail).review.resubmitClosingPackage, third);
   assert.equal(work({ ...resend, closingPackage: third }).kind, "saved");
   const approve = { ...change, revision: 3, eventId: crypto.randomUUID(), decision: "Approved", note: "Verified the corrected settlement entry." };
   assert.equal(work(approve, processor).kind, "saved");
+  assert.deepEqual(readDisclosureWork(db, loanId).changedClosingApproval, { status: "Approved", version: 3,
+    reviewId: assignment.id, reviewerName: processor.name, approvedAt: at });
   assert.equal(exceptions().length, 0);
   assert.equal(isOpenTask(third), true);
   await ok("confirmClosingDisclosure", third, processor);
+  await ok("recordClosing", { closingDate: today, revision: 0 });
+  assert.equal(db.prepare("SELECT pdf FROM closing_packets WHERE loanId = ? AND version = 1").get(loanId).pdf, initialPacket);
   assert.equal(isOpenTask(third), false);
   const history = work(detail).history.map(({ action, closingPackage }) => [action, closingPackage.version]);
   assert.deepEqual(history, [["Approved", 3], ["Resubmitted", 3], ["Changes requested", 2], ["Requested", 2]]);
   await saveFees(3, 165_000);
+  assert.match((await command("recordFunding", { fundingDate: today, revision: 0 })).error, /independent approval/);
   assert.equal(work(detail).review.evidenceChanged, true);
   assert.deepEqual(work(detail).history.map(({ action, closingPackage }) => [action, closingPackage.version]), history);
   const fourth = await signedReplacement(4, packageRef());
@@ -624,6 +647,9 @@ test("a named closing reviewer returns and approves exact signed versions withou
     ["Package outdated", officer.name, 4, reviewTarget(next.id)]);
   assert.equal(readDisclosureWork(db, loanId).closingAssignment.current, false);
   assert.match(work({ ...approve, id: next.id, revision: 1, eventId: crypto.randomUUID() }, processor).error, /signed closing package changed/);
+  const disabled = closingGateWork(db, { ...policy, revision: 1, rules: { closing: [], funding: [], changedPackageReview: false } }, admin, id, at);
+  assert.equal(disabled.revision, 2);
+  assert.equal(readDisclosureWork(db, loanId).changedClosingApproval, undefined);
   db.prepare("UPDATE loans SET stage = 'Funded' WHERE id = ?").run(loanId);
   assert.equal(exceptions().length, 0);
   assert.doesNotMatch(JSON.stringify(borrower({ type: "status" })), /Correct the title|reconciled the title|closingAssignment|closingPackage/i);

@@ -214,7 +214,7 @@ The LO can assign a signed replacement to an eligible teammate. Reviewers open t
 
 The owner can filter Exceptions for returned, outdated, overdue and escalated sample closing package reviews. Each row identifies the next staff member, due date and package version, and opens the exact team review. Resubmitting a current signed package clears the stale exception. Approving clears the overdue review.
 
-Next, add a brokerage policy to require an independent review when changed terms or fees reopen a sample closing package, and expose the outstanding approval in closing readiness.
+Brokerage admins can require independent approval when changed terms or fees reopen a sample closing package. Closing shows the exact package version, approval status and assigned reviewer. The preparer cannot approve the replacement. A new package needs a new decision, and earlier packets remain downloadable. Next, let a brokerage designate an eligible reviewer and route unavailable assignments to the owner.
 
 ### F17 — Funding and settlement reconciliation
 

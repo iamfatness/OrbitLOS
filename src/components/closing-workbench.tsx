@@ -23,8 +23,8 @@ import { Button } from "./ui/button";
 
 type Save = (input: unknown, after?: () => void) => Promise<void>;
 
-function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy, save }: {
-  loanId: string; brokerageId: string; packets?: ClosingPacketWork; disclosures?: DisclosureWork; busy: boolean; save: Save;
+function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy, save, approvalBlocked }: {
+  loanId: string; brokerageId: string; packets?: ClosingPacketWork; disclosures?: DisclosureWork; busy: boolean; save: Save; approvalBlocked: boolean;
 }) {
   const [downloading, setDownloading] = useState<number>();
   const [downloadError, setDownloadError] = useState("");
@@ -60,7 +60,7 @@ function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy,
     <p className="muted">Save the confirmed mock receipts, critical dates, and closing checklist as a versioned staff copy.</p>
     {latest && !packets.canPrepare && <p role="status">Confirm the current signed package in this loan before preparing a new closing packet. Prior downloads remain available.</p>}
     {downloadError && <p role="alert">{downloadError}</p>}
-    {confirmation && !latest?.current && <div><Button size="sm" disabled={busy} onClick={() => void save({
+    {packets.canPrepare && !approvalBlocked && confirmation && !latest?.current && <div><Button size="sm" disabled={busy} onClick={() => void save({
       type: "prepareClosingPacket", loanId, previousVersion: latest?.version ?? null,
       disclosureVersion: confirmation.version, disclosureRevision: confirmation.revision,
     })}>{latest ? "Prepare updated sample closing packet" : "Prepare sample closing packet"}</Button></div>}
@@ -72,8 +72,9 @@ function ClosingPacketExports({ loanId, brokerageId, packets, disclosures, busy,
   </section>;
 }
 
-function ClosingDisclosureEvidence({ loan, work, busy, save, open, canOpenReviews }: {
+function ClosingDisclosureEvidence({ loan, work, busy, save, open, canOpenReviews, approvalBlocked, approvalRecorded }: {
   loan: Loan; work?: DisclosureWork; busy: boolean; save: Save; open: (target: string) => void; canOpenReviews?: boolean;
+  approvalBlocked: boolean; approvalRecorded: boolean;
 }) {
   const item = work?.packages[0];
   if (!work || !item) return null;
@@ -83,7 +84,7 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open, canOpenReview
   const past = closingReviews.filter((entry) => !entry.current);
   const active = (!loan.disposition || loan.disposition === "Active") && loan.stage !== "Funded" && loan.stage !== "Closed";
   const ready = active && status === "Mock signing complete" && !revisionReason;
-  const canAssign = canOpenReviews && ready && past.length > 0 && !closingAssignment;
+  const canAssign = canOpenReviews && ready && past.length > 0 && !closingAssignment && !approvalBlocked;
   const newerPackage = closingAssignment && (item.version !== closingAssignment.version || item.revision !== closingAssignment.revision);
   const signerRows = (signers: ClosingDisclosureReview["signers"]) => <ul>
     {signers.map(({ role, status, receipt }) => <li key={role}>{role} · {status}{receipt && ` · ${receipt}`}</li>)}
@@ -105,8 +106,9 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open, canOpenReview
     <p>Package v{item.version} · {review ? "Confirmed for closing handoff" : revisionReason ? "Review required" : status}</p>
     {review ? reviewSummary(review) : <>
       {past.length > 0 && <div className="work-queue">
-        <strong>Closing review reopened</strong>
-        <p>{revisionReason ?? (status === "Mock signing complete" ? (closingAssignment && closingAssignment.status !== "Approved"
+        <strong>{approvalRecorded ? "Replacement approved" : "Closing review reopened"}</strong>
+        <p>{revisionReason ?? (status === "Mock signing complete" ? (approvalRecorded ? "Confirm the approved replacement for the closing handoff." :
+          closingAssignment && closingAssignment.status !== "Approved"
           ? "Finish the assigned review before confirming the closing handoff." : "Review the signed replacement before closing.") :
           status === "Draft" ? "Issue the replacement sample package and collect the mock signatures." :
             status === "Declined" ? "Follow up on the declined sample package." : "Collect the remaining mock signatures.")}</p>
@@ -118,7 +120,7 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open, canOpenReview
         <p><strong>Changes recorded for package v{item.version}</strong></p>
         <SavedDisclosureTermChanges changes={item.changeReview.changes} legacyChanges={item.legacyChanges} />
       </div>}
-      {closingAssignment && <div className="record-form">
+      {closingAssignment && !approvalRecorded && <div className="record-form">
         <p><strong>{closingAssignment.status === "Approved" ? "Review approved" : closingAssignment.status === "Changes requested"
           ? "Returned for corrections" : newerPackage ? "Review needs resubmission" : "Awaiting reviewer decision"}</strong> · Package v{closingAssignment.version}</p>
         <p className="muted">{closingAssignment.reviewerName}{closingAssignment.status !== "Approved" && ` · Due ${dateLabel(closingAssignment.dueOn)}`}</p>
@@ -126,7 +128,7 @@ function ClosingDisclosureEvidence({ loan, work, busy, save, open, canOpenReview
         {canOpenReviews && <div><Button size="sm" variant="outline" className="min-h-11" onClick={() => open(reviewTarget(closingAssignment.id))}>
           Open assigned closing review</Button></div>}
       </div>}
-      {(canAssign || (ready && (!closingAssignment || closingAssignment.status === "Approved"))) && <div className="loan-application-actions">
+      {(canAssign || (ready && !approvalBlocked && (approvalRecorded || !closingAssignment || closingAssignment.status === "Approved"))) && <div className="loan-application-actions">
         {canAssign && <Button size="sm" className="min-h-11" disabled={busy} onClick={() => open(requestClosingPackageReviewTarget)}>Assign closing reviewer</Button>}
         <Button size="sm" variant={canAssign ? "outline" : "default"} className="min-h-11" disabled={busy} onClick={() => void save({ type: "confirmClosingDisclosure", loanId: loan.id,
           version: item.version, revision: item.revision })}>Confirm sample package for closing</Button>
@@ -247,13 +249,15 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
   const today = easternDate();
   const outstanding = items.filter((item) => !item.completedAt).length;
   const gates = useLoanClosingGates(brokerageId, loan.id, state);
+  const approval = gates.work ? gates.work.changedClosingApproval : state.disclosureWork?.changedClosingApproval;
+  const approvalBlocked = !!approval && approval.status !== "Approved";
   const [overrides, setOverrides] = useState<Partial<Record<ClosingGatePhase, { key: string; reason: string }>>>({});
   const closingCheck = !actual ? gates.work?.closing : undefined;
   const fundingCheck = actual && !progress?.fundingDate ? gates.work?.funding : undefined;
   const closingReason = overrideFor("closing");
   const fundingReason = overrideFor("funding");
-  const closingBlocked = !actual && (Boolean(reopenedCondition || manualHandoff) || (!!closingCheck?.blockers.length && !closingReason));
-  const fundingBlocked = !progress?.fundingDate && (Boolean(reopenedCondition || manualHandoff) || (!!fundingCheck?.blockers.length && !fundingReason));
+  const closingBlocked = !actual && (approvalBlocked || Boolean(reopenedCondition || manualHandoff) || (!!closingCheck?.blockers.length && !closingReason));
+  const fundingBlocked = !progress?.fundingDate && (approvalBlocked || Boolean(reopenedCondition || manualHandoff) || (!!fundingCheck?.blockers.length && !fundingReason));
 
   function overrideFor(phase: ClosingGatePhase) {
     const draft = overrides[phase];
@@ -262,7 +266,7 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
 
   function overrideField(phase: ClosingGatePhase) {
     const key = gates.work?.[phase].key;
-    if (!key || !gates.work?.canOverride || reopenedCondition || manualHandoff) return null;
+    if (!key || !gates.work?.canOverride || reopenedCondition || manualHandoff || approvalBlocked) return null;
     const draft = overrides[phase];
     return <details className="document-form" key={key}>
       <summary>Admin override for {phase}</summary>
@@ -291,6 +295,16 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
       <strong>Current lender handoff required</strong>
       <p>{currentManualAcknowledgmentRequired}</p>
       <div><Button size="sm" variant="outline" onClick={() => openCondition(manualHandoff.target)}>{manualHandoff.title}</Button></div>
+    </div>}
+    {approval && <div className="work-queue" role="group" aria-label="Independent package approval">
+      <strong>Independent package approval</strong>
+      <p>Package v{approval.version} · {approval.status}{approval.reviewerName && ` · ${approval.reviewerName}`}</p>
+      {approval.approvedAt && <p className="muted">Approved {dateTime(approval.approvedAt)} ET</p>}
+      {approvalBlocked && <div>
+        {approval.reviewId && canOpenReviews ? <Button size="sm" variant="outline" className="min-h-11" onClick={() => openCondition(reviewTarget(approval.reviewId!))}>Open required review</Button> :
+          approval.status === "Needs reviewer" && canOpenReviews ? <Button size="sm" className="min-h-11" onClick={() => openCondition(requestClosingPackageReviewTarget)}>Assign required reviewer</Button> :
+            <Button size="sm" variant="outline" className="min-h-11" onClick={() => openCondition(disclosureTarget)}>Open sample disclosures</Button>}
+      </div>}
     </div>}
     {closingCheck && <ClosingGateEvidence phase="closing" check={closingCheck} open={openCondition} />}
     {fundingCheck && <ClosingGateEvidence phase="funding" check={fundingCheck} open={openCondition} />}
@@ -367,8 +381,9 @@ export function ClosingWorkbench({ loan, state, busy, save, preview, canReverseF
         <Button size="sm" type="submit" variant="outline" disabled={busy}>Reverse funding</Button>
       </form>
     </details>}
-    <ClosingDisclosureEvidence loan={loan} work={state.disclosureWork} busy={busy} save={save} open={openCondition} canOpenReviews={canOpenReviews} />
-    <ClosingPacketExports loanId={loan.id} brokerageId={brokerageId} packets={state.closingPacketWork} disclosures={state.disclosureWork} busy={busy} save={save} />
+    <ClosingDisclosureEvidence loan={loan} work={state.disclosureWork} busy={busy} save={save} open={openCondition}
+      canOpenReviews={canOpenReviews} approvalBlocked={approvalBlocked} approvalRecorded={approval?.status === "Approved"} />
+    <ClosingPacketExports loanId={loan.id} brokerageId={brokerageId} packets={state.closingPacketWork} disclosures={state.disclosureWork} busy={busy} save={save} approvalBlocked={approvalBlocked} />
     <details className="document-form"><summary>Track disclosure and signature status</summary>
       <form key={progress?.revision ?? 0} onSubmit={(event) => {
         event.preventDefault();

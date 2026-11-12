@@ -5,6 +5,7 @@ import { addApplicationActivity } from "./applications";
 import { closingPacketPdf } from "./closing-packet-pdf";
 import { closingServiceEvidence } from "./closing-service-evidence";
 import type { DisclosureWork } from "./disclosure-model";
+import { changedClosingApprovalRequired } from "./disclosure-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { loanAccess } from "./workspace-access";
@@ -13,6 +14,7 @@ import type { z } from "zod";
 type PacketRow = Omit<ClosingPacket, "snapshot"> & { snapshot: string };
 
 function packetSnapshot(db: Store, loanId: string, work: DisclosureWork): ClosingPacketSnapshot | undefined {
+  if (work.changedClosingApproval && work.changedClosingApproval.status !== "Approved") return;
   const review = work.closingReviews.find(({ current }) => current);
   const packageRow = work.packages[0];
   if (!review || !packageRow || packageRow.version !== review.version) return;
@@ -49,7 +51,7 @@ function packetRows(db: Store, loanId: string, limit: number) {
 export function readClosingPackets(db: Store, loanId: string, work: DisclosureWork): ClosingPacketWork {
   const rows = packetRows(db, loanId, 4);
   const current = rows.length ? JSON.stringify(packetSnapshot(db, loanId, work)) : undefined;
-  return { canPrepare: work.closingReviews.some((review) => review.current),
+  return { canPrepare: (!work.changedClosingApproval || work.changedClosingApproval.status === "Approved") && work.closingReviews.some((review) => review.current),
     packets: rows.map(({ snapshot, ...packet }, index) => ({
       ...packet, current: index === 0 && snapshot === current,
       disclosureVersion: (JSON.parse(snapshot) as ClosingPacketSnapshot).disclosure.version,
@@ -59,6 +61,7 @@ export function readClosingPackets(db: Store, loanId: string, work: DisclosureWo
 export function prepareClosingPacket(db: Store, staff: WorkspaceStaff | null, data: z.infer<typeof prepareClosingPacketInput>, now: string) {
   if (!canUseSampleDisclosures(staff)) return { error: closingPacketUnavailable } as const;
   const work = readDisclosureWork(db, data.loanId);
+  if (work.changedClosingApproval && work.changedClosingApproval.status !== "Approved") return { error: changedClosingApprovalRequired } as const;
   const confirmation = work.closingReviews.find(({ current }) => current);
   if (!confirmation || confirmation.version !== data.disclosureVersion || confirmation.revision !== data.disclosureRevision) {
     return { error: "Confirm the current signed sample disclosure package before preparing a closing packet." } as const;

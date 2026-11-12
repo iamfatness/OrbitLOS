@@ -2181,7 +2181,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (data.id && !current) throw new WorkspaceError("This loan no longer exists.");
           if (current && current.stage !== data.stage && current.disposition !== "Active") throw new WorkspaceError("Reopen the loan before changing its stage.");
           if (current?.stage !== data.stage && (data.stage === "Funded" || data.stage === "Closed")) {
-            const blocked = fundingStageGate(db, data.id);
+            const blocked = fundingStageGate(db, data.id, staff);
             if (blocked) throw new WorkspaceError(blocked);
           }
           if (data.id && data.start1003) throw new WorkspaceError("Start the 1003 from the loan’s application panel.");
@@ -2277,7 +2277,7 @@ export async function executeCommand(db: Store, input: unknown, staff: Workspace
           if (loan.stage !== stage) {
             if (loan.disposition !== "Active") throw new WorkspaceError("Reopen the loan before changing its stage.");
             if (stage === "Funded" || stage === "Closed") {
-              const blocked = fundingStageGate(db, loanId);
+              const blocked = fundingStageGate(db, loanId, staff);
               if (blocked) throw new WorkspaceError(blocked);
             }
             db.prepare("UPDATE loans SET stage = ?, stageSince = ? WHERE id = ?").run(stage, now, loanId);

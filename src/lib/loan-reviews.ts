@@ -13,8 +13,8 @@ import { loanAccess } from "./workspace-access";
 import { readFilePreflight } from "./file-preflight";
 import { filePreflightCategory, preflightBlocked, type FilePreflight } from "./file-preflight-model";
 import { closingPackageReviewCategory, type ClosingPackageReviewRef } from "./disclosure-model";
-import { canUseSampleDisclosures, closingPackageEvidence, currentClosingPackage, flagDisclosureReview, hasClosingConfirmation,
-  readClosingPackageAssignment, sameClosingPackage, updateAssignedClosingTask } from "./disclosures";
+import { canUseSampleDisclosures, closingPackageAuthor, closingPackageEvidence, currentClosingPackage, flagDisclosureReview, hasClosingConfirmation,
+  isIndependentClosingReviewer, readChangedClosingApproval, readClosingPackageAssignment, sameClosingPackage, updateAssignedClosingTask } from "./disclosures";
 
 const pageSize = 20;
 const active = "review.status IN ('Requested', 'Changes requested')";
@@ -202,13 +202,18 @@ export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding
       WHERE app.loanId = ? AND ${pendingRequiredApproval}`).get(input.loanId);
     const routingBlock = inReviewPipeline && (!requireApproval || pendingApproval) ? db.prepare(`SELECT dueOn, reason FROM application_review_routing_blocks
       WHERE loanId = ? AND applicationRevision = ?`).get(input.loanId, loan.applicationRevision) : undefined;
-    const eligible = loan.active ? options(members, loan, staff.email) : [];
+    let eligible = loan.active ? options(members, loan, staff.email) : [];
     const preflightKey = input.preparePreflight && loan.inPipeline && eligible.length && canUseSampleDisclosures(staff) ?
       readFilePreflight(db, input.loanId).key : undefined;
     const candidate = input.prepareClosing && eligible.length && canUseSampleDisclosures(staff) ? currentClosingPackage(db, input.loanId) : undefined;
     const assignment = candidate ? readClosingPackageAssignment(db, input.loanId) : undefined;
-    const closingPackage = candidate && !hasClosingConfirmation(db, input.loanId, candidate) &&
-      (!assignment || (assignment.status === "Approved" && !sameClosingPackage(candidate, assignment))) ? candidate : undefined;
+    const needsIndependent = candidate && readChangedClosingApproval(db, input.loanId)?.status === "Needs reviewer";
+    if (candidate && needsIndependent) {
+      const author = closingPackageAuthor(db, input.loanId, candidate.version);
+      eligible = eligible.filter((member) => isIndependentClosingReviewer(author, member));
+    }
+    const closingPackage = candidate && eligible.length && (needsIndependent || !hasClosingConfirmation(db, input.loanId, candidate)) &&
+      (!assignment || (assignment.status === "Approved" && (needsIndependent || !sameClosingPackage(candidate, assignment)))) ? candidate : undefined;
     return { kind: "loan", reviews, options: eligible, today, preflightKey, closingPackage,
       hasMore: rows.length > pageSize, canReview1003: loan.applicationRevision !== null,
       ...(routingBlock ? { routingBlock: { dueOn: String(routingBlock.dueOn), reason: String(routingBlock.reason) } } :
@@ -219,10 +224,13 @@ export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding
   if (!row) return { error: reviewsUnavailable };
   const isClosing = row.category === closingPackageReviewCategory;
   if ((row.category === filePreflightCategory || isClosing) && !canUseSampleDisclosures(staff)) return { error: reviewsUnavailable };
-  const reviewerAvailable = currentReviewer(row, loan, members);
+  const reviewer = members.find((member) => member.email === row.reviewerEmail);
   const preflight = row.category === filePreflightCategory ? readFilePreflight(db, input.loanId) : undefined;
   const reference = isClosing ? pinnedClosingPackage(db, row.id) : undefined;
   const currentPackage = isClosing ? currentClosingPackage(db, row.loanId) : undefined;
+  const approval = currentPackage && readChangedClosingApproval(db, row.loanId);
+  const author = approval && currentPackage ? closingPackageAuthor(db, row.loanId, currentPackage.version) : undefined;
+  const reviewerAvailable = currentReviewer(row, loan, members) && (!author || !!reviewer && isIndependentClosingReviewer(author, reviewer));
   const closingPackage = reference && closingPackageEvidence(db, row.loanId, reference);
   const resubmitClosingPackage = currentPackage && reference && currentPackage.version > reference.version ? currentPackage : undefined;
   const changed = isClosing ? !sameClosingPackage(reference, currentPackage) :
@@ -232,7 +240,8 @@ export function loanReviewWork(db: Store, input: ReviewInput | ReviewOffboarding
     closingPackage, resubmitClosingPackage,
     canDecide: loan.active && (!(preflight || isClosing) || loan.inPipeline) && row.status === "Requested" &&
       row.reviewerEmail === staff.email && reviewerAvailable && !changed,
-    options: options(members, loan, row.requesterEmail), mentionOptions: options(members, loan, staff.email) }, ...history(db, row.id, input.before), today };
+    options: options(members, loan, row.requesterEmail).filter((member) => !author || isIndependentClosingReviewer(author, member)),
+    mentionOptions: options(members, loan, staff.email) }, ...history(db, row.id, input.before), today };
 }
 
 function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: WorkspaceStaff, members: VersionedBrokerageMember[], today: string, at: string): ReviewResult {
@@ -280,11 +289,16 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
     }
     const closing = isClosing ? currentClosingPackage(db, input.loanId) : undefined;
     if (isClosing) {
-      if (!closing || !sameClosingPackage(closing, input.closingPackage) || hasClosingConfirmation(db, input.loanId, closing)) {
+      const approval = closing && readChangedClosingApproval(db, input.loanId);
+      const needsIndependent = approval?.status === "Needs reviewer";
+      if (!closing || !sameClosingPackage(closing, input.closingPackage) || (!needsIndependent && hasClosingConfirmation(db, input.loanId, closing))) {
         return { error: "Open the current signed replacement package before assigning a closing review." };
       }
+      if (approval && !isIndependentClosingReviewer(closingPackageAuthor(db, input.loanId, closing.version), reviewer)) {
+        return { error: "Choose a reviewer who did not prepare this package." };
+      }
       const latest = readClosingPackageAssignment(db, input.loanId);
-      if (latest && (latest.status !== "Approved" || sameClosingPackage(latest, closing))) {
+      if (latest && (latest.status !== "Approved" || (!needsIndependent && sameClosingPackage(latest, closing)))) {
         return { error: "This package already has a review. Open the existing review." };
       }
     }
@@ -353,6 +367,10 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
     if (isClosing && !sameClosingPackage(closing, pinnedClosingPackage(db, row.id))) {
       return { error: "The signed closing package changed. Ask the requester to resubmit the current package." };
     }
+    if (closing && readChangedClosingApproval(db, row.loanId) &&
+      !isIndependentClosingReviewer(closingPackageAuthor(db, row.loanId, closing.version), staff)) {
+      return { error: "Assign a reviewer who did not prepare this package." };
+    }
     db.prepare("UPDATE loan_reviews SET status = ?, escalatedAt = NULL, updatedAt = ?, revision = revision + 1 WHERE id = ?")
       .run(input.decision, at, row.id);
     log(input.decision, row.applicationRevision === null ? "" : `1003 revision ${row.applicationRevision}`, preflight, closing);
@@ -368,6 +386,11 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
   if (input.type === "reassign") {
     const reviewer = selectReviewer(input.reviewerEmail, row.requesterEmail);
     if (!reviewer) return { error: "Choose an active reviewer with access to this loan." };
+    const closing = isClosing ? currentClosingPackage(db, row.loanId) : undefined;
+    if (closing && readChangedClosingApproval(db, row.loanId) &&
+      !isIndependentClosingReviewer(closingPackageAuthor(db, row.loanId, closing.version), reviewer)) {
+      return { error: "Choose a reviewer who did not prepare this package." };
+    }
     db.prepare(`UPDATE loan_reviews SET reviewerEmail = ?, reviewerName = ?, reviewerRole = ?, reviewerAccessRevision = ?, dueOn = ?,
       escalatedAt = NULL, updatedAt = ?, revision = revision + 1 WHERE id = ?`)
       .run(reviewer.email, reviewer.name, reviewer.role, reviewer.accessRevision ?? 0, input.dueOn, at, row.id);
@@ -383,6 +406,11 @@ function mutate(db: Store, input: ReviewMutation | ReviewOffboarding, staff: Wor
     const changed = isClosing || (preflight ? pinnedPreflight(db, row.id)?.key !== preflight.key : evidenceChanged(row, loan));
     if (row.status !== "Changes requested" && !changed) return { error: "Resubmit after changes were requested or the review evidence changed." };
     if (!loan.active || !currentReviewer(row, loan, members)) return { error: "Resume the file and confirm its reviewer before resubmitting." };
+    const reviewer = closing && members.find(({ email }) => email === row.reviewerEmail);
+    if (closing && reviewer && readChangedClosingApproval(db, row.loanId) &&
+      !isIndependentClosingReviewer(closingPackageAuthor(db, row.loanId, closing.version), reviewer)) {
+      return { error: "Assign a reviewer who did not prepare the replacement package." };
+    }
     if (preflight && (!loan.inPipeline || input.preflightKey !== preflight.key)) {
       return { error: "The preflight changed or the file closed. Refresh team reviews before resubmitting." };
     }

@@ -11,6 +11,7 @@ export const disclosureSigningPrefix = "disclosure-signing:";
 export const disclosureIssuePrefix = "disclosure-revised-issue:";
 export const disclosureClosingReviewPrefix = "disclosure-closing-review:";
 export const closingPackageReviewCategory = "Closing package changes";
+export const changedClosingApprovalRequired = "Get independent approval for the current signed sample package in Closing.";
 export const requestClosingPackageReviewTarget = "request-closing-package-review";
 export const disclosureDeclinePrefix = "disclosure-decline:";
 export const disclosureDeclineTaskTitle = "Follow up on declined sample disclosure";
@@ -28,9 +29,13 @@ export type ClosingPackageReviewRef = z.infer<typeof closingPackageReviewRef>;
 export type ClosingPackageReviewEvidence = ClosingPackageReviewRef &
   Pick<DisclosurePackage, "applicationRevision" | "feeRevision" | "changeReview" | "legacyChanges">;
 export type ClosingPackageAssignment = ClosingPackageReviewRef & {
-  id: string; status: "Requested" | "Changes requested" | "Approved"; reviewerName: string; dueOn: string;
+  id: string; status: "Requested" | "Changes requested" | "Approved"; reviewerName: string; reviewerEmail: string; dueOn: string;
   escalatedAt: string | null;
   correctionReason: string | null;
+};
+export type ChangedClosingApproval = {
+  status: "Needs signed replacement" | "Needs reviewer" | "Awaiting approval" | "Needs resubmission" | "Returned for corrections" | "Approved";
+  version: number; reviewId?: string; reviewerName?: string; approvedAt?: string;
 };
 export const disclosureTemplateChoice = z.object({ id: z.uuid(), revision: version });
 export const confirmClosingDisclosure = z.object({ type: z.literal("confirmClosingDisclosure"), ...current });
@@ -74,6 +79,7 @@ export type DisclosureWork = {
   revisionReason: string | null;
   closingReviews: ClosingDisclosureReview[];
   closingAssignment?: ClosingPackageAssignment & { current: boolean };
+  changedClosingApproval?: ChangedClosingApproval;
   suggestedDeadline?: DisclosureDeadline;
   templateOptions?: DisclosureTemplateOptions;
   draftTargetChanged?: { version: number; signBy: string } | null;

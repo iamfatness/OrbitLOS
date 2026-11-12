@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
-import { closingGateInput, closingGateLabels, closingGatePhases, closingGatePolicy, closingGateRules, closingGateUnavailable,
+import { closingGateInput, closingGateLabels, closingGatePhases, closingGateRules, closingGateUnavailable,
   type ClosingGateBlocker, type ClosingGateCheck, type ClosingGateOverride, type ClosingGatePhase, type ClosingGateResult,
   type ClosingGateRule, type ClosingGateSettings } from "./closing-gate-model";
 import { addLoanAuditEntry } from "./loan-audit";
+import { currentClosingGatePolicy } from "./closing-gate-policy-store";
+import { canUseSampleDisclosures, readChangedClosingApproval } from "./disclosures";
+import { changedClosingApprovalRequired } from "./disclosure-model";
 import { closingChecklistListTarget, closingChecklistTarget } from "./loan-workflow";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
@@ -11,15 +14,9 @@ import { accessEvent, loanAccess } from "./workspace-access";
 
 const visibleLimit = 20;
 const missingChecklist = "missing-checklist";
-const defaults: ClosingGateSettings = { kind: "settings", revision: 0, rules: { closing: [], funding: [] },
-  reason: "", publishedAt: null, publishedBy: null };
 type GateRow = Omit<ClosingGateBlocker, "rule" | "target"> & { evidence: string | null };
 
-export function currentClosingGatePolicy(db: Store): ClosingGateSettings {
-  const row = db.prepare("SELECT revision, rules, reason, publishedAt, publishedBy FROM closing_gate_versions ORDER BY revision DESC LIMIT 1")
-    .get() as Omit<ClosingGateSettings, "kind" | "rules"> & { rules: string } | undefined;
-  return row ? { ...row, kind: "settings", rules: closingGatePolicy.parse(JSON.parse(row.rules)) } : defaults;
-}
+export { currentClosingGatePolicy } from "./closing-gate-policy-store";
 
 export const closingGateFileJoins = `LEFT JOIN closing_plans plan ON plan.loanId = loan.id
   LEFT JOIN past_client_profiles profile ON profile.loanId = loan.id LEFT JOIN closing_progress progress ON progress.loanId = loan.id`;
@@ -78,29 +75,38 @@ export function closingGateWork(db: Store, input: unknown, staff: WorkspaceStaff
     if (!loanAccess(db, staff, data.loanId)) return { error: closingGateUnavailable };
     const policy = currentClosingGatePolicy(db);
     return { kind: "loan", revision: policy.revision, canOverride: isAdmin,
-      closing: closingGateCheck(db, data.loanId, "closing", policy), funding: closingGateCheck(db, data.loanId, "funding", policy) };
+      closing: closingGateCheck(db, data.loanId, "closing", policy), funding: closingGateCheck(db, data.loanId, "funding", policy),
+      ...(canUseSampleDisclosures(staff) ? { changedClosingApproval: readChangedClosingApproval(db, data.loanId, policy) } : {}) };
   }
   if (!isAdmin) return { error: closingGateUnavailable };
-  if (data.type === "settings") return currentClosingGatePolicy(db);
+  const sample = canUseSampleDisclosures(staff);
+  const settings = (policy: ClosingGateSettings) => sample ? { ...policy, canRequireChangedPackageReview: true } : policy;
+  if (data.type === "settings") return settings(currentClosingGatePolicy(db));
+  if (!sample && data.rules.changedPackageReview) return { error: "This approval setting is available for sample closing packages." };
   return db.transaction(() => {
     const current = currentClosingGatePolicy(db);
+    const requireReview = sample && (data.rules.changedPackageReview ?? current.rules.changedPackageReview);
     const rules = { closing: closingGateRules.filter((rule) => data.rules.closing.includes(rule)),
-      funding: closingGateRules.filter((rule) => data.rules.funding.includes(rule)) };
+      funding: closingGateRules.filter((rule) => data.rules.funding.includes(rule)), ...(requireReview ? { changedPackageReview: true } : {}) };
     const serialized = JSON.stringify(rules);
     if (serialized === JSON.stringify(current.rules) &&
-      (data.revision === current.revision || (data.revision + 1 === current.revision && data.reason === current.reason))) return current;
+      (data.revision === current.revision || (data.revision + 1 === current.revision && data.reason === current.reason))) return settings(current);
     if (data.revision !== current.revision) return { error: "The closing and funding policy changed. Reload before publishing." };
     const next = { kind: "settings", revision: current.revision + 1, rules, reason: data.reason, publishedAt: now, publishedBy: staff.name } as const;
     db.prepare("INSERT INTO closing_gate_versions (revision, rules, reason, publishedAt, publishedBy) VALUES (?, ?, ?, ?, ?)")
       .run(next.revision, serialized, next.reason, now, staff.name);
     accessEvent(db, staff, "Published closing and funding policy", `Revision ${next.revision}`, now);
-    return next;
+    return settings(next);
   });
 }
 
 export function checkClosingGate(db: Store, loanId: string, phase: ClosingGatePhase, staff: WorkspaceStaff | null,
   override: ClosingGateOverride | undefined, now: string) {
   const policy = currentClosingGatePolicy(db);
+  if (canUseSampleDisclosures(staff) && policy.rules.changedPackageReview) {
+    const approval = readChangedClosingApproval(db, loanId, policy);
+    if (approval && approval.status !== "Approved") return changedClosingApprovalRequired;
+  }
   const check = closingGateCheck(db, loanId, phase, policy);
   if (!override) return check.blockers.length ? `Resolve the required checks in Closing before recording ${phase}.` : null;
   if (staff?.brokerage.role !== "Admin") return "Only a brokerage admin can override closing or funding checks.";
@@ -114,8 +120,10 @@ export function checkClosingGate(db: Store, loanId: string, phase: ClosingGatePh
   return null;
 }
 
-export function fundingStageGate(db: Store, loanId: string | undefined) {
+export function fundingStageGate(db: Store, loanId: string | undefined, staff?: WorkspaceStaff | null) {
   const policy = currentClosingGatePolicy(db);
+  const approval = loanId && canUseSampleDisclosures(staff ?? null) && policy.rules.changedPackageReview ? readChangedClosingApproval(db, loanId, policy) : undefined;
+  if (approval && approval.status !== "Approved") return changedClosingApprovalRequired;
   if (!closingGatePhases.some((phase) => policy.rules[phase].length)) return null;
   return loanId && db.prepare("SELECT 1 FROM closing_progress WHERE loanId = ? AND fundingDate IS NOT NULL").get(loanId) ? null :
     "Record the funding date and resolve any required checks in Closing before moving the file to this stage.";
