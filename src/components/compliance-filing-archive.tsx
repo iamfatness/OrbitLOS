@@ -48,9 +48,9 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
 
   useEffect(() => { if (!paused) listHeading.current?.focus(); }, [paused]);
 
+  useEffect(() => { if (selected) detailHeading.current?.focus(); }, [selected]);
   useEffect(() => {
-    if (selected) detailHeading.current?.focus();
-    else if (returnFocus.current && result) {
+    if (!selected && returnFocus.current && result) {
       (document.getElementById(returnFocus.current) ?? listHeading.current)?.focus();
       returnFocus.current = null;
     }
@@ -115,8 +115,10 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
         {archive.items.map(record => <li key={recordKey(record)} className="compliance-home-row">
           <div><strong>{record.entityName} · Q{record.basis.report.quarter} {record.basis.report.year}</strong>
             <p>{record.title}</p>
-            <p className="muted">Latest recorded status {record.status} · {dateLabel(record.confirmedOn)} · {record.confirmation}</p>
-            {record.matchedVersion !== record.version && <p>Search matched an earlier confirmation (version {record.matchedVersion}).</p>}
+            <p className="break-words">{record.matchedVersion !== record.version ? "Matching confirmation" : "Latest confirmation"} · {record.matched.status}
+              {" · "}{record.matched.confirmation} · {dateLabel(record.matched.confirmedOn)}</p>
+            {record.matchedVersion !== record.version && <p className="muted">Latest recorded status · {record.status}</p>}
+            {!record.matched.hasReceiptReference && <p className="muted">Receipt location missing</p>}
           </div>
           <Button id={`filing-archive-${recordKey(record)}`} size="sm" variant="outline"
             aria-label={`Open filing for ${record.entityName}, Q${record.basis.report.quarter} ${record.basis.report.year}`}
@@ -129,11 +131,11 @@ export function ComplianceFilingArchive({ brokerageId, paused }: { brokerageId: 
       </div>}
     </section>
     {selected && <section className="integration manager-panel record-form" aria-label="Selected filing">
-      <div><Button size="sm" variant="outline" onClick={() => setSelected(undefined)}>Back to filing results</Button></div>
+      <div><Button size="sm" variant="outline" onClick={() => { setSelected(undefined); refresh(value => value + 1); }}>Back to filing results</Button></div>
       <h2 ref={detailHeading} tabIndex={-1}>{selected.entityName} · Q{selected.basis.report.quarter} {selected.basis.report.year}</h2>
       <p>{selected.title} · Obligation version {selected.basis.version}</p>
       <ComplianceFilingReceipts brokerageId={brokerageId} entityId={selected.entityId} entityName={selected.entityName}
-        basis={selected.basis} initialVersion={selected.matchedVersion} readOnly />
+        basis={selected.basis} initialVersion={selected.matchedVersion} archiveView />
     </section>}
   </div>;
 }

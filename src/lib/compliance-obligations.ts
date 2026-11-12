@@ -39,6 +39,12 @@ export function initializeComplianceObligations(db: Store) {
     PRIMARY KEY(brokerageId,entityId,obligationId,period,version),
     FOREIGN KEY(brokerageId,entityId,obligationId,period)
       REFERENCES compliance_obligation_occurrences(brokerageId,entityId,obligationId,period));
+  CREATE TABLE IF NOT EXISTS compliance_filing_receipt_references (
+    brokerageId TEXT NOT NULL, entityId TEXT NOT NULL, obligationId TEXT NOT NULL, period TEXT NOT NULL, version INTEGER NOT NULL,
+    location TEXT NOT NULL, recordedBy TEXT NOT NULL, recordedAt TEXT NOT NULL,
+    PRIMARY KEY(brokerageId,entityId,obligationId,period,version),
+    FOREIGN KEY(brokerageId,entityId,obligationId,period,version)
+      REFERENCES compliance_filing_receipts(brokerageId,entityId,obligationId,period,version));
   CREATE INDEX IF NOT EXISTS compliance_obligation_month_work ON compliance_obligation_work(brokerageId,entityId,month);`);
 }
 
@@ -62,13 +68,16 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const matchingVersion = filters.confirmation ? `(SELECT max(m.version) FROM compliance_filing_receipts m
       WHERE ${match} AND instr(lower(json_extract(m.evidence,'$.confirmation')),lower(?))>0)` : "r.version";
     const rows = db.prepare(`SELECT o.entityId,e.name AS entityName,o.obligationId,o.period,o.version AS obligationVersion,o.status AS periodStatus,o.snapshot,
-      r.version,r.evidence,${matchingVersion} AS matchedVersion
+      r.version,r.evidence,matched.version AS matchedVersion,matched.evidence AS matchedEvidence,a.version IS NOT NULL AS referenceAdded
       FROM compliance_obligation_occurrences o
       JOIN compliance_program_entities e ON e.brokerageId=o.brokerageId AND e.id=o.entityId
       JOIN compliance_filing_receipts r ON r.brokerageId=o.brokerageId AND r.entityId=o.entityId AND r.obligationId=o.obligationId AND r.period=o.period
         AND r.version=(SELECT max(m.version) FROM compliance_filing_receipts m WHERE ${match})
+      JOIN compliance_filing_receipts matched ON matched.brokerageId=o.brokerageId AND matched.entityId=o.entityId
+        AND matched.obligationId=o.obligationId AND matched.period=o.period AND matched.version=${matchingVersion}
+      LEFT JOIN compliance_filing_receipt_references a ON a.brokerageId=matched.brokerageId AND a.entityId=matched.entityId
+        AND a.obligationId=matched.obligationId AND a.period=matched.period AND a.version=matched.version
       WHERE o.brokerageId=? AND o.period BETWEEN ? AND ? ${filters.entityId ? "AND o.entityId=?" : ""}
-        ${filters.confirmation ? "AND matchedVersion IS NOT NULL" : ""}
       ORDER BY o.period DESC,e.name,o.entityId,o.obligationId LIMIT 26 OFFSET ?`).all(
         ...(filters.confirmation ? [filters.confirmation] : []), tenant,
         `${filters.year || "2000"}-01`, `${filters.year || "2099"}-12`,
@@ -77,10 +86,13 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     return { kind: "filingArchive", entities, more: rows.length > 25, items: rows.slice(0, 25).map(row => {
       const { draft } = JSON.parse(String(row.snapshot)) as { draft: ObligationDraft };
       const [year, month] = String(row.period).split("-");
+      const matched = filingReceiptFields.parse(JSON.parse(String(row.matchedEvidence)));
       return filingArchiveRow.parse({
         ...filingReceiptFields.parse(JSON.parse(String(row.evidence))),
         entityId: row.entityId, entityName: row.entityName, obligationId: row.obligationId, period: row.period,
         title: draft.title, version: row.version, matchedVersion: row.matchedVersion,
+        matched: { status: matched.status, confirmation: matched.confirmation, confirmedOn: matched.confirmedOn,
+          hasReceiptReference: !!matched.documentReference || !!row.referenceAdded },
         basis: { obligationId: row.obligationId, period: row.period, version: row.obligationVersion, status: row.periodStatus,
           sourceUrl: draft.sourceUrl, authority: draft.authority, report: { year, quarter: Math.ceil(Number(month) / 3) } },
       });
@@ -89,7 +101,7 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
   const entity = db.prepare("SELECT id,name,nmls,scopeNote FROM compliance_program_entities WHERE brokerageId=? AND id=?")
     .get(tenant, data.entityId);
   if (!entity) return unavailable;
-  if (data.operation === "filingReceipts" || data.operation === "recordFilingReceipt") {
+  if (data.operation === "filingReceipts" || data.operation === "recordFilingReceipt" || data.operation === "addFilingReceiptReference") {
     const keys = [tenant, data.entityId, data.id, data.period] as const;
     const period = db.prepare(`SELECT snapshot FROM compliance_obligation_occurrences
       WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=?`).get(...keys);
@@ -97,15 +109,34 @@ export function complianceObligationsWork(db: Store, input: ObligationRequest, s
     const today = easternDate(new Date(now));
     const read = () => ({
       kind: "filingReceipts" as const, today,
-      items: db.prepare(`SELECT version,evidence,recordedBy,recordedAt FROM compliance_filing_receipts
-        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? ORDER BY version DESC`).all(...keys)
-        .map(({ evidence, ...entry }) => ({ ...filingReceiptFields.parse(JSON.parse(String(evidence))), ...entry })),
+      items: db.prepare(`SELECT r.version,r.evidence,r.recordedBy,r.recordedAt,a.location,a.recordedBy AS addedBy,a.recordedAt AS addedAt
+        FROM compliance_filing_receipts r LEFT JOIN compliance_filing_receipt_references a ON a.brokerageId=r.brokerageId
+          AND a.entityId=r.entityId AND a.obligationId=r.obligationId AND a.period=r.period AND a.version=r.version
+        WHERE r.brokerageId=? AND r.entityId=? AND r.obligationId=? AND r.period=? ORDER BY r.version DESC`).all(...keys)
+        .map(({ evidence, location, addedBy, addedAt, ...entry }) => ({
+          ...filingReceiptFields.parse(JSON.parse(String(evidence))), ...entry,
+          ...(location ? { addedReceiptReference: { location, recordedBy: addedBy, recordedAt: addedAt } } : {}),
+        })),
     });
     if (data.operation === "filingReceipts") return read();
     const request = JSON.stringify(data);
     const replay = db.prepare("SELECT actor,request FROM compliance_obligation_events WHERE brokerageId=? AND requestId=?")
       .get(tenant, data.requestId);
     if (replay) return replay.actor === staff.email && replay.request === request ? read() : changed;
+    if (data.operation === "addFilingReceiptReference") {
+      const original = db.prepare(`SELECT evidence FROM compliance_filing_receipts
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND version=?`).get(...keys, data.version);
+      if (!original) return { error: "That filing confirmation is unavailable. Refresh filing history." };
+      const recorded = filingReceiptFields.parse(JSON.parse(String(original.evidence)));
+      const saved = db.prepare(`SELECT 1 FROM compliance_filing_receipt_references
+        WHERE brokerageId=? AND entityId=? AND obligationId=? AND period=? AND version=?`).get(...keys, data.version);
+      if (recorded.documentReference || saved) return { error: "The filing record changed. Refresh its history to see the saved receipt location." };
+      db.prepare("INSERT INTO compliance_filing_receipt_references VALUES (?,?,?,?,?,?,?,?)")
+        .run(...keys, data.version, data.location, staff.email, now);
+      db.prepare("INSERT INTO compliance_obligation_events VALUES (?,?,?,?,?,?,?)")
+        .run(tenant, data.requestId, data.entityId, staff.email, now, request, JSON.stringify({ kind: "filingReceiptReferenceAdded", version: data.version }));
+      return read();
+    }
     const { status, confirmation, confirmedOn, documentReference, note } = data;
     if (confirmedOn > today) return { error: "Enter the date on the confirmation. It must be today or earlier." };
     const latest = Number(db.prepare(`SELECT max(version) AS version FROM compliance_filing_receipts

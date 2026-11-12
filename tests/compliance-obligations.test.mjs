@@ -237,7 +237,7 @@ test("external filing confirms one exact recorded quarter and preserves receipt 
 
   const record = { ...read, operation: "recordFilingReceipt", requestId: crypto.randomUUID(), expectedVersion: 0,
     status: "Submitted", confirmation: "EXAMPLE-RECEIPT-1", confirmedOn: "2026-10-28",
-    documentReference: "Fictional reporting folder / submission receipt", note: "" };
+    documentReference: "", note: "" };
   assert.ok(f.run({ ...record, confirmedOn: "2026-11-12" }).error);
   assert.equal(f.run(record).items[0].version, 1);
   assert.equal(f.run(record).items.length, 1);
@@ -245,7 +245,8 @@ test("external filing confirms one exact recorded quarter and preserves receipt 
   assert.match(f.run({ ...record, requestId: crypto.randomUUID() }).error, /changed/);
 
   const accepted = { ...record, expectedVersion: 1, requestId: crypto.randomUUID(), status: "Accepted",
-    confirmation: "EXAMPLE-RECEIPT-2", confirmedOn: "2026-11-01", note: "Recorded the later acceptance." };
+    confirmation: "EXAMPLE-RECEIPT-2", confirmedOn: "2026-11-01", documentReference: "Fictional acceptance receipt",
+    note: "Recorded the later acceptance." };
   assert.ok(f.run({ ...accepted, note: "" }).error);
   f.sql.exec("CREATE TRIGGER fail_filing_audit BEFORE INSERT ON compliance_obligation_events BEGIN SELECT RAISE(ABORT,'audit failed'); END");
   assert.throws(() => f.run(accepted), /audit failed/);
@@ -259,6 +260,7 @@ test("external filing confirms one exact recorded quarter and preserves receipt 
     f.run({ operation: "filingArchive", filters: { year: "", entityId: "", confirmation: "", ...filters } }, staff, roster);
   const original = archive({ confirmation: "example-receipt-1", year: "2026", entityId: f.entityId });
   assert.deepEqual(original.items.map(row => [row.matchedVersion, row.version, row.status, row.period]), [[1, 2, "Accepted", period]]);
+  assert.deepEqual(original.items[0].matched, { status: "Submitted", confirmation: record.confirmation, confirmedOn: record.confirmedOn, hasReceiptReference: false });
   assert.equal(original.items[0].basis.report.quarter, 3);
   assert.equal(archive().items[0].matchedVersion, 2);
   assert.deepEqual(f.run({ operation: "filingArchive", filters: { year: "", entityId: "", confirmation: "" }, offset: 25 }).items, []);
@@ -268,5 +270,26 @@ test("external filing confirms one exact recorded quarter and preserves receipt 
   const other = { ...f.staff, brokerage: { ...f.staff.brokerage, id: crypto.randomUUID() } };
   assert.deepEqual(archive({}, other), { kind: "filingArchive", entities: [], items: [], more: false });
   assert.ok(archive({}, { ...f.staff, brokerage: { ...f.staff.brokerage, role: "LO" } }, [officer]).error);
+  const add = { ...read, operation: "addFilingReceiptReference", requestId: crypto.randomUUID(), version: 1,
+    location: "Fictional reporting folder / submission receipt" };
+  assert.ok(f.run({ ...add, period: "2026-04" }).error);
+  assert.ok(f.run({ ...add, version: 3 }).error);
+  assert.ok(f.run({ ...add, version: 2 }).error);
+  assert.ok(f.run(add, other).error);
+  assert.ok(f.run(add, { ...f.staff, brokerage: { ...f.staff.brokerage, role: "LO" } }, [officer]).error);
+  f.sql.exec("CREATE TRIGGER fail_reference_audit BEFORE INSERT ON compliance_obligation_events BEGIN SELECT RAISE(ABORT,'audit failed'); END");
+  assert.throws(() => f.run(add), /audit failed/);
+  assert.equal(f.run(read).items[1].addedReceiptReference, undefined);
+  f.sql.exec("DROP TRIGGER fail_reference_audit");
+  const updated = f.run(add);
+  assert.deepEqual(f.run(add), updated);
+  assert.ok(f.run({ ...add, location: "Conflicting receipt location" }).error);
+  assert.ok(f.run({ ...add, requestId: crypto.randomUUID() }).error);
+  assert.equal(updated.items.length, 2);
+  assert.equal(updated.items[0].status, "Accepted");
+  assert.equal(updated.items[1].documentReference, "");
+  assert.equal(updated.items[1].addedReceiptReference.location, add.location);
+  assert.equal(updated.items[1].addedReceiptReference.recordedBy, f.actor.email);
+  assert.equal(archive({ confirmation: record.confirmation }).items[0].matched.hasReceiptReference, true);
   assert.equal(f.sql.prepare("SELECT count(*) AS count FROM compliance_program_items").get().count, 0);
 });

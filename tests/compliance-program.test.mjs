@@ -184,7 +184,7 @@ test("enabled operational workspaces support manual obligations and staff policy
 
 test("restore protects obligation versions, filing records, learning and Michigan loan evidence",async()=>{
  const {restoreBlockers}=await import("../src/lib/workspace-restore.ts");
- for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_program_licenses","compliance_state_scope_versions",
+ for(const name of ["compliance_obligation_versions","compliance_obligation_occurrences","compliance_obligation_events","compliance_obligation_work","compliance_filing_receipts","compliance_filing_receipt_references","compliance_program_licenses","compliance_state_scope_versions",
    "compliance_state_readiness_versions","compliance_learning_versions","compliance_learning_assignments","compliance_learning_events","compliance_michigan_loan_practices_versions"]){
    const before={schema:"same",tables:[{name,digest:"old",rows:1}],impact:{},files:{items:[]}};
    assert.equal(restoreBlockers(before,before).length,0);
