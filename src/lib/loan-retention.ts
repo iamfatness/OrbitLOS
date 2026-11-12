@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { dispositionRequest, initializeRetentionDisposition, retentionDispositionWork, type DispositionQueue } from "./retention-disposition";
 import { retentionAuditRequest, retentionAuditWork, type RetentionAuditResult } from "./retention-audit";
+import { initializeMichiganRetention, michiganRetentionRequest, michiganRetentionWork, type MichiganRetentionResult } from "./michigan-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
@@ -10,6 +11,7 @@ const note = z.string().trim().min(4).max(240);
 const request = z.discriminatedUnion("type", [
   ...dispositionRequest.options,
   ...retentionAuditRequest.options,
+  ...michiganRetentionRequest.options,
   z.object({ type: z.literal("list"), heldOnly: z.boolean(), search: z.string().trim().max(100), offset: z.number().int().min(0).max(10000) }),
   z.object({ type: z.literal("history"), loanId }),
   z.object({ type: z.literal("hold"), id: z.uuid(), loanId, reference: note }),
@@ -22,6 +24,7 @@ export const retainedObject = `EXISTS (SELECT 1 FROM loan_retention_objects reta
 
 export function initializeLoanRetention(db: Store) {
   initializeRetentionDisposition(db);
+  initializeMichiganRetention(db);
   db.exec(`CREATE TABLE IF NOT EXISTS loan_retention_holds (
     id TEXT PRIMARY KEY, loanId TEXT NOT NULL, reference TEXT NOT NULL, placedAt TEXT NOT NULL, placedBy TEXT NOT NULL, placedByEmail TEXT NOT NULL,
     releaseId TEXT UNIQUE, releaseReference TEXT, releasedAt TEXT, releasedBy TEXT, releasedByEmail TEXT
@@ -64,7 +67,8 @@ type Hold = { id: string; reference: string; placedAt: string; placedBy: string;
   releasedAt: string | null; releasedBy: string | null };
 type LoanRow = { id: string; borrower: string; address: string; purpose: string; stage: string; requests: number; pdfs: number; holdId: string | null };
 type Work = { kind: "list"; loans: LoanRow[]; total: number; held: number; next: number | null } |
-  { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult | { error: string };
+  { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult |
+  MichiganRetentionResult | { error: string };
 export type LoanRetentionResult = Work;
 
 export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceStaff, workspaceId: string, now = new Date().toISOString()): Work {
@@ -74,6 +78,8 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
   if (!parsed.success) return { error: "Check the required retention fields and try again." };
   const data = parsed.data;
   return db.transaction(() => {
+    if (data.type === "michiganRetentionHistory" || data.type === "saveMichiganRetentionReview")
+      return michiganRetentionWork(db,data,staff,now);
     if (data.type === "retentionAudit" || data.type === "exportRetentionAudit")
       return retentionAuditWork(db,data,staff,now);
     if (data.type === "dispositionQueue" || data.type === "saveDispositionPolicy" || data.type === "saveDispositionReview")

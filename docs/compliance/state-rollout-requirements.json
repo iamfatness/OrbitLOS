@@ -100,9 +100,9 @@
     "area": "RECORDS",
     "id": "SECOND",
     "title": "Secondary mortgage records",
-    "authority": "MCL 493.67 and DIFS Mortgage Compliance FAQ",
+    "authority": "MCL 493.67–493.68 and DIFS Mortgage Compliance FAQ",
     "sourceUrl": "https://www.michigan.gov/difs/news-and-outreach/faq/consumer-finance/mortgage-compliance2",
-    "summary": "Review record preservation and availability under the Secondary Mortgage Loan Act for any in-scope secondary activity.",
+    "summary": "Review examination availability and the distinct retention triggers for general closed files, specified transferred copies, rejected applications and other business records under the Secondary Mortgage Loan Act.",
     "evidence": "Document type, role, retention trigger, custody and location, hold evidence, and exam delivery procedure.",
     "counsel": "Confirm applicable retention periods and overlaps before enabling a schedule.",
     "checkedOn": "2026-11-12"

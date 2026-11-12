@@ -214,3 +214,72 @@ test("an owner hold protects a replaced PDF, blocks deletion and restore, and re
  assert(!JSON.stringify(history).includes(staff.email));
  assert(restore.restoreBlockers(manifest,{...f.capture(),files:checkpoint,activeLoanHolds:0}).some(message=>/retention evidence changed/.test(message)));
 });
+
+test("Michigan retention records preserve dated evidence for each record category without altering loan holds", async t => {
+ const {initializeStore}=await import("../src/lib/store.ts");
+ const {loanRetentionWork}=await import("../src/lib/loan-retention.ts");
+ const {db,staff}=ownerFixture(t);
+ const scope=staff.brokerage.id;
+ initializeStore(db,false);
+ db.exec("INSERT INTO contacts (id,name,email,phone,role) VALUES ('borrower','Fictional Borrower','borrower@example.test','','Borrower')");
+ db.exec("INSERT INTO loans (id,contactId,officer,address,amount,purpose,stage,stageSince) VALUES ('mi','borrower','LO','',1,'Purchase','Closed','2026-11-11')");
+ const target={kind:"loan",id:"mi"}, now="2026-11-12T16:00:00.000Z";
+ const owner=input=>loanRetentionWork(db,input,staff,scope,now);
+ const save=(evidence,expected=0,reviewTarget=target)=>({
+  type:"saveMichiganRetentionReview",target:reviewTarget,id:crypto.randomUUID(),expected,evidence,
+ });
+ const history=(category,reviewTarget=target)=>owner({type:"michiganRetentionHistory",target:reviewTarget,category});
+ const record={category:"Closed loan file",role:"Broker only",authority:"First mortgage",reference:"Fictional closing file",
+  closedOn:"2023-11-13",transfer:{status:"Unknown"}};
+ const first=save(record);
+ assert("error" in loanRetentionWork(db,first,{...staff,brokerage:{...staff.brokerage,role:"LO"}},scope,now));
+ assert("error" in loanRetentionWork(db,first,staff,crypto.randomUUID(),now));
+ assert.equal(owner(first).versions[0].finding.date,"2026-11-13");
+ assert.equal(owner(first).versions.length,1);
+ assert.match(owner({...first,evidence:{...record,reference:"Different closing evidence"}}).error,/different Michigan retention review/i);
+ assert.match(owner(save(record)).error,/review changed/i);
+ assert.match(owner(save({...record,transfer:{status:"Transferred",date:"2024-01-03"}},1)).error,/retention fields/i);
+ const lender={...record,role:"Lender",transfer:{status:"Transferred",date:"2024-01-03"}};
+ assert.equal(owner(save(lender,1)).versions[0].finding.date,"2024-01-03");
+ assert.equal(owner(save({...lender,transfer:{status:"Unknown"}},2)).versions[0].finding.date,null);
+ assert.equal(owner(save({...record,closedOn:"2024-02-29"},3)).versions[0].finding.date,null);
+ assert.deepEqual(history(record.category).versions.map(review=>[review.version,review.finding.date]),[
+  [4,null],[3,null],[2,"2024-01-03"],[1,"2026-11-13"],
+ ]);
+ assert.match(owner(save({...record,closedOn:"2026-11-13"},4)).error,/events that have occurred/i);
+
+ const copies={category:"Transferred copies",authority:"Secondary mortgage",closedOn:"2023-11-13",
+  transferredOn:"2024-01-03",reference:"Fictional transfer register"};
+ assert.equal(owner(save(copies)).versions[0].finding.date,"2026-01-03");
+ assert.match(owner(save({...copies,transferredOn:"2023-11-12"},1)).error,/retention fields/i);
+ const application={category:"Unsuccessful application",authority:"First mortgage",outcome:"Withdrawn",
+  retainThrough:null,counselReference:null,reference:"Fictional withdrawal documentation"};
+ assert.equal(owner(save(application)).versions[0].finding.date,null);
+ assert.match(owner(save({...application,retainThrough:"2028-05-31"},1)).error,/retention fields/i);
+ assert.equal(owner(save({...application,retainThrough:"2028-05-31",counselReference:"Fictional counsel memo"},1)).versions[0].finding.date,"2028-05-31");
+ const business={kind:"business",id:"Fictional company books 2025"};
+ const books={category:"Other business records",authority:"First mortgage",createdOn:"2025-05-10",fiscalYearEnd:"2025-06-30",
+  reference:"Fictional fiscal-year evidence"};
+ assert.match(owner(save(books)).error,/category/i);
+ assert.equal(owner(save(books,0,business)).versions[0].finding.date,"2028-06-30");
+ assert.equal(owner(save({...books,authority:"Secondary mortgage"},1,business)).versions[0].finding.date,"2027-06-30");
+
+ db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES ('mi','fictional-token',?,?,?)")
+  .run(now,JSON.stringify({propertyLocation:{state:"oh"}}),now);
+ assert.match(owner(save(record,4)).error,/outside Michigan/i);
+ assert.equal(history(record.category).versions.length,4);
+ assert.equal(owner(first).versions.length,4);
+
+ const hold={type:"hold",id:crypto.randomUUID(),loanId:target.id,reference:"Fictional examination hold"};
+ assert.equal(owner(hold).kind,"saved");
+ assert.equal(history(record.category).held,true);
+ assert.equal(history(books.category,business).held,false);
+ assert.throws(()=>db.prepare("DELETE FROM loans WHERE id=?").run(target.id),/retention hold/);
+ assert(!JSON.stringify(history(record.category)).includes(staff.email));
+ assert.equal(owner({type:"release",id:crypto.randomUUID(),loanId:target.id,holdId:hold.id,
+  reference:"Fictional examination complete"}).kind,"saved");
+ db.prepare("DELETE FROM loans WHERE id=?").run(target.id);
+ assert.equal(history(record.category).versions.length,4);
+ assert.equal(history(record.category).held,false);
+ assert.match(owner(save(record,4)).error,/loan is unavailable/i);
+});
