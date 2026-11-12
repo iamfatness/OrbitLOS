@@ -5,6 +5,7 @@ import { accessLoanRetention } from "@/app/actions";
 import type { LoanRetentionResult } from "@/lib/loan-retention";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
+import { MichiganBusinessRetention, MichiganRetention } from "./michigan-retention";
 import { RetentionDisposition } from "./retention-disposition";
 import { Button } from "./ui/button";
 
@@ -18,7 +19,10 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
   brokerageId: string; paused: boolean; openLoan: (id: string) => void; openEvidence: (id: string) => void;
 }) {
   const [disposition, setDisposition] = useState(false);
+  const [michigan, setMichigan] = useState<LoanRow | "business">();
   const dispositionLink = useRef<HTMLButtonElement>(null);
+  const michiganLinks = useRef(new Map<string, HTMLButtonElement>());
+  const returnMichiganId = useRef<string>(null);
   const [selection, select] = useState(initial);
   const [search, setSearch] = useState("");
   const [inventory, setInventory] = useState<Inventory & { selection: Selection }>();
@@ -55,6 +59,14 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
   useEffect(() => {
     reviewHeading.current?.focus();
   }, [review?.loan.id, review?.action]);
+  useEffect(() => {
+    if (michigan || !returnMichiganId.current) return;
+    const link = michiganLinks.current.get(returnMichiganId.current);
+    if (link && !link.disabled) {
+      link.focus();
+      returnMichiganId.current = null;
+    }
+  }, [michigan, inventory, pending]);
 
   function load(next: Selection) {
     setPending(true);
@@ -129,6 +141,15 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
 
   if (paused && (!inventory || disposition)) return <p className="muted">Loan retention is unavailable while the workspace is paused.</p>;
 
+  if (michigan && !paused) {
+    function back() {
+      returnMichiganId.current = michigan === "business" ? "business" : michigan?.id ?? null;
+      setMichigan(undefined);
+    }
+    return michigan === "business" ? <MichiganBusinessRetention brokerageId={brokerageId} onBack={back} /> :
+      <MichiganRetention brokerageId={brokerageId} target={{ kind: "loan", id: michigan.id, label: michigan.borrower }} onBack={back} />;
+  }
+
   if (disposition) return <RetentionDisposition brokerageId={brokerageId} openLoan={openLoan} onBack={()=>{
     setDisposition(false);
     requestAnimationFrame(()=>dispositionLink.current?.focus());
@@ -138,12 +159,16 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
   return <div className="integration manager-panel record-form loan-retention">
     <div className="section-heading">
       <h2>Loan evidence &amp; retention</h2>
-      <div className="loan-application-actions"><Button ref={dispositionLink} type="button" variant="outline" disabled={locked || !!review}
-        onClick={()=>setDisposition(true)}>Disposition review</Button>
-      {inventory && <Button variant="outline" aria-pressed={selection.heldOnly} disabled={locked || !!review}
-        onClick={() => { setNotice(""); load({ ...selection, heldOnly: !selection.heldOnly, offset: 0 }); }}>
-        {inventory.held} {inventory.held === 1 ? "active hold" : "active holds"}
-      </Button>}</div>
+      <div className="loan-application-actions">
+        <Button ref={dispositionLink} type="button" variant="outline" disabled={locked || !!review}
+          onClick={()=>setDisposition(true)}>Disposition review</Button>
+        <Button ref={node => { if (node) michiganLinks.current.set("business", node); else michiganLinks.current.delete("business"); }}
+          type="button" variant="outline" disabled={locked || !!review} onClick={() => setMichigan("business")}>Michigan business records</Button>
+        {inventory && <Button variant="outline" aria-pressed={selection.heldOnly} disabled={locked || !!review}
+          onClick={() => { setNotice(""); load({ ...selection, heldOnly: !selection.heldOnly, offset: 0 }); }}>
+          {inventory.held} {inventory.held === 1 ? "active hold" : "active holds"}
+        </Button>}
+      </div>
     </div>
     <p className="muted">Holds protect the loan and its checklist PDFs from deletion.</p>
     <form className="loan-application-actions retention-search" onSubmit={(event) => {
@@ -217,6 +242,9 @@ export function LoanRetention({ brokerageId, paused, openLoan, openEvidence }: {
             onClick={event => void inspect(loan, loan.holdId ? "release" : "hold", event.currentTarget)}>
             {loan.holdId ? "Release hold" : "Place hold"}
           </Button>
+          {(!loan.propertyState || loan.propertyState === "MI") && <Button type="button" variant="outline"
+            ref={node => { if (node) michiganLinks.current.set(loan.id, node); else michiganLinks.current.delete(loan.id); }}
+            disabled={locked || !!review} onClick={() => setMichigan(loan)}>Michigan retention evidence</Button>}
         </div>
       </li>)}</ul>
       {(selection.offset > 0 || inventory.next !== null) && <div className="loan-application-actions">

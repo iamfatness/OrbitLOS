@@ -39,6 +39,7 @@ const target = z.discriminatedUnion("kind", [
 ]);
 const category = z.enum(["Closed loan file", "Transferred copies", "Unsuccessful application", "Other business records"]);
 export const michiganRetentionRequest = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("michiganBusinessRecords"), offset: z.number().int().min(0).max(10000) }),
   z.object({ type: z.literal("michiganRetentionHistory"), target, category, before: z.number().int().positive().optional() }),
   z.object({ type: z.literal("saveMichiganRetentionReview"), target, id: z.uuid(),
     expected: z.number().int().nonnegative(), evidence }),
@@ -51,6 +52,11 @@ type Review = {
 export type MichiganRetentionResult = {
   kind: "michiganRetention"; versions: Review[]; next: number | null; held: boolean; message?: string;
 };
+export type MichiganBusinessRecords = { kind: "michiganBusinessRecords"; records: string[]; next: number | null };
+
+export function michiganLoanState(draft: string) {
+  return `upper(trim(json_extract(CASE WHEN json_valid(${draft}) THEN ${draft} END, '$.propertyLocation.state')))`;
+}
 
 function anniversary(trigger: string, years: number) {
   const result = String(Number(trigger.slice(0, 4)) + years).padStart(4, "0") + trigger.slice(4);
@@ -95,7 +101,14 @@ export function initializeMichiganRetention(db: Store) {
 }
 
 // The enclosing owner-scoped retention transaction protects version checks and history.
-export function michiganRetentionWork(db: Store, command: Command, staff: WorkspaceStaff, now: string): MichiganRetentionResult | { error: string } {
+export function michiganRetentionWork(db: Store, command: Command, staff: WorkspaceStaff, now: string):
+  MichiganRetentionResult | MichiganBusinessRecords | { error: string } {
+  if (command.type === "michiganBusinessRecords") {
+    const records = db.prepare(`SELECT DISTINCT targetId FROM michigan_retention_reviews
+      WHERE targetKind='business' ORDER BY targetId COLLATE NOCASE,targetId LIMIT 16 OFFSET ?`).all(command.offset);
+    return { kind: "michiganBusinessRecords", records: records.slice(0, 15).map(row => String(row.targetId)),
+      next: records.length > 15 ? command.offset + 15 : null };
+  }
   const { kind, id: targetId } = command.target;
   const category = command.type === "saveMichiganRetentionReview" ? command.evidence.category : command.category;
   if ((kind === "business") !== (category === "Other business records")) {
@@ -132,8 +145,8 @@ export function michiganRetentionWork(db: Store, command: Command, staff: Worksp
     return history(null, "Michigan retention evidence recorded.");
   }
   if (kind === "loan") {
-    const loan = db.prepare(`SELECT upper(trim(json_extract(CASE WHEN json_valid(a.draft) THEN a.draft END,
-      '$.propertyLocation.state'))) AS state FROM loans l LEFT JOIN applications a ON a.loanId=l.id WHERE l.id=?`).get(targetId);
+    const loan = db.prepare(`SELECT ${michiganLoanState("a.draft")} AS state
+      FROM loans l LEFT JOIN applications a ON a.loanId=l.id WHERE l.id=?`).get(targetId);
     if (!loan) return { error: "This loan is unavailable." };
     if (loan.state && loan.state !== "MI") {
       return { error: "The saved property state is outside Michigan. Review the loan before recording Michigan evidence." };

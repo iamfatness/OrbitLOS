@@ -263,9 +263,13 @@ test("Michigan retention records preserve dated evidence for each record categor
  assert.match(owner(save(books)).error,/category/i);
  assert.equal(owner(save(books,0,business)).versions[0].finding.date,"2028-06-30");
  assert.equal(owner(save({...books,authority:"Secondary mortgage"},1,business)).versions[0].finding.date,"2027-06-30");
+ assert.deepEqual(owner({type:"michiganBusinessRecords",offset:0}),{
+  kind:"michiganBusinessRecords",records:[business.id],next:null,
+ });
 
  db.prepare("INSERT INTO applications (loanId,token,expiresAt,draft,updatedAt) VALUES ('mi','fictional-token',?,?,?)")
   .run(now,JSON.stringify({propertyLocation:{state:"oh"}}),now);
+ assert.equal(owner({type:"list",heldOnly:false,search:"",offset:0}).loans[0].propertyState,"OH");
  assert.match(owner(save(record,4)).error,/outside Michigan/i);
  assert.equal(history(record.category).versions.length,4);
  assert.equal(owner(first).versions.length,4);

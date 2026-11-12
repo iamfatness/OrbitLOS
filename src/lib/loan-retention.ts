@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { dispositionRequest, initializeRetentionDisposition, retentionDispositionWork, type DispositionQueue } from "./retention-disposition";
 import { retentionAuditRequest, retentionAuditWork, type RetentionAuditResult } from "./retention-audit";
-import { initializeMichiganRetention, michiganRetentionRequest, michiganRetentionWork, type MichiganRetentionResult } from "./michigan-retention";
+import { initializeMichiganRetention, michiganLoanState, michiganRetentionRequest, michiganRetentionWork,
+  type MichiganBusinessRecords, type MichiganRetentionResult } from "./michigan-retention";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 
@@ -65,10 +66,11 @@ export function initializeLoanRetention(db: Store) {
 
 type Hold = { id: string; reference: string; placedAt: string; placedBy: string; releaseReference: string | null;
   releasedAt: string | null; releasedBy: string | null };
-type LoanRow = { id: string; borrower: string; address: string; purpose: string; stage: string; requests: number; pdfs: number; holdId: string | null };
+type LoanRow = { id: string; borrower: string; address: string; purpose: string; stage: string; requests: number; pdfs: number;
+  holdId: string | null; propertyState: string | null };
 type Work = { kind: "list"; loans: LoanRow[]; total: number; held: number; next: number | null } |
   { kind: "history"; holds: Hold[] } | { kind: "saved"; message: string } | DispositionQueue | RetentionAuditResult |
-  MichiganRetentionResult | { error: string };
+  MichiganRetentionResult | MichiganBusinessRecords | { error: string };
 export type LoanRetentionResult = Work;
 
 export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceStaff, workspaceId: string, now = new Date().toISOString()): Work {
@@ -78,7 +80,7 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
   if (!parsed.success) return { error: "Check the required retention fields and try again." };
   const data = parsed.data;
   return db.transaction(() => {
-    if (data.type === "michiganRetentionHistory" || data.type === "saveMichiganRetentionReview")
+    if (data.type === "michiganBusinessRecords" || data.type === "michiganRetentionHistory" || data.type === "saveMichiganRetentionReview")
       return michiganRetentionWork(db,data,staff,now);
     if (data.type === "retentionAudit" || data.type === "exportRetentionAudit")
       return retentionAuditWork(db,data,staff,now);
@@ -91,6 +93,7 @@ export function loanRetentionWork(db: Store, input: unknown, staff: WorkspaceSta
       const args = [Number(data.heldOnly), data.search, data.search];
       const count = db.prepare(`SELECT count(*) AS n ${source}`).get(...args)?.n;
       const loans = db.prepare(`SELECT loan.id,contact.name AS borrower,loan.address,loan.purpose,loan.stage,hold.id AS holdId,
+        (SELECT nullif(${michiganLoanState("a.draft")},'') FROM applications a WHERE a.loanId=loan.id) AS propertyState,
         (SELECT count(*) FROM document_requests request WHERE request.loanId=loan.id) AS requests,
         (SELECT count(*) FROM (
           SELECT objectId FROM loan_retention_pdf_references WHERE loanId=loan.id
