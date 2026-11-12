@@ -245,6 +245,17 @@ export function initializeStore(db: Store, seedDemo = true) {
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       window INTEGER NOT NULL, requests INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS application_questionnaires (
+      loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
+      profile TEXT NOT NULL, formRevision INTEGER NOT NULL, questions TEXT NOT NULL,
+      primaryAnswers TEXT NOT NULL DEFAULT '{}', coBorrowerAnswers TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE TABLE IF NOT EXISTS application_questionnaire_submissions (
+      loanId TEXT NOT NULL REFERENCES application_questionnaires(loanId) ON DELETE CASCADE,
+      applicant TEXT NOT NULL CHECK(applicant IN ('Primary borrower', 'Co-borrower')),
+      revision INTEGER NOT NULL, submittedAt TEXT NOT NULL, answers TEXT NOT NULL,
+      PRIMARY KEY(loanId, applicant, revision)
+    );
     CREATE TABLE IF NOT EXISTS joint_applications (
       loanId TEXT PRIMARY KEY REFERENCES applications(loanId) ON DELETE CASCADE,
       token TEXT NOT NULL UNIQUE, expiresAt TEXT NOT NULL, revokedAt TEXT,

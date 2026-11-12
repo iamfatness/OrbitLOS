@@ -303,6 +303,7 @@ export interface Workspace {
   closingProgress: ClosingProgress[];
   quoteConsent?: import("./quote-intake-model").QuoteConsentReceipt | null;
   quoteOverrides?: import("./quote-intake-questions").QuoteOverrideEvidence;
+  applicationQuestionReceipts?: import("./application-questionnaire-model").ApplicationQuestionnaireReceipt[];
   disclosureWork?: import("./disclosure-model").DisclosureWork;
   closingPacketWork?: import("./closing-packet-model").ClosingPacketWork;
   returningClientLoans: { fundedLoanId: string; loanId: string }[];

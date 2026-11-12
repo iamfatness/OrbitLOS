@@ -41,6 +41,7 @@ export const quoteIntakeConfig = z.object({
   zip: z.enum(quoteFieldModes), timing: z.enum(quoteFieldModes),
   question: z.object({ prompt: z.string().trim().min(3).max(120), required: z.boolean() }).nullable(),
   questions: quoteIntakeQuestions.default([]),
+  applicationQuestions: quoteIntakeQuestions.refine((questions) => questions.every(({ prefill }) => prefill === null)).optional(),
   campaignId: campaign.nullable(), ownerEmail: quoteOwner.optional(),
   branches: quoteBranches.optional(),
 }).superRefine(({ branches, zip }, ctx) => {
@@ -51,7 +52,7 @@ export const quoteIntakeConfig = z.object({
 export type QuoteIntakeConfig = z.infer<typeof quoteIntakeConfig>;
 export type QuoteFormVersion = { profile: QuoteProfile; revision: number; config: QuoteIntakeConfig };
 export type PublicQuoteForm = Omit<QuoteFormVersion, "config"> & {
-  config: Omit<QuoteIntakeConfig, "campaignId" | "ownerEmail" | "branches" | "overrideFields">;
+  config: Omit<QuoteIntakeConfig, "campaignId" | "ownerEmail" | "branches" | "overrideFields" | "applicationQuestions">;
   consentFingerprint: string;
 };
 export type QuoteIntakeSettings = QuoteFormVersion & {

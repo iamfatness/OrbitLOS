@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { defaultQuoteIntakeConfig, quoteConsentWording, quoteFormChanged, quotePurpose, quoteResponseIssue, quoteTimelines,
   type PublicQuoteForm, type QuotePurpose } from "@/lib/quote-intake-model";
-import { collectQuoteAnswers, quoteAnswerOptions, visibleQuoteQuestions, type QuoteIntakeQuestion } from "@/lib/quote-intake-questions";
+import { collectQuoteAnswers, type QuoteIntakeQuestion } from "@/lib/quote-intake-questions";
+import { QuoteQuestionFields } from "./quote-question-fields";
 import { Button } from "./ui/button";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 
@@ -17,20 +18,7 @@ export function QuoteIntakeHeading({ config, preview }: { config: PublicQuoteFor
 
 function QuoteFollowUps({ questions, busy }: { questions: QuoteIntakeQuestion[]; busy: boolean }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  function change(id: string, value: string) {
-    const next = { ...answers, [id]: value };
-    setAnswers(Object.fromEntries(visibleQuoteQuestions(questions, next).map((item) => [item.id, next[item.id] ?? ""])));
-  }
-  return <>{visibleQuoteQuestions(questions, answers).map(({ id, prompt, kind, required }, index) => {
-    const options = quoteAnswerOptions(kind);
-    const field = { name: `intake:${id}`, disabled: busy, required, value: answers[id] ?? "" };
-    return <label key={id} className="field">{prompt || `Follow-up ${index + 1}`}{!required && " (optional)"}
-      {options.length ? <select {...field} onChange={(event) => change(id, event.target.value)}>
-        <option value="">Choose an answer</option>{options.map((option) => <option key={option}>{option}</option>)}
-      </select> : <input {...field} inputMode={kind === "Dollar amount" ? "decimal" : undefined}
-        maxLength={kind === "Dollar amount" ? 14 : 200} autoComplete="off" onChange={(event) => change(id, event.target.value)} />}
-    </label>;
-  })}</>;
+  return <QuoteQuestionFields questions={questions} answers={answers} change={setAnswers} busy={busy} />;
 }
 
 export function QuoteIntakeFields({ config, purpose, changePurpose, busy = false, preview = false, revision, feedback }: {

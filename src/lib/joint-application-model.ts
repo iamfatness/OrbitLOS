@@ -6,6 +6,7 @@ import type { ClosingPause } from "./model";
 import { borrowerDisclosureResponse, type BorrowerDisclosure } from "./disclosure-model";
 import { answerBorrowerQuestion, type BorrowerQuestion } from "./borrower-question-model";
 import { borrowerDetailsSchema, normalizeBorrowerDetails, sampleUrla, type BorrowerDetails, type BorrowerSection } from "./urla";
+import { applicationQuestionnaireInput, type ApplicationQuestionnaire } from "./application-questionnaire-model";
 
 const loanId = z.string().min(1).max(100);
 const token = z.string().regex(portalTokenPattern);
@@ -31,7 +32,7 @@ export const coBorrowerCommand = z.discriminatedUnion("type", [
   answerBorrowerQuestion,
   z.object({ type: z.literal("attachSample"), token, requestId: z.uuid(), revision }),
   z.object({ type: z.enum(["save", "submit"]), token, revision, step: z.number().int().min(0).max(coBorrowerReviewStep),
-    draft: borrowerDetailsSchema, confirmedDemo: z.boolean() }),
+    draft: borrowerDetailsSchema, confirmedDemo: z.boolean(), questionnaire: applicationQuestionnaireInput }),
 ]);
 
 export interface StaffJointApplication {
@@ -51,6 +52,7 @@ export interface CoBorrowerApplication {
   submittedAt: string | null;
   complete: boolean;
   confirmedDemo: boolean;
+  questionnaire?: ApplicationQuestionnaire;
   documents?: DocumentRequest[];
   questions?: BorrowerQuestion[];
   closingPause?: ClosingPause;

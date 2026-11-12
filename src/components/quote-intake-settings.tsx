@@ -152,6 +152,8 @@ export function QuoteIntakeEditor({ brokerageId, members, quoteToken }: {
             onChange={(event) => draft.question && change({ question: { ...draft.question, required: event.target.checked } })} />
             <span>Require an answer to the additional question.</span></label>
           <QuoteQuestionEditor questions={draft.questions} change={(questions) => change({ questions })} busy={busy} />
+          <QuoteQuestionEditor application questions={draft.applicationQuestions ?? []}
+            change={(applicationQuestions) => change({ applicationQuestions })} busy={busy} />
           <fieldset className="record-form intake-correction" disabled={busy}>
             <legend>Corrections when creating the 1003</legend>
             <p className="muted">Allow staff to correct these fields before creating a draft. Orbit keeps the submitted answers and the reason for each correction.</p>

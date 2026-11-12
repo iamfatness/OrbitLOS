@@ -24,7 +24,7 @@ function storedQuoteForm(db: Store, profile: QuoteProfile) {
     { profile, revision: 0, active: profile === "General", config: defaultQuoteIntakeConfig };
 }
 
-function currentQuoteForm(db: Store, purpose?: QuotePurpose): QuoteFormVersion {
+export function currentQuoteForm(db: Store, purpose?: QuotePurpose): QuoteFormVersion {
   const selected = storedQuoteForm(db, purpose ?? "General");
   return selected.active ? selected : storedQuoteForm(db, "General");
 }
@@ -106,10 +106,12 @@ export function workOnQuoteSettings(db: Store, input: unknown, staff: WorkspaceS
         }
       }
       const active = data.type === "publish";
-      const { consentText, overrideFields } = (form.active ? form : storedQuoteForm(db, "General")).config;
-      const config = active ? { ...data.config,
-        ...(data.config.consentText === undefined && consentText !== undefined ? { consentText } : {}),
-        ...(data.config.overrideFields === undefined && overrideFields !== undefined ? { overrideFields } : {}) } : form.config;
+      const { consentText, overrideFields, applicationQuestions } = (form.active ? form : storedQuoteForm(db, "General")).config;
+      const config = active ? quoteIntakeConfig.parse({ ...data.config,
+        consentText: data.config.consentText ?? consentText,
+        overrideFields: data.config.overrideFields ?? overrideFields,
+        applicationQuestions: data.config.applicationQuestions ?? applicationQuestions,
+      }) : form.config;
       if (active !== form.active || JSON.stringify(form.config) !== JSON.stringify(config)) {
         form = writeQuoteVersion(db, profile, config, active, staff, now);
       }

@@ -5772,12 +5772,73 @@ try {
     return { browserLead, loanId };
   });
 
+  const applicationQuestionsFixture = await stage("Joint applicants save and submit separate answers to versioned brokerage questions", async () => {
+    const path = `/api/quote-intake-settings?brokerage=${brokerage}`;
+    const profile = "Purchase";
+    const current = await post(path, { type: "read", profile }, owner);
+    const first = { id: randomUUID(), prompt: "Would you like a callback about your fictional application?",
+      kind: "Yes or no", required: true, when: null, prefill: null };
+    const detail = { id: randomUUID(), prompt: "When should the loan team call?", kind: "Short text", required: true,
+      when: { questionId: first.id, equals: "Yes" }, prefill: null };
+    const config = { ...current.config, applicationQuestions: [first, detail] };
+    const command = { type: "publish", profile, revision: current.revision, config };
+    assert.equal((await postResponse(path, command, officer)).status, 403);
+    const v1 = await post(path, command, owner);
+    const publicQuote = await post("/api/quote-requests", { type: "read", purpose: profile, token: quoteConsentFixture.quoteToken });
+    assert.equal("applicationQuestions" in publicQuote.config, false);
+    const create = async (borrowerName, suffix, joint = true) => {
+      const created = await write(officer, { type: "loan", contactId: "", borrower: borrowerName,
+        borrowerEmail: `working-day-application-questions-${suffix}@example.test`, start1003: true, partnerId: null,
+        officer: officer.name, address: "", amount: 0, purpose: profile, stage: "Lead" });
+      const loanId = created.loanWork.loanId;
+      const app = (await file(officer, loanId)).applications[0];
+      const linked = joint ? (await loanAction(officer, loanId, "enableJointApplication", { revision: app.revision })).loanWork.applications[0] : app;
+      return { loanId, borrowerName, token: linked.token, coToken: linked.joint?.token };
+    };
+    const rehearsal = await create("Fictional application questions rehearsal", "rehearsal");
+    const preview = process.argv.includes("--preview") ? await create("Fictional application questions browser", "browser") : undefined;
+    const { loanId, token, coToken } = rehearsal;
+    const v2 = await post(path, { ...command, revision: v1.revision, config: { ...config,
+      applicationQuestions: [{ ...first, prompt: "Would you like a fictional email instead?" }] } }, owner);
+    const newest = await create("Fictional new questions version", "newest", false);
+    assert.equal((await borrower(newest.token, { type: "read" })).questionnaire.formRevision, v2.revision);
+    const co = (input) => post("/api/joint-application", { token: coToken, ...input });
+    const primary = await borrower(token, { type: "read" });
+    const joint = await co({ type: "read" });
+    assert.equal(primary.questionnaire.formRevision, v1.revision);
+    assert.deepEqual(primary.questionnaire.questions, [first, detail]);
+    assert.deepEqual(joint.questionnaire.answers, {});
+    const draft = { ...primaryJointDraft(sampleApplication(primary.draft)), confirmedDemo: true };
+    draft.urla.primary.joint.fields.initials = "FAQR";
+    const save = { type: "save", step: applicationSteps.length - 1, revision: primary.revision, draft,
+      questionnaire: { formRevision: v1.revision, answers: { [first.id]: "Yes" } } };
+    const partial = await borrower(token, save);
+    assert.deepEqual((await borrower(token, { type: "read" })).questionnaire.answers, save.questionnaire.answers);
+    assert.deepEqual((await co({ type: "read" })).questionnaire.answers, {});
+    const submit = { ...save, type: "submit", revision: partial.revision };
+    const missing = await postResponse("/api/demo-application", { ...submit, token });
+    assert.match(missing.result.error, /When should the loan team call/);
+    assert.equal(missing.status, 422);
+    submit.questionnaire = { ...submit.questionnaire, answers: { ...submit.questionnaire.answers, [detail.id]: "Tuesday morning" } };
+    assert.ok((await borrower(token, submit)).submittedAt);
+    assert.ok((await borrower(token, submit)).submittedAt);
+    const coSubmit = { type: "submit", step: coBorrowerReviewStep, revision: joint.revision, confirmedDemo: true,
+      draft: sampleCoBorrower(joint.draft), questionnaire: { formRevision: v1.revision, answers: { [first.id]: "No" } } };
+    assert.equal((await co(coSubmit)).complete, true);
+    assert.equal((await co(coSubmit)).complete, true);
+    const receipts = (await file(officer, loanId)).applicationQuestionReceipts;
+    assert.deepEqual(receipts.map(({ applicant, formRevision, answers }) => [applicant, formRevision, answers.map(({ value }) => value)]),
+      [["Primary borrower", v1.revision, ["Yes", "Tuesday morning"]], ["Co-borrower", v1.revision, ["No"]]]);
+    assert.ok((await action(competingOfficer, "readLoanForWork", loanId)).error);
+    return preview ? { ...preview, first, detail, version: v1.revision } : null;
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

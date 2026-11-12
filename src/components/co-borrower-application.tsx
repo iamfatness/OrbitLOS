@@ -19,6 +19,8 @@ import { borrowerActions, borrowerCorrectionTarget } from "@/lib/borrower-action
 import { BorrowerActionCenter } from "./borrower-action-center";
 import { BorrowerQuestionCards } from "./borrower-questions";
 import type { BorrowerQuestionResponse } from "@/lib/borrower-question-model";
+import { applicationQuestionIssue, type ApplicationQuestionnaireInput } from "@/lib/application-questionnaire-model";
+import { ApplicationQuestionFields } from "./application-questionnaire";
 
 async function requestCoBorrower(token: string, input: object, signal: AbortSignal): Promise<CoBorrowerApplication> {
   if (!portalTokenPattern.test(token)) throw new Error("Open the complete co-borrower link from your loan officer.");
@@ -44,13 +46,15 @@ export function CoBorrowerApplicationForm() {
 
 const labels = [...coBorrowerSections.map(([, label]) => label), "Review"];
 type CoBorrowerAction = { type: "read" } | { type: "attachSample"; requestId: string; revision: number } |
-  { type: "save" | "submit"; step: number; revision: number; draft: BorrowerDetails; confirmedDemo: boolean } | BorrowerDisclosureResponse | BorrowerQuestionResponse;
+  { type: "save" | "submit"; step: number; revision: number; draft: BorrowerDetails; confirmedDemo: boolean; questionnaire?: ApplicationQuestionnaireInput }
+  | BorrowerDisclosureResponse | BorrowerQuestionResponse;
 
 function CoBorrowerForm({ token }: { token?: string }) {
   const [view, setView] = useState<CoBorrowerApplication>();
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const errorSummary = useRef<HTMLDivElement>(null);
   const [answeredFinancingId, setAnsweredFinancingId] = useState<string>();
   const pending = useRef<AbortController | null>(null);
   const requestVersion = useRef(0);
@@ -60,6 +64,8 @@ function CoBorrowerForm({ token }: { token?: string }) {
   const actions = submitted && view?.complete ? borrowerActions(view, answeredFinancingId) : [];
   const actionCenter = view?.complete && <BorrowerActionCenter actions={actions}
     processing={view.documents?.filter((request) => request.pdfStatus === "Processing").length} />;
+
+  useEffect(() => { if (error) errorSummary.current?.focus(); }, [error]);
 
   useEffect(() => {
     if (token === undefined) return;
@@ -121,7 +127,9 @@ function CoBorrowerForm({ token }: { token?: string }) {
 
   function save(type: "save" | "submit", step: number, move = false) {
     if (!view || submitted) return;
-    void perform({ type, step, revision: view.revision, draft: view.draft, confirmedDemo: view.confirmedDemo },
+    const questionnaire = view.questionnaire;
+    void perform({ type, step, revision: view.revision, draft: view.draft, confirmedDemo: view.confirmedDemo,
+      ...(questionnaire ? { questionnaire: { formRevision: questionnaire.formRevision, answers: questionnaire.answers } } : {}) },
       type === "submit" ? "Your portion was submitted." : "Draft saved. Reopen this link to resume.", move);
   }
   function edit(section: keyof BorrowerDetails): ChangeAnswers {
@@ -134,6 +142,7 @@ function CoBorrowerForm({ token }: { token?: string }) {
     event.preventDefault();
     if (!view) return;
     if (view.step !== coBorrowerReviewStep) return save("save", view.step + 1, true);
+    if (questionIssue) { setError(questionIssue); requestAnimationFrame(() => errorSummary.current?.focus()); return; }
     const issues = coBorrowerSubmissionIssues(view.draft, view.confirmedDemo);
     if (issues.length) { setError(`Complete these items before submitting: ${issues.join("; ")}.`); return; }
     save("submit", view.step, true);
@@ -141,6 +150,7 @@ function CoBorrowerForm({ token }: { token?: string }) {
 
   const step = view?.step ?? 0;
   const reviewing = step === coBorrowerReviewStep;
+  const questionIssue = reviewing ? applicationQuestionIssue(view?.questionnaire) : undefined;
   const section = coBorrowerSections[step]?.[0];
   const refresh = () => void perform({ type: "read" }, "Joint application progress refreshed.");
   const attach = (request: DocumentRequest) => void perform({ type: "attachSample", requestId: request.id, revision: request.revision },
@@ -153,7 +163,11 @@ function CoBorrowerForm({ token }: { token?: string }) {
     {!submitted && <aside className="application-warning">Use fictional answers and a sample tax ID such as 000-00-2345.</aside>}
     {view?.correctionNote && !submitted && <BorrowerActionCenter actions={borrowerActions({ correction: view.correctionNote })}
       correction={view.correctionNote} />}
-    {error && <p className="application-message banner-error" role="alert">{error}</p>}
+    {error && <div ref={errorSummary} tabIndex={-1} className="application-message banner-error borrower-error-summary" role="alert">
+      <p>{error}</p>
+      {error === questionIssue && <Button size="sm" variant="outline"
+        onClick={() => document.getElementById("application-questionnaire-heading")?.focus()}>Go to brokerage questions</Button>}
+    </div>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status">Opening your portion…</p>}
     {submitted ? <div className="borrower-status">
@@ -190,6 +204,11 @@ function CoBorrowerForm({ token }: { token?: string }) {
           }}>Load sample and review my portion</Button></div>}
           {reviewing ? <>
             <h2>Review your portion</h2>
+            {view.questionnaire && <ApplicationQuestionFields questionnaire={view.questionnaire} change={(answers) => {
+              setView((current) => current?.questionnaire ? { ...current, questionnaire: { ...current.questionnaire, answers } } : current);
+              setNotice("");
+              if (error === questionIssue) setError("");
+            }} />}
             <QuestionnaireAnswers definition={jointQuestions} answers={view.draft.joint} />
             {coBorrowerSections.map(([key]) => <QuestionnaireAnswers key={key} definition={borrowerDefinition(key, false)} answers={view.draft[key]} />)}
             <label className="demo-confirm"><input type="checkbox" checked={view.confirmedDemo}

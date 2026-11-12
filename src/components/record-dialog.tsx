@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, Calculator, CheckCircle2, Circle, ClipboardList,
 import { activityKinds, contactOutcomes, leadSources, prospectingBlocked, stages, type ActivityKind, type Contact, type DraftAudience, type Loan, type Stage, type Submission, type Workspace } from "@/lib/model";
 import { dateTime, money, requestedMoney, stageDays } from "@/lib/utils";
 import { QuoteConsentEvidence, QuoteCorrectionEvidence } from "./quote-consent-receipt";
+import { ApplicationQuestionReceipts } from "./application-questionnaire";
 import { Button } from "./ui/button";
 import { ApplicationAnswers } from "./application-fields";
 import { JointBorrowerLinks } from "./joint-borrower-links";
@@ -755,6 +756,7 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
       {section === "1003" && <>
       {!processor && state.quoteConsent !== undefined && <QuoteConsentEvidence receipt={state.quoteConsent} />}
       {!processor && state.quoteOverrides && <QuoteCorrectionEvidence receipt={state.quoteOverrides} />}
+      {!!state.applicationQuestionReceipts?.length && <ApplicationQuestionReceipts receipts={state.applicationQuestionReceipts} />}
       {!fictionalUwm && staff && <UwmLoanActions key={`import:${loan.id}`} loanId={loan.id} staff={staff} application={application} view="import"/>}
       <LoanApplication loanId={loan.id} brokerageId={staff?.brokerage.id ?? demoBrokerageId} state={state} busy={busy} save={save} processor={processor}
         jointLinks={!processor && (staff ? staff.brokerage.id === demoBrokerageId || !!staff.brokerage.pilot : process.env.NODE_ENV === "development")}

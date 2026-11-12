@@ -2,27 +2,32 @@ import { quoteAnswerOptions, quotePrefillLabels, quotePrefillOptions, quoteQuest
   type QuoteIntakeQuestion } from "@/lib/quote-intake-questions";
 import { Button } from "./ui/button";
 
-export function QuoteQuestionEditor({ questions, change, busy }: {
-  questions: QuoteIntakeQuestion[]; change: (questions: QuoteIntakeQuestion[]) => void; busy: boolean;
+export function QuoteQuestionEditor({ questions, change, busy, application = false }: {
+  questions: QuoteIntakeQuestion[]; change: (questions: QuoteIntakeQuestion[]) => void; busy: boolean; application?: boolean;
 }) {
   function update(id: string, fields: Partial<QuoteIntakeQuestion>) {
     change(questions.map((question) => question.id === id ? { ...question, ...fields } : question));
   }
-  return <details className="document-form">
-    <summary>Conditional follow-up questions{questions.length > 0 && ` · ${questions.length}`}</summary>
-    <p className="muted">Show a question after a specific answer to an earlier choice. Staff review any 1003 fields before copying them.</p>
+  return <details className={application ? "document-form application-question-editor" : "document-form"}>
+    <summary>{application ? "Questions before 1003 submission" : "Conditional follow-up questions"}{questions.length > 0 && ` · ${questions.length}`}</summary>
+    <p className="muted">{application ? "Each applicant answers these when reviewing a new 1003. Drafts already issued keep their published questions." :
+      "Show a question after a specific answer to an earlier choice. Staff review any 1003 fields before copying them."}</p>
     {questions.map((question, index) => {
       const { id, kind, when } = question;
       const parents = questions.slice(0, index).filter((item) => quoteAnswerOptions(item.kind).length);
       const parent = parents.find((item) => item.id === when?.questionId);
       const choices = parent ? quoteAnswerOptions(parent.kind) : [];
-      const mappings = quotePrefillOptions(kind);
+      const mappings = application ? [] : quotePrefillOptions(kind);
       const usedBy = questions.some((item) => item.when?.questionId === id);
       return <fieldset className="record-form document-item" key={id} disabled={busy}>
-        <legend>Follow-up {index + 1}</legend>
+        <legend>{application ? "Application question" : "Follow-up"} {index + 1}</legend>
         <div className="form-grid">
-          <label className="field">Question<input value={question.prompt} required minLength={3} maxLength={120}
-            onChange={(event) => update(id, { prompt: event.target.value })} /></label>
+          <label className={application ? "field application-question-prompt" : "field"}>Question
+            {application ? <textarea rows={2} value={question.prompt} required minLength={3} maxLength={120}
+              onChange={(event) => update(id, { prompt: event.target.value })} /> :
+              <input value={question.prompt} required minLength={3} maxLength={120}
+                onChange={(event) => update(id, { prompt: event.target.value })} />}
+          </label>
           <label className="field">Answer type<select value={kind} onChange={(event) => {
             const next = quoteQuestionTypes.find((item) => item === event.target.value);
             if (next) update(id, { kind: next, prefill: next === kind ? question.prefill : null });
@@ -53,12 +58,12 @@ export function QuoteQuestionEditor({ questions, change, busy }: {
           onChange={(event) => update(id, { required: event.target.checked })} />
           <span>Require an answer when shown</span></label>
         <div><Button size="sm" variant="outline" disabled={usedBy || busy}
-          onClick={() => change(questions.filter((item) => item.id !== id))}>Remove follow-up {index + 1}</Button></div>
+          onClick={() => change(questions.filter((item) => item.id !== id))}>Remove {application ? "question" : "follow-up"} {index + 1}</Button></div>
         {usedBy && <p className="muted">Change the dependent questions before removing this one.</p>}
       </fieldset>;
     })}
     <div><Button size="sm" variant="outline" disabled={busy || questions.length >= quoteQuestionLimit} onClick={() => change([
       ...questions, { id: crypto.randomUUID(), prompt: "", kind: "Yes or no", when: null, required: false, prefill: null },
-    ])}>Add follow-up question</Button></div>
+    ])}>{application ? "Add application question" : "Add follow-up question"}</Button></div>
   </details>;
 }

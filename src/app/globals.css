@@ -490,6 +490,13 @@ button:disabled { cursor: default; }
 .quote-intake .demo-confirm:has(.quote-consent-copy) { min-height: 44px; font-size: 16px; line-height: 1.5; }
 .quote-intake .demo-confirm:has(.quote-consent-copy) input { flex: none; margin-top: 5px; }
 .quote-consent-receipt > summary { min-height: 44px; align-content: center; }
+.application-question-editor > summary { min-height: 44px; align-content: center; }
+.application-question-prompt { grid-column: 1 / -1; }
+.application-question-editor .demo-confirm { display: flex; align-items: center; min-height: 44px; font-size: 14px; }
+.application-question-editor .demo-confirm input { flex: none; margin-top: 0; }
+@media (max-width: 600px) {
+  .application-question-editor .form-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .intake-correction { min-inline-size: 0; }
 .document-form .intake-conversion { justify-items: stretch; }
 .intake-correction-options { display: flex; flex-wrap: wrap; gap: 0 16px; }

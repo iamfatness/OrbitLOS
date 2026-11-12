@@ -23,6 +23,7 @@ import { canUseServiceOrders, loanServiceOrders } from "./service-orders";
 import { closingServiceEvidence } from "./closing-service-evidence";
 import { storedQuoteConsent } from "./quote-intake-model";
 import { quoteOverrideEvidence } from "./quote-intake-questions";
+import { submittedApplicationAnswers } from "./application-questionnaires";
 import { loanWorkUnavailable } from "./loan-work-model";
 
 function loanHandoffVersion(db: Store, loanId: string) {
@@ -120,6 +121,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
   const repeatOption: ReturningClientOption = pastClientLoan(loan) || records.closingProgress[0]?.fundingDate ?
     returningClientOption(db, loanId, staff) : { kind: "unavailable" };
   const application = records.applications[0];
+  const applicationQuestionReceipts = application ? submittedApplicationAnswers(db, loanId) : [];
   const manualReturn = staff.brokerage.role !== "Processor" &&
     (application?.lastManualSubmissionId || application?.manualLenderRejected) && !application.manualHandoff?.submissionId ?
     readManualReturnWork(db, loanId, settings.requireSecondReview) : undefined;
@@ -135,6 +137,7 @@ function editableLoanRecords(db: Store, loanId: string, staff: WorkspaceStaff, h
     ...records, loanId, handoffVersion, processingActivity, contacts: visibleContacts, playbook, returningClientLoans, brokerageTemplates: readBrokerageTemplates(db),
     ...(websiteReceipt ? { quoteConsent: storedQuoteConsent(websiteReceipt.consentReceipt) } : {}),
     ...(overrides?.success ? { quoteOverrides: overrides.data } : {}),
+    ...(applicationQuestionReceipts.length ? { applicationQuestionReceipts } : {}),
     ...(disclosureWork ? { disclosureWork } : {}),
     borrowerQuestions: disclosureWork ? staffBorrowerQuestions(db, loanId) : [],
     ...(canUseServiceOrders(staff) ? { serviceOrders: loanServiceOrders(db, loanId), closingServiceEvidence: closingServiceEvidence(db, loanId) } : {}),

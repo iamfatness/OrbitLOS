@@ -20,10 +20,12 @@ import { BorrowerStatus } from "./borrower-status";
 import { BorrowerActionCenter } from "./borrower-action-center";
 import { BorrowerChannelOptions } from "./borrower-channel-preferences";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
+import { applicationQuestionIssue, type ApplicationQuestionnaireInput } from "@/lib/application-questionnaire-model";
+import { ApplicationQuestionFields } from "./application-questionnaire";
 
 type SubmittedView = Exclude<BorrowerStatusRefresh, { kind: "resume" }>;
 type ApplicationView = BorrowerApplication | SubmittedView;
-type BorrowerAction = { type: "save" | "submit"; step: number; revision: number; draft: BorrowerApplication["draft"] }
+type BorrowerAction = { type: "save" | "submit"; step: number; revision: number; draft: BorrowerApplication["draft"]; questionnaire?: ApplicationQuestionnaireInput }
   | { type: "status" }
   | BorrowerDisclosureResponse
   | BorrowerQuestionResponse
@@ -268,7 +270,9 @@ function BorrowerApplication({ token }: { token: string | null }) {
 
   function save(type: "save" | "submit", step: number, advance = false) {
     if (!application) return;
-    void perform({ type, step, revision: application.revision, draft: application.draft }, (next) => {
+    const questionnaire = application.questionnaire;
+    void perform({ type, step, revision: application.revision, draft: application.draft,
+      ...(questionnaire ? { questionnaire: { formRevision: questionnaire.formRevision, answers: questionnaire.answers } } : {}) }, (next) => {
       if (advance || next.submittedAt) window.scrollTo(0, 0);
       else setNotice("Draft saved. Reopen this same link to resume.");
     });
@@ -287,6 +291,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
 
   const step = application?.step ?? 0;
   const reviewing = step === applicationSteps.length - 1;
+  const questionIssue = reviewing ? applicationQuestionIssue(application?.questionnaire) : undefined;
   const update: UpdateDraft = (changes) => {
     if (pending.current) return;
     setView((current) => current && !("kind" in current) ? { ...current, draft: { ...current.draft, ...changes(current.draft) } } : current);
@@ -300,6 +305,7 @@ function BorrowerApplication({ token }: { token: string | null }) {
       return;
     }
     if (!application) return;
+    if (questionIssue) { setError(questionIssue); requestAnimationFrame(() => errorSummary.current?.focus()); return; }
     const missing = applicationIssues(application.draft, application.separateJoint);
     if (missing.length) {
       setLastAction(document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -321,7 +327,9 @@ function BorrowerApplication({ token }: { token: string | null }) {
       correction={application.correctionNote} />}
     {error && <div ref={errorSummary} tabIndex={-1} className="application-message banner-error borrower-error-summary" role="alert">
       <p>{error}</p>
-      {lastAction && <Button size="sm" variant="outline" onClick={() => lastAction.focus()}>Return to your last action</Button>}
+      {error === questionIssue ? <Button size="sm" variant="outline"
+        onClick={() => document.getElementById("application-questionnaire-heading")?.focus()}>Go to brokerage questions</Button> :
+        lastAction && <Button size="sm" variant="outline" onClick={() => lastAction.focus()}>Return to your last action</Button>}
     </div>}
     {notice && <p className="application-message" role="status">{notice}</p>}
     {!view && !error && <p role="status" className="application-message">Opening your application…</p>}
@@ -369,6 +377,12 @@ function BorrowerApplication({ token }: { token: string | null }) {
           </div>
           {reviewing ? <>
             <h2>Review your application</h2>
+            {application.questionnaire && <ApplicationQuestionFields questionnaire={application.questionnaire} change={(answers) => {
+              setView((current) => current && !("kind" in current) && current.questionnaire
+                ? { ...current, questionnaire: { ...current.questionnaire, answers } } : current);
+              setNotice("");
+              if (error === questionIssue) setError("");
+            }} />}
             <ApplicationAnswers draft={application.draft} />
             <label className="demo-confirm"><input type="checkbox" checked={application.draft.confirmedDemo}
               onChange={(event) => { const confirmedDemo = event.target.checked; update(() => ({ confirmedDemo })); }} /> I’m submitting fictional information for the Orbit demo.</label>

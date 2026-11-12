@@ -77,14 +77,14 @@ export function visibleQuoteQuestions(questions: readonly QuoteIntakeQuestion[],
   });
 }
 
-export function collectQuoteAnswers(questions: readonly QuoteIntakeQuestion[], values: Readonly<Record<string, string>>):
+export function collectQuoteAnswers(questions: readonly QuoteIntakeQuestion[], values: Readonly<Record<string, string>>, submitting = true):
   { answers: QuoteAcceptedAnswer[] } | { error: string } {
   const answers: QuoteAcceptedAnswer[] = [];
   for (const item of visibleQuoteQuestions(questions, values)) {
     const { id, prompt, kind, prefill } = item;
     const value = values[id]?.trim() ?? "";
     if (!value) {
-      if (item.required) return { error: `Answer this question before submitting. ${prompt}` };
+      if (item.required && submitting) return { error: `Answer this question before submitting. ${prompt}` };
       continue;
     }
     const options = quoteAnswerOptions(kind);

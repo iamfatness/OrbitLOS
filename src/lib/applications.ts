@@ -34,6 +34,9 @@ import { borrowerQuestions, recordBorrowerAnswer } from "./borrower-questions";
 import { loanOutreachSuppressed } from "./outreach-preferences";
 import { defaultLenderExportProfile, lenderExportProfile } from "./lender-export-model";
 import { sameManualQuote, type ManualQuoteBasis } from "./manual-pricing-model";
+import { applicationQuestionnaireInput } from "./application-questionnaire-model";
+import { pinApplicationQuestionnaire, prepareApplicationAnswers, readApplicationQuestionnaire,
+  sameApplicationAnswers, saveApplicationAnswers } from "./application-questionnaires";
 
 type ApplicationRow = Omit<StaffApplication, "draft" | "draftHasPropertyStreet" | "joint" | "lender" | "manualHandoff" | "lastManualSubmissionId" | "currentManualExportPrepared" | "lastExportProfile" |
   "versions" | "previousAnswers" | "secondReviewApproved" | "uwmPendingReceipt" | "manualLenderRejected"> & { draft: string; step: number };
@@ -201,16 +204,18 @@ export function startApplication(db: Store, loanId: string, now: string, brokera
   const property = splitLegacyAddress(intake?.propertyAddress ?? String(loan.address));
   const zip = property.location.zip || intake?.propertyZip || "";
   const email = intake?.email || String(loan.email);
+  const purpose = loan.purpose === "Refinance" ? "Refinance" : "Purchase";
   const draft: ApplicationDraft = {
     ...blankApplication(), borrowerName: String(loan.name), propertyAddress: property.street,
     propertyLocation: fillPropertyLocality({ ...property.location, zip }),
     email: email.length <= 160 ? email : "", phone: intake?.phone || String(loan.phone),
     loanAmount: Number(loan.amount) > 0 ? String(loan.amount) : "",
-    purpose: loan.purpose === "Refinance" ? "Refinance" : "Purchase",
+    purpose,
     ...intake?.reviewedFields,
   };
   db.prepare("INSERT INTO applications (loanId, token, expiresAt, draft, updatedAt) VALUES (?, ?, ?, ?, ?)")
     .run(loanId, token, expiresAt, JSON.stringify(draft), now);
+  pinApplicationQuestionnaire(db, loanId, purpose);
   addApplicationActivity(db, loanId, "Demo 1003 link created.", now);
   return true;
 }
@@ -218,6 +223,7 @@ export function startApplication(db: Store, loanId: string, now: string, brokera
 const token = z.string().regex(portalTokenPattern);
 const write = {
   token, draft: applicationDraft,
+  questionnaire: applicationQuestionnaireInput,
   revision: z.number().int().min(0),
   step: z.number().int().min(0).max(applicationSteps.length - 1),
 };
@@ -306,12 +312,15 @@ function borrowerResult(db: Store, row: ApplicationRow, now: string, sampleSigni
   const joint = jointApplication(db, row.loanId);
   const stored = applicationDraft.parse(JSON.parse(row.draft));
   const draft = joint ? primaryJointDraft(stored) : stored;
+  const questionnaire = !row.submittedAt && !joint?.primarySubmittedAt
+    ? readApplicationQuestionnaire(db, row.loanId, primaryDocumentRecipient) : undefined;
   if (!row.submittedAt) draft.propertyLocation = fillPropertyLocality(draft.propertyLocation);
   return { application: {
     draft,
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt ?? joint?.primarySubmittedAt ?? null,
     loanStatus: readBorrowerLoanStatus(db, row, row.token, now, sampleSigning, pilot),
     correctionNote: !joint?.primarySubmittedAt && row.correctionNote ? row.correctionNote : undefined,
+    ...(questionnaire ? { questionnaire } : {}),
     ...(joint ? { separateJoint: true } : {}),
   } };
 }
@@ -428,6 +437,9 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     if (!primaryReady && !row.submittedAt && row.revision !== data.revision) {
       return { status: 409, error: "This application was updated in another tab. Reopen the link to continue from the latest saved draft." };
     }
+    const questionnaire = readApplicationQuestionnaire(db, row.loanId, primaryDocumentRecipient);
+    const prepared = prepareApplicationAnswers(questionnaire, data.questionnaire, submitted);
+    if (prepared && "error" in prepared) return prepared;
 
     const inputDraft = joint ? primaryJointDraft(data.draft) : data.draft;
     const normalized = normalizeUrla(inputDraft.urla, false);
@@ -446,14 +458,19 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     }
     if (primaryReady) {
       const stored = primaryJointDraft(applicationDraft.parse(JSON.parse(row.draft)));
-      return isDeepStrictEqual(draft, stored) ? borrowerResult(db, row, now, sampleSigning, pilot) : alreadySubmitted;
+      return isDeepStrictEqual(draft, stored) && sameApplicationAnswers(questionnaire, prepared)
+        ? borrowerResult(db, row, now, sampleSigning, pilot) : alreadySubmitted;
     }
     if (row.submittedAt) {
-      return isDeepStrictEqual(JSON.parse(JSON.stringify(draft)), JSON.parse(row.draft)) ? borrowerResult(db, row, now, sampleSigning, pilot) : alreadySubmitted;
+      return isDeepStrictEqual(JSON.parse(JSON.stringify(draft)), JSON.parse(row.draft)) && sameApplicationAnswers(questionnaire, prepared)
+        ? borrowerResult(db, row, now, sampleSigning, pilot) : alreadySubmitted;
     }
+    if (submitted) {
+      const issues = applicationIssues(draft, !!joint);
+      if (issues.length) return invalidApplication(issues);
+    }
+    if (prepared) saveApplicationAnswers(db, row.loanId, primaryDocumentRecipient, prepared, submitted ? now : null, row.revision + 1);
     if (!submitted) return borrowerResult(db, saveBorrowerDraft(db, row, draft, data.step, now, false), now, sampleSigning, pilot);
-    const issues = applicationIssues(draft, !!joint);
-    if (issues.length) return invalidApplication(issues);
     const combined = joint?.submittedAt ? combinedJointDraft(draft, borrowerDetailsSchema.parse(JSON.parse(joint.draft))) : draft;
     if (joint) {
       db.prepare("UPDATE joint_applications SET primarySubmittedAt = ? WHERE loanId = ?").run(now, row.loanId);
@@ -481,9 +498,11 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
       const disclosure = complete && submittedAt && sampleSigning ? readBorrowerDisclosure(db, row.loanId, "Co-borrower") : undefined;
       const questions = complete && submittedAt && sampleSigning ? borrowerQuestions(db, row.loanId, coBorrowerDocumentRecipient) : [];
       const realtorFinancing = complete && submittedAt && pilot ? readBorrowerFinancingRequest(db, row.loanId, "Co-borrower", data.token, now) : null;
+      const questionnaire = !submittedAt ? readApplicationQuestionnaire(db, row.loanId, coBorrowerDocumentRecipient) : undefined;
       return { value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
         ...(complete && submittedAt ? { documents: borrowerDocuments(db, row.loanId, coBorrowerDocumentRecipient) } : {}),
         ...(questions.length ? { questions } : {}),
+        ...(questionnaire ? { questionnaire } : {}),
         ...(realtorFinancing ? { realtorFinancing } : {}),
         ...(closingPause ? { closingPause } : {}),
         ...(disclosure ? { disclosure } : {}),
@@ -503,10 +522,14 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
       return attachBorrowerSample(db, { loanId: row.loanId, submittedAt: ready }, data, true, now, coBorrowerDocumentRecipient) ?? view();
     }
     const submitted = data.type === "submit";
+    const questionnaire = readApplicationQuestionnaire(db, row.loanId, coBorrowerDocumentRecipient);
+    const prepared = prepareApplicationAnswers(questionnaire, data.questionnaire, submitted);
+    if (prepared && "error" in prepared) return prepared;
     const { borrower, issues } = normalizeBorrowerDetails(data.draft, false, false, true);
     if (issues.length) return { status: 422, error: "Use a fictional tax ID in the format 000-00-1234 and only four digits for account references." };
     if (row.submittedAt) {
-      return submitted && row.revision === data.revision + 1 && row.step === data.step && data.confirmedDemo && isDeepStrictEqual(borrower, current)
+      return submitted && row.revision === data.revision + 1 && row.step === data.step && data.confirmedDemo &&
+        isDeepStrictEqual(borrower, current) && sameApplicationAnswers(questionnaire, prepared)
         ? view() : { status: 409, error: "Your portion has already been submitted. Reopen the link to check its status." };
     }
     if (row.revision !== data.revision) return { status: 409, error: "Your draft changed in another tab. Reopen the link to load the latest answers." };
@@ -515,6 +538,7 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
       if (missing.length) return invalidApplication(missing);
     }
     const submittedAt = submitted ? now : null;
+    if (prepared) saveApplicationAnswers(db, row.loanId, coBorrowerDocumentRecipient, prepared, submittedAt, row.revision + 1);
     db.prepare(`UPDATE joint_applications SET draft = ?, step = ?, revision = revision + 1, updatedAt = ?, submittedAt = ?,
       confirmedDemo = ?, correctionNote = CASE WHEN ? IS NULL THEN correctionNote ELSE '' END WHERE loanId = ?`)
       .run(JSON.stringify(borrower), data.step, now, submittedAt, Number(data.confirmedDemo), submittedAt, row.loanId);

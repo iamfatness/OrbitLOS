@@ -24,6 +24,8 @@ const { closingPacketPdf } = await import("../src/lib/closing-packet-pdf.ts");
 const { borrowerQuestionSetWork } = await import("../src/lib/borrower-question-sets.ts");
 const { questionSetDueDate } = await import("../src/lib/borrower-question-set-model.ts");
 const { borrowerChecklistTokens } = await import("../src/lib/borrower-change-signal.ts");
+const { workOnQuoteSettings } = await import("../src/lib/quote-intake.ts");
+const { defaultQuoteIntakeConfig } = await import("../src/lib/quote-intake-model.ts");
 
 test("borrower actions use the earliest dates and exclude completed or processing work", () => {
   const document = { kind: "Pay stub", instructions: "", status: "Requested", replacementNote: "",
@@ -177,7 +179,7 @@ test("a question set sends only selected prompts to the chosen borrower and keep
   assert.deepEqual(f.db.prepare("PRAGMA foreign_key_check").all(), []);
 });
 
-function fixture(t) {
+function fixture(t, beforeApplication) {
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => sqlite.close());
   sqlite.exec("PRAGMA foreign_keys = ON");
@@ -192,6 +194,7 @@ function fixture(t) {
   insertContact(db, { id: loanId, name: "Fictional Primary", email: "primary-private@example.test", role: "Borrower", phone: "" });
   insertLoan(db, { id: loanId, contactId: loanId, partnerId: null, officer: officer.name, officerEmail: officer.email,
     amount: 0, address: "", purpose: "Purchase", stage: "Lead", stageSince: now });
+  beforeApplication?.(db, officer, now);
   startApplication(db, loanId, now, brokerage.id);
   const primaryToken = getApplication(db, loanId).token;
   const primary = (input = { type: "read" }) => borrowerCommandResult(db, { token: primaryToken, ...input }, true, true);
@@ -216,6 +219,52 @@ function fixture(t) {
   const count = (table, filter = "") => db.prepare(`SELECT count(*) AS total FROM ${table} WHERE loanId = ? ${filter}`).get(loanId).total;
   return { db, officer, processor, outsider, brokerage, loanId, now, primaryToken, primary, co, run, enable, primaryWrite, primarySample, coSample, coWrite, count };
 }
+
+test("a joint 1003 pins brokerage questions and keeps saved and submitted answers separate by applicant", async (t) => {
+  const choice = { id: crypto.randomUUID(), prompt: "Do you need a fictional callback?", kind: "Yes or no", required: true, when: null, prefill: null };
+  const detail = { id: crypto.randomUUID(), prompt: "When should we call?", kind: "Short text", required: true,
+    when: { questionId: choice.id, equals: "Yes" }, prefill: null };
+  const publish = (db, officer, at, revision, questions) => workOnQuoteSettings(db,
+    { type: "publish", profile: "Purchase", revision, config: { ...defaultQuoteIntakeConfig, applicationQuestions: questions } },
+    { ...officer, brokerage: { ...officer.brokerage, role: "Admin" } }, officer.brokerage.id, at);
+  const f = fixture(t, (db, officer, at) => assert.equal(publish(db, officer, at, 0, [choice, detail]).revision, 1));
+  assert.ok((await f.enable()).message);
+  const primary = f.primary().application;
+  const co = f.co().value;
+  assert.deepEqual(primary.questionnaire.questions, [choice, detail]);
+  assert.deepEqual(co.questionnaire.answers, {});
+  const data = { formRevision: 1, answers: { [choice.id]: "Yes" } };
+  const partial = f.primary({ ...f.primaryWrite(f.primarySample(primary.draft), primary.revision, "save"), questionnaire: data });
+  assert.deepEqual(partial.application.questionnaire.answers, data.answers);
+  assert.deepEqual(f.co().value.questionnaire.answers, {});
+  assert.equal(publish(f.db, f.officer, f.now, 1, [{ ...choice, prompt: "A new fictional question" }]).revision, 2);
+  assert.deepEqual(f.primary().application.questionnaire.questions, [choice, detail]);
+  const input = f.primaryWrite(partial.application.draft, partial.application.revision);
+  assert.equal(f.primary(input).status, 409);
+  assert.equal(f.primary({ ...input, questionnaire: { ...data, formRevision: 2 } }).status, 409);
+  assert.match(f.primary({ ...input, questionnaire: data }).error, /When should we call/);
+  assert.equal(f.primary({ ...input, questionnaire: { ...data, answers: { [choice.id]: "Maybe" } } }).status, 422);
+  assert.equal(f.count("application_questionnaire_submissions"), 0);
+  const submittedPrimary = { ...input, questionnaire: { ...data, answers: { ...data.answers, [detail.id]: "Fictional Tuesday" } } };
+  assert.ok(f.primary(submittedPrimary).application.submittedAt);
+  assert.ok(f.primary(submittedPrimary).application.submittedAt);
+  assert.equal(f.primary({ ...submittedPrimary, questionnaire: { ...data, answers: { [choice.id]: "No" } } }).status, 409);
+  assert.deepEqual(f.co().value.questionnaire.answers, {});
+  const coInput = { ...f.coWrite(f.coSample(co.draft), co.revision), questionnaire: {
+    formRevision: 1, answers: { [choice.id]: "No", [detail.id]: "Hidden value to discard" },
+  } };
+  assert.equal(f.co(coInput).value.complete, true);
+  assert.equal(f.co(coInput).value.complete, true);
+  assert.equal(f.count("application_questionnaire_submissions"), 2);
+  const file = readEditableLoan(f.db, f.loanId, f.officer, f.brokerage.id);
+  assert.deepEqual(file.applicationQuestionReceipts.map(({ applicant, formRevision, answers }) =>
+    [applicant, formRevision, answers.map(({ value }) => value)]), [
+    ["Primary borrower", 1, ["Yes", "Fictional Tuesday"]], ["Co-borrower", 1, ["No"]],
+  ]);
+  assert.ok(readEditableLoan(f.db, f.loanId, f.outsider, f.brokerage.id).error);
+  assert.equal("applicationQuestionReceipts" in f.primary().application, false);
+  assert.equal("applicationQuestionReceipts" in f.co().value, false);
+});
 
 test("sample disclosure packages pin reviewed joint signers and fees and route one actionable revision task", async (t) => {
   const f = fixture(t);

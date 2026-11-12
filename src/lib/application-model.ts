@@ -181,6 +181,7 @@ export function applicationIssues(draft: ApplicationDraft, separateJoint = false
 }
 
 export interface BorrowerApplication {
+  questionnaire?: import("./application-questionnaire-model").ApplicationQuestionnaire;
   separateJoint?: boolean;
   correctionNote?: string;
   draft: ApplicationDraft;
