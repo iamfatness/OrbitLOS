@@ -15,6 +15,7 @@ import { borrowerActions, borrowerDocumentTarget, borrowerDocumentVerificationTa
 import { BorrowerActionCenter } from "./borrower-action-center";
 import { BorrowerQuestionCards } from "./borrower-questions";
 import type { BorrowerQuestionResponse } from "@/lib/borrower-question-model";
+import { BorrowerFinancingPermission } from "./realtor-financing-summary";
 
 const stageUpdates: Record<Stage, { label: string; next: string }> = {
   Lead: { label: "Getting started", next: "Your loan officer will review your application and share the next steps." },
@@ -64,6 +65,8 @@ export function BorrowerStatus({ token, status, submittedAt, busy, refresh, atta
     {!hasActions && actionCenter}
     {status.disclosure && <BorrowerSampleDisclosure key={status.disclosure.version} item={status.disclosure} busy={busy} respond={respondToDisclosure} />}
     <BorrowerQuestionCards questions={status.questions} busy={busy} answer={answerQuestion} />
+    {status.realtorFinancing && <BorrowerFinancingPermission token={token} initial={status.realtorFinancing}
+      key={`${status.realtorFinancing.id}:${status.realtorFinancing.permission}:${status.realtorFinancing.publishedAt}`} />}
     {status.quoteExpiredOn && <section className="application-panel application-receipt document-section" aria-label="Expired sample quote">
       <h2><Calculator size={19} /> Your sample quote expired</h2>
       <p>The sample quote was available through {dateLabel(status.quoteExpiredOn)} Eastern. Your loan officer can share an updated comparison.</p>

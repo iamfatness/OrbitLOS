@@ -55,6 +55,7 @@ export interface CoBorrowerApplication {
   questions?: BorrowerQuestion[];
   closingPause?: ClosingPause;
   disclosure?: BorrowerDisclosure;
+  realtorFinancing?: NonNullable<import("./realtor-financing-model").BorrowerRealtorFinancingView["request"]>;
   documentUploadsMode?: "mock";
   correctionNote?: string;
 }

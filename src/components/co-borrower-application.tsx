@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Check, Save } from "lucide-react";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { coBorrowerReviewStep, coBorrowerSections, coBorrowerSubmissionIssues, sampleCoBorrower, type CoBorrowerApplication } from "@/lib/joint-application-model";
+import { BorrowerFinancingPermission } from "./realtor-financing-summary";
 import { observeHandoffChecks } from "@/lib/tab-return";
 import { announceBorrowerChange, observeBorrowerChange } from "@/lib/borrower-change-signal";
 import type { DocumentRequest } from "@/lib/document-model";
@@ -167,6 +168,8 @@ function CoBorrowerForm({ token }: { token?: string }) {
         respond={(input) => void perform(input, "Your sample disclosure response was recorded.")} />}
       <BorrowerQuestionCards questions={view?.questions} busy={busy}
         answer={(input) => void perform(input, "Your answer was sent to the loan team.")} />
+      {token && view?.realtorFinancing && <BorrowerFinancingPermission token={token} initial={view.realtorFinancing}
+        key={`${view.realtorFinancing.id}:${view.realtorFinancing.permission}:${view.realtorFinancing.publishedAt}`} />}
       {token && view?.complete && view.documents && <BorrowerDocumentChecklist token={token} documents={view.documents}
         busy={busy} refresh={refresh} attach={attach} uploadsMode={view.documentUploadsMode} />}
     </div> : view && <section className="application-panel" aria-label="Co-borrower portion"

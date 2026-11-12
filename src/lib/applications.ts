@@ -8,6 +8,7 @@ import { createMilestoneDrafts } from "./communications";
 import { borrowerDetailsSchema, lenderDetailsSchema, normalizeBorrowerDetails, normalizeUrla, type BorrowerDetails } from "./urla";
 import { coBorrowerDocumentRecipient, needsBorrowerDocument, primaryDocumentRecipient, type BorrowerLoanStatus, type DocumentRecipient, type DocumentRequest } from "./document-model";
 import { sharedQuoteExpired } from "./shared-quote-model";
+import { readBorrowerFinancingRequest } from "./realtor-financing";
 import { readSharedPreapprovalLetters } from "./preapproval-sharing";
 import { portalToken, portalTokenPattern } from "./brokerage-model";
 import type { BorrowerQuote } from "./pricing-model";
@@ -268,7 +269,7 @@ function borrowerContactPreferences(db: Store, data: Extract<z.infer<typeof borr
   return view(data.blocked, nextHours);
 }
 
-function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string, sampleSigning: boolean): BorrowerLoanStatus | null {
+function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string, now: string, sampleSigning: boolean, pilot: boolean): BorrowerLoanStatus | null {
   const loan = row.submittedAt ? db.prepare("SELECT stage, stageSince FROM loans WHERE id = ?").get(row.loanId) : null;
   const published = loan && !row.correctionNote && db.prepare(`SELECT quote.product, quote.rate, quote.principalAndInterest,
     quote.quotedAt, quote.publishedAt, quote.presentation, quote.expiresOn FROM published_quotes quote
@@ -287,6 +288,7 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
   const questions = loan && sampleSigning ? borrowerQuestions(db, row.loanId, primaryDocumentRecipient) : [];
   const expiresOn = published && typeof published.expiresOn === "string" ? published.expiresOn : null;
   const expired = currentAlternatives && sharedQuoteExpired(expiresOn, new Date(now));
+  const realtorFinancing = loan && pilot ? readBorrowerFinancingRequest(db, row.loanId, "Borrower", token, now) : null;
   return loan ? {
     stage: loan.stage as BorrowerLoanStatus["stage"], stageSince: String(loan.stageSince), reviewed: Boolean(row.reviewedAt),
     documents: borrowerDocuments(db, row.loanId, primaryDocumentRecipient),
@@ -294,12 +296,13 @@ function readBorrowerLoanStatus(db: Store, row: BorrowerStatusRow, token: string
     quote: published && currentAlternatives && !expired ? { ...published, presentation: borrowerQuotePresentation(presentation) } as unknown as BorrowerQuote : null,
     ...(expired && expiresOn ? { quoteExpiredOn: expiresOn } : {}),
     ...(preapproval ? { preapproval } : {}),
+    ...(realtorFinancing ? { realtorFinancing } : {}),
     ...(closingPause ? { closingPause } : {}),
     ...(disclosure ? { disclosure } : {}),
   } : null;
 }
 
-function borrowerResult(db: Store, row: ApplicationRow, now: string, sampleSigning: boolean): BorrowerResult {
+function borrowerResult(db: Store, row: ApplicationRow, now: string, sampleSigning: boolean, pilot: boolean): BorrowerResult {
   const joint = jointApplication(db, row.loanId);
   const stored = applicationDraft.parse(JSON.parse(row.draft));
   const draft = joint ? primaryJointDraft(stored) : stored;
@@ -307,7 +310,7 @@ function borrowerResult(db: Store, row: ApplicationRow, now: string, sampleSigni
   return { application: {
     draft,
     step: row.step, revision: row.revision, updatedAt: row.updatedAt, submittedAt: row.submittedAt ?? joint?.primarySubmittedAt ?? null,
-    loanStatus: readBorrowerLoanStatus(db, row, row.token, now, sampleSigning),
+    loanStatus: readBorrowerLoanStatus(db, row, row.token, now, sampleSigning, pilot),
     correctionNote: !joint?.primarySubmittedAt && row.correctionNote ? row.correctionNote : undefined,
     ...(joint ? { separateJoint: true } : {}),
   } };
@@ -407,14 +410,14 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
         const failure = attachBorrowerSample(db, row, data, allowSample, now);
         if (failure) return failure;
       }
-      const loanStatus = readBorrowerLoanStatus(db, row, data.token, now, sampleSigning);
+      const loanStatus = readBorrowerLoanStatus(db, row, data.token, now, sampleSigning, pilot);
       return loanStatus ? { statusView: { kind: "status", submittedAt: row.submittedAt, loanStatus } } : borrowerLinkUnavailable;
     }
     const row = db.prepare(`SELECT * ${borrowerLink}`).get(data.token, now) as ApplicationRow | undefined;
     if (!row) return borrowerLinkUnavailable;
-    if (data.type === "read") return borrowerResult(db, row, now, sampleSigning);
+    if (data.type === "read") return borrowerResult(db, row, now, sampleSigning, pilot);
     if (data.type === "attachSample") {
-      return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row, now, sampleSigning);
+      return attachBorrowerSample(db, row, data, allowSample, now) ?? borrowerResult(db, row, now, sampleSigning, pilot);
     }
     const submitted = data.type === "submit";
     const joint = jointApplication(db, row.loanId);
@@ -443,12 +446,12 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     }
     if (primaryReady) {
       const stored = primaryJointDraft(applicationDraft.parse(JSON.parse(row.draft)));
-      return isDeepStrictEqual(draft, stored) ? borrowerResult(db, row, now, sampleSigning) : alreadySubmitted;
+      return isDeepStrictEqual(draft, stored) ? borrowerResult(db, row, now, sampleSigning, pilot) : alreadySubmitted;
     }
     if (row.submittedAt) {
-      return isDeepStrictEqual(JSON.parse(JSON.stringify(draft)), JSON.parse(row.draft)) ? borrowerResult(db, row, now, sampleSigning) : alreadySubmitted;
+      return isDeepStrictEqual(JSON.parse(JSON.stringify(draft)), JSON.parse(row.draft)) ? borrowerResult(db, row, now, sampleSigning, pilot) : alreadySubmitted;
     }
-    if (!submitted) return borrowerResult(db, saveBorrowerDraft(db, row, draft, data.step, now, false), now, sampleSigning);
+    if (!submitted) return borrowerResult(db, saveBorrowerDraft(db, row, draft, data.step, now, false), now, sampleSigning, pilot);
     const issues = applicationIssues(draft, !!joint);
     if (issues.length) return invalidApplication(issues);
     const combined = joint?.submittedAt ? combinedJointDraft(draft, borrowerDetailsSchema.parse(JSON.parse(joint.draft))) : draft;
@@ -458,7 +461,7 @@ export function borrowerCommandResult(db: Store, input: unknown, allowSample = t
     }
     const next = joint && !joint.submittedAt ? saveBorrowerDraft(db, row, draft, data.step, now, false) :
       finishApplication(db, row, combined, data.step, now, pilot);
-    return borrowerResult(db, next, now, sampleSigning);
+    return borrowerResult(db, next, now, sampleSigning, pilot);
   });
 }
 
@@ -477,9 +480,11 @@ export function coBorrowerCommandResult(db: Store, input: unknown, pilot = false
       const closingPause = complete && submittedAt ? readClosingPauses(db, [row.loanId]).get(row.loanId) : undefined;
       const disclosure = complete && submittedAt && sampleSigning ? readBorrowerDisclosure(db, row.loanId, "Co-borrower") : undefined;
       const questions = complete && submittedAt && sampleSigning ? borrowerQuestions(db, row.loanId, coBorrowerDocumentRecipient) : [];
+      const realtorFinancing = complete && submittedAt && pilot ? readBorrowerFinancingRequest(db, row.loanId, "Co-borrower", data.token, now) : null;
       return { value: { draft, revision, step, updatedAt, submittedAt, complete, confirmedDemo,
         ...(complete && submittedAt ? { documents: borrowerDocuments(db, row.loanId, coBorrowerDocumentRecipient) } : {}),
         ...(questions.length ? { questions } : {}),
+        ...(realtorFinancing ? { realtorFinancing } : {}),
         ...(closingPause ? { closingPause } : {}),
         ...(disclosure ? { disclosure } : {}),
         ...(row.correctionNote && !submittedAt ? { correctionNote: row.correctionNote } : {}) } };

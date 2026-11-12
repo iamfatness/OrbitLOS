@@ -49,6 +49,7 @@ import { DisclosureWorkbench } from "./disclosure-workbench";
 import { TridEvidencePanel } from "./trid-evidence-panel";
 import { disclosureTarget, disclosureTask } from "@/lib/disclosure-model";
 import { isSharedQuoteReview, sharedQuoteReviewTarget } from "@/lib/shared-quote-model";
+import { StaffRealtorFinancing } from "./realtor-financing-summary";
 import { mockUwmReceiptTaskPrefix } from "@/lib/uwm-handoff-recovery";
 import { fundingTaskId, reversedFundingTaskPrefix } from "@/lib/playbook-model";
 import { CreditAusWorkbench } from "./credit-aus-workbench";
@@ -716,6 +717,8 @@ function LoanDetails({ loan, state, staff, busy, save, show, target, campaignLen
           {rate.quoteTerms && ` · ${mockRateQuoteTermsLabel(rate.quoteTerms)}`}{rate.lockCancelledAt
           ? ` · ${dateTime(rate.lockCancelledAt)} ET` : rate.lockExpiresAt && ` · Expires ${dateTime(rate.lockExpiresAt)} ET`}</p>}
       </section>
+      {staff?.brokerage.pilot && !processor && loan.purpose === "Purchase" &&
+        <StaffRealtorFinancing key={loan.id} loanId={loan.id} brokerageId={staff.brokerage.id} />}
       {(staff?.brokerage.pilot || (!staff && process.env.NODE_ENV === "development")) &&
         <IncomeWorksheet key={`${loan.id}:${incomeWorksheetRevision ?? "current"}`} loanId={loan.id}
           brokerageId={staff?.brokerage.id ?? demoBrokerageId} focused={target === "income-worksheet"} worksheetRevision={incomeWorksheetRevision}

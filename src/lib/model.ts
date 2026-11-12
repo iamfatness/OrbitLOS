@@ -8,6 +8,7 @@ import type { RealtorClaimPolicy } from "./realtor-claim-model";
 import type { LoanProcessing } from "./processing-model";
 import type { FeeWorksheet } from "./quote-worksheet";
 import type { SharedPreapprovalLetter } from "./preapproval-model";
+import type { SharedRealtorFinancing } from "./realtor-financing-model";
 import type { BorrowerHours } from "./borrower-hours";
 
 export const stages = [
@@ -218,7 +219,8 @@ export type ClosingPause = { label: "Closing on hold" | "Funding on hold"; since
 
 export interface RealtorReferrals {
   realtorName: string;
-  referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string; closingPause?: ClosingPause; preapproval?: SharedPreapprovalLetter }[];
+  referrals: { borrowerName: string; stage: Stage | "Referral received"; updatedAt: string; closingPause?: ClosingPause;
+    preapproval?: SharedPreapprovalLetter; financing?: SharedRealtorFinancing }[];
   next: RealtorReferralCursor | null;
 }
 

@@ -88,6 +88,7 @@ export interface BorrowerLoanStatus {
   quote: BorrowerQuote | null;
   quoteExpiredOn?: string;
   preapproval?: SharedPreapprovalLetter;
+  realtorFinancing?: NonNullable<import("./realtor-financing-model").BorrowerRealtorFinancingView["request"]>;
   disclosure?: import("./disclosure-model").BorrowerDisclosure;
 }
 

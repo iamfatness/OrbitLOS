@@ -5604,12 +5604,64 @@ try {
     assert.deepEqual((await mine()).offers, []);
   });
 
+  const realtorFinancingFixture = await stage("Borrower permission and LO publication gate the sample realtor financing summary", async () => {
+    const partnerName = "Fictional Financing Partner";
+    await write(owner, { type: "contact", role: "Realtor", name: partnerName, email: "working-day-financing-partner@example.test", phone: "" });
+    const partnerId = (await workspace(owner)).contacts.find(item => item.name === partnerName).id;
+    await action(owner, "mutate", { type: "createRealtorPortal", realtorId: partnerId, officerEmail: officer.email }, "realtors");
+    const link = (await workspace(owner)).realtorPortals.find(item => item.realtorId === partnerId);
+    assert.ok(link?.token);
+    const borrowerName = "Fictional Financing Buyer";
+    const created = await write(officer, { type: "loan", contactId: "", borrower: borrowerName,
+      borrowerEmail: "working-day-financing-buyer@example.test", start1003: true, partnerId, officer: officer.name,
+      address: "", amount: 350000, purpose: "Purchase", stage: "Lead" });
+    const loanId = created.loanWork.loanId;
+    const { token } = (await file(officer, loanId)).applications[0];
+    const initial = await borrower(token, { type: "read" });
+    const draft = { ...sampleApplication(initial.draft), confirmedDemo: true };
+    const submitted = await borrower(token, { type: "submit", revision: initial.revision, step: applicationSteps.length - 1, draft });
+    await loanAction(officer, loanId, "reviewApplication", { revision: submitted.revision });
+    const priced = await loanAction(officer, loanId, "runPricing", { applicationRevision: submitted.revision, scenario: {
+      purpose: "Purchase", loanAmount: Number(draft.loanAmount), propertyValue: Number(draft.estimatedValue), purchasePrice: null,
+      zip: draft.propertyLocation.zip, creditScore: 750, monthlyIncome: Number(draft.monthlyIncome), occupancy: draft.occupancy,
+      propertyType: "Single family", firstTimeBuyer: false,
+    } });
+    const run = priced.state.pricingRuns.find(item => item.loanId === loanId);
+    const selected = { runId: run.id, offerId: run.offers[0].id };
+    await loanAction(officer, loanId, "selectOffer", selected);
+    await loanAction(officer, loanId, "publishDatedQuote", { ...selected, feeRevision: 0, alternatives: [], expiresOn: shiftReportDate(today, 7),
+      previousPublishedAt: null, reviewRevision: 0, reviewNote: "" });
+    const staffPath = `/api/brokerages?brokerage=${brokerage}&view=realtor-financing`;
+    const borrowerPath = "/api/realtor-financing-permission";
+    const staffView = await post(staffPath, { type: "read", loanId }, officer);
+    assert.equal((await postResponse(staffPath, { type: "read", loanId }, competingOfficer)).status, 404);
+    assert.equal((await postResponse(staffPath, { type: "read", loanId }, processor)).status, 404);
+    assert.equal(staffView.preview.realtorName, partnerName);
+    const request = { type: "request", loanId, requestId: randomUUID(), basis: staffView.preview.basis };
+    const publish = { ...request, type: "publish" };
+    const terms = async () => (await realtor(link.token)).referrals.find(item => item.borrowerName === borrowerName)?.financing;
+    await post(staffPath, request, officer);
+    assert.equal((await borrower(token, { type: "status" })).loanStatus.realtorFinancing.permission, "Pending");
+    assert.equal((await postResponse(staffPath, publish, officer)).status, 409);
+    const approval = { type: "respond", token, requestId: request.requestId, operationId: randomUUID(), decision: "Approve" };
+    await post(borrowerPath, approval);
+    await post(borrowerPath, approval);
+    assert.equal(await terms(), undefined);
+    const result = await post(staffPath, publish, officer);
+    assert.deepEqual(await terms(), { ...staffView.preview.terms, publishedAt: result.request.publishedAt });
+    assert.ok(!(await realtor(realtorToken)).referrals.some(item => item.borrowerName === borrowerName));
+    await post(borrowerPath, { ...approval, operationId: randomUUID(), decision: "Revoke" });
+    assert.equal(await terms(), undefined);
+    assert.equal((await postResponse(staffPath, publish, officer)).status, 409);
+    return { loanId, token, realtorToken: link.token, borrowerName, partnerName };
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

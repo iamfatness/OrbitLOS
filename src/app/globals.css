@@ -916,9 +916,18 @@ button:disabled { cursor: default; }
 .pilot-support-access > summary { padding-block: 12px; font-weight: 650; cursor: pointer; }
 .pilot-support-access-body { padding-block-end: 12px; overflow-wrap: anywhere; }
 .pilot-support-access-fields { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.realtor-financing-disclosure > summary { padding-block: 10px; font-weight: 650; cursor: pointer; }
+.realtor-financing-content { min-width: 0; overflow-wrap: anywhere; }
+.realtor-financing-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin-block: 6px; }
+.realtor-financing-terms dt { color: var(--muted); font-size: 0.8125rem; }
+.realtor-financing-terms dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.realtor-financing-permissions { display: grid; gap: 8px; }
+.realtor-financing-permissions li { display: flex; gap: 6px 10px; align-items: center; flex-wrap: wrap; }
+.realtor-referral-financing { margin-block: 6px; }
 @media (max-width: 650px) {
   .pilot-support-requests .form-grid { grid-template-columns: minmax(0, 1fr); }
   .pilot-support-access > summary { min-height: 44px; }
+  .realtor-financing-disclosure > summary { min-height: 44px; }
 }
 @media (max-width: 520px) {
   .pilot-seat-capacity .brokerage-form .field { flex-basis: 100%; max-width: none; }

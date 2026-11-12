@@ -7,6 +7,7 @@ import { Button } from "./ui/button";
 import { portalTokenPattern } from "@/lib/brokerage-model";
 import { OrbitRings, PortalHeader } from "./orbit-brand";
 import { SharedPreapprovalDownload } from "./shared-preapproval";
+import { FinancingTerms } from "./realtor-financing-summary";
 
 class ReferralRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -100,9 +101,13 @@ export function RealtorReferralPortal() {
     }).catch((failure: unknown) => {
       if (!signal.aborted && window.location.hash.slice(1) === token) {
         if (failure instanceof ReferralRequestError && [400, 401, 403, 404, 410].includes(failure.status)) setPortal(null);
+        else setPortal(current => current && current.view.referrals.some(referral => referral.financing)
+          ? { ...current, view: { ...current.view, referrals: current.view.referrals.map(referral => ({ ...referral, financing: undefined })) } }
+          : current);
         setError(failure instanceof Error ? failure.message : "Could not load your referrals.");
       }
     }).finally(() => {
+      if (pending.current === controller) pending.current = null;
       if (!signal.aborted) setBusy(false);
     });
   }, []);
@@ -122,6 +127,16 @@ export function RealtorReferralPortal() {
       window.removeEventListener("hashchange", switchLink);
     };
   }, [load]);
+
+  const hasFinancing = portal?.view.referrals.some(referral => referral.financing);
+  const after = portal?.after, previous = portal?.previous;
+  useEffect(() => {
+    if (!hasFinancing) return;
+    const recheck = () => { if (!pending.current && !document.hidden) load(after, previous); };
+    window.addEventListener("focus", recheck);
+    const interval = window.setInterval(recheck, 30_000);
+    return () => { window.removeEventListener("focus", recheck); window.clearInterval(interval); };
+  }, [after, previous, hasFinancing, load]);
 
   function showPage(after?: RealtorReferralCursor, previous: (RealtorReferralCursor | undefined)[] = []) {
     setBusy(true);
@@ -153,6 +168,10 @@ export function RealtorReferralPortal() {
       {portal.view.referrals.length ? <div className="table-scroll"><table className="data-table referral-table">
         <thead><tr><th>Borrower</th><th>Milestone</th><th>Milestone updated</th></tr></thead>
         <tbody>{portal.view.referrals.map((loan, index) => <tr key={index}><td>{loan.borrowerName}
+          {loan.financing && <details className="realtor-financing-disclosure realtor-referral-financing">
+            <summary>Sample financing summary</summary>
+            <FinancingTerms terms={loan.financing} />
+          </details>}
           {loan.preapproval && <SharedPreapprovalDownload key={loan.preapproval.grantId} letter={loan.preapproval} token={portal.token}
             audience="Realtor" name={loan.borrowerName} />}</td><td>{loan.closingPause?.label ?? loan.stage}</td>
           <td><span className="referral-date-label">Updated </span>{dateTime(loan.closingPause?.since ?? loan.updatedAt)} ET</td></tr>)}</tbody>

@@ -29,7 +29,7 @@ export function restoreBlockers(before:CheckpointManifest,current:CheckpointMani
   const previous=new Map(before.tables.map(item=>[item.name,item]));
   // Borrower/realtor portal authorization is enforced by the unrestored shared
   // directory. Local upload grants and staff credentials have no such exemption.
-  const protectedTable=(name:string)=>/^(uwm_|staff_sessions$|staff_google_attempts$|staff_email_codes$|borrower_upload_access$|pilot_support_grant(?:s|_reads)$)/.test(name);
+  const protectedTable=(name:string)=>/^(uwm_|staff_sessions$|staff_google_attempts$|staff_email_codes$|borrower_upload_access$|pilot_support_grant(?:s|_reads)$|realtor_financing_)/.test(name);
   if(current.tables.some(item=>protectedTable(item.name)&&previous.get(item.name)?.digest!==item.digest)||before.tables.some(item=>protectedTable(item.name)&&!current.tables.some(next=>next.name===item.name)))
     result.push("Lender evidence or access records changed. Reconcile those records before restoring; Orbit will not rewind them automatically.");
   if(before.activeLoanHolds || current.activeLoanHolds)

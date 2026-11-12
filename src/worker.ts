@@ -83,6 +83,8 @@ import { workOnPreapprovalLetters } from "./lib/preapproval-letters";
 import { readClosingPacket } from "./lib/closing-packets";
 import { sharedPreapprovalDownload } from "./lib/preapproval-sharing";
 import { sharedPreapprovalUnavailable } from "./lib/preapproval-model";
+import { borrowerRealtorFinancing, workOnRealtorFinancing } from "./lib/realtor-financing";
+import { realtorFinancingUnavailable } from "./lib/realtor-financing-model";
 import { confirmLenderPackagePdf, lenderPackageAccess, lenderShareWork } from "./lib/lender-handoff-share";
 import { sharedLenderPackageHttp } from "./lib/lender-handoff-share-http";
 import type { PackageDownloadInput, SharedLenderPackageInput } from "./lib/lender-handoff-share-model";
@@ -1643,6 +1645,13 @@ export class OrbitWorkspace extends DurableObject<Cloudflare.Env> implements Sta
   sharedPreapproval(input: unknown) {
     return sharedPreapprovalDownload(this.#store, input);
   }
+  staffRealtorFinancing(staff: WorkspaceStaff, input: unknown) {
+    if (!this.#accepts(staff)) return { error: realtorFinancingUnavailable, status: 404 };
+    return workOnRealtorFinancing(this.#store, input, staff, this.#id);
+  }
+  borrowerRealtorFinancing(input: unknown) {
+    return borrowerRealtorFinancing(this.#store, input);
+  }
 
   lenderPackages(staff: WorkspaceStaff, input: unknown) {
     if (!this.#accepts(staff)) return { error: "Workspace access denied." } as const;
@@ -1997,6 +2006,12 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
           { status: 404, error: sharedPreapprovalUnavailable };
       }, 1024);
     }
+    if (request.method === "POST" && url.pathname === "/api/realtor-financing-permission") {
+      return borrowerJson(request, async input => {
+        const link = await linkedWorkspace(input);
+        return link?.pilot ? link.store.borrowerRealtorFinancing(input) : { status: 404, error: realtorFinancingUnavailable };
+      }, 1024);
+    }
     if (request.method === "POST" && url.pathname === "/api/quote-requests") {
       return borrowerJson(request, async (input) => {
         const link = await linkedWorkspace(input);
@@ -2327,6 +2342,14 @@ async function handleWorkspaceTraffic(request: Request, env: Cloudflare.Env, con
       if (!staff) return Response.json({ error: "Google staff sign-in is required." }, { status: 403, headers });
       const workspace = env.WORKSPACE.getByName(staff.brokerage.id);
       const view = url.searchParams.get("view");
+      if (view === "realtor-financing") {
+        if (!staff.brokerage.pilot || url.searchParams.get("brokerage") !== staff.brokerage.id) {
+          return Response.json({ error: realtorFinancingUnavailable }, { status: 404, headers });
+        }
+        if (request.method !== "POST") return new Response(null, { status: 405, headers: { ...headers, Allow: "POST" } });
+        const identity = staff;
+        return borrowerJson(request, input => workspace.staffRealtorFinancing(identity, input), 1536);
+      }
       if (view === "pilot-support-access") {
         if (!staff.brokerage.pilot || url.searchParams.get("brokerage") !== staff.brokerage.id) {
           return Response.json({ error: "Open support access from your pilot workspace." }, { status: 403, headers });
