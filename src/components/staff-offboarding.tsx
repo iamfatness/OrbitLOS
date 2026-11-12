@@ -40,7 +40,7 @@ function WorkRow({ row, teammates, busy, transfer, open }: {
       Open {row.kind === "Lead" ? "lead" : row.kind === "Contact follow-up" ? "contact" :
         row.kind === "Contact conversation" ? "conversation" : review ? "review" : "loan"}
     </button>}
-    {(intake || options.length > 0) && <form className="brokerage-form" onSubmit={(event) => {
+    {(intake || options.length > 0) && <form className={branchDefault ? "brokerage-form staff-offboarding-branch-form" : "brokerage-form"} onSubmit={(event) => {
       event.preventDefault();
       const destination = String(new FormData(event.currentTarget).get("replacement"));
       transfer(row, destination === "shared" ? null : destination);
