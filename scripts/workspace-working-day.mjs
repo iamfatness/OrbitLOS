@@ -5884,12 +5884,60 @@ try {
     return { ...rehearsal, title, templateId, first, version };
   });
 
+  const preapprovalTemplateFixture = await stage("A sample preapproval preview pins the exact brokerage template and reviewed terms", async () => {
+    const { loanId, borrowerName } = checklistAnswersFixture;
+    const path = `/api/preapproval-letters?brokerage=${brokerage}`;
+    const read = () => post(path, { type: "read", loanId }, officer);
+    const firstPage = (await read()).page;
+    if (firstPage.issue.blocked && /second review/i.test(firstPage.issue.blocked)) {
+      const review = (input) => action(owner, "workOnLoanReview", { loanId, ...input });
+      const [pending] = (await review({ type: "loan" })).reviews;
+      const { review: current } = await review({ type: "detail", id: pending.id });
+      const decision = await review({ type: "decide", id: pending.id, revision: current.revision, eventId: randomUUID(),
+        decision: "Approved", note: "Verified the fictional preapproval file." });
+      assert.equal(decision.kind, "saved", decision.error);
+    }
+    const id = randomUUID();
+    const first = { title: "Fictional purchase letter", note: "Bring the fictional purchase details to the next conversation." };
+    const second = { ...first, note: "Confirm the fictional closing schedule with the loan team." };
+    const publish = (revision, config) => post(path, { type: "templatePublish", id, revision, config }, owner);
+    assert.equal((await postResponse(path, { type: "templatePublish", id, revision: 0, config: first }, officer)).status, 409);
+    assert.equal((await publish(0, first)).templates.find((item) => item.id === id).revision, 1);
+    const page = (await read()).page;
+    assert.ok(!page.issue.blocked, page.issue.blocked);
+    const terms = { loanId, previousVersion: page.latestVersion, applicationRevision: page.issue.applicationRevision,
+      amountCents: page.issue.amountCents, expiresOn: page.issue.suggestedExpiry, scope: "Property search" };
+    const preview = (revision) => post(path, { type: "preview", ...terms, template: { id, revision } }, officer);
+    const prior = (await preview(1)).preview;
+    const issue = { type: "issue", ...terms, requestId: randomUUID(), confirmed: true, template: { id, revision: 1 } };
+    assert.equal((await postResponse(path, issue, officer)).status, 409);
+    assert.equal((await postResponse(path, { ...issue, amountCents: issue.amountCents - 100, previewStamp: prior.stamp }, officer)).status, 409);
+    assert.equal((await read()).page.latestVersion, page.latestVersion);
+    assert.equal((await publish(1, second)).templates.find((item) => item.id === id).revision, 2);
+    assert.equal((await postResponse(path, { ...issue, previewStamp: prior.stamp }, officer)).status, 409);
+    const current = (await preview(2)).preview;
+    assert.equal(current.template.note, second.note);
+    const confirmed = { ...issue, template: { id, revision: 2 }, previewStamp: current.stamp };
+    const saved = await post(path, confirmed, officer);
+    assert.equal(saved.issuedVersion, page.latestVersion + 1);
+    assert.deepEqual(saved.page.letters[0].template, { title: second.title, revision: 2 });
+    assert.ok(saved.page.sharing.audiences.every(({ visible }) => !visible));
+    assert.equal((await post(path, confirmed, officer)).issuedVersion, saved.issuedVersion);
+    const download = { type: "download", loanId, version: saved.issuedVersion };
+    const pdf = (await post(path, download, officer)).pdf;
+    assert.ok(pdf.includes(Buffer.from("Confirm the fictional closing schedule").toString("hex")));
+    assert.equal((await postResponse(path, download, competingOfficer)).status, 409);
+    const { history } = await post(path, { type: "templateHistory", id }, owner);
+    assert.deepEqual(history.map(({ note }) => note), [second.note, first.note]);
+    return { loanId, borrowerName, id, first, second, version: saved.issuedVersion };
+  });
+
   console.log(JSON.stringify({ setupMs, stages, handoffs, requests, staffRoleChanges: 0, staffHandoffs: handoffs.length,
     staffHandoffsVerified: ["LO to processor", "Processor to original LO"],
     importedIdentityFieldsReentered: 0, externalSystemSwitches: 0, measurement: "Local scripted mock workflow" }, null, 2));
   if(process.argv.includes("--preview")){
     await mkdir(new URL("../.orbit/",import.meta.url),{recursive:true});
-    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture}),{mode:0o600});
+    await writeFile(new URL("../.orbit/maintenance-preview.json",import.meta.url),JSON.stringify({origin,brokerage,owner,officer,processor,lenderInbox,lenderBrokerage,sharedProcessor,reportingFixture,realtorFinancingFixture,quoteConsentFixture,intakeCorrectionFixture,applicationQuestionsFixture,checklistAnswersFixture,preapprovalTemplateFixture}),{mode:0o600});
     console.log(`Local maintenance preview ready at ${origin}`);
     await new Promise(()=>{});
   }

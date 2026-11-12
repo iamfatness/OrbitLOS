@@ -11,6 +11,7 @@ import type { DepartureItem } from "@/lib/offboarding-model";
 import { TeamLoanAssignment } from "./loan-assignment";
 import { ManageDocumentTemplates } from "./document-checklist-templates";
 import { ManageFeeTemplates } from "./fee-templates";
+import { ManagePreapprovalTemplates } from "./preapproval-template-settings";
 import { BrokerageBranches } from "./brokerage-branches";
 import { PilotSupportRequests } from "./pilot-support-requests";
 
@@ -429,6 +430,7 @@ export function BrokerageTeam({ staff, version, panel, setPanel, refresh, openLo
         void Promise.all([refresh(), reloadTeam()]).catch(() => setError("Assignment saved. Refresh Team to see the latest access history."));
       }} />
       {canUseSampleTools && <ManageDocumentTemplates key={staff.brokerage.id} brokerageId={staff.brokerage.id} />}
+      {canUseSampleTools && <ManagePreapprovalTemplates key={`preapproval-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />}
       <ManageFeeTemplates key={`fees-${staff.brokerage.id}`} brokerageId={staff.brokerage.id} />
     </>}
     {admin && settings && activePanel === "Access history" &&

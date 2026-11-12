@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { applicationDraft, applicationIssues, type ApplicationDraft } from "./application-model";
 import { handoffCheckpointError } from "./application-review-checkpoint";
 import { demoBrokerageId } from "./brokerage-model";
@@ -9,6 +10,8 @@ import { shiftReportDate } from "./report-date-range";
 import type { WorkspaceStaff } from "./staff-store";
 import type { Store } from "./store";
 import { accessEvent, loanAccess } from "./workspace-access";
+import { preapprovalTemplateChanged, preapprovalTemplateSnapshot } from "./preapproval-template-model";
+import { availablePreapprovalTemplates, resolvePreapprovalTemplate, workOnPreapprovalTemplates } from "./preapproval-templates";
 
 const pageSize = 5;
 type File = { purpose: string; active: number; draft: string | null; revision: number | null;
@@ -42,10 +45,11 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
   const parsed = preapprovalRequest.safeParse(input);
   if (!parsed.success) return { error: "Check the sample amount, expiry date, and fictional-use confirmation." };
   const data = parsed.data;
-  const { loanId } = data;
   const today = easternDate(clock);
   const now = clock.toISOString();
   return db.transaction(() => {
+    if (!("loanId" in data)) return workOnPreapprovalTemplates(db, data, staff, now);
+    const { loanId } = data;
     if (!loanAccess(db, staff, loanId)) return { error: preapprovalUnavailable };
     if (data.type === "download") {
       const row = db.prepare("SELECT pdf FROM sample_preapproval_letters WHERE loanId = ? AND version = ?").get(loanId, data.version);
@@ -63,20 +67,26 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
         WHERE loanId = ? AND version = ? AND applicationRevision = ? AND expiresOn >= ?`).get(loanId, version, terms.applicationRevision, today);
     }
     function readPage(beforeVersion?: number): PreapprovalPage {
-      const records = db.prepare(`SELECT version, applicationRevision, issuedAt, expiresOn, issuer, amountCents, scope
+      const records = db.prepare(`SELECT version, applicationRevision, issuedAt, expiresOn, issuer, amountCents, scope, templateSnapshot
         FROM sample_preapproval_letters WHERE loanId = ?${beforeVersion ? " AND version < ?" : ""}
-        ORDER BY version DESC LIMIT ?`).all(loanId, ...(beforeVersion ? [beforeVersion] : []), pageSize + 1) as Omit<PreapprovalLetter, "status">[];
-      const letters = records.slice(0, pageSize).map((record): PreapprovalLetter => ({ ...record,
+        ORDER BY version DESC LIMIT ?`).all(loanId, ...(beforeVersion ? [beforeVersion] : []), pageSize + 1) as
+        (Omit<PreapprovalLetter, "status" | "template"> & { templateSnapshot: string | null })[];
+      const letters = records.slice(0, pageSize).map(({ templateSnapshot, ...record }): PreapprovalLetter => {
+        const template = templateSnapshot && preapprovalTemplateSnapshot.parse(JSON.parse(templateSnapshot));
+        return { ...record, ...(template ? { template: { title: template.title, revision: template.revision } } : {}),
         status: record.version !== latestVersion ? "Superseded" : record.expiresOn < today ? "Expired" :
           record.applicationRevision !== file.revision || !file.submittedAt || !file.reviewedAt || !!file.correctionNote ? "1003 changed" :
           file.purpose !== "Purchase" || !file.active ? "Loan inactive" : "Current",
-      }));
+        };
+      });
       const issue = "blocked" in terms ? terms : { applicationRevision: terms.applicationRevision, amountCents: terms.amountCents,
         property: terms.property, earliestExpiry: terms.earliestExpiry, latestExpiry: terms.latestExpiry, suggestedExpiry: terms.suggestedExpiry };
       const publishable = !beforeVersion && latestVersion > 0 && canPublish(latestVersion);
       const sharing = !beforeVersion && latestVersion ? { version: latestVersion, canPublish: publishable,
         audiences: preapprovalShareStates(db, loanId, latestVersion, publishable, now) } : null;
-      return { letters, issue, sharing, latestVersion, beforeVersion: records.length > pageSize ? letters.at(-1)!.version : null };
+      const templates = !beforeVersion && !("blocked" in terms) ? availablePreapprovalTemplates(db) : [];
+      return { letters, issue, sharing, latestVersion, beforeVersion: records.length > pageSize ? letters.at(-1)!.version : null,
+        ...(templates.length ? { templates } : {}) };
     }
     if (data.type === "read") return { page: readPage(data.beforeVersion) };
     if (data.type === "publish" || data.type === "withdraw") {
@@ -84,12 +94,14 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
       return "error" in change ? { error: change.error } : { page: readPage(), shareMessage: change.message };
     }
 
-    const earlier = db.prepare(`SELECT loanId, version, applicationRevision, issuerEmail, amountCents, scope, expiresOn
-      FROM sample_preapproval_letters WHERE requestId = ?`).get(data.requestId);
+    const earlier = data.type === "issue" && db.prepare(`SELECT loanId, version, applicationRevision, issuerEmail, amountCents, scope,
+      expiresOn, templateSnapshot, previewStamp FROM sample_preapproval_letters WHERE requestId = ?`).get(data.requestId);
     if (earlier) {
+      const template = earlier.templateSnapshot && preapprovalTemplateSnapshot.parse(JSON.parse(String(earlier.templateSnapshot)));
       return earlier.loanId === loanId && earlier.version === data.previousVersion + 1 && earlier.issuerEmail === staff.email &&
         earlier.applicationRevision === data.applicationRevision && earlier.amountCents === data.amountCents &&
-        earlier.scope === data.scope && earlier.expiresOn === data.expiresOn ?
+        earlier.scope === data.scope && earlier.expiresOn === data.expiresOn && earlier.previewStamp === (data.previewStamp ?? null) &&
+        (template ? template.id === data.template?.id && template.revision === data.template.revision : !data.template) ?
         { page: readPage(), issuedVersion: Number(earlier.version) } : { error: "Start a new sample letter entry." };
     }
     if (latestVersion !== data.previousVersion) return { error: "A newer sample letter exists. Refresh letters before issuing another version." };
@@ -99,20 +111,28 @@ export function workOnPreapprovalLetters(db: Store, input: unknown, staff: Works
     if (data.expiresOn < terms.earliestExpiry || data.expiresOn > terms.latestExpiry) return { error: "Choose an expiry date 1 to 60 days from today." };
     if (data.scope === "Subject property" && !terms.property) return { error: "Use property search or review a 1003 with a subject property." };
 
+    const template = data.template ? resolvePreapprovalTemplate(db, data.template) : undefined;
+    if (data.template && !template) return { error: preapprovalTemplateChanged };
     const names = [terms.draft.borrowerName, ...terms.draft.urla.additional.map((person) => person.identity.fields.name)];
     const version = latestVersion + 1;
+    const letter = { names, property: data.scope === "Subject property" ? terms.property : null, version, issuedOn: today,
+      expiresOn: data.expiresOn, issuer: staff.name, brokerage: staff.brokerage.name, amountCents: data.amountCents };
     let pdf: string;
     try {
-      pdf = preapprovalLetterPdf({ names, property: data.scope === "Subject property" ? terms.property : null, version,
-        issuedOn: today, expiresOn: data.expiresOn, issuer: staff.name, brokerage: staff.brokerage.name, amountCents: data.amountCents });
+      pdf = preapprovalLetterPdf({ ...letter, note: template?.note });
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Orbit could not prepare the sample PDF." };
     }
+    const stamp = createHash("sha256").update(JSON.stringify([loanId, data.applicationRevision, data.scope, staff.email, template, pdf])).digest("hex");
+    if (data.type === "preview") return { preview: { ...letter, stamp, ...(template ? { template } : {}) } };
+    if ((template || data.previewStamp) && data.previewStamp !== stamp) {
+      return { error: "The sample letter details changed. Preview the letter again before issuing it." };
+    }
     db.prepare("UPDATE sample_preapproval_shares SET revokedAt = ? WHERE loanId = ? AND revokedAt IS NULL").run(now, loanId);
     db.prepare(`INSERT INTO sample_preapproval_letters
-      (loanId, version, requestId, applicationRevision, issuedAt, expiresOn, issuer, issuerEmail, amountCents, scope, pdf)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(loanId, version, data.requestId, data.applicationRevision,
-      now, data.expiresOn, staff.name, staff.email, data.amountCents, data.scope, pdf);
+      (loanId, version, requestId, applicationRevision, issuedAt, expiresOn, issuer, issuerEmail, amountCents, scope, pdf, templateSnapshot, previewStamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(loanId, version, data.requestId, data.applicationRevision,
+      now, data.expiresOn, staff.name, staff.email, data.amountCents, data.scope, pdf, template ? JSON.stringify(template) : null, data.previewStamp ?? null);
     db.prepare("INSERT INTO activity (id, loanId, text, createdAt) VALUES (?, ?, ?, ?)").run(crypto.randomUUID(), loanId,
       `Issued fictional preapproval letter v${version} · 1003 revision ${data.applicationRevision} · ${staff.name} · Expires ${data.expiresOn}`, now);
     accessEvent(db, staff, `Issued sample preapproval v${version}`, loanId, now);

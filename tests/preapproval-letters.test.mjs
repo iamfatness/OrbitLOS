@@ -74,6 +74,51 @@ test("sample preapproval preserves version bytes, reviews, and Eastern expiry ac
   assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
 });
 
+test("brokerage templates retain versions and issuance confirms the exact preview", (t) => {
+  const { db, staff, issue, work, download } = fixture(t);
+  const admin = { ...staff, email: "owner@example.test", brokerage: { ...staff.brokerage, role: "Admin" } };
+  const id = crypto.randomUUID();
+  const first = { title: "Fictional purchase letter", note: "Bring your fictional purchase details to the next conversation." };
+  const publish = (revision, config = first, actor = admin) => work({ type: "templatePublish", id, revision, config }, actor);
+  assert.match(publish(0, first, staff).error, /admins/);
+  assert.match(publish(0, { ...first, note: "🏡" }).error, /Latin-script/);
+  assert.equal(publish(0).templates[0].revision, 1);
+  assert.equal(publish(0).templates[0].revision, 1);
+  assert.deepEqual(work().page.templates, [{ id, title: first.title, revision: 1 }]);
+  const { type, requestId, confirmed, ...terms } = issue;
+  const preview = (revision, update = {}) => work({ ...issue, type: "preview", template: { id, revision }, ...update }).preview;
+  const initial = preview(1);
+  assert.equal(initial.template.note, first.note);
+  assert.equal(initial.version, 1);
+  assert.equal(initial.names[0], "José (Sample)");
+  const input = (revision, stamp, update = {}) => work({ ...issue, template: { id, revision }, previewStamp: stamp, ...update });
+  assert.match(input(1).error, /Preview the letter again/i);
+  assert.match(input(1, initial.stamp, { amountCents: issue.amountCents - 100 }).error, /details changed/);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM sample_preapproval_letters").get().total, 0);
+  const second = { ...first, note: "Please confirm the fictional closing schedule." };
+  assert.equal(publish(1, second).templates[0].revision, 2);
+  assert.match(input(1, initial.stamp).error, /template changed/);
+  assert.match(publish(1, first).error, /template changed/);
+  const updated = preview(2);
+  assert.notEqual(updated.stamp, initial.stamp);
+  assert.equal(input(2, updated.stamp).issuedVersion, 1);
+  const issued = download(1).pdf;
+  assert.ok(issued.includes(Buffer.from(second.note).toString("hex")));
+  assert.ok(!issued.includes(Buffer.from(first.note).toString("hex")));
+  assert.equal(work().page.letters[0].template.revision, 2);
+  assert.ok(work().page.sharing.audiences.every(({ visible }) => !visible));
+  const archive = { type: "templateArchive", id, revision: 2, archived: true };
+  assert.equal(work(archive, admin).templates[0].archived, true);
+  assert.equal(work(archive, admin).templates[0].revision, 3);
+  assert.deepEqual(work({ type: "templateHistory", id }, admin).history.map(({ revision, archived, note }) => [revision, archived, note]),
+    [[3, true, second.note], [2, false, second.note], [1, false, first.note]]);
+  assert.equal(input(2, updated.stamp).issuedVersion, 1);
+  assert.equal(download(1).pdf, issued);
+  assert.equal(work().page.templates, undefined);
+  assert.equal(work({ ...archive, revision: 3, archived: false }, admin).templates[0].revision, 4);
+  assert.equal(db.prepare("SELECT count(*) AS total FROM sample_preapproval_letters").get().total, 1);
+});
+
 test("sample letters enforce the current application and staff scope, and page archived versions", (t) => {
   const { db, draft, staff, loanId, read, issue, work } = fixture(t);
   for (const actor of [null, { ...staff, email: "other@example.test" },

@@ -185,7 +185,14 @@ export function initializeStore(db: Store, seedDemo = true) {
       loanId TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE, version INTEGER NOT NULL,
       requestId TEXT NOT NULL UNIQUE, applicationRevision INTEGER NOT NULL, issuedAt TEXT NOT NULL,
       expiresOn TEXT NOT NULL, issuer TEXT NOT NULL, issuerEmail TEXT NOT NULL, amountCents INTEGER NOT NULL,
-      scope TEXT NOT NULL, pdf TEXT NOT NULL, PRIMARY KEY (loanId, version)
+      scope TEXT NOT NULL, pdf TEXT NOT NULL, templateSnapshot TEXT, previewStamp TEXT, PRIMARY KEY (loanId, version)
+    );
+    CREATE TABLE IF NOT EXISTS sample_preapproval_templates (
+      id TEXT PRIMARY KEY, revision INTEGER NOT NULL, title TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sample_preapproval_template_versions (
+      templateId TEXT NOT NULL REFERENCES sample_preapproval_templates(id) ON DELETE CASCADE, revision INTEGER NOT NULL,
+      config TEXT NOT NULL, archived INTEGER NOT NULL, publishedAt TEXT NOT NULL, PRIMARY KEY(templateId, revision)
     );
     CREATE TABLE IF NOT EXISTS sample_preapproval_shares (
       id TEXT PRIMARY KEY, loanId TEXT NOT NULL, version INTEGER NOT NULL,
@@ -930,6 +937,9 @@ export function initializeStore(db: Store, seedDemo = true) {
         WHERE status IN ('Ordered', 'Received');
       CREATE INDEX IF NOT EXISTS open_service_orders_by_due ON service_orders(dueOn, id) WHERE status IN ('Ordered', 'Received');
       CREATE INDEX IF NOT EXISTS closing_service_evidence_by_order ON closing_service_evidence(orderId);`);
+    const letterColumns = new Set(db.prepare("PRAGMA table_info(sample_preapproval_letters)").all().map(({ name }) => name));
+    if (!letterColumns.has("templateSnapshot")) db.exec("ALTER TABLE sample_preapproval_letters ADD COLUMN templateSnapshot TEXT");
+    if (!letterColumns.has("previewStamp")) db.exec("ALTER TABLE sample_preapproval_letters ADD COLUMN previewStamp TEXT");
     const checklistOriginColumns = new Set(db.prepare("PRAGMA table_info(document_checklist_origins)").all().map(({ name }) => name));
     if (!checklistOriginColumns.has("applicationRevision")) {
       db.exec("ALTER TABLE document_checklist_origins ADD COLUMN applicationRevision INTEGER");

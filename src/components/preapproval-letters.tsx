@@ -3,36 +3,34 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download } from "lucide-react";
 import { dateLabel } from "@/lib/client-retention";
-import { preapprovalAmount, preapprovalScopes, type PreapprovalAudience, type PreapprovalPage, type PreapprovalResult,
-  type PreapprovalShareState } from "@/lib/preapproval-model";
+import { preapprovalAmount, preapprovalDemoLabel, preapprovalScopes, type PreapprovalAudience, type PreapprovalPage, type PreapprovalPreview,
+  type PreapprovalScope, type PreapprovalShareState } from "@/lib/preapproval-model";
 import { dateTime } from "@/lib/utils";
 import { downloadSampleFile } from "./sample-download";
 import { Button } from "./ui/button";
+import { preapprovalRequest } from "./preapproval-client";
 
-async function preapprovalRequest(endpoint: string, data: object, signal?: AbortSignal): Promise<PreapprovalResult> {
-  const result = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data), signal });
-  if (!result.headers.get("Content-Type")?.includes("application/json")) return { error: "Refresh the workspace and try again." };
-  return result.json() as Promise<PreapprovalResult>;
-}
+type LetterDraft = { amount: string; expiresOn: string; scope: PreapprovalScope; templateId: string };
 
 export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: string; brokerageId: string; revision?: number }) {
   const [expanded, setExpanded] = useState(false);
   const [beforeVersion, setBeforeVersion] = useState<number>();
   const [refresh, setRefresh] = useState(0);
   const [result, setResult] = useState<{ beforeVersion?: number; revision?: number; refresh: number; page?: PreapprovalPage; error?: string }>();
-  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<LetterDraft>();
+  const [preview, setPreview] = useState<{ key: string; letter: PreapprovalPreview }>();
   const [publishing, setPublishing] = useState<PreapprovalAudience>();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string; error?: boolean }>();
   const saving = useRef(false);
   const attempt = useRef<{ key: string; id: string }>(null);
   const shareAttempt = useRef<{ key: string; id: string }>(null);
-  const endpoint = `/api/preapproval-letters?brokerage=${encodeURIComponent(brokerageId)}`;
+  const previewHeading = useRef<HTMLHeadingElement>(null);
+  const feedbackRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     if (!expanded) return;
     const controller = new AbortController();
-    void preapprovalRequest(endpoint, { type: "read", loanId, beforeVersion }, controller.signal).then((value) => {
+    void preapprovalRequest(brokerageId, { type: "read", loanId, beforeVersion }, controller.signal).then((value) => {
       if (controller.signal.aborted) return;
       setResult({ beforeVersion, revision, refresh, ...("page" in value ? { page: value.page } :
         { error: "error" in value ? value.error : "Could not load letters." }) });
@@ -40,24 +38,41 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
       if (!controller.signal.aborted) setResult({ beforeVersion, revision, refresh, error: "Could not load letters. Try refreshing." });
     });
     return () => controller.abort();
-  }, [endpoint, loanId, expanded, revision, beforeVersion, refresh]);
+  }, [brokerageId, loanId, expanded, revision, beforeVersion, refresh]);
+  useEffect(() => { if (preview) previewHeading.current?.focus(); }, [preview]);
+  useEffect(() => { if (feedback) feedbackRef.current?.focus(); }, [feedback]);
 
   const current = result?.beforeVersion === beforeVersion && result?.revision === revision && result?.refresh === refresh ? result : undefined;
   const page = current?.page;
   const issue = page && !("blocked" in page.issue) ? page.issue : undefined;
-  async function perform(input: object) {
+  const template = page?.templates?.find(({ id }) => id === draft?.templateId);
+  const canPreview = !draft?.templateId || Boolean(template);
+  const terms = draft && page && issue && canPreview ? { loanId, previousVersion: page.latestVersion,
+    applicationRevision: issue.applicationRevision, amountCents: Math.round(Number(draft.amount) * 100),
+    scope: draft.scope, expiresOn: draft.expiresOn, ...(template ? { template: { id: template.id, revision: template.revision } } : {}) } : undefined;
+  const previewKey = terms ? JSON.stringify(terms) : "";
+  const letter = preview?.key === previewKey ? preview.letter : undefined;
+  function editDraft(update: Partial<LetterDraft>) {
+    setDraft((currentDraft) => currentDraft && { ...currentDraft, ...update });
+    setPreview(undefined);
+    setFeedback(undefined);
+  }
+  async function perform(input: object, requestedPreviewKey?: string) {
     if (saving.current) return;
     saving.current = true;
     setBusy(true);
     setFeedback(undefined);
     try {
-      const value = await preapprovalRequest(endpoint, input);
+      const value = await preapprovalRequest(brokerageId, input);
       if ("error" in value) { setFeedback({ message: value.error, error: true }); return; }
       if ("pdf" in value) {
         downloadSampleFile(value.pdf, value.filename, "application/pdf");
-      } else {
+      } else if ("preview" in value && requestedPreviewKey) {
+        setPreview({ key: requestedPreviewKey, letter: value.preview });
+      } else if ("page" in value) {
         setResult({ beforeVersion, revision, refresh, page: value.page });
-        setEditing(false);
+        setDraft(undefined);
+        setPreview(undefined);
         setPublishing(undefined);
         attempt.current = null;
         shareAttempt.current = null;
@@ -72,11 +87,10 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
   }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!issue || !page || saving.current) return;
-    const fields = new FormData(event.currentTarget);
-    const input = { type: "issue", loanId, previousVersion: page.latestVersion, applicationRevision: issue.applicationRevision,
-      amountCents: Math.round(Number(fields.get("amount")) * 100), scope: fields.get("scope"),
-      expiresOn: fields.get("expiresOn"), confirmed: fields.has("confirmed") };
+    if (!terms || saving.current) return;
+    if (!letter) { void perform({ type: "preview", ...terms }, previewKey); return; }
+    if (!new FormData(event.currentTarget).has("confirmed")) return;
+    const input = { type: "issue", ...terms, previewStamp: letter.stamp, confirmed: true };
     const key = JSON.stringify(input);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
     void perform({ ...input, requestId: attempt.current.id });
@@ -101,11 +115,12 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
       <p className="muted">Each fictional PDF records the reviewed 1003, expiry date, and issuer. Choose who can see the current version.</p>
       {!current && <p className="muted" role="status">Loading sample letters…</p>}
       {current?.error && <p role="alert">{current.error}</p>}
-      {feedback && <p role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
+      {feedback && <p ref={feedbackRef} tabIndex={-1} role={feedback.error ? "alert" : "status"}>{feedback.message}</p>}
       {page?.letters.length ? <ul className="loan-task-list">{page.letters.map((letter) => <li className="loan-task" key={letter.version}>
         <div className="loan-task-copy"><strong>Version {letter.version} · {preapprovalAmount(letter.amountCents)}</strong>
           <span>{letter.status} · {letter.scope} · Expires {dateLabel(letter.expiresOn)}</span>
           <span>{letter.issuer} · {dateTime(letter.issuedAt)} ET · 1003 revision {letter.applicationRevision}</span>
+          {letter.template && <span>{letter.template.title} · Template v{letter.template.revision}</span>}
         </div>
         <Button size="sm" variant="outline" disabled={busy} aria-label={`Download sample letter v${letter.version} PDF`}
           onClick={() => void perform({ type: "download", loanId, version: letter.version })}><Download /> PDF</Button>
@@ -114,14 +129,16 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
         {beforeVersion && <Button size="sm" variant="outline" disabled={busy} onClick={() => setBeforeVersion(undefined)}>Latest letters</Button>}
         {page?.beforeVersion && <Button size="sm" variant="outline" disabled={busy} onClick={() => setBeforeVersion(page.beforeVersion!)}>Older letters</Button>}
         {(page || current?.error) && <Button size="sm" variant="outline" disabled={busy} onClick={() => {
-          setEditing(false); setPublishing(undefined); setFeedback(undefined); setBeforeVersion(undefined); setRefresh((value) => value + 1);
+          setPreview(undefined); setPublishing(undefined); setFeedback(undefined); setBeforeVersion(undefined); setRefresh((value) => value + 1);
         }}>Refresh letters</Button>}
-        {issue && !beforeVersion && !editing && <Button size="sm" disabled={busy} onClick={() => setEditing(true)}>
+        {issue && !beforeVersion && !draft && <Button size="sm" disabled={busy} onClick={() => {
+          setDraft({ amount: String(issue.amountCents / 100), expiresOn: issue.suggestedExpiry, scope: "Property search", templateId: "" });
+        }}>
           {page?.latestVersion ? "Prepare a new version" : "Prepare sample letter"}
         </Button>}
       </div>
       {page && !beforeVersion && "blocked" in page.issue && <p className="muted">{page.issue.blocked}</p>}
-      {page?.sharing && !editing && <section className="record-form" aria-label="Share current sample letter">
+      {page?.sharing && !draft && <section className="record-form" aria-label="Share current sample letter">
         <div><strong>Share version {page.sharing.version}</strong>
           <p className="muted">Publication adds the PDF to the selected private portal. A replacement needs a new publication.</p></div>
         {!page.sharing.canPublish && <p className="muted">Only a current sample letter can be shared.</p>}
@@ -155,22 +172,40 @@ export function PreapprovalLetters({ loanId, brokerageId, revision }: { loanId: 
           </div>;
         })}
       </section>}
-      {issue && editing && !beforeVersion && <form className="record-form" onSubmit={submit} key={`${issue.applicationRevision}:${page?.latestVersion}`}>
+      {issue && draft && !beforeVersion && <form className="record-form preapproval-issue" onSubmit={submit}>
         <div className="form-grid">
-          <label className="field">Sample loan amount<input name="amount" type="number" min="0.01" max={issue.amountCents / 100}
-            step="0.01" defaultValue={issue.amountCents / 100} required disabled={busy} /></label>
-          <label className="field">Expires on (Eastern)<input name="expiresOn" type="date" min={issue.earliestExpiry}
-            max={issue.latestExpiry} defaultValue={issue.suggestedExpiry} required disabled={busy} /></label>
-          <label className="field">Property scope<select name="scope" disabled={busy}>
+          <label className="field">Sample loan amount<input type="number" min="0.01" max={issue.amountCents / 100}
+            step="0.01" value={draft.amount} onChange={(event) => editDraft({ amount: event.target.value })} required disabled={busy} /></label>
+          <label className="field">Expires on (Eastern)<input type="date" min={issue.earliestExpiry}
+            max={issue.latestExpiry} value={draft.expiresOn} onChange={(event) => editDraft({ expiresOn: event.target.value })} required disabled={busy} /></label>
+          <label className="field">Property scope<select value={draft.scope} disabled={busy} onChange={(event) => editDraft({ scope: event.target.value as PreapprovalScope })}>
             {preapprovalScopes.map((scope) => <option key={scope} disabled={scope === "Subject property" && !issue.property}>{scope}</option>)}
           </select></label>
+          {(!!page?.templates?.length || !!draft.templateId) && <label className="field">Sample letter template<select value={draft.templateId}
+            disabled={busy} onChange={(event) => editDraft({ templateId: event.target.value })}>
+            <option value="">Orbit sample letter</option>
+            {page?.templates?.map((item) => <option key={item.id} value={item.id}>{item.title} · v{item.revision}</option>)}
+            {!canPreview && <option value={draft.templateId}>Template unavailable</option>}
+          </select></label>}
         </div>
         {issue.property && <p className="muted">Reviewed subject property · {issue.property}</p>}
-        <label className="demo-confirm"><input name="confirmed" type="checkbox" required disabled={busy} />
-          <span>I reviewed the amount and expiry for this fictional sample.</span></label>
+        {!canPreview && <p className="muted">Choose an active template to preview this letter.</p>}
+        {letter && <section className="document-item" aria-label="Sample letter preview">
+          <h3 ref={previewHeading} tabIndex={-1}>Sample letter preview</h3>
+          <p className="muted">{preapprovalDemoLabel}</p>
+          <p><strong>{preapprovalAmount(letter.amountCents)}</strong> · Expires {dateLabel(letter.expiresOn)} ET</p>
+          <p>{letter.names.join(", ")}</p>
+          <p>{letter.property ?? "Property search · No address specified"}</p>
+          <p>{letter.issuer} · {letter.brokerage}</p>
+          <p className="muted">Letter v{letter.version} · {dateLabel(letter.issuedOn)}
+            {letter.template && ` · ${letter.template.title} · Template v${letter.template.revision}`}</p>
+          {letter.template?.note && <p>{letter.template.note}</p>}
+          <label className="demo-confirm"><input name="confirmed" type="checkbox" required disabled={busy} />
+            <span>I reviewed this fictional letter before issuing it.</span></label>
+        </section>}
         <div className="loan-application-actions">
-          <Button type="submit" size="sm" disabled={busy}>Issue sample letter</Button>
-          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => { setEditing(false); setFeedback(undefined); }}>Cancel</Button>
+          <Button type="submit" size="sm" disabled={busy || !canPreview}>{letter ? "Issue sample letter" : "Preview sample letter"}</Button>
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => { setDraft(undefined); setPreview(undefined); setFeedback(undefined); }}>Cancel</Button>
         </div>
       </form>}
     </section>}

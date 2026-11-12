@@ -4,7 +4,7 @@ import { preapprovalAmount, preapprovalDemoLabel } from "./preapproval-model";
 
 export function preapprovalLetterPdf(data: {
   names: string[]; property: string | null; version: number; issuedOn: string; expiresOn: string;
-  issuer: string; brokerage: string; amountCents: number;
+  issuer: string; brokerage: string; amountCents: number; note?: string;
 }) {
   const ink = "0.15 0.11 0.22";
   const muted = "0.34 0.29 0.42";
@@ -29,6 +29,7 @@ export function preapprovalLetterPdf(data: {
     { label: "FICTIONAL BORROWERS", values: data.names },
     { label: "PROPERTY SCOPE", values: [data.property ?? "Property search - no address specified"] },
     { label: "PREPARED FOR THE DEMO BY", values: [data.issuer, data.brokerage] },
+    ...(data.note ? [{ label: "BROKERAGE SAMPLE NOTE", values: [data.note] }] : []),
   ].map(({ label, values }) => ({ label, values: values.flatMap((value) => pdfWrappedLines(value, 55)) }));
   const count = groups.reduce((total, group) => total + group.values.length, 0);
   const leading = count > 23 ? 11 : 13;
