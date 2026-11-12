@@ -312,6 +312,190 @@
     "checkedOn": "2026-11-12"
   },
   {
+    "jurisdiction": "OH",
+    "area": "LOAN",
+    "id": "BROKER-DUTIES",
+    "title": "Borrower instructions and broker duties",
+    "authority": "Ohio Rev. Code §1322.45",
+    "sourceUrl": "https://codes.ohio.gov/ohio-revised-code/section-section-1322.45",
+    "summary": "The section addresses safeguarding buyer funds, lawful instructions, care, fair dealing and reasonable efforts to seek advantageous terms from regular lender relationships. Division (A) excludes wholesale lenders.",
+    "evidence": "Borrower instructions, options reviewed with regular lenders, rationale, handled-funds reconciliation and party roles.",
+    "counsel": "Confirm the entity's role, any wholesale-lender exclusion and what comparison evidence demonstrates reasonable efforts.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OH",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Advertising name and unique identifier",
+    "authority": "Ohio Rev. Code §1322.46",
+    "sourceUrl": "https://codes.ohio.gov/ohio-revised-code/section-1322.46",
+    "summary": "Mortgage service advertisements across listed media, including internet sites, must disclose the covered registrant's or originator's business name and unique identifier.",
+    "evidence": "Final copy or recording by channel, applicable names and identifiers, approval, publication date and archive reference.",
+    "counsel": "Confirm which identifiers apply to company, originator and jointly branded advertising and how the rule's federal cross-reference applies.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "OH",
+    "area": "RECORDS",
+    "id": "EXAM-FILES",
+    "title": "Borrower file and examination retention",
+    "authority": "Ohio Admin. Code 1301:8-7-06(A), (F) and (G)",
+    "sourceUrl": "https://codes.ohio.gov/ohio-administrative-code/rule-1301:8-7-06",
+    "summary": "The rule describes a searchable obtained-loan spreadsheet, borrower files for applications and advertising files. Its four-year period starts on closing, withdrawal or denial for loan records and dissemination for advertising.",
+    "evidence": "Closed and unclosed application files, published ad archive, disclosure versions, searchable loan register, event dates and retrieval evidence.",
+    "counsel": "Confirm entity coverage, storage and indexing controls, non-erasable electronic retention and the appropriate trigger for unresolved files.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IN",
+    "area": "REPORTING",
+    "id": "CONDITION",
+    "title": "Commissioner-required loan broker reports of condition",
+    "authority": "Ind. Code §23-2.5-8-11",
+    "sourceUrl": "https://iga.in.gov/ic/2026/Title_23.html#23-2.5-8-11",
+    "summary": "The statute provides for loan broker reports of condition when required by the commissioner, with the form and content the commissioner requires and submission to the commissioner and NMLS.",
+    "evidence": "Applicable commissioner instruction, reporting period, required fields, entity and license, NMLS and any separate delivery receipts.",
+    "counsel": "Confirm how the Division currently implements the statute, including whether NMLS satisfies both routes, applicable periods, and no-activity and amendment treatment.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IN",
+    "area": "LOAN",
+    "id": "FEE-DEPOSIT",
+    "title": "Preclosing fees and unspent deposit review",
+    "authority": "Indiana Securities Division Loan Broker Agreement and 710 IAC 1-22-6",
+    "sourceUrl": "https://securities.sos.in.gov/indiana-loan-broker-agreement",
+    "summary": "The Division's agreement addresses bona fide third-party fees before closing, return of unspent deposits on cancellation, and source of broker compensation.",
+    "evidence": "Signed agreement, fee category, collection time and amount, invoices, unspent deposit reconciliation, refund receipt and payer evidence.",
+    "counsel": "Confirm permissible fees and refund triggers, the role of the collecting party and overlap with the federal fee and compensation rules.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IN",
+    "area": "OUTREACH",
+    "id": "AD-ARCHIVE",
+    "title": "Solicitation materials in examination files",
+    "authority": "Ind. Code §23-2.5-8-5(4) and Securities Division documents request",
+    "sourceUrl": "https://iga.in.gov/ic/2026/Title_23.html#23-2.5-8-5",
+    "summary": "The Division's examination request includes advertising and marketing materials across media, including internet and social ads. The statute lists solicitation samples and distribution criteria for certain internet communications.",
+    "evidence": "Published material, dates, channels, recipient counts where relevant, script or final rendition and examination archive.",
+    "counsel": "Confirm when the statutory sample and internet distribution provisions apply, and follow the exact examination notice for the requested scope.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Indiana Securities Division documents and records request",
+        "url": "https://securities.sos.in.gov/documents-and-records"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "IN",
+    "area": "RECORDS",
+    "id": "EXAM-FILES",
+    "title": "Loan broker application files and searchable examination report",
+    "authority": "Ind. Code §§23-2.5-8-5 and 23-2.5-8-6",
+    "sourceUrl": "https://iga.in.gov/ic/2026/Title_23.html#23-2.5-8-6",
+    "summary": "The statute addresses applicant and prospective-applicant files, a searchable report including pending and unclosed loans, and two-year office retention. It provides separate access options for out-of-state offices.",
+    "evidence": "Signed agreements and disclosures, creditor and originator, receipts and disbursements, disposition, search by borrower last name, and retention and retrieval evidence.",
+    "counsel": "Confirm office and electronic retention, the report population for inquiries and applications, and different rules for a DFI-regulated entity.",
+    "checkedOn": "2026-11-12",
+    "relatedSources": [
+      {
+        "label": "Indiana loan broker records required by statute",
+        "url": "https://iga.in.gov/ic/2026/Title_23.html#23-2.5-8-5"
+      },
+      {
+        "label": "Indiana Securities Division documents and records request",
+        "url": "https://securities.sos.in.gov/documents-and-records"
+      }
+    ]
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Signed loan brokerage agreement and borrower copy",
+    "authority": "38 Ill. Adm. Code §§1050.1010 and 1050.1020",
+    "sourceUrl": "https://www.ilga.gov/commission/jcar/admincode/038/038010500I10100R.html",
+    "summary": "Covered loan brokerage requires a signed written agreement before the earlier of signing the completed application or giving consideration. The agreement incorporates the brokerage disclosure and the executed copy goes to the customer.",
+    "evidence": "Approved agreement and incorporated disclosure, borrower and licensee signatures, application signature and consideration timestamps, and borrower copy evidence.",
+    "counsel": "Confirm covered role, treatment of electronic signatures, exact copy and disclosure timing, and any additional state or federal disclosure requirements.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "OUTREACH",
+    "id": "ADVERTISING",
+    "title": "Mortgage advertising license and identifiers",
+    "authority": "205 ILCS 635/3-3 and 38 Ill. Adm. Code Subpart H",
+    "sourceUrl": "https://www.ilga.gov/agencies/JCAR/EntirePart?titlepart=03801050",
+    "summary": "The Act and rules address licensed or exempt advertising, misleading claims and conditions for using the licensee's NMLS identifier, including mixed-activity material.",
+    "evidence": "Final advertisement, product and audience, authority and identifiers, approval and evidence supporting advertised claims.",
+    "counsel": "Confirm identification, prominence and other content rules for the channels and products in scope, including joint or mixed-activity advertising.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "RECORDS",
+    "id": "LOAN-LOG",
+    "title": "Broker or origination loan log",
+    "authority": "38 Ill. Adm. Code §1050.1175",
+    "sourceUrl": "https://witnessslips.ilga.gov/commission/jcar/admincode/038/038010500J11750R.html",
+    "summary": "The broker or origination log covers applications received with identifiers, status and closing details. The rule separately addresses reverse mortgages and shared appreciation agreements.",
+    "evidence": "Application population and order, field mapping, closed and unclosed status evidence, and product-specific log or documented exclusion.",
+    "counsel": "Confirm which products are in scope and how to document unavailable fields and retain the log securely for examination.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "IL",
+    "area": "RECORDS",
+    "id": "RETENTION",
+    "title": "Broker records retention and digital reproduction",
+    "authority": "38 Ill. Adm. Code §1050.1176",
+    "sourceUrl": "https://www.ilga.gov/ftp/JCAR/AdminCode/038/038010500J11760R.html",
+    "summary": "For brokerage or origination records the rule provides a 36-month period from closing or other termination of the loan process and conditions for digital retention and paper conversion.",
+    "evidence": "Closing or termination date, paper conversion process and original disposition, retained versions and legible reproduction.",
+    "counsel": "Confirm the controlling retention trigger, examination format and any overlapping requirements or hold extending the minimum.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WI",
+    "area": "LOAN",
+    "id": "AGREEMENT",
+    "title": "Broker agreement and separate consumer disclosure",
+    "authority": "Wis. Stat. §224.79 and DFI-Bkg 44.01",
+    "sourceUrl": "https://dfi.wi.gov/Pages/FinancialServices/MortgageBanking/Forms.aspx",
+    "summary": "DFI provides separate closed-end TRID, other closed-end and open-end agreements and the MB600 consumer disclosure.",
+    "evidence": "Applicable agreement and MB600 version, broker role, signatures, compensation terms and evidence of delivery relative to the applicable trigger.",
+    "counsel": "Confirm approved form selection, the timing of the separate disclosure and agreement, and responsibilities for companion federal disclosures.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WI",
+    "area": "OUTREACH",
+    "id": "AD-IDENTIFIERS",
+    "title": "Identifier on applications, solicitations and advertising",
+    "authority": "Wis. Stat. §224.77(1)(sn) and (sq)",
+    "sourceUrl": "https://docs.legis.wisconsin.gov/statutes/statutes/224/iii/77",
+    "summary": "The statute addresses clear placement of identifiers on applications and solicitations, including websites, business cards and email signatures. It also addresses misleading affiliation claims.",
+    "evidence": "Final communication or application, applicable identifier, channel, copy approval and substantiation for any affiliation claim.",
+    "counsel": "Confirm which entity and individual identifiers are required by channel, and review co-branded materials and government-related representations.",
+    "checkedOn": "2026-11-12"
+  },
+  {
+    "jurisdiction": "WI",
+    "area": "RECORDS",
+    "id": "APPLICATIONS",
+    "title": "Application records, fee disposition and retention",
+    "authority": "Wis. Stat. §224.75",
+    "sourceUrl": "https://docs.legis.wisconsin.gov/statutes/statutes/224/iii/75",
+    "summary": "The statute addresses application and fee records and a 36-month retention period beginning at closing or, for unclosed loans, application. It separately addresses banker-serviced loans.",
+    "evidence": "Fee ledger and disposition, application outcome and reason, applicable file documents, retention event, approved location and retrieval evidence.",
+    "counsel": "Confirm covered file contents, location and access, treatment of applications that never close and any longer federal or examination retention obligation.",
+    "checkedOn": "2026-11-12"
+  },
+  {
     "jurisdiction": "MN",
     "area": "LICENSING",
     "id": "COMPANY",
