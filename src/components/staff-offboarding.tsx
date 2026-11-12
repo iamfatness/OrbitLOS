@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BrokerageMember } from "@/lib/brokerage-model";
 import { departureKinds, type DepartureItem, type DeparturePage, type OffboardingInput } from "@/lib/offboarding-model";
 import { dateTime } from "@/lib/utils";
@@ -20,12 +20,14 @@ function WorkRow({ row, teammates, busy, transfer, open }: {
 }) {
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const review = row.kind === "Reviewer" || row.kind === "Review requester";
-  const intake = row.kind === "Realtor link" || row.kind === "Intake route";
+  const branchDefault = row.kind === "Branch default";
+  const intake = branchDefault || row.kind === "Realtor link" || row.kind === "Intake route";
   const removeLabel = review ? "Cancel review" : "Unassign processor";
   const removeExplanation = review ? "The review history will remain on the loan." :
     "The loan remains in the brokerage and the handoff history stays on the file.";
   const options = teammates.filter((member) => {
     if (row.kind === "Coverage") return false;
+    if (branchDefault) return member.role !== "Processor" && row.branchStaffEmails?.includes(member.email);
     if (row.kind === "Processing") return member.role === "Processor" && member.email !== row.loanOfficer;
     if (review) return member.email !== row.otherReviewer && (member.role === "Admin" ||
       (member.role === "LO" && member.email === row.loanOfficer) || (member.role === "Processor" && member.email === row.processor));
@@ -43,13 +45,14 @@ function WorkRow({ row, teammates, busy, transfer, open }: {
       const destination = String(new FormData(event.currentTarget).get("replacement"));
       transfer(row, destination === "shared" ? null : destination);
     }}>
-      <label className="field">{intake ? "Route future leads to" : "Hand off to"}<select name="replacement" defaultValue="" required>
+      <label className="field">{branchDefault ? "Route new branch leads to" : intake ? "Route future leads to" : "Hand off to"}<select name="replacement" defaultValue="" required>
         <option value="" disabled>{intake ? "Choose a destination" : "Choose a teammate"}</option>
         {intake && <option value="shared">Shared inbox</option>}
         {options.map((member) => <option key={member.email} value={member.email}>{member.name} · {member.role}</option>)}
       </select></label>
       <Button type="submit" size="sm" disabled={busy}>{intake ? "Save route" : "Hand off"}</Button>
     </form>}
+    {branchDefault && !options.length && <p className="muted">Add an active loan officer to this branch in Team, or choose the shared inbox.</p>}
     {!intake && !options.length && row.kind !== "Coverage" && <p className="muted">No eligible teammate for this assignment.</p>}
     {(review || row.kind === "Processing") && (confirmRemoval ? <div className="document-item">
       <p>{removeExplanation}</p><div className="loan-application-actions">
@@ -71,6 +74,7 @@ export function StaffOffboarding({ endpoint, email, viewer, members, onRevoke, o
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const feedback = useRef<HTMLParagraphElement>(null);
   const [removal, setRemoval] = useState<"after handoff" | "immediate" | null>(null);
 
   useEffect(() => {
@@ -79,6 +83,10 @@ export function StaffOffboarding({ endpoint, email, viewer, members, onRevoke, o
       .then(setPage).catch((failure: Error) => { if (!controller.signal.aborted) setError(failure.message); });
     return () => controller.abort();
   }, [email, endpoint, filter, refresh]);
+
+  useEffect(() => {
+    if (message || error) feedback.current?.focus();
+  }, [message, error]);
 
   async function act(input: OffboardingInput) {
     setBusy(true);
@@ -97,15 +105,13 @@ export function StaffOffboarding({ endpoint, email, viewer, members, onRevoke, o
         return;
       }
       setMessage(result.message);
+      setRemoval(null);
+      setPage(undefined);
+      setRefresh((value) => value + 1);
       if (input.type === "offboardingRevoke") await onRevoke();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Orbit could not save this change.");
     } finally {
-      if (input.type !== "offboardingPreview") {
-        setRemoval(null);
-        setPage(undefined);
-        setRefresh((value) => value + 1);
-      }
       setBusy(false);
     }
   }
@@ -115,14 +121,14 @@ export function StaffOffboarding({ endpoint, email, viewer, members, onRevoke, o
     <div className="document-item-head"><h3>{page?.member.status === "Revoked" ? "Recover open assignments" : "Offboarding preview"}</h3>
       <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>Close preview</Button></div>
     <p className="muted">Hand off open work and redirect future leads before removing brokerage access. Routing changes keep existing links and earlier lead assignments.</p>
-    {message && <p className="application-message" role="status">{message}</p>}
-    {error && <p className="application-message banner-error" role="alert">{error}</p>}
+    {message && !error && <p ref={feedback} tabIndex={-1} className="application-message" role="status">{message}</p>}
+    {error && <p ref={feedback} tabIndex={-1} className="application-message banner-error" role="alert">{error}</p>}
     <div className="brokerage-form">
       <label className="field">Work type<select value={filter} disabled={busy} onChange={(event) => {
-        setError(""); setRemoval(null); setPage(undefined); setFilter(event.target.value as Preview["filter"]);
+        setError(""); setMessage(""); setRemoval(null); setPage(undefined); setFilter(event.target.value as Preview["filter"]);
       }}><option>All work</option>{departureKinds.map((kind) => <option key={kind}>{kind}</option>)}</select></label>
       <Button size="sm" variant="outline" disabled={busy} onClick={() => {
-        setError(""); setRemoval(null); setPage(undefined); setRefresh((value) => value + 1);
+        setError(""); setMessage(""); setRemoval(null); setPage(undefined); setRefresh((value) => value + 1);
       }}>Refresh work</Button>
     </div>
     {!page && !error && <p className="muted" role="status">Checking open work…</p>}

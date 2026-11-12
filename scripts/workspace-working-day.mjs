@@ -2439,6 +2439,84 @@ try {
     const reassigned = await submit("reassigned");
     assert.equal(reassigned.officerEmail, competingOfficer.email);
     assert.equal(reassigned.initialRouting.branch.revision, 5);
+
+    const departingProcessor = actor("Fictional Departing Processor", "departing-processor@example.test", "Processor");
+    const replacementProcessor = actor("Fictional Replacement Processor", "replacement-processor@example.test", "Processor");
+    for (const staff of [departingProcessor,replacementProcessor]) {
+      await post(teamPath,{type:"invite",email:staff.email,role:staff.role},owner);
+      await signIn(staff);
+    }
+    const oldOfficer = competingOfficer;
+    const update = async (actor,input) => {
+      const saved = await inBranchWorkspace(actor,"mutate",input);
+      assert.ok(saved.message,saved.error);
+      return saved;
+    };
+    const activeLoan = await update(oldOfficer,{type:"loan",contactId:"",borrower:"Fictional Handoff Borrower",borrowerEmail:"offboard-file@example.test",
+      address:"",amount:215000,purpose:"Purchase",stage:"Processing",officer:oldOfficer.name,partnerId:null,start1003:false});
+    const fileId = activeLoan.loanWork.loanId;
+    const readFile = actor => inBranchWorkspace(actor,"readLoanForWork",fileId);
+    await update(oldOfficer,{type:"createTask",loanId:fileId,title:"Confirm borrower callback",days:1});
+    const task = (await readFile(oldOfficer)).tasks.find(({title})=>title==="Confirm borrower callback");
+    assert.ok(task?.dueAt);
+    await post(teamPath,{type:"assignProcessor",loanId:fileId,email:departingProcessor.email,revision:0},owner);
+    const handoffNote = "Preserve this fictional intake note during handoff.";
+    await update(oldOfficer,{type:"updateProcessing",loanId:fileId,action:"Send to processing",revision:1,note:handoffNote});
+    const processingWork = actor => inBranchWorkspace(actor,"readIncomingLoanWork",{view:"processing"});
+    assert.ok((await processingWork(departingProcessor)).items.some(({id})=>id===fileId));
+    assert.ok(!(await processingWork(replacementProcessor)).items.some(({id})=>id===fileId));
+
+    const previewDeparture = (actor,filter="All work") => post(teamPath,{type:"offboardingPreview",email:actor.email,filter},owner);
+    const transferInput = (actor,view,row,replacement) => ({type:"offboardingTransfer",email:actor.email,memberRevision:view.member.accessRevision,
+      kind:row.kind,id:row.id,revision:row.revision,replacement,operationId:randomUUID()});
+    const revokeInput = (actor,view,immediate=false) => ({type:"offboardingRevoke",email:actor.email,memberRevision:view.member.accessRevision,immediate});
+    const branchPreview = await previewDeparture(oldOfficer,"Branch default");
+    const branchRow = branchPreview.items.find(({id})=>id===branchId);
+    assert.equal(branchRow?.revision,5,"Offboarding must include the managed branch default");
+    assert.equal((await postResponse(teamPath,revokeInput(oldOfficer,branchPreview),owner)).status,409);
+    assert.equal((await postResponse(teamPath,transferInput(oldOfficer,branchPreview,branchRow,owner.email),owner)).status,409,"A nonbranch admin must be rejected");
+    assert.equal((await postResponse(teamPath,transferInput(oldOfficer,branchPreview,branchRow,officer.email),officer)).status,403);
+    const transferBranch = transferInput(oldOfficer,branchPreview,branchRow,officer.email);
+    assert.equal((await postResponse(teamPath,{...transferBranch,revision:4},owner)).status,409);
+    assert.match((await post(teamPath,transferBranch,owner)).message,/New leads/);
+    assert.match((await post(teamPath,transferBranch,owner)).message,/no longer open/);
+    const oldWork = await previewDeparture(oldOfficer);
+    assert.ok(oldWork.items.some(({kind,id})=>kind==="Loan"&&id===fileId));
+    for (const row of oldWork.items) await post(teamPath,transferInput(oldOfficer,oldWork,row,officer.email),owner);
+    const readyToRevoke = await previewDeparture(oldOfficer);
+    assert.equal(readyToRevoke.remaining,false);
+    await post(teamPath,revokeInput(oldOfficer,readyToRevoke),owner);
+    const replacementQueue = await inBranchWorkspace(officer,"readMyTasksToday",{horizon:7});
+    assert.equal(replacementQueue.items.find(({id})=>id===task.id)?.dueAt,task.dueAt);
+    await update(officer,{type:"completeTask",id:task.id,completed:true});
+    assert.ok(!(await inBranchWorkspace(officer,"readMyTasksToday",{horizon:7})).items.some(({id})=>id===task.id));
+
+    const processorPreview = await previewDeparture(departingProcessor);
+    const processingRow = processorPreview.items.find(({id,kind})=>id===fileId&&kind==="Processing");
+    assert.ok(processingRow);
+    await post(teamPath,revokeInput(departingProcessor,processorPreview,true),owner);
+    const recovery = await previewDeparture(departingProcessor,"Processing");
+    assert.equal(recovery.member.status,"Revoked");
+    assert.equal(recovery.items[0].id,fileId);
+    await post(teamPath,transferInput(departingProcessor,recovery,recovery.items[0],replacementProcessor.email),owner);
+    assert.equal((await previewDeparture(departingProcessor)).remaining,false);
+    const offered = (await processingWork(replacementProcessor)).items.find(({id})=>id===fileId);
+    assert.equal(offered?.note,handoffNote);
+    await update(replacementProcessor,{type:"updateProcessing",loanId:fileId,action:"Accept handoff",revision:offered.revision,note:""});
+    const resumed = (await readFile(replacementProcessor)).loanProcessing[0];
+    assert.equal(resumed.status,"In processing");
+    assert.equal(resumed.note,handoffNote);
+    for (const departed of [oldOfficer,departingProcessor]) {
+      const denied = await runtime.dispatchFetch(`${origin}/workspace?brokerage=${id}`,{
+        headers:{Cookie:`__Host-orbit-session=${departed.token}`},redirect:"manual"});
+      assert.equal(denied.status,403);
+    }
+    assert.equal((await inBranchWorkspace(officer,"readLoanForWork",fileId)).loans[0].officerEmail,officer.email);
+    const routedAfterDeparture = await submit("after-departure");
+    assert.equal(routedAfterDeparture.officerEmail,officer.email);
+    assert.equal(routedAfterDeparture.initialRouting.branch.revision,6);
+    assert.deepEqual((await branchWorkspace()).inboxLeads.find(({id})=>id===reassigned.id).initialRouting,reassigned.initialRouting);
+
   });
   const crmFieldId = randomUUID();
   const quoteFile = await stage("A published website quote routes through campaign capacity into a prefilled 1003", async () => {

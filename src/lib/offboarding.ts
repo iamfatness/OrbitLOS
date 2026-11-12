@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { easternDate } from "./client-retention";
+import { handOffBranchDefault, readBranches } from "./branches";
 import { changeConversation } from "./conversations";
 import { coverageWork } from "./coverage";
 import { leadRouting, updateInboxLead, writeLeadRouting } from "./lead-inbox";
@@ -87,11 +88,18 @@ const sources = {
     from: "realtor_portals portal JOIN contacts contact ON contact.id = portal.realtorId AND contact.role = 'Realtor'",
     where: "portal.officerEmail = ? AND portal.expiresAt > ?",
   },
-} satisfies Record<Exclude<DepartureKind, "Intake route">, { id: string; fields: string; from: string; where: string }>;
+} satisfies Record<Exclude<DepartureKind, "Intake route" | "Branch default">, { id: string; fields: string; from: string; where: string }>;
 
 function rowsFor(db: Store, kind: DepartureKind, email: string, now: Date, limit: number, key?: { id: string; exact?: boolean }) {
   const item = (row: Pick<DepartureItem, "id" | "recordId" | "title" | "detail" | "revision"> & Partial<DepartureItem>): DepartureItem =>
     ({ due: null, dueLabel: "Due", campaignId: null, loanOfficer: null, processor: null, otherReviewer: null, ...row, kind });
+  if (kind === "Branch default") {
+    return readBranches(db).filter((branch) => branch.active && branch.ownerEmail === email &&
+      (!key || (key.exact ? branch.id === key.id : branch.id > key.id)))
+      .sort((a, b) => a.id.localeCompare(b.id)).slice(0, limit)
+      .map((branch) => item({ id: branch.id, recordId: branch.id, title: branch.name, revision: branch.revision,
+        detail: "Applies to new leads using this branch’s default", branchStaffEmails: branch.staff.map(({ email }) => email) }));
+  }
   if (kind === "Intake route") {
     const routing = leadRouting(db);
     const routes: ReturnType<typeof item>[] = [];
@@ -155,6 +163,8 @@ export function departureWork(db: Store, input: Exclude<OffboardingInput, { type
   if (row.revision !== input.revision) return { error: "This item changed. Refresh the offboarding preview before handing it off." };
   const at = now.toISOString();
   switch (row.kind) {
+    case "Branch default":
+      return handOffBranchDefault(db, row.id, row.revision, member.email, replacement, staff, brokerageId, at);
     case "Realtor link":
     case "Intake route": {
       if (replacement?.role === "Processor") return { error: "Choose an active loan officer, admin, or the shared inbox." };

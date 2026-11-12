@@ -18,6 +18,7 @@ export default function DemoPage() {
       <div><p className="marketing-kicker">Your walkthrough</p><h2>See the work come together.</h2>
         <ul className="marketing-detail-list">
           <li>See your pipeline, team workload, and funding in one view.</li>
+          <li>Hand off loans, follow-ups, and branch lead routing when staff leave a pilot brokerage.</li>
           <li>Finish in the Brokerage Owner Scorecard. Open the records behind each campaign count and check current follow-ups, open conditions, and funding for the selected period.</li>
           <li>Build shared custom reports for intake and loan production. Open the leads or loans behind a count and download a CSV of the same records.</li>
           <li>Preview a fictional CRM import with call, email, or text restrictions. Compare source blocks with Orbit in the import receipt, then export the CRM snapshot with those restrictions intact.</li>

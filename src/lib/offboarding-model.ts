@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { BrokerageMember } from "./brokerage-model";
 
-export const departureKinds = ["Lead", "Loan", "Processing", "Contact follow-up", "Contact conversation", "Review requester", "Reviewer", "Coverage", "Realtor link", "Intake route"] as const;
+export const departureKinds = ["Lead", "Loan", "Processing", "Contact follow-up", "Contact conversation", "Review requester", "Reviewer", "Coverage", "Realtor link", "Intake route", "Branch default"] as const;
 const email = z.email().max(254);
 const id = z.string().min(1).max(160);
 const kind = z.enum(departureKinds);
@@ -19,7 +19,7 @@ export type OffboardingInput = z.infer<typeof offboardingInput>;
 export type DepartureKind = (typeof departureKinds)[number];
 export type DepartureMember = BrokerageMember & { accessRevision: number; ownsFinancials: boolean };
 export type DepartureItem = { kind: DepartureKind; id: string; recordId: string; title: string; detail: string; revision: number;
-  due: string | null; dueLabel: string; campaignId: string | null; loanOfficer: string | null; processor: string | null; otherReviewer: string | null; routeKey?: string };
+  due: string | null; dueLabel: string; campaignId: string | null; loanOfficer: string | null; processor: string | null; otherReviewer: string | null; routeKey?: string; branchStaffEmails?: string[] };
 export type DepartureRoster = { member: DepartureMember; replacement: DepartureMember | null; canRevoke: boolean };
 export type DeparturePage = { member: DepartureMember; items: DepartureItem[]; next: Pick<DepartureItem, "kind" | "id"> | null; remaining: boolean; canRevoke: boolean };
 export const offboardingUnavailable = "Staff offboarding is available to brokerage admins.";

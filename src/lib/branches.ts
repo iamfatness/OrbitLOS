@@ -1,4 +1,4 @@
-import { branchAccessRevision, branchChange, branchLimit, branchesUnavailable, type BrokerageBranch } from "./branch-model";
+import { branchAccessRevision, branchStaffCurrent, branchChange, branchLimit, branchesUnavailable, type BrokerageBranch } from "./branch-model";
 import { demoBrokerageId, type VersionedBrokerageMember } from "./brokerage-model";
 import type { WorkspaceStaff } from "./staff-store";
 import type { SqlValue, Store } from "./store";
@@ -70,5 +70,23 @@ export function updateBranch(db: Store, input: unknown, staff: WorkspaceStaff, b
         ownerEmail = excluded.ownerEmail, revision = revision + 1`).run(data.id, name, nameKey, serialized, data.ownerEmail);
     accessEvent(db, staff, current ? "Updated branch and staff" : "Created branch", `${name} · v${data.revision + 1}`, now);
     return { message: current ? "Branch updated." : "Branch created." };
+  });
+}
+
+export function handOffBranchDefault(db: Store, id: string, revision: number, previousEmail: string,
+  replacement: VersionedBrokerageMember | null, staff: WorkspaceStaff, brokerageId: string, now: string) {
+  if (!canManageBranches(staff, brokerageId)) return { error: branchesUnavailable };
+  return db.transaction(() => {
+    const branch = branchById(db, id);
+    if (!branch?.active || branch.revision !== revision || branch.ownerEmail !== previousEmail) {
+      return { error: "This branch changed. Refresh the offboarding preview." };
+    }
+    if (replacement && (replacement.role === "Processor" || replacement.status !== "Active" ||
+      !branch.staff.some((member) => member.email === replacement.email && branchStaffCurrent(member, replacement)))) {
+      return { error: "Choose a current loan officer or admin assigned to this branch. Update the branch staff in Team if needed." };
+    }
+    db.prepare("UPDATE brokerage_branches SET ownerEmail = ?, revision = revision + 1 WHERE id = ?").run(replacement?.email ?? null, id);
+    accessEvent(db, staff, "Updated branch default during offboarding", `${branch.name} · ${replacement?.name ?? "Shared inbox"} · v${revision + 1}`, now);
+    return { message: `New leads using ${branch.name} will go to ${replacement?.name ?? "the shared inbox"}.` };
   });
 }
