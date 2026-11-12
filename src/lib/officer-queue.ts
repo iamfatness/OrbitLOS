@@ -12,6 +12,7 @@ import { leadBorrowerHoursSql, leadChannelBlocksSql, storedBorrowerHours } from 
 import { nextBorrowerContactTime } from "./borrower-hours";
 import { reviewTarget } from "./loan-review-model";
 import { closingChecklistTarget, loanTaskTarget } from "./loan-workflow";
+import { disclosureClosingReviewPrefix, disclosureIssuePrefix } from "./disclosure-model";
 import { blockedOutreachKeys, outreachSuppressed } from "./outreach-preferences";
 import { calendarGroups, calendarQuery, calendarUnavailable, campaignCallbackQuery, campaignCallbacksUnavailable, officerQueueQuery, officerQueueUnavailable,
   workspaceTaskGroups, workspaceTasksInput, workspaceTasksUnavailable, type CalendarItem, type CalendarPage, type CalendarQuery, type CampaignCallbackPage, type ContactTaskWork,
@@ -396,7 +397,9 @@ function readDeadlines(db: Store, subject: { email: string; role: BrokerageRole 
     "thread.id", "thread.dueOn", "thread.ownerEmail", "thread.ownerName", true) : []),
     ...select("loan", (join) => `task.id, loan.id AS recordId, contact.id AS contactId, contact.name, task.dueAt, contact.email, contact.phone,
       task.title, task.purpose FROM tasks task ${join} loans loan ON loan.id = task.loanId JOIN contacts contact ON contact.id = loan.contactId
-      WHERE loan.disposition = 'Active' AND ${openLoanTask} ${policy ? `AND NOT ${fundingTask}
+      WHERE loan.disposition = 'Active' AND ${openLoanTask}
+        AND (loan.stage NOT IN ('Funded','Closed') OR (task.id NOT GLOB '${disclosureIssuePrefix}*' AND task.id NOT GLOB '${disclosureClosingReviewPrefix}*'))
+        ${policy ? `AND NOT ${fundingTask}
         AND NOT ((task.id GLOB 'application-follow-up:*' OR task.id GLOB 'application-correction:*') AND
           EXISTS (SELECT 1 FROM applications app WHERE app.loanId = loan.id AND ${firstReview}))` : ""}`,
     "task.id", "task.dueAt", "loan.officerEmail", "loan.officer", false, [], `tasks task WHERE ${openLoanTask}`),

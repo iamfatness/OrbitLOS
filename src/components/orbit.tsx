@@ -240,6 +240,8 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   const pipeline = usePipeline(staff?.brokerage.id ?? demoBrokerageId, section === "Pipeline", pipelineQuery, state);
   const [modal, setModal] = useState<Modal | null>(null);
   const recordTrigger = useRef<HTMLElement>(null);
+  const todayWorkTrigger = useRef<string>(null);
+  const [todayWorkReturn, setTodayWorkReturn] = useState<string>();
   const exceptionTrigger = useRef<HTMLButtonElement>(null);
   const [detailedTasks, setDetailedTasks] = useState(processorTaskEntry);
   const [focusContactTask, setFocusContactTask] = useState<string>();
@@ -1153,6 +1155,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
   }
 
   function openTodayWork(item: OfficerQueueItem) {
+    todayWorkTrigger.current = item.kind === "loan" && disclosureTask(item.id) ? `${item.kind}:${item.id}` : null;
     if (item.kind === "lead" || item.kind === "campaign" || item.kind === "sequence") {
       return void openScopedLead({ leadId: item.recordId, task: { kind: item.kind, id: item.id } });
     }
@@ -1341,9 +1344,12 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
       (modal.target === realtorFinancingTarget || modal.target === samplePreapprovalTarget);
     if (incomingReturn && modal?.kind === "details" && modal.target === samplePreapprovalTarget) refreshCounts();
     const pipelineLoan = section === "Pipeline" && modal && "loanId" in modal ? modal.loanId : undefined;
+    const todayWork = section === "Today" ? todayWorkTrigger.current : null;
+    todayWorkTrigger.current = null;
     exceptionTrigger.current = null;
     recordTrigger.current = null;
-    if (trigger || original || pipelineLoan || incomingReturn) requestAnimationFrame(() => {
+    if (todayWork) setTodayWorkReturn(todayWork);
+    else if (trigger || original || pipelineLoan || incomingReturn) requestAnimationFrame(() => {
       const replacement = pipelineLoan && document.querySelector<HTMLElement>(`[data-loan-record="${CSS.escape(pipelineLoan)}"]`);
       const target = incomingReturn ? document.getElementById("incoming-today-heading") ?? sectionHeading.current : trigger && section === "Exceptions" ?
         (trigger.isConnected && !currentOrder?.conflict?.reviewedAt ? trigger : document.getElementById("owner-exception-filter")) :
@@ -1616,6 +1622,7 @@ export function Orbit({ initial, staff, initialGuide, initialSupport, deferredWo
               busy={!!modal || busy} mine open={visit => openLicenseRenewal(visit, "Today")}
               returning={renewalReturn?.origin === "Today" ? renewalReturn : undefined} />}
             reviewingLoan={!!modal} openIncomingLoanWork={(item) => openIncomingLoanWork(item, "today")}
+            returningWork={todayWorkReturn} onWorkReturn={() => setTodayWorkReturn(undefined)}
             refreshCounts={refreshCounts}
             version={queueVersion} busy={busy} openWork={openTodayWork} save={save} openReply={(id) => openConversation({ id })} openTasks={() => navigate("Tasks")}
             openFunding={(loanId) => void openQueueLoan({ kind: "details", loanId, target: "loan-funding" })}
